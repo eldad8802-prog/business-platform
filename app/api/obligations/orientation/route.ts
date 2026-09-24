@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       { businessId: user.businessId },
       () =>
         withTenantTransaction((tx) =>
-          markOriented(user.businessId, obligationServiceDeps({ tx }))
+          markOriented(user.businessId, obligationServiceDeps({ tx, actorUserId: user.id }))
         )
     );
     return NextResponse.json(toOrientationApi(orientation), { status: 200 });

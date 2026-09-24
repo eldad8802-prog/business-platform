@@ -14,6 +14,7 @@ import {
   InventoryValidationError,
 } from "@/lib/services/inventory/inventory.errors";
 import { settlePurchaseOrderStatus } from "@/lib/services/inventory/purchase-order-status";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type Tx = Prisma.TransactionClient;
 type QueryClient = Tx | typeof prisma;
@@ -568,6 +569,28 @@ export const purchaseOrderService = {
           remainingDecidedByUserId: input.decidedByUserId ?? null,
         },
       });
+
+      // The deciding person comes from the caller's session, never the body.
+      // No user id means we genuinely do not know who decided.
+      const decidedBy = input.decidedByUserId;
+      await recordSensor(
+        {
+          businessId,
+          sensor: "PURCHASE_ORDER_REMAINDER_DECIDED",
+          entityId: updatedLine.id,
+          actor:
+            decidedBy != null && decidedBy > 0
+              ? { type: "OWNER_USER", userId: decidedBy }
+              : { type: "UNKNOWN" },
+          source: decidedBy != null && decidedBy > 0 ? "OWNER_UI" : "UNKNOWN",
+          payload: {
+            purchaseOrderId,
+            from: purchaseOrderLine.remainingDecision ?? null,
+            to: remainingDecision,
+          },
+        },
+        { tx }
+      );
 
       // Writing off a remainder changes what is still expected from the
       // supplier, exactly as receiving goods does — so it has to settle the

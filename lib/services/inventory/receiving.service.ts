@@ -15,6 +15,8 @@ import {
   InventoryValidationError,
 } from "@/lib/services/inventory/inventory.errors";
 import { settlePurchaseOrderStatus } from "@/lib/services/inventory/purchase-order-status";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+import { MAX_LIST } from "@/lib/sensors/sensor.contract";
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
@@ -479,6 +481,29 @@ export const receivingService = {
           purchaseOrder: true,
         },
       });
+
+      // Sensor: same transaction, so the evidence exists iff the posting does.
+      // movementIds is capped at the contract's list limit; lineCount stays exact.
+      const poster = input.postedByUserId;
+      await recordSensor(
+        {
+          businessId: input.businessId,
+          sensor: "INVENTORY_RECEIVING_POSTED",
+          entityId: receivingSession.id,
+          actor:
+            poster != null && poster > 0
+              ? { type: "OWNER_USER", userId: poster }
+              : { type: "UNKNOWN" },
+          source: poster != null && poster > 0 ? "OWNER_UI" : "UNKNOWN",
+          payload: {
+            purchaseOrderId: receivingSession.purchaseOrderId,
+            movementIds: movements.slice(0, MAX_LIST).map((m) => m.movementId),
+            lineCount: movements.length,
+          },
+          idempotencyKey: `receiving:${receivingSession.id}:posted`,
+        },
+        { tx }
+      );
 
       // ── Lifecycle (P3) ─────────────────────────────────────────────────
       // Posting stock is the ONLY event that tells us where an order really is,

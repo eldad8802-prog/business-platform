@@ -380,11 +380,15 @@ export async function getOrRenderBillingPdf(
         businessId: input.businessId,
         eventType: "BILLING_PDF_RENDER_FAILED",
         entityType: "BILLING_DOCUMENT",
+        actor: { type: "OWNER_USER", userId: input.actorUserId },
+        source: "OWNER_UI",
         entityId: doc.id,
         payload: {
           documentId: doc.id,
           actorUserId: input.actorUserId,
-          errorMessage: message,
+          // The renderer's error text stays in the billing domain ledger (metadata above): it is free
+          // text that can quote document content, so the generic event bus records its presence only.
+          errorMessageSet: Boolean(message),
           templateVersion: BILLING_PDF_TEMPLATE_VERSION,
         },
       });
@@ -453,6 +457,8 @@ export async function getOrRenderBillingPdf(
         businessId: input.businessId,
         eventType: "BILLING_PDF_RENDERED",
         entityType: "BILLING_DOCUMENT",
+        actor: { type: "OWNER_USER", userId: input.actorUserId },
+        source: "OWNER_UI",
         entityId: doc.id,
         payload: {
           documentId: doc.id,

@@ -18,6 +18,11 @@ on:
       - "lib/identity/**"
       - "lib/services/collection/**"
       - "lib/services/documents/memory/**"
+      - "lib/sensors/**"
+      - "lib/services/**"
+      - "lib/data-transfer/**"
+      - "app/api/**"
+      - "docs/learning/**"
       - "lib/business-status/**"
       - "lib/knowledge/**"
       - "app/api/knowledge/**"
@@ -151,3 +156,14 @@ jobs:
       # RULES rather than about the plumbing the first battery already owns.
       - name: M4/M5 multi-domain + identity battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m4-m5-battery.ts
+
+      # M5.5 — the sensor fabric. The pure contract first (occurrences, not interpretations; actor AND
+      # source decided at every call site; no personal data in any payload), then the battery against a
+      # real database under a MEASURED NOBYPASSRLS role: tenant, actor, source, entity, time,
+      # idempotency inside a caller transaction, UNKNOWN staying UNKNOWN, CollectionAction append-only
+      # through the same privilege inheritance Production uses, and the three M4 rule corrections.
+      - name: M5.5 sensor contract (pure + static privacy/actor checks)
+        run: npx tsx lib/sensors/sensors.test.ts
+
+      - name: M5.5 sensor battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m55-sensor-battery.ts

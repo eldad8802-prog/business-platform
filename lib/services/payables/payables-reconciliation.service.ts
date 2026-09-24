@@ -53,6 +53,7 @@ async function writeReconciliationAudit(
     eventType:
       | "DOCUMENT_EVIDENCE_ATTACHED"
       | "DOCUMENT_EVIDENCE_REVOKED"
+      | "EVIDENCE_REVOKED"
       | "DOCUMENT_MATCH_REJECTED"
       | "PAYMENT_RECORDED_FROM_DOCUMENT";
     summary: string;
@@ -562,7 +563,7 @@ export async function revokeDocumentEvidence(input: {
   return withTenantTransaction(async (tx) => {
     const evidence = await tx.paymentEvidence.findFirst({
       where: { id: input.evidenceId, businessId: input.businessId },
-      select: { id: true, paymentId: true, documentId: true, revokedAt: true },
+      select: { id: true, paymentId: true, documentId: true, revokedAt: true, kind: true },
     });
     if (!evidence) throw new PayablesNotFoundError("Evidence not found");
     if (evidence.revokedAt !== null) {
@@ -578,17 +579,36 @@ export async function revokeDocumentEvidence(input: {
       },
     });
 
-    await writeReconciliationAudit(tx, {
-      businessId: input.businessId,
-      actorUserId: input.actorUserId,
-      paymentId: evidence.paymentId,
-      eventType: "DOCUMENT_EVIDENCE_REVOKED",
-      summary: `Document evidence #${evidence.id} revoked from payment #${evidence.paymentId}`,
-      metadata: {
-        documentId: evidence.documentId,
-        reason: input.reason ?? null,
-      },
-    });
+    // The trail records what was actually revoked. This path accepts any evidence kind (which kinds
+    // may be revoked here is a product decision, unchanged); only DOCUMENT evidence is logged as a
+    // document revocation — every other kind says what it was.
+    if (evidence.kind === "DOCUMENT") {
+      await writeReconciliationAudit(tx, {
+        businessId: input.businessId,
+        actorUserId: input.actorUserId,
+        paymentId: evidence.paymentId,
+        eventType: "DOCUMENT_EVIDENCE_REVOKED",
+        summary: `Document evidence #${evidence.id} revoked from payment #${evidence.paymentId}`,
+        metadata: {
+          documentId: evidence.documentId,
+          reason: input.reason ?? null,
+        },
+      });
+    } else {
+      await writeReconciliationAudit(tx, {
+        businessId: input.businessId,
+        actorUserId: input.actorUserId,
+        paymentId: evidence.paymentId,
+        eventType: "EVIDENCE_REVOKED",
+        summary: `${evidence.kind} evidence #${evidence.id} revoked from payment #${evidence.paymentId}`,
+        metadata: {
+          kind: evidence.kind,
+          evidenceId: evidence.id,
+          documentId: evidence.documentId,
+          reason: input.reason ?? null,
+        },
+      });
+    }
 
     return revoked;
   });

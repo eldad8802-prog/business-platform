@@ -1,10 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { logAuditEvent } from "@/lib/services/audit.service";
+import {
+  logAuditEvent,
+  type AuditActor,
+  type AuditSource,
+} from "@/lib/services/audit.service";
 
 export async function redeemCoupon(
   token: string,
-  redeemingBusinessId: number
+  redeemingBusinessId: number,
+  /** The redeeming session user's id, from the route — never from a request body. */
+  actorUserId?: number
 ) {
   if (!token) {
     throw new ValidationError("Coupon token is required");
@@ -21,6 +27,17 @@ export async function redeemCoupon(
   if (!coupon) {
     throw new NotFoundError("Coupon not found");
   }
+
+  /**
+   * Every event below lands in the ISSUING business's log. The person who acted is a user of the
+   * REDEEMING business, so unless the two are the same business, recording that user as this
+   * tenant's OWNER_USER would be false (and would plant another tenant's user id in this tenant's
+   * rows). The counterparty is already identified by `redeemingBusinessId` in the payload.
+   */
+  const auditActor: { actor: AuditActor; source: AuditSource } =
+    actorUserId && redeemingBusinessId === coupon.issuingBusinessId
+      ? { actor: { type: "OWNER_USER", userId: actorUserId }, source: "OWNER_UI" }
+      : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" };
 
   /**
    * A business may not redeem its own coupon.
@@ -47,10 +64,10 @@ export async function redeemCoupon(
       eventType: "REVENUE_COUPON_REDEEM_REJECTED",
       entityType: "COUPON",
       entityId: coupon.id,
+      ...auditActor,
       payload: {
         reason: "SELF_REDEMPTION",
         couponId: coupon.id,
-        token: coupon.token,
         redeemingBusinessId,
       },
     });
@@ -66,10 +83,10 @@ export async function redeemCoupon(
       eventType: "REVENUE_COUPON_REDEEM_REJECTED",
       entityType: "COUPON",
       entityId: coupon.id,
+      ...auditActor,
       payload: {
         reason: "ALREADY_REDEEMED",
         couponId: coupon.id,
-        token: coupon.token,
         redeemingBusinessId,
       },
     });
@@ -83,10 +100,10 @@ export async function redeemCoupon(
       eventType: "REVENUE_COUPON_REDEEM_REJECTED",
       entityType: "COUPON",
       entityId: coupon.id,
+      ...auditActor,
       payload: {
         reason: "CANCELLED",
         couponId: coupon.id,
-        token: coupon.token,
         redeemingBusinessId,
       },
     });
@@ -100,10 +117,10 @@ export async function redeemCoupon(
       eventType: "REVENUE_COUPON_REDEEM_REJECTED",
       entityType: "COUPON",
       entityId: coupon.id,
+      ...auditActor,
       payload: {
         reason: "EXPIRED",
         couponId: coupon.id,
-        token: coupon.token,
         redeemingBusinessId,
       },
     });
@@ -126,10 +143,10 @@ export async function redeemCoupon(
       eventType: "REVENUE_COUPON_REDEEM_REJECTED",
       entityType: "COUPON",
       entityId: coupon.id,
+      ...auditActor,
       payload: {
         reason: "EXPIRED_BY_TIME_CHECK",
         couponId: coupon.id,
-        token: coupon.token,
         expiresAt: coupon.expiresAt.toISOString(),
         redeemingBusinessId,
       },
@@ -215,6 +232,7 @@ export async function redeemCoupon(
     eventType: "REVENUE_COUPON_REDEEMED",
     entityType: "REDEMPTION_EVENT",
     entityId: result.redemptionEvent.id,
+    ...auditActor,
     payload: {
       couponId: result.coupon.id,
       offerId: result.coupon.offerId,
@@ -222,7 +240,6 @@ export async function redeemCoupon(
       redeemingBusinessId,
       redemptionEventId: result.redemptionEvent.id,
       redeemedAt: result.redemptionEvent.redeemedAt.toISOString(),
-      token: result.coupon.token,
     },
   });
 

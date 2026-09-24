@@ -549,6 +549,8 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
               eventType: "ACCOUNT_DELETED",
               entityType: "BUSINESS",
               entityId: businessId,
+              actor: { type: "OWNER_USER", userId: actorUserId },
+              source: "OWNER_UI",
               payload: {
                 actorUserId,
                 at: now.toISOString(),

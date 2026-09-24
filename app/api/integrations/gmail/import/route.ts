@@ -17,6 +17,7 @@ import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import {
   DOCUMENT_MAX_UPLOAD_BYTES,
   isAllowedDocumentMime,
@@ -417,6 +418,20 @@ async function handleAuthedImport(
           });
           emailImportId = row.id;
           importRowWritten = true;
+          // M5.5 sensor — same transaction as the Document. The owner started
+          // this import from the UI; origin is the email channel.
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "DOCUMENT_INGESTED",
+              entityId: documentId,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { origin: "EMAIL", forcedDuplicate: false },
+              idempotencyKey: `document:${documentId}:ingested`,
+            },
+            { tx }
+          );
         },
       });
     } catch (raceErr) {

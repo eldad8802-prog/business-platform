@@ -368,6 +368,8 @@ export async function getOrRenderQuotePdf(
         businessId: input.businessId,
         eventType: "BILLING_QUOTE_PDF_RENDERED",
         entityType: "BILLING_DOCUMENT",
+        actor: { type: "OWNER_USER", userId: input.actorUserId },
+        source: "OWNER_UI",
         entityId: doc.id,
         payload: {
           documentId: doc.id,

@@ -6,8 +6,21 @@ import {
   NotFoundError,
   ValidationError,
 } from "@/lib/errors";
-import { logAuditEvent } from "@/lib/services/audit.service";
+import {
+  logAuditEvent,
+  type AuditActor,
+  type AuditSource,
+} from "@/lib/services/audit.service";
 import { buildCouponQrValue } from "@/lib/revenue/coupon-base-url";
+
+function actorFields(actorUserId: number | undefined): {
+  actor: AuditActor;
+  source: AuditSource;
+} {
+  return actorUserId
+    ? { actor: { type: "OWNER_USER", userId: actorUserId }, source: "OWNER_UI" }
+    : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" };
+}
 
 type CreateCouponFromOfferInput = {
   offerId: number;
@@ -19,12 +32,18 @@ type CreateCouponFromOfferInput = {
    * read from `process.env` down here.
    */
   baseUrl: string;
+  /**
+   * Session user id, from the route's authenticated user — never from a request body. Optional so a
+   * caller with no person behind it records UNKNOWN rather than a guess.
+   */
+  actorUserId?: number;
 };
 
 export async function createCouponFromOffer(
   input: CreateCouponFromOfferInput
 ) {
   const { offerId, businessId, baseUrl } = input;
+  const auditActor = actorFields(input.actorUserId);
 
   if (!businessId || Number.isNaN(businessId)) {
     throw new UnauthorizedError();
@@ -48,6 +67,7 @@ export async function createCouponFromOffer(
       eventType: "REVENUE_COUPON_CREATE_REJECTED",
       entityType: "OFFER",
       entityId: offerId,
+      ...auditActor,
       payload: {
         reason: "FORBIDDEN",
         offerId,
@@ -65,6 +85,7 @@ export async function createCouponFromOffer(
       eventType: "REVENUE_COUPON_CREATE_REJECTED",
       entityType: "OFFER",
       entityId: offerId,
+      ...auditActor,
       payload: {
         reason: "OFFER_NOT_ACTIVE",
         offerId,
@@ -80,6 +101,7 @@ export async function createCouponFromOffer(
       eventType: "REVENUE_COUPON_CREATE_REJECTED",
       entityType: "OFFER",
       entityId: offerId,
+      ...auditActor,
       payload: {
         reason: "OFFER_EXPIRED",
         offerId,
@@ -116,11 +138,12 @@ export async function createCouponFromOffer(
     eventType: "REVENUE_COUPON_CREATED",
     entityType: "COUPON",
     entityId: coupon.id,
+    ...auditActor,
+    // No token and no QR value: either one IS the coupon (a bearer credential for redemption) and
+    // has no place in an event log.
     payload: {
       couponId: coupon.id,
       offerId: coupon.offerId,
-      token: coupon.token,
-      qrValue: coupon.qrValue,
       expiresAt: coupon.expiresAt.toISOString(),
       status: coupon.status,
     },

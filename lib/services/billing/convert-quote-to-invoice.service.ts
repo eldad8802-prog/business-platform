@@ -192,6 +192,8 @@ export async function convertQuoteToInvoice(
     businessId: input.businessId,
     eventType: "BILLING_QUOTE_CONVERTED_TO_INVOICE",
     entityType: "BILLING_DOCUMENT",
+    actor: { type: "OWNER_USER", userId: input.actorUserId },
+    source: "OWNER_UI",
     entityId: result.invoice.id,
     payload: {
       invoiceId: result.invoice.id,

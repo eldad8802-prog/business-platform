@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { InventoryUnitType } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
+
+/** Item columns an owner edit can change; compared by name only, never by value. */
+const ITEM_EDITABLE_FIELDS = [
+  "name",
+  "unitType",
+  "minimumQuantity",
+  "reorderPoint",
+  "costPerUnit",
+  "sellPricePerUnit",
+  "sku",
+  "barcode",
+  "imageUrl",
+  "isActive",
+  "supplierName",
+  "categoryId",
+] as const;
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -285,6 +302,10 @@ export async function PATCH(request: NextRequest) {
             }
           }
 
+          const before = await tx.inventoryItem.findFirst({
+            where: { id: itemId, businessId: user.businessId },
+          });
+
           // Tenant-scoped write: the businessId predicate lives in the UPDATE
           // itself — no id-only mutation window.
           const result = await tx.inventoryItem.updateMany({
@@ -294,9 +315,41 @@ export async function PATCH(request: NextRequest) {
           if (result.count !== 1) {
             throw new InventoryNotFoundError("Inventory item not found");
           }
-          return tx.inventoryItem.findFirst({
+          const after = await tx.inventoryItem.findFirst({
             where: { id: itemId, businessId: user.businessId },
           });
+
+          if (before && after) {
+            const fields = changedFields(
+              before as unknown as Record<string, unknown>,
+              after as unknown as Record<string, unknown>,
+              ITEM_EDITABLE_FIELDS
+            );
+            if (fields.length > 0) {
+              await recordSensor(
+                {
+                  businessId: user.businessId,
+                  sensor: "INVENTORY_ITEM_UPDATED",
+                  entityId: after.id,
+                  actor: { type: "OWNER_USER", userId: user.id },
+                  source: "OWNER_UI",
+                  payload: {
+                    fields,
+                    identityChanged:
+                      fields.includes("sku") || fields.includes("barcode"),
+                    thresholdsChanged:
+                      fields.includes("minimumQuantity") ||
+                      fields.includes("reorderPoint"),
+                    deactivated: before.isActive && !after.isActive,
+                    reactivated: !before.isActive && after.isActive,
+                  },
+                },
+                { tx }
+              );
+            }
+          }
+
+          return after;
         })
     );
 

@@ -34,6 +34,7 @@ import { supplierService } from "@/lib/services/inventory/supplier.service";
 import { leadService } from "@/lib/services/crm/lead.service";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { parseInventoryUnitType } from "@/lib/services/inventory/inventory-core";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
 import type { ValidatedRow } from "@/lib/data-transfer/import/validate/row-validate";
@@ -61,14 +62,47 @@ const UNIT_BY_LABEL: Record<string, string> = {
   מארז: "BOX",
 };
 
+/**
+ * M5.5 — optional run context for sensors. The executor holds `importRunId`; when it passes it, the
+ * sensor payload carries it and the idempotency key is the run/row identity. When it does not, the
+ * run id is omitted (never invented) and the record's own creation identity is used instead.
+ */
+export type DomainWriterMeta = { importRunId?: number | null };
+
 export type DomainWriter = (
   tx: TenantTx,
   businessId: number,
   userId: number,
-  row: ValidatedRow
+  row: ValidatedRow,
+  meta?: DomainWriterMeta
 ) => Promise<void>;
 
-const writeCustomer: DomainWriter = async (tx, businessId, _userId, row) => {
+/** The owner who started the run did this, through a file: OWNER_USER + IMPORT. */
+function importActor(userId: number) {
+  return { actor: { type: "OWNER_USER" as const, userId }, source: "IMPORT" as const };
+}
+
+/** Run/row provenance for a sensor payload — only what is actually known. */
+function provenance(row: ValidatedRow, meta?: DomainWriterMeta) {
+  return {
+    ...(meta?.importRunId != null ? { importRunId: meta.importRunId } : {}),
+    sourceRowNumber: row.rowNumber,
+  };
+}
+
+function importKey(
+  meta: DomainWriterMeta | undefined,
+  row: ValidatedRow,
+  kind: string,
+  fallback: string
+): string {
+  return meta?.importRunId != null
+    ? `import:${meta.importRunId}:${row.rowNumber}:${kind}`
+    : fallback;
+}
+
+const writeCustomer: DomainWriter = async (tx, businessId, userId, row, meta) => {
+  // CUSTOMER_CREATED is written by the canonical service inside this same tx.
   await customerService.createCustomer(
     {
       businessId,
@@ -78,13 +112,26 @@ const writeCustomer: DomainWriter = async (tx, businessId, _userId, row) => {
       city: text(row.canonical, "עיר"),
       notes: text(row.canonical, "הערות"),
     },
-    { tx }
+    {
+      tx,
+      sensor: {
+        ...importActor(userId),
+        origin: "IMPORT",
+        importRunId: meta?.importRunId ?? null,
+        sourceRowNumber: row.rowNumber,
+        // Without a run id, the service's own `customer:${id}:created` applies.
+        idempotencyKey:
+          meta?.importRunId != null
+            ? `import:${meta.importRunId}:${row.rowNumber}:customer`
+            : null,
+      },
+    }
   );
 };
 
-const writeSupplier: DomainWriter = async (tx, businessId, _userId, row) => {
+const writeSupplier: DomainWriter = async (tx, businessId, userId, row, meta) => {
   const c = row.canonical;
-  await supplierService.createSupplier(
+  const created = await supplierService.createSupplier(
     {
       businessId,
       name: text(c, "שם ספק") ?? "",
@@ -113,9 +160,26 @@ const writeSupplier: DomainWriter = async (tx, businessId, _userId, row) => {
     },
     { tx }
   );
+  await recordSensor(
+    {
+      businessId,
+      sensor: "SUPPLIER_CREATED",
+      entityId: created.id,
+      ...importActor(userId),
+      payload: {
+        origin: "IMPORT",
+        ...provenance(row, meta),
+        hasTaxId: created.taxId != null,
+      },
+      idempotencyKey: importKey(meta, row, "supplier", `supplier:${created.id}:created`),
+    },
+    { tx }
+  );
 };
 
-const writeLead: DomainWriter = async (tx, businessId, _userId, row) => {
+const writeLead: DomainWriter = async (tx, businessId, userId, row) => {
+  // LEAD_CREATED (and CUSTOMER_CREATED origin LEAD, when the lead creates one) are written by the
+  // canonical service inside this tx, stamped OWNER_USER + IMPORT.
   await leadService.createLead(
     {
       businessId,
@@ -124,15 +188,16 @@ const writeLead: DomainWriter = async (tx, businessId, _userId, row) => {
       email: text(row.canonical, "אימייל"),
       sourceChannel: text(row.canonical, "מקור הפנייה"),
       intentSnapshot: text(row.canonical, "מה ביקשו"),
+      ...importActor(userId),
     },
     { tx }
   );
 };
 
-const writeInventoryItem: DomainWriter = async (tx, businessId, userId, row) => {
+const writeInventoryItem: DomainWriter = async (tx, businessId, userId, row, meta) => {
   const c = row.canonical;
   const unitLabel = text(c, "יחידת מידה") ?? "";
-  await inventoryService.createItemWithInitialStock(
+  const created = await inventoryService.createItemWithInitialStock(
     {
       businessId,
       name: text(c, "שם פריט") ?? "",
@@ -149,6 +214,17 @@ const writeInventoryItem: DomainWriter = async (tx, businessId, userId, row) => 
       costPerUnit: num(c, "עלות ליחידה"),
       sellPricePerUnit: num(c, "מחיר מכירה"),
       createdByUserId: userId,
+    },
+    { tx }
+  );
+  await recordSensor(
+    {
+      businessId,
+      sensor: "INVENTORY_ITEM_CREATED",
+      entityId: created.id,
+      ...importActor(userId),
+      payload: { origin: "IMPORT", ...provenance(row, meta) },
+      idempotencyKey: importKey(meta, row, "inventory", `item:${created.id}:created`),
     },
     { tx }
   );

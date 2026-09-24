@@ -28,6 +28,8 @@ import {
   normalizeCustomerName,
   normalizeCustomerOptionalText,
 } from "@/lib/services/crm/customer-core";
+import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
+import type { SensorActor, SensorSource } from "@/lib/sensors/sensor.contract";
 
 const EMAIL_MAX = CUSTOMER_EMAIL_MAX;
 const CITY_MAX = CUSTOMER_CITY_MAX;
@@ -36,6 +38,28 @@ const LIST_MAX_LIMIT = 100;
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
+
+/**
+ * M5.5 — who/how a customer write happened, supplied by the CALLER (server-derived: the session
+ * user, the import run's user, an integration, a job). When omitted, no sensor is written — the
+ * service never guesses an actor. Instrumentation only: it never changes what is validated or written.
+ */
+export type CustomerSensorContext = {
+  actor: SensorActor;
+  source: SensorSource;
+  /** How the customer came into existence (CUSTOMER_CREATED only). */
+  origin?: "UI" | "BILLING" | "LEAD" | "WHATSAPP" | "IMPORT";
+  leadId?: number | null;
+  conversationId?: number | null;
+  importRunId?: number | string | null;
+  sourceRowNumber?: number | null;
+  /** Overrides the default `customer:${id}:created` (e.g. an import's run/row identity). */
+  idempotencyKey?: string | null;
+};
+type WriteOptions = TxOptions & { sensor?: CustomerSensorContext };
+
+/** Fields of `updateCustomerBasics` whose NAMES may be reported as changed. */
+const BASIC_SENSOR_FIELDS = ["name", "phone", "email", "city", "notes"] as const;
 
 /** `recent` = updatedAt desc (billing UX). `id-asc` = legacy `/api/customer` order. */
 export type CustomerSort = "recent" | "id-asc";
@@ -133,7 +157,7 @@ export const customerService = {
    * (null when missing/invalid) so the `(businessId, phone)` unique constraint
    * stays meaningful — this is the behavior both legacy endpoints now share.
    */
-  async createCustomer(input: CreateCustomerInput, options?: TxOptions) {
+  async createCustomer(input: CreateCustomerInput, options?: WriteOptions) {
     assertBusinessId(input.businessId);
 
     const data: Prisma.CustomerUncheckedCreateInput = {
@@ -146,7 +170,30 @@ export const customerService = {
     };
 
     const run = (tx: Tx | typeof prisma) => tx.customer.create({ data });
-    return options?.tx ? run(options.tx) : run(prisma);
+    const created = options?.tx ? await run(options.tx) : await run(prisma);
+
+    const sensor = options?.sensor;
+    if (sensor) {
+      const payload: Record<string, string | number> = {};
+      if (sensor.origin) payload.origin = sensor.origin;
+      if (sensor.leadId != null) payload.leadId = sensor.leadId;
+      if (sensor.conversationId != null) payload.conversationId = sensor.conversationId;
+      if (sensor.importRunId != null) payload.importRunId = sensor.importRunId;
+      if (sensor.sourceRowNumber != null) payload.sourceRowNumber = sensor.sourceRowNumber;
+      await recordSensor(
+        {
+          businessId: input.businessId,
+          sensor: "CUSTOMER_CREATED",
+          entityId: created.id,
+          actor: sensor.actor,
+          source: sensor.source,
+          payload,
+          idempotencyKey: sensor.idempotencyKey ?? `customer:${created.id}:created`,
+        },
+        options?.tx ? { tx: options.tx } : undefined
+      );
+    }
+    return created;
   },
 
   /**
@@ -156,7 +203,7 @@ export const customerService = {
    */
   async updateCustomerBasics(
     input: UpdateCustomerBasicsInput,
-    options?: TxOptions
+    options?: WriteOptions
   ) {
     assertBusinessId(input.businessId);
     const customerId = normalizeCustomerId(input.customerId);
@@ -174,6 +221,14 @@ export const customerService = {
 
     const run = async (tx: Tx | typeof prisma) => {
       try {
+        // M5.5 — read-only, and only when a sensor is requested: the "before" needed to report
+        // WHICH fields actually changed. Never affects what is written.
+        const before = options?.sensor
+          ? await tx.customer.findFirst({
+              where: { id: customerId, businessId: input.businessId },
+              select: { name: true, phone: true, email: true, city: true, notes: true },
+            })
+          : null;
         // Atomic tenant-guarded update: a row of another business never matches,
         // so count !== 1 → NotFound (no cross-tenant existence disclosure). A
         // unique-phone collision aborts the whole statement — nothing is written
@@ -185,9 +240,30 @@ export const customerService = {
         if (updated.count !== 1) {
           throw new NotFoundError("Customer not found");
         }
-        return await tx.customer.findFirstOrThrow({
+        const after = await tx.customer.findFirstOrThrow({
           where: { id: customerId, businessId: input.businessId },
         });
+        if (options?.sensor && before) {
+          const provided: Partial<typeof before> = {};
+          for (const key of BASIC_SENSOR_FIELDS) {
+            if (input[key] !== undefined) provided[key] = after[key] as never;
+          }
+          const fields = changedFields(before, provided, BASIC_SENSOR_FIELDS);
+          if (fields.length > 0) {
+            await recordSensor(
+              {
+                businessId: input.businessId,
+                sensor: "CUSTOMER_UPDATED",
+                entityId: customerId,
+                actor: options.sensor.actor,
+                source: options.sensor.source,
+                payload: { fields },
+              },
+              options.tx ? { tx: options.tx } : undefined
+            );
+          }
+        }
+        return after;
       } catch (error) {
         // Surface the existing (businessId, phone) unique constraint as a friendly
         // CRM conflict instead of a raw Prisma error / 500. Not a new duplicate
@@ -216,7 +292,7 @@ export const customerService = {
    */
   async setCustomerActiveStatus(
     input: SetCustomerActiveStatusInput,
-    options?: TxOptions
+    options?: WriteOptions
   ) {
     assertBusinessId(input.businessId);
     const customerId = normalizeCustomerId(input.customerId);
@@ -225,6 +301,13 @@ export const customerService = {
     }
 
     const run = async (tx: Tx | typeof prisma) => {
+      // M5.5 — read-only, only when a sensor is requested: a transition is reported, a no-op is not.
+      const before = options?.sensor
+        ? await tx.customer.findFirst({
+            where: { id: customerId, businessId: input.businessId },
+            select: { isActive: true },
+          })
+        : null;
       const updated = await tx.customer.updateMany({
         where: { id: customerId, businessId: input.businessId },
         data: { isActive: input.isActive },
@@ -232,9 +315,22 @@ export const customerService = {
       if (updated.count !== 1) {
         throw new NotFoundError("Customer not found");
       }
-      return tx.customer.findFirstOrThrow({
+      const after = await tx.customer.findFirstOrThrow({
         where: { id: customerId, businessId: input.businessId },
       });
+      if (options?.sensor && before && before.isActive !== input.isActive) {
+        await recordSensor(
+          {
+            businessId: input.businessId,
+            sensor: input.isActive ? "CUSTOMER_REACTIVATED" : "CUSTOMER_ARCHIVED",
+            entityId: customerId,
+            actor: options.sensor.actor,
+            source: options.sensor.source,
+          },
+          options.tx ? { tx: options.tx } : undefined
+        );
+      }
+      return after;
     };
 
     return options?.tx ? run(options.tx) : run(prisma);

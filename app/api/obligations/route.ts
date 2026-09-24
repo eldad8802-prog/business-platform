@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
               recurrence: parseRecurrence(body.recurrence),
               note: typeof body.note === "string" ? body.note : null,
             },
-            obligationServiceDeps({ tx })
+            obligationServiceDeps({ tx, actorUserId: user.id })
           )
         )
     );

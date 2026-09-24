@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       newCustomersOnly: Boolean(body.newCustomersOnly),
       validUntilDate: str(body.validUntilDate),
       baseUrl: resolveCouponBaseUrl(req),
+      actorUserId: user.id,
     });
 
     return NextResponse.json({ coupon }, { status: 201 });

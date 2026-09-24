@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { serializeInboxItem,
@@ -154,15 +155,39 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
+    const customerId = body.customerId ?? null;
+    const leadId = body.leadId ?? null;
+
     const conversation = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          tx.conversation.create({
+        withTenantTransaction(async (tx) => {
+          // Tenant integrity: a body-supplied id must belong to THIS business.
+          // One answer for every miss, so this is not an existence oracle.
+          if (
+            customerId != null &&
+            !(await tx.customer.findFirst({
+              where: { id: customerId, businessId: user.businessId },
+              select: { id: true },
+            }))
+          ) {
+            return null;
+          }
+          if (
+            leadId != null &&
+            !(await tx.lead.findFirst({
+              where: { id: leadId, businessId: user.businessId },
+              select: { id: true },
+            }))
+          ) {
+            return null;
+          }
+
+          const created = await tx.conversation.create({
             data: {
               businessId: user.businessId,
-              customerId: body.customerId ?? null,
-              leadId: body.leadId ?? null,
+              customerId,
+              leadId,
               channel: body.channel ?? "WHATSAPP",
               status: "OPEN",
               currentStage: "NEW",
@@ -172,9 +197,33 @@ export async function POST(req: Request) {
               customer: true,
               lead: true,
             },
-          })
-        )
+          });
+
+          // M5.5 sensor, same transaction.
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "CONVERSATION_OPENED_MANUALLY",
+              entityId: created.id,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: {
+                channel: created.channel,
+                linkedCustomer: created.customerId != null,
+                linkedLead: created.leadId != null,
+              },
+              idempotencyKey: `conversation:${created.id}:opened_manually`,
+            },
+            { tx }
+          );
+
+          return created;
+        })
     );
+
+    if (!conversation) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
 
     return NextResponse.json(
       {

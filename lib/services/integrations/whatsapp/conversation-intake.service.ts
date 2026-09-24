@@ -55,6 +55,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import type { Conversation, Customer, Message } from "@prisma/client";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 import { normalizeCustomerPhone } from "./phone";
@@ -248,6 +249,23 @@ export async function processWhatsAppConversationIntake(
           businessId: input.businessId,
           customerId: customer.id,
         });
+
+      // M5.5 — a customer that an inbound WhatsApp message brought into existence. The
+      // integration did this, not the owner. Same tx: no event without its customer.
+      if (customerWasCreated) {
+        await recordSensor(
+          {
+            businessId: input.businessId,
+            sensor: "CUSTOMER_CREATED",
+            entityId: customer.id,
+            actor: { type: "INTEGRATION" },
+            source: "INTEGRATION",
+            payload: { origin: "WHATSAPP", conversationId: conversation.id },
+            idempotencyKey: `customer:${customer.id}:created`,
+          },
+          { tx }
+        );
+      }
 
       // ── Step 5: persist inbound Message + update conversation counters ─
       const now = new Date();

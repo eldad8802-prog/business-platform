@@ -287,6 +287,11 @@ export async function createBillingCreditNoteDraft(
     businessId: input.businessId,
     eventType: "BILLING_CREDIT_NOTE_DRAFT_CREATED",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: result.full.id,
     payload: {
       creditNoteId: result.full.id,

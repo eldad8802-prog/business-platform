@@ -49,7 +49,15 @@ export function extractDocumentEntities(
 
   const understanding = understandDocument(cleanedText);
 
-  console.log("DOCUMENT UNDERSTANDING:", understanding);
+  // Privacy: counts only — the understanding object holds the document's lines,
+  // amounts and vendor candidates.
+  console.log("DOCUMENT UNDERSTANDING:", {
+    lineCount: understanding.lines.length,
+    semanticFieldCount: understanding.semanticFields.length,
+    amountCount: understanding.amounts.length,
+    vendorCount: understanding.vendors.length,
+    dateCount: understanding.dates.length,
+  });
 
   return {
     entities: {

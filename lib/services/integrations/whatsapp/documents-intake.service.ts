@@ -13,6 +13,7 @@ import { Prisma } from "@prisma/client";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getAccessTokenForBusiness } from "./connection.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 /**
  * D2/P7-W4B: run a single DB step on a short tenant transaction when a tenant
@@ -361,6 +362,22 @@ export async function processWhatsAppDocumentsIntake(
         contentHashSha256,
         originalFilename: mediaResult.filename ?? null,
         sizeBytes: mediaResult.sizeBytes ?? null,
+        // M5.5 sensor — in the Document's own transaction. Nobody in the
+        // business acted: the file arrived through the WhatsApp integration.
+        withinTransaction: async (tx, documentId) => {
+          await recordSensor(
+            {
+              businessId: input.businessId,
+              sensor: "DOCUMENT_INGESTED",
+              entityId: documentId,
+              actor: { type: "INTEGRATION" },
+              source: "INTEGRATION",
+              payload: { origin: "WHATSAPP", forcedDuplicate: false },
+              idempotencyKey: `document:${documentId}:ingested`,
+            },
+            { tx }
+          );
+        },
       });
     } catch {
       return fail("create_document_failed");

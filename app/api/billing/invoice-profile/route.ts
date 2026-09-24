@@ -18,8 +18,20 @@ import {
   loadBillingInvoiceProfile,
 } from "@/lib/services/billing/billing-invoice-profile.service";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 const MAX_LOGO_CHARS = 500_000;
+
+/**
+ * M5.5 · the fields that make up the billing IDENTITY. A save that touches only presentation
+ * (logo, footer, template style, contact lines) records no BILLING_IDENTITY_CHANGED.
+ */
+const IDENTITY_FIELDS = [
+  "billingBusinessKind",
+  "billingTaxId",
+  "billingVatNumber",
+  "billingLegalName",
+] as const;
 
 const PROFILE_FIELDS = [
   "billingLegalName",
@@ -199,8 +211,14 @@ export async function PATCH(req: NextRequest) {
     // which is why saving the billing identity returned 500 for every business.
     // The tenant is the session's, re-asserted here; `businessId` never comes
     // from the request body.
-    const profile = await billingTenantTx(user.businessId, (tx) =>
-      tx.businessProfile.upsert({
+    const profile = await billingTenantTx(user.businessId, async (tx) => {
+      // M5.5 sensor: the previous identity, read in the same tenant tx.
+      const before = await tx.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: BILLING_INVOICE_PROFILE_SELECT,
+      });
+
+      const saved = await tx.businessProfile.upsert({
         where: { businessId: user.businessId },
         create: {
           businessId: user.businessId,
@@ -208,8 +226,44 @@ export async function PATCH(req: NextRequest) {
         } as Prisma.BusinessProfileUncheckedCreateInput,
         update: persist as Prisma.BusinessProfileUncheckedUpdateInput,
         select: BILLING_INVOICE_PROFILE_SELECT,
-      })
-    );
+      });
+
+      // Only the fields this request actually wrote are compared; values never leave this scope —
+      // the sensor carries field NAMES, the VAT status as an enum, and identifiers as flags only.
+      const written = Object.keys(persist) as (keyof typeof BILLING_INVOICE_PROFILE_SELECT)[];
+      const fields = written
+        .filter((k) => (before?.[k] ?? null) !== (saved[k] ?? null))
+        .sort();
+      const identityChanged = fields.some((k) =>
+        IDENTITY_FIELDS.includes(k as (typeof IDENTITY_FIELDS)[number])
+      );
+      if (identityChanged) {
+        const kindChanged = fields.includes("billingBusinessKind");
+        await recordSensor(
+          {
+            businessId: user.businessId,
+            sensor: "BILLING_IDENTITY_CHANGED",
+            entityId: user.businessId,
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
+            payload: {
+              fields,
+              ...(kindChanged
+                ? {
+                    fromBusinessKind: before?.billingBusinessKind ?? null,
+                    toBusinessKind: saved.billingBusinessKind ?? null,
+                  }
+                : {}),
+              taxIdChanged: fields.includes("billingTaxId"),
+              vatNumberChanged: fields.includes("billingVatNumber"),
+            },
+          },
+          { tx },
+        );
+      }
+
+      return saved;
+    });
 
     return NextResponse.json(
       {

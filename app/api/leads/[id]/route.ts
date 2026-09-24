@@ -105,6 +105,11 @@ export async function PATCH(
     }
 
     const businessId = user.businessId;
+    // M5.5 — server-derived actor for every lead event this request emits.
+    const who = {
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+    } as const;
 
     // ONE tenant transaction for the whole request: the mutation and the card
     // re-read share it, so the response is the committed state by construction
@@ -122,6 +127,7 @@ export async function PATCH(
                 status: body.status as string,
                 lostReason:
                   (body.lostReason as string | null | undefined) ?? null,
+                ...who,
               },
               { tx }
             );
@@ -131,7 +137,7 @@ export async function PATCH(
             // signal — completion IS clearing the timestamp, so there is no
             // separate reminder row that could fire twice.
             return body.followUpAt === null
-              ? leadService.clearFollowUp({ businessId, leadId }, { tx })
+              ? leadService.clearFollowUp({ businessId, leadId, ...who }, { tx })
               : leadService.setFollowUp(
                   {
                     businessId,
@@ -139,11 +145,12 @@ export async function PATCH(
                     followUpAt: body.followUpAt as string,
                     note:
                       (body.followUpNote as string | null | undefined) ?? null,
+                    ...who,
                   },
                   { tx }
                 );
           }
-          return leadService.updateLead({ businessId, leadId, ...basics }, { tx });
+          return leadService.updateLead({ businessId, leadId, ...basics, ...who }, { tx });
         };
 
         const updated = await applyMutation();

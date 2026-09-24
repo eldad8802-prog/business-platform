@@ -25,6 +25,13 @@ export async function POST(req: Request) {
       email: body.email ?? null,
       city: body.city ?? null,
       notes: body.notes ?? null,
+    }, {
+      // M5.5 — server-derived actor; no tx here, so the sensor opens its own (fail-open).
+      sensor: {
+        actor: { type: "OWNER_USER", userId: user.id },
+        source: "OWNER_UI",
+        origin: "UI",
+      },
     });
 
     return NextResponse.json(customer, { status: 201 });

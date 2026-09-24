@@ -2,6 +2,7 @@ import { InventoryUnitType, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { resolvePendingMatchWithExistingItem } from "@/lib/services/inventory/pending-match.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type TxOptions = { tx?: Prisma.TransactionClient };
 
@@ -110,6 +111,19 @@ export const inventoryInsightActionService = {
       createdByUserId: userId,
     }, options);
 
+    await recordSensor(
+      {
+        businessId,
+        sensor: "INVENTORY_ITEM_CREATED",
+        entityId: item.id,
+        actor: { type: "OWNER_USER", userId },
+        source: "OWNER_UI",
+        payload: { origin: "INSIGHT" },
+        idempotencyKey: `item:${item.id}:created`,
+      },
+      options?.tx ? { tx: options.tx } : undefined
+    );
+
     const resolved = [];
 
     for (const pending of matchingPendingMatches) {
@@ -120,7 +134,9 @@ export const inventoryInsightActionService = {
           userId,
           itemId: item.id,
         },
-        options
+        // The item was created for these very lines: the sensor records the
+        // resolution as CREATE_NEW. Behaviour is identical to a plain link.
+        { tx: options?.tx, resolutionMode: "CREATE_NEW" }
       );
 
       resolved.push(result);

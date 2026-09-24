@@ -205,7 +205,7 @@ class InventoryService {
             type: InventoryAlertType.CRITICAL_STOCK,
             isResolved: false,
           },
-          data: { isResolved: true },
+          data: { isResolved: true, resolvedAt: new Date() },
         });
       }
 
@@ -236,7 +236,7 @@ class InventoryService {
             type: InventoryAlertType.LOW_STOCK,
             isResolved: false,
           },
-          data: { isResolved: true },
+          data: { isResolved: true, resolvedAt: new Date() },
         });
       }
 

@@ -10,6 +10,7 @@ import type { TenantTx } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type ApproveSupplierPurchaseInput = {
   draftId: number;
@@ -175,6 +176,19 @@ export async function approveSupplierPurchase(
             sku: inputLine.itemData.sku ?? undefined,
             barcode: inputLine.itemData.barcode ?? undefined,
             createdByUserId: userId,
+          },
+          { tx }
+        );
+
+        await recordSensor(
+          {
+            businessId,
+            sensor: "INVENTORY_ITEM_CREATED",
+            entityId: createdItem.id,
+            actor: { type: "OWNER_USER", userId },
+            source: "OWNER_UI",
+            payload: { origin: "SUPPLIER_DRAFT", supplierPurchaseDraftId: draftId },
+            idempotencyKey: `item:${createdItem.id}:created`,
           },
           { tx }
         );

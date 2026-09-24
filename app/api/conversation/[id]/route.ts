@@ -3,6 +3,7 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -36,13 +37,30 @@ export async function POST(req: Request, context: RouteContext) {
       });
       if (!conversation) return null;
 
-      return tx.conversation.update({
+      const closed = await tx.conversation.update({
         where: { id: conversationId },
         data: {
           status: "CLOSED",
           closedAt: new Date(),
         },
       });
+
+      // M5.5 sensor, same transaction — only a real transition, not a re-close.
+      if (conversation.status !== "CLOSED") {
+        await recordSensor(
+          {
+            businessId: user.businessId,
+            sensor: "CONVERSATION_CLOSED",
+            entityId: conversationId,
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
+            payload: { previousStatus: conversation.status },
+          },
+          { tx }
+        );
+      }
+
+      return closed;
     });
 
     if (!updated) {

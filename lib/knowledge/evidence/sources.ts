@@ -85,7 +85,11 @@ export async function loadSettlements(
     at: r.payment.paidAt,
     expectedAt: r.installment.dueAt,
     payeeId: r.payment.payeeId,
-    externallyBacked: r.payment.evidences.some((e) => e.kind !== "MANUAL"),
+    // AP-06 v2 — a CHEQUE evidence is the owner asserting the cheque cleared (`clearedSource` is
+    // always OWNER_ASSERTED; there is no bank-observed path). It is the same authority as MANUAL, and
+    // v1 counting it as "backed" overstated the record. DOCUMENT, BANK_TRANSACTION and
+    // PAYMENT_PROVIDER each point at a record that exists independently of the owner saying so.
+    externallyBacked: r.payment.evidences.some((e) => e.kind !== "MANUAL" && e.kind !== "CHEQUE"),
   }));
 }
 
@@ -232,6 +236,11 @@ export async function loadSupplierDeliveries(
         supplierId: { not: null },
         status: "CLOSED",
         orderDate: { not: null },
+        // SUPP-02/03 v2 — an order created by approving a supplier-purchase draft is created CONFIRMED
+        // and received in full in ONE transaction (supplier-purchase-approval.service.ts). Its "lead
+        // time" is always zero and it can never be short, so it says nothing about the supplier and
+        // v1 counting it pulled both measures towards "instant and complete".
+        sourceSupplierPurchaseDraftId: null,
         // Bounded in SQL like every other source. An order's observation time is its LAST posted
         // receipt, so an order finishing inside the window has at least one receipt inside it; the
         // superset this admits is trimmed to the exact window by the rules.

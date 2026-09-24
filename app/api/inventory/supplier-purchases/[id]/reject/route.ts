@@ -3,6 +3,7 @@ import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SupplierPurchaseDraftStatus } from "@prisma/client";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -89,6 +90,21 @@ export async function POST(
             }
             throw new InventoryValidationError("Draft already processed");
           }
+          const lineCount = await tx.supplierPurchaseDraftLine.count({
+            where: { draftId },
+          });
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "SUPPLIER_PURCHASE_DRAFT_REJECTED",
+              entityId: draftId,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { lineCount },
+              idempotencyKey: `supplier-purchase-draft:${draftId}:rejected`,
+            },
+            { tx }
+          );
           return draftId;
         })
     );

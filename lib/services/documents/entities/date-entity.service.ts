@@ -442,9 +442,9 @@ export function extractDateEntity(
       const lineIndex = findDateLineIndex(allLines, candidate.raw);
       const previousLine = lineIndex > 0 ? allLines[lineIndex - 1] : null;
 
+      // Privacy: no raw OCR text and no date value — scoring metadata only.
       return {
-        raw: candidate.raw,
-        date: candidate.date.toISOString().slice(0, 10),
+        rawLength: candidate.raw.length,
         score: candidate.score,
         lineIndex: lineIndex >= 0 ? lineIndex : null,
         currentHasDateLabel: isInvoiceDateSignal(candidate.line),

@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
   buildAccountantPackZipBuffer,
@@ -28,6 +29,16 @@ export async function POST(req: Request) {
     const zip = await runWithTenantContext({ businessId: user.businessId }, () =>
       buildAccountantPackZipBuffer(user.businessId, body)
     );
+
+    // M5.5 sensor — fail-open, after the pack was built.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DATA_EXPORTED",
+      entityId: user.businessId,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: { kind: "ACCOUNTANT_PACK", format: "ZIP" },
+    });
 
     return new Response(new Uint8Array(zip), {
       headers: {

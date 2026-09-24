@@ -54,7 +54,11 @@
  */
 
 import type { Prisma } from "@prisma/client";
-import { logAuditEvent } from "@/lib/services/audit.service";
+import {
+  logAuditEvent,
+  type AuditActor,
+  type AuditSource,
+} from "@/lib/services/audit.service";
 import { bucketTemperature } from "@/lib/inbox-view/temperature-bucket";
 
 export const CONVERSATION_EVIDENCE_EVENTS = {
@@ -76,6 +80,18 @@ export type ConversationEvidenceInput = {
   direction: string;
   senderType: string;
   occurredAt: Date;
+  /**
+   * The provider's message id (e.g. WhatsApp wamid), when the message arrived through a provider
+   * webhook. Used ONLY to attribute the inbound event to the integration; it is never written to
+   * the payload.
+   */
+  providerMessageId?: string | null;
+  /**
+   * Who sent an OUTBOUND message — server-derived by the caller (e.g. the session user), never taken
+   * from a request body. Absent → the response event records UNKNOWN.
+   */
+  actor?: AuditActor;
+  source?: AuditSource;
   /** What the writer reported it wrote. Absent when the writer did not run. */
   state?: {
     stageBefore: string | null;
@@ -114,13 +130,33 @@ export async function recordConversationEvidence(
     input.direction === "INBOUND" && input.senderType === "CUSTOMER";
   const isOutbound = input.direction === "OUTBOUND";
 
-  const write = async (eventType: string, payload: Record<string, unknown>) => {
+  type Attribution = { actor: AuditActor; source: AuditSource };
+
+  // A customer message that reached us through a provider webhook is the integration's doing; one
+  // without a provider id could have come from anywhere (the HTTP path), so it is not guessed at.
+  const inboundAttribution: Attribution = input.providerMessageId
+    ? { actor: { type: "INTEGRATION" }, source: "INTEGRATION" }
+    : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" };
+  const responseAttribution: Attribution = {
+    actor: input.actor ?? { type: "UNKNOWN" },
+    source: input.source ?? "UNKNOWN",
+  };
+  // Hot/stage transitions are computed by the state writer, not decided by anybody.
+  const derivedAttribution: Attribution = { actor: { type: "SYSTEM" }, source: "SYSTEM" };
+
+  const write = async (
+    eventType: string,
+    payload: Record<string, unknown>,
+    attribution: Attribution
+  ) => {
     await logAuditEvent(
       {
         businessId: input.businessId,
         eventType,
         entityType: ENTITY_TYPE,
         entityId: input.conversationId,
+        actor: attribution.actor,
+        source: attribution.source,
         // Ids and timestamps only. The message body already lives on `Message`
         // and copying it here would create a second, unmanaged copy of customer
         // text with its own retention story.
@@ -133,11 +169,17 @@ export async function recordConversationEvidence(
 
   try {
     if (isCustomerInbound) {
-      await write(CONVERSATION_EVIDENCE_EVENTS.INBOUND_RECEIVED, base);
+      await write(CONVERSATION_EVIDENCE_EVENTS.INBOUND_RECEIVED, base, inboundAttribution);
     } else if (isOutbound) {
       // The pair (inbound at T0, response at T1) is what makes a real response
       // time computable later — neither half is useful alone.
-      await write(CONVERSATION_EVIDENCE_EVENTS.BUSINESS_RESPONDED, base);
+      // `senderType` is the MessageSenderType enum (BUSINESS_USER / SYSTEM / AI), never free text:
+      // it is what separates a human reply from a bot's when response times are learned.
+      await write(
+        CONVERSATION_EVIDENCE_EVENTS.BUSINESS_RESPONDED,
+        { ...base, senderType: input.senderType },
+        responseAttribution
+      );
     }
 
     const state = input.state;
@@ -151,7 +193,7 @@ export async function recordConversationEvidence(
           ...base,
           temperatureBefore: state.temperatureBefore,
           temperatureAfter: state.temperatureAfter,
-        });
+        }, derivedAttribution);
       }
 
       if (state.stageBefore !== state.stageAfter) {
@@ -159,7 +201,7 @@ export async function recordConversationEvidence(
           ...base,
           stageBefore: state.stageBefore,
           stageAfter: state.stageAfter,
-        });
+        }, derivedAttribution);
       }
     }
   } catch (error) {

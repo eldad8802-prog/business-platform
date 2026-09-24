@@ -28,7 +28,15 @@ type AuditLogInput = {
   payload?: Record<string, unknown> | null;
   /** Server-derived only. An actor that arrived in a request body is not evidence of anything. */
   actor?: AuditActor;
+  /**
+   * M5.5 — the channel the action arrived through, orthogonal to the actor: an owner importing a
+   * file is actor OWNER_USER + source IMPORT. Optional for the same reason `actor` is.
+   */
+  source?: AuditSource;
 };
+
+/** M5.5 — mirrors the `LearningEventSource` enum; see lib/sensors/sensor.contract.ts. */
+export type AuditSource = "OWNER_UI" | "IMPORT" | "INTEGRATION" | "SYSTEM" | "API" | "UNKNOWN";
 
 /**
  * Optional transaction seam.
@@ -50,7 +58,7 @@ export async function logAuditEvent(
   input: AuditLogInput,
   options?: AuditLogOptions
 ) {
-  const { businessId, eventType, entityType, entityId, payload, actor } = input;
+  const { businessId, eventType, entityType, entityId, payload, actor, source } = input;
 
   if (!businessId || Number.isNaN(businessId)) {
     return;
@@ -67,6 +75,7 @@ export async function logAuditEvent(
     // it, and attaching one — even the user whose request happened to trigger the background work —
     // would put a name on a decision nobody made.
     actorUserId: actor?.type === "OWNER_USER" ? actor.userId : null,
+    source: source ?? null,
   };
 
   try {
@@ -103,6 +112,16 @@ export async function logAuditEvent(
     if (options?.tx) {
       throw error;
     }
-    console.error("logAuditEvent error:", error);
+    // Event type and error code only. A Prisma error can quote the values it failed on, and the
+    // payload is business data: neither belongs in a log.
+    console.error("logAuditEvent error:", {
+      eventType,
+      code:
+        error instanceof Prisma.PrismaClientKnownRequestError
+          ? error.code
+          : error instanceof Error
+            ? error.name
+            : "unknown",
+    });
   }
 }

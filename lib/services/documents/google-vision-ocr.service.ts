@@ -111,7 +111,6 @@ export async function runGoogleVisionOCR(
 ): Promise<string> {
   try {
     console.log("========== GOOGLE VISION OCR START ==========");
-    console.log("filePath:", filePath);
     console.log("mimeType:", mimeType);
     console.log("credentials source:", parseCredentialsFromEnv() ? "env" : "file");
 
@@ -154,7 +153,6 @@ export async function runGoogleVisionOCR(
 
       console.log("PDF pages:", pages.length);
       console.log("PDF text length:", text.length);
-      console.log("PDF preview:", text.slice(0, 300));
 
       return text;
     }
@@ -169,7 +167,6 @@ export async function runGoogleVisionOCR(
     const text = result.fullTextAnnotation?.text || "";
 
     console.log("IMAGE text length:", text.length);
-    console.log("IMAGE preview:", text.slice(0, 300));
 
     return text.trim();
   } catch (error: unknown) {

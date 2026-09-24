@@ -1165,10 +1165,32 @@ model LearningEvent {
   /// UNKNOWN says the same thing explicitly for rows written from here on.
   actorUserId Int?
   actorType   LearningEventActor?
+  /// M5.5 — HOW it arrived (owner UI, import, integration, system), orthogonal to WHO. NULL on rows
+  /// written before the sensor fabric; never backfilled.
+  source         LearningEventSource?
+  /// M5.5 — business time when it differs from `createdAt` (NULL: `createdAt` is the event time).
+  occurredAt     DateTime?
+  /// M5.5 — the sensor's payload version (lib/sensors/catalogue.ts).
+  sensorVersion  Int?
+  /// M5.5 — a stable identity for the action. A retry of the same action writes nothing new.
+  idempotencyKey String?
   createdAt   DateTime            @default(now())
   business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, actorType])
+  @@index([businessId, eventType, createdAt])
+}
+
+/// M5.5 — the channel a `LearningEvent` arrived through. Independent of `LearningEventActor`: an owner
+/// importing a file is actor OWNER_USER, source IMPORT.
+enum LearningEventSource {
+  OWNER_UI
+  IMPORT
+  INTEGRATION
+  SYSTEM
+  API
+  UNKNOWN
 }
 
 /// Who or what caused a `LearningEvent`.

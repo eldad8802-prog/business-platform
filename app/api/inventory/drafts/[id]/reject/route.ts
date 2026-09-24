@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { InventoryDraftStatus } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -88,6 +89,18 @@ export async function POST(request: NextRequest) {
           if (flipped.count !== 1) {
             throw new InventoryNotFoundError("Inventory draft not found");
           }
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "INVENTORY_DRAFT_DECIDED",
+              entityId: draft.id,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { decision: "REJECTED", itemId: null },
+              idempotencyKey: `inventory-draft:${draft.id}:decided`,
+            },
+            { tx }
+          );
           return tx.inventoryDraft.findFirst({
             where: { id: draft.id, businessId: user.businessId },
           });

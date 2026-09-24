@@ -7,7 +7,10 @@ import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
-import { recordConversationEvidence } from "@/lib/services/conversation/conversation-evidence.service";
+import {
+  recordConversationEvidence,
+  type ConversationEvidenceInput,
+} from "@/lib/services/conversation/conversation-evidence.service";
 import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -301,11 +304,17 @@ async function recordW3SideEffects(input: {
     temperatureBefore: number | null;
     temperatureAfter: number;
   } | null;
+  /**
+   * M5.5 — who sent a business message. Server-derived (session user) by the
+   * caller; omitted for the customer-inbound path.
+   */
+  attribution?: Pick<ConversationEvidenceInput, "actor" | "source">;
 }) {
   try {
     await withTenantTransaction((tx) =>
       recordConversationEvidence(
         {
+          ...(input.attribution ?? {}),
           businessId: input.businessId,
           conversationId: input.conversation.id,
           messageId: input.message.id,
@@ -378,22 +387,44 @@ async function handleAuthedPost(
 
     let createdMessage;
     try {
-      createdMessage = await withTenantTransaction((tx) =>
-        tx.message.create({
+      const bodyCustomerId = body.customerId ?? null;
+      const bodySuggestionId = body.generatedFromSuggestionId ?? null;
+      createdMessage = await withTenantTransaction(async (tx) => {
+        // Tenant integrity: body-supplied ids must belong to THIS business.
+        // One answer for every miss, so this is not an existence oracle.
+        if (
+          bodyCustomerId != null &&
+          !(await tx.customer.findFirst({
+            where: { id: bodyCustomerId, businessId: user.businessId },
+            select: { id: true },
+          }))
+        ) {
+          return null;
+        }
+        if (
+          bodySuggestionId != null &&
+          !(await tx.replySuggestion.findFirst({
+            where: { id: bodySuggestionId, businessId: user.businessId },
+            select: { id: true },
+          }))
+        ) {
+          return null;
+        }
+        return tx.message.create({
           data: {
             conversationId,
             businessId: user.businessId,
-            customerId: body.customerId ?? null,
+            customerId: bodyCustomerId,
             channel: body.channel ?? "WHATSAPP",
             messageType: body.messageType ?? "TEXT",
             direction,
             senderType,
             contentText: body.contentText ?? null,
-            generatedFromSuggestionId: body.generatedFromSuggestionId ?? null,
+            generatedFromSuggestionId: bodySuggestionId,
             clientRequestId,
           },
-        })
-      );
+        });
+      });
     } catch (error) {
       const isDuplicateSend =
         clientRequestId !== null &&
@@ -416,6 +447,10 @@ async function handleAuthedPost(
         { message: existing, duplicateSuppressed: true },
         { status: 200 }
       );
+    }
+
+    if (!createdMessage) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
     if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
@@ -515,6 +550,14 @@ async function handleAuthedPost(
         conversation,
         message: messageForResponse,
         state: w3State,
+        // Only a message the session user wrote as themselves is theirs. This branch also carries bot
+        // and system notes posted through the same route, and putting the owner's name on a message
+        // the bot sent would be exactly the fake precision the actor model exists to prevent. The
+        // senderType is still client-asserted, so anything else stays UNKNOWN rather than SYSTEM.
+        attribution:
+          messageForResponse.senderType === "BUSINESS_USER"
+            ? { actor: { type: "OWNER_USER", userId: user.id }, source: "OWNER_UI" }
+            : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" },
       });
 
       // AFTER the message transaction has committed. This branch is every

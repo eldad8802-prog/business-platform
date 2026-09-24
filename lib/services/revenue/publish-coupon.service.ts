@@ -7,6 +7,7 @@ import {
   composeBenefitSentence,
   validateBenefit,
   DESCRIPTION_MAX,
+  SCOPE_WHOLE_BUSINESS,
   type BenefitType,
 } from "@/lib/revenue/coupon-benefit";
 import {
@@ -56,6 +57,8 @@ export type PublishCouponInput = {
   validUntilDate: string;
   baseUrl: string;
   now?: Date;
+  /** Session user id from the route — never a request body. Absent → UNKNOWN. */
+  actorUserId?: number;
 };
 
 export type PublishedCouponDTO = {
@@ -165,13 +168,17 @@ export async function publishCoupon(
     eventType: "REVENUE_COUPON_PUBLISHED",
     entityType: "COUPON",
     entityId: coupon.id,
+    ...(input.actorUserId
+      ? { actor: { type: "OWNER_USER" as const, userId: input.actorUserId }, source: "OWNER_UI" as const }
+      : { actor: { type: "UNKNOWN" as const }, source: "UNKNOWN" as const }),
+    // The benefit sentence and scope are owner-typed free text; only their shape is recorded.
     payload: {
       couponId: coupon.id,
       offerId: offer.id,
       publicId: coupon.publicId,
-      benefit,
+      ownerTitleSet: ownerTitle.length > 0,
       benefitType: input.benefitType,
-      scope: benefitInput.scope,
+      scopeIsWholeBusiness: benefitInput.scope.trim() === SCOPE_WHOLE_BUSINESS,
       minPurchase: terms.minPurchase,
       newCustomersOnly: terms.newCustomersOnly,
       expiresAt: coupon.expiresAt.toISOString(),

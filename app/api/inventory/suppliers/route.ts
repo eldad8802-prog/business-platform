@@ -3,6 +3,7 @@ import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -107,6 +108,19 @@ export async function POST(request: NextRequest) {
               addressPostalCode: body?.addressPostalCode ?? null,
               paymentTermsDays: body?.paymentTermsDays ?? null,
               preferredPaymentMethod: body?.preferredPaymentMethod ?? null,
+            },
+            { tx }
+          );
+
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "SUPPLIER_CREATED",
+              entityId: created.id,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { origin: "UI", hasTaxId: created.taxId != null },
+              idempotencyKey: `supplier:${created.id}:created`,
             },
             { tx }
           );

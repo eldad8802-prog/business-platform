@@ -388,7 +388,9 @@ async function tryBatch(
             tx,
             input.businessId,
             input.userId,
-            row.validated
+            row.validated,
+            // M5.5 — so each created entity can be traced back to the run and row that made it.
+            { importRunId }
           );
         }
       }
@@ -434,7 +436,8 @@ async function runSingleRow(
           tx,
           input.businessId,
           input.userId,
-          row.validated
+          row.validated,
+          { importRunId }
         );
       }
     });

@@ -2,9 +2,24 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+import { MAX_STRING } from "@/lib/sensors/sensor.contract";
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
+
+/**
+ * How the owner resolved a held POS line, for the sensor only. Linking to an
+ * item that was created for this very purpose (new-item flow, insight "create")
+ * is recorded as CREATE_NEW; it never changes what the resolution does.
+ */
+type ResolutionSensorOptions = TxOptions & {
+  resolutionMode?: "LINK_EXISTING" | "CREATE_NEW";
+};
+
+function sensorExternalSaleId(value: string): string {
+  return value.length > MAX_STRING ? value.slice(0, MAX_STRING) : value;
+}
 
 type PendingMatchMetadata = {
   externalSaleId: string;
@@ -108,9 +123,13 @@ type ResolveWithExistingItemInput = {
 
 export async function resolvePendingMatchWithExistingItem(
   input: ResolveWithExistingItemInput,
-  options?: TxOptions
+  sensorOptions?: ResolutionSensorOptions
 ) {
   const { pendingMatchId, businessId, userId, itemId } = input;
+  const resolutionMode = sensorOptions?.resolutionMode ?? "LINK_EXISTING";
+  const options: TxOptions | undefined = sensorOptions
+    ? { tx: sensorOptions.tx }
+    : undefined;
   const db = options?.tx ?? prisma;
 
   const pending = await db.inventoryPendingMatch.findFirst({
@@ -128,7 +147,7 @@ export async function resolvePendingMatchWithExistingItem(
   const metadata = pending.metadata as PendingMatchMetadata;
 
   // 🔥 יצירת movement רק דרך service (על אותו tx כשסופק)
-  await inventoryService.removeStock(
+  const saleMovement = await inventoryService.removeStock(
     {
       businessId,
       itemId,
@@ -167,16 +186,19 @@ export async function resolvePendingMatchWithExistingItem(
       },
       data: {
         isResolved: true,
+        resolvedAt: new Date(),
       },
     });
 
     const src = (metadata.source?.trim() || "POS").trim();
     const skuNorm = metadata.sku?.trim() || null;
     const barcodeNorm = metadata.barcode?.trim() || null;
+    let mappingReplaced = false;
 
     if (skuNorm || barcodeNorm) {
       let existingMapping = null as {
         id: number;
+        itemId: number;
         sku: string | null;
         barcode: string | null;
         name: string | null;
@@ -189,7 +211,7 @@ export async function resolvePendingMatchWithExistingItem(
             source: src,
             sku: skuNorm,
           },
-          select: { id: true, sku: true, barcode: true, name: true },
+          select: { id: true, itemId: true, sku: true, barcode: true, name: true },
         });
       }
 
@@ -200,11 +222,12 @@ export async function resolvePendingMatchWithExistingItem(
             source: src,
             barcode: barcodeNorm,
           },
-          select: { id: true, sku: true, barcode: true, name: true },
+          select: { id: true, itemId: true, sku: true, barcode: true, name: true },
         });
       }
 
       if (existingMapping) {
+        mappingReplaced = existingMapping.itemId !== itemId;
         await tx.pOSProductMapping.update({
           where: { id: existingMapping.id },
           data: {
@@ -230,6 +253,26 @@ export async function resolvePendingMatchWithExistingItem(
         });
       }
     }
+
+    // Truthful record of what this resolution did: the one movement it wrote
+    // (for metadata.quantity, which is what this path decrements today).
+    await recordSensor(
+      {
+        businessId,
+        sensor: "POS_PENDING_MATCH_RESOLVED",
+        entityId: pending.id,
+        actor: { type: "OWNER_USER", userId },
+        source: "OWNER_UI",
+        payload: {
+          mode: resolutionMode,
+          externalSaleId: sensorExternalSaleId(pending.externalSaleId),
+          movementIds: [saleMovement.id],
+          mappingReplaced,
+        },
+        idempotencyKey: `pending-match:${pending.id}:resolved`,
+      },
+      { tx }
+    );
 
     return {
       success: true,
@@ -294,6 +337,19 @@ export async function resolvePendingMatchWithNewItem(
     },
   });
 
+  await recordSensor(
+    {
+      businessId,
+      sensor: "INVENTORY_ITEM_CREATED",
+      entityId: item.id,
+      actor: { type: "OWNER_USER", userId },
+      source: "OWNER_UI",
+      payload: { origin: "POS_MATCH", pendingMatchId: pending.id },
+      idempotencyKey: `item:${item.id}:created`,
+    },
+    options?.tx ? { tx: options.tx } : undefined
+  );
+
   return resolvePendingMatchWithExistingItem(
     {
       pendingMatchId,
@@ -301,7 +357,7 @@ export async function resolvePendingMatchWithNewItem(
       userId,
       itemId: item.id,
     },
-    options
+    { tx: options?.tx, resolutionMode: "CREATE_NEW" }
   );
 }
 
@@ -353,8 +409,27 @@ export async function rejectPendingMatch(
       },
       data: {
         isResolved: true,
+        resolvedAt: new Date(),
       },
     });
+
+    await recordSensor(
+      {
+        businessId,
+        sensor: "POS_PENDING_MATCH_RESOLVED",
+        entityId: pending.id,
+        actor: { type: "OWNER_USER", userId },
+        source: "OWNER_UI",
+        payload: {
+          mode: "REJECTED",
+          externalSaleId: sensorExternalSaleId(pending.externalSaleId),
+          movementIds: [],
+          mappingReplaced: false,
+        },
+        idempotencyKey: `pending-match:${pending.id}:resolved`,
+      },
+      { tx }
+    );
 
     return {
       success: true,

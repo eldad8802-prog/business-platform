@@ -13,6 +13,7 @@
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { loadUniformExportInput } from "@/lib/services/billing/uniform/uniform-export-loader";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
 import { DUBIZ_SOFTWARE_CONFIG } from "@/lib/services/billing/uniform/uniform-config";
@@ -51,6 +52,16 @@ export async function GET(req: Request): Promise<Response> {
     const result = await buildUniformExportZip(projection, DUBIZ_SOFTWARE_CONFIG, {
       primaryId: makePrimaryId(Date.now()),
       generatedAt: new Date().toISOString(),
+    });
+
+    // M5.5 sensor — fail-open, after the uniform file was built.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DATA_EXPORTED",
+      entityId: user.businessId,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: { kind: "UNIFORM_FILE", format: "ZIP" },
     });
 
     return new Response(result.zip as unknown as BodyInit, {

@@ -80,7 +80,7 @@ export async function PATCH(
             user.businessId,
             obligationId,
             input,
-            obligationServiceDeps({ tx })
+            obligationServiceDeps({ tx, actorUserId: user.id })
           )
         )
     );

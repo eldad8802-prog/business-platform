@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
         legalName: optionalString(body, "legalName"),
         taxId: optionalString(body, "taxId"),
         note: optionalString(body, "note"),
+        actorUserId: user.id,
       }),
     );
 
