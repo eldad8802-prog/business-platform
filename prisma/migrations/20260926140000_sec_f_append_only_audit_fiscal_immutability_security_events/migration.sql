@@ -418,15 +418,32 @@ CREATE TABLE IF NOT EXISTS "SecurityEvent" (
   "ipHash"      TEXT,
   "route"       TEXT,
   "metadata"    JSONB,
-  CONSTRAINT "SecurityEvent_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "SecurityEvent_eventType_chk" CHECK ("eventType" ~ '^[A-Z][A-Z0-9_]{2,63}$'),
-  CONSTRAINT "SecurityEvent_outcome_chk" CHECK ("outcome" IN ('SUCCESS', 'FAILURE', 'DENIED', 'INFO')),
-  CONSTRAINT "SecurityEvent_reasonClass_chk" CHECK ("reasonClass" IS NULL OR "reasonClass" ~ '^[a-z][a-z0-9_]{0,63}$'),
-  CONSTRAINT "SecurityEvent_actorKind_chk" CHECK ("actorKind" IN ('USER', 'PLATFORM_ADMIN', 'SYSTEM', 'ANONYMOUS')),
-  CONSTRAINT "SecurityEvent_ipHash_chk" CHECK ("ipHash" IS NULL OR "ipHash" ~ '^[0-9a-f]{16,64}$'),
-  CONSTRAINT "SecurityEvent_route_chk" CHECK ("route" IS NULL OR length("route") <= 128),
-  CONSTRAINT "SecurityEvent_metadata_chk" CHECK ("metadata" IS NULL OR (jsonb_typeof("metadata") = 'object' AND pg_column_size("metadata") <= 4096))
+  CONSTRAINT "SecurityEvent_pkey" PRIMARY KEY ("id")
 );
+
+-- Shape constraints are separate statements so they land even where the table
+-- already exists (idempotent re-apply; a lab built from schema.prisma).
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_eventType_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_eventType_chk"
+  CHECK ("eventType" ~ '^[A-Z][A-Z0-9_]{2,63}$');
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_outcome_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_outcome_chk"
+  CHECK ("outcome" IN ('SUCCESS', 'FAILURE', 'DENIED', 'INFO'));
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_reasonClass_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_reasonClass_chk"
+  CHECK ("reasonClass" IS NULL OR "reasonClass" ~ '^[a-z][a-z0-9_]{0,63}$');
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_actorKind_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_actorKind_chk"
+  CHECK ("actorKind" IN ('USER', 'PLATFORM_ADMIN', 'SYSTEM', 'ANONYMOUS'));
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_ipHash_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_ipHash_chk"
+  CHECK ("ipHash" IS NULL OR "ipHash" ~ '^[0-9a-f]{16,64}$');
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_route_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_route_chk"
+  CHECK ("route" IS NULL OR length("route") <= 128);
+ALTER TABLE "SecurityEvent" DROP CONSTRAINT IF EXISTS "SecurityEvent_metadata_chk";
+ALTER TABLE "SecurityEvent" ADD CONSTRAINT "SecurityEvent_metadata_chk"
+  CHECK ("metadata" IS NULL OR (jsonb_typeof("metadata") = 'object' AND octet_length("metadata"::text) <= 8192));
 
 CREATE INDEX IF NOT EXISTS "SecurityEvent_occurredAt_idx" ON "SecurityEvent"("occurredAt");
 CREATE INDEX IF NOT EXISTS "SecurityEvent_businessId_occurredAt_idx" ON "SecurityEvent"("businessId", "occurredAt");
