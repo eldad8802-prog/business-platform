@@ -28,6 +28,7 @@
  */
 import { createHmac } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export const SECURITY_EVENT_TYPES = [
   "AUTH_LOGIN_SUCCESS",
@@ -165,9 +166,14 @@ export function buildSecurityEventRow(input: SecurityEventInput, now: Date = new
 
 /**
  * The database writer. INSERT without RETURNING (`createMany`): the runtime
- * holds INSERT and deliberately no SELECT on this table. A business-attributed
- * event is written inside a transaction that names that business, which is the
- * only business the insert rule lets it name.
+ * holds INSERT and deliberately no SELECT on this table.
+ *
+ * A business-attributed event is written through the canonical tenant
+ * transaction, whose GUC names the only business the insert rule lets it name.
+ * A pre-authentication event (a refused login for an unknown address, a
+ * cross-site refresh) has no tenant by definition; the insert rule admits it
+ * only with businessId NULL — the one bare-client write, allow-listed in the
+ * tenant-scoped access guard with that reason.
  */
 export const prismaSecurityEventWriter: SecurityEventWriter = async (row) => {
   const data = {
@@ -178,10 +184,7 @@ export const prismaSecurityEventWriter: SecurityEventWriter = async (row) => {
     await prisma.securityEvent.createMany({ data: [data] });
     return;
   }
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(row.businessId));
-    await tx.securityEvent.createMany({ data: [data] });
-  });
+  await tenantTx(row.businessId, (tx) => tx.securityEvent.createMany({ data: [data] }));
 };
 
 let writeFailures = 0;

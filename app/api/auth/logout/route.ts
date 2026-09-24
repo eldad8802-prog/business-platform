@@ -31,6 +31,7 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +107,7 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
+    await recordSecurityEvent({ type: "AUTH_LOGOUT_ALL", outcome: "SUCCESS", businessId: user.businessId, userId: user.id, req });
     const res = NextResponse.json({ success: true });
     clearRefreshCookie(res);
     return res;

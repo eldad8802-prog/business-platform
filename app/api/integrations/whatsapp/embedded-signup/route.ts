@@ -31,6 +31,7 @@ import {
   subscribeWabaToApp,
 } from "@/lib/services/integrations/whatsapp/graph.service";
 import { persistFromEmbeddedSignup } from "@/lib/services/integrations/whatsapp/connection.service";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -111,6 +112,7 @@ export async function POST(req: Request) {
       wabaId,
       accessToken: exchange.accessToken,
     });
+    await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "whatsapp", businessId, userId: user.id, req });
     return NextResponse.json({ connection }, { status: 201 });
   } catch (err) {
     if (isUniqueConflict(err)) {

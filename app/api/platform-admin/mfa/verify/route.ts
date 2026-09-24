@@ -17,6 +17,7 @@ import {
   issueAdminElevation,
 } from "@/lib/auth/platform-admin-elevation";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
     if (!result.ok) {
       // One generic refusal for every failure mode: a caller must not be able
       // to distinguish "wrong code" from "already used" from "not enrolled".
+      await recordSecurityEvent({ type: "ADMIN_MFA_VERIFY_FAILURE", outcome: "FAILURE", reason: result.reason, userId: gate.id, actor: "PLATFORM_ADMIN", req });
       const status = result.reason === "not_enrolled" || result.reason === "no_record" ? 409 : 401;
       return NextResponse.json(
         { error: "Verification failed", code: result.reason },
@@ -56,6 +58,7 @@ export async function POST(req: Request) {
       );
     }
 
+    await recordSecurityEvent({ type: "ADMIN_ELEVATION_GRANTED", outcome: "SUCCESS", reason: String(result.via), userId: gate.id, actor: "PLATFORM_ADMIN", req });
     return NextResponse.json(
       {
         elevation: issueAdminElevation(gate.id),

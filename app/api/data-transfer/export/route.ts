@@ -8,6 +8,7 @@ import {
   readSelectedDomains,
 } from "@/lib/data-transfer/export/export-runner";
 import { buildExportArtifact } from "@/lib/data-transfer/export/export-package";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 // ExcelJS and archiver are Node-only (Buffer, streams). Pinning the runtime is
 // mandatory, not incidental.
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
 
     // M5.5 sensor — fail-open, after the artifact was built. `kind` is the
     // sorted list of exported domain ids (enum values), joined.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "data_transfer_export", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

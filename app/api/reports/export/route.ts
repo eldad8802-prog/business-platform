@@ -5,6 +5,7 @@ import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { buildFinancialRecordsCsvBuffer } from "@/lib/reports/financial-records-csv";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -52,6 +53,7 @@ export async function GET(req: Request) {
     const csv = buildFinancialRecordsCsvBuffer(records);
 
     // M5.5 sensor — fail-open, after the CSV was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "financial_records_csv", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

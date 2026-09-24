@@ -15,12 +15,14 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 async function recordLoginFailure(input: {
   businessId?: number | null;
   userId?: number | null;
   reason: string;
 }) {
+  await recordSecurityEvent({ type: "AUTH_LOGIN_FAILURE", outcome: "FAILURE", reason: input.reason, businessId: input.businessId, userId: input.userId, actor: "ANONYMOUS" });
   await recordProductUsageEvent({
     businessId: input.businessId ?? null,
     userId: input.userId ?? null,
@@ -188,6 +190,7 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
+    await recordSecurityEvent({ type: "AUTH_LOGIN_SUCCESS", outcome: "SUCCESS", businessId: user.businessId, userId: user.id, req });
     const res = NextResponse.json({
       success: true,
       // Minted at the user's CURRENT generation, and NAMING the session above.

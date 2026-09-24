@@ -9,6 +9,7 @@ import {
   DocumentsExportTooLargeError,
   NoDocumentsToExportError,
 } from "@/lib/data-transfer/documents/documents-export";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 // archiver and ExcelJS are Node-only (Buffer, streams). Pinning the runtime is
 // mandatory, not incidental.
@@ -103,6 +104,7 @@ export async function POST(req: Request) {
     });
 
     // M5.5 sensor — fail-open, after the archive was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "documents_export", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

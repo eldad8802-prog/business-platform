@@ -23,6 +23,7 @@ import {
   makePrimaryId,
   parseUniformExportRange,
 } from "@/lib/services/billing/uniform/uniform-export-package.service";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +59,7 @@ export async function GET(req: Request): Promise<Response> {
     });
 
     // M5.5 sensor — fail-open, after the uniform file was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "uniform_export", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

@@ -26,6 +26,7 @@ import {
   setRefreshCookie,
 } from "@/lib/auth/refresh-cookie";
 import { refreshSession, type RefreshOutcome } from "@/lib/auth/refresh-session";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export type RefreshDeps = {
   now?: () => Date;
@@ -69,6 +70,7 @@ export async function handleRefresh(
     const csrf = checkBrowserCsrf(req);
     if (!csrf.ok) {
       logSecurityEvent("refresh_csrf_refused", { reason: csrf.reason });
+      await recordSecurityEvent({ type: "AUTH_REFRESH_CSRF_REFUSED", outcome: "DENIED", reason: csrf.reason, actor: "ANONYMOUS", req });
       // The cookie is untouched: a cross-site caller must not be able to log
       // anyone out by being refused.
       return refuse(403, false);
@@ -123,6 +125,7 @@ export async function handleRefresh(
           sessionId: outcome.sessionId,
           userId: outcome.userId,
         });
+        await recordSecurityEvent({ type: "AUTH_REFRESH_REUSE_DETECTED", outcome: "DENIED", reason: "suspected_refresh_reuse", userId: outcome.userId, req });
         return refuse(401, true);
 
       case "invalid":
