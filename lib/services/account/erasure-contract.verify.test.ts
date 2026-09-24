@@ -54,6 +54,7 @@ import {
   NOT_OWNED_POINTERS,
   OBJECT_SURFACES,
   POINTER_NAME_PATTERN,
+  PREFIX_SURFACES,
 } from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
 import { DEBT_SHAPES, SHAPED_CODES } from "../../../scripts/ci/erasure/erasure-debt-shapes";
@@ -982,6 +983,98 @@ function main(): number {
         surfaceKey(s),
         `${surfaceKey(s)} points at stored bytes the erasure does not delete (${s.state}) — ${s.reason} [target ${s.target}]`
       );
+    }
+  }
+
+  // ── C28 — pointer-less object surfaces, erased by tenant prefix ─────────────
+  //
+  // Content uploads have no column, so C19–C22 cannot see them. Two halves:
+  //   (a) an ERASED prefix surface is carried out: the adapter calls erasedBy.fn with
+  //       the surface's domain as a string-literal argument;
+  //   (b) completeness: every putPublicAsset({ domain }) writer in app/ and lib/ writes
+  //       into a domain declared here or backing a declared column surface. A domain
+  //       that is not a literal cannot be checked, and is a finding.
+  {
+    const adapterSrc = ts.createSourceFile("adapter.ts", fs.readFileSync(ADAPTER, "utf8"), ts.ScriptTarget.Latest, true);
+    const callsWithLiteral = (fn: string, literal: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === fn &&
+          n.arguments.some((a) => ts.isStringLiteral(a) && a.text === literal)
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(adapterSrc);
+      return found;
+    };
+    for (const ps of PREFIX_SURFACES) {
+      const key = `prefix:${ps.domain}`;
+      if (!ps.reason) report("C28-PREFIX-SURFACE-INVALID", key, "no reason is stated");
+      if (ps.state === "ERASED") {
+        if (!ps.erasedBy) {
+          report("C28-PREFIX-SURFACE-INVALID", key, "ERASED without naming the function that deletes the objects");
+        } else if (!callsWithLiteral(ps.erasedBy.fn, ps.domain)) {
+          report(
+            "C28-PREFIX-ERASURE-NOT-IMPLEMENTED",
+            key,
+            `${ps.prefix} is declared ERASED, but the adapter never calls ${ps.erasedBy.fn}(…, "${ps.domain}")`
+          );
+        }
+      } else if (!ps.target) {
+        report("C28-PREFIX-SURFACE-INVALID", key, "OPEN without a target increment");
+      } else {
+        report("C19-EXTERNAL-OBJECT-UNERASED", key, `${ps.prefix} survives an account deletion (OPEN) — ${ps.reason} [target ${ps.target}]`);
+      }
+    }
+    const knownDomains = new Set<string>([
+      ...PREFIX_SURFACES.map((x) => x.domain),
+      ...OBJECT_SURFACES.map((x) => x.domain).filter((d): d is string => !!d),
+    ]);
+    const files: string[] = [];
+    const walkDir = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules" && !e.name.startsWith(".")) walkDir(full);
+        } else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          files.push(full);
+        }
+      }
+    };
+    for (const d of ["app", "lib"]) if (fs.existsSync(path.join(ROOT, d))) walkDir(path.join(ROOT, d));
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      if (!text.includes("putPublicAsset(")) continue;
+      const src = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+      const rel = path.relative(ROOT, file).replace(/\\/g, "/");
+      const walk = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "putPublicAsset") {
+          const arg = n.arguments[0];
+          const dom =
+            arg && ts.isObjectLiteralExpression(arg)
+              ? arg.properties.find(
+                  (q): q is ts.PropertyAssignment => ts.isPropertyAssignment(q) && ts.isIdentifier(q.name) && q.name.text === "domain"
+                )
+              : undefined;
+          const line = src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1;
+          if (!dom || !ts.isStringLiteral(dom.initializer)) {
+            report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} writes a public asset whose domain is not a literal the contract can check`);
+          } else if (!knownDomains.has(dom.initializer.text)) {
+            report(
+              "C28-UNDECLARED-OBJECT-WRITER",
+              `${rel}:${dom.initializer.text}`,
+              `${rel}:${line} writes public objects into "${dom.initializer.text}", which no object surface declares`
+            );
+          }
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(src);
     }
   }
 
