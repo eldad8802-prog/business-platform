@@ -103,12 +103,24 @@ function errorSeam() {
     `Request failed: Authorization: Bearer ${JWT} cookie: dz_refresh=${JWT}; owner ${EMAIL} phone +972-52-123-4567 or 052-123-4567 ` +
     `IBAN IL62 0108 0000 0009 9999 999 card 4580 1234 5678 9012 id 123456782 password=${PASSWORD} ` +
     `postgresql://app_runtime_prod:hunter2@db.example/neondb api_key: sk_live_abcdef`;
-  const s = scrubText(msg);
-  for (const [label, needle] of [
-    ["jwt", "eyJ"], ["email", EMAIL], ["phone intl", "123-4567"], ["iban", "0108"], ["card", "4580"],
-    ["israeli id", "123456782"], ["password", PASSWORD], ["db credential", "hunter2"], ["api key", "sk_live"],
+  // Each class is checked on its OWN input, so one greedy pattern can never
+  // mask another pattern's absence.
+  for (const [label, input, needle] of [
+    ["authorization header", `Authorization: Bearer ${JWT}`, "eyJ"],
+    ["cookie header", `cookie: dz_refresh=${JWT}`, "eyJ"],
+    ["bare jwt", `token was ${JWT} here`, "eyJ"],
+    ["email", `owner ${EMAIL} failed`, EMAIL],
+    ["phone intl", "call +972-52-123-4567 now", "123-4567"],
+    ["phone local", "call 052-123-4567 now", "123-4567"],
+    ["iban", "IBAN IL62 0108 0000 0009 9999 999 ok", "0108"],
+    ["card", "card 4580 1234 5678 9012 ok", "4580"],
+    ["israeli id", "id 123456782 ok", "123456782"],
+    ["password", `password=${PASSWORD} ok`, PASSWORD],
+    ["db credential", "postgresql://app_runtime_prod:hunter2@db.example/neondb", "hunter2"],
+    ["api key", "api_key: sk_live_abcdef", "sk_live"],
   ] as const) {
-    ok(`scrubber removes ${label}`, !s.includes(needle), s);
+    const out = scrubText(input);
+    ok(`scrubber removes ${label}`, !out.includes(needle), out);
   }
   const reports: ScrubbedError[] = [];
   const prev = setErrorReporterAdapter({ name: "test", report: (e) => { reports.push(e); } });
