@@ -34,7 +34,7 @@ const MUTATIONS = [
   },
   {
     id: "N2",
-    reason: "without the REVOKE the runtime keeps UPDATE; the refusal becomes the trigger (DZ001), not the privilege (42501)",
+    reason: "without the REVOKE the runtime's UPDATE is no longer refused by privilege (42501); it is merely filtered to zero rows by the restrictive rule — a silent no-op, not a denial",
     anchor: `    REVOKE UPDATE, DELETE, TRUNCATE ON "BillingAuditEvent"  FROM app_runtime;\n`,
     replacement: ``,
     expect: "A-RT-UPD BillingAuditEvent",
