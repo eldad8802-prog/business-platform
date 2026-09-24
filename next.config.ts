@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
+import { PERMISSIONS_POLICY } from "./lib/security/csp";
 
 const nextConfig: NextConfig = {
+  // I-1: do not advertise the framework (X-Powered-By: Next.js).
+  poweredByHeader: false,
+
   // Playwright is Node-native; do not bundle it into the serverless output.
   serverExternalPackages: ["playwright", "playwright-core"],
 
@@ -62,6 +66,11 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // I-1 / M-8 (sec-B): camera and geolocation for this origin only (the
+          // scanners and the coupon locator); every other powerful feature off.
+          // The Content-Security-Policy itself is per request (nonce) and is set
+          // by proxy.ts, not here.
+          { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
         ],
       },
     ];
