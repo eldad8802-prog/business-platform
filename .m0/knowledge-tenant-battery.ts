@@ -174,6 +174,20 @@ function policySeedsFromMigration(): string[] {
   return out;
 }
 
+
+/** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
+function laterRuleVersions(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
+    .replace(/
+/g, "
+").split("
+").map((l) => l.replace(/--.*$/, "")).join("
+");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicyVersion"/.test(s));
+  if (out.length !== 1) throw new Error(`expected 1 M5.5 version insert, found ${out.length}`);
+  return out;
+}
+
 async function main(): Promise<void> {
   section("Provision — role, policies, grants (mirroring Production)");
 
@@ -194,6 +208,7 @@ async function main(): Promise<void> {
   // catalogue refuses at the policy stage — which is the resolver being correctly fail-closed, and
   // would make this whole battery prove nothing about the rules themselves.
   for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
   const seeded = await owner.derivationPolicyVersion.count();
   check("the migration seeds a version for every rule in the catalogue", seeded === 14, `versions=${seeded}`);
 
