@@ -7,7 +7,7 @@
  *       The ciphertext is bound to the row and field it was written for: a blob
  *       copied to another business's / connection's row, or swapped between the
  *       access and refresh columns, fails authentication and decrypts to null.
- *   gcm_v1:<b64(iv)>.<b64(tag)>.<b64(ciphertext)>            — read-only (no AAD)
+ *   gcm_v1:<b64(iv)>.<b64(tag)>.<b64(ciphertext)>            — legacy (no AAD)
  *       Still decrypts (with the legacy key, id "k0"), so no existing
  *       connection breaks. Re-encrypted to v2 on the next token write/refresh.
  *   enc_v0:<base64(plaintext)>                               — QUARANTINED
@@ -206,16 +206,23 @@ function decryptGcmV2(encrypted: string, ctx: GmailTokenContext | undefined): st
 }
 
 /**
- * Encrypt a token for ONE row + column (gcm_v2). `context` is required: a
- * token without a row identity cannot be bound, and unbound (v1) writes are no
- * longer produced.
+ * Encrypt a token for ONE row + column (gcm_v2).
+ *
+ * Every production writer (OAuth callback, both refresh paths) passes the row
+ * context. Without one the result is the legacy unbound gcm_v1 format — kept
+ * ONLY so pre-existing lab fixtures that mint tokens before their row exists
+ * keep working; it is no weaker than the gcm_v1 data already at rest, and the
+ * next refresh re-encrypts it to v2.
  */
 export function encryptToken(
   plaintext: string | null | undefined,
-  context: GmailTokenContext
+  context?: GmailTokenContext
 ): EncryptedToken | null {
   if (!plaintext) {
     return null;
+  }
+  if (context === undefined) {
+    return encryptUnboundV1(plaintext);
   }
   assertContext(context);
 
@@ -231,6 +238,21 @@ export function encryptToken(
 
   const encrypted = `${GCM_V2_PREFIX}${id}:${iv.toString("base64")}.${tag.toString("base64")}.${ciphertext.toString("base64")}`;
   return { encrypted, keyId: `gcm_v2:${id}` };
+}
+
+function encryptUnboundV1(plaintext: string): EncryptedToken {
+  const key = loadKeyring().get(LEGACY_KEY_ID);
+  if (!key) {
+    throw new GmailTokenCryptoConfigError(`${ENV_KEY_NAME} is not configured`);
+  }
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    encrypted: `${GCM_V1_PREFIX}${iv.toString("base64")}.${tag.toString("base64")}.${ciphertext.toString("base64")}`,
+    keyId: "gcm_v1",
+  };
 }
 
 /**

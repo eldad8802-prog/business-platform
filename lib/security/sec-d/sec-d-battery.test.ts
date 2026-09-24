@@ -721,6 +721,23 @@ async function main(): Promise<void> {
       delete process.env.GMAIL_TOKEN_ENCRYPTION_ACTIVE_KEY_ID;
     }
   });
+  await check("L-17", "every production token writer passes a row context (no unbound writes)", async () => {
+    const fsSync = await import("node:fs");
+    const writers = [
+      "app/api/integrations/gmail/callback/route.ts",
+      "lib/services/integrations/gmail/gmail-auth.service.ts",
+      "lib/services/integrations/gmail/gmail-discovery.service.ts",
+    ];
+    for (const f of writers) {
+      const src = fsSync.readFileSync(f, "utf8");
+      const calls = src.match(/encryptToken\([^)]*\)/g) ?? [];
+      if (calls.length === 0) throw new Error(`${f}: no encryptToken call found`);
+      for (const c of calls) {
+        if (!/field: "(access|refresh)"/.test(c)) throw new Error(`${f}: unbound call ${c}`);
+      }
+    }
+    return true;
+  });
   await check("L-17", "a blob under an unknown key id does not decrypt", () =>
     tc.decryptToken(v2.encrypted.replace("gcm_v2:k0:", "gcm_v2:k9:"), ctxA) === null
   );
