@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, authRequiredResponse } from "@/lib/auth";
 import {
-  deleteOwnBusinessAccount,
+  requestAccountDeletion,
   AccountDeletionError,
 } from "@/lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "@/lib/services/account/account-deletion.prisma-store";
@@ -21,11 +21,13 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    const result = await deleteOwnBusinessAccount(prismaAccountDeletionStore, {
+    const result = await requestAccountDeletion(prismaAccountDeletionStore, {
       businessId: user.businessId,
       actorUserId: user.id,
     });
-    return NextResponse.json({ ok: true, status: result.status }, { status: 200 });
+    // SEC-E / H-5: "accepted" = quarantined and durably owed; the erasure sweeper
+    // finishes it. Never a 500 the owner (whose session just ended) cannot retry.
+    return NextResponse.json({ ok: true, status: result.status }, { status: result.status === "accepted" ? 202 : 200 });
   } catch (error) {
     if (error instanceof AccountDeletionError) {
       const status =

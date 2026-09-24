@@ -20,8 +20,11 @@
  *     lifecycle transitions, which are never legitimately zero in their own branch,
  *     additionally assert exactly-one.
  *
- *  3. ORDER. Quarantine + credential destruction commit FIRST, in one transaction,
- *     before anything destructive. See the orchestrator for why.
+ *  3. ORDER. The quarantine commits FIRST, before anything destructive. SEC-E split
+ *     credential destruction out of it: the provider-side revoke needs the plaintext
+ *     token, so the order is now quarantine -> revoke authority (sessions) -> purge ->
+ *     provider revoke -> destroy credentials -> verify -> finalize, each a durable,
+ *     retryable stage of lib/services/account/erasure-job.ts.
  *
  * The erasure job is the ONE caller allowed past the quarantine gate in
  * `runTenantJob` — it must be able to act on a business precisely because that
@@ -29,8 +32,10 @@
  *
  * Integration credentials are CLEARED IN PLACE (not row-deleted) to avoid FK
  * landmines with retained fiscal rows; required non-null cipher fields are blanked to
- * "" (ciphertext gone). Provider-side revoke is a separate best-effort concern
- * (documented in the design doc); here we guarantee the at-rest secret is destroyed.
+ * "" (ciphertext gone). The provider-side revoke is performed by the erasure job from
+ * `readProviderGrants` and its outcome recorded truthfully (REVOKED /
+ * REVOKE_FAILED_LOCAL_DELETED / NOT_SUPPORTED); this adapter guarantees the at-rest
+ * secret is destroyed.
  */
 // `Prisma` is a VALUE import, not a type-only one: clearing a nullable Json
 // column needs `Prisma.DbNull`, because a plain `null` there means "JSON null"
@@ -40,12 +45,23 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 // S8: the object deleter the CRM product already uses. One implementation, not two.
 import { deleteAttachmentObject } from "@/lib/services/crm/crm-attachment-storage";
+import { deletePublicAssetsOfBusiness } from "@/lib/services/storage/public-asset-storage.service";
+import { getStorageService } from "@/lib/storage";
+import {
+  countSessionsOfBusinessUsers,
+  eraseSessionsOfBusinessUsers,
+  revokeAuthorityOfBusinessUsers,
+} from "@/lib/auth/session-directory";
+import { decryptToken } from "@/lib/services/integrations/gmail/token-crypto.placeholder";
+import { decryptAccessToken } from "@/lib/services/integrations/whatsapp/token-crypto.service";
 import { runTenantJob } from "@/lib/tenant/job";
+import { prismaErasureLedger } from "@/lib/services/account/erasure-ledger.prisma";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ADVISORY_NAMESPACE, lifecycleOf } from "@/lib/tenant/business-lifecycle";
 import type {
   AccountDeletionStore,
   BusinessDeletionState,
+  ProviderGrant,
 } from "@/lib/services/account/account-deletion.service";
 
 /** Raised when the erasure could not prove it was operating on the intended tenant. */
@@ -99,6 +115,25 @@ function assertAtLeastOne(count: number, operation: string): void {
 }
 
 export const prismaAccountDeletionStore: AccountDeletionStore = {
+  /** SEC-E / H-5 — the durable record of every erasure attempt (erasure-ledger.prisma.ts). */
+  ledger: prismaErasureLedger,
+
+  /**
+   * SEC-E / H-5 — the sweeper's work list: every business whose erasure is owed
+   * (quarantined) and not finished, oldest request first. `Business` carries no RLS; the
+   * runtime reads only the lifecycle columns it is granted. The list is a SCHEDULE, never
+   * authority: the job re-reads each business and refuses one that is not quarantined.
+   */
+  async listStrandedErasures(limit) {
+    const rows = await prisma.business.findMany({
+      where: { deletionRequestedAt: { not: null }, deletedAt: null },
+      select: { id: true },
+      orderBy: { deletionRequestedAt: "asc" },
+      take: Math.max(1, Math.min(limit, 500)),
+    });
+    return rows.map((r) => r.id);
+  },
+
   async getBusiness(businessId) {
     const b = await prisma.business.findUnique({
       where: { id: businessId },
@@ -119,28 +154,29 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
   },
 
   /**
-   * STAGE 1 — quarantine + credential destruction, atomically.
+   * STAGE 1 — QUARANTINE. The lifecycle transition, and only that.
    *
-   * The transition is a CONDITIONAL update (`deletionRequestedAt: null`), which makes
-   * two concurrent deletion requests safe without an application-level lock: exactly
-   * one of them updates a row, the other sees 0 and reports that it lost the race.
-   * Row locking against in-flight normal writes is provided by
-   * `assertBusinessAcceptsWritesTx`, which locks the same row from the other side.
+   * SEC-E: the name predates the split and is kept because CI-AD-3 anchors the
+   * quarantine-before-purge ordering on it. It used to destroy the integration
+   * credentials in the same call, which made a provider-side revoke impossible: the
+   * plaintext token a revoke needs was gone before anything could send it. Revocation is
+   * now durable, retryable stages the erasure job (erasure-job.ts) runs AFTER this
+   * commits: `readProviderGrants` -> provider revoke (recorded truthfully in the ledger)
+   * -> `destroyIntegrationCredentials`. Quarantine-first is unchanged: once this commits,
+   * no normal write can commit anywhere (sessions, runTenantJob, and every tenant
+   * transaction via withTenantTransaction), so credentials still at rest until their
+   * stage runs are unusable by the product.
    *
-   * NO NETWORK CALL lives in this transaction. Provider-side revocation is a separate,
-   * best-effort concern; what commits here is the destruction of the secret at rest,
-   * which is what actually stops the integration from being usable.
+   * The transition is CONDITIONAL (`deletionRequestedAt: null`), so two concurrent
+   * requests cannot both believe they started the deletion. It takes the lifecycle
+   * advisory key EXCLUSIVE; every tenant transaction holds it SHARED, so the transition
+   * waits for in-flight writers to finish and every later one observes the quarantine.
+   *
+   * NO NETWORK CALL lives here.
    */
   async quarantineAndRevokeIntegrations(businessId, now) {
-    // ── 1. LIFECYCLE TRANSITION — deliberately OUTSIDE tenant context ──────
-    //
-    // `Business` carries no RLS, and it is the one statement here that must not
-    // run inside a tenant job: the transition is what CREATES the quarantine,
-    // and `runTenantJob` refuses a quarantined business by default. The advisory
-    // lock belongs here and nowhere else — it exists to serialise this
-    // transition against `assertBusinessAcceptsWritesTx`, which takes the same
-    // lock from the other side. Once this commits, normal writes are refused
-    // everywhere, which is what makes the destruction below safe to do second.
+    // `Business` carries no RLS, and this is the one statement that must not run inside
+    // a tenant job: the transition is what CREATES the quarantine.
     const transitioned = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
       const moved = await tx.business.updateMany({
@@ -149,40 +185,101 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
       });
       return moved.count;
     });
-    const wonTheRace = transitioned === 1;
+    // false = another request transitioned first. Not an error; the job resumes.
+    return transitioned === 1;
+  },
 
-    // ── 2. CREDENTIAL DESTRUCTION — REQUIRES tenant context ────────────────
-    //
-    // THIS IS THE FIX. Four of these six tables are FORCE-RLS'd, and every
-    // statement below used to run on the context-less tenant client inside the
-    // transaction above. Under RLS the predicate evaluated to NULL, so each
-    // matched ZERO rows, returned without raising, and left the secret at rest
-    // while the flow reported it destroyed. Measured: the Gmail refresh token,
-    // the SHAAM access and refresh tokens, and the payment-provider credential
-    // all survived. `WhatsAppConnection` and `POSApiKey` carry no RLS and were
-    // destroyed correctly by the very same transaction — which is what proved
-    // the stage executed rather than never running.
-    //
-    // Only the statements that NEED the context get it. The transition above
-    // does not and is not wrapped.
-    //
-    // This runs on EVERY attempt, not only when this caller won the race. Each
-    // statement is a state-convergent overwrite, so repeating it is a no-op, and
-    // an attempt that died between the transition and this point would otherwise
-    // leave credentials alive with nothing left to reach them.
-    //
-    // `quarantinePolicy: "erasure"` is required and is the ONLY sanctioned way
-    // past the lifecycle gate: by now the business IS quarantined, which is
-    // exactly why this job must be allowed to act on it. CI confines the literal
-    // to this module.
+  /**
+   * SEC-E / M-12(b) — the plaintext grants a provider-side revoke needs, read BEFORE
+   * `destroyIntegrationCredentials` destroys them. Returned to the erasure job, which
+   * calls the providers OUTSIDE any transaction and records every outcome.
+   *
+   * A grant whose ciphertext is already gone or cannot be decrypted is reported with
+   * `token: null`, and the job records it REVOKE_FAILED_LOCAL_DELETED, never REVOKED.
+   * Read-only; nothing here writes.
+   */
+  async readProviderGrants(businessId) {
+    return runTenantJob(
+      { businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          await assertTenantContextIs(tx, businessId);
+          const grants: ProviderGrant[] = [];
+          const gmail = await tx.emailConnection.findMany({
+            where: { businessId },
+            select: {
+              id: true,
+              token: { select: { accessTokenEncrypted: true, refreshTokenEncrypted: true } },
+            },
+          });
+          for (const c of gmail) {
+            if (!c.token) continue;
+            // Prefer the refresh token: Google revokes the whole grant from either.
+            const token =
+              decryptToken(c.token.refreshTokenEncrypted) ?? decryptToken(c.token.accessTokenEncrypted);
+            grants.push({ provider: "google", action: "oauth_token_revoke", connectionId: c.id, token, wabaId: null });
+          }
+          const wa = await tx.whatsAppConnection.findMany({
+            where: { businessId },
+            select: { id: true, wabaId: true, accessTokenEncrypted: true, accessTokenIv: true, accessTokenTag: true },
+          });
+          for (const c of wa) {
+            if (!c.accessTokenEncrypted) continue;
+            const token = decryptAccessToken(
+              { encrypted: c.accessTokenEncrypted, iv: c.accessTokenIv, tag: c.accessTokenTag },
+              businessId
+            );
+            grants.push({ provider: "meta", action: "waba_unsubscribe", connectionId: c.id, token, wabaId: c.wabaId || null });
+          }
+          // ITA and the payment providers: no provider-side revoke API exists in this
+          // codebase for either, so the grant is listed only so its outcome is RECORDED
+          // (NOT_SUPPORTED) instead of silently implied.
+          const ita = await tx.billingAuthorityConnection.findMany({
+            where: {
+              businessId,
+              OR: [{ accessTokenEncrypted: { not: null } }, { refreshTokenEncrypted: { not: null } }],
+            },
+            select: { id: true },
+          });
+          for (const c of ita) {
+            grants.push({ provider: "ita", action: "oauth_token_revoke", connectionId: c.id, token: null, wabaId: null });
+          }
+          const pay = await tx.businessPaymentConnection.findMany({
+            where: { businessId, credentialEncrypted: { not: null } },
+            select: { id: true },
+          });
+          for (const c of pay) {
+            grants.push({ provider: "payment", action: "credential_revoke", connectionId: c.id, token: null, wabaId: null });
+          }
+          return grants;
+        }),
+      { quarantinePolicy: "erasure" }
+    );
+  },
+
+  /**
+   * STAGE — CREDENTIAL + IDENTIFIER DESTRUCTION, under an explicit tenant context.
+   *
+   * Runs only after the provider-revoke stage has an outcome for every grant (the job
+   * enforces that order). Four of these tables are FORCE-RLS'd; without the tenant GUC
+   * every statement here matched ZERO rows, silently (Defect A).
+   *
+   * SEC-E / M-13 + L-18: the connection IDENTIFIERS go too, not only the secrets. A
+   * WhatsApp number stayed bound to the deleted business forever (`phoneNumberId` is
+   * globally @unique, so the number could never be connected to another Dubiz account),
+   * and the Gmail address, Google account id, granted scopes and the last provider error
+   * text all survived. `phoneNumberId` and `emailAddress` are NOT NULL and unique, so
+   * they get a tombstone that cannot collide; the rest is cleared.
+   *
+   * Every statement is a state-convergent overwrite, so a retry is a no-op.
+   */
+  async destroyIntegrationCredentials(businessId, now) {
     await runTenantJob(
       { businessId },
       () =>
         withTenantTransaction(async (tx) => {
-          // The same silent-zero backstop stage 2 uses, and for the same reason:
-          // zero rows IS legitimate here, because a business may simply never
-          // have connected a provider, so row counts can never detect a missing
-          // context on their own.
+          // Zero rows IS legitimate here (a business may never have connected a
+          // provider), so row counts can never detect a missing context on their own.
           await assertTenantContextIs(tx, businessId);
 
           await tx.billingAuthorityConnection.updateMany({
@@ -197,14 +294,36 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId },
             data: { credentialEncrypted: null, credentialIv: null, credentialTag: null, isActive: false },
           });
+          // `businessId` is @unique on this table (one connection per business), so a
+          // tombstone derived from it is unique by construction, and the real number is
+          // released for reconnection anywhere (L-18).
           await tx.whatsAppConnection.updateMany({
             where: { businessId },
-            data: { accessTokenEncrypted: "", accessTokenIv: "", accessTokenTag: "", status: "REVOKED_BY_META" },
+            data: {
+              accessTokenEncrypted: "", accessTokenIv: "", accessTokenTag: "", status: "REVOKED_BY_META",
+              phoneNumberId: `erased-${businessId}`,
+              displayPhoneNumber: "",
+              wabaId: "",
+              lastErrorMessage: null,
+            },
           });
           await tx.emailConnection.updateMany({
             where: { businessId },
-            data: { status: "revoked", lastSyncCursor: null },
+            data: { status: "revoked", lastSyncCursor: null, lastError: null, providerAccountId: "", scopes: "" },
           });
+          // `emailAddress` is NOT NULL and unique per (business, provider), so it is
+          // rewritten per row with a tombstone derived from the row's own id:
+          // deterministic across retries, and incapable of colliding with a sibling.
+          const connections = await tx.emailConnection.findMany({
+            where: { businessId },
+            select: { id: true },
+          });
+          for (const { id } of connections) {
+            await tx.emailConnection.updateMany({
+              where: { businessId, id },
+              data: { emailAddress: `erased-${id}@deleted.invalid` },
+            });
+          }
           // OAuthTokens hang off EmailConnection; delete via the relation (no fiscal FK).
           await tx.oAuthToken.deleteMany({ where: { connection: { businessId } } });
           // POS keys: DELETE the rows. keyHash is globally @unique, so blanking it to a
@@ -214,10 +333,6 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
         }),
       { quarantinePolicy: "erasure" }
     );
-
-    // false = another request transitioned first. Not an error; the caller
-    // resumes from stage 2. Credentials converged either way.
-    return wonTheRace;
   },
 
   /**
@@ -267,6 +382,16 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
         for (const { storageKey } of attachments) {
           await deleteAttachmentObject(storageKey);
         }
+
+        // ── S8 / SEC-E M-13 — the objects NO row points at ────────────────────
+        //
+        // A content upload is written to `biz/{id}/content/*` and its URL lives only in
+        // the browser. There is no column to read a key from, so the only way to reach
+        // those bytes is the tenant's own prefix. Object-first like the attachments
+        // above: a failure here throws before any row is touched, and a retry lists
+        // whatever is left and deletes it. Declared as a prefix surface in
+        // scripts/ci/erasure/erasure-object-surfaces.ts (C28).
+        await deletePublicAssetsOfBusiness(businessId, "content");
 
         return withTenantTransaction(async (tx) => {
           await assertTenantContextIs(tx, businessId);
@@ -576,5 +701,104 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
         data: { deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
       });
     });
+  },
+
+  /**
+   * SEC-E / M-12(a) — end the authority the account still holds, on the auth plane
+   * that owns it: every user's token generation moves and every live session is
+   * revoked. Before this the lifecycle gate was the only control; now a token or a
+   * refresh credential minted before the deletion fails on its own.
+   */
+  async revokeAccountAuthority(businessId, now) {
+    await revokeAuthorityOfBusinessUsers(businessId, now);
+  },
+
+  /**
+   * SEC-E — erase the device history (session rows and their rotation secrets, which
+   * carry the User-Agent of every login). Runs after the authority stage.
+   */
+  async eraseAccountSessions(businessId) {
+    await eraseSessionsOfBusinessUsers(businessId);
+  },
+
+  /**
+   * SEC-E / H-5 — VERIFIED COMPLETION. Post-conditions read back from the database and
+   * the object store BEFORE the terminal transition is allowed to commit. Returns the
+   * residual CLASSES still present (fixed strings, never values). An empty list is the
+   * only thing that lets `finalizeAndAudit` run; anything else leaves the business
+   * DELETION_REQUESTED and the job retries.
+   *
+   * This is a gate, not the exhaustive proof: the AD-2A and SEC-E batteries sweep every
+   * column. It exists so a stage that silently did less than it claimed (the Defect A/B
+   * shape) cannot reach PURGED.
+   */
+  async verifyErased(businessId) {
+    const residual: string[] = [];
+    const counts = await runTenantJob(
+      { businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          await assertTenantContextIs(tx, businessId);
+          return {
+            users: await tx.user.count({
+              where: {
+                businessId,
+                OR: [
+                  { NOT: { email: `deleted-biz-${businessId}@deleted.invalid` } },
+                  { name: { not: null } },
+                  { NOT: { password: "" } },
+                ],
+              },
+            }),
+            oauth: await tx.oAuthToken.count({ where: { connection: { businessId } } }),
+            email: await tx.emailConnection.count({
+              where: {
+                businessId,
+                OR: [
+                  { NOT: { emailAddress: { endsWith: "@deleted.invalid" } } },
+                  { NOT: { providerAccountId: "" } },
+                  { lastError: { not: null } },
+                ],
+              },
+            }),
+            whatsapp: await tx.whatsAppConnection.count({
+              where: {
+                businessId,
+                OR: [
+                  { NOT: { accessTokenEncrypted: "" } },
+                  { NOT: { phoneNumberId: `erased-${businessId}` } },
+                  { NOT: { wabaId: "" } },
+                ],
+              },
+            }),
+            ita: await tx.billingAuthorityConnection.count({
+              where: {
+                businessId,
+                OR: [{ accessTokenEncrypted: { not: null } }, { refreshTokenEncrypted: { not: null } }],
+              },
+            }),
+            payment: await tx.businessPaymentConnection.count({
+              where: { businessId, credentialEncrypted: { not: null } },
+            }),
+            pos: await tx.pOSApiKey.count({ where: { businessId } }),
+            crm: (await tx.crmAttachment.count({ where: { businessId } })) + (await tx.crmNote.count({ where: { businessId } })),
+            customers: await tx.customer.count({
+              where: { businessId, OR: [{ phone: { not: null } }, { email: { not: null } }, { taxId: { not: null } }] },
+            }),
+            leads: await tx.lead.count({
+              where: { businessId, OR: [{ phone: { not: null } }, { email: { not: null } }, { customerName: { not: null } }] },
+            }),
+            messages: await tx.message.count({ where: { businessId, contentText: { not: null } } }),
+          };
+        }),
+      { quarantinePolicy: "erasure" }
+    );
+    for (const [cls, n] of Object.entries(counts)) {
+      if (n > 0) residual.push(cls);
+    }
+    const content = await getStorageService().listObjectKeys(`biz/${businessId}/content/`, { limit: 1 });
+    if (content.keys.length > 0) residual.push("content_objects");
+    if ((await countSessionsOfBusinessUsers(businessId)) > 0) residual.push("auth_sessions");
+    return residual;
   },
 };

@@ -26,6 +26,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { getTenantContextOrThrow } from "./context";
+import { ADVISORY_NAMESPACE, assertTenantTxAcceptsWrites } from "./business-lifecycle";
+import { holdsErasureAuthority } from "./erasure-authority";
 
 /** The Prisma interactive-transaction client handed to the callback. */
 export type TenantTx = Prisma.TransactionClient;
@@ -52,10 +54,26 @@ export async function withTenantTransaction<T>(
   // Read the trusted, server-derived tenant BEFORE opening a transaction.
   const { businessId } = getTenantContextOrThrow();
 
+  // SEC-E / M-12(c): decided BEFORE the transaction opens, from the ALS capability that
+  // only `runTenantJob(..., { quarantinePolicy: "erasure" })` grants.
+  const erasure = holdsErasureAuthority(businessId);
+
   return prisma.$transaction(
     async (tx) => {
-      // Transaction-local (is_local = true). Parameterized — never string-interpolated.
-      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+      if (erasure) {
+        // The erasure worker acts ON a quarantined business by design; it neither takes
+        // the shared lifecycle lock (its own finalisation takes that key exclusive) nor
+        // is refused by the gate below.
+        // Transaction-local (is_local = true). Parameterized — never string-interpolated.
+        await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+        return fn(tx);
+      }
+      // Transaction-local GUC, plus the SHARED lifecycle lock in the same statement, so a
+      // quarantine can never commit between "this transaction started" and "this
+      // transaction checked the lifecycle" (see assertTenantTxAcceptsWrites).
+      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true) FROM pg_advisory_xact_lock_shared(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+      // NEW statement, new snapshot: fail closed for a business under erasure.
+      await assertTenantTxAcceptsWrites(tx, businessId);
       return fn(tx);
     },
     options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,

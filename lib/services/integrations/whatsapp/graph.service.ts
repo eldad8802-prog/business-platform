@@ -127,6 +127,44 @@ export async function subscribeWabaToApp(input: {
   }
 }
 
+/**
+ * SEC-E / M-12(b) — the documented inverse of `subscribeWabaToApp`:
+ *
+ *   DELETE /{waba-id}/subscribed_apps
+ *
+ * Unsubscribes our Meta app from the WABA so Meta stops delivering this business’s
+ * webhooks to us. Called by account erasure BEFORE the local token and WABA id are
+ * destroyed (it needs both). It is NOT a token revocation: Meta documents no endpoint
+ * that invalidates the Embedded Signup business token, so erasure records the token
+ * outcome as NOT_SUPPORTED and only this subscription as provider-side REVOKED.
+ *
+ * Never throws; never logs the token.
+ */
+export async function unsubscribeWabaFromApp(input: {
+  wabaId: string;
+  accessToken: string;
+}): Promise<SubscribeWabaResult> {
+  const wabaId = input.wabaId?.trim();
+  if (!wabaId || !input.accessToken) {
+    return { ok: false, code: "unsubscribe_config_missing", message: "Missing wabaId or access token" };
+  }
+  const url = new URL(`${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(wabaId)}/subscribed_apps`);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+    });
+    const data = (await res.json().catch(() => null)) as { success?: unknown } | null;
+    if (!res.ok || !data || data.success !== true) {
+      return { ok: false, ...safeError(data, `unsubscribe_${res.status}`) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, code: "unsubscribe_network", message: "Network error unsubscribing WABA" };
+  }
+}
+
 export type PhoneDisplayResult =
   | { ok: true; displayPhoneNumber: string; verifiedName: string | null }
   | { ok: false; code: string; message: string };

@@ -159,7 +159,12 @@ export async function assertBusinessAcceptsWritesTx(
   if (!Number.isInteger(businessId) || businessId <= 0) {
     throw new BusinessQuarantinedError(businessId, "UNKNOWN");
   }
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+  // SHARED, not exclusive (SEC-E). The quarantine transition takes this key EXCLUSIVE,
+  // so a shared hold still serialises against it in both directions, which is the only
+  // exclusion this gate exists for. Exclusive here would now deadlock: every tenant
+  // transaction already holds the key SHARED (withTenantTransaction), and two of them
+  // upgrading to exclusive on the same business would wait on each other.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
   const rows = await tx.$queryRaw<BusinessLifecycleRow[]>`
     SELECT "deletionRequestedAt", "deletedAt"
     FROM "Business"
@@ -169,6 +174,52 @@ export async function assertBusinessAcceptsWritesTx(
     throw new BusinessQuarantinedError(businessId, "UNKNOWN");
   }
   const lifecycle = lifecycleOf(rows[0]);
+  if (lifecycle !== "ACTIVE") {
+    throw new BusinessQuarantinedError(businessId, lifecycle);
+  }
+}
+
+/**
+ * SEC-E / M-12(c) — the lifecycle gate INSIDE every tenant transaction.
+ *
+ * Called by `withTenantTransaction` right after the tenant GUC is set, for every caller
+ * that does not hold the erasure authority. It closes the window no entry-point check
+ * can close: a webhook, an OAuth callback (Gmail tokens), an import or an OCR
+ * continuation that passed its pre-check while the business was ACTIVE and opened its
+ * transaction after the quarantine committed. Before this only the payment store
+ * re-checked in-transaction; every other writer could commit into a business being
+ * erased, and the Gmail callback could commit fresh provider credentials into it.
+ *
+ * ORDER IS THE PROOF, and it takes two statements on purpose:
+ *
+ *   1. the caller takes the SHARED advisory lock in the same statement that sets the
+ *      GUC. The quarantine transition holds this key EXCLUSIVE, so a transaction that
+ *      got there first finishes before the quarantine can commit, and one that arrives
+ *      during the transition waits for it;
+ *   2. only THEN is the lifecycle read, in a NEW statement. Under READ COMMITTED a new
+ *      statement takes a new snapshot, so it sees the quarantine the lock wait just let
+ *      commit. Reading inside the locking statement would use a snapshot taken before
+ *      the wait and could see a stale ACTIVE.
+ *
+ * A business row that does not exist is NOT refused here. No lifecycle applies to a
+ * business that does not exist, every tenant table's foreign key to Business refuses a
+ * write for it anyway, and RLS scopes any read to nothing; refusing would only turn
+ * fixtures and fakes into false failures without denying anything real.
+ */
+export async function assertTenantTxAcceptsWrites(
+  tx: { $queryRaw: Prisma.TransactionClient["$queryRaw"] },
+  businessId: number
+): Promise<void> {
+  const rows = await tx.$queryRaw<BusinessLifecycleRow[]>`
+    SELECT "deletionRequestedAt", "deletedAt"
+    FROM "Business"
+    WHERE "id" = ${businessId}
+  `;
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  if (!row) {
+    return;
+  }
+  const lifecycle = lifecycleOf(row);
   if (lifecycle !== "ACTIVE") {
     throw new BusinessQuarantinedError(businessId, lifecycle);
   }
