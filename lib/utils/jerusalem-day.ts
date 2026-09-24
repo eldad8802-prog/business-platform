@@ -184,3 +184,32 @@ const OFFSET_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   second: "2-digit",
   hourCycle: "h23",
 });
+
+/**
+ * The exact UTC instant of a wall-clock time on an Israeli calendar day.
+ *
+ * Used to cut a comparison at the SAME point in the day: "today so far" has to
+ * be measured against "yesterday up to this same hour", never against
+ * yesterday's whole day, or every morning would look like a collapse.
+ *
+ * Same two-pass offset resolution as the day boundary, for the same reason.
+ */
+export function jerusalemInstantAt(
+  key: JerusalemDayKey,
+  hours: number,
+  minutes: number,
+  seconds = 0
+): Date {
+  const wallClockAsUtc = dayKeyOrdinal(key) + ((hours * 60 + minutes) * 60 + seconds) * 1000;
+  let instant = wallClockAsUtc - offsetMsAt(new Date(wallClockAsUtc));
+  instant = wallClockAsUtc - offsetMsAt(new Date(instant));
+  return new Date(instant);
+}
+
+/** Wall-clock hours and minutes as read in Israel. */
+export function jerusalemClock(instant: Date): { hours: number; minutes: number } {
+  const parts = OFFSET_FORMATTER.formatToParts(instant);
+  const at = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((p) => p.type === type)?.value);
+  return { hours: at("hour"), minutes: at("minute") };
+}
