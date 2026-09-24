@@ -116,7 +116,8 @@ export default function RegisterForm() {
 
     if (field === "password") {
       if (!value.trim()) return "יש להזין סיסמה";
-      if (value.length < 6) return "הסיסמה חייבת להכיל לפחות 6 תווים";
+      // Mirrors lib/auth/password-policy.ts; the server is the authority.
+      if (Array.from(value).length < 10) return "הסיסמה חייבת להכיל לפחות 10 תווים";
       return "";
     }
 
