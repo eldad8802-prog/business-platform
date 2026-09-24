@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink, writeFile, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
   GetObjectResult,
@@ -18,6 +18,7 @@ import {
 } from "./storage.errors";
 import {
   assertKeyMatchesMetadata,
+  assertSafeStoragePrefix,
   assertSafeStorageKey,
   normalizeStorageKey,
 } from "./key-validation";
@@ -194,6 +195,55 @@ export class LocalFsStorageService implements StorageService {
         if (!isEnoent(error)) throw error;
       }),
     ]);
+  }
+
+  async listByPrefix(
+    prefix: string,
+    options?: { limit?: number }
+  ): Promise<{ keys: string[]; truncated: boolean }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 100_000));
+    const rootAbsolute = path.resolve(this.root);
+    const dir = path.resolve(rootAbsolute, ...safe.prefix.split("/").filter(Boolean));
+    if (!dir.startsWith(rootAbsolute + path.sep)) {
+      throw new StorageConfigError("Resolved storage prefix escapes local root");
+    }
+    const keys: string[] = [];
+    const walk = async (absDir: string, keyPrefix: string): Promise<void> => {
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await readdir(absDir, { withFileTypes: true });
+      } catch (error) {
+        if (isEnoent(error)) return;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (keys.length > limit) return;
+        if (entry.isDirectory()) {
+          await walk(path.join(absDir, entry.name), `${keyPrefix}${entry.name}/`);
+        } else if (entry.isFile() && !entry.name.endsWith(".meta.json")) {
+          keys.push(`${keyPrefix}${entry.name}`);
+        }
+      }
+    };
+    await walk(dir, safe.prefix);
+    keys.sort();
+    return { keys: keys.slice(0, limit), truncated: keys.length > limit };
+  }
+
+  async deleteByPrefix(prefix: string): Promise<{ deleted: number }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    let deleted = 0;
+    for (;;) {
+      const { keys, truncated } = await this.listByPrefix(safe.prefix, { limit: 1000 });
+      if (keys.length === 0) break;
+      for (const key of keys) {
+        await this.deleteObject(key);
+      }
+      deleted += keys.length;
+      if (!truncated) break;
+    }
+    return { deleted };
   }
 
   async getSignedDownloadUrl(_key: string, _ttlSeconds?: number): Promise<string> {

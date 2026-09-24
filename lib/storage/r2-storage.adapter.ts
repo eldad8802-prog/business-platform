@@ -1,5 +1,7 @@
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -25,6 +27,7 @@ import {
 } from "./storage.errors";
 import {
   assertKeyMatchesMetadata,
+  assertSafeStoragePrefix,
   assertSafeStorageKey,
   normalizeStorageKey,
   parseStorageKey,
@@ -292,6 +295,57 @@ export class R2StorageService implements StorageService {
         Key: normalized,
       })
     );
+  }
+
+  async listByPrefix(
+    prefix: string,
+    options?: { limit?: number }
+  ): Promise<{ keys: string[]; truncated: boolean }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 100_000));
+    // The bucket is chosen from the prefix's DOMAIN, like every other call.
+    const bucket = this.bucketForKey(`${safe.prefix}x`);
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: safe.prefix,
+          ContinuationToken: token,
+          MaxKeys: Math.min(1000, limit - keys.length + 1),
+        })
+      );
+      for (const o of page.Contents ?? []) {
+        if (o.Key && o.Key.startsWith(safe.prefix)) keys.push(o.Key);
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token && keys.length <= limit);
+    return { keys: keys.slice(0, limit), truncated: keys.length > limit || Boolean(token) };
+  }
+
+  async deleteByPrefix(prefix: string): Promise<{ deleted: number }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const bucket = this.bucketForKey(`${safe.prefix}x`);
+    let deleted = 0;
+    for (;;) {
+      const { keys, truncated } = await this.listByPrefix(safe.prefix, { limit: 1000 });
+      if (keys.length === 0) break;
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        })
+      );
+      if (result.Errors && result.Errors.length > 0) {
+        throw new StorageConfigError(
+          `deleteByPrefix: ${result.Errors.length} object(s) could not be deleted`
+        );
+      }
+      deleted += keys.length;
+      if (!truncated) break;
+    }
+    return { deleted };
   }
 
   async getSignedDownloadUrl(key: string, ttlSeconds?: number): Promise<string> {

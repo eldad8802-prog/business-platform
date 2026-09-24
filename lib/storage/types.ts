@@ -108,6 +108,19 @@ export interface StorageService {
   headObject(key: string): Promise<HeadObjectResult>;
   getMetadata(key: string): Promise<ObjectMetadata>;
   deleteObject(key: string): Promise<void>;
+  /**
+   * Keys under a tenant+domain-scoped prefix (see assertSafeStoragePrefix).
+   * Bounded by `limit` (default 1000); `truncated` says more exist.
+   */
+  listByPrefix(
+    prefix: string,
+    options?: { limit?: number }
+  ): Promise<{ keys: string[]; truncated: boolean }>;
+  /**
+   * Delete every object under a tenant+domain-scoped prefix (erasure).
+   * Idempotent. Returns how many objects were deleted.
+   */
+  deleteByPrefix(prefix: string): Promise<{ deleted: number }>;
   getSignedDownloadUrl(key: string, ttlSeconds?: number): Promise<string>;
   getPublicUrl(key: string): string | null;
 }
