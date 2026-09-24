@@ -29,13 +29,17 @@ on:
       - "scripts/ci/erasure/**"
       - ".github/workflows/payables-p4-p6-ci.yml"
 
+# I-3: explicit least privilege (was the repository default).
+permissions:
+  contents: read
+
 jobs:
   core:
     name: payables p4-p6 core (no database)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -105,8 +109,8 @@ jobs:
       TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
       MIG: prisma/migrations/20260922130000_payables_p4_p6_outbound_foundation/migration.sql
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -173,8 +177,8 @@ jobs:
       BASE: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432
       MIG: prisma/migrations/20260922130000_payables_p4_p6_outbound_foundation/migration.sql
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm

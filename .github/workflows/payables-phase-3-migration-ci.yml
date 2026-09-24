@@ -20,6 +20,10 @@ on:
       - "prisma/migrations/20260918120000_payables_phase_3_cheques_and_bank_accounts/**"
       - ".github/workflows/payables-phase-3-migration-ci.yml"
 
+# I-3: explicit least privilege (was the repository default).
+permissions:
+  contents: read
+
 jobs:
   migration:
     name: payables p3 migration apply (PG17)
@@ -43,8 +47,8 @@ jobs:
       DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables_shadow
       MIG: prisma/migrations/20260918120000_payables_phase_3_cheques_and_bank_accounts/migration.sql
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm

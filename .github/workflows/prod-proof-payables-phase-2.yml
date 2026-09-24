@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 10
     environment: production-db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The containment guard. It runs BEFORE any connection is opened, and it
       # checks the properties that make the write safe rather than trying to
