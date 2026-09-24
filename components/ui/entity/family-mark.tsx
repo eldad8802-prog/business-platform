@@ -17,7 +17,6 @@ const OCHRE = "#b8862b";
 const SAGE = "#4e8168";
 const SAND = "#efe2c8";
 const MINT = "#dcebe0";
-const STONE = "#e6e7e1";
 
 const S = {
   strokeWidth: 1.7,
@@ -34,7 +33,7 @@ function MoneyMark() {
     <>
       <path d="M16 3h11l5 5v17.5a1 1 0 0 1-1 1H16a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" {...S} fill={PAPER} stroke={INK} />
       <path d="M27 3v5h5" stroke={INK} {...S} />
-      <path d="M18.5 12h8M18.5 15.5h8M18.5 19h5" stroke={OCHRE} {...S} />
+      <path d="M18.5 12h8M18.5 16h5.5" stroke={OCHRE} {...S} />
       <rect x="3" y="16" width="19" height="12" rx="2" {...S} fill={SAND} stroke={INK} />
       <circle cx="12.5" cy="22" r="3.4" {...S} fill={TEAL} stroke={INK} />
     </>
@@ -62,8 +61,11 @@ function CustomersMark() {
 function OperationsMark() {
   return (
     <>
-      <path d="M14 3l10 5v11l-10 5-10-5V8z" {...S} fill={STONE} stroke={INK} />
-      <path d="M4 8l10 5 10-5M14 13v11" stroke={INK} {...S} />
+      <path d="M14 3l10 5v11l-10 5-10-5V8z" {...S} fill={PAPER} stroke={INK} />
+      {/* The lid in cardboard sand: on the sage tile a stone-filled cube read
+          as an outline only, and the whole mark went light. */}
+      <path d="M14 3l10 5-10 5-10-5z" {...S} fill={SAND} stroke={INK} />
+      <path d="M14 13v11" stroke={INK} {...S} />
       <rect x="22" y="16" width="12" height="9" rx="1.3" {...S} fill={PAPER} stroke={INK} />
       <path d="M34 19h3.5l3 3v3H34z" {...S} fill={TEAL} stroke={INK} />
       <circle cx="26" cy="26.5" r="2.2" {...S} fill={PAPER} stroke={INK} />
@@ -79,13 +81,15 @@ function OperationsMark() {
  * reached x=32 while the other two ran to the edge, so it read as the small
  * one. Cropping every mark to its own ink fixed the canvas, but equal HEIGHT
  * still left the money mark the lightest — measured ink area at 30px was
- * 895 / 1242 / 1116 px². The eye compares area, not height, so `optical`
- * scales each mark until the three cover about the same area.
+ * 895 / 1242 / 1116 px². Area alone is not the whole story either: on a real
+ * phone the compact, densely-inked money mark still read heaviest and the
+ * operations mark lightest. `optical` is tuned by eye on the rendered tiles,
+ * with ink DENSITY (fills, inner lines) balanced in the drawings themselves.
  */
 const MARKS: Record<FamilyMarkKey, { draw: () => React.ReactElement; box: string; ratio: number; optical: number }> = {
-  money: { draw: MoneyMark, box: "2 2 31 27", ratio: 31 / 27, optical: 1.02 },
-  customers: { draw: CustomersMark, box: "2.5 3 39.5 25", ratio: 39.5 / 25, optical: 0.92 },
-  operations: { draw: OperationsMark, box: "3 2 38.5 27.5", ratio: 38.5 / 27.5, optical: 0.96 },
+  money: { draw: MoneyMark, box: "2 2 31 27", ratio: 31 / 27, optical: 0.95 },
+  customers: { draw: CustomersMark, box: "2.5 3 39.5 25", ratio: 39.5 / 25, optical: 0.9 },
+  operations: { draw: OperationsMark, box: "3 2 38.5 27.5", ratio: 38.5 / 27.5, optical: 0.98 },
 };
 
 /** `size` is the nominal mark size; each mark renders at its optical share of it. */
