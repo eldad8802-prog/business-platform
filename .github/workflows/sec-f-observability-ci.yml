@@ -3,7 +3,7 @@
 # migration-battery: builds a FRESH lab (schema.prisma + main's RLS rules, a
 #   non-superuser BYPASSRLS owner, an over-granted NOBYPASSRLS non-owner runtime),
 #   reproduces each gap on main, applies the SEC-F migration, and proves every
-#   control with its specific SQLSTATE (42501 / DZ001 / DZ002 / DZ010 / 23503).
+#   control with its specific SQLSTATE (42501 / DZ001 / DZ002 / DZ010 / 23001).
 # negative-proofs: mutates the migration one control at a time (anchor exactly
 #   once), asserts the SPECIFIC [FAIL] label turns red in a fresh lab, restores
 #   byte-identically (sha256), and requires a post-restore green run.

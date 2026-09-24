@@ -13,7 +13,7 @@
  * failed, 2 = the lab could not be built (a setup crash is never a pass).
  *
  * Denials are classified, never merely "it threw": 42501 privilege / RLS,
- * DZ001 append-only, DZ002 chain link, DZ010 fiscal, 23503 FK, 23505 unique,
+ * DZ001 append-only, DZ002 chain link, DZ010 fiscal, 23001 FK restrict, 23505 unique,
  * 23514 check. Anything else (connection error, missing table, ReferenceError)
  * fails the assertion it happened in.
  */
@@ -186,7 +186,7 @@ async function main() {
   {
     const bizD = (await one(owner, `INSERT INTO "Business"("name","updatedAt") VALUES ('secf-D', now()) RETURNING id`)).id;
     await auditRow(owner, "PayablesAuditEvent", bizD);
-    await expectCode("P-FK-RESTRICT deleting a Business does not erase its payables trail", () => owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE id=${bizD}`), "23503");
+    await expectCode("P-FK-RESTRICT deleting a Business does not erase its payables trail", () => owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE id=${bizD}`), "23001", /RESTRICT/);
   }
 
   // ── phase 3e: fiscal lifecycle ─────────────────────────────────────────────
@@ -264,7 +264,9 @@ async function main() {
   await expectCode("F-TENANT businessId", () => owner.$executeRawUnsafe(`UPDATE "BillingDocument" SET "businessId"=${bizB} WHERE id=${inv}`), "DZ010", /FISCAL_IMMUTABLE.*businessId/);
   await expectCode("F-PROJ-CHANGE allocationNumber once set", () => T((tx) => tx.$executeRawUnsafe(`UPDATE "BillingDocument" SET "allocationNumber"='ALLOC-2' WHERE id=${inv}`)), "DZ010", /FISCAL_IMMUTABLE.*allocationNumber/);
   await expectCode("F-PROJ-CLEAR allocationNumber → NULL", () => owner.$executeRawUnsafe(`UPDATE "BillingDocument" SET "allocationNumber"=NULL WHERE id=${inv}`), "DZ010", /FISCAL_IMMUTABLE/);
-  await expectCode("F-DELETE-RT delete ISSUED (runtime)", () => T((tx) => tx.$executeRawUnsafe(`DELETE FROM "BillingDocument" WHERE id=${inv}`)), "DZ010", /cannot be deleted/);
+  // The runtime holds no DELETE rule on BillingDocument at all (main's tenant rules), so its
+  // delete matches no row before any trigger could fire; the trigger is what stops the owner.
+  await expectOk("F-DELETE-RT runtime delete of ISSUED matches no row", () => T((tx) => tx.$executeRawUnsafe(`DELETE FROM "BillingDocument" WHERE id=${inv}`)), (n) => n === 0 || `rows=${n}`);
   await expectCode("F-DELETE-OWN delete ISSUED (owner)", () => owner.$executeRawUnsafe(`DELETE FROM "BillingDocument" WHERE id=${inv}`), "DZ010", /cannot be deleted/);
   await expectCode("F-LINE-INS add a line to ISSUED", () => T((tx) => tx.$executeRawUnsafe(line(inv, 5))), "DZ010", /BillingDocumentLine/);
   await expectCode("F-LINE-UPD-RT rewrite a line of ISSUED", () => T((tx) => tx.$executeRawUnsafe(`UPDATE "BillingDocumentLine" SET "lineTotal"=1 WHERE "billingDocumentId"=${inv}`)), "DZ010", /BillingDocumentLine/);

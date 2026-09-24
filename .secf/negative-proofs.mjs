@@ -62,7 +62,7 @@ const MUTATIONS = [
   },
   {
     id: "N6",
-    reason: "with ON DELETE CASCADE restored, deleting a Business tries to erase its payables trail",
+    reason: "with ON DELETE CASCADE restored, deleting a Business tries to erase its payables trail (refused only by the append-only trigger, DZ001, not by the key)",
     anchor: `FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;`,
     replacement: `FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;`,
     expect: "P-FK-RESTRICT deleting a Business does not erase its payables trail",
