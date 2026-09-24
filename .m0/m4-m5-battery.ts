@@ -190,9 +190,12 @@ async function main(): Promise<void> {
   const vendorA = await owner.vendorLearning.create({
     data: { businessId: bizA.id, vendorName: VENDOR_NAME, category: "supplies" },
   });
-  // A fourth, sharing a phone with the supplier but nothing else — a weaker resemblance still.
-  const payeeA2 = await owner.payee.create({
-    data: { businessId: bizA.id, displayName: "Acme Logistics", kind: "SUPPLIER" },
+  // And a FOURTH: the same business, spelled differently on a different invoice. `VendorLearning` is
+  // unique on the RAW name, so this is its own row that normalizes to the same key — which is exactly
+  // how vendor spellings accumulate in a real business, and exactly the kind of resemblance that must
+  // produce a question rather than a merge.
+  await owner.vendorLearning.create({
+    data: { businessId: bizA.id, vendorName: "Acme Supplies Ltd", category: "supplies" },
   });
 
   // ── payables: six settled installments, deteriorating ──
@@ -418,11 +421,16 @@ async function main(): Promise<void> {
     domainsWithKnowledge.size === 4,
     `domains=${[...domainsWithKnowledge].join(",")}`);
 
-  check("AP-01 knows how this business pays", active("AP-01")[0]?.valueNumeric === 8,
+  // The seeded lateness is [0, 0, 1, 8, 9, 8] days. The MEDIAN of six is the mean of the middle two,
+  // (1 + 8) / 2 = 4.5 — deliberately asserted as the median rather than as something that looks like
+  // the recent half, because a mean would say 4.33 and a "typical" that ignored the early history
+  // would say 8. The number the owner is owed is the one that describes all six.
+  check("AP-01 knows how this business pays", active("AP-01")[0]?.valueNumeric === 4.5,
     `value=${active("AP-01")[0]?.valueNumeric}`);
   check("…and noticed it got worse", active("AP-01")[0]?.trend === "WORSENING",
     `trend=${active("AP-01")[0]?.trend}`);
-  check("AP-03 knows how often payment is late", active("AP-03")[0]?.valueNumeric === 0.5,
+  // Four of the six went out after the due day. On the due day is not late.
+  check("AP-03 knows how often payment is late", active("AP-03")[0]?.valueNumeric === 0.67,
     `value=${active("AP-03")[0]?.valueNumeric}`);
   check("AP-06 knows how much of the record rests on more than memory",
     active("AP-06")[0]?.valueNumeric === 0.5, `value=${active("AP-06")[0]?.valueNumeric}`);
@@ -693,30 +701,38 @@ async function main(): Promise<void> {
   check("so agreement and correction are now distinguishable after the fact",
     afterApproval?.suggestedDecision !== afterApproval?.decision);
 
-  section("E3 — the event bus can finally say who");
-  const { logAuditEvent } = await import("@/lib/services/audit.service");
-  await runWithTenantContext({ businessId: bizA.id }, () =>
-    logAuditEvent({
-      businessId: bizA.id, eventType: "M4_BATTERY", entityType: "TEST",
-      actor: { type: "OWNER_USER", userId: 4242 },
-    }),
-  );
-  const ev = await owner.learningEvent.findFirst({ where: { businessId: bizA.id, eventType: "M4_BATTERY" } });
-  check("a learning event records its actor", ev?.actorType === "OWNER_USER" && ev?.actorUserId === 4242);
+  section("E3 — the event bus can finally say who, AND can finally write at all");
 
-  await runWithTenantContext({ businessId: bizA.id }, () =>
-    logAuditEvent({ businessId: bizA.id, eventType: "M4_BATTERY_SYS", entityType: "TEST", actor: { type: "SYSTEM" } }),
-  );
+  // THIS SECTION FOUND A LIVE DEFECT. `logAuditEvent` fell through to the bare Prisma singleton when
+  // no transaction was supplied, so under this exact credential every such write was rejected with
+  // 42501, swallowed by its own best-effort catch, and lost. Dozens of callers across billing, CRM,
+  // coupons and conversations pass no transaction. The bus was dropping their events on the floor.
+  //
+  // These calls pass no `tx` ON PURPOSE. Passing one would exercise the path that already worked and
+  // prove nothing about the path that did not.
+  const { logAuditEvent } = await import("@/lib/services/audit.service");
+
+  await logAuditEvent({
+    businessId: bizA.id, eventType: "M4_BATTERY", entityType: "TEST",
+    actor: { type: "OWNER_USER", userId: 4242 },
+  });
+  const ev = await owner.learningEvent.findFirst({ where: { businessId: bizA.id, eventType: "M4_BATTERY" } });
+  check("a no-transaction audit write LANDS under the restricted role", ev != null);
+  check("…and records its actor", ev?.actorType === "OWNER_USER" && ev?.actorUserId === 4242);
+
+  await logAuditEvent({ businessId: bizA.id, eventType: "M4_BATTERY_SYS", entityType: "TEST", actor: { type: "SYSTEM" } });
   const sysEv = await owner.learningEvent.findFirst({ where: { businessId: bizA.id, eventType: "M4_BATTERY_SYS" } });
   check("a SYSTEM event names no person — the machine did it, and says so",
     sysEv?.actorType === "SYSTEM" && sysEv?.actorUserId === null);
 
-  await runWithTenantContext({ businessId: bizA.id }, () =>
-    logAuditEvent({ businessId: bizA.id, eventType: "M4_BATTERY_ANON", entityType: "TEST" }),
-  );
+  await logAuditEvent({ businessId: bizA.id, eventType: "M4_BATTERY_ANON", entityType: "TEST" });
   const anonEv = await owner.learningEvent.findFirst({ where: { businessId: bizA.id, eventType: "M4_BATTERY_ANON" } });
   check("a caller that does not know stays silent rather than asserting UNKNOWN",
-    anonEv?.actorType === null && anonEv?.actorUserId === null);
+    anonEv != null && anonEv.actorType === null && anonEv.actorUserId === null);
+
+  // And it is still TENANT-bound, not merely working: the event landed in the tenant it named.
+  check("the event belongs to the business it named, and to no other",
+    (await owner.learningEvent.count({ where: { businessId: bizB.id, eventType: { startsWith: "M4_BATTERY" } } })) === 0);
 
   /* ══════════════════════════ OBSERVABILITY ══════════════════════════ */
   section("Observability — the questions a run must be able to answer");
