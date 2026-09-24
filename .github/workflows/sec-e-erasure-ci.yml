@@ -1,0 +1,149 @@
+# SEC-E — durable, resumable, authority-revoking account erasure (ephemeral PG17).
+#
+# Every DB proof runs in a laboratory of its OWN (.ad2a/fresh-lab.mjs): a new database,
+# a new NOSUPERUSER/NOBYPASSRLS runtime role and a new auth-plane role, the Production
+# RLS contract applied verbatim and the runtime grants MEASURED equal to the declared
+# set. The schema comes from `prisma db push`, exactly as AD-2A does: this repository's
+# migration history is not replayable from empty (see d2-cutover-3a1-ci.yml), so
+# `migrate deploy` cannot build a lab.
+#
+# Negative proofs are recorded in six fields by .sec-e/prove.sh (mutation applied and
+# proven, specific label, crash != red, byte-identical restore); the final unmutated run
+# is the post-restore green.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: sec-e — durable account erasure (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "app/api/account/**"
+      - "app/api/auth/**"
+      - "prisma/schema.prisma"
+      - ".ad2a/**"
+      - ".sec-e/**"
+      - "scripts/ci/erasure/**"
+      - "vercel.json"
+      - ".github/workflows/sec-e-erasure-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-e-erasure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sec-e:
+    name: SEC-E erasure proofs (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sece_owner
+          POSTGRES_PASSWORD: sece_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_sece
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sece_owner -d dubiz_sece"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      AD2A_ADMIN_URL: postgresql://sece_owner:sece_ci_synthetic_owner_pw@localhost:5432/postgres
+      DATABASE_URL: postgresql://sece_owner:sece_ci_synthetic_owner_pw@localhost:5432/dubiz_sece
+      DIRECT_URL: postgresql://sece_owner:sece_ci_synthetic_owner_pw@localhost:5432/dubiz_sece
+      AUTH_TOKEN_SECRET: sece_ci_auth_secret_synthetic_value
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: |
+          for f in battery mutate auth-plane; do node --check .sec-e/$f.mjs; done
+          bash -n .sec-e/prove.sh
+
+      # ── DB-free ──────────────────────────────────────────────────────────────
+      - name: Unit — orchestrator, durable job, erasure authority
+        run: |
+          npx tsx lib/services/account/account-deletion.test.ts
+          npx tsx lib/services/account/erasure-job.test.ts
+          npx tsx lib/tenant/erasure-authority.guard.test.ts
+          npx tsx lib/tenant/context.test.ts
+          npx tsx lib/tenant/job.test.ts
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh --self-test
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/tenant-context-guard.sh .
+
+      - name: Erasure contract — ratchet (C27 external eraser, C28 prefix surfaces, C29 shapes)
+        run: npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+
+      # ── Contract negative proofs (no DB) ─────────────────────────────────────
+      - name: "NEG · F-6: a personal column on indebted Appointment is a NEW shaped C12 key"
+        run: bash .sec-e/prove.sh DEBT_APPOINTMENT red 'NEW +C12-UNMANAGED-PERSONAL-DATA::Appointment@[0-9a-f]{12}' "column-set change on an indebted model is new debt, not absorbed" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+      - name: "NEG · F-6: nationalId on Supplier fails the ratchet with the specific key"
+        run: |
+          # Supplier is C12 debt on this base; if the supplier erasure (PR #503) lands first,
+          # Supplier is a covered model and the same column is C6-NO-DISPOSITION instead.
+          if grep -q 'key: "Supplier"' scripts/ci/erasure/erasure-contract-debt.ts; then
+            EXP='NEW +C12-UNMANAGED-PERSONAL-DATA::Supplier@[0-9a-f]{12}'
+          else
+            EXP='NEW +C6-NO-DISPOSITION::Supplier.nationalId'
+          fi
+          bash .sec-e/prove.sh DEBT_SUPPLIER red "$EXP" "nationalId on Supplier cannot hide behind model-level debt" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+      - name: "NEG · L-18: the WhatsApp number tombstone removed"
+        run: bash .sec-e/prove.sh IDENT_OFF red 'NEW +C3-DECLARED-NOT-IMPLEMENTED::WhatsAppConnection.phoneNumberId' "the number would stay locked to the deleted business" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+      - name: "NEG · C27: the auth-plane session erasure no longer called"
+        run: bash .sec-e/prove.sh SESSIONS_OFF red 'NEW +C27-EXTERNAL-ERASER-BROKEN::AuthSession' "AuthSession claims ERASURE_MANAGED with nothing erasing it" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+      - name: "NEG · C28: the content-prefix erasure removed (static)"
+        run: bash .sec-e/prove.sh CONTENT_OFF red 'NEW +C28-PREFIX-ERASURE-NOT-IMPLEMENTED::prefix:content' "pointer-less content uploads would survive" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+
+      # ── Fresh-lab batteries ─────────────────────────────────────────────────
+      - name: AD-2A battery (regression, now with the auth plane)
+        run: node .ad2a/fresh-lab.mjs ad2a -- npx tsx .ad2a/battery.mjs --baseline-check
+
+      - name: SEC-E battery — fault matrix, sweeper, provider revoke, authority, in-flight writers, content
+        run: node .ad2a/fresh-lab.mjs sece -- npx tsx .sec-e/battery.mjs
+
+      # ── DB negative proofs, each in its own fresh lab ───────────────────────
+      - name: "NEG · H-5: sweeper disabled → the stranded business stays stranded"
+        run: bash .sec-e/prove.sh SWEEP_OFF red '\[FAIL\] H5-SWEEP-CONVERGES .*stranded lifecycle=DELETION_REQUESTED' "no sweeper, no convergence" -- node .ad2a/fresh-lab.mjs nsweep -- npx tsx .sec-e/battery.mjs --only sweeper
+      - name: "NEG · H-5: pre-fix route → a failure after quarantine is an HTTP 500"
+        run: bash .sec-e/prove.sh ACCEPT_OFF red '\[FAIL\] H5-FAULT-PURGE-DB · the request is ACCEPTED \(202\).*http=500' "the owner gets an unretryable 500" -- node .ad2a/fresh-lab.mjs naccept -- npx tsx .sec-e/battery.mjs --only fault
+      - name: "PROOF · M-12(a): lifecycle gate removed — pre-deletion credentials STILL rejected"
+        run: bash .sec-e/prove.sh GATE_OFF green '\[PASS\] M12A-TOKEN-REJECTED · a session-bound token' "revocation is a second, independent control" -- node .ad2a/fresh-lab.mjs ngate -- npx tsx .sec-e/battery.mjs --only m12a
+      - name: "NEG · M-12(a): gate AND revocation removed → the pre-deletion token is honoured"
+        run: bash .sec-e/prove.sh GATE_AND_REVOKE_OFF red '\[FAIL\] M12A-TOKEN-REJECTED · a session-bound token' "with neither control the credential lives" -- node .ad2a/fresh-lab.mjs ngaterev -- npx tsx .sec-e/battery.mjs --only m12a
+      - name: "NEG · M-12(c): in-transaction gate removed → a late writer commits into the quarantined business"
+        run: bash .sec-e/prove.sh INFLIGHT_OFF red '\[FAIL\] M12C-INFLIGHT-REFUSED' "the tenant wrapper admits writes after quarantine" -- node .ad2a/fresh-lab.mjs ninflight -- npx tsx .sec-e/battery.mjs --only m12c
+      - name: "NEG · M-12(b): exhausted revoke reported as REVOKED"
+        run: bash .sec-e/prove.sh TRUTH_OFF red '\[FAIL\] M12B-TRUTHFUL · a provider that never confirms' "provider deletion claimed where only local deletion happened" -- node .ad2a/fresh-lab.mjs ntruth -- npx tsx .sec-e/battery.mjs --only provider
+      - name: "NEG · M-12(b): credentials destroyed before the provider revoke"
+        run: bash .sec-e/prove.sh ORDER_OFF red '\[FAIL\] M12B-PLAINTEXT · Google received the REFRESH token' "the plaintext is gone before the revoke" -- node .ad2a/fresh-lab.mjs norder -- npx tsx .sec-e/battery.mjs --only provider
+      - name: "NEG · M-13: content-prefix erasure removed → objects survive"
+        run: bash .sec-e/prove.sh CONTENT_OFF red '\[FAIL\] M13-CONTENT-ERASED' "pointer-less uploads survive the deletion" -- node .ad2a/fresh-lab.mjs ncontent -- npx tsx .sec-e/battery.mjs --only content
+
+      - name: Post-restore green (unmutated, fresh lab)
+        run: node .ad2a/fresh-lab.mjs postgreen -- npx tsx .sec-e/battery.mjs
+      - name: The tree is exactly the commit (every mutation restored)
+        run: git diff --exit-code
+
+      - name: Typecheck
+        run: npx tsc --noEmit
