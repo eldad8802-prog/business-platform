@@ -18,6 +18,10 @@
  *     of magnitude shorter than the 24h session ceiling set in Wave A.
  *   - bound to `sub` — the authenticated user id. An elevation minted for one
  *     admin cannot elevate another, and it is useless without a valid session.
+ *   - bound to `sid` and `tv` (L-10) — the device session and the token
+ *     generation it was minted under. A copied elevation is useless from any
+ *     other session, and logout / password change (which move the generation)
+ *     kill it immediately rather than after 15 minutes.
  *   - stateless and per-client. A different browser or device holds no
  *     elevation, so it must complete TOTP independently.
  *   - invalidated by `AUTH_TOKEN_SECRET` rotation, exactly like sessions.
@@ -30,7 +34,9 @@
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-const VERSION = 1;
+// v2 adds the sid/tv binding. v1 envelopes (unbound) are refused outright:
+// they live 15 minutes, so the cost of refusing them is one re-verification.
+const VERSION = 2;
 const PURPOSE = "platform-admin-elevation";
 const KEY_DERIVATION_LABEL = "dubiz-platform-admin-elevation-v1";
 
@@ -51,6 +57,10 @@ type ElevationPayload = {
   v: number;
   purpose: string;
   sub: number;
+  /** The AuthSession the elevation was minted from; null for a sid-less token. */
+  sid: string | null;
+  /** The user's token generation at mint time. */
+  tv: number;
   nonce: string;
   iat: number;
   exp: number;
@@ -68,8 +78,16 @@ export type ElevationVerifyResult =
         | "wrong_version"
         | "expired"
         | "invalid_payload"
-        | "user_mismatch";
+        | "user_mismatch"
+        | "session_mismatch";
     };
+
+/** Who an elevation belongs to: the user, on this session, at this generation. */
+export type ElevationBinding = {
+  userId: number;
+  sessionId: string | null;
+  tokenVersion: number;
+};
 
 function deriveKey(): Buffer {
   const secret = process.env.AUTH_TOKEN_SECRET?.trim();
@@ -89,15 +107,21 @@ function sign(payloadB64: string): Buffer {
 }
 
 /** Mint an elevation for an admin who has just proven possession of a factor. */
-export function issueAdminElevation(userId: number, nowMs?: number): string {
+export function issueAdminElevation(binding: ElevationBinding, nowMs?: number): string {
+  const { userId } = binding;
   if (!Number.isInteger(userId) || userId <= 0) {
     throw new AdminElevationConfigError("userId must be a positive integer");
+  }
+  if (!Number.isInteger(binding.tokenVersion) || binding.tokenVersion < 0) {
+    throw new AdminElevationConfigError("tokenVersion must be a non-negative integer");
   }
   const iat = Math.floor((nowMs ?? Date.now()) / 1000);
   const payload: ElevationPayload = {
     v: VERSION,
     purpose: PURPOSE,
     sub: userId,
+    sid: binding.sessionId,
+    tv: binding.tokenVersion,
     nonce: b64url(randomBytes(16)),
     iat,
     exp: iat + ADMIN_ELEVATION_TTL_SECONDS,
@@ -112,9 +136,10 @@ export function issueAdminElevation(userId: number, nowMs?: number): string {
  */
 export function verifyAdminElevation(
   raw: string | null | undefined,
-  expectedUserId: number,
+  binding: ElevationBinding,
   nowMs?: number
 ): ElevationVerifyResult {
+  const expectedUserId = binding.userId;
   if (typeof raw !== "string" || raw.length === 0) {
     return { ok: false, reason: "missing" };
   }
@@ -157,6 +182,8 @@ export function verifyAdminElevation(
     payload.sub <= 0 ||
     typeof payload.nonce !== "string" ||
     payload.nonce.length === 0 ||
+    !(payload.sid === null || (typeof payload.sid === "string" && payload.sid.length > 0)) ||
+    !Number.isInteger(payload.tv) ||
     !Number.isInteger(payload.iat) ||
     !Number.isInteger(payload.exp)
   ) {
@@ -169,6 +196,11 @@ export function verifyAdminElevation(
   // Binding: an elevation is worthless without the matching session identity.
   if (payload.sub !== expectedUserId) {
     return { ok: false, reason: "user_mismatch" };
+  }
+
+  // Session binding (L-10): same device session, same generation.
+  if (payload.sid !== binding.sessionId || payload.tv !== binding.tokenVersion) {
+    return { ok: false, reason: "session_mismatch" };
   }
 
   return { ok: true, userId: payload.sub, expiresAt: payload.exp };

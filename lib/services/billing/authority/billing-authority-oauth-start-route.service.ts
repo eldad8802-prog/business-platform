@@ -16,12 +16,30 @@ import {
   startAuthorityOAuth,
   type AuthorityOAuthCookieSpec,
 } from "@/lib/services/billing/authority/billing-authority-oauth-start.service";
+import { assertPlatformAdminAccess } from "@/lib/auth/platform-admin";
 
 export type AuthorityStartActor = {
   id: number;
   businessId: number;
   role: UserRole;
+  /** Needed for the platform-admin email allowlist on the cross-tenant branch. */
+  email: string;
 };
+
+/**
+ * The full platform-admin identity decision (role AND allowlist), never role
+ * alone. M-10: this branch used to accept the PLATFORM_ADMIN role plus an
+ * elevation and skip the allowlist, so a PLATFORM_ADMIN-role user removed from
+ * PLATFORM_ADMIN_EMAILS kept a cross-tenant capability.
+ */
+function isAllowlistedPlatformAdmin(actor: AuthorityStartActor): boolean {
+  try {
+    assertPlatformAdminAccess({ role: actor.role, email: actor.email });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type ResolveAuthorityStartInput = {
   /** Null when the request carries no authenticated Dubiz user. */
@@ -143,7 +161,9 @@ export async function resolveAuthorityOAuthStart(
     // when MFA enforcement is on, a proven second factor — otherwise a stolen
     // admin session alone could pivot into any tenant from a non-admin route.
     const isAdmin =
-      input.user.role === UserRole.PLATFORM_ADMIN && input.adminElevated === true;
+      input.user.role === UserRole.PLATFORM_ADMIN &&
+      isAllowlistedPlatformAdmin(input.user) &&
+      input.adminElevated === true;
     if (requested !== actorBusinessId && !isAdmin) {
       return {
         ok: false,

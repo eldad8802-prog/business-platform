@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { resolveAuthorityOAuthStart } from "@/lib/services/billing/authority/billing-authority-oauth-start-route.service";
 import { hasAdminElevation } from "@/lib/auth/platform-admin";
 
@@ -26,10 +26,11 @@ const REDIRECT_BASE_VAR = "BILLING_AUTHORITY_OAUTH_REDIRECT_BASE_URL";
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getCurrentUser(req);
-    if (!user) {
+    const context = await getAuthContext(req);
+    if (!context) {
       return authRequiredResponse(req);
     }
+    const user = context.user;
 
     const redirectBaseUrl = process.env[REDIRECT_BASE_VAR]?.trim();
     if (!redirectBaseUrl) {
@@ -44,8 +45,13 @@ export async function GET(req: NextRequest) {
       req.nextUrl.protocol === "https:";
 
     const outcome = await resolveAuthorityOAuthStart({
-      user: { id: user.id, businessId: user.businessId, role: user.role },
-      adminElevated: hasAdminElevation(req, user.id),
+      user: { id: user.id, businessId: user.businessId, role: user.role, email: user.email },
+      // Bound to this user, device session and token generation (L-10).
+      adminElevated: hasAdminElevation(req, {
+        userId: user.id,
+        sessionId: context.sessionId,
+        tokenVersion: user.tokenVersion,
+      }),
       requestedBusinessId: sp.get("businessId"),
       environment: sp.get("environment"),
       redirectBaseUrl,

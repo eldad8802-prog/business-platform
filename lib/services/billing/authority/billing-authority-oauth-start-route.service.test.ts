@@ -30,8 +30,10 @@ function ok(name: string, condition: boolean) {
   console.log("OK:", name);
 }
 
-const REGULAR_USER = { id: 7, businessId: 42, role: UserRole.USER };
-const ADMIN_USER = { id: 1, businessId: 9, role: UserRole.PLATFORM_ADMIN };
+const REGULAR_USER = { id: 7, businessId: 42, role: UserRole.USER, email: "owner@biz.test" };
+const ADMIN_USER = { id: 1, businessId: 9, role: UserRole.PLATFORM_ADMIN, email: "admin@dubiz.test" };
+// M-10: the cross-tenant branch now requires the platform-admin allowlist.
+process.env.PLATFORM_ADMIN_EMAILS = "admin@dubiz.test";
 
 function fakeCookies(
   businessId: number,
@@ -126,15 +128,51 @@ async function run() {
     );
     ok("forbidden never starts oauth", called === false);
 
-    // Admin may target another business
+    // Admin may target another business — with an elevation AND the allowlist.
     const adminOutcome = await resolveAuthorityOAuthStart(
-      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
+      {
+        user: ADMIN_USER,
+        adminElevated: true,
+        requestedBusinessId: 99,
+        redirectBaseUrl: BASE,
+        secureCookies: false,
+      },
       { startOAuth: fakeStart() }
     );
     ok(
       "platform admin may target another business",
       adminOutcome.ok && adminOutcome.businessId === 99
     );
+
+    // Without an elevation the admin role alone does not cross tenants.
+    const unelevated = await resolveAuthorityOAuthStart(
+      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
+      { startOAuth: fakeStart() }
+    );
+    ok(
+      "platform admin without elevation cannot target another business",
+      !unelevated.ok && unelevated.reason === AUTHORITY_START_REASONS.BUSINESS_FORBIDDEN
+    );
+
+    // M-10: role + elevation but NOT on the allowlist → refused.
+    let crossCalled = false;
+    const notAllowlisted = await resolveAuthorityOAuthStart(
+      {
+        user: { ...ADMIN_USER, email: "former-admin@dubiz.test" },
+        adminElevated: true,
+        requestedBusinessId: 99,
+        redirectBaseUrl: BASE,
+        secureCookies: false,
+      },
+      { startOAuth: fakeStart(() => { crossCalled = true; }) }
+    );
+    ok(
+      "PLATFORM_ADMIN role off the allowlist cannot target another business",
+      !notAllowlisted.ok &&
+        notAllowlisted.status === "forbidden" &&
+        notAllowlisted.reason === AUTHORITY_START_REASONS.BUSINESS_FORBIDDEN
+    );
+    ok("off-allowlist admin never starts oauth", crossCalled === false);
   }
 
   // 4 + 5. Successful redirect + cookies set correctly
