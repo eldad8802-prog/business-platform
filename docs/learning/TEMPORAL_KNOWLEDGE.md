@@ -213,4 +213,27 @@ battery asserts this. The response is printed into a public workflow log.
 
 ## Production proof state
 
-Recorded at M6 closure. See the closure report.
+Recorded at M6 closure on 2026-09-24, against Production `b5d165a`. The derivation ran through the
+runtime route as `app_runtime_prod` (not a superuser, no RLS bypass, proof level FULL), for
+business 3 and business 9. Each business was derived twice.
+
+| | Business 3 | Business 9 |
+|---|---|---|
+| Rules run / failed | 10 / 0 | 10 / 0 |
+| Series assessed | 35 | 17 |
+| Artifacts | 35 × BASELINE `INSUFFICIENT_HISTORY` | 17 × BASELINE `INSUFFICIENT_HISTORY` |
+| Second pass (same evidence) | written 0, confirmed 35 | written 0, confirmed 17 |
+| Isolation (`TemporalKnowledge`) | RLS + FORCE, DELETE denied, 0 rows without a tenant, 0 foreign rows | same |
+| Derivation time | 482 ms | 358 ms |
+
+**Every rule is `INSUFFICIENT_REAL_HISTORY` in Production today.** The baseline window ends 90–120
+days before `asOf`, and both businesses' evidence is concentrated in the most recent months.
+Thresholds were **not** lowered to manufacture a Production baseline. These rows state exactly how
+much history each rule has and needs, and they will turn ACTIVE on their own as real history
+accumulates.
+
+| Proof class | What |
+|---|---|
+| PRODUCTION_PROVEN | the migration; the table's RLS, FORCE RLS and grants; tenant isolation; runtime role posture; all 10 rules executing; INSUFFICIENT_HISTORY on real data; idempotency (confirm, not append); log privacy |
+| CODE_DB_PROVEN / TEST_PROVEN | ACTIVE baseline, stable pattern, anomaly, material change, trend, reversal, versioning, staleness, identity separation (`.m0/m6-temporal-battery.ts`, 29 checks; `temporal.test.ts`, 76 assertions) |
+| INSUFFICIENT_REAL_HISTORY | every ACTIVE temporal type in Production, until the pilots' own history reaches each rule's minimum |
