@@ -114,7 +114,7 @@ export function assertSafeStoragePrefix(prefix: string): {
   if (!normalized.endsWith("/")) {
     throw new StorageKeyError("Storage prefix must end with '/'");
   }
-  const m = new RegExp(`^biz/(\d+)/(${STORAGE_DOMAINS.join("|")})/(.*)$`).exec(normalized);
+  const m = new RegExp(`^biz/([0-9]+)/(${STORAGE_DOMAINS.join("|")})/(.*)$`).exec(normalized);
   if (!m) {
     throw new StorageKeyError("Storage prefix must match biz/{businessId}/{domain}/...");
   }
