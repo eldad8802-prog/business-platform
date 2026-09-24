@@ -71,9 +71,15 @@ jobs:
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           PGSSLMODE: require
+          # M-1: the address is a production-db environment secret, bound as a psql variable; never committed, never printed.
+          TARGET_EMAIL: ${{ secrets.PROD_VERIFY_EMAIL }}
         run: |
           set -euo pipefail
+          [ -n "${TARGET_EMAIL:-}" ] || { echo "::error::PROD_VERIFY_EMAIL is not set in the production-db environment"; exit 1; }
+          echo "::add-mask::${TARGET_EMAIL}"
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/prod-user-verify-evidence.sql
+            --set=target_email="${TARGET_EMAIL}" \
+            --file=ops/evidence/prod-user-verify-evidence.sql \
+            | node scripts/ci/evidence-redact.mjs

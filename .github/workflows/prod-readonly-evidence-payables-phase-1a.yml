@@ -81,4 +81,5 @@ jobs:
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/payables-phase-1a-evidence.sql
+            --file=ops/evidence/payables-phase-1a-evidence.sql \
+            | node scripts/ci/evidence-redact.mjs

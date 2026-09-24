@@ -100,4 +100,5 @@ jobs:
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file="$SQL_FILE"
+            --file="$SQL_FILE" \
+            | node scripts/ci/evidence-redact.mjs

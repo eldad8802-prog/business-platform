@@ -94,4 +94,5 @@ jobs:
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
             --set=businessId="$BID" \
-            --file=ops/evidence/business-memory-read-comparison-evidence.sql
+            --file=ops/evidence/business-memory-read-comparison-evidence.sql \
+            | node scripts/ci/evidence-redact.mjs

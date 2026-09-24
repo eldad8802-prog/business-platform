@@ -76,4 +76,5 @@ jobs:
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/business-memory-reviewevent-corpus.sql
+            --file=ops/evidence/business-memory-reviewevent-corpus.sql \
+            | node scripts/ci/evidence-redact.mjs

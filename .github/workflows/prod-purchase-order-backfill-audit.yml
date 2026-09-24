@@ -82,4 +82,5 @@ jobs:
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/purchase-order-backfill-audit.sql
+            --file=ops/evidence/purchase-order-backfill-audit.sql \
+            | node scripts/ci/evidence-redact.mjs
