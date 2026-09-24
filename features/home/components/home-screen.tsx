@@ -214,8 +214,12 @@ function CollectionHeadline({ view }: { view: CollectionView }) {
  * business has not lived is not drawn, faintly or otherwise.
  */
 function ComparisonChart({ view }: { view: CollectionView }) {
+  // Loading holds a compact place for the chart, not the full stage: the
+  // skeleton says "something is coming", it does not pre-book the room.
   if (view.state === "loading") return <span className="sk chart-sk" />;
-  if (view.state === "failed") return <div className="chart-off" aria-hidden />;
+  // A failed read has no evidence to draw. The headline says so, and the
+  // column shrinks to the period selector instead of framing an empty chart.
+  if (view.state === "failed") return null;
 
   const previousTotal = view.previousPoints[view.previousPoints.length - 1] ?? 0;
   // A period with nothing on either side does not get a full-height empty
@@ -332,13 +336,38 @@ function smoothPath(points: readonly (readonly [number, number])[]): string {
 /** Two supporting figures, side by side under a hairline. */
 function FigureRow({ view }: { view: HomeView }) {
   const overdue = view.overdue;
+  const monthLoading = view.collection.state === "loading";
   const month = view.collection.state === "ready" ? view.collection.month : null;
   const overdueReady = overdue.state === "ready" && overdue.amount > 0;
-  if (overdue.state !== "loading" && !overdueReady && !month) return null;
+  if (overdue.state !== "loading" && !overdueReady && !month && !monthLoading) return null;
+
+  // Only the overdue figure has anything to say (the collection read failed,
+  // so there is no month): it takes the row's start instead of sitting alone
+  // at the far end with an empty half beside it.
+  if (!month && !monthLoading && overdueReady && overdue.state === "ready") {
+    return (
+      <div className="figs one">
+        <Link href={HOME_ROUTES.collectionCenter} className="fig">
+          <span className="fig-ic urgent" aria-hidden>
+            <ClockGlyph size={19} />
+          </span>
+          <span className="fig-tx">
+            <b>{formatAmount(String(overdue.amount), "ILS")}</b>
+            <span>חשבוניות באיחור</span>
+            <span className="fig-sub">
+              {overdue.customers === 1 ? "לקוח אחד" : `${overdue.customers} לקוחות`}
+            </span>
+          </span>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="figs">
-      {month ? (
+      {monthLoading ? (
+        <span className="sk" style={{ width: "76%", height: 38 }} />
+      ) : month ? (
         <Link href={HOME_ROUTES.collectionCenter} className="fig">
           <span className="fig-ic" aria-hidden>
             <WalletGlyph />
@@ -535,7 +564,7 @@ function FamilyTile({ group }: { group: ToolGroup }) {
   return (
     <Link href={categoryHref(group)} className={`fam fam-${group.key}`}>
       <span className="fam-ic" aria-hidden>
-        <FamilyMark family={group.key as FamilyMarkKey} size={30} />
+        <FamilyMark family={group.key as FamilyMarkKey} size={29.5} />
       </span>
       <span className="fam-t">{group.label}</span>
       <span className="fam-l">{bindSeparators(group.capabilityLine)}</span>
@@ -662,13 +691,24 @@ const HOME_CSS = `
   --ink:#1f2a26; --ink2:#55605a; --ink3:#8a938d; --teal:#1f4a46; --action:#2f615c;
   --paper:#f7f4ed; --white:#fffdf8; --hair:rgba(31,42,38,.13);
   --coral:#c2553a; --coral-tint:#fbe3dc; --ochre:#eccd86; --good:#2f7a5c; --good-tint:#dff0e4;
-  direction:rtl; min-height:100dvh; color:var(--ink); background:var(--paper);
+  direction:rtl; color:var(--ink); background:var(--paper);
   font-family:var(--font-heebo),'Heebo',system-ui,sans-serif; -webkit-font-smoothing:antialiased;
 }
 .dzhome a{color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
 .dzhome a:focus-visible,.dzhome button:focus-visible{outline:3px solid var(--action);outline-offset:3px;border-radius:12px}
 .dzhome .w{max-width:480px;margin:0 auto;padding:calc(6px + var(--dz-safe-top,0px)) 18px 20px}
 .dzhome .sk{display:block;border-radius:8px;background:rgba(31,42,38,.08)}
+
+/*
+ * The page ends where Home ends. Home used to force min-height:100dvh on top of
+ * the shell's 100px bottom-bar reservation, so a short Home (QUIET) was always
+ * a screen and a half tall and scrolled into a blank field — white, too,
+ * because the shell ground under Home is #fff. Now the shell alone fills the
+ * screen, in Home's paper, and at the SMALL viewport height: on iOS Safari
+ * 100vh is the height with the toolbars hidden, so a min-height of 100vh
+ * scrolls even when everything already fits.
+ */
+[data-shell-root][data-dz-home="1"]{--dz-shell-ground:#f7f4ed;min-height:100svh}
 
 /* header */
 .dzhome .top{display:grid;grid-template-columns:44px 1fr 44px;align-items:start;min-height:54px}
@@ -703,8 +743,7 @@ const HOME_CSS = `
 
 /* chart */
 .dzhome .chart{margin-top:10px}
-.dzhome .chart-sk{height:116px;border-radius:10px;margin-top:10px}
-.dzhome .chart-off{height:92px;margin-top:10px;border-bottom:1.4px solid var(--hair);opacity:.35}
+.dzhome .chart-sk{height:64px;border-radius:10px;margin-top:10px}
 .dzhome .chart-none{margin:14px 0 0;font-size:12.5px;font-weight:600;color:var(--ink2);line-height:1.4}
 .dzhome .chart-rail{display:flex;align-items:stretch;gap:5px;direction:ltr}
 .dzhome .chart-svg{flex:1;min-width:0;height:92px;overflow:visible}
@@ -719,6 +758,7 @@ const HOME_CSS = `
 
 /* two supporting figures */
 .dzhome .figs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--hair)}
+.dzhome .figs.one{grid-template-columns:1fr}
 .dzhome .fig{display:flex;align-items:center;gap:8px;min-height:52px}
 .dzhome .fig.trail{justify-content:flex-end}
 .dzhome .figs .fig+.fig{border-inline-start:1px solid var(--hair);padding-inline-start:10px}
@@ -768,9 +808,9 @@ const HOME_CSS = `
    the same height in all three tiles. A short line ("מלאי · ספקים") sits at the
    top of its zone instead of pulling the tile's rhythm with it, and the marks
    stand on one baseline so the gap to the title is identical everywhere. */
-.dzhome .fam{display:grid;grid-template-rows:31px 15px 29px;row-gap:5px;align-content:start;
-  padding:9px 10px 10px;border:1px solid rgba(31,42,38,.11);border-radius:15px}
-.dzhome .fam-ic{display:flex;align-items:flex-end;height:31px}
+.dzhome .fam{display:grid;grid-template-rows:29px 15px 29px;row-gap:4px;align-content:start;
+  padding:8px 10px 8px;border:1px solid rgba(31,42,38,.11);border-radius:15px}
+.dzhome .fam-ic{display:flex;align-items:flex-end;height:29px}
 .dzhome .fam-t{font-size:13px;font-weight:800;line-height:15px;white-space:nowrap}
 .dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);text-wrap:balance}
 /* Tints from the same page: warm paper, fresh mint, operational sage. The sage
@@ -786,7 +826,7 @@ const HOME_CSS = `
  * inline-start edge, the Dubiz insight badge in front of the eyebrow — unlike
  * the tinted family tiles and the ink-outlined receipts above it.
  */
-.dzhome .ins{margin-top:14px;margin-bottom:26px;padding:13px 14px 14px;background:#fcfaf5;
+.dzhome .ins{margin-top:14px;margin-bottom:6px;padding:12px 14px 13px;background:#fcfaf5;
   border-inline-start:3px solid #1f6f6b;border-radius:18px;border-start-start-radius:4px;border-end-start-radius:4px}
 .dzhome .ins-eyebrow{display:flex;align-items:center;gap:8px;margin:0;font-size:11.5px;font-weight:800;color:#1f6f6b}
 .dzhome .ins-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
@@ -812,7 +852,7 @@ const HOME_CSS = `
   .dzhome .rc{margin-left:-14px;margin-right:-14px}
   .dzhome .rc-rail{padding-left:14px;padding-right:14px}
   .dzhome .fams{gap:8px}
-  .dzhome .fam{padding:9px 8px 10px}
+  .dzhome .fam{padding:8px 8px 8px}
   .dzhome .fam-t{font-size:12.5px}
 }
 @media (min-width:768px){
