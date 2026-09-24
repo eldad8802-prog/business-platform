@@ -12,6 +12,7 @@ import {
 } from "@/lib/services/payments/payment-refund.service";
 import { toPaymentTransactionApi } from "@/lib/services/payments/payment-api.serializer";
 import { paymentRefundDeps } from "@/lib/services/payments/payments.deps";
+import { getProviderDescriptor } from "@/lib/services/payments/providers/provider-registry";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
@@ -42,16 +43,41 @@ export async function GET(
     const { id } = await context.params;
     const requestId = parsePaymentRequestId(id);
 
+    const deps = paymentRefundDeps();
     const balance = await runWithTenantContext(
       { businessId: actor.businessId },
       () =>
-        getRefundableBalance(paymentRefundDeps().store, {
+        getRefundableBalance(deps.store, {
           businessId: actor.businessId,
           requestId,
         })
     );
 
-    return NextResponse.json(balance, { status: 200 });
+    // What the PROVIDER behind this payment can actually do, so the screen can
+    // offer the right action instead of offering one and failing on it. Read
+    // from the descriptor rather than assumed: a payment taken through a
+    // provider that cannot reverse must not show a refund button at all.
+    const request = await runWithTenantContext(
+      { businessId: actor.businessId },
+      () => deps.store.findPaymentRequestById(requestId)
+    );
+    const descriptor =
+      request && request.businessId === actor.businessId
+        ? getProviderDescriptor(request.provider)
+        : null;
+    const capabilities = descriptor?.capabilities;
+
+    return NextResponse.json(
+      {
+        ...balance,
+        provider: request?.provider ?? null,
+        canRefund: capabilities?.refund === true,
+        canRefundPartially: capabilities?.partialRefund === true,
+        canVoid: capabilities?.void === true,
+        canVerifyRefund: capabilities?.refundVerification === true,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     return handleError(error);
   }

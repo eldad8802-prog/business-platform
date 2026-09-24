@@ -55,6 +55,7 @@ import {
 import type {
   PaymentProviderAdapter,
   RefundPaymentResult,
+  RefundStatusResult,
 } from "./providers/payment-provider.types";
 import type {
   PaymentConnectionRecord,
@@ -96,6 +97,13 @@ export class PaymentRefundInFlightError extends ConflictError {
 }
 
 export interface RefundPaymentRequestInput {
+  /**
+   * REFUND returns money from a settled payment; VOID withdraws a transaction
+   * that has not been deposited yet. The domain states which, and the adapter
+   * translates — never the other way round, because a provider that decided
+   * for itself would turn a partial refund into a whole cancellation.
+   */
+  intent?: "REFUND" | "VOID";
   /** From the authenticated actor — never from request input. */
   businessId: number;
   actorUserId: number;
@@ -233,6 +241,7 @@ export async function refundPaymentRequest(
   assertPositiveInt(input.actorUserId, "actorUserId");
   assertPositiveInt(input.requestId, "requestId");
 
+  const intent = input.intent ?? "REFUND";
   const requested = toMinorUnits(input.amount, "amount");
   if (requested <= 0) {
     throw new ValidationError("A refund amount must be greater than zero");
@@ -320,7 +329,10 @@ export async function refundPaymentRequest(
     currency: settlement.currency,
     status: "PENDING",
     rawPayload: {
-      kind: "refund_reservation",
+      // The intent is durable from the first write. A void and a refund are
+      // both negative rows, and only this says which act the owner asked for.
+      kind: intent === "VOID" ? "void_reservation" : "refund_reservation",
+      intent,
       requestedAmount: fromMinorUnits(requested),
       reversesTransactionId: settlement.id,
       actorUserId: input.actorUserId,
@@ -401,6 +413,11 @@ export async function refundPaymentRequest(
       currency: settlement.currency,
       description: input.reason ?? request.description ?? null,
       paymentRequestId: request.id,
+      intent,
+      // The reservation row IS the intent's identity. An adapter that hands it
+      // to the provider as an external reference makes a retried instruction
+      // the same economic act rather than a second one.
+      reversalId: reservation.id,
       settlement: {
         providerTransactionId: settlement.providerTransactionId,
         amount: settlement.amount,
@@ -478,7 +495,11 @@ export async function refundPaymentRequest(
     status: "PAID",
     providerTransactionId: result.providerRefundId,
     rawPayload: {
-      kind: "refund_settled",
+      // The intent survives settlement. Which act the owner asked for is not a
+      // detail of the attempt — it is what this row IS, and a settled void
+      // that reads back as a refund has lost the only record of the difference.
+      kind: intent === "VOID" ? "void_settled" : "refund_settled",
+      intent,
       requestedAmount: fromMinorUnits(requested),
       providerRefundId: result.providerRefundId,
       reversesTransactionId: settlement.id,
@@ -563,4 +584,186 @@ export async function getRefundableBalance(
     currency: settlement?.currency ?? request.currency,
     hasUnresolvedRefund: unresolvedReversals(transactions).length > 0,
   };
+}
+
+// --- resolving what the provider never established -------------------------
+
+export interface ResolveReversalInput {
+  businessId: number;
+  actorUserId: number | null;
+  requestId: number;
+}
+
+/** Same dependencies as issuing one: the store, the adapter, the credential. */
+export type ResolveReversalDeps = RefundPaymentRequestDeps;
+
+export interface ResolveReversalResult {
+  /** What the reversal is now: PAID, FAILED, or still PENDING. */
+  status: "PAID" | "FAILED" | "PENDING";
+  outcome: "REFUNDED" | "REJECTED" | "UNKNOWN";
+  /** Non-secret provider explanation, for the owner and the audit trail. */
+  detail: string | null;
+  refundedTotal: string;
+  refundableRemaining: string;
+}
+
+/**
+ * Ask the provider what became of a reversal it never established.
+ *
+ * The ONLY way an indeterminate refund leaves that state. There is deliberately
+ * no owner-facing override: a button that marks an UNKNOWN refund settled is a
+ * button that writes a money movement nobody observed, and one that marks it
+ * failed releases a reservation that may be holding back a genuine second
+ * refund. Both are worse than waiting.
+ *
+ * IDEMPOTENT. A reversal that already resolved is reported from the ledger
+ * without touching the provider, so running this repeatedly — on a schedule, on
+ * a page load, by two people at once — cannot settle anything twice. Only a
+ * PENDING row is ever asked about, and only a provider VERDICT moves it.
+ */
+export async function resolveUnresolvedReversal(
+  input: ResolveReversalInput,
+  deps: ResolveReversalDeps
+): Promise<ResolveReversalResult> {
+  assertPositiveInt(input.businessId, "businessId");
+  assertPositiveInt(input.requestId, "requestId");
+
+  const request = await deps.store.findPaymentRequestById(input.requestId);
+  if (!request || request.businessId !== input.businessId) {
+    throw new NotFoundError("Payment request not found");
+  }
+
+  const before = await deps.store.listTransactionsByRequest(request.id);
+  const settlement = findSettlement(before);
+  const settledMinor = settlement
+    ? toMinorUnits(settlement.amount, "settlement amount")
+    : 0;
+
+  const summarise = (
+    rows: PaymentTransactionRecord[],
+    status: ResolveReversalResult["status"],
+    outcome: ResolveReversalResult["outcome"],
+    detail: string | null
+  ): ResolveReversalResult => {
+    const reversed = reservedOrSettledReversals(rows);
+    return {
+      status,
+      outcome,
+      detail,
+      refundedTotal: fromMinorUnits(reversed),
+      refundableRemaining: fromMinorUnits(settledMinor - reversed),
+    };
+  };
+
+  const pending = unresolvedReversals(before);
+  if (pending.length === 0) {
+    // Nothing to resolve. Not an error: this is what success looks like the
+    // second time anyone asks.
+    return summarise(before, "PAID", "REFUNDED", null);
+  }
+
+  // The oldest unresolved one, the same tie-break the refund path uses.
+  const reversal = pending.reduce((min, t) => (t.id < min.id ? t : min), pending[0]!);
+
+  const adapter = deps.resolveProvider(request.provider);
+  if (typeof adapter.getRefundStatus !== "function") {
+    return summarise(
+      before,
+      "PENDING",
+      "UNKNOWN",
+      "This provider cannot be asked what became of a reversal."
+    );
+  }
+
+  const connection = await deps.store.findActiveConnection(
+    request.businessId,
+    request.provider
+  );
+  if (!connection) {
+    return summarise(
+      before,
+      "PENDING",
+      "UNKNOWN",
+      "This business has no active connection for the payment's provider."
+    );
+  }
+
+  let status: RefundStatusResult;
+  try {
+    status = await adapter.getRefundStatus({
+      merchantId: connection.merchantId,
+      credential: deps.decryptConnectionCredential(connection),
+      providerRefundId: reversal.providerTransactionId,
+      reversalId: reversal.id,
+      amount: fromMinorUnits(-toMinorUnits(reversal.amount, "amount")),
+      settlement: {
+        providerTransactionId: settlement?.providerTransactionId ?? null,
+        amount: settlement?.amount ?? "0.00",
+        currency: settlement?.currency ?? request.currency,
+        rawPayload: settlement?.rawPayload ?? null,
+      },
+    });
+  } catch (error) {
+    // A verification that itself failed has established nothing. The reversal
+    // stays exactly as it was.
+    const message =
+      error instanceof Error ? error.message : "verification failed";
+    return summarise(before, "PENDING", "UNKNOWN", message);
+  }
+
+  if (status.outcome === "REFUNDED") {
+    await deps.store.updateTransaction(reversal.id, {
+      status: "PAID",
+      providerTransactionId:
+        reversal.providerTransactionId ?? status.providerRefundId ?? null,
+      rawPayload: {
+        ...(typeof reversal.rawPayload === "object" && reversal.rawPayload !== null
+          ? (reversal.rawPayload as Record<string, unknown>)
+          : {}),
+        kind: "reversal_verified",
+        verifiedDetail: status.detail ?? null,
+      },
+    });
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: request.businessId,
+      paymentRequestId: request.id,
+      actorUserId: input.actorUserId,
+      eventType: "PAYMENT_REFUND_SETTLED",
+      source: "PROVIDER",
+      summary:
+        `${request.provider} confirmed the reversal of ` +
+        `${fromMinorUnits(-toMinorUnits(reversal.amount, "amount"))} on verification`,
+      metadata: {
+        provider: request.provider,
+        reversalId: reversal.id,
+        providerRefundId:
+          reversal.providerTransactionId ?? status.providerRefundId ?? null,
+      },
+    });
+    const after = await deps.store.listTransactionsByRequest(request.id);
+    return summarise(after, "PAID", "REFUNDED", status.detail ?? null);
+  }
+
+  if (status.outcome === "REJECTED") {
+    await deps.store.updateTransaction(reversal.id, { status: "FAILED" });
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: request.businessId,
+      paymentRequestId: request.id,
+      actorUserId: input.actorUserId,
+      eventType: "PAYMENT_REFUND_FAILED",
+      source: "PROVIDER",
+      summary: `${request.provider} confirmed the reversal did not happen`,
+      metadata: {
+        provider: request.provider,
+        reversalId: reversal.id,
+        detail: status.detail ?? null,
+      },
+    });
+    const after = await deps.store.listTransactionsByRequest(request.id);
+    return summarise(after, "FAILED", "REJECTED", status.detail ?? null);
+  }
+
+  // UNKNOWN. Nothing is written — not even an audit event, because "we asked
+  // and learned nothing" on every page load would bury the events that matter.
+  return summarise(before, "PENDING", "UNKNOWN", status.detail ?? null);
 }

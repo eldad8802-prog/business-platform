@@ -36,7 +36,27 @@ export interface CredentialField {
 export interface ProviderCapabilities {
   hostedCheckout: boolean;
   verification: boolean;
+  /**
+   * These four exist separately because the product asks four different
+   * questions, and one `refund` flag was answering all of them with a guess.
+   * What an owner is OFFERED depends on which are true, so each states what
+   * THIS adapter can actually perform — never what the provider's public API
+   * theoretically supports.
+   */
   refund: boolean;
+  /** A reversal may be for less than the settled amount. */
+  partialRefund: boolean;
+  /**
+   * The provider can withdraw a transaction that has not been deposited yet.
+   * A void is not a small refund: different act, different window.
+   */
+  void: boolean;
+  /**
+   * Dubiz can ask the provider afterwards what became of a reversal it
+   * instructed. Without it an indeterminate refund can only be resolved by a
+   * person, and the money stays reserved until one looks.
+   */
+  refundVerification: boolean;
   sandbox: boolean;
   webhooks: boolean;
   tokens: boolean;
