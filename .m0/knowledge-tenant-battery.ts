@@ -206,7 +206,15 @@ async function main(): Promise<void> {
   for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
   for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
   const seeded = await owner.derivationPolicyVersion.count();
-  check("the migration seeds a version for every rule in the catalogue", seeded === 14, `versions=${seeded}`);
+  // Every rule's CURRENT version must exist (fail-closed resolver). The count is no longer one per
+  // rule: a corrected rule keeps its v1 row beside its v2, which is what makes supersession auditable.
+  // (No application import here: loading the registry now would bind the Prisma singleton to the
+  // ADMIN connection before the battery switches to the restricted role.)
+  const lineages = await owner.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(DISTINCT "policyId")::int AS n FROM "DerivationPolicyVersion"`);
+  const v2 = await owner.derivationPolicyVersion.count({ where: { version: "v2" } });
+  check("the migrations seed the current version of every rule in the catalogue",
+    (lineages[0]?.n ?? 0) >= 14 && v2 === 3 && seeded === 17, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are
