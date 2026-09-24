@@ -6,6 +6,12 @@
  * probe or token refresh.
  */
 
+import {
+  AUTHORITY_EGRESS_ERROR_CODES,
+  AUTHORITY_EGRESS_TUNNEL_CLOSED_CODE,
+  authorityEgressFetch,
+  isAuthorityEgressError,
+} from "@/lib/services/billing/authority/billing-authority-egress";
 import { timingSafeEqual } from "node:crypto";
 import { verifySignedAuthorityState } from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
@@ -99,6 +105,9 @@ export type AuthorityOAuthNetworkErrorClass =
   | "CERTIFICATE_ERROR"
   | "ABORTED"
   | "FETCH_ERROR"
+  | "EGRESS_UNAVAILABLE"
+  | "EGRESS_DESTINATION_BLOCKED"
+  | "EGRESS_TUNNEL_CLOSED"
   | "OTHER";
 
 /** Coarse request-duration bucket (avoids persisting a precise timing). */
@@ -159,6 +168,12 @@ export class AuthorityOAuthCallbackError extends Error {
 export function mapNetworkErrorClass(
   error: unknown
 ): AuthorityOAuthNetworkErrorClass {
+  // Dedicated ITA egress refused the request before any network I/O.
+  if (isAuthorityEgressError(error)) {
+    return error.code === AUTHORITY_EGRESS_ERROR_CODES.DESTINATION_BLOCKED
+      ? "EGRESS_DESTINATION_BLOCKED"
+      : "EGRESS_UNAVAILABLE";
+  }
   const codes: string[] = [];
   const names: string[] = [];
   const visit = (value: unknown) => {
@@ -173,6 +188,9 @@ export function mapNetworkErrorClass(
   }
   const code = codes.join(" ");
   const name = names.join(" ");
+
+  // The egress gateway closed the tunnel (e.g. refused our client certificate).
+  if (code.includes(AUTHORITY_EGRESS_TUNNEL_CLOSED_CODE)) return "EGRESS_TUNNEL_CLOSED";
 
   if (/\b(ENOTFOUND|EAI_AGAIN)\b/.test(code)) return "DNS_ERROR";
   if (
@@ -602,7 +620,7 @@ export async function exchangeAuthorityAuthorizationCode(input: {
   redirectUri: string;
   fetchImpl?: typeof fetch;
 }): Promise<AuthorityTokenExchangeResponse> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,

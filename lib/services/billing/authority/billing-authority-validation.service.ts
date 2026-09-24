@@ -6,6 +6,7 @@
  * do not mutate connection state.
  */
 
+import { authorityEgressFetch } from "@/lib/services/billing/authority/billing-authority-egress";
 import {
   BillingAuthorityConnectionStatus,
   BillingAuthorityEnvironment,
@@ -269,7 +270,7 @@ export async function executeAuthorityValidationProbe(input: {
   errorCode?: string;
   errorMessage?: string;
 }> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const timeoutMs =
     input.probeTimeoutMs ?? DEFAULT_AUTHORITY_VALIDATION_PROBE_TIMEOUT_MS;
   const controller = new AbortController();

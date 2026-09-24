@@ -2,7 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Playwright is Node-native; do not bundle it into the serverless output.
-  serverExternalPackages: ["playwright", "playwright-core"],
+  // undici: the pinned direct dependency that carries the ITA egress transport
+  // (ProxyAgent + mTLS). Loaded via native require, never a bundled copy.
+  serverExternalPackages: ["playwright", "playwright-core", "undici"],
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by
   // Homepage v1 at `/home`). It has zero internal consumers but was publicly

@@ -228,7 +228,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "undici": "7.29.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",

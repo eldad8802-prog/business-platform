@@ -6,6 +6,7 @@
  * do not mutate connection state.
  */
 
+import { authorityEgressFetch } from "@/lib/services/billing/authority/billing-authority-egress";
 import {
   BillingAuthorityConnectionStatus,
   BillingAuthorityEnvironment,
@@ -339,7 +340,7 @@ export async function exchangeAuthorityRefreshToken(input: {
   errorCode?: string;
   errorMessage?: string;
 }> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const timeoutMs =
     input.refreshTimeoutMs ?? DEFAULT_AUTHORITY_TOKEN_REFRESH_TIMEOUT_MS;
   const controller = new AbortController();

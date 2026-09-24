@@ -9,6 +9,7 @@
  * or allocation numbers.
  */
 
+import { authorityEgressFetch } from "@/lib/services/billing/authority/billing-authority-egress";
 import type { InvoiceApprovalRequest, InvoiceApprovalValidationErrorDetail } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import { hasInvoiceApprovalErrors } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
@@ -24,7 +25,7 @@ export type SendInvoiceApprovalInput = {
   accessToken: string;
   payload: InvoiceApprovalRequest;
   config: AuthorityApprovalConfig;
-  /** Injectable for tests. Defaults to global fetch. */
+  /** Injectable for tests. Defaults to the ITA egress transport (never global fetch). */
   fetchImpl?: typeof fetch;
 };
 
@@ -241,7 +242,7 @@ export function parseApprovalResponse(
 export async function sendInvoiceApproval(
   input: SendInvoiceApprovalInput
 ): Promise<ApprovalClientResult> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const url = buildInvoiceApprovalUrl(input.config);
 
   const controller = new AbortController();
