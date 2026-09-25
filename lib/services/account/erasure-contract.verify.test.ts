@@ -1047,34 +1047,78 @@ function main(): number {
       }
     };
     for (const d of ["app", "lib"]) if (fs.existsSync(path.join(ROOT, d))) walkDir(path.join(ROOT, d));
-    for (const file of files) {
-      const text = fs.readFileSync(file, "utf8");
-      if (!text.includes("putPublicAsset(")) continue;
-      const src = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-      const rel = path.relative(ROOT, file).replace(/\\/g, "/");
-      const walk = (n: ts.Node) => {
-        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "putPublicAsset") {
-          const arg = n.arguments[0];
-          const dom =
-            arg && ts.isObjectLiteralExpression(arg)
-              ? arg.properties.find(
-                  (q): q is ts.PropertyAssignment => ts.isPropertyAssignment(q) && ts.isIdentifier(q.name) && q.name.text === "domain"
-                )
-              : undefined;
-          const line = src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1;
-          if (!dom || !ts.isStringLiteral(dom.initializer)) {
-            report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} writes a public asset whose domain is not a literal the contract can check`);
-          } else if (!knownDomains.has(dom.initializer.text)) {
-            report(
-              "C28-UNDECLARED-OBJECT-WRITER",
-              `${rel}:${dom.initializer.text}`,
-              `${rel}:${line} writes public objects into "${dom.initializer.text}", which no object surface declares`
-            );
-          }
+    // A writer may forward its domain from its own parameter (workstream D's
+    // receivePublicAssetUpload does). Such a FORWARDER is followed one level: every call
+    // to it must pass a literal, declared domain. A forwarder nobody calls with a literal,
+    // or a non-literal domain at either level, is a finding.
+    const domainArg = (call: ts.CallExpression): ts.Expression | undefined => {
+      const arg = call.arguments[0];
+      if (!arg || !ts.isObjectLiteralExpression(arg)) return undefined;
+      const prop = arg.properties.find(
+        (q) => (ts.isPropertyAssignment(q) || ts.isShorthandPropertyAssignment(q)) && ts.isIdentifier(q.name) && q.name.text === "domain"
+      );
+      if (!prop) return undefined;
+      return ts.isPropertyAssignment(prop) ? prop.initializer : prop.name;
+    };
+    const enclosingFunctionName = (n: ts.Node): string | null => {
+      for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
+        if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+      }
+      return null;
+    };
+    // Read every file once; parse only the ones that mention the name being followed.
+    const texts = files.map((file) => ({ file, text: fs.readFileSync(file, "utf8") }));
+    const parsedCache = new Map<string, ts.SourceFile>();
+    const callsTo = (name: string, cb: (rel: string, src: ts.SourceFile, call: ts.CallExpression) => void) => {
+      for (const { file, text } of texts) {
+        if (!text.includes(`${name}(`)) continue;
+        const rel = path.relative(ROOT, file).replace(/\\/g, "/");
+        const src = parsedCache.get(file) ?? ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+        parsedCache.set(file, src);
+        const walk = (n: ts.Node) => {
+          if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name) cb(rel, src, n);
+          ts.forEachChild(n, walk);
+        };
+        walk(src);
+      }
+    };
+    const checkLiteral = (rel: string, src: ts.SourceFile, call: ts.CallExpression, via: string) => {
+      const dom = domainArg(call);
+      const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+      if (!dom || !ts.isStringLiteral(dom)) return false;
+      if (!knownDomains.has(dom.text)) {
+        report(
+          "C28-UNDECLARED-OBJECT-WRITER",
+          `${rel}:${dom.text}`,
+          `${rel}:${line} writes public objects into "${dom.text}"${via}, which no object surface declares`
+        );
+      }
+      return true;
+    };
+    const forwarders = new Map<string, string>();
+    callsTo("putPublicAsset", (rel, src, call) => {
+      if (checkLiteral(rel, src, call, "")) return;
+      const fn = enclosingFunctionName(call);
+      const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+      if (!fn) {
+        report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} writes a public asset whose domain is not a literal the contract can check`);
+        return;
+      }
+      forwarders.set(fn, `${rel}:${line}`);
+    });
+    for (const [fn, site] of forwarders) {
+      let literalCallers = 0;
+      callsTo(fn, (rel, src, call) => {
+        if (checkLiteral(rel, src, call, ` via ${fn}()`)) {
+          literalCallers++;
+          return;
         }
-        ts.forEachChild(n, walk);
-      };
-      walk(src);
+        const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+        report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} calls ${fn}() with a domain that is not a literal the contract can check`);
+      });
+      if (literalCallers === 0) {
+        report("C28-UNDECLARED-OBJECT-WRITER", site, `${site} forwards a public-asset domain through ${fn}(), and no caller passes a checkable literal`);
+      }
     }
   }
 
