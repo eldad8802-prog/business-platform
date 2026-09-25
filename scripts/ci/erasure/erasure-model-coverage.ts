@@ -429,6 +429,12 @@ const internal = (reason: string): ModelCoverage => ({ disposition: "SYSTEM_INTE
 const INTERNAL: Record<string, ModelCoverage> = {
   PlatformAdminMfa: internal("platform-admin MFA secret; belongs to the operator, not to a tenant"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
+  // SEC-F. The operator's own security log, on the same footing as PlatformAuditEvent
+  // (which holds more: a raw ip and user agent). Readable only by the platform-admin
+  // identity, never by a tenant; holds ids, a reason class and a KEYED /24 hash — no
+  // email, password, token or raw address. Its RETENTION period is an open owner
+  // decision (reported), not an erasure question.
+  SecurityEvent: internal("platform-operator security event log (auth, admin MFA, exports, cost denials)"),
   PlatformFeatureDefinition: internal("the catalogue of feature flags"),
   PlatformFeaturePolicy: internal("default policy per feature flag"),
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),

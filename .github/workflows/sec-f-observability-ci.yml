@@ -67,3 +67,40 @@ jobs:
         run: node .secf/migration-battery.mjs
       - name: Negative proofs (mutation → specific red → sha256 restore → green)
         run: node .secf/negative-proofs.mjs
+
+  code:
+    name: SEC-F code battery + unit proofs + code negative proofs (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: secf_super
+          POSTGRES_PASSWORD: secf_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secf_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SECF_SUPER_URL: postgresql://secf_super:secf_ci_synthetic_super_pw@localhost:5432/postgres
+      SECF_LAB_DB: secf_code_lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Keyed audit chain — pure verifier (modify / delete / reorder / forge / rotate)
+        run: npx tsx lib/audit/audit-chain.verify.test.ts
+      - name: Security events, error scrubber, cost limits (real limiter; real Upstash client vs closed port)
+        run: npx tsx lib/security/security-observability.verify.test.ts
+      - name: Code battery (real writers + real login route, NOBYPASSRLS runtime, fresh lab)
+        run: npx tsx .secf/code-battery.ts
+      - name: Code negative proofs (mutation → specific red → sha256 restore → green)
+        run: node .secf/code-negative-proofs.mjs
