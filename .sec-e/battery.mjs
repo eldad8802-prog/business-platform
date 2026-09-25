@@ -4,7 +4,7 @@
  *
  *   node .ad2a/fresh-lab.mjs <label> -- npx tsx .sec-e/battery.mjs [--only <group>]
  *
- * groups: fault | provider | sweeper | m12a | m12c | content   (default: all)
+ * groups: fault | provider | sweeper | m12a | m12c | content | audit   (default: all)
  *
  * Every proof gets a NEW database, a NEW NOSUPERUSER/NOBYPASSRLS runtime role and a NEW
  * auth-plane role (fresh-lab.mjs); the substrate is the AD-2A Production RLS contract
@@ -117,6 +117,18 @@ async function main() {
     `SELECT rolname::text AS r, rolsuper AS s, rolbypassrls AS b FROM pg_roles WHERE rolname IN ('${RT}','${AUTH}')`
   ));
   ok("SUBSTRATE · both lab roles are NOSUPERUSER NOBYPASSRLS", posture.length === 2 && posture.every((p) => !p.s && !p.b), JSON.stringify(posture));
+
+  // COMPATIBILITY MODE (workstream F, #521): layer another migration on top of the
+  // measured substrate — AFTER the exact-set check, so the base stays proven — and run
+  // the whole erasure against it. Used to prove the erasure never UPDATEs/DELETEs the
+  // append-only audit tables, never deletes a User they point at, and never touches an
+  // ISSUED fiscal row (those triggers raise DZ001/DZ010 even for the owner).
+  const EXTRA = process.env.SEC_E_EXTRA_MIGRATION;
+  if (EXTRA) {
+    const fsx = await import("node:fs");
+    await owner.$executeRawUnsafe(fsx.readFileSync(EXTRA, "utf8"));
+    ok(`SUBSTRATE · extra migration applied: ${EXTRA}`, true);
+  }
 
   process.env.DATABASE_URL = roleUrl(OWNER_URL, RT, LAB.pw);
   process.env.AUTH_PLANE_ENABLED = "true";
@@ -601,6 +613,32 @@ async function main() {
     ok("M13-CONTENT-ERASED · every content object of the deleted business is gone", after === 0, `remaining=${after}`);
     const refused = await throws(() => realStorage.listByPrefix("biz/"));
     ok("M13-PREFIX-BOUNDED · a listing wider than one tenant domain is refused", refused?.name === "StorageKeyError", String(refused?.name));
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // Workstream F compatibility — append-only audit rows survive the erasure untouched
+  // ═════════════════════════════════════════════════════════════════════════
+  if (want("audit")) {
+    console.log("--- F: append-only audit compatibility ---");
+    const fx = await mk("audit");
+    let seeded = true;
+    try {
+      await owner.$executeRawUnsafe(
+        `INSERT INTO "BillingAuditEvent" ("businessId","actorUserId","eventType","summary","eventHash") VALUES (${fx.biz.id}, ${fx.user.id}, 'LAB_EVENT', 'lab', 'lab-hash-${fx.biz.id}')`
+      );
+    } catch (e) {
+      seeded = false;
+      console.log(`  [info] audit row could not be seeded under this schema: ${String(e.message).split("
+")[0]}`);
+    }
+    const res = await requestAccountDeletion(store, { businessId: fx.biz.id, actorUserId: fx.user.id });
+    ok("F-AUDIT · the erasure completes with an audit row pointing at the user", res.status === "deleted", JSON.stringify(res));
+    if (seeded) {
+      const rows = await owner.$queryRawUnsafe(`SELECT "actorUserId", "summary" FROM "BillingAuditEvent" WHERE "businessId" = ${fx.biz.id}`);
+      ok("F-AUDIT · the audit row is intact (never updated, never deleted; its User was anonymised, not deleted)",
+        rows.length === 1 && rows[0].actorUserId === fx.user.id && rows[0].summary === "lab", JSON.stringify(rows));
+    }
+    ok("F-AUDIT · the User row still exists (anonymised in place)", (await owner.user.count({ where: { id: fx.user.id } })) === 1);
   }
 
   // ── The control tenant, untouched by everything ──────────────────────────
