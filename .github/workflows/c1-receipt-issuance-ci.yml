@@ -82,7 +82,7 @@ jobs:
           # issuable and quietly makes an empty invoice issuable too.
           perl -0pi -e 's/  if \(doc\.lineCount === 0\) \{\n    throw new ValidationError\("Cannot issue a document with no lines"\);\n  \}//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "c1-receipt-issuance-ci.yml:73:85" -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "c1-receipt-issuance-ci.yml:73:85" --expect 'FAIL: an invoice with NO lines is still refused' -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an empty invoice became issuable"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -95,7 +95,7 @@ jobs:
           # Accept a receipt whose payment lines do not add up to its total.
           perl -0pi -e 's/    if \(!paymentsTotal\.equals\(doc\.stored\.totalAmount\)\) \{/    if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "c1-receipt-issuance-ci.yml:91:98" -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "c1-receipt-issuance-ci.yml:91:98" --expect 'FAIL: a receipt whose payment lines do not add up to its total is refused' -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a receipt was issued for an amount it does not hold"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -109,7 +109,7 @@ jobs:
           # customer is, and no tenant check on the way in.
           perl -pi -e 's/await resolveCustomerForCreate\(/await ((b: number, c?: number | null, s?: string | null) => ({ customerId: c ?? null, customerNameSnapshot: s ?? null }))(/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "c1-receipt-issuance-ci.yml:104:112" -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "c1-receipt-issuance-ci.yml:104:112" --expect 'FAIL: receipt creation resolves its customer through the shared resolver' -- npx tsx lib/services/billing/billing-issuable-shape.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unvalidated snapshot was accepted"; exit 1
           fi
           mv "$F.bak" "$F"

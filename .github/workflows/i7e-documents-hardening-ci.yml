@@ -89,7 +89,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  await tx\.\$executeRaw`SELECT pg_advisory_xact_lock\(\$\{DOCUMENT_CONTENT_ADVISORY_NAMESPACE\}::int, \$\{key\}::int\)`;/  void key;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:80:91" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:80:91" --expect '[FAIL] B observes the document A committed while B was blocked' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the battery passed without any lock"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -108,7 +108,7 @@ jobs:
           # counts, wrong isolation. The tenant-key assertion must notice.
           perl -0pi -e 's/  return digest\.readInt32BE\(0\);/  return 1;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:97:110" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:97:110" --expect '[FAIL] D: the two tenants do not even share a lock key' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a global lock key passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -125,7 +125,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    where: \{\n      businessId,\n      contentHashSha256,/    where: {\n      contentHashSha256,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:116:127" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:116:127" --expect '[FAIL] D2: tenant B still creates, seeing another tenant'\''s copy as none of its business' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant duplicate query passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -142,7 +142,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      status: \{ not: "failed" \},//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:133:144" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:133:144" --expect '[FAIL] E: a failed row does not count as a duplicate' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a blocking failed row passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -161,7 +161,7 @@ jobs:
           # which is exactly what the owner's explicit override must survive.
           perl -0pi -e 's/    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{/    if (true) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:150:163" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:150:163" --expect '[FAIL] F: the explicit override creates a second Document' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a broken override passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -180,7 +180,7 @@ jobs:
           # callers read absence, then both insert.
           perl -0pi -e 's/    await lockDocumentContent\(db, params\.businessId, params\.contentHashSha256\);\n    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{\n      const duplicate = await findDuplicateDocumentTx\(\n        db,\n        params\.businessId,\n        params\.contentHashSha256\n      \);\n      if \(duplicate\) return \{ created: false, duplicate \};\n    \}/    let duplicate = null;\n    if (params.duplicatePolicy === "SKIP_IF_EXISTS") {\n      duplicate = await findDuplicateDocumentTx(db, params.businessId, params.contentHashSha256);\n    }\n    await lockDocumentContent(db, params.businessId, params.contentHashSha256);\n    if (duplicate) return { created: false, duplicate };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i7e-documents-hardening-ci.yml:169:182" -- npx tsx .i7e-pg/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i7e-documents-hardening-ci.yml:169:182" --expect '[FAIL] B: exactly one of the two events created' -- npx tsx .i7e-pg/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: look-then-lock passed"; exit 1
           fi
           mv "$F.bak" "$F"

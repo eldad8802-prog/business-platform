@@ -18,8 +18,11 @@ const id = argv[0];
 const cmd = argv.slice(sep + 1);
 const r = spawnSync(cmd.join(" "), { shell: true, encoding: "utf8", maxBuffer: 1 << 28 });
 const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
-const lines = out.split(/\r?\n/).filter((l) => /FAIL|✗|✘|not ok|AssertionError/.test(l)).slice(0, 10);
+const all = out.split(/\r?\n/);
+// A bare assert() has no label; keep the diff lines that follow it, which name the value.
+const ctx = all.flatMap((l, i) => (/AssertionError/.test(l) ? all.slice(i + 1, i + 7).map((x) => `  ctx: ${x}`) : []));
+const lines = all.filter((l) => /FAIL|✗|✘|not ok|AssertionError|^\s*NEW\s+[A-Z0-9-]{3,}\s/.test(l)).slice(0, 14);
 const crash = /ReferenceError|SyntaxError|is not defined|Cannot find module|Transform failed|Unexpected token|ECONNREFUSED|P1001|does not provide an export/.test(out);
 console.log(`PROOF-CAPTURE ${id} rc=${r.status} crash=${crash}`);
-for (const l of lines) console.log(`PROOF-CAPTURE ${id} | ${l.slice(0, 300)}`);
+for (const l of [...lines, ...ctx]) console.log(`PROOF-CAPTURE ${id} | ${l.slice(0, 300)}`);
 process.exit(r.status ?? 1);

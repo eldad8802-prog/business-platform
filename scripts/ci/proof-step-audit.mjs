@@ -48,7 +48,8 @@ export function inventory(root) {
   for (const f of fs.readdirSync(dir).filter((x) => /\.ya?ml$/.test(x)).sort()) {
     for (const s of steps(fs.readFileSync(path.join(dir, f), "utf8"))) {
       if (!IS_PROOF.test(s.name + s.text)) continue;
-      const reasoned = /negative-proof\.mjs/.test(s.text) || (!UNREASONED.test(s.text) && /grep -q[F]?\s/.test(s.text));
+      const reasoned = !/proof-capture\.mjs/.test(s.text) &&
+        (/negative-proof\.mjs|expect-red\.mjs/.test(s.text) || (!UNREASONED.test(s.text) && /grep -q[F]?\s/.test(s.text)));
       rows.push({ workflow: f, line: s.start + 1, name: s.name, reasoned, peer: PEER.test(s.text) });
     }
   }

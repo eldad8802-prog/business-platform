@@ -123,7 +123,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:114:125" -- npx tsx .i8b3/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b3-historical-duplicates-ci.yml:114:125" --expect 'FAIL  row-level security is ENABLED and FORCED' -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -143,7 +143,7 @@ jobs:
           # they never read.
           perl -0pi -e 's/    input\.expectedEvidenceFingerprint \&\&\n    input\.expectedEvidenceFingerprint !== evidenceFingerprint\n  \) \{/    false\n  ) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:131:145" -- npx tsx .i8b3/battery.mjs; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b3-historical-duplicates-ci.yml:131:145" --expect 'FAIL  a record inserted before Preview makes the analysis STALE, not silently different' -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale analysis was rebuilt silently"; exit 1
           fi
           mv "$F.bak" "$F"

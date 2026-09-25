@@ -216,7 +216,7 @@ jobs:
           # Promote the first field the create service does NOT accept. The
           # template would then teach the owner a column the importer ignores.
           sed -i '0,/importable: false,/s//importable: true,/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:212:219" -- npx tsx lib/data-transfer/templates/templates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:212:219" --expect 'customers/שם משפטי has no help text' -- npx tsx lib/data-transfer/templates/templates.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: verifier passed with the import contract drifted"; exit 1
           fi
@@ -238,7 +238,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  "CREDIT_NOTE",\n\] as const;/  "CREDIT_NOTE",\n  "QUOTE",\n] as const;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:235:241" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:235:241" --expect 'FAIL  exactly four document types, and QUOTE is not one of them' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: QUOTE entered the historical fiscal vocabulary"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -250,7 +250,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/\): VocabularyResult<HistoricalCurrency> \{/): VocabularyResult<HistoricalCurrency> {\n  return { ok: true, value: "ILS", raw: "" };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:247:253" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:247:253" --expect 'FAIL  ILS is the only supported currency, and it is required' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a missing currency was silently assumed to be shekels"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -262,7 +262,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const iso = ISO\.exec\(original\);/  const iso = ISO.exec(original);\n  const loose = new Date(original);\n  void loose;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:259:265" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:259:265" --expect 'FAIL  nothing in the date primitive parses a user string with Date' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the date primitive started parsing user strings with Date"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -274,7 +274,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/return \{ ok: true, value, original, display: group\(value\) \};/return { ok: true, value: Number(value) as unknown as string, original, display: group(value) };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:271:277" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:271:277" --expect 'FAIL  plain and decimal amounts normalise to two decimals' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount passed through binary floating point"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -286,7 +286,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(decimal\.decimalPlaces\(\) > MONEY_DECIMAL_PLACES\) \{/  if (false \&\& decimal.decimalPlaces() > MONEY_DECIMAL_PLACES) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:283:289" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:283:289" --expect 'FAIL  more than two decimals is refused, never silently rounded' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a three-decimal amount was silently rounded into shape"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -298,7 +298,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/\n\] as const;/,\n  { header: "phone", target: "customerPhoneSnapshot", type: "text", exportable: false, importable: true }\n] as const;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:295:301" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:295:301" --expect 'FAIL  exactly eleven owner-facing columns, in contract order' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: v1 started collecting personal contact details with no consumer"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -310,7 +310,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/example: "2024\/0017",/example: "2024\/0017 businessId",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:307:313" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:307:313" --expect 'FAIL  no internal identifier is exposed to the owner' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an internal identifier reached owner-facing text"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -322,7 +322,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    rows: \[\],/    rows: [["x"]],/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:319:325" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:319:325" --expect 'FAIL  the import sheet is headers only' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an example row appeared on the sheet the owner uploads"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -334,7 +334,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/domainId: "historical-documents",/domainId: "issued-documents",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:331:337" -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:331:337" --expect 'FAIL  the template is a two-sheet RTL workbook that parses back' -- npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the historical template was built as the issued-documents one"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -423,7 +423,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/\): VocabularyResult<HistoricalCurrency> \{/): VocabularyResult<HistoricalCurrency> {\n  return { ok: true, value: "ILS", raw: "" };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:424:430" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:424:430" --expect 'FAIL  ILS is accepted; missing and foreign currencies are blocking' -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a missing currency was silently assumed to be shekels"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -435,7 +435,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(asDMY \&\& asMDY\) \{/  if (false \&\& asDMY \&\& asMDY) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:436:442" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:436:442" --expect 'FAIL  an ambiguous textual date requires the owner to choose' -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ambiguous date was read without the owner choosing"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -447,7 +447,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/return \{ ok: true, value, original, display: group\(value\) \};/return { ok: true, value: Number(value) as unknown as string, original, display: group(value) };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:448:454" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:448:454" --expect 'FAIL  amounts survive as digits, thousands and shekel signs included' -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount passed through binary floating point"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -459,7 +459,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    if \(!decimalsAgree\(subtotal, vat, total\)\) \{/    if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:460:466" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:460:466" --expect 'FAIL  a VAT mismatch is a warning and NOTHING is repaired' -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a VAT mismatch was silently accepted"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -479,7 +479,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    const key = identityKey\(record\);/    const key = identityKey(record) + (record.originalIssueDate ?? "");/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:480:486" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:480:486" --expect 'FAIL  one match with every fact agreeing is EXACT' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a corrected re-export would have become a second document"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -491,7 +491,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  return \[\n    identity\.sourceSystemCode,\n    identity\.documentTypeCode,/  return [\n    identity.documentTypeCode,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:492:498" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:492:498" --expect 'FAIL  the same number under a DIFFERENT source system is not a duplicate' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two source systems numbering an invoice 1001 became one document"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -503,7 +503,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/export const DUPLICATE_LOOKUP_CHUNK = 500;/export const DUPLICATE_LOOKUP_CHUNK = 1;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:504:510" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:504:510" --expect 'FAIL  the lookup is bounded: a 10,000-row file is tens of queries' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the lookup degraded to a query per identity"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -515,7 +515,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(total > 1\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:516:522" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:516:522" --expect 'FAIL  two candidates is AMBIGUOUS' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a heuristic chose between reversal candidates"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -527,7 +527,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const earlier = inFileCandidates\.filter\(\(c\) => c\.sourceRowNumber < row\.sourceRowNumber\);/  const earlier = inFileCandidates;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:528:534" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:528:534" --expect 'FAIL  a target that appears LATER is not pretended to be executable' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a target appearing after the credit was reported as executable"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -587,7 +587,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  return sha256Hex\(`historical-duplicate-evidence:v1\\n\$\{lines\.join\("\\n"\)\}`\);/  return "constant";/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:588:594" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:588:594" --expect 'FAIL  the evidence fingerprint is order-independent and content-sensitive' -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the evidence fingerprint stopped reflecting what the database said"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -620,7 +620,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(row\.database === "EXACT" \|\| row\.database === "STRONG_CANDIDATE"\) return "SKIP";//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:621:627" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:621:627" --expect 'FAIL  an exact database duplicate defaults to SKIP, never CREATE' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a document the business already holds would have been imported by default"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -632,7 +632,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    if \(isBlocked\(row\) \&\& action !== "SKIP"\) \{/    if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:633:639" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:633:639" --expect 'FAIL  CREATE_ANYWAY cannot bypass a structural error' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a structurally invalid row could be clicked through"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -644,7 +644,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(row\.database === "AMBIGUOUS"\) reasons\.push\("DUPLICATE_AMBIGUOUS"\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:645:651" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:645:651" --expect 'FAIL  structural errors and every ambiguity block, with named reasons' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ambiguous duplicate stopped blocking"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -656,7 +656,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  return collides \? \["SKIP", "CREATE_ANYWAY"\] : \["CREATE", "SKIP"\];/  return ["CREATE", "SKIP", "CREATE_ANYWAY"];/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:657:663" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:657:663" --expect 'FAIL  a clean new row defaults to CREATE' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: CREATE_ANYWAY was offered where there is nothing to override"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -669,7 +669,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const previewToken = readyForExecute\n    \? issueHistoricalPreviewToken\(/  const previewToken = true\n    ? issueHistoricalPreviewToken(/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:670:676" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:670:676" --expect 'FAIL  a token is signed only for a preview that is ready' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a token was minted while owner decisions were still outstanding"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -681,7 +681,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  keyLabel: "dubiz-data-transfer-historical-preview-v1",/  keyLabel: "dubiz-data-transfer-import-preview-v1",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:682:688" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:682:688" --expect 'FAIL  a tabular preview token can NEVER be used as a historical one' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a tabular preview token could be presented as a historical one"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -693,7 +693,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      evidenceFingerprint: payload\.evidenceFingerprint,/      evidenceFingerprint: "",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:694:700" -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:694:700" --expect 'FAIL  a freshly minted token verifies and returns every bound fact' -- npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the token stopped carrying what the database said"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -715,7 +715,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(!token\.ok\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:716:722" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:716:722" --expect 'FAIL  no token means nothing runs' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a forged approval reached the writer"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -727,7 +727,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      businessId: user\.businessId,/      businessId: Number(form.get("businessId")) || user.businessId,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:728:734" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:728:734" --expect 'FAIL  the tenant and the user come from the session, never the request' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the caller could name the tenant it writes into"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -739,7 +739,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const mapping = parseJson<ResolvedMapping>\("mapping"\);/  void form.get("rows");\n  const mapping = parseJson<ResolvedMapping>("mapping");/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:740:746" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:740:746" --expect 'FAIL  no analysis result is read out of the request' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a value the browser normalized could be persisted"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -751,7 +751,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const decisions = parseJson<HistoricalDecisions>\("decisions"\);/  void form.get("duplicate");\n  void form.get("targetId");\n  const decisions = parseJson<HistoricalDecisions>("decisions");/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:752:758" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:752:758" --expect 'FAIL  no analysis result is read out of the request' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the caller could declare its own duplicate or reversal answer"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -763,7 +763,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:764:770" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:764:770" --expect 'FAIL  every approved fact is compared before a row is written' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an approval given against a different world still executed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -775,7 +775,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(!preview\.readyForExecute\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:776:782" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:776:782" --expect 'FAIL  every approved fact is compared before a row is written' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a blocked row could be written anyway"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -787,7 +787,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        return \{ result: "CREATED", id: created\.id \} as RowOutcome;/        await tx.historicalFiscalDocument.update({ where: { id: created.id }, data: {} });\n        return { result: "CREATED", id: created.id } as RowOutcome;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:788:794" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:788:794" --expect 'FAIL  Execute writes exactly two tables and no others' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a written historical record could be revised"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -799,7 +799,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        return \{ result: "CREATED", id: created\.id \} as RowOutcome;/        await tx.historicalFiscalDocument.delete({ where: { id: created.id } });\n        return { result: "CREATED", id: created.id } as RowOutcome;/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:800:806" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:800:806" --expect 'FAIL  Execute writes exactly two tables and no others' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: history could be removed by the importer"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -811,7 +811,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      return candidates\.length === 1 \? candidates\[0\]\.id : "UNRESOLVED";/      if (candidates.length === 1) return candidates[0].id;\n      const fallback = await tx.billingDocument.findFirst({ where: { businessId }, select: { id: true } });\n      return fallback?.id ?? "UNRESOLVED";/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:812:818" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:812:818" --expect 'FAIL  nothing on the path reaches billing, payments or a customer' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a historical credit reached a document Dubiz issued"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -823,7 +823,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        await tx.customer.update({ where: { id: 1 }, data: {} });\n        const created = await tx.historicalFiscalDocument.create({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:824:830" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:824:830" --expect 'FAIL  Execute writes exactly two tables and no others' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: importing history edited the customer book"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -835,7 +835,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        await tx.document.create({ data: {} });\n        const created = await tx.historicalFiscalDocument.create({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:836:842" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:836:842" --expect 'FAIL  Execute writes exactly two tables and no others' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a historical row grew a file record it never had"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -847,7 +847,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  return value === null \? null : fiscalAmountToDecimal\(value\);/  return value === null ? null : (parseFloat(value) as unknown as Prisma.Decimal);/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:848:854" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:848:854" --expect 'FAIL  money and dates cross into the database through the audited helpers' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount crossed into the database as a float"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -859,7 +859,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/            reversesHistoricalDocumentId: reversal,\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:860:866" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:860:866" --expect 'FAIL  a reversal is bound at INSERT, and there is nowhere else to bind it' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a credit was written before it knew what it credits"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -871,7 +871,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  const preview = await runWithTenantContext\(\{ businessId: input\.businessId \}, \(\) =>/  const preview = await Promise.resolve().then(() =>/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:872:878" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:872:878" --expect 'FAIL  every historical statement runs inside the tenant transaction' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: history was re-read with no tenant in scope"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -883,7 +883,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        const created = await prisma.historicalFiscalDocument.create({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:884:890" -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:884:890" --expect 'FAIL  a reversal is bound at INSERT, and there is nowhere else to bind it' -- npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a write ran without the tenant guard RLS reads"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -920,7 +920,7 @@ jobs:
           cp "$F" "$F.bak"
           # Plant exactly the mistake that would turn a preview into an import.
           sed -i '0,/const existing = await tx\.customer\.findMany({/s//await tx.customer.create({ data: {} });\n        const existing = await tx.customer.findMany({/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:919:927" -- npx tsx lib/data-transfer/import/import.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:919:927" --expect 'duplicate lookup contains create(' -- npx tsx lib/data-transfer/import/import.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: verifier passed with a write in the dry run"; exit 1
           fi
@@ -937,7 +937,7 @@ jobs:
           # duplicate lookup keeps working and starts matching OTHER businesses'
           # customers. Nothing crashes — which is exactly why it needs a guard.
           sed -i '0,/where: { businessId, phone: { in: phones } },/s//where: { phone: { in: phones } },/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:934:944" -- npx tsx lib/data-transfer/import/import.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:934:944" --expect 'a lookup is missing businessId' -- npx tsx lib/data-transfer/import/import.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unscoped duplicate lookup passed"; exit 1
           fi
@@ -973,7 +973,7 @@ jobs:
           # Exactly the defect the ledger exists to prevent: the business record
           # commits, the marker does not, and a retry creates it a second time.
           perl -pi -e 's/await markRow\(tx,/await skipTheMarker(tx,/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:971:980" -- bash scripts/ci/import-ledger-guard.sh .; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:971:980" --expect '[FAIL] CI-IL-12 every executor write path marks the row inside the transaction' -- bash scripts/ci/import-ledger-guard.sh .; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unmarked write passed the ledger guard"; exit 1
           fi
@@ -1047,7 +1047,7 @@ jobs:
           # The call stays exactly where it is; only its verdict is ignored.
           # Ordering assertions alone would not notice.
           perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1047:1054" -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1047:1054" --expect 'FAILED: AssertionError [ERR_ASSERTION]: the verdict is checked' -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an ignored signature verdict passed"; exit 1
           fi
@@ -1063,7 +1063,7 @@ jobs:
           # type GMAIL resolved: the client's field is no longer read at all.
           perl -0pi -e 's/    if \(!isAllowedDocumentMime\(gmailMimeType\)\) \{/    if (!(gmailMimeType === "application\/pdf" || gmailMimeType.startsWith("image\/"))) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1061:1070" -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1061:1070" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a private allowlist passed"; exit 1
           fi
@@ -1077,7 +1077,7 @@ jobs:
           # Missing metadata becomes "probably a PDF" again, so an unidentified
           # file is stored, OCR'd and recorded under a type nobody established.
           perl -0pi -e 's/    const detected = detectFileSignature\(params\.buffer\);\r?\n    if \(detected === null\) return \{ ok: false, reason: "unsupported_mime" \};/    const detected = detectFileSignature(params.buffer) ?? "pdf";/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1077:1084" -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1077:1084" --expect 'FAILED: AssertionError [ERR_ASSERTION]: unknown bytes are refused, not assumed' -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a fabricated media type passed"; exit 1
           fi
@@ -1092,7 +1092,7 @@ jobs:
           # transaction that creates the Document, so a crash between them
           # leaves a Document no retry can see.
           perl -0pi -e 's/        withinTransaction: async \(tx, documentId\) => \{/        unusedHook: async (tx: never, documentId: number) => {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1091:1099" -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1091:1099" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an uncoupled identity row passed"; exit 1
           fi
@@ -1104,7 +1104,7 @@ jobs:
           F="lib/services/documents/create-document-from-ocr.service.ts"
           cp "$F" "$F.bak"
           perl -0pi -e 's/    return withTenantTransaction\(\(tx\) => fn\(tx\)\);/    return fn(prisma as unknown as TenantTx);/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1106:1111" -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1106:1111" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/services/documents/integration-intake.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an untenanted transaction passed"; exit 1
           fi
@@ -1156,7 +1156,7 @@ jobs:
           # Detection still runs, but its answer is no longer compared to what
           # the client claimed — so a real JPEG passes as a PDF.
           perl -0pi -e 's/  if \(expected === null \|\| expected !== detected\) \{/  if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1156:1163" -- npx tsx lib/services/documents/document-ingestion.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1156:1163" --expect 'application/pdf' -- npx tsx lib/services/documents/document-ingestion.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a mismatched container passed"; exit 1
           fi
@@ -1187,7 +1187,7 @@ jobs:
           # for an override cannot rely on duplicate detection, creates a second
           # copy.
           perl -0pi -e 's/      withinTransaction: async \(tx\) => \{\r?\n        await markRow\(tx, \{/      withinTransaction: undefined,\n      unusedMarker: async (tx: never) => {\n        await markRow(tx, {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1182:1194" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1182:1194" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a marker outside the transaction passed"; exit 1
           fi
@@ -1207,7 +1207,7 @@ jobs:
           # once the content lock was added between them.
           perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1201:1214" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1201:1214" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an uncoupled caller statement passed"; exit 1
           fi
@@ -1225,7 +1225,7 @@ jobs:
           # reads a plain CREATE on a file that became a duplicate after the
           # preview as an override the owner never gave.
           perl -pi -e 's/      allowDuplicate: action === "CREATE_ANYWAY",/      allowDuplicate: true,/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1221:1232" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1221:1232" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unconditional override passed"; exit 1
           fi
@@ -1242,7 +1242,7 @@ jobs:
           # its own CREATE decisions against a world it changed, so every file
           # it already ingested is refused as "you already hold this".
           perl -0pi -e 's/  if \(!existing\) \{/  if (true) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1239:1249" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1239:1249" --expect 'FAILED: AssertionError [ERR_ASSERTION]: expected success, got {"ok":false,"code":"DECISION_NOT_PERMITTED","message":"לא ניתן לקלוט את אחד הקבצים שנבחרו.","position":2}' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: validate-before-lookup passed"; exit 1
           fi
@@ -1260,7 +1260,7 @@ jobs:
           # first would pass while proving nothing.
           perl -0pi -e 's/  if \(existing && existing\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
           perl -0pi -e 's/  if \(!run\.created && run\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1256:1267" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1256:1267" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: resuming a finished run passed"; exit 1
           fi
@@ -1276,7 +1276,7 @@ jobs:
           # The batch stops checking that a file's bytes match the type it
           # claims, so a renamed file passes the preview and reaches storage.
           perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1274:1283" -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1274:1283" --expect 'FAILED: AssertionError [ERR_ASSERTION]: expected refusal, got {"ok":true,"importRunId":1,"status":"COMPLETED","alreadyExecuted":false,"unexecutedFiles":0,"counts":{"totalFiles":1,"createdCount":1,"skippedCount":0,"failedCount":0},"files":[{"position":1,"filename":"a.pdf","outcome":"CREATED","message' -- npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a relabelled file passed"; exit 1
           fi
@@ -1300,7 +1300,7 @@ jobs:
           # The gap this closed: a field in the request body deciding what the
           # server accepts and how the stored Document is typed.
           perl -0pi -e 's/    const gmailMimeType = lookup\.descriptor\.mimeType;/    const gmailMimeType = body.mimeType;/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1300:1307" -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1300:1307" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a client-supplied media type passed"; exit 1
           fi
@@ -1314,7 +1314,7 @@ jobs:
           # Without the lock the duplicate check is a snapshot, not a guarantee:
           # two channels can both read "no duplicate" and both insert.
           perl -0pi -e 's/    await lockDocumentContent\(db, params\.businessId, params\.contentHashSha256\);//' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1314:1321" -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1314:1321" --expect 'FAILED: AssertionError [ERR_ASSERTION]: materializer takes the lock' -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a race-prone pre-check passed"; exit 1
           fi
@@ -1328,7 +1328,7 @@ jobs:
           # Making the skip unconditional would quietly remove the owner's
           # explicit, confirmed override in the Import Center.
           perl -0pi -e 's/    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{/    if (true) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1328:1335" -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1328:1335" --expect 'FAILED: AssertionError [ERR_ASSERTION]: the skip is conditional on the channel'\''s policy' -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a hard-coded duplicate policy passed"; exit 1
           fi
@@ -1342,7 +1342,7 @@ jobs:
           # Dropping the tenant from the predicate would make one business's
           # file suppress another's — a cross-tenant leak wearing a skip.
           perl -0pi -e 's/    where: \{\r?\n      businessId,\r?\n      contentHashSha256,/    where: {\n      contentHashSha256,/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1342:1349" -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1342:1349" --expect 'FAILED: AssertionError [ERR_ASSERTION]: tenant is a predicate' -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unscoped duplicate query passed"; exit 1
           fi
@@ -1354,7 +1354,7 @@ jobs:
           F="app/api/integrations/gmail/import/route.ts"
           cp "$F" "$F.bak"
           perl -0pi -e 's/    const gmailMimeType = lookup\.descriptor\.mimeType;/    const gmailMimeType = lookup.descriptor.mimeType || "application\/pdf";/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1356:1361" -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1356:1361" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/services/documents/documents-hardening.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an invented media type passed"; exit 1
           fi
@@ -1378,7 +1378,7 @@ jobs:
           # The cross-tenant leak, planted where it would actually happen: the
           # read keeps working and starts returning other businesses' documents.
           perl -0pi -e 's/          where: \{\r?\n            businessId,/          where: {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1378:1385" -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1378:1385" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unscoped read passed"; exit 1
           fi
@@ -1392,7 +1392,7 @@ jobs:
           # The uploader's filename is trusted verbatim, so `../evil.pdf` becomes
           # an archive entry that escapes the documents directory on extraction.
           perl -0pi -e 's/export function sanitizeArchiveBaseName\(raw: string \| null\): string \{/export function sanitizeArchiveBaseName(raw: string | null): string {\n  return String(raw ?? "");/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1392:1399" -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1392:1399" --expect 'FAILED: AssertionError [ERR_ASSERTION]: ../evil.pdf' -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a traversal filename passed"; exit 1
           fi
@@ -1406,7 +1406,7 @@ jobs:
           # An archive that quietly drops a document the owner believes is backed
           # up. It only surfaces the day they need the file.
           perl -0pi -e 's/        if \(!\(error instanceof StorageObjectNotFoundError\)\) \{/        if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1406:1413" -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1406:1413" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Missing expected rejection.' -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a silent omission passed"; exit 1
           fi
@@ -1418,7 +1418,7 @@ jobs:
           F="lib/data-transfer/documents/documents-export.ts"
           cp "$F" "$F.bak"
           perl -0pi -e 's/    row\.originalFilename \?\? "",/    row.fileUrl,/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1420:1425" -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1420:1425" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:' -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a storage key in the index passed"; exit 1
           fi
@@ -1432,7 +1432,7 @@ jobs:
           # The byte ceiling is the real safety limit: the archive is assembled
           # in memory, and a function that exceeds it is killed, not errored.
           perl -0pi -e 's/      if \(totalBytes > DOCUMENTS_EXPORT_MAX_TOTAL_BYTES\) \{/      if (false) {/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1432:1439" -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1432:1439" --expect 'FAILED: AssertionError [ERR_ASSERTION]: Missing expected rejection.' -- npx tsx lib/data-transfer/documents/documents-export.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unbounded archive passed"; exit 1
           fi
@@ -1780,7 +1780,7 @@ jobs:
           # Drop the event-class check: a hostile non-messages field carrying a
           # crafted messages[] array would again reach the dispatch loop.
           sed -i 's|      if (asString(changeRec?.field ?? null) !== SUPPORTED_CHANGE_FIELD) {|      if (false) {|' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1780:1787" -- npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1780:1787" --expect 'hostile field "statuses" with a crafted messages[] contributes NOTHING' -- npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: matrix did not catch the removed event-class boundary"; exit 1
           fi
@@ -1998,7 +1998,7 @@ jobs:
           cp "$F" "$F.bak"
           # Let a hot thread score above the overdue follow-up band.
           sed -i 's/candidates.push({ score: 45, reason: "HOT_THREAD" });/candidates.push({ score: 99, reason: "HOT_THREAD" });/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1999:2005" -- npx tsx lib/services/crm/lead-intelligence.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1999:2005" --expect 'FAIL  P9 a hot thread with nobody waiting is an opportunity, not an emergency' -- npx tsx lib/services/crm/lead-intelligence.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: the suite did not catch an inflated hot-thread score"; exit 1
           fi
@@ -2047,7 +2047,7 @@ jobs:
           F="lib/business-memory/evidence/review-event.reader.ts"
           cp "$F" "$F.bak"
           printf 'import type { Prisma } from "@prisma/client";\n' | cat - "$F.bak" > "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:2049:2054" -- npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:2049:2054" --expect 'FAIL  no Prisma model type imported (no `import ... from "@prisma/client"` / generated client)' -- npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: verifier did not catch the leaked Prisma type import"; exit 1
           fi
