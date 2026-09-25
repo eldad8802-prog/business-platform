@@ -127,7 +127,7 @@ async function main() {
     const store = createInMemoryPaymentStore();
     const secret = generateCallbackSecret();
     const request = await seed(store, { secret });
-    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1" });
+    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" });
 
     const res = await processPaymentWebhook(
       { provider: "SUMIT", rawBody: "documentid=1&valid=true", callbackSecret: secret },
@@ -159,7 +159,7 @@ async function main() {
       const store = createInMemoryPaymentStore();
       const secret = generateCallbackSecret();
       await seed(store, { secret });
-      const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1" });
+      const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" });
 
       const res = await processPaymentWebhook(
         {
@@ -190,7 +190,7 @@ async function main() {
     const secretB = generateCallbackSecret();
     const reqA = await seed(store, { businessId: 1, secret: secretA });
     const reqB = await seed(store, { businessId: 2, secret: secretB });
-    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1" });
+    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" });
 
     const res = await processPaymentWebhook(
       { provider: "SUMIT", rawBody: "documentid=1&valid=true", callbackSecret: secretB },
@@ -211,7 +211,7 @@ async function main() {
     const store = createInMemoryPaymentStore();
     const secret = generateCallbackSecret();
     await seed(store, { secret });
-    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1" });
+    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" });
     const input = {
       provider: "SUMIT" as const,
       rawBody: "documentid=1&valid=true",
@@ -233,7 +233,7 @@ async function main() {
   {
     const store = createInMemoryPaymentStore();
     await seed(store, { secret: null });
-    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1" });
+    const adapter = idlessProvider({ outcome: "PAID", providerTransactionId: "t-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" });
 
     const res = await processPaymentWebhook(
       {
@@ -348,7 +348,7 @@ async function main() {
         currency: "ILS",
       }),
       async getPaymentStatus() {
-        return { outcome: "PAID", providerTransactionId: "t-9" };
+        return { outcome: "PAID", providerTransactionId: "t-9", verifiedAmount: "100.00", verifiedCurrency: "ILS" };
       },
     };
 

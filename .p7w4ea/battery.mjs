@@ -96,7 +96,7 @@ function makeAdapters(state) {
       ? {
           getPaymentStatus: async ({ providerRequestId }) => {
             state.statusCalls.push(providerRequestId);
-            return { outcome: "PAID", providerTransactionId: `TXN-${providerRequestId}` };
+            return { outcome: "PAID", providerTransactionId: `TXN-${providerRequestId}`, verifiedAmount: "100.00", verifiedCurrency: "ILS" };
           },
         }
       : {}),

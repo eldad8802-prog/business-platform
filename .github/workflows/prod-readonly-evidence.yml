@@ -34,6 +34,7 @@ on:
           - 'ops/evidence/payables-runtime-grants-evidence.sql'
           - 'ops/evidence/c3-migration-closure-evidence.sql'
           - 'ops/evidence/collection-production-closure-evidence.sql'
+          - 'ops/evidence/m1-reconciliation-qa-evidence.sql'
 
 permissions:
   contents: read
