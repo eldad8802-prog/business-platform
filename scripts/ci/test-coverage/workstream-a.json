@@ -478,6 +478,10 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
     },
+    "lib/knowledge/temporal/temporal.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
     "lib/navigation/app-title-metadata.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
