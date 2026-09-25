@@ -5,6 +5,10 @@
   "outputDirectory": ".next",
   "crons": [
     {
+      "path": "/api/payments/reconciliation",
+      "schedule": "40 2 * * *"
+    },
+    {
       "path": "/api/payments/settlement-recovery",
       "schedule": "0 3 * * *"
     },

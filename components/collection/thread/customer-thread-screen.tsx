@@ -10,6 +10,7 @@ import type { CustomerFinancialThread, ThreadEvent } from "@/lib/services/billin
 import { buildPaymentRequestMessage } from "@/lib/services/billing/collection/collection-message";
 import { currencySymbol } from "@/lib/services/billing/collection/collection-display";
 import { attentionText, collectionFetch, dateTime, money, recordCollectionAction, shareOrCopy } from "../collection-client";
+import { refundOutcomeNotice, type RefundApiOutcome } from "./refund-outcome";
 
 const W = TOKEN.warm;
 
@@ -267,16 +268,12 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                   onClick={() =>
                     refund &&
                     act(async () => {
-                      const r = await collectionFetch<{ outcome: string }>(`/api/payments/requests/${refund.requestId}/refund`, {
+                      const r = await collectionFetch<{ outcome: RefundApiOutcome }>(`/api/payments/requests/${refund.requestId}/refund`, {
                         method: "POST",
                         body: JSON.stringify({ amount: refundAmount }),
                       });
                       setRefund(null);
-                      return r.outcome === "SETTLED"
-                        ? "ההחזר בוצע."
-                        : r.outcome === "UNKNOWN"
-                          ? "ההחזר נשלח לחברת הסליקה, והתוצאה עוד לא ידועה. נעדכן כשתתקבל."
-                          : "חברת הסליקה לא ביצעה את ההחזר.";
+                      return refundOutcomeNotice(r.outcome);
                     })
                   }
                 >
@@ -356,7 +353,15 @@ function EventCard({
         ) : null
       );
     case "REQUEST_CANCELLED":
-      return row("בקשת התשלום בוטלה", undefined, <span>Dubiz הפסיק לבקש את התשלום הזה.</span>);
+      return row(
+        "בקשת התשלום בוטלה",
+        undefined,
+        e.paidAfterward ? (
+          <span>הלקוח שילם בקישור גם אחרי הביטול — התשלום נרשם וטופל כרגיל.</span>
+        ) : (
+          <span>Dubiz הפסיק לבקש את התשלום הזה.</span>
+        )
+      );
     case "PAYMENT_FAILED":
       return row("התשלום נכשל", money(e.amount, e.currency), <span>חברת הסליקה לא אישרה את התשלום.</span>);
     case "PAYMENT_VERIFIED": {

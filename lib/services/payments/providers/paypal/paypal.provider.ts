@@ -78,7 +78,16 @@ function get(obj: unknown, key: string): unknown {
 }
 
 /** First capture object across the order's purchase units, if any. */
-function firstCapture(order: unknown): { id: string | null; status: string | null } {
+/**
+ * The first capture on an order, with the money PayPal says it captured
+ * (Orders v2: `capture.amount.value` / `capture.amount.currency_code`).
+ */
+function firstCapture(order: unknown): {
+  id: string | null;
+  status: string | null;
+  amount: string | null;
+  currency: string | null;
+} {
   const units = get(order, "purchase_units");
   if (Array.isArray(units)) {
     for (const u of units) {
@@ -87,14 +96,18 @@ function firstCapture(order: unknown): { id: string | null; status: string | nul
         const c = captures[0];
         const id = get(c, "id");
         const status = get(c, "status");
+        const value = get(get(c, "amount"), "value");
+        const code = get(get(c, "amount"), "currency_code");
         return {
           id: id == null ? null : String(id),
           status: status == null ? null : String(status),
+          amount: value == null ? null : String(value),
+          currency: code == null ? null : String(code).toUpperCase(),
         };
       }
     }
   }
-  return { id: null, status: null };
+  return { id: null, status: null, amount: null, currency: null };
 }
 
 /**
@@ -108,7 +121,12 @@ export function interpretOrder(order: unknown): ProviderPaymentStatus {
   const capture = firstCapture(order);
 
   if (status === "COMPLETED" && capture.status === "COMPLETED") {
-    return { outcome: "PAID", providerTransactionId: capture.id };
+    return {
+      outcome: "PAID",
+      providerTransactionId: capture.id,
+      verifiedAmount: capture.amount,
+      verifiedCurrency: capture.currency,
+    };
   }
   if (capture.status === "DECLINED" || capture.status === "FAILED") {
     return { outcome: "FAILED", providerTransactionId: capture.id };

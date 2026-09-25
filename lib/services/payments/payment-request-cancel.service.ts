@@ -11,6 +11,11 @@ import type { PaymentRequestRecord, PaymentStore } from "./payments.types";
  * after it was cancelled, the provider-verified payment is still recorded and
  * settled like any other — Dubiz does not refuse money that arrived; it simply
  * stops asking for it.
+ *
+ * M1: the request then follows the money — a verified payment moves a
+ * cancelled request to PAID (the cancellation stays in the audit trail), so the
+ * owner sees what is true and the payment is handled like any other. Cancelling
+ * is local: it never voids anything at the provider.
  */
 export async function cancelPaymentRequest(
   input: { businessId: number; requestId: number; actorUserId: number },
@@ -28,7 +33,17 @@ export async function cancelPaymentRequest(
   if (transactions.some((t) => t.status === "PAID" && Number(t.amount) > 0)) {
     throw new ValidationError("התשלום כבר התקבל — אי אפשר לבטל בקשה ששולמה");
   }
-  const updated = await deps.store.updatePaymentRequest(request.id, { status: "CANCELLED" });
+  // M1 — conditional at the database: the request is cancelled only if it is
+  // STILL open at the moment of the write. A verified payment that landed
+  // between the checks above and this write has already moved it to PAID, and
+  // an unconditional write would have painted real money CANCELLED.
+  const updated = await deps.store.transitionPaymentRequestStatus(request.id, {
+    from: ["PENDING"],
+    to: "CANCELLED",
+  });
+  if (!updated) {
+    throw new ValidationError("מצב הבקשה השתנה — ייתכן שהתשלום התקבל. רעננו את המסך.");
+  }
   await recordPaymentAuditEvent(deps.store, {
     businessId: input.businessId,
     paymentRequestId: request.id,
