@@ -135,7 +135,12 @@ async function paymentRequest(
 }
 
 let providerCalls = 0;
-function adapter(outcome: "PAID" | "FAILED" | "PENDING" | "UNKNOWN", providerTransactionId: string, providerRequestId: string) {
+function adapter(
+  outcome: "PAID" | "FAILED" | "PENDING" | "UNKNOWN",
+  providerTransactionId: string,
+  providerRequestId: string,
+  money: { amount: string; currency: string }
+) {
   return {
     provider: "CARDCOM",
     supportedCurrencies: null,
@@ -157,14 +162,20 @@ function adapter(outcome: "PAID" | "FAILED" | "PENDING" | "UNKNOWN", providerTra
     },
     async getPaymentStatus() {
       providerCalls++;
-      return { outcome, providerTransactionId };
+      // M1: the authority states the money it verified — here, what was asked.
+      return {
+        outcome,
+        providerTransactionId,
+        verifiedAmount: money.amount,
+        verifiedCurrency: money.currency,
+      };
     },
   } as never;
 }
 
 /** The whole real webhook path: verify → correlate → persist → verify authority → PAID + settlement → settle. */
 async function webhook(
-  req: { providerRequestId: string | null },
+  req: { providerRequestId: string | null; amount: Prisma.Decimal | string; currency: string },
   outcome: "PAID" | "FAILED" | "PENDING" | "UNKNOWN",
   providerTransactionId = `ptx-${uniq()}`
 ) {
@@ -172,7 +183,11 @@ async function webhook(
     { provider: "CARDCOM", rawBody: "{}", parsedBody: {} },
     {
       store,
-      resolveProvider: () => adapter(outcome, providerTransactionId, req.providerRequestId!),
+      resolveProvider: () =>
+        adapter(outcome, providerTransactionId, req.providerRequestId!, {
+          amount: String(req.amount),
+          currency: req.currency,
+        }),
       decryptConnectionCredential: () => null,
       settleAccounting: async (e) => {
         await settleVerifiedPayment(e);

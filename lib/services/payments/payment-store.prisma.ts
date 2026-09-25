@@ -409,6 +409,40 @@ export function createPaymentPrismaStore(): PaymentStore {
       return row ? toRequestRecord(row) : null;
     },
 
+    async transitionPaymentRequestStatus(id, transition) {
+      const tenant = getTenantContext();
+      const step = tenant
+        ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
+        : dbStep;
+      // One transaction: the conditional write and the read of what it wrote.
+      const row = await step(async (db) => {
+        const moved = await db.paymentRequest.updateMany({
+          where: { id, status: { in: [...transition.from] } },
+          data: {
+            status: transition.to,
+            ...(transition.paidAt !== undefined ? { paidAt: transition.paidAt } : {}),
+          },
+        });
+        if (moved.count === 0) return null;
+        return db.paymentRequest.findUnique({ where: { id } });
+      });
+      return row ? toRequestRecord(row) : null;
+    },
+
+    async listReconciliationCandidates(businessId, options) {
+      const rows = await dbStep((db) => db.paymentRequest.findMany({
+        where: {
+          businessId,
+          providerRequestId: { not: null },
+          status: { in: ["PENDING", "FAILED", "CANCELLED", "EXPIRED"] },
+          createdAt: { gte: options.createdAfter, lte: options.createdBefore },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: options.limit,
+      }));
+      return rows.map(toRequestRecord);
+    },
+
     // SEC-01 + SEC-02. TWO INDEPENDENT LAYERS, deliberately not collapsed:
     //
     //   application — `businessId` sits in the predicate, taken from the

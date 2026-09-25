@@ -188,6 +188,31 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       return record ? { ...record } : null;
     },
 
+    // Mirrors the Prisma store's conditional UPDATE … WHERE status IN (from).
+    async transitionPaymentRequestStatus(id, transition) {
+      const record = requests.find((r) => r.id === id);
+      if (!record || !transition.from.includes(record.status)) return null;
+      record.status = transition.to;
+      if (transition.paidAt !== undefined) record.paidAt = transition.paidAt;
+      return { ...record };
+    },
+
+    async listReconciliationCandidates(businessId, options) {
+      const open = new Set(["PENDING", "FAILED", "CANCELLED", "EXPIRED"]);
+      return requests
+        .filter(
+          (r) =>
+            r.businessId === businessId &&
+            r.providerRequestId != null &&
+            open.has(r.status) &&
+            r.createdAt.getTime() >= options.createdAfter.getTime() &&
+            r.createdAt.getTime() <= options.createdBefore.getTime()
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id)
+        .slice(0, options.limit)
+        .map((r) => ({ ...r }));
+    },
+
     seedDocument(document) {
       const record: PayableDocumentRef = {
         id: document.id,
