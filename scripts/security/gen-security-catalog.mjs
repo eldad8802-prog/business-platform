@@ -191,7 +191,7 @@ results AS (
              EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth')
                AND has_column_privilege('app_auth', format('%I', t), col, 'INSERT') AS ok
         FROM (VALUES ('User','email'),('User','password'),('User','name'),('User','businessId'),
-                     ('User','createdAt'),('User','updatedAt'),
+                     ('User','createdAt'),('User','updatedAt'),('User','role'),('User','loginCount'),('User','tokenVersion'),
                      ('Business','name'),('Business','createdAt'),('Business','updatedAt')) v(t, col)
     ) x
   UNION ALL
