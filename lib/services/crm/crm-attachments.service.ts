@@ -26,6 +26,16 @@ import {
   readAttachmentObject,
   validateAttachmentUpload,
 } from "@/lib/services/crm/crm-attachment-storage";
+import {
+  attachmentContentRejectionMessage,
+  verifyAttachmentContent,
+} from "@/lib/services/crm/crm-attachment-content";
+import {
+  getMalwareScanner,
+  scanMetadataLabel,
+  scanVerdictBlocksStorage,
+  type MalwareScanner,
+} from "@/lib/security/malware-scan";
 
 /** Cap for the un-paginated v1 list. Documented in the API contract. */
 export const ATTACHMENTS_LIST_LIMIT = 100;
@@ -89,6 +99,17 @@ function normalizeAttachmentId(value: number): number {
 
 /** Bind to the tenant transaction when provided (D2/P7 Wave 1 RLS backstop). */
 type TxOptions = { tx?: TenantTx };
+
+/** Upload options: tx backstop + the malware-scanner port (default: not_scanned). */
+type UploadOptions = TxOptions & { scanner?: MalwareScanner };
+
+/** 415-class refusal of an attachment whose bytes contradict its type. */
+export class AttachmentContentError extends AppError {
+  constructor(message: string, readonly reason: string) {
+    super(message, 415, "ATTACHMENT_CONTENT_REJECTED");
+    this.name = "AttachmentContentError";
+  }
+}
 
 async function loadOwnedAttachment(
   db: TenantTx | typeof prisma,
@@ -184,7 +205,7 @@ export const crmAttachmentsService = {
    */
   async uploadAttachment(
     input: UploadAttachmentInput,
-    options?: TxOptions
+    options?: UploadOptions
   ): Promise<CrmAttachmentDTO> {
     const db = options?.tx ?? prisma;
     const subject = await resolveCrmSubject(
@@ -203,6 +224,32 @@ export const crmAttachmentsService = {
       sizeBytes,
     });
 
+    // L-13: the BYTES must be what the declared type says (magic bytes /
+    // OOXML structure / UTF-8 text) — before anything is written.
+    const content = verifyAttachmentContent(input.buffer, validated.mimeType);
+    if (!content.ok) {
+      throw new AttachmentContentError(
+        attachmentContentRejectionMessage(content.reason),
+        content.reason
+      );
+    }
+
+    // Malware-scanner port: infected / scanner error => nothing is stored.
+    const scanVerdict = await (options?.scanner ?? getMalwareScanner()).scan({
+      buffer: input.buffer,
+      mimeType: validated.mimeType,
+      businessId: input.businessId,
+      source: "crm_attachment",
+    });
+    if (scanVerdictBlocksStorage(scanVerdict)) {
+      throw new AttachmentContentError(
+        scanVerdict.verdict === "infected"
+          ? "הקובץ נחסם: זוהה תוכן זדוני"
+          : "לא ניתן לבדוק את הקובץ כרגע. נסו שוב מאוחר יותר.",
+        scanVerdict.verdict === "infected" ? "MALWARE" : "SCAN_ERROR"
+      );
+    }
+
     const key = buildAttachmentStorageKey({
       businessId: input.businessId,
       subjectType: subject.subjectType,
@@ -216,6 +263,7 @@ export const crmAttachmentsService = {
       key,
       body: input.buffer,
       contentType: validated.mimeType,
+      custom: scanMetadataLabel(scanVerdict),
     });
 
     // 2. Create the metadata row; compensate on failure.

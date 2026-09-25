@@ -1,7 +1,6 @@
 export type {
   GetObjectResult,
   HeadObjectResult,
-  ListObjectKeysResult,
   ObjectMetadata,
   ParsedStorageKey,
   PutObjectInput,
@@ -26,7 +25,7 @@ export {
 export {
   assertKeyMatchesMetadata,
   assertSafeStorageKey,
-  assertTenantDomainPrefix,
+  assertSafeStoragePrefix,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
@@ -39,7 +38,11 @@ export {
   validatePutObjectMetadata,
 } from "./domain-policy";
 
-export { loadStorageConfig } from "./config";
+export {
+  loadStorageConfig,
+  resetStorageTopologyWarningForTests,
+  resolveR2Buckets,
+} from "./config";
 
 export { LocalFsStorageService } from "./local-storage.adapter";
 export { R2StorageService } from "./r2-storage.adapter";

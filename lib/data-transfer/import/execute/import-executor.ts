@@ -155,6 +155,16 @@ export async function executeImport(
       message: "אישור הבדיקה אינו שייך לעסק הזה.",
     };
   }
+  // L-20: the attestation is bound to the user who ran the check, exactly as
+  // documents-execute and historical-execute already enforce. A colleague in the
+  // same business cannot execute someone else's preview.
+  if (facts.userId !== input.userId) {
+    return {
+      ok: false,
+      code: "TOKEN_WRONG_USER",
+      message: "אישור הבדיקה אינו שייך למשתמש הזה. יש להריץ בדיקה מחדש.",
+    };
+  }
   if (
     facts.domain !== input.domainId ||
     facts.contentHash !== contentHash ||

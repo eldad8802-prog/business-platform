@@ -30,7 +30,6 @@ export async function GET(
       select: {
         id: true,
         businessId: true,
-        fileUrl: true,
         source: true,
         mimeType: true,
         status: true,
@@ -86,7 +85,8 @@ export async function GET(
       document: {
         id: document.id,
         businessId: document.businessId,
-        fileUrl: document.fileUrl,
+        // H-4: the stored object basename (fileUrl) is NOT returned — no UI
+        // reads it; the file is served by /api/documents/[id]/file by id.
         source: document.source,
         mimeType: document.mimeType,
         status: document.status,

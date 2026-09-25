@@ -9,10 +9,16 @@
  * DB / API continue storing the client-facing URL string (not the storage key).
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getStorageService, normalizeStorageKey, parseStorageKey } from "@/lib/storage";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 import type { StorageDomain } from "@/lib/storage/types";
+import {
+  PublicAssetRejectedError,
+  verifyPublicAsset,
+} from "./public-asset-validation";
+
+export { PublicAssetRejectedError } from "./public-asset-validation";
 
 export type PublicAssetDomain = Extract<StorageDomain, "content" | "inventory" | "offers">;
 
@@ -34,10 +40,6 @@ export function extensionFromMime(mimeType: string): string | null {
       return "webp";
     case "image/gif":
       return "gif";
-    case "image/heic":
-      return "heic";
-    case "image/heif":
-      return "heif";
     case "video/mp4":
       return "mp4";
     case "video/webm":
@@ -45,8 +47,9 @@ export function extensionFromMime(mimeType: string): string | null {
     case "video/quicktime":
       return "mov";
     default:
-      if (mime.startsWith("image/")) return "img";
-      if (mime.startsWith("video/")) return "mp4";
+      // M-2: CLOSED set. There is no catch-all any more — an unknown image/*
+      // (svg+xml, x-icon, heic, ...) used to be stored as ".img" with the
+      // client's Content-Type, which is how SVG reached a public bucket.
       return null;
   }
 }
@@ -58,6 +61,22 @@ export function buildPublicAssetFileName(contentType: string): string {
   }
   return `${randomUUID()}.${ext}`;
 }
+
+export type StoredPublicAsset = {
+  key: string;
+  publicUrl: string;
+  filename: string;
+  /**
+   * What an erasure / audit ledger (workstream E, M-13) needs to track the
+   * object without re-reading it: the VERIFIED content type, byte size and a
+   * sha256 of the stored bytes.
+   */
+  businessId: number;
+  domain: PublicAssetDomain;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+};
 
 export function buildPublicAssetKey(
   businessId: number,
@@ -107,20 +126,43 @@ export function requirePublicAssetUrl(key: string): string {
   return `${publicBase.replace(/\/+$/, "")}/${normalized}`;
 }
 
+/**
+ * The ONLY writer of public objects. Verification (M-2) runs here, before any
+ * storage call, so no caller can put unverified bytes in a public domain:
+ * a rejected file throws {@link PublicAssetRejectedError} and nothing is written.
+ *
+ * `contentType` is the CLIENT's declared type — it is checked, never stored.
+ * The stored Content-Type / Content-Disposition / Cache-Control come from the
+ * verified container.
+ */
 export async function putPublicAsset(input: {
   businessId: number;
   domain: PublicAssetDomain;
   body: Buffer;
   contentType: string;
+  /** Client filename — used only for the extension-consistency check. */
+  fileName?: string | null;
   custom?: Record<string, string>;
-}): Promise<{ key: string; publicUrl: string; filename: string }> {
-  const filename = buildPublicAssetFileName(input.contentType);
+}): Promise<StoredPublicAsset> {
+  const verdict = verifyPublicAsset({
+    domain: input.domain,
+    body: input.body,
+    declaredContentType: input.contentType,
+    fileName: input.fileName,
+  });
+  if (!verdict.ok) {
+    throw new PublicAssetRejectedError(verdict);
+  }
+
+  const filename = `${randomUUID()}.${verdict.ext}`;
   const key = buildPublicAssetKey(input.businessId, input.domain, filename);
 
   await getStorageService().putObject({
     key,
     body: input.body,
-    contentType: input.contentType,
+    contentType: verdict.contentType,
+    contentDisposition: `${verdict.contentDisposition}; filename="${filename}"`,
+    cacheControl: verdict.cacheControl,
     metadata: {
       businessId: input.businessId,
       domain: input.domain,
@@ -133,6 +175,11 @@ export async function putPublicAsset(input: {
     key,
     filename,
     publicUrl: requirePublicAssetUrl(key),
+    businessId: input.businessId,
+    domain: input.domain,
+    contentType: verdict.contentType,
+    sizeBytes: input.body.length,
+    sha256: createHash("sha256").update(input.body).digest("hex"),
   };
 }
 
@@ -171,20 +218,22 @@ export function isAbsoluteHttpsUrl(url: string): boolean {
 }
 
 /**
- * SEC-E / M-13 — delete EVERY public asset one business owns in one public domain, by
- * listing `biz/{businessId}/{domain}/` and deleting what the listing returns.
+ * SEC-E / M-13 — delete EVERY public asset one business owns in one public domain.
  *
  * Exists for account erasure and the surfaces it cannot reach any other way: a content
  * upload (`/api/content/upload`) is written to `biz/{id}/content/*` and its URL is kept
  * only in the browser's localStorage. There is NO database pointer, so a row-driven
- * erasure can never find it; the prefix is the only handle there is.
+ * erasure can never find it; the tenant's prefix is the only handle there is.
  *
- * Idempotent and resumable: a second run lists nothing (or only what a failed run left)
- * and deletes that. Deleting an already-absent key succeeds on both adapters. The
- * listing is re-read from the start after each page of deletes, so a cursor can never
- * skip an object that shifted position. Bounded so a runaway listing cannot spin.
+ * Built on the storage adapter's own prefix operations (workstream D:
+ * `deleteByPrefix` / `listByPrefix`, guarded by `assertSafeStoragePrefix` to exactly
+ * one tenant and one domain, and routed to the PUBLIC bucket under the split topology
+ * because the bucket is chosen from the prefix's domain). Nothing here lists or deletes
+ * by itself.
  *
- * Returns how many delete calls were issued.
+ * FAIL CLOSED: after the delete, the prefix is listed again and must be empty; a
+ * survivor throws, so the erasure's object-first stage fails before any row is touched
+ * and the retry deletes whatever is left. Idempotent: an empty prefix deletes nothing.
  */
 export async function deletePublicAssetsOfBusiness(
   businessId: number,
@@ -198,20 +247,10 @@ export async function deletePublicAssetsOfBusiness(
   }
   const storage = getStorageService();
   const prefix = `biz/${businessId}/${domain}/`;
-  let deleted = 0;
-  for (let page = 0; page < 1000; page++) {
-    const { keys } = await storage.listObjectKeys(prefix, { limit: 500 });
-    if (keys.length === 0) return deleted;
-    for (const key of keys) {
-      // Defence in depth: the adapter already refused a wider prefix, and every key it
-      // returns must still parse as this tenant's object in this domain.
-      const parsed = parseStorageKey(normalizeStorageKey(key));
-      if (parsed.businessId !== businessId || parsed.domain !== domain) {
-        throw new StorageConfigError("listing returned a key outside the requested tenant domain");
-      }
-      await storage.deleteObject(key);
-      deleted++;
-    }
+  const { deleted } = await storage.deleteByPrefix(prefix);
+  const after = await storage.listByPrefix(prefix, { limit: 1 });
+  if (after.keys.length > 0) {
+    throw new StorageConfigError("public asset erasure left objects under the tenant prefix");
   }
-  throw new StorageConfigError("public asset erasure did not converge within its page bound");
+  return deleted;
 }

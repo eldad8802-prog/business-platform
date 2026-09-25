@@ -1,0 +1,149 @@
+# sec(D) — external inputs, files and storage.
+#
+# Behavioural battery (real bytes, counting fake storage, recording fake fetch,
+# fake S3 client), the L-14 renderer proof against a real Chromium, then one
+# mutation per control that must turn the SPECIFIC check red, a byte-identical
+# restore, and a post-restore green run.
+#
+# ZERO secrets, ZERO database, ZERO network beyond npm/playwright downloads,
+# ZERO Production. All credentials below are synthetic.
+
+name: sec-d — inputs, files & storage
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/storage/**"
+      - "lib/services/storage/**"
+      - "lib/security/**"
+      - "lib/archive/**"
+      - "lib/reports/**"
+      - "lib/data-transfer/**"
+      - "lib/services/crm/**"
+      - "lib/services/documents/**"
+      - "lib/services/inventory/inventory-image.service.ts"
+      - "lib/services/integrations/**"
+      - "lib/services/billing/pdf/**"
+      - "lib/documents/**"
+      - "lib/inbound-email/**"
+      - "app/api/content/**"
+      - "app/api/offers/**"
+      - "app/api/inventory/**"
+      - "app/api/documents/**"
+      - "app/api/reports/**"
+      - "app/api/integrations/**"
+      - "components/documents/**"
+      - "scripts/ops/r2-bucket-split-copy.ts"
+      - ".github/workflows/sec-d-inputs-storage-ci.yml"
+  push:
+    branches: [sec/d-inputs-storage]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sec-d:
+    name: sec-d battery + negative proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AUTH_TOKEN_SECRET: secd_ci_auth_secret_synthetic_0123456789
+      DATABASE_URL: postgresql://nobody:none@127.0.0.1:1/none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Install Chromium for the renderer proof
+        run: npx playwright install --with-deps chromium
+
+      - name: sec-d behavioural battery (positive)
+        run: npx tsx lib/security/sec-d/sec-d-battery.test.ts
+      - name: L-14 renderer proof (output unchanged, JS off, network closed)
+        run: npx tsx lib/security/sec-d/renderer-proof.test.ts
+
+      - name: Existing suites touching the changed code (no regression)
+        run: |
+          set -e
+          for f in \
+            lib/storage/storage.verify.test.ts \
+            lib/services/storage/public-asset-storage.verify.test.ts \
+            lib/services/documents/integration-intake.verify.test.ts \
+            lib/services/documents/documents-hardening.verify.test.ts \
+            lib/services/documents/document-storage.verify.test.ts \
+            lib/services/crm/crm-attachment-storage.test.ts \
+            lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts \
+            lib/reports/accountant-export-zip.verify.test.ts \
+            lib/reports/accountant-export-collect.verify.test.ts \
+            lib/data-transfer/templates/templates.verify.test.ts \
+            lib/data-transfer/import/import.verify.test.ts \
+            lib/data-transfer/import/execute/execute-contract.verify.test.ts \
+            lib/data-transfer/format/format.verify.test.ts \
+            lib/data-transfer/export/export.verify.test.ts \
+            lib/data-transfer/documents/documents-export.verify.test.ts \
+            lib/auth-token.test.ts ; do
+            echo "::group::$f"; npx tsx "$f"; echo "::endgroup::"
+          done
+
+      # One mutation per control. negative-proof.mjs asserts: anchor x1 and file
+      # changed; proof exits non-zero; the SPECIFIC [FAIL] line is present (a
+      # crash or another check does not count); restore is byte-identical.
+      - name: negative proofs (H-4, M-2, L-13, L-5, L-6, L-15, L-17, L-20, L-16, L-14)
+        run: |
+          set -e
+          for id in H4 M2 L13 L5 L6 L15 L17 L20 L16 L14JS L14NET; do
+            echo "::group::negative proof $id"
+            node lib/security/sec-d/negative-proof.mjs "$id"
+            echo "::endgroup::"
+          done
+      - name: Tree is byte-identical after all mutations
+        run: git diff --exit-code
+      - name: post-restore green (battery + renderer)
+        run: |
+          npx tsx lib/security/sec-d/sec-d-battery.test.ts
+          npx tsx lib/security/sec-d/renderer-proof.test.ts
+
+  sec-d-lab:
+    name: sec-d fresh lab (PG17) — Gmail token crypto + CRM attachments
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: secd_owner
+          POSTGRES_PASSWORD: secd_ci_synthetic_pw
+          POSTGRES_DB: secd_lab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secd_owner -d secd_lab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://secd_owner:secd_ci_synthetic_pw@localhost:5432/secd_lab
+      DIRECT_URL: postgresql://secd_owner:secd_ci_synthetic_pw@localhost:5432/secd_lab
+      TEST_DATABASE_URL: postgresql://secd_owner:secd_ci_synthetic_pw@localhost:5432/secd_lab
+      AUTH_TOKEN_SECRET: secd_ci_auth_secret_synthetic_0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - name: Fresh throwaway schema (CI service container only)
+        run: npx prisma db push --skip-generate --accept-data-loss
+      - name: L-17 — v1 readable + upgraded to row-bound v2, enc_v0 quarantined, copied v2 refused
+        run: npx tsx lib/services/integrations/gmail/gmail-refresh-token-upgrade.test.ts
+      - name: L-13 — CRM attachments service + routes (real bytes) still green
+        run: npx tsx lib/services/crm/crm-attachments.service.test.ts
+      - name: L-15 — WhatsApp media fetch suite (pinned hosts)
+        run: npx tsx lib/services/integrations/whatsapp/webhook-pr3.media.test.ts

@@ -41,6 +41,8 @@ const ONLY = (() => {
 })();
 const want = (g) => ONLY === null || ONLY === g;
 const MARK = "SECE_7d20b1-";
+/** A real 1x1 PNG: public uploads are content-verified (workstream D), so fixtures must be genuine. */
+const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 
 let pass = 0;
 let fail = 0;
@@ -173,8 +175,13 @@ async function main() {
 
   // ── Storage: the real local adapter, wrapped so faults are real and deletes counted ──
   const realStorage = getStorageService();
-  const storageFault = { failDeleteKey: null, failListLimit1: 0 };
+  // Faults: fail ONE prefix delete part-way (one object gone, then an error — the
+  // realistic partial failure), and fail the VERIFY listing (the second limit-1 listing of
+  // an attempt: the first is the purge's own post-delete emptiness check).
+  const storageFault = { failPrefixDelete: false, failVerifyList: 0 };
+  let limit1Seen = 0;
   const effectiveDeletes = new Map(); // key -> successful deletes of an EXISTING object
+  const count = (k) => effectiveDeletes.set(k, (effectiveDeletes.get(k) ?? 0) + 1);
   const storage = {
     ...Object.fromEntries(
       ["putObject", "getObject", "headObject", "getMetadata", "getSignedDownloadUrl", "getPublicUrl"].map((m) => [
@@ -182,25 +189,37 @@ async function main() {
         (...a) => realStorage[m](...a),
       ])
     ),
-    async listObjectKeys(prefix, opts) {
-      if (opts?.limit === 1 && storageFault.failListLimit1 > 0) {
-        storageFault.failListLimit1--;
-        const e = new Error("lab: listing refused");
-        e.name = "StorageListError";
-        throw e;
+    async listByPrefix(prefix, opts) {
+      if (opts?.limit === 1 && storageFault.failVerifyList > 0) {
+        limit1Seen++;
+        if (limit1Seen % 2 === 0) {
+          storageFault.failVerifyList--;
+          const e = new Error("lab: listing refused");
+          e.name = "StorageListError";
+          throw e;
+        }
       }
-      return realStorage.listObjectKeys(prefix, opts);
+      return realStorage.listByPrefix(prefix, opts);
     },
-    async deleteObject(key) {
-      if (storageFault.failDeleteKey === key) {
-        storageFault.failDeleteKey = null;
-        const e = new Error("lab: delete refused");
+    async deleteByPrefix(prefix) {
+      const before = (await realStorage.listByPrefix(prefix)).keys;
+      if (storageFault.failPrefixDelete && before.length > 1) {
+        storageFault.failPrefixDelete = false;
+        await realStorage.deleteObject(before[0]);
+        count(before[0]);
+        const e = new Error("lab: prefix delete failed part-way");
         e.name = "StorageDeleteError";
         throw e;
       }
+      const r = await realStorage.deleteByPrefix(prefix);
+      const after = new Set((await realStorage.listByPrefix(prefix)).keys);
+      for (const k of before) if (!after.has(k)) count(k);
+      return r;
+    },
+    async deleteObject(key) {
       const existed = (await realStorage.headObject(key)).exists;
       await realStorage.deleteObject(key);
-      if (existed) effectiveDeletes.set(key, (effectiveDeletes.get(key) ?? 0) + 1);
+      if (existed) count(key);
     },
   };
   setStorageServiceForTests(storage);
@@ -226,14 +245,14 @@ async function main() {
     // Content uploads — NO row points at these. Written through the product's own path.
     const content = [];
     for (let i = 0; i < 2; i++) {
-      content.push((await putPublicAsset({ businessId: b.id, domain: "content", body: Buffer.from(`${MARK}content-${i}`), contentType: "image/png" })).key);
+      content.push((await putPublicAsset({ businessId: b.id, domain: "content", body: PNG_1PX, contentType: "image/png", fileName: `c${i}.png` })).key);
     }
     const gmailRefresh = `${MARK}gmail-refresh-${seq}`;
     const emailConn = await owner.emailConnection.create({
       data: { businessId: b.id, provider: "gmail", emailAddress: `${tag}-${seq}-mailbox@sec-e.test`, providerAccountId: `${MARK}acct`, scopes: "gmail.readonly", lastSyncCursor: `${MARK}cursor`, lastError: `${MARK}err` },
     });
     await owner.oAuthToken.create({
-      data: { connectionId: emailConn.id, accessTokenEncrypted: encryptToken(`${MARK}gmail-access`).encrypted, refreshTokenEncrypted: encryptToken(gmailRefresh).encrypted, expiresAt: new Date(Date.now() + 3600_000), encryptionKeyId: "gcm_v1" },
+      data: { connectionId: emailConn.id, accessTokenEncrypted: encryptToken(`${MARK}gmail-access`, { businessId: b.id, connectionId: emailConn.id, field: "access" }).encrypted, refreshTokenEncrypted: encryptToken(gmailRefresh, { businessId: b.id, connectionId: emailConn.id, field: "refresh" }).encrypted, expiresAt: new Date(Date.now() + 3600_000), encryptionKeyId: "gcm_v2:k0" },
     });
     const wa = encryptAccessToken(`${MARK}wa-token-${seq}`, b.id);
     const waba = `${MARK}waba-${seq}`;
@@ -328,8 +347,8 @@ async function main() {
       {
         stage: "PURGE",
         kind: "storage",
-        inject: async (fx) => { storageFault.failDeleteKey = fx.content[1]; },
-        heal: async () => { storageFault.failDeleteKey = null; },
+        inject: async () => { storageFault.failPrefixDelete = true; },
+        heal: async () => { storageFault.failPrefixDelete = false; },
       },
       {
         stage: "SESSION_ERASE",
@@ -352,8 +371,8 @@ async function main() {
       },
       {
         stage: "VERIFY",
-        inject: async () => { storageFault.failListLimit1 = 1; },
-        heal: async () => { storageFault.failListLimit1 = 0; },
+        inject: async () => { storageFault.failVerifyList = 1; limit1Seen = 0; },
+        heal: async () => { storageFault.failVerifyList = 0; },
       },
       {
         stage: "FINALIZE",
@@ -575,18 +594,18 @@ async function main() {
   if (want("content")) {
     console.log("--- M-13 content prefix ---");
     const fx = await mk("content");
-    const before = (await realStorage.listObjectKeys(`biz/${fx.biz.id}/content/`)).keys.length;
+    const before = (await realStorage.listByPrefix(`biz/${fx.biz.id}/content/`)).keys.length;
     ok("M13-CONTENT-PRE · two content uploads exist and NO row points at them", before === 2);
     await requestAccountDeletion(store, { businessId: fx.biz.id, actorUserId: fx.user.id });
-    const after = (await realStorage.listObjectKeys(`biz/${fx.biz.id}/content/`)).keys.length;
+    const after = (await realStorage.listByPrefix(`biz/${fx.biz.id}/content/`)).keys.length;
     ok("M13-CONTENT-ERASED · every content object of the deleted business is gone", after === 0, `remaining=${after}`);
-    const refused = await throws(() => realStorage.listObjectKeys("biz/"));
+    const refused = await throws(() => realStorage.listByPrefix("biz/"));
     ok("M13-PREFIX-BOUNDED · a listing wider than one tenant domain is refused", refused?.name === "StorageKeyError", String(refused?.name));
   }
 
   // ── The control tenant, untouched by everything ──────────────────────────
   console.log("--- control ---");
-  const ctrlContent = (await realStorage.listObjectKeys(`biz/${CONTROL.biz.id}/content/`)).keys.length;
+  const ctrlContent = (await realStorage.listByPrefix(`biz/${CONTROL.biz.id}/content/`)).keys.length;
   ok("CONTROL · the control tenant is ACTIVE, its content, messages, tokens and sessions intact",
     (await lifecycle(CONTROL.biz.id)) === "ACTIVE" && ctrlContent === 2 &&
       (await owner.message.count({ where: { businessId: CONTROL.biz.id, contentText: { not: null } } })) === 1 &&

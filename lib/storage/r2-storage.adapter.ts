@@ -1,8 +1,9 @@
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   GetObjectCommand,
   HeadObjectCommand,
-  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -11,7 +12,6 @@ import {
   STORAGE_DOMAINS,
   type GetObjectResult,
   type HeadObjectResult,
-  type ListObjectKeysResult,
   type ObjectMetadata,
   type PutObjectInput,
   type PutObjectResult,
@@ -27,12 +27,16 @@ import {
 } from "./storage.errors";
 import {
   assertKeyMatchesMetadata,
+  assertSafeStoragePrefix,
   assertSafeStorageKey,
-  assertTenantDomainPrefix,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
-import { isPrivateVisibility, validatePutObjectMetadata } from "./domain-policy";
+import {
+  getRequiredVisibility,
+  isPrivateVisibility,
+  validatePutObjectMetadata,
+} from "./domain-policy";
 
 const META_BUSINESS_ID = "businessid";
 const META_DOMAIN = "domain";
@@ -163,8 +167,18 @@ export class R2StorageService implements StorageService {
     this.client = createR2Client(config);
   }
 
-  private get bucket(): string {
-    return requireR2Config(this.config).bucketName;
+  /**
+   * H-4: the bucket is chosen by the key's DOMAIN, never by the caller. A
+   * private-domain key can only ever be written to / read from the private
+   * bucket, so a public bucket (the only one that may carry a public base URL)
+   * cannot hold a private document even through a caller bug.
+   */
+  bucketForKey(key: string): string {
+    const r2 = requireR2Config(this.config);
+    const { domain } = parseStorageKey(normalizeStorageKey(key));
+    return getRequiredVisibility(domain) === "public"
+      ? r2.publicBucketName
+      : r2.privateBucketName;
   }
 
   async putObject(input: PutObjectInput): Promise<PutObjectResult> {
@@ -181,12 +195,16 @@ export class R2StorageService implements StorageService {
 
     const result = await this.client.send(
       new PutObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(key),
         Key: key,
         Body: input.body,
         ContentType: input.contentType,
         ContentLength: input.body.length,
         Metadata: metadata,
+        ...(input.contentDisposition
+          ? { ContentDisposition: input.contentDisposition }
+          : {}),
+        ...(input.cacheControl ? { CacheControl: input.cacheControl } : {}),
       })
     );
 
@@ -211,7 +229,7 @@ export class R2StorageService implements StorageService {
     try {
       const result = await this.client.send(
         new GetObjectCommand({
-          Bucket: this.bucket,
+          Bucket: this.bucketForKey(normalized),
           Key: normalized,
         })
       );
@@ -239,7 +257,7 @@ export class R2StorageService implements StorageService {
     try {
       const result = await this.client.send(
         new HeadObjectCommand({
-          Bucket: this.bucket,
+          Bucket: this.bucketForKey(normalized),
           Key: normalized,
         })
       );
@@ -269,38 +287,65 @@ export class R2StorageService implements StorageService {
     return head.metadata;
   }
 
-  /** S3 ListObjectsV2 over ONE tenant-domain prefix; the continuation token is the cursor. */
-  async listObjectKeys(
-    prefix: string,
-    options?: { cursor?: string | null; limit?: number }
-  ): Promise<ListObjectKeysResult> {
-    const { prefix: normalized } = assertTenantDomainPrefix(prefix);
-    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 1000));
-    const result = await this.client.send(
-      new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: normalized,
-        MaxKeys: limit,
-        ...(options?.cursor ? { ContinuationToken: options.cursor } : {}),
-      })
-    );
-    const keys = (result.Contents ?? [])
-      .map((o) => o.Key)
-      .filter((k): k is string => typeof k === "string" && k.startsWith(normalized));
-    return {
-      keys,
-      nextCursor: result.IsTruncated && result.NextContinuationToken ? result.NextContinuationToken : null,
-    };
-  }
-
   async deleteObject(key: string): Promise<void> {
     const normalized = normalizeStorageKey(key);
     await this.client.send(
       new DeleteObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(normalized),
         Key: normalized,
       })
     );
+  }
+
+  async listByPrefix(
+    prefix: string,
+    options?: { limit?: number }
+  ): Promise<{ keys: string[]; truncated: boolean }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 100_000));
+    // The bucket is chosen from the prefix's DOMAIN, like every other call.
+    const bucket = this.bucketForKey(`${safe.prefix}x`);
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: safe.prefix,
+          ContinuationToken: token,
+          MaxKeys: Math.min(1000, limit - keys.length + 1),
+        })
+      );
+      for (const o of page.Contents ?? []) {
+        if (o.Key && o.Key.startsWith(safe.prefix)) keys.push(o.Key);
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token && keys.length <= limit);
+    return { keys: keys.slice(0, limit), truncated: keys.length > limit || Boolean(token) };
+  }
+
+  async deleteByPrefix(prefix: string): Promise<{ deleted: number }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const bucket = this.bucketForKey(`${safe.prefix}x`);
+    let deleted = 0;
+    for (;;) {
+      const { keys, truncated } = await this.listByPrefix(safe.prefix, { limit: 1000 });
+      if (keys.length === 0) break;
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        })
+      );
+      if (result.Errors && result.Errors.length > 0) {
+        throw new StorageConfigError(
+          `deleteByPrefix: ${result.Errors.length} object(s) could not be deleted`
+        );
+      }
+      deleted += keys.length;
+      if (!truncated) break;
+    }
+    return { deleted };
   }
 
   async getSignedDownloadUrl(key: string, ttlSeconds?: number): Promise<string> {
@@ -317,7 +362,7 @@ export class R2StorageService implements StorageService {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(normalized),
         Key: normalized,
       }),
       { expiresIn: ttl }

@@ -19,6 +19,7 @@ import {
   putPublicAsset,
   requirePublicAssetUrl,
 } from "./public-asset-storage.service";
+import { jpeg, mp4, png } from "@/lib/security/sec-d/fixtures";
 
 export const verifyStats = {
   storagePathTests: 0,
@@ -76,7 +77,7 @@ function simulateCreatomateVideoSources(assetUrls: string[]) {
 async function verifyContentUploadToCreatomateChain() {
   await withLocalStorageRoot(async () => {
     const businessId = 42;
-    const body = Buffer.from("fake-video-bytes-for-verify");
+    const body = mp4();
 
     verifyStats.creatomateChainTests += 1;
     const stored = await putPublicAsset({
@@ -147,7 +148,7 @@ async function verifyInventoryAndOffers() {
     const inventory = await putPublicAsset({
       businessId,
       domain: "inventory",
-      body: Buffer.from("jpeg-bytes"),
+      body: jpeg(),
       contentType: "image/jpeg",
       custom: { source: "inventory_item_image" },
     });
@@ -161,7 +162,7 @@ async function verifyInventoryAndOffers() {
     const offers = await putPublicAsset({
       businessId,
       domain: "offers",
-      body: Buffer.from("png-bytes"),
+      body: png(),
       contentType: "image/png",
       custom: { source: "offer_image_upload" },
     });
@@ -214,7 +215,7 @@ async function verifyR2Optional() {
   const stored = await putPublicAsset({
     businessId: 999,
     domain: "content",
-    body: Buffer.from("r2-public-verify"),
+    body: jpeg(),
     contentType: "image/jpeg",
     custom: { source: "verify" },
   });

@@ -3,7 +3,6 @@ import path from "node:path";
 import type {
   GetObjectResult,
   HeadObjectResult,
-  ListObjectKeysResult,
   ObjectMetadata,
   PutObjectInput,
   PutObjectResult,
@@ -19,8 +18,8 @@ import {
 } from "./storage.errors";
 import {
   assertKeyMatchesMetadata,
+  assertSafeStoragePrefix,
   assertSafeStorageKey,
-  assertTenantDomainPrefix,
   normalizeStorageKey,
 } from "./key-validation";
 import { validatePutObjectMetadata } from "./domain-policy";
@@ -33,6 +32,9 @@ type StoredSidecarMetadata = {
   size: number;
   createdAt: string;
   custom?: Record<string, string>;
+  /** Serving headers (mirrors R2 system metadata); informational locally. */
+  contentDisposition?: string;
+  cacheControl?: string;
 };
 
 function sidecarPath(absoluteFilePath: string): string {
@@ -103,6 +105,10 @@ export class LocalFsStorageService implements StorageService {
       size: input.body.length,
       createdAt,
       custom: input.metadata.custom,
+      ...(input.contentDisposition
+        ? { contentDisposition: input.contentDisposition }
+        : {}),
+      ...(input.cacheControl ? { cacheControl: input.cacheControl } : {}),
     };
 
     await writeFile(absolute, input.body);
@@ -177,46 +183,6 @@ export class LocalFsStorageService implements StorageService {
     return head.metadata;
   }
 
-  /**
-   * Walk the one tenant-domain directory the prefix names. Sidecar metadata files are
-   * an implementation detail of this adapter and are never returned as objects; the
-   * listing is sorted so the cursor (the last key returned) is stable across pages.
-   */
-  async listObjectKeys(
-    prefix: string,
-    options?: { cursor?: string | null; limit?: number }
-  ): Promise<ListObjectKeysResult> {
-    const { prefix: normalized } = assertTenantDomainPrefix(prefix);
-    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 1000));
-    const base = resolveListingRoot(this.root, normalized);
-    const keys: string[] = [];
-    const walk = async (dir: string, rel: string): Promise<void> => {
-      let entries;
-      try {
-        entries = await readdir(dir, { withFileTypes: true });
-      } catch (error) {
-        if (isEnoent(error)) return;
-        throw error;
-      }
-      for (const entry of entries) {
-        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-        if (entry.isDirectory()) {
-          await walk(path.join(dir, entry.name), childRel);
-        } else if (entry.isFile() && !entry.name.endsWith(".meta.json")) {
-          keys.push(`${normalized}${childRel}`);
-        }
-      }
-    };
-    await walk(base, "");
-    keys.sort();
-    const cursor = options?.cursor ?? null;
-    const start = cursor === null ? 0 : keys.findIndex((k) => k > cursor);
-    const from = start < 0 ? keys.length : start;
-    const page = keys.slice(from, from + limit);
-    const more = from + limit < keys.length;
-    return { keys: page, nextCursor: more ? page[page.length - 1] : null };
-  }
-
   async deleteObject(key: string): Promise<void> {
     const normalized = normalizeStorageKey(key);
     const absolute = resolveAbsolutePath(this.root, normalized);
@@ -231,6 +197,55 @@ export class LocalFsStorageService implements StorageService {
     ]);
   }
 
+  async listByPrefix(
+    prefix: string,
+    options?: { limit?: number }
+  ): Promise<{ keys: string[]; truncated: boolean }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 100_000));
+    const rootAbsolute = path.resolve(this.root);
+    const dir = path.resolve(rootAbsolute, ...safe.prefix.split("/").filter(Boolean));
+    if (!dir.startsWith(rootAbsolute + path.sep)) {
+      throw new StorageConfigError("Resolved storage prefix escapes local root");
+    }
+    const keys: string[] = [];
+    const walk = async (absDir: string, keyPrefix: string): Promise<void> => {
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await readdir(absDir, { withFileTypes: true });
+      } catch (error) {
+        if (isEnoent(error)) return;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (keys.length > limit) return;
+        if (entry.isDirectory()) {
+          await walk(path.join(absDir, entry.name), `${keyPrefix}${entry.name}/`);
+        } else if (entry.isFile() && !entry.name.endsWith(".meta.json")) {
+          keys.push(`${keyPrefix}${entry.name}`);
+        }
+      }
+    };
+    await walk(dir, safe.prefix);
+    keys.sort();
+    return { keys: keys.slice(0, limit), truncated: keys.length > limit };
+  }
+
+  async deleteByPrefix(prefix: string): Promise<{ deleted: number }> {
+    const safe = assertSafeStoragePrefix(prefix);
+    let deleted = 0;
+    for (;;) {
+      const { keys, truncated } = await this.listByPrefix(safe.prefix, { limit: 1000 });
+      if (keys.length === 0) break;
+      for (const key of keys) {
+        await this.deleteObject(key);
+      }
+      deleted += keys.length;
+      if (!truncated) break;
+    }
+    return { deleted };
+  }
+
   async getSignedDownloadUrl(_key: string, _ttlSeconds?: number): Promise<string> {
     throw new StorageConfigError(
       "Signed download URLs are not supported by the local storage adapter"
@@ -240,17 +255,6 @@ export class LocalFsStorageService implements StorageService {
   getPublicUrl(_key: string): string | null {
     return null;
   }
-}
-
-/** The absolute directory of a validated `biz/{id}/{domain}/` prefix, inside the root. */
-function resolveListingRoot(root: string, normalizedPrefix: string): string {
-  const rootAbsolute = path.resolve(root);
-  const absolute = path.resolve(rootAbsolute, ...normalizedPrefix.split("/").filter(Boolean));
-  const rootWithSep = rootAbsolute.endsWith(path.sep) ? rootAbsolute : rootAbsolute + path.sep;
-  if (!absolute.startsWith(rootWithSep)) {
-    throw new StorageConfigError("Resolved listing path escapes local root");
-  }
-  return absolute;
 }
 
 function isEnoent(error: unknown): boolean {

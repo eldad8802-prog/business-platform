@@ -52,7 +52,7 @@ import {
   eraseSessionsOfBusinessUsers,
   revokeAuthorityOfBusinessUsers,
 } from "@/lib/auth/session-directory";
-import { decryptToken } from "@/lib/services/integrations/gmail/token-crypto.placeholder";
+import { decryptTokenForRevocation } from "@/lib/services/integrations/gmail/token-crypto.placeholder";
 import { decryptAccessToken } from "@/lib/services/integrations/whatsapp/token-crypto.service";
 import { runTenantJob } from "@/lib/tenant/job";
 import { prismaErasureLedger } from "@/lib/services/account/erasure-ledger.prisma";
@@ -214,9 +214,13 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           });
           for (const c of gmail) {
             if (!c.token) continue;
-            // Prefer the refresh token: Google revokes the whole grant from either.
+            // Prefer the refresh token: Google revokes the whole grant from either. The
+            // revocation-only decoder (workstream D, L-17) binds the row context and also
+            // reads a quarantined legacy blob: revoking it is the one use it still has.
+            const ctx = { businessId, connectionId: c.id };
             const token =
-              decryptToken(c.token.refreshTokenEncrypted) ?? decryptToken(c.token.accessTokenEncrypted);
+              decryptTokenForRevocation(c.token.refreshTokenEncrypted, { ...ctx, field: "refresh" }) ??
+              decryptTokenForRevocation(c.token.accessTokenEncrypted, { ...ctx, field: "access" });
             grants.push({ provider: "google", action: "oauth_token_revoke", connectionId: c.id, token, wabaId: null });
           }
           const wa = await tx.whatsAppConnection.findMany({
@@ -798,7 +802,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
     for (const [cls, n] of Object.entries(counts)) {
       if (n > 0) residual.push(cls);
     }
-    const content = await getStorageService().listObjectKeys(`biz/${businessId}/content/`, { limit: 1 });
+    const content = await getStorageService().listByPrefix(`biz/${businessId}/content/`, { limit: 1 });
     if (content.keys.length > 0) residual.push("content_objects");
     if ((await countSessionsOfBusinessUsers(businessId)) > 0) residual.push("auth_sessions");
     return residual;
