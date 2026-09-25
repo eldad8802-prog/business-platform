@@ -34,6 +34,10 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
     },
+    "components/collection/thread/refund-outcome.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m1-inbound-money-ci.yml"
+    },
     "components/documents/home/PulseCard.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
@@ -813,7 +817,7 @@
     "lib/services/billing/domain/billing-allocation-authority.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c2-allocation-authority-ci.yml, c25-issuance-integrity-ci.yml, c3-settlement-ci.yml"
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c2-allocation-authority-ci.yml, c25-issuance-integrity-ci.yml, c3-settlement-ci.yml, m1-inbound-money-ci.yml"
     },
     "lib/services/billing/pdf/billing-pdf-allocation.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -825,7 +829,7 @@
     },
     "lib/services/billing/receipt/billing-receipt-issuance-integrity.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "product behaviour; run by c25-issuance-integrity-ci.yml, c3-settlement-ci.yml"
+      "reason": "product behaviour; run by c25-issuance-integrity-ci.yml, c3-settlement-ci.yml, m1-inbound-money-ci.yml"
     },
     "lib/services/billing/receipt/billing-receipt-issue.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -838,7 +842,7 @@
     "lib/services/billing/settlement/settlement-recovery-auth.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c3-settlement-ci.yml"
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c3-settlement-ci.yml, m1-inbound-money-ci.yml"
     },
     "lib/services/billing/signed-pdf-artifact.test.ts": {
       "class": "SECURITY_REQUIRED",
@@ -1266,6 +1270,12 @@
     "lib/services/payments/providers/sumit/sumit.provider.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/qa-webhook-suppression.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m1-inbound-money-ci.yml",
+      "reason": "needs the lab m1-inbound-money-ci.yml builds; run there on pull_request"
     },
     "lib/services/revenue/coupon-code.access.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",

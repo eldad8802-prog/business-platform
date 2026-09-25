@@ -30,6 +30,7 @@ export const EXEMPT = {
     ["c3-settlement-ci.yml", "peer-owned (CardCom money session); pin in the peer PR"],
     ["collection-product-ci.yml", "peer-owned (CardCom money session); pin in the peer PR"],
     ["payment-settlement-recovery.yml", "peer-owned (CardCom money session); pin in the peer PR"],
+    ["m1-inbound-money-ci.yml", "peer-owned (CardCom money session, #524); pin in the peer's next PR"],
   ]),
   "WP-3": new Map([["payment-settlement-recovery.yml", "peer-owned: CRON_SECRET without an environment — peer must add `environment: cron` (owner action prepared)"]]),
   "WP-5": new Map([["payment-settlement-recovery.yml", "peer-owned: scheduled job holding CRON_SECRET — accepted schedule by design, secret must move to the cron environment"]]),

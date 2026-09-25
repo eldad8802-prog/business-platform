@@ -108,6 +108,20 @@ function expandNpmRun(root, text) {
   return go(text);
 }
 
+/** A workflow names a test file literally, or through a shell glob (`ls lib/x/*.test.ts`,
+ *  `for f in lib/x/*.test.ts`) or a `find DIR -name PATTERN` loop. */
+export function mentions(text, file) {
+  if (text.includes(file)) return true;
+  const globRe = (g) =>
+    new RegExp("^" + g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*\//g, "(?:.*/)?").replace(/\*/g, "[^/]*") + "$");
+  for (const m of text.matchAll(/([\w./-]*\*[\w.*/-]*\.test\.[cm]?[jt]sx?)/g)) if (globRe(m[1]).test(file)) return true;
+  for (const m of text.matchAll(/find\s+(\S+)\s+-name\s+["']([^"']+)["']/g)) {
+    const dir = m[1].replace(/\/$/, "");
+    if (file.startsWith(dir + "/") && globRe(m[2]).test(file.split("/").pop())) return true;
+  }
+  return false;
+}
+
 function hasPullRequestTrigger(text) {
   return /^on:\s*\[?[^\n]*pull_request/m.test(text) || /^\s{2}pull_request:/m.test(text);
 }
@@ -121,7 +135,7 @@ export function check(root, { log = console.log } = {}) {
   // Implicit SECURITY_REQUIRED for tests a sec-*-ci.yml workflow runs.
   for (const f of files) {
     if (entries.has(f)) continue;
-    const by = secWorkflows.find(([, t]) => t.includes(f));
+    const by = secWorkflows.find(([, t]) => mentions(t, f));
     if (by) entries.set(f, { class: "SECURITY_REQUIRED", lab: "workflow", workflow: by[0], reason: `run by ${by[0]} (implicit)`, fragment: "<implicit>" });
   }
 
@@ -139,7 +153,7 @@ export function check(root, { log = console.log } = {}) {
         const t = wf.get(e.workflow ?? "");
         if (!t) problems.push(`[FAIL] C4 ${p} names workflow ${e.workflow} which does not exist`);
         else if (!hasPullRequestTrigger(t)) problems.push(`[FAIL] C4 ${p} is run by ${e.workflow}, which has no pull_request trigger`);
-        else if (!t.includes(p)) problems.push(`[FAIL] C4 NOT-INVOKED ${p} — ${e.workflow} has no run step naming it`);
+        else if (!mentions(t, p)) problems.push(`[FAIL] C4 NOT-INVOKED ${p} — ${e.workflow} has no run step naming it`);
       } else {
         const gate = wf.get(path.basename(GATE));
         const re = new RegExp(`security-test-coverage\\.mjs --run --lab ${e.lab}\\b`);
