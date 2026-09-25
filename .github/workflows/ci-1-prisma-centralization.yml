@@ -350,64 +350,60 @@ jobs:
         run: npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts
 
       - name: I-8B.2 negative proof (Analyze must not create a historical record)
+        # F-3 (sec/A): a real client import + a real write, valid TypeScript (the old mutation named an undeclared identifier and went red on ReferenceError whatever the guard did).
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-analyze.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void historicalFiscalDocument.create({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:352:358" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a historical record write"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.2-record --file lib/data-transfer/historical/historical-analyze.ts \
+            --anchor 'import { Prisma } from "@prisma/client";' \
+            --replace 'import { Prisma } from "@prisma/client"; import { prisma as mutantDb } from "@/lib/prisma"; export async function mutantWrite() { await mutantDb.historicalFiscalDocument.create({ data: {} as never }); }' \
+            --expect 'FAIL  AST: the FILE analyzer'\''s import graph reaches no database client' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts'
 
       - name: I-8B.2 negative proof (Analyze must not create an import run)
+        # F-3 (sec/A): bracket access — invisible to the old substring guard ('.create(').
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-analyze.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void importRun.create({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:364:370" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained an import-run write"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.2-importrun --file lib/data-transfer/historical/historical-analyze.ts \
+            --anchor 'import { Prisma } from "@prisma/client";' \
+            --replace 'import { Prisma } from "@prisma/client"; import { prisma as mutantDb } from "@/lib/prisma"; export async function mutantWrite() { await (mutantDb as any)["importRun"]["create"]({ data: {} }); }' \
+            --expect 'FAIL  AST: the FILE analyzer'\''s import graph reaches no database client' \
+            --expect 'FAIL  AST: no module on the analyze route'\''s data-transfer path contains a write call' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts'
 
       - name: I-8B.2 negative proof (Analyze must not touch a customer)
+        # F-3 (sec/A): a write through an injected client and computed member names: no import, no '.update(' substring.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-analyze.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void customer.update({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:376:382" -- npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a customer mutation"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.2-customer --file lib/data-transfer/historical/historical-analyze.ts \
+            --anchor 'import { Prisma } from "@prisma/client";' \
+            --replace 'import { Prisma } from "@prisma/client"; export async function mutantWrite(db: any) { await db["customer"]["update"]({ where: { id: 1 }, data: {} }); }' \
+            --expect 'FAIL  AST: no module on the analyze route'\''s data-transfer path contains a write call' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts'
 
       - name: I-8B.2 negative proof (Analyze must not touch billing)
+        # F-3 (sec/A): a billing write reachable from the analyze route.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-analyze.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void billingDocument.update({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:388:394" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a billing mutation"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.2-billing --file lib/data-transfer/historical/historical-analyze.ts \
+            --anchor 'import { Prisma } from "@prisma/client";' \
+            --replace 'import { Prisma } from "@prisma/client"; export async function mutantWrite(db: any) { await db.billingDocument.update({ where: { id: 1 }, data: {} }); }' \
+            --expect 'FAIL  AST: no module on the analyze route'\''s data-transfer path contains a write call' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts'
 
       - name: I-8B.2 negative proof (Analyze must not resolve a reversal against billing)
+        # F-3 (sec/A): a billing READ (no write) — only the model-access AST check can see it.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-analyze.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  \/\* ---- reversal reference: TEXT ONLY\. Nothing is resolved here ---- \*\//  void billingDocument.findFirst({});/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:400:406" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal reference was resolved against billing"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.2-reversal-billing --file lib/data-transfer/historical/historical-analyze.ts \
+            --anchor 'import { Prisma } from "@prisma/client";' \
+            --replace 'import { Prisma } from "@prisma/client"; export async function mutantRead(db: any) { return db.billingDocument.findFirst({ where: { id: 1 } }); }' \
+            --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
       - name: I-8B.2 negative proof (granting Analyze must not grant Execute)
         run: |
@@ -538,52 +534,52 @@ jobs:
           echo "NEGATIVE-PROOF PASS"
 
       - name: I-8B.3 negative proof (the analysis must not write a historical record)
+        # F-3 (sec/A): a write on the real tenant transaction client.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void historicalFiscalDocument.create({});\n  const identities: FiscalIdentity[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:540:546" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the duplicate analysis gained a write"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.3-record --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor '  const records: ExistingRecord[] = [];' \
+            --replace '  if (identities.length < 0) await tx.historicalFiscalDocument.create({ data: {} as never });
+  const records: ExistingRecord[] = [];' \
+            --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
       - name: I-8B.3 negative proof (the analysis must not create an import run)
+        # F-3 (sec/A): bracket access on the tenant client.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void importRun.create({});\n  const identities: FiscalIdentity[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:552:558" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the duplicate analysis gained an import-run write"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.3-importrun --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor '  const records: ExistingRecord[] = [];' \
+            --replace '  if (identities.length < 0) await (tx as any)["importRun"]["create"]({ data: {} });
+  const records: ExistingRecord[] = [];' \
+            --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
       - name: I-8B.3 negative proof (the reversal relation must never be written)
+        # F-3 (sec/A): writing the reversal relation.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void historicalFiscalDocument.update({ reversesHistoricalDocumentId: 1 });\n  const identities: FiscalIdentity[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:564:570" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal relation was written despite having no UPDATE path"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.3-reversal-write --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor '  const records: ExistingRecord[] = [];' \
+            --replace '  if (identities.length < 0) await tx.historicalFiscalDocument.update({ where: { id: 1 }, data: { reversesHistoricalDocumentId: 1 } as never });
+  const records: ExistingRecord[] = [];' \
+            --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
       - name: I-8B.3 negative proof (a reversal must not fall back to billing)
+        # F-3 (sec/A): a billing read on the tenant client.
+        # negative-proof.mjs asserts: applied exactly once, red, for THIS label, no crash
+        # signature, byte-identical restore.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void billingDocument.findFirst({});\n  const identities: FiscalIdentity[] = [];/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:576:582" -- npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal search reached Dubiz-issued documents"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id I-8B.3-billing-fallback --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor '  const records: ExistingRecord[] = [];' \
+            --replace '  if (identities.length < 0) await tx.billingDocument.findFirst({ where: { businessId } });
+  const records: ExistingRecord[] = [];' \
+            --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
+            -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
       - name: I-8B.3 negative proof (database-dependent analysis must carry evidence)
         run: |

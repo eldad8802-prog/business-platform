@@ -11,6 +11,8 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+// @ts-expect-error — plain ESM helper without type declarations (scripts/ci/lab).
+import { modelOps, writeSites } from "../../../scripts/ci/lab/write-surface.mjs";
 
 import {
   analyzeAgainstRecords,
@@ -556,6 +558,24 @@ async function main(): Promise<void> {
       ),
     ].map((m) => m[1]);
     assert.deepEqual([...new Set(accesses)], ["findMany"]);
+  });
+
+  // F-3: the substring checks above are bypassable (`tx["importRun"]["create"]`, an alias,
+  // a cast). This one reads the AST: every model call on the duplicate-analysis path is
+  // exactly a historicalFiscalDocument READ, and no write call exists in any form.
+  await check("AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads", () => {
+    const files = [
+      "lib/data-transfer/historical/historical-duplicates.ts",
+      "lib/data-transfer/historical/historical-analyze-duplicates.ts",
+      "lib/data-transfer/historical/historical-analyze.ts",
+      "app/api/data-transfer/import/historical/analyze/route.ts",
+    ];
+    const ops = files.flatMap((f) => (modelOps(f) as string[]).map((o) => `${f}: ${o}`));
+    const foreign = ops.filter((o) => !/: historicalFiscalDocument\.(findMany|findFirst|count)$/.test(o));
+    assert.deepEqual(foreign, [], `unexpected database access: ${foreign.join("; ")}`);
+    assert.ok(ops.length >= 1, "the historicalFiscalDocument read itself was not found — the scan is not seeing the code");
+    const writes = files.flatMap((f) => (writeSites(f) as { line: number; text: string }[]).map((w) => `${f}:${w.line} ${w.text}`));
+    assert.deepEqual(writes, [], `write call on the duplicate-analysis path: ${writes.join("; ")}`);
   });
 
   await check("the lookup runs inside the tenant transaction, not beside it", () => {

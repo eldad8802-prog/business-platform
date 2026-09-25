@@ -301,7 +301,13 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
           RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
           AUTH_TOKEN_SECRET: i8b6_ci_auth_secret_synthetic
-        run: npx tsx .i8b6/battery.mjs
+        # F-4: record the exact check count; the "RLS held" proofs below must reproduce it.
+        run: |
+          set -euo pipefail
+          npx tsx .i8b6/battery.mjs | tee /tmp/pos.log
+          N="$(grep -oE "^  [0-9]+ checks passed, 0 failed" /tmp/pos.log | grep -oE "[0-9]+" | head -1)"
+          [ -n "$N" ] && [ "$N" -gt 0 ] || { echo "::error::positive battery did not report N checks passed, 0 failed"; exit 1; }
+          echo "I8B6_EXPECTED_CHECKS=$N" >> "$GITHUB_ENV"
 
       # ── Negative proofs on the battery ────────────────────────────────────
 
@@ -318,17 +324,20 @@ jobs:
           # if it did not — the clause and the policy must agree.
           perl -0pi -e 's/  const where: Prisma\.HistoricalFiscalDocumentWhereInput = \{ businessId \};/  const where: Prisma.HistoricalFiscalDocumentWhereInput = {};/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          npx tsx .i8b6/battery.mjs > /tmp/neg.log 2>&1 || true
+          set +e; npx tsx .i8b6/battery.mjs > /tmp/neg.log 2>&1; rc=$?; set -e
           mv "$F.bak" "$F"
-          # With the clause gone the counts must still be right, because RLS is
-          # the boundary. If they are NOT, the boundary was the clause all along.
-          if grep -q "FAIL" /tmp/neg.log; then
-            echo "FINDING: with the application clause removed the read path broke —"
-            echo "that means RLS was not actually holding the boundary."
-            cat /tmp/neg.log
+          git diff --quiet -- "$F" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          # With the clause gone the counts must still be right, because RLS is the boundary.
+          # F-4: a CRASH used to read as "RLS held" (|| true + absence of "FAIL"). Now the run
+          # must exit 0 AND report exactly the positive run's check count with 0 failures.
+          if [ "$rc" -ne 0 ] || ! grep -qE "^  ${I8B6_EXPECTED_CHECKS:?positive count missing} checks passed, 0 failed$" /tmp/neg.log; then
+            echo "FINDING or CRASH: expected exit 0 and ${I8B6_EXPECTED_CHECKS} checks passed, 0 failed (rc=$rc)"
+            echo "(with the application clause removed, either the read path broke — RLS was not"
+            echo " holding the boundary — or the battery crashed; both are failures of this proof)"
+            tail -60 /tmp/neg.log
             exit 1
           fi
-          echo "NEGATIVE-PROOF PASS — RLS held the boundary on its own"
+          echo "NEGATIVE-PROOF PASS — RLS held the boundary on its own (${I8B6_EXPECTED_CHECKS} checks, exit 0)"
 
       - name: negative proof — the tenant context never established
         env:

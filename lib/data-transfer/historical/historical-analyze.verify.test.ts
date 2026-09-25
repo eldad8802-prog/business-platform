@@ -14,6 +14,8 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+// @ts-expect-error — plain ESM helper without type declarations (scripts/ci/lab).
+import { importClosure, dbClientImports, writeSites } from "../../../scripts/ci/lab/write-surface.mjs";
 
 import { analyzeHistoricalSource } from "@/lib/data-transfer/historical/historical-analyze";
 import { HISTORICAL_HEADERS } from "@/lib/data-transfer/historical/historical-fields";
@@ -706,6 +708,25 @@ async function main(): Promise<void> {
     // arithmetic, not a client.
     assert.ok(src.includes("Prisma.Decimal"));
     assert.ok(!src.includes("new PrismaClient"));
+  });
+
+  // F-3: the substring checks above and below can be walked around by formatting alone
+  // (`db["historicalFiscalDocument"]["create"](...)`, an alias, a helper one import away).
+  // These two read the AST and follow the import graph.
+  await check("AST: the FILE analyzer's import graph reaches no database client", () => {
+    const closure: string[] = importClosure("lib/data-transfer/historical/historical-analyze.ts", { within: /^(lib|app)\// });
+    assert.ok(closure.length >= 3, `import graph not followed (${closure.length} modules)`);
+    const offenders = closure.flatMap((f) => dbClientImports(f).map((spec: string) => `${f} -> ${spec}`));
+    assert.deepEqual(offenders, [], `the file analyzer's import graph reaches a database client: ${offenders.join("; ")}`);
+  });
+
+  await check("AST: no module on the analyze route's data-transfer path contains a write call", () => {
+    const closure: string[] = importClosure("app/api/data-transfer/import/historical/analyze/route.ts", {
+      within: /^(lib\/data-transfer\/|app\/api\/data-transfer\/import\/historical\/analyze\/)/,
+    });
+    assert.ok(closure.includes("lib/data-transfer/historical/historical-analyze.ts"), "the analyze module is not on the route's import graph");
+    const offenders = closure.flatMap((f) => writeSites(f).map((w: { line: number; text: string }) => `${f}:${w.line} ${w.text}`));
+    assert.deepEqual(offenders, [], `a write call is reachable from the analyze route: ${offenders.join("; ")}`);
   });
 
   await check("nothing on the route's path can WRITE, whatever it may read", () => {
