@@ -5,5 +5,4 @@ BEGIN;
 REVOKE SELECT ("id", "email", "name", "businessId", "role", "lastLoginAt", "loginCount", "createdAt", "updatedAt")
   ON "User" FROM app_admin;
 GRANT SELECT ON "User" TO app_admin;
-REVOKE SELECT ON "ProductUsageEvent" FROM app_admin;
 COMMIT;

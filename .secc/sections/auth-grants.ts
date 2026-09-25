@@ -33,6 +33,10 @@ void section("auth-grants", async () => {
   const rt = client(lab.rtUrl);
   const mfa = await sqlError(rt.$queryRawUnsafe(`SELECT count(*) FROM "PlatformAdminMfa"`));
   ok("RUNTIME holds no SELECT on PlatformAdminMfa from the shipped migrations/grants (42501)", mfa?.code === "42501", mfa);
+  const auth = client(lab.authUrl);
+  const authMfa = await sqlError(auth.$queryRawUnsafe(`SELECT count(*) FROM "PlatformAdminMfa"`));
+  ok("AUTH plane may read/write PlatformAdminMfa (T-04 target identity, shipped by migration)", authMfa === null, authMfa);
+  await auth.$disconnect();
   await rt.$disconnect();
   dropLab(lab);
 });

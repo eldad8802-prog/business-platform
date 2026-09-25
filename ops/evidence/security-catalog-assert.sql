@@ -8,9 +8,9 @@
 -- It never selects a row of application data. The repository is public, so this
 -- output is designed to be public too.
 --
--- Expected state = the repository's migrations (148 directories):
---   118 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
---   149 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
+-- Expected state = the repository's migrations (150 directories):
+--   119 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
+--   150 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
 -- Role groups checked: app_runtime, app_auth, app_admin, app_ctlplane and every
 -- LOGIN member of them.
 
@@ -135,6 +135,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'SupplierPurchaseDraft',
     'SupplierPurchaseDraftLine',
     'Task',
+    'TemporalKnowledge',
     'Usage',
     'VendorLearning',
     'WhatsAppAttachmentImport'
@@ -307,6 +308,7 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'SupplierPurchaseDraft.p7w3_tenant',
     'SupplierPurchaseDraftLine.p7w3_tenant',
     'Task.p7w1_tenant',
+    'TemporalKnowledge.p7w2_tenant',
     'Usage.p7w2_tenant',
     'VendorLearning.p7w4d_tenant',
     'WhatsAppAttachmentImport.p7adm_read',
@@ -458,9 +460,11 @@ expected_migrations(m) AS (SELECT unnest(ARRAY[
     '20260924090100_m4_m5_knowledge_expansion',
     '20260924180000_m5_collection_action_append_only',
     '20260925090000_m55_sensor_fabric',
+    '20260926090000_m6_temporal_knowledge',
     '20260926110000_sec_c_tenant_composite_fk',
     '20260926110100_sec_c_bootstrap_lookup_functions',
-    '20260926110200_sec_c_admin_read_whatsapp_attachment_import'
+    '20260926110200_sec_c_admin_read_whatsapp_attachment_import',
+    '20260926110300_sec_c_explicit_identity_grants'
   ]::text[])),
 expected_fks(c) AS (SELECT unnest(ARRAY[
     'Appointment_customerId_tenant_fkey',
@@ -577,6 +581,30 @@ results AS (
          CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin')
                    AND has_column_privilege('app_admin', '"User"', 'password', 'SELECT') THEN 1 ELSE 0 END,
          1, NULL
+  UNION ALL
+  -- A5c: the auth plane can perform signup — every column Prisma emits on the two
+  -- inserts is granted (a missing one is a 42501 on the first signup).
+  SELECT 'A5c_auth_signup_insert_columns',
+         count(*) FILTER (WHERE NOT ok), count(*),
+         string_agg(c, ',' ORDER BY c) FILTER (WHERE NOT ok)
+    FROM (
+      SELECT t || '.' || col AS c,
+             EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth')
+               AND has_column_privilege('app_auth', format('%I', t), col, 'INSERT') AS ok
+        FROM (VALUES ('User','email'),('User','password'),('User','name'),('User','businessId'),
+                     ('User','createdAt'),('User','updatedAt'),
+                     ('Business','name'),('Business','createdAt'),('Business','updatedAt')) v(t, col)
+    ) x
+  UNION ALL
+  -- A5d: the tenant runtime holds NO privilege on platform-admin MFA state
+  -- (authentication material; auth plane only). FAILs until T-04 ships and the owner
+  -- revokes the runtime's legacy grant.
+  SELECT 'A5d_runtime_no_platform_admin_mfa',
+         count(*), (SELECT count(*) FROM runtime_roles),
+         string_agg(r.rolname || ':' || p.priv, ',' ORDER BY r.rolname)
+    FROM runtime_roles r CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p(priv)
+   WHERE to_regclass('public."PlatformAdminMfa"') IS NOT NULL
+     AND has_table_privilege(r.oid, 'public."PlatformAdminMfa"', p.priv)
   UNION ALL
   -- A6: default-deny — no default ACL hands the runtime anything on new tables/sequences.
   SELECT 'A6_no_runtime_default_privileges',

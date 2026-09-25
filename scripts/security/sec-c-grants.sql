@@ -14,11 +14,8 @@
 --    business detail: counts by businessId; role/name/createdAt/updatedAt for the
 --    admin screens). Excluded: "password", "tokenVersion".
 --
--- 2. M-14(c)/T-07 — platform usage overview and business detail now read
---    "ProductUsageEvent" as app_admin (they used the tenant runtime before).
---
--- Prerequisite for (2) to be USEFUL in an environment: an app_admin LOGIN role and
--- ADMIN_DATABASE_URL configured there (Production has neither today — owner action).
+-- (app_admin SELECT on "ProductUsageEvent" ships in migration
+--  20260926110300_sec_c_explicit_identity_grants.)
 
 BEGIN;
 
@@ -26,6 +23,5 @@ REVOKE SELECT ON "User" FROM app_admin;
 GRANT SELECT ("id", "email", "name", "businessId", "role", "lastLoginAt", "loginCount", "createdAt", "updatedAt")
   ON "User" TO app_admin;
 
-GRANT SELECT ON "ProductUsageEvent" TO app_admin;
 
 COMMIT;
