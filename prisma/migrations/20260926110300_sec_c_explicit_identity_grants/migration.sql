@@ -6,10 +6,15 @@
 -- 1. SIGNUP ON THE ACTIVE AUTH PLANE (PR #526 finding, revalidated in a fresh lab:
 --    `createAccount` as app_auth -> 42501 "permission denied for table Business").
 --    20260908180000 granted app_auth INSERT ("name","updatedAt") on Business and
---    ("email","password","name","businessId","updatedAt") on User. Prisma also
---    emits "createdAt" (a client-side now() default) on both inserts, so every
---    signup on the auth plane fails. Latent only while public signup is closed.
---    Adds exactly that one column on each table — nothing else.
+--    ("email","password","name","businessId","updatedAt") on User. Prisma emits
+--    EVERY defaulted scalar explicitly (captured query log):
+--      INSERT INTO "Business" ("name","createdAt","updatedAt") ...
+--      INSERT INTO "User" ("email","password","name","businessId","role","loginCount",
+--                          "tokenVersion","createdAt","updatedAt") ...
+--    so every signup on the auth plane fails. Latent only while public signup is
+--    closed. Adds exactly the missing columns — nothing else. (The auth plane can
+--    therefore write "role" on INSERT; signup never sets it, so Prisma sends the
+--    schema default USER. UPDATE of "role" stays ungranted.)
 --
 -- 2. PlatformAdminMfa ON THE AUTH PLANE (prepares T-04). Platform-admin second-factor
 --    state is authentication material; it belongs with the identity that already
@@ -25,7 +30,7 @@ DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth') THEN
     GRANT INSERT ("createdAt") ON "Business" TO app_auth;
-    GRANT INSERT ("createdAt") ON "User" TO app_auth;
+    GRANT INSERT ("createdAt", "role", "loginCount", "tokenVersion") ON "User" TO app_auth;
     GRANT SELECT, INSERT, UPDATE, DELETE ON "PlatformAdminMfa" TO app_auth;
     GRANT USAGE ON SEQUENCE "PlatformAdminMfa_id_seq" TO app_auth;
   END IF;
