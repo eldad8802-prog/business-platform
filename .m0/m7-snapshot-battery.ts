@@ -190,16 +190,35 @@ async function main(): Promise<void> {
 
   /* ══════════════════ K6 / K7 ══════════════════ */
   section("K6/K7 — duplicates collapse, conflicts are kept");
+  // KnowledgeMeasure cannot hold a duplicate slot at all (unique KnowledgeMeasure_slot_key since M2):
+  // the database refuses, which is the strongest dedup there is.
   const m = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizA.id, measureKey: "suppliers.purchase_cadence", entityId: supplier.id, status: "ACTIVE" } });
-  const dupe = await owner.knowledgeMeasure.create({ data: { ...m!, id: undefined, materializedAt: new Date() } as never });
+  let dbRefused = false;
+  try { await owner.knowledgeMeasure.create({ data: { ...m!, id: undefined } as never }); } catch { dbRefused = true; }
+  check("a duplicate KnowledgeMeasure slot is refused by the database itself", dbRefused);
+  // TemporalKnowledge keeps history, so two live rows in one slot are POSSIBLE in storage (the writer
+  // prevents it; the table does not). The snapshot must still show the knowledge once.
+  const tv = await owner.derivationPolicyVersion.findFirst({ where: { policy: { key: "temporal-suppliers-purchase-cadence" } } });
+  const tRow = {
+    businessId: bizA.id, temporalKey: "suppliers.purchase_cadence", domain: "suppliers", rulePolicyVersionId: tv!.id,
+    knowledgeType: "BASELINE" as const, status: "ACTIVE" as const, entityType: "supplier", entityId: supplier.id, contextKey: "",
+    valueKind: "cadence", unit: "days", asOf: AS_OF, historyStart: ago(485), historyEnd: ago(120), recentStart: ago(120), recentEnd: AS_OF,
+    historyCount: 6, recentCount: 0, baseline: { median: 28, n: 6 }, evidenceRefs: [], evidenceFingerprint: "lab", semanticHash: "lab", confirmedAt: AS_OF,
+  };
+  await owner.temporalKnowledge.create({ data: tRow });
+  const t2 = await owner.temporalKnowledge.create({ data: tRow });
   const snapDup = await buildBusinessKnowledgeSnapshot(bizA.id, { asOf: AS_OF });
-  const cadence = snapDup.knowledge.filter((k) => k.key === "suppliers.purchase_cadence" && k.subject?.id === supplier.id);
-  check("a duplicate stored row appears ONCE, carrying both provenances", cadence.length === 1 && cadence[0].provenance.length === 2);
-  await owner.knowledgeMeasure.update({ where: { id: dupe.id }, data: { valueNumeric: 99 } });
+  const dupItems = snapDup.knowledge.filter((k) => k.kind === "BASELINE" && k.subject?.id === supplier.id);
+  check("the same temporal knowledge stored twice appears ONCE, carrying both provenances",
+    dupItems.length === 1 && dupItems[0].provenance.length === 2);
+  await owner.temporalKnowledge.update({ where: { id: t2.id }, data: { baseline: { median: 90, n: 6 } } });
   const snapDiv = await buildBusinessKnowledgeSnapshot(bizA.id, { asOf: AS_OF });
   check("a divergent value for the same slot → CONFLICT, UNRESOLVED, both sides kept",
     snapDiv.conflicts.some((c) => c.kind === "DIVERGENT_SAME_SLOT" && c.resolution === "UNRESOLVED" && c.sides.length === 2));
-  await owner.knowledgeMeasure.delete({ where: { id: dupe.id } });
+  await owner.temporalKnowledge.updateMany({ where: { businessId: bizA.id, temporalKey: "suppliers.purchase_cadence" }, data: { status: "SUPERSEDED" } });
+  const snapSup = await buildBusinessKnowledgeSnapshot(bizA.id, { asOf: AS_OF });
+  check("SUPERSEDED knowledge is excluded by default (history stays in storage)",
+    !snapSup.knowledge.some((k) => k.kind === "BASELINE" && k.subject?.id === supplier.id));
 
   const pol = await owner.derivationPolicy.upsert({ where: { key: "vendor-category" }, create: { key: "vendor-category", name: "lab" }, update: {} });
   const ver = await owner.derivationPolicyVersion.upsert({ where: { policyId_version: { policyId: pol.id, version: "v1" } },
