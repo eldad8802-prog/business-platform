@@ -1,0 +1,95 @@
+name: sec(C) security catalog evidence (read-only)
+
+# Manual, gated, READ-ONLY comparison of the Production database's security catalog
+# (role attributes, RLS/FORCE, policies, privilege ceilings, default ACLs, the
+# migration ledger, composite tenant FKs, definer lookups) against the state the
+# repository's migrations declare. Runs ONLY ops/evidence/security-catalog-assert.sql,
+# which is GENERATED from the migrations (scripts/security/gen-security-catalog.mjs).
+#
+# Output: one row per assertion — id, PASS/FAIL, counts, and on FAIL the catalog
+# identifiers involved (table/policy/role/constraint names). Never application row
+# data: the repository and this log are public.
+#
+# Safety controls (same model as the other prod-readonly evidence flows):
+#   - workflow_dispatch only; refuses any ref other than main
+#   - environment: production-db -> human approval before the secret is exposed
+#   - host allowlist on DIRECT_URL (verified Production endpoint only)
+#   - generated-file freshness check + static SELECT-only guard before connecting
+#   - READ ONLY transaction + session read-only + statement timeout + ON_ERROR_STOP
+#   - permissions: contents: read
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-c-catalog-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Read-only security catalog assertions
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Expected state is generated from the migrations (not stale, not hand-edited)
+        run: node scripts/security/gen-security-catalog.mjs --check
+
+      - name: SQL static guard (read-only)
+        run: |
+          set -euo pipefail
+          SQL_FILE="ops/evidence/security-catalog-assert.sql"
+          # Comments and string literals removed first: the file names privileges
+          # such as 'INSERT' as data, which is not a statement.
+          CODE="$(sed -e 's/--.*$//' "$SQL_FILE" | sed -e "s/'[^']*'//g")"
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if printf '%s' "$CODE" | grep -inE "$FORBIDDEN"; then
+            echo "::error::Forbidden write keyword found in SQL — aborting before any DB connection."
+            exit 1
+          fi
+          echo "SQL guard passed."
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1
+          fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint — aborting."; exit 1 ;;
+          esac
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run read-only catalog assertions
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 -P pager=off \
+            --file=ops/evidence/security-catalog-assert.sql | tee result.txt
+          if grep -q '| FAIL ' result.txt; then
+            echo "::warning::One or more security catalog assertions FAILED — see the table above."
+            exit 1
+          fi
+          echo "All security catalog assertions PASS."

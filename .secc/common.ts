@@ -18,7 +18,8 @@ export async function section(name: string, body: () => Promise<void>): Promise<
   try {
     await body();
   } catch (e) {
-    console.log(`SETUP-CRASH: ${name}: ${String((e as Error)?.stack ?? e).split("\n").slice(0, 6).join(" | ")}`);
+    const msg = String((e as Error)?.message ?? e).split("\n").filter(Boolean);
+    console.log(`SETUP-CRASH: ${name}: ${(e as Error)?.name ?? "Error"}: ${msg.slice(-3).join(" | ").slice(0, 400)}`);
     process.exit(2);
   }
   console.log(`\n[${name}] PASS=${passes} FAIL=${fails}`);

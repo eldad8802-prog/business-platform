@@ -75,12 +75,18 @@ void section("m3-app", async () => {
   {
     const appt = await import("@/lib/services/appointment/appointment.service");
     const actor = { actor: "OWNER", sourceChannel: "INBOX_WEB", userId: a.userId } as const;
+    // A thrown error is an answer too (e.g. the FK refusing a nonexistent id once the
+    // app check is gone) — recorded, never allowed to crash the proof.
+    const create = async (input: unknown) => {
+      try { return await appt.create(input as never); }
+      catch (e) { return { thrown: (e as { code?: string }).code ?? (e as Error).name }; }
+    };
     for (const [field, key] of [["customerId", "customerId"], ["leadId", "leadId"], ["messageId", "messageId"]] as const) {
-      const own = await appt.create({ businessId: a.businessId, actor, links: { [field]: a[key] } } as never);
-      ok(`M3-APP appointment own ${field} -> created`, own.ok === true, own);
+      const own = await create({ businessId: a.businessId, actor, links: { [field]: a[key] } } as never);
+      ok(`M3-APP appointment own ${field} -> created`, (own as { ok?: boolean }).ok === true, own);
       const n0 = await countA("Appointment");
-      const foreign = await appt.create({ businessId: a.businessId, actor, links: { [field]: b[key] } } as never);
-      const none = await appt.create({ businessId: a.businessId, actor, links: { [field]: MISSING } } as never);
+      const foreign = await create({ businessId: a.businessId, actor, links: { [field]: b[key] } } as never);
+      const none = await create({ businessId: a.businessId, actor, links: { [field]: MISSING } } as never);
       ok(`M3-APP appointment foreign ${field} -> invalid_input`, JSON.stringify(foreign) === JSON.stringify({ ok: false, reason: "invalid_input" }), foreign);
       ok(`M3-APP appointment nonexistent ${field} -> identical to foreign`, JSON.stringify(none) === JSON.stringify(foreign), { foreign, none });
       ok(`M3-APP appointment rejected ${field} created no row`, (await countA("Appointment")) === n0);

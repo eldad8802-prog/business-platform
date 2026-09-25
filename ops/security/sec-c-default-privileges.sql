@@ -29,10 +29,10 @@
 -- Guarded: refuses to run unless OWNER_ROLE is given, exists, and the session may
 -- act for it. Prints counts only.
 
+\set ON_ERROR_STOP on
 \if :{?OWNER_ROLE}
 \else
-  \echo 'DENY: pass -v OWNER_ROLE=<the role that owns/creates the tables>'
-  \quit 3
+  DO $$ BEGIN RAISE EXCEPTION 'DENY: pass -v OWNER_ROLE=<the role that owns/creates the tables>'; END $$;
 \endif
 
 SELECT set_config('secc.owner_role', :'OWNER_ROLE', false) AS owner_role_set \gset
