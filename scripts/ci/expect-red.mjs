@@ -13,7 +13,7 @@
  * one CI observed for this exact mutation (recorded in sec/A F-1 phase 1).
  */
 import { spawnSync } from "node:child_process";
-import { CRASH_SIGNATURES } from "./negative-proof.mjs";
+import { crashSignatures } from "./negative-proof.mjs";
 
 const argv = process.argv.slice(2);
 const sep = argv.indexOf("--");
@@ -31,7 +31,7 @@ const r = spawnSync(cmd.join(" "), { shell: true, encoding: "utf8", maxBuffer: 1
 const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
 const rc = r.status ?? 128;
 const missing = expect.filter((e) => !out.includes(e));
-const crash = CRASH_SIGNATURES.filter((re) => re.test(out));
+const crash = crashSignatures(out);
 console.log(`── expect-red ${id}`);
 console.log(`   EXPECTED RED   exit!=0 + ${expect.map((e) => JSON.stringify(e)).join(" + ")}`);
 console.log(`   ACTUAL RED     exit=${rc}; labels ${missing.length ? "MISSING" : "present"}; crash signatures ${crash.length ? "PRESENT" : "absent"}`);

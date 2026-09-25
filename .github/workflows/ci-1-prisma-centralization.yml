@@ -1007,7 +1007,7 @@ jobs:
           # world the run itself changed, and an inventory re-submit is refused
           # for duplicating the row it just created.
           perl -pi -e 's/  const existing = await findExistingRun\(\{/  const early = validateDecisions({ domainId: input.domainId, rows: derived.rows, decisions: input.decisions });\n  if (early.length > 0) return { ok: false, code: "DECISIONS_INVALID", message: "x", decisionProblems: early };\n  const existing = await findExistingRun({/' "$F"
-          if node scripts/ci/proof-capture.mjs "ci-1-prisma-centralization.yml:1003:1014" -- npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts; then
+          if ! node scripts/ci/expect-red.mjs --id "ci-1-prisma-centralization.yml:1003:1014" --expect 'the run must be resolved before decisions are re-validated' -- npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: validate-before-lookup passed"; exit 1
           fi

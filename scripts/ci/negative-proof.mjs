@@ -48,6 +48,16 @@ export const CRASH_SIGNATURES = [
   /does not provide an export named/,
 ];
 
+/** Crash signatures present in the output, ignoring PASSING assertion lines (a check may be
+ *  NAMED after the error it guards against, e.g. "ok  a lost connection (P1001) is TRANSIENT"). */
+export function crashSignatures(out) {
+  const text = out
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*(ok\b|OK:|PASS\b|\[PASS\]|✓|✔)/.test(l))
+    .join("\n");
+  return CRASH_SIGNATURES.filter((re) => re.test(text));
+}
+
 const sha = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
 function parseArgs(argv) {
@@ -164,7 +174,7 @@ export function negativeProof(o, { log = console.log } = {}) {
   if (result.rc === 0) problems.push("stayed GREEN (exit 0) under the mutation");
   const missing = o.expect.filter((e) => !result.out.includes(e));
   if (missing.length) problems.push(`red, but not for the reason under test — missing label(s): ${missing.map((m) => JSON.stringify(m)).join(", ")}`);
-  const crash = CRASH_SIGNATURES.filter((re) => re.test(result.out));
+  const crash = crashSignatures(result.out);
   if (crash.length) problems.push(`red because of a CRASH, not the guard: ${crash.map(String).join(", ")}`);
   rec.expected = `exit!=0 + ${o.expect.map((e) => JSON.stringify(e)).join(" + ")}`;
   rec.actual = `exit=${result.rc}; labels ${missing.length ? "MISSING" : "present"}; crash signatures ${crash.length ? "PRESENT" : "absent"}`;

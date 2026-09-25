@@ -99,18 +99,17 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
           RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
           AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        # Without the tenant GUC, row-level security shows the role nothing — so every
+        # duplicate silently becomes NONE. F-3 (sec/A): the previous mutation called an
+        # UNDECLARED `prisma` and went red on ReferenceError whatever RLS did. This one is
+        # valid TypeScript: the same read on the real global client, via a dynamic import.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          # Without the tenant GUC, row-level security shows the role nothing —
-          # so every duplicate silently becomes NONE.
-          perl -0pi -e 's/  const \{ records, queryCount \} = await withTenantTransaction\(\(tx\) =>\n    readExistingRecords\(tx, businessId, allIdentities\)\n  \);/  const { records, queryCount } = await readExistingRecords(prisma as never, businessId, allIdentities);/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:95:108" -- npx tsx .i8b3/battery.mjs; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a lookup without tenant context passed"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id i8b3-lookup-outside-tx \
+            --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor 'await withTenantTransaction((tx) =>' \
+            --replace 'await (async (run: (tx: never) => unknown) => run((await import("@/lib/prisma")).prisma as never))((tx) =>' \
+            --expect "FAIL  tenant A finds its OWN record as an exact duplicate" \
+            -- npx tsx .i8b3/battery.mjs
 
       - name: negative proof — row-level security not forced
         env:
