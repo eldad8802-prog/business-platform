@@ -297,7 +297,7 @@ export function assembleSnapshot(
   const g = cut(gaps, SNAPSHOT_BOUNDS.knowledgeGaps);
 
   const body = {
-    contractVersion: SNAPSHOT_CONTRACT_VERSION,
+    contractVersion: SNAPSHOT_CONTRACT_VERSION as typeof SNAPSHOT_CONTRACT_VERSION,
     businessId,
     asOf: asOf.toISOString(),
     knowledge: k.kept,
