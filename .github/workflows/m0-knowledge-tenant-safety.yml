@@ -177,3 +177,13 @@ jobs:
 
       - name: M6 temporal battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m6-temporal-battery.ts
+
+      # M7 — the Business Knowledge Snapshot: governed knowledge for ONE business, gaps apart from
+      # knowledge, conflicts kept, duplicates collapsed, cross-domain findings only through authority,
+      # non-causal, deterministic, bounded, and free of raw personal content. Pure first, then the
+      # real derivations + builder as a MEASURED NOBYPASSRLS role.
+      - name: M7 snapshot assembly (pure + no-AI / privacy static checks)
+        run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
+
+      - name: M7 snapshot battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m7-snapshot-battery.ts
