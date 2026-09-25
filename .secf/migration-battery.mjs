@@ -13,7 +13,7 @@
  * failed, 2 = the lab could not be built (a setup crash is never a pass).
  *
  * Denials are classified, never merely "it threw": 42501 privilege / RLS,
- * DZ001 append-only, DZ002 chain link, DZ010 fiscal, 23001 FK restrict, 23505 unique,
+ * DZ001 append-only, DZ002 chain link, DZ010 fiscal, 23503/23001 FK restrict, 23505 unique,
  * 23514 check. Anything else (connection error, missing table, ReferenceError)
  * fails the assertion it happened in.
  */
@@ -43,7 +43,8 @@ async function expectCode(id, fn, code, msgRe) {
   const { err } = await attempt(fn);
   const got = sqlstate(err);
   const msg = String(err?.meta?.message ?? err?.message ?? "");
-  ok(id, got === code && (!msgRe || msgRe.test(msg)), `expected ${code}${msgRe ? " " + msgRe : ""}, got ${got}: ${msg.slice(0, 200)}`);
+  const codes = Array.isArray(code) ? code : [code];
+  ok(id, codes.includes(got) && (!msgRe || msgRe.test(msg)), `expected ${codes.join("|")}${msgRe ? " " + msgRe : ""}, got ${got}: ${msg.slice(0, 200)}`);
 }
 async function expectOk(id, fn, check = () => true) {
   const { err, result } = await attempt(fn);
@@ -186,7 +187,10 @@ async function main() {
   {
     const bizD = (await one(owner, `INSERT INTO "Business"("name","updatedAt") VALUES ('secf-D', now()) RETURNING id`)).id;
     await auditRow(owner, "PayablesAuditEvent", bizD);
-    await expectCode("P-FK-RESTRICT deleting a Business does not erase its payables trail", () => owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE id=${bizD}`), "23001", /RESTRICT/);
+    await expectCode("P-FK-RESTRICT deleting a Business does not erase its payables trail", () => owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE id=${bizD}`),
+      // PostgreSQL 17 reports a RESTRICT refusal as 23503 (Production runs 17), 18 as 23001;
+      // both are the foreign key refusing — and never DZ001, which is what CASCADE hits.
+      ["23503", "23001"], /PayablesAuditEvent_businessId_fkey/);
   }
 
   // ── phase 3e: fiscal lifecycle ─────────────────────────────────────────────
