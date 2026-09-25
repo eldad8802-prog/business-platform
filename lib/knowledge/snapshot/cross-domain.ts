@@ -39,7 +39,7 @@ export type CrossDomainRule = {
   readonly version: string;
   readonly domains: readonly string[];
   readonly requires: string;
-  evaluate(ctx: CrossDomainContext): { findings: CrossDomainFinding[]; gaps: KnowledgeGap[] };
+  evaluate(input: CrossDomainContext): { findings: CrossDomainFinding[]; gaps: KnowledgeGap[] };
 };
 
 /* ───────────────────────── X-COLL-01 · overdue exposure with recorded collection activity ───────────────────────── */
@@ -52,16 +52,16 @@ export const X_COLL_01: CrossDomainRule = {
     "An issued, customer-linked invoice past its expected payment date with a balance (awaiting-payment, " +
     "AUTHORITATIVE_DOMAIN_STATE), joined by customerId (a verified FK) to owner-initiated reminders " +
     "(CollectionAction, append-only, AUTHORITATIVE_DOMAIN_STATE).",
-  evaluate(ctx) {
+  evaluate(input) {
     const byCustomer = new Map<number, { id: number; at: Date }[]>();
-    for (const a of ctx.stored.actions) {
+    for (const a of input.stored.actions) {
       if (a.customerId == null) continue;
       const list = byCustomer.get(a.customerId) ?? [];
       list.push({ id: a.id, at: a.occurredAt });
       byCustomer.set(a.customerId, list);
     }
     const findings: CrossDomainFinding[] = [];
-    for (const c of [...ctx.domain.awaiting].sort((x, y) => x.customerId - y.customerId)) {
+    for (const c of [...input.domain.awaiting].sort((x, y) => x.customerId - y.customerId)) {
       const acts = (byCustomer.get(c.customerId) ?? []).sort((x, y) => x.at.getTime() - y.at.getTime() || x.id - y.id);
       const last = acts.length > 0 ? acts[acts.length - 1] : null;
       const sinceAwaiting = acts.filter((a) => a.at >= c.awaitingSince).length;
@@ -85,7 +85,7 @@ export const X_COLL_01: CrossDomainRule = {
           currency: c.currency,
           recordedRemindersLast90d: acts.length,
           remindersSinceAwaiting: sinceAwaiting,
-          lastReminderDaysAgo: last ? Math.floor((ctx.asOf.getTime() - last.at.getTime()) / DAY) : null,
+          lastReminderDaysAgo: last ? Math.floor((input.asOf.getTime() - last.at.getTime()) / DAY) : null,
         },
         premises: [
           {
@@ -114,9 +114,9 @@ export const X_COLL_01: CrossDomainRule = {
 
 type ExposureSummary = { open: number; overdue: number; dueWithin30: number; unpaid: number; currency: string | null; ids: number[] };
 
-function payableExposure(ctx: CrossDomainContext, payeeIds: ReadonlySet<number>): ExposureSummary {
+function payableExposure(input: CrossDomainContext, payeeIds: ReadonlySet<number>): ExposureSummary {
   const s: ExposureSummary = { open: 0, overdue: 0, dueWithin30: 0, unpaid: 0, currency: null, ids: [] };
-  for (const i of ctx.stored.installments) {
+  for (const i of input.stored.installments) {
     const payee = i.commitment.payeeId;
     if (payee == null || !payeeIds.has(payee)) continue;
     const allocated = i.allocations.reduce((sum, a) => sum + Number(a.allocatedAmount), 0);
@@ -126,8 +126,8 @@ function payableExposure(ctx: CrossDomainContext, payeeIds: ReadonlySet<number>)
     s.unpaid += remaining;
     s.currency = s.currency ?? i.currency;
     s.ids.push(i.id);
-    if (i.dueAt < ctx.asOf) s.overdue += 1;
-    else if (i.dueAt.getTime() - ctx.asOf.getTime() <= 30 * DAY) s.dueWithin30 += 1;
+    if (i.dueAt < input.asOf) s.overdue += 1;
+    else if (i.dueAt.getTime() - input.asOf.getTime() <= 30 * DAY) s.dueWithin30 += 1;
   }
   s.unpaid = Math.round(s.unpaid * 100) / 100;
   s.ids.sort((a, b) => a - b);
@@ -142,11 +142,11 @@ export const X_PARTY_01: CrossDomainRule = {
     "Two or more of this business's supplier / payee / document-vendor records bound to ONE Party by an " +
     "owner's confirmation or a valid tax id (never a name or phone resemblance), and ACTIVE, fresh knowledge " +
     "or open payables exposure for that counterparty in at least two domains.",
-  evaluate(ctx) {
+  evaluate(input) {
     const findings: CrossDomainFinding[] = [];
     let insufficient = 0;
     const byParty = new Map<number, RelationshipItem[]>();
-    for (const r of ctx.relationships) {
+    for (const r of input.relationships) {
       if (r.status !== "ACTIVE") continue; // PROPOSED and REJECTED can never be premises
       const list = byParty.get(r.via.id) ?? [];
       list.push(r);
@@ -159,12 +159,12 @@ export const X_PARTY_01: CrossDomainRule = {
       const supplierIds = new Set([...subjects.values()].filter((s) => s.type === "SUPPLIER").map((s) => s.id));
       const payeeIds = new Set([...subjects.values()].filter((s) => s.type === "PAYEE").map((s) => s.id));
 
-      const premiseItems = ctx.items.filter((it) =>
+      const premiseItems = input.items.filter((it) =>
         it.freshness.fresh && it.subject != null && (
           (it.subject.type === "supplier" && supplierIds.has(Number(it.subject.id))) ||
           (it.subject.type === "payee" && payeeIds.has(Number(it.subject.id))) ||
           (it.subject.type === "party" && Number(it.subject.id) === partyId)));
-      const exposure = payableExposure(ctx, payeeIds);
+      const exposure = payableExposure(input, payeeIds);
       const domains = new Set(premiseItems.map((i) => i.domain));
       if (exposure.open > 0) domains.add("payables");
       if (domains.size < 2) { insufficient += 1; continue; }
