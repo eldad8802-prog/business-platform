@@ -85,6 +85,9 @@ jobs:
       - name: M-14(b) default-deny + production catalog evidence (green lab, broken labs name the offender)
         run: npx tsx .secc/sections/catalog.ts
 
+      - name: M-14 identity grants — auth-plane signup columns, PlatformAdminMfa off the runtime
+        run: npx tsx .secc/sections/auth-grants.ts
+
       # ── negative proofs (mutation → specific red → byte-identical restore → green) ──
       - name: "negative N1 — composite FK removed from the migration"
         run: node .secc/mutate.mjs N1
@@ -104,6 +107,9 @@ jobs:
         run: node .secc/mutate.mjs N8
       - name: "negative N9 — CRON_SECRET still opens derive with a dedicated secret set"
         run: node .secc/mutate.mjs N9
+
+      - name: "negative N10 — auth-plane signup createdAt grant removed"
+        run: node .secc/mutate.mjs N10
 
       - name: Typecheck
         run: npx tsc --noEmit

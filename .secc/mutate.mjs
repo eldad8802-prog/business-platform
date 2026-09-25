@@ -103,6 +103,14 @@ SECURITY INVOKER`,
     expect: "FAIL: L8 dedicated secret wins; CRON_SECRET no longer opens the route",
     reason: "the shared CRON_SECRET keeps opening the derive route after a dedicated secret is provisioned",
   },
+  N10: {
+    file: "prisma/migrations/20260926110300_sec_c_explicit_identity_grants/migration.sql",
+    anchor: `    GRANT INSERT ("createdAt") ON "Business" TO app_auth;`,
+    replace: `    -- MUTATION N10: Business.createdAt INSERT grant removed`,
+    run: tsx(".secc/sections/auth-grants.ts"),
+    expect: "FAIL: AUTH signup on the active auth plane succeeds with the migration-shipped grants",
+    reason: "Prisma emits createdAt on the Business insert; without the column grant every auth-plane signup is 42501",
+  },
 };
 
 const sha = (f) => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
