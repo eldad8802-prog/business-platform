@@ -200,7 +200,9 @@ async function main(): Promise<void> {
     }
     const migrated = await prisma.commitment.findMany({
       where: { businessId: A.id, legacyObligationId: { not: null } },
-      orderBy: { id: "asc" },
+      // The backfill's INSERT … SELECT has no ORDER BY, so commitment ids do not
+      // follow obligation order; the obligation id is the chronological key.
+      orderBy: { legacyObligationId: "asc" },
       select: { id: true, status: true, scheduleKind: true, totalAmount: true },
     });
     eq("backfill: three accountant rows became three RECURRING commitments", migrated.map((c) => [c.scheduleKind, c.status]), [
