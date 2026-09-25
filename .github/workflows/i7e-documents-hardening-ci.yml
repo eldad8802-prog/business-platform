@@ -25,6 +25,7 @@ on:
       - "app/api/integrations/gmail/**"
       - "app/api/documents/**"
       - "prisma/schema.prisma"
+      - ".github/workflows/i7e-documents-hardening-ci.yml"
   workflow_dispatch:
 
 permissions:

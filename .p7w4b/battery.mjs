@@ -489,7 +489,7 @@ async function main() {
   // A db-push lab has no _prisma_migrations table, so the old check was green on 42P01
   // "relation does not exist" — a missing table, not a denied one. Make it exist (as it
   // does in Production) so the privilege itself is what is tested.
-  await owner.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY)`);
+  if (process.env.BATTERY_TARGET !== "neon") await owner.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY)`);
   const mig = await expectDenied(() => rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`), ["PRIVILEGE"]);
   ok("runtime _prisma_migrations denied (42501 permission denied)", mig.denied, mig.detail);
   const del = await expectDenied(() => rtx(rt, bizA.id, (t) => t.message.deleteMany({ where: { businessId: bizA.id } })), ["PRIVILEGE"]);

@@ -21,6 +21,7 @@ on:
       - "app/api/taxes/**"
       - "lib/services/billing/**"
       - "lib/tenant/**"
+      - ".github/workflows/d2-p7-w4eb2-ci.yml"
   workflow_dispatch:
 
 permissions:

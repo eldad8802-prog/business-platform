@@ -33,6 +33,7 @@ on:
       - "scripts/security/**"
       - "scripts/ci/erasure-mutate.ts"
       - "lib/data-transfer/historical/**"
+      - ".github/workflows/d2-ad2a-ci.yml"
   workflow_dispatch:
 
 permissions:

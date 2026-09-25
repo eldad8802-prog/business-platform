@@ -23,6 +23,7 @@ on:
       - "scripts/ci/w4-context-guard.sh"
       - ".p7w4a/**"
       - "docs/security-d2-provider-bootstrap-allowlist-v1.md"
+      - ".github/workflows/d2-p7-w4a-ci.yml"
   workflow_dispatch:
 
 permissions:

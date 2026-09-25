@@ -28,6 +28,7 @@ on:
       - "app/api/platform-admin/businesses/**"
       - "app/api/business/capabilities/**"
       - "lib/tenant/**"
+      - ".github/workflows/d2-pw2-ci.yml"
   workflow_dispatch:
 
 permissions:

@@ -25,6 +25,7 @@ on:
       - "lib/services/obligations/**"
       - "lib/services/crm/**"
       - "lib/collaboration/matchingEngine.ts"
+      - ".github/workflows/d2-p7-wave1-ci.yml"
   workflow_dispatch:
 
 permissions:

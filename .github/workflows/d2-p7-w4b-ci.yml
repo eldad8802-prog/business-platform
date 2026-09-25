@@ -29,6 +29,7 @@ on:
       - "lib/reply-suggestions/**"
       - "lib/learning/**"
       - "lib/tenant/**"
+      - ".github/workflows/d2-p7-w4b-ci.yml"
   workflow_dispatch:
 
 permissions:

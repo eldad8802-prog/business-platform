@@ -36,6 +36,7 @@ on:
       # contract it was meant to protect.
       - "lib/services/account/**"
       - "scripts/ci/erasure/**"
+      - ".github/workflows/i8a-historical-fiscal-ci.yml"
   workflow_dispatch:
 
 permissions:

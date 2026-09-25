@@ -20,6 +20,7 @@ on:
       - "lib/prisma.ts"
       - "app/api/customers/**"
       - "lib/services/crm/**"
+      - ".github/workflows/p5-5-customer-card-pilot.yml"
   workflow_dispatch:
 
 permissions:

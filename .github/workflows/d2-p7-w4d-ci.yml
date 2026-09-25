@@ -24,6 +24,7 @@ on:
       - "lib/reports/**"
       - "lib/business-status/**"
       - "lib/tenant/**"
+      - ".github/workflows/d2-p7-w4d-ci.yml"
   workflow_dispatch:
 
 permissions:

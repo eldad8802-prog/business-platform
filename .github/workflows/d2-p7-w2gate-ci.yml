@@ -23,6 +23,7 @@ on:
       - "scripts/security/d2-p7-w2gate-*.sql"
       - "scripts/ci/admin-boundary-guard.sh"
       - ".p7w2g/**"
+      - ".github/workflows/d2-p7-w2gate-ci.yml"
   workflow_dispatch:
 
 permissions:

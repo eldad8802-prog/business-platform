@@ -34,6 +34,8 @@ export async function expectDenied(fn, kinds = ["RLS", "PRIVILEGE"]) {
     return { denied: false, kind: "NONE", detail: "statement SUCCEEDED — nothing denied it" };
   } catch (e) {
     const k = denialKind(e);
-    return { denied: kinds.includes(k.kind), kind: k.kind, detail: `${k.kind} ${k.code}: ${k.message}` };
+    // "CODE:22P02" accepts one exact SQLSTATE (e.g. a malformed tenant GUC must fail the cast).
+    const codeOk = kinds.some((x) => x.startsWith("CODE:") && (x.slice(5) === k.code || String(e?.message ?? "").includes(x.slice(5))));
+    return { denied: kinds.includes(k.kind) || codeOk, kind: k.kind, detail: `${k.kind} ${k.code}: ${k.message}` };
   }
 }

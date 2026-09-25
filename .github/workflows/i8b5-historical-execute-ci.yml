@@ -22,6 +22,7 @@ on:
       - "app/api/data-transfer/import/historical/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+      - ".github/workflows/i8b5-historical-execute-ci.yml"
   workflow_dispatch:
 
 permissions:
