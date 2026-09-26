@@ -208,4 +208,26 @@ rejection. It makes no psychological inference (careless, price-sensitive, and t
 
 ## Production proof status
 
-Recorded at M7 closure. See the closure report.
+Recorded 2026-09-26 against Production `187ceb4`. The snapshot was built through the runtime route as
+`app_runtime_prod` (not a superuser, no RLS bypass, proof level FULL). It was built twice at the
+same instant.
+
+| | Business 3 | Business 9 |
+|---|---|---|
+| Knowledge items | 24 (4 MEASURE, 20 FACT) | 12 (2 MEASURE, 10 FACT) |
+| Relationships | 0 | 1 (a PROPOSED name match, which is **not** usable) |
+| Cross-domain findings | 0 | 0 |
+| Conflicts | 0 | 0 |
+| Knowledge gaps | 19 (8 insufficient history, 6 insufficient evidence, 5 rule-blocked) | 20 (7 / 8 / 5) |
+| Truncated | none | none |
+| Serialized size | 22 KB | 14 KB |
+| Build time (first / second build) | 142 / 85 ms | 104 / 95 ms |
+| Queries | 9 | 9 |
+| Second build: same fingerprint | **yes** | **yes** |
+| Business values in the public log | 0 | 0 |
+
+| Proof class | What |
+|---|---|
+| PRODUCTION_PROVEN | the snapshot builds for real businesses under the restricted role; determinism; bounds and timing; gaps separated from knowledge; a weak identity proposal stays PROPOSED; isolation; log privacy |
+| TEST_PROVEN / CODE_DB_PROVEN | X-COLL-01 and X-PARTY-01 positive and negative, provenance traversal, reversal and stale premises, deduplication, every conflict kind, bounded growth (`.m0/m7-snapshot-battery.ts`, 27 checks; `snapshot.test.ts`, 29 assertions) |
+| INSUFFICIENT_REAL_DATA | both cross-domain rules in Production. Neither business has an owner- or tax-id-bound counterparty, or a customer-linked invoice past its expected payment date, today. |
