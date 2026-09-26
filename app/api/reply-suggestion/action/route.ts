@@ -4,6 +4,7 @@ import { updateLearningFromAction } from "@/lib/learning/update-learning";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { logRouteError } from "@/lib/security/route-error";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
@@ -145,12 +146,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json(outcome.updatedSuggestion, { status: 200 });
   } catch (error: unknown) {
-    console.error("REAL ERROR /api/reply-suggestion/action:", error);
+    logRouteError("POST /api/reply-suggestion/action", error);
 
     return NextResponse.json(
       {
         error: "Failed to update suggestion action",
-        details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );

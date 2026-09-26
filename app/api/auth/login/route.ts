@@ -5,8 +5,15 @@ import { NextResponse } from "next/server";
 import { authDb } from "@/lib/prisma-auth";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
-import bcrypt from "bcrypt";
-import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { getClientIp } from "@/lib/security/rate-limit";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import {
+  authThrottleResponse,
+  bcryptCompare,
+  verifyPassword,
+  type PasswordComparer,
+} from "@/lib/auth/credential-check";
+import { acceptsNormalWrites } from "@/lib/tenant/business-lifecycle";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
@@ -43,28 +50,42 @@ const LOGIN_USER_SELECT = {
   password: true,
   businessId: true,
   tokenVersion: true,
-  business: { select: { name: true } },
+  // name for the response; the two timestamps for the lifecycle gate (AUTH-12):
+  // a business under the deletion quarantine must not be handed a session.
+  business: { select: { name: true, deletionRequestedAt: true, deletedAt: true } },
 } as const;
 
-export async function POST(req: Request) {
+export type LoginDeps = {
+  /** Injected so a proof can count comparisons; production is bcrypt. */
+  compare: PasswordComparer;
+};
+
+const defaultLoginDeps: LoginDeps = { compare: bcryptCompare };
+
+/**
+ * THROTTLING (M-7). Two fail-CLOSED buckets on the shared limiter:
+ *   AUTH_LOGIN_IP       before the body is read — per address;
+ *   AUTH_LOGIN_ACCOUNT  once the address is known — per normalized email, and
+ *                       per (email, address) pair.
+ * Keyed by the normalized address whether or not an account exists, and the
+ * throttled response is identical either way, so throttling is not an oracle.
+ *
+ * TIMING (M-7). Exactly one bcrypt comparison runs for every well-formed
+ * attempt — against a dummy hash when the account does not exist — and both
+ * address spellings are looked up whenever they differ, so neither latency nor
+ * query count depends on whether the account exists.
+ */
+export async function handleLogin(req: Request, deps: LoginDeps = defaultLoginDeps) {
   try {
     const ip = getClientIp(req);
-    const rl = await consumeRateLimit({
-      key: `auth:login:${ip}`,
-      limit: 10,
-      windowMs: 60_000,
-    });
-
-    if (!rl.allowed) {
+    const ipGate = await checkRateLimit({ bucket: "AUTH_LOGIN_IP", ip });
+    if (!ipGate.allowed) {
       await recordLoginFailure({ reason: "rate_limited" });
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 }
-      );
+      return authThrottleResponse(ipGate);
     }
 
-    const body = await req.json();
-    const { email, password } = body;
+    const body = await req.json().catch(() => null);
+    const { email, password } = (body ?? {}) as { email?: unknown; password?: unknown };
 
     // Typed rather than merely truthy: a non-string email reached the folding
     // step below and threw, which surfaced as a 500 on what is really a bad
@@ -99,17 +120,33 @@ export async function POST(req: Request) {
     // same unique index, never a scan.
     const normalizedEmail = normalizeEmail(email);
 
-    let user = await authDb().user.findUnique({
-      where: { email: normalizedEmail },
-      select: LOGIN_USER_SELECT,
+    const accountGate = await checkRateLimit({
+      bucket: "AUTH_LOGIN_ACCOUNT",
+      account: normalizedEmail,
+      ip,
     });
-
-    if (!user && email !== normalizedEmail) {
-      user = await authDb().user.findUnique({
-        where: { email },
-        select: LOGIN_USER_SELECT,
-      });
+    if (!accountGate.allowed) {
+      await recordLoginFailure({ reason: "rate_limited" });
+      return authThrottleResponse(accountGate);
     }
+
+    // Both spellings, in parallel, whenever they differ — never "the second
+    // only on a miss", which made the query count reveal whether the folded
+    // address has an account. The folded match still wins.
+    const [foldedUser, typedUser] = await Promise.all([
+      authDb().user.findUnique({
+        where: { email: normalizedEmail },
+        select: LOGIN_USER_SELECT,
+      }),
+      email !== normalizedEmail
+        ? authDb().user.findUnique({ where: { email }, select: LOGIN_USER_SELECT })
+        : Promise.resolve(null),
+    ]);
+    const user = foldedUser ?? typedUser;
+
+    // ONE comparison whatever happened above: against the real hash, or against
+    // a dummy of the same cost when there is no such account.
+    const isPasswordValid = await verifyPassword(password, user?.password ?? null, deps.compare);
 
     if (!user) {
       await recordLoginFailure({ reason: "invalid_credentials" });
@@ -119,8 +156,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
     if (!isPasswordValid) {
       await recordLoginFailure({
         businessId: user.businessId,
@@ -129,6 +164,23 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
+      );
+    }
+
+    // AUTH-12: the password was right, but a business being erased gets no
+    // session. Checked with the CANONICAL lifecycle gate, the same one
+    // getAuthContext and the refresh engine use, and only after the password
+    // was proven — so this distinct answer tells nothing to anyone who does not
+    // already hold the credential.
+    if (!user.business || !acceptsNormalWrites(user.business)) {
+      await recordLoginFailure({
+        businessId: user.businessId,
+        userId: user.id,
+        reason: "account_quarantined",
+      });
+      return NextResponse.json(
+        { error: "This account is closed", code: "ACCOUNT_UNAVAILABLE" },
+        { status: 403 }
       );
     }
 
@@ -226,8 +278,12 @@ export async function POST(req: Request) {
       );
     }
 
-    console.error("LOGIN_ERROR:", error);
+    console.error("LOGIN_ERROR:", error instanceof Error ? error.name : "UnknownError");
 
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+}
+
+export async function POST(req: Request) {
+  return handleLogin(req);
 }

@@ -1,0 +1,169 @@
+# sec-B — identity, session and admin authority hardening (security closure,
+# workstream B). Findings M-7, M-8, M-9, M-10, L-9, L-10, L-11, L-12, I-1.
+#
+# Three independent jobs:
+#   offline      behavioural matrices + their negative proofs (no DB, no network;
+#                the "failing Redis" is a real client pointed at 127.0.0.1:9)
+#   db-lab       a FRESH PostgreSQL 17 built by `prisma migrate deploy` (never db
+#                push), the real route handlers driven as fresh non-owner
+#                NOBYPASSRLS roles under the SHIPPED grants, then one mutation per
+#                control — each must turn its own named assertion red, restore
+#                byte-identical (sha256), and the suite must be green afterwards
+#   csp-browser  `next build && next start`, Chromium via Playwright: zero CSP
+#                violations on key pages; an injected non-nonce script is blocked
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO Production.
+
+name: sec-B — identity, session and admin authority
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/auth/**"
+      - "app/api/account/**"
+      - "app/api/security/**"
+      - "app/api/platform-admin/**"
+      - "app/api/taxes/oauth/**"
+      - "app/api/inventory/pos/**"
+      - "app/api/conversation/**"
+      - "app/api/conversations/**"
+      - "app/api/deals/**"
+      - "app/api/inbox/attention/**"
+      - "app/api/message/**"
+      - "app/api/reply-suggestion/**"
+      - "app/api/video/**"
+      - "app/layout.tsx"
+      - "app/(shell)/layout.tsx"
+      - "proxy.ts"
+      - "next.config.ts"
+      - "lib/auth.ts"
+      - "lib/auth/**"
+      - "lib/auth-token.ts"
+      - "lib/client-session.ts"
+      - "lib/security/**"
+      - "lib/services/billing/authority/billing-authority-oauth-start-route.service*"
+      - "lib/services/integrations/whatsapp/webhook-verify.service.ts"
+      - "components/settings/**"
+      - "prisma/**"
+      - ".secb/**"
+      - ".github/workflows/sec-b-identity-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-b-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: sec-B offline matrices + negative proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Identity matrix (limiter fail-closed, policy, step-up, reset, CSP, L-11, L-12)
+        run: npx tsx .secb/identity-unit.test.ts
+      - name: Platform-admin MFA matrix (fail-closed, bound elevation, AAD, enrollment code)
+        env:
+          AUTH_TOKEN_SECRET: secb_ci_synthetic_secret
+        run: npx tsx lib/auth/platform-admin-mfa.test.ts
+      - name: ITA cross-tenant start requires the full platform-admin authority
+        run: npx tsx lib/services/billing/authority/billing-authority-oauth-start-route.service.test.ts
+      - name: Signup (policy) and register (session) contracts
+        run: |
+          npx tsx lib/auth/signup.verify.test.ts
+          npx tsx app/api/auth/register/route.test.ts
+      - name: Negative proofs (offline suites)
+        env:
+          AUTH_TOKEN_SECRET: secb_ci_synthetic_secret
+        run: node .secb/negative-proofs.mjs unit mfa ita
+      - name: Post-restore green
+        env:
+          AUTH_TOKEN_SECRET: secb_ci_synthetic_secret
+        run: |
+          npx tsx .secb/identity-unit.test.ts
+          npx tsx lib/auth/platform-admin-mfa.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-oauth-start-route.service.test.ts
+      - name: Tree byte-identical after every mutation
+        run: git diff --exit-code
+
+  db-lab:
+    name: sec-B fresh PG17 lab (migrate deploy, non-owner NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: secb_owner
+          POSTGRES_PASSWORD: secb_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_secb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secb_owner -d dubiz_secb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNER_URL: postgresql://secb_owner:secb_ci_synthetic_owner_pw@localhost:5432/dubiz_secb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Build the lab from migrations (prisma migrate deploy)
+        run: bash .secb/build-lab.sh
+      - name: Identity DB battery (real routes, shipped grants, races)
+        run: npx tsx .secb/identity-db-battery.ts
+      - name: Negative proofs (DB suite — one mutation per control)
+        run: node .secb/negative-proofs.mjs db
+      - name: Post-restore green
+        run: npx tsx .secb/identity-db-battery.ts
+      - name: Tree byte-identical after every mutation
+        run: git diff --exit-code
+
+  csp-browser:
+    name: sec-B CSP in a real browser (next build + start)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NODE_ENV: production
+      AUTH_TOKEN_SECRET: secb_ci_synthetic_secret
+      R2_PUBLIC_BASE_URL: https://pub-synthetic.r2.dev
+      DATABASE_URL: postgresql://nobody:nothing@127.0.0.1:1/none
+      DIRECT_URL: postgresql://nobody:nothing@127.0.0.1:1/none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+        env:
+          NODE_ENV: development
+      - run: npx playwright install --with-deps chromium
+      - name: next build
+        run: npm run build
+      - name: next start + browser proof
+        run: |
+          npx next start -p 3107 > next-start.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3107/login && break; sleep 2; done
+          BASE_URL=http://127.0.0.1:3107 node .secb/csp-browser-proof.mjs
+      - name: server log (on failure)
+        if: failure()
+        run: tail -100 next-start.log || true

@@ -88,7 +88,9 @@ function main() {
   });
 
   check("whitespace counts toward password length", () => {
-    const eightSpaces = " ".repeat(8);
+    // Minimum raised from 6 to the shared password policy (workstream B);
+    // still all whitespace, still exactly the minimum.
+    const eightSpaces = " ".repeat(MIN_PASSWORD_LENGTH);
     const out = normalizeSignupInput({ ...valid, password: eightSpaces });
     assert.equal(out.password, eightSpaces);
   });
@@ -102,7 +104,8 @@ function main() {
   check("password at exactly the minimum is accepted", () => {
     const out = normalizeSignupInput({
       ...valid,
-      password: "a".repeat(MIN_PASSWORD_LENGTH),
+      // Not "a": "aaaaaaaaaa" is on the common-password screen.
+      password: "k".repeat(MIN_PASSWORD_LENGTH),
     });
     assert.equal(out.password.length, MIN_PASSWORD_LENGTH);
   });

@@ -9,6 +9,7 @@ import { serializeInboxItem,
 } from "@/lib/inbox-view/inbox-item.serializer";
 import { computeProductCatalogEnabled } from "@/lib/inbox-view/product-link-capability";
 import { findStarterBotTerminalConversationFlags } from "@/lib/features/conversation/starter-bot";
+import { logRouteError } from "@/lib/security/route-error";
 
 
 
@@ -130,12 +131,11 @@ export async function GET(req: Request) {
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("GET /api/conversations error:", error);
+    logRouteError("GET /api/conversations", error);
 
     return NextResponse.json(
       {
         error: "Failed to fetch conversations",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -233,12 +233,11 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (error: any) {
-    console.error("POST /api/conversations error:", error);
+    logRouteError("POST /api/conversations", error);
 
     return NextResponse.json(
       {
         error: "Failed to create conversation",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );

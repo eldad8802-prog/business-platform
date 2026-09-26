@@ -30,8 +30,10 @@ function ok(name: string, condition: boolean) {
   console.log("OK:", name);
 }
 
-const REGULAR_USER = { id: 7, businessId: 42, role: UserRole.USER };
-const ADMIN_USER = { id: 1, businessId: 9, role: UserRole.PLATFORM_ADMIN };
+const REGULAR_USER = { id: 7, businessId: 42, role: UserRole.USER, email: "owner@biz.test" };
+const ADMIN_USER = { id: 1, businessId: 9, role: UserRole.PLATFORM_ADMIN, email: "admin@dubiz.test" };
+// M-10: the cross-tenant branch now requires the platform-admin allowlist.
+process.env.PLATFORM_ADMIN_EMAILS = "admin@dubiz.test";
 
 function fakeCookies(
   businessId: number,
@@ -126,28 +128,53 @@ async function run() {
     );
     ok("forbidden never starts oauth", called === false);
 
-    // CASA 3.3.1 made the cross-tenant branch require the MFA elevation; this
-    // suite predated it and still expected an UN-elevated admin to pass, so it was
-    // red on main (unnoticed: no workflow ran it — sec/A F-9). Both halves now.
-    let unelevatedCalled = false;
-    const unelevated = await resolveAuthorityOAuthStart(
-      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
-      { startOAuth: fakeStart(() => { unelevatedCalled = true; }) }
-    );
-    ok(
-      "platform admin WITHOUT MFA elevation cannot target another business",
-      !unelevated.ok && unelevatedCalled === false
-    );
-
-    // Elevated admin may target another business
+    // Admin may target another business — with an elevation AND the allowlist.
     const adminOutcome = await resolveAuthorityOAuthStart(
-      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false, adminElevated: true },
+      {
+        user: ADMIN_USER,
+        adminElevated: true,
+        requestedBusinessId: 99,
+        redirectBaseUrl: BASE,
+        secureCookies: false,
+      },
       { startOAuth: fakeStart() }
     );
     ok(
       "MFA-elevated platform admin may target another business",
       adminOutcome.ok && adminOutcome.businessId === 99
     );
+
+    // Without an elevation the admin role alone does not cross tenants.
+    let unelevatedCalled = false;
+    const unelevated = await resolveAuthorityOAuthStart(
+      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
+      { startOAuth: fakeStart(() => { unelevatedCalled = true; }) }
+    );
+    ok(
+      "platform admin without elevation cannot target another business",
+      !unelevated.ok && unelevated.reason === AUTHORITY_START_REASONS.BUSINESS_FORBIDDEN
+    );
+    ok("un-elevated admin never starts oauth", unelevatedCalled === false);
+
+    // M-10: role + elevation but NOT on the allowlist → refused.
+    let crossCalled = false;
+    const notAllowlisted = await resolveAuthorityOAuthStart(
+      {
+        user: { ...ADMIN_USER, email: "former-admin@dubiz.test" },
+        adminElevated: true,
+        requestedBusinessId: 99,
+        redirectBaseUrl: BASE,
+        secureCookies: false,
+      },
+      { startOAuth: fakeStart(() => { crossCalled = true; }) }
+    );
+    ok(
+      "PLATFORM_ADMIN role off the allowlist cannot target another business",
+      !notAllowlisted.ok &&
+        notAllowlisted.status === "forbidden" &&
+        notAllowlisted.reason === AUTHORITY_START_REASONS.BUSINESS_FORBIDDEN
+    );
+    ok("off-allowlist admin never starts oauth", crossCalled === false);
   }
 
   // 4 + 5. Successful redirect + cookies set correctly
