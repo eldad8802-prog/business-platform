@@ -826,7 +826,19 @@
     gap: 12px;
     align-items: start;
   }
-  .crm-unselected__desk { display: grid; gap: 12px; align-content: start; padding: 28px 8px 28px 28px; }
+  .crm-unselected {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+  .crm-unselected__desk {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    grid-template-rows: auto auto minmax(180px, 1fr);
+    flex: 1;
+    padding: 8px 28px 28px;
+  }
   .crm-unselected__lead {
     margin: 0;
     font-size: 18px;
@@ -843,16 +855,19 @@
   }
   .crm-unselected__facts {
     display: grid;
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
     margin: 0;
     padding: 0;
     list-style: none;
+    align-items: stretch;
   }
   .crm-unselected__facts li {
     background: var(--crm-card, #fff);
     border: 1px solid var(--crm-line);
     border-radius: 14px;
-    padding: 12px 14px;
+    padding: 16px;
+    min-height: 100%;
   }
   .crm-unselected__facts strong {
     display: block;
@@ -877,10 +892,5 @@
 @media (min-width: 1800px) {
   .crm-scope [data-wsl][data-visible] > .wsl-start {
     flex: 0 0 520px !important;
-  }
-  .crm-unselected {
-    display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    align-items: start;
   }
 }

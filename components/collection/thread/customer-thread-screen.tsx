@@ -14,6 +14,27 @@ import { refundOutcomeNotice, type RefundApiOutcome } from "./refund-outcome";
 
 const W = TOKEN.warm;
 
+function eventDeskRow(e: ThreadEvent): { what: string; amount: string } {
+  switch (e.kind) {
+    case "INVOICE_ISSUED":
+      return { what: e.number ? `חשבונית ${e.number}` : "חשבונית", amount: money(e.amount, e.currency) };
+    case "CREDIT_NOTE_ISSUED":
+      return { what: e.number ? `זיכוי ${e.number}` : "זיכוי", amount: money(e.amount, e.currency) };
+    case "REQUEST_CREATED":
+      return { what: e.invoiceNumber ? `בקשת תשלום · חשבונית ${e.invoiceNumber}` : "בקשת תשלום", amount: money(e.amount, e.currency) };
+    case "REQUEST_CANCELLED":
+      return { what: "בקשה בוטלה", amount: "—" };
+    case "PAYMENT_FAILED":
+      return { what: "תשלום לא אושר", amount: money(e.amount, e.currency) };
+    case "PAYMENT_VERIFIED":
+      return { what: "תשלום אומת", amount: money(e.amount, e.currency) };
+    case "RECEIPT_ISSUED":
+      return { what: e.number ? `קבלה ${e.number}` : "קבלה", amount: money(e.amount, e.currency) };
+    case "REFUND":
+      return { what: "החזר", amount: money(e.amount, e.currency) };
+  }
+}
+
 type RefundTarget = { requestId: number; suggested: string | null; currency: string };
 
 /**
@@ -136,11 +157,18 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-thread { max-width: 680px; margin: 0 auto; display: grid; gap: 14px; }
+        .col-thread__table, .col-thread__invoices { display: none; }
         @media (min-width: 1200px) {
-          .col-thread { max-width: 1120px; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: start; column-gap: 28px; }
+          .col-thread { max-width: none; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: start; column-gap: 28px; }
           .col-thread__span { grid-column: 1 / -1; }
-          .col-thread__side { position: sticky; top: 16px; }
+          .col-thread__side { position: sticky; top: 16px; display: grid !important; gap: 12px; align-content: start; }
           .col-thread__queue { min-width: 0; }
+          .col-thread__cards { display: none !important; }
+          .col-thread__table { display: block; width: 100%; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 16px; overflow: auto; }
+          .col-thread__table th, .col-thread__table td { text-align: start; padding: 12px 14px; border-bottom: 1px solid rgba(52,60,50,0.08); font-size: 14px; }
+          .col-thread__table th { font-size: 12px; color: #6d675f; font-weight: 600; }
+          .col-thread__invoices { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+          .col-thread__invoices li { display: flex; justify-content: space-between; gap: 12px; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
         }
       `}</style>
       <div className="col-thread">
@@ -163,6 +191,16 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
               ) : (
                 <WarmButton variant="secondary" onClick={() => router.push(`/collection/new?customerId=${thread.customer.id}`)}>בקשת תשלום</WarmButton>
               )}
+              {thread.openInvoices.length > 0 ? (
+                <ul className="col-thread__invoices">
+                  {thread.openInvoices.map((invoice) => (
+                    <li key={invoice.id}>
+                      <span>{invoice.number ? `חשבונית ${invoice.number}` : "חשבונית פתוחה"}</span>
+                      <strong>{money(invoice.outstanding, invoice.currency)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </header>
 
             {notice ? (
@@ -176,7 +214,8 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                 <WarmCard><p style={{ margin: 0, color: W.muted }}>עדיין אין תנועות כספיות ללקוח הזה.</p></WarmCard>
               </div>
             ) : (
-              <ol className="col-thread__queue" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              <div className="col-thread__queue">
+              <ol className="col-thread__cards" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                 {thread.events.map((e, i) => (
                   <li key={`${e.kind}-${i}`} id={"requestId" in e ? `req-${e.requestId}` : undefined}>
                     <EventCard
@@ -215,6 +254,28 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                   </li>
                 ))}
               </ol>
+              <table className="col-thread__table">
+                <thead>
+                  <tr>
+                    <th>מתי</th>
+                    <th>מה קרה</th>
+                    <th>סכום</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {thread.events.map((e, i) => {
+                    const row = eventDeskRow(e);
+                    return (
+                      <tr key={`${e.kind}-${i}`}>
+                        <td>{dateTime(e.at)}</td>
+                        <td>{row.what}</td>
+                        <td>{row.amount}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
             )}
           </>
         ) : null}

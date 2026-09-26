@@ -59,6 +59,23 @@ still needs a first-principles desktop composition, then visual QA.
 | Inbox / notifications | `/inbox`, `/notifications` |
 | Tools | tools entry if it is only a launcher into billing |
 
+## Runtime QA for this slice
+
+Captured with a local app and mocked `/api` responses (no production database).
+Evidence: `qa-evidence/desktop-ux-phase-2/`.
+
+Viewports: 390, 768, 1024, 1280, 1440, 1600, 1920 where the composition changes.
+Horizontal overflow: none in the captured set.
+
+Fixes after the first look:
+
+- Collection inbox: portfolio counts beside a collection table. Mobile keeps the cards.
+- Collection thread: open invoice beside a payment-history table. Mobile keeps the cards.
+- Secretary with obligations: the real obligations sit beside today's status. First-run setup stays a focused column.
+- Inventory items from 1600: minimum, reorder, cost, and sell price are their own columns.
+- Accountant pack from 1600: the configuration stays a readable width and the package summary uses the rest of the workspace.
+- CRM with nothing selected: the detail pane is three workspace regions (contact, documents, activity), not a sentence in an empty canvas.
+
 ## Counts for this slice only
 
 These counts are the slice, not the product.

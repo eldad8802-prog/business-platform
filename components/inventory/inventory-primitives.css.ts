@@ -1005,6 +1005,7 @@ export const inventoryPrimitivesCss = `
   }
 
   [data-inventory-module] .inv-desk-table { display: none; }
+  [data-inventory-module] .inv-wide { display: none; }
 
   @media (min-width: 1200px) {
     [data-inventory-module] .inv-hd,
@@ -1061,5 +1062,9 @@ export const inventoryPrimitivesCss = `
       align-items: start;
       max-width: none;
       padding-inline: 28px;
-    }  }
+    }
+  }
+  @media (min-width: 1600px) {
+    [data-inventory-module] .inv-wide { display: table-cell; }
+  }
 `;

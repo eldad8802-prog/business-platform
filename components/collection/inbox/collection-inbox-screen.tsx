@@ -164,9 +164,10 @@ export function CollectionInboxScreen() {
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-desk { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+        .col-desk__facts, .col-desk__table { display: none; }
         @media (min-width: 1200px) {
           .col-desk {
-            max-width: 1120px;
+            max-width: none;
             grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
             align-items: start;
             gap: 20px 28px;
@@ -174,6 +175,13 @@ export function CollectionInboxScreen() {
           .col-desk__side { position: sticky; top: 16px; display: grid !important; gap: 12px; align-content: start; justify-items: stretch; }
           .col-desk__queue { display: grid; gap: 12px; min-width: 0; }
           .col-desk__span { grid-column: 1 / -1; }
+          .col-desk__facts { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+          .col-desk__facts li { display: flex; justify-content: space-between; gap: 12px; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+          .col-desk__table { display: block; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 16px; overflow: auto; }
+          .col-desk__table table { width: 100%; border-collapse: collapse; }
+          .col-desk__table th, .col-desk__table td { text-align: start; padding: 12px 14px; border-bottom: 1px solid rgba(52,60,50,0.08); font-size: 14px; }
+          .col-desk__table th { font-size: 12px; color: #6d675f; font-weight: 600; }
+          .col-desk__cards { display: none !important; }
         }
       `}</style>
       <div className="col-desk">
@@ -189,6 +197,14 @@ export function CollectionInboxScreen() {
             ) : null}
           </div>
           <WarmButton onClick={() => router.push("/collection/new")}>גבה</WarmButton>
+          {inbox ? (
+            <ul className="col-desk__facts">
+              <li><span>צריך לגבות</span><strong>{money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")}</strong></li>
+              <li><span>ממתין</span><strong>{inbox.summary.waiting.count}</strong></li>
+              <li><span>דורש טיפול</span><strong>{inbox.summary.attention.count}</strong></li>
+              <li><span>שולם לאחרונה</span><strong>{money(inbox.summary.paidRecent.amount, "ILS")}</strong></li>
+            </ul>
+          ) : null}
         </header>
 
         {notice ? (
@@ -236,7 +252,39 @@ export function CollectionInboxScreen() {
                 (inbox.toCollect.length === 0 ? (
                   <Empty text="אף אחד לא חייב לך כסף כרגע." />
                 ) : (
-                  inbox.toCollect.map((c, i) => <DebtRow key={c.customerId ?? `u${i}`} c={c} />)
+                  <>
+                    <div className="col-desk__table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>לקוח</th>
+                            <th>חשבוניות</th>
+                            <th>ממתין מאז</th>
+                            <th>יתרה</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inbox.toCollect.map((c, i) => (
+                            <tr key={c.customerId ?? `u${i}`}>
+                              <td>{c.customerName ?? "לקוח ללא שם"}</td>
+                              <td>{c.invoices.length === 1 ? c.invoices[0]?.documentNumber ?? "חשבונית אחת" : `${c.invoices.length} חשבוניות`}</td>
+                              <td>{c.awaitingSince ? shortDate(c.awaitingSince) : "—"}</td>
+                              <td>{money(c.totalOutstanding, c.currency)}</td>
+                              <td>
+                                {c.customerId ? (
+                                  <WarmButton height={36} onClick={() => router.push(`/collection/new?customerId=${c.customerId}`)}>גבה</WarmButton>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="col-desk__cards" style={{ display: "grid", gap: 10 }}>
+                      {inbox.toCollect.map((c, i) => <DebtRow key={c.customerId ?? `u${i}`} c={c} />)}
+                    </div>
+                  </>
                 ))}
 
               {segment === "waiting" &&

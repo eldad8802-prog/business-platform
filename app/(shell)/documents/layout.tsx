@@ -69,6 +69,10 @@ export default function DocumentsLayout({
           .dz-pack-download { display: block !important; width: 100%; margin-top: 16px; }
           .dz-pack-bottom { display: none !important; }
         }
+        @media (min-width: 1600px) {
+          .dz-pack { max-width: none !important; }
+          .dz-pack-desk { grid-template-columns: minmax(360px, 520px) minmax(360px, 1fr); }
+        }
         .dz-search-table { display: none; }
       `}</style>
       {children}
