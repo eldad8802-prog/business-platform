@@ -93,6 +93,7 @@ export type SecretaryHomeModel = {
     amount: string;
     suffix: string;
   };
+  queue?: Array<{ id: number; name: string; amount: string; reason: string }>;
 };
 
 export const SECRETARY_HOME_DEMO_MODELS: Record<SecretaryHomeState, SecretaryHomeModel> = {
@@ -259,6 +260,18 @@ export function SecretaryHomeScreen({ model }: { model: SecretaryHomeModel }) {
           <h1>{model.title.split("\n").map((part) => <span key={part}>{part}</span>)}</h1>
           <p>{model.subtitle}</p>
         </section>
+
+        {model.queue && model.queue.length > 0 ? (
+          <ul className={styles.homeQueue}>
+            {model.queue.map((item) => (
+              <li key={item.id}>
+                <strong>{item.name}</strong>
+                <span>{item.reason}</span>
+                <b>{item.amount}</b>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         <div className={styles.homeCards}>
           {isNew ? (

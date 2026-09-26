@@ -1,0 +1,3214 @@
+[
+  {
+    "label": "customers-empty",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 390,
+        "h": 889,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-768.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 692,
+        "h": 889,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-1024.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 776,
+        "h": 889,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-1280.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 380,
+        "h": 997,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 997,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 596,
+        "h": 705,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-1600.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 892,
+        "y": 0
+      },
+      "end": {
+        "w": 892,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 836,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-empty",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-empty-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-selected",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-selected-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "› חזרה ללקוחות נועה כהן עריכה השבת לקוח טלפון 0501234500 אימייל c1@example.co.il עיר תל אביב שם משפטי נועה כהן מספר עוסק / ח.פ. 514000001 פעיל COMPANY פעילות אחרונה · 27.09.2026 הערה כללית לקוח קבוע. מעדיף חשבונית במייל. הערות 0 הוסף הערה אין עדיין הערות. אפשר להוסיף את ההערה הרא",
+      "start": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 390,
+        "h": 1439,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-selected",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-selected-1280.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 380,
+        "h": 997,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 997,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-selected",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-selected-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 460,
+        "h": 905,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 905,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-selected",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-selected-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לקוחות 8 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ מב מאיה ברק 0501234502 c3@example.co.il ירושלים ‹ דא דני אלון 0501234503 c4@example.co.il באר שבע ‹ שג שירה גולן 0501234504 c5@example",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-short",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-short-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לקוחות 2 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ בחרו לקוח מהרשימה בחירת לקוח תציג את הפרטים, ההערות, הקבצים והפעילות שלו. הכרטיס הוא מקום העבודה, לא דף נפרד בחירת לקוח תציג את הפרטים",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "customers-short",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\customers-short-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לקוחות 2 לקוחות + לקוח חדש פעילים לא פעילים הכול נכ נועה כהן 0501234500 c1@example.co.il תל אביב ‹ יל יוסי לוי 0501234501 c2@example.co.il חיפה ‹ בחרו לקוח מהרשימה בחירת לקוח תציג את הפרטים, ההערות, הקבצים והפעילות שלו. הכרטיס הוא מקום העבודה, לא דף נפרד בחירת לקוח תציג את הפרטים",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 390,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-768.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 692,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-1024.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 776,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-1280.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 380,
+        "h": 1133,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 596,
+        "h": 841,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 460,
+        "h": 1133,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 841,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-1600.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 460,
+        "h": 1133,
+        "x": 892,
+        "y": 0
+      },
+      "end": {
+        "w": 892,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 836,
+        "h": 841,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-empty",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-empty-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 520,
+        "h": 1133,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 841,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-selected",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-selected-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "› חזרה ללידים נועה כהן בטיפול טלפון 0521112200 אימייל l1@example.co.il מקור whatsapp נכנס 27.09.2026 וואטסאפ חיוג מה הוא צריך מבקש הצעת מחיר לשירות חודשי מעקב מעקב היום צריך לחזור אליו: 27.09.2026, 01:13 — לחזור עם הצעת מחיר מחר בעוד 3 ימים בשבוע הבא תאריך אחר טופל סטטוס חדש בטיפ",
+      "start": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 390,
+        "h": 1389,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-selected",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-selected-1280.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 380,
+        "h": 1168,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 1168,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-selected",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-selected-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 460,
+        "h": 1168,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 1168,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-selected",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-selected-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לידים 6 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים מב מאיה ברק בטיפול מעקב היום 0521112202 whatsapp עכשיו ‹ טופל דחה ל־3 ימים ד",
+      "start": {
+        "w": 520,
+        "h": 1133,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 1133,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-short",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-short-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "לידים 2 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים בחרו ליד מהרשימה בחירת ליד תציג את הפרטים, מה הוא ביקש, המעקב וההיסטוריה שלו",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "leads-short",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\leads-short-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "לידים 2 לידים + ליד חדש דורש טיפול פתוחים סגורים הכול נכ נועה כהן בטיפול מעקב היום 0521112200 whatsapp עכשיו ‹ טופל דחה ל־3 ימים יל יוסי לוי בטיפול מעקב היום 0521112201 whatsapp עכשיו ‹ טופל דחה ל־3 ימים בחרו ליד מהרשימה בחירת ליד תציג את הפרטים, מה הוא ביקש, המעקב וההיסטוריה שלו",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-390.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 390,
+        "h": 722,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-768.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 692,
+        "h": 722,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-1024.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 776,
+        "h": 722,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-1280.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 380,
+        "h": 900,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 596,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-1440.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-1600.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 892,
+        "y": 0
+      },
+      "end": {
+        "w": 892,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 836,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-empty",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-empty-1920.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-selected",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-selected-390.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "› חזרה לספקים ספק נייר עריכה פעיל כללי פרטי ספק שם רשום ספק נייר מספר עוסק / ח.פ. 515000002 קטגוריה כללי פרטי קשר טלפון 03-5551000 אימייל s1@example.co.il תנאי התקשרות זמן אספקה ברירת מחדל 3 ימים השלמת פרטי ספק חסרים עדיין: איש קשר · כתובת · תנאי תשלום · צורת תשלום. השלמה עכשיו ת",
+      "start": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "w": 390,
+        "h": 1538,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-selected",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-selected-1280.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 380,
+        "h": 1336,
+        "x": 652,
+        "y": 0
+      },
+      "end": {
+        "w": 652,
+        "h": 1336,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-selected",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-selected-1440.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 460,
+        "h": 1336,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 1336,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-selected",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-selected-1920.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "ספקים 6 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ לכ לוגיסטיקה כחול 03-5551002 s3@example.co.il ‹ אה אריזות הגליל 03-5551003 s4@example.co.il ‹ קל קפה למשרד 03-5551004 s5@example.co.il ‹ חו חשמל וע",
+      "start": {
+        "w": 520,
+        "h": 1336,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 1336,
+        "x": 0,
+        "y": 0
+      },
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-short",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-short-1440.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "ספקים 2 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ בחרו ספק מהרשימה בחירת ספק תציג את פרטי הקשר, ההזמנות והפעילות שלו. ההזמנות נשארות על כרטיס הספק בחירת ספק תציג את פרטי הקשר, ההזמנות והפעילות שלו.",
+      "start": {
+        "w": 460,
+        "h": 900,
+        "x": 732,
+        "y": 0
+      },
+      "end": {
+        "w": 732,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 676,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "suppliers-short",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\suppliers-short-1920.png",
+    "metrics": {
+      "title": "ספקים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "ספקים 2 ספקים + ספק חדש פעילים לא פעילים הכול סנ ספק נייר 03-5551000 s1@example.co.il ‹ הד הדפסות דרום 03-5551001 s2@example.co.il ‹ בחרו ספק מהרשימה בחירת ספק תציג את פרטי הקשר, ההזמנות והפעילות שלו. ההזמנות נשארות על כרטיס הספק בחירת ספק תציג את פרטי הקשר, ההזמנות והפעילות שלו.",
+      "start": {
+        "w": 520,
+        "h": 900,
+        "x": 1152,
+        "y": 0
+      },
+      "end": {
+        "w": 1152,
+        "h": 900,
+        "x": 0,
+        "y": 0
+      },
+      "desk": {
+        "w": 1096,
+        "h": 608,
+        "x": 28,
+        "y": 260
+      },
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-390.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות1 ממתין דורש טיפול שולם נועה כהן 1,800 ₪ חשבונית אחת פתוחה · ממתין מאז 27.9.26 גבה 1,800 ₪ בית שיחות + מסמכים התראות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 358,
+        "h": 186,
+        "x": 16,
+        "y": 97
+      },
+      "side": {
+        "w": 358,
+        "h": 61,
+        "x": 16,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-768.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות1 ממתין דורש טיפול שולם נועה כהן 1,800 ₪ חשבונית אחת פתוחה · ממתין מאז 27.9.26 גבה 1,800 ₪ D",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 660,
+        "h": 186,
+        "x": 16,
+        "y": 97
+      },
+      "side": {
+        "w": 660,
+        "h": 61,
+        "x": 16,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-1024.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות1 ממתין דורש טיפול שולם נועה כהן 1,800 ₪ חשבונית אחת פתוחה · ממתין מאז 27.9.26 גבה 1,800 ₪ dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 744,
+        "h": 186,
+        "x": 16,
+        "y": 97
+      },
+      "side": {
+        "w": 744,
+        "h": 61,
+        "x": 16,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-1280.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות 1,800 ₪ ממתין 1 דורש טיפול 0 שולם לאחרונה 900 ₪ צריך לגבות1 ממתין דורש טיפול שולם לקוח חשבוניות ממתין מאז יתרה נועה כהן 1001 27.9.26 1,800 ₪ גבה dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרו",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 672,
+        "h": 170,
+        "x": 16,
+        "y": 20
+      },
+      "side": {
+        "w": 300,
+        "h": 323,
+        "x": 716,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-1440.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות 1,800 ₪ ממתין 1 דורש טיפול 0 שולם לאחרונה 900 ₪ צריך לגבות1 ממתין דורש טיפול שולם לקוח חשבוניות ממתין מאז יתרה נועה כהן 1001 27.9.26 1,800 ₪ גבה dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרו",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 832,
+        "h": 170,
+        "x": 16,
+        "y": 20
+      },
+      "side": {
+        "w": 300,
+        "h": 323,
+        "x": 876,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-1600.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות 1,800 ₪ ממתין 1 דורש טיפול 0 שולם לאחרונה 900 ₪ צריך לגבות1 ממתין דורש טיפול שולם לקוח חשבוניות ממתין מאז יתרה נועה כהן 1001 27.9.26 1,800 ₪ גבה dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרו",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 992,
+        "h": 170,
+        "x": 16,
+        "y": 20
+      },
+      "side": {
+        "w": 300,
+        "h": 323,
+        "x": 1036,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-inbox",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-inbox-1920.png",
+    "metrics": {
+      "title": "גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "גבייה 1,800 ₪ פתוחים אצל לקוח אחד גבה צריך לגבות 1,800 ₪ ממתין 1 דורש טיפול 0 שולם לאחרונה 900 ₪ צריך לגבות1 ממתין דורש טיפול שולם לקוח חשבוניות ממתין מאז יתרה נועה כהן 1001 27.9.26 1,800 ₪ גבה dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרו",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": {
+        "w": 1312,
+        "h": 170,
+        "x": 16,
+        "y": 20
+      },
+      "side": {
+        "w": 300,
+        "h": 323,
+        "x": 1356,
+        "y": 20
+      },
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-thread",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-thread-390.png",
+    "metrics": {
+      "title": "תיק גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "→ גבייה נועה כהן נותר לגבות 1,800 ₪ גבה חשבונית 1001 1,800 ₪ 27.9, 01:13 נותר לגבות 1,800 ₪ בקשת תשלום 1,800 ₪ 27.9, 01:13 חשבונית 1001 ממתין שתף שוב בטל בקשה התשלום התקבל ואומת 900 ₪ 27.9, 01:13 שולם החזר כסף קבלה 2001 (אוטומטית) 900 ₪ 27.9, 01:13 שויכו 900 ₪ לחשבונית 0990 בית ש",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": {
+        "w": 358,
+        "h": 61,
+        "x": 16,
+        "y": 55
+      },
+      "threadQueue": {
+        "w": 358,
+        "h": 460,
+        "x": 16,
+        "y": 130
+      },
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-thread",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-thread-1280.png",
+    "metrics": {
+      "title": "תיק גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "→ גבייה נועה כהן נותר לגבות 1,800 ₪ גבה חשבונית 1001 1,800 ₪ מתי מה קרה סכום 27.9, 01:13 חשבונית 1001 1,800 ₪ 27.9, 01:13 בקשת תשלום · חשבונית 1001 1,800 ₪ 27.9, 01:13 תשלום אומת 900 ₪ 27.9, 01:13 קבלה 2001 900 ₪ dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכי",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": {
+        "w": 320,
+        "h": 175,
+        "x": 696,
+        "y": 55
+      },
+      "threadQueue": {
+        "w": 652,
+        "h": 229,
+        "x": 16,
+        "y": 55
+      },
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-thread",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-thread-1440.png",
+    "metrics": {
+      "title": "תיק גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "→ גבייה נועה כהן נותר לגבות 1,800 ₪ גבה חשבונית 1001 1,800 ₪ מתי מה קרה סכום 27.9, 01:13 חשבונית 1001 1,800 ₪ 27.9, 01:13 בקשת תשלום · חשבונית 1001 1,800 ₪ 27.9, 01:13 תשלום אומת 900 ₪ 27.9, 01:13 קבלה 2001 900 ₪ dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכי",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": {
+        "w": 320,
+        "h": 175,
+        "x": 856,
+        "y": 55
+      },
+      "threadQueue": {
+        "w": 812,
+        "h": 229,
+        "x": 16,
+        "y": 55
+      },
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-thread",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-thread-1600.png",
+    "metrics": {
+      "title": "תיק גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "→ גבייה נועה כהן נותר לגבות 1,800 ₪ גבה חשבונית 1001 1,800 ₪ מתי מה קרה סכום 27.9, 01:13 חשבונית 1001 1,800 ₪ 27.9, 01:13 בקשת תשלום · חשבונית 1001 1,800 ₪ 27.9, 01:13 תשלום אומת 900 ₪ 27.9, 01:13 קבלה 2001 900 ₪ dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכי",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": {
+        "w": 320,
+        "h": 175,
+        "x": 1016,
+        "y": 55
+      },
+      "threadQueue": {
+        "w": 972,
+        "h": 229,
+        "x": 16,
+        "y": 55
+      },
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "collection-thread",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\collection-thread-1920.png",
+    "metrics": {
+      "title": "תיק גבייה · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "→ גבייה נועה כהן נותר לגבות 1,800 ₪ גבה חשבונית 1001 1,800 ₪ מתי מה קרה סכום 27.9, 01:13 חשבונית 1001 1,800 ₪ 27.9, 01:13 בקשת תשלום · חשבונית 1001 1,800 ₪ 27.9, 01:13 תשלום אומת 900 ₪ 27.9, 01:13 קבלה 2001 900 ₪ dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכי",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": {
+        "w": 320,
+        "h": 175,
+        "x": 1336,
+        "y": 55
+      },
+      "threadQueue": {
+        "w": 1292,
+        "h": 229,
+        "x": 16,
+        "y": 55
+      },
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-390.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 358,
+        "h": 575,
+        "x": 16,
+        "y": 14
+      },
+      "packSide": {
+        "w": 358,
+        "h": 259,
+        "x": 16,
+        "y": 330
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-768.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 646,
+        "h": 556,
+        "x": 23,
+        "y": 14
+      },
+      "packSide": {
+        "w": 646,
+        "h": 240,
+        "x": 23,
+        "y": 330
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-1024.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 699,
+        "h": 556,
+        "x": 39,
+        "y": 14
+      },
+      "packSide": {
+        "w": 699,
+        "h": 240,
+        "x": 39,
+        "y": 330
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-1280.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 968,
+        "h": 391,
+        "x": 32,
+        "y": 14
+      },
+      "packSide": {
+        "w": 403,
+        "h": 311,
+        "x": 32,
+        "y": 94
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-1440.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 1056,
+        "h": 391,
+        "x": 68,
+        "y": 14
+      },
+      "packSide": {
+        "w": 440,
+        "h": 311,
+        "x": 68,
+        "y": 94
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-1600.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 1288,
+        "h": 372,
+        "x": 32,
+        "y": 14
+      },
+      "packSide": {
+        "w": 748,
+        "h": 292,
+        "x": 32,
+        "y": 94
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "accountant-pack",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\accountant-pack-1920.png",
+    "metrics": {
+      "title": "מסמכים · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "חזרה חבילת רו״ח תקופה חודש רבעון שנה ספטמבר 2026 קטגוריות הכל דלק שירותים שכר שיווק מה ייכלל בחבילה תקופה ספטמבר 2026 קטגוריות כל הקטגוריות החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח. 3 מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם הורד חבילה (ZIP",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": {
+        "w": 1608,
+        "h": 372,
+        "x": 32,
+        "y": 14
+      },
+      "packSide": {
+        "w": 1068,
+        "h": 292,
+        "x": 32,
+        "y": 94
+      },
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-new",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-new-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "המזכירה שלך שלום 👋 שלום, אני המזכירה שלך. מסור לי את התשלומים שהעסק צריך להוציא - ואני אזכור אותם בשבילך. בוא נתחיל מסור לי את ההתחייבות הראשונה ברגע שיהיה לי מה לזכור, היום שלי וכל ההתחייבויות יופיעו כאן. בית שיחות + מסמכים התראות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-new",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-new-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "המזכירה שלך שלום 👋 שלום, אני המזכירה שלך. מסור לי את התשלומים שהעסק צריך להוציא - ואני אזכור אותם בשבילך. בוא נתחיל מסור לי את ההתחייבות הראשונה ברגע שיהיה לי מה לזכור, היום שלי וכל ההתחייבויות יופיעו כאן. dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התח",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-new",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-new-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "המזכירה שלך שלום 👋 שלום, אני המזכירה שלך. מסור לי את התשלומים שהעסק צריך להוציא - ואני אזכור אותם בשבילך. בוא נתחיל מסור לי את ההתחייבות הראשונה ברגע שיהיה לי מה לזכור, היום שלי וכל ההתחייבויות יופיעו כאן. dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התח",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-few",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-few-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. היום שלי להיום שכירות ‏4,500 ‏₪ כל ההתחייבויות 1 במעקב ‏4,500 ‏₪ להוצאה הוספה למעקב בית שיחות + מסמכים התראות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-few",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-few-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-few",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-few-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-390.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. היום שלי להיום שכירות ‏4,500 ‏₪ כל ההתחייבויות 4 במעקב ‏6,270 ‏₪ להוצאה הוספה למעקב בית שיחות + מסמכים התראות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 768,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-768.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. היום שלי להיום שכירות ‏4,500 ‏₪ כל ההתחייבויות 4 במעקב ‏6,270 ‏₪ להוצאה הוספה למעקב D",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 1024,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-1024.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1024,
+      "scrollWidth": 1024,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. היום שלי להיום שכירות ‏4,500 ‏₪ כל ההתחייבויות 4 במעקב ‏6,270 ‏₪ להוצאה הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-1280.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ חשמל מתקרב ‏820 ‏₪ ביטוח מתקרב ‏310 ‏₪ ספק נייר מתקרב ‏640 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-1440.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ חשמל מתקרב ‏820 ‏₪ ביטוח מתקרב ‏310 ‏₪ ספק נייר מתקרב ‏640 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-1600.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ חשמל מתקרב ‏820 ‏₪ ביטוח מתקרב ‏310 ‏₪ ספק נייר מתקרב ‏640 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "secretary-several",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\secretary-several-1920.png",
+    "metrics": {
+      "title": "Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "המזכירה שלך שלום 👋 יש דבר אחד שצריך לסגור היום. כל השאר שמור אצלי - אזכיר לך בזמן. שכירות להיום ‏4,500 ‏₪ חשמל מתקרב ‏820 ‏₪ ביטוח מתקרב ‏310 ‏₪ ספק נייר מתקרב ‏640 ‏₪ הוספה למעקב dubiz בית שיחות מסמכים התראות מלאי לידים לקוחות גבייה חשבוניות מזכירה התחייבויות הגדרות",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-empty",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-empty-390.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור אין עדיין מסמכים להצגה התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם. התחל מסמך ללקוח בית שיח",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 390,
+        "h": 751,
+        "x": 0,
+        "y": 56
+      },
+      "actions": {
+        "w": 362,
+        "h": 190,
+        "x": 14,
+        "y": 74
+      },
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-empty",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-empty-1280.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור אין עדיין מסמכים להצגה התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם. התחל מסמך ללקוח dubiz ב",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1032,
+        "h": 484,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 666,
+        "y": 94
+      },
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-empty",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-empty-1440.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור אין עדיין מסמכים להצגה התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם. התחל מסמך ללקוח dubiz ב",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1192,
+        "h": 484,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 826,
+        "y": 94
+      },
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-empty",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-empty-1600.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור אין עדיין מסמכים להצגה התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם. התחל מסמך ללקוח dubiz ב",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1352,
+        "h": 484,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 986,
+        "y": 94
+      },
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-empty",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-empty-1920.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור אין עדיין מסמכים להצגה התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם. התחל מסמך ללקוח dubiz ב",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1672,
+        "h": 484,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 1306,
+        "y": 94
+      },
+      "archive": null,
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-populated",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-populated-390.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר המשך עבודה טיוטה הצעת מחיר # 1000 לקוח: נועה כהן עודכן לאחרונה לפי רשומת המסמך פתח והמשך סכום ‏400.00 ‏₪ פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור מסמכים ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 390,
+        "h": 1954,
+        "x": 0,
+        "y": 56
+      },
+      "actions": {
+        "w": 362,
+        "h": 190,
+        "x": 14,
+        "y": 74
+      },
+      "archive": {
+        "w": 362,
+        "h": 1145,
+        "x": 14,
+        "y": 793
+      },
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-populated",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-populated-1280.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר המשך עבודה טיוטה הצעת מחיר # 1000 לקוח: נועה כהן עודכן לאחרונה לפי רשומת המסמך פתח והמשך סכום ‏400.00 ‏₪ פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור מסמכים ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1032,
+        "h": 930,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 666,
+        "y": 94
+      },
+      "archive": {
+        "w": 622,
+        "h": 440,
+        "x": 26,
+        "y": 474
+      },
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-populated",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-populated-1440.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר המשך עבודה טיוטה הצעת מחיר # 1000 לקוח: נועה כהן עודכן לאחרונה לפי רשומת המסמך פתח והמשך סכום ‏400.00 ‏₪ פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור מסמכים ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1192,
+        "h": 930,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 826,
+        "y": 94
+      },
+      "archive": {
+        "w": 782,
+        "h": 440,
+        "x": 26,
+        "y": 474
+      },
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-populated",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-populated-1600.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר המשך עבודה טיוטה הצעת מחיר # 1000 לקוח: נועה כהן עודכן לאחרונה לפי רשומת המסמך פתח והמשך סכום ‏400.00 ‏₪ פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור מסמכים ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1352,
+        "h": 930,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 986,
+        "y": 94
+      },
+      "archive": {
+        "w": 942,
+        "h": 440,
+        "x": 26,
+        "y": 474
+      },
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "billing-populated",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\billing-populated-1920.png",
+    "metrics": {
+      "title": "חשבוניות · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "חזרה מה עושים עכשיו?! צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח. + צור חשבונית + צור הצעת מחיר המשך עבודה טיוטה הצעת מחיר # 1000 לקוח: נועה כהן עודכן לאחרונה לפי רשומת המסמך פתח והמשך סכום ‏400.00 ‏₪ פרטי העסק במסמכים סקירה קצרה 🔍 הכל טיוטה הופק הצעות מחיר ממתין לאישור מסמכים ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": {
+        "w": 1672,
+        "h": 930,
+        "x": 0,
+        "y": 64
+      },
+      "actions": {
+        "w": 340,
+        "h": 181,
+        "x": 1306,
+        "y": 94
+      },
+      "archive": {
+        "w": 1262,
+        "h": 440,
+        "x": 26,
+        "y": 474
+      },
+      "table": null,
+      "cards": null
+    }
+  },
+  {
+    "label": "inventory-items",
+    "width": 390,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\inventory-items-390.png",
+    "metrics": {
+      "title": "מלאי · Dubiz",
+      "overflow": false,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "text": "מלאי 8 מוצרים · 4 דורשים טיפול הכל קריטי נמוך תקין 🥛 חלב מכולת · ספק נייר · SKU-4 מלאי קריטי 0 יח׳ ☕ קפה טחון מכולת · ספק נייר · SKU-1 מלאי קריטי 2 יח׳ 🛍️ שקיות מכולת · ספק נייר · SKU-7 מלאי קריטי 4 יח׳ 🧻 נייר מכולת · ספק נייר · SKU-5 מלאי נמוך 8 יח׳ 🛍️ כוסות מכולת · ספק נייר",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      },
+      "cards": {
+        "w": 363,
+        "h": 778,
+        "x": 14,
+        "y": 251
+      }
+    }
+  },
+  {
+    "label": "inventory-items",
+    "width": 1280,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\inventory-items-1280.png",
+    "metrics": {
+      "title": "מלאי · Dubiz",
+      "overflow": false,
+      "clientWidth": 1280,
+      "scrollWidth": 1280,
+      "text": "מלאי 8 מוצרים · 4 דורשים טיפול הכל קריטי נמוך תקין מוצר פרטים כמות סטטוס חלב מכולת · ספק נייר · SKU-4 0 יח׳ מלאי קריטי קפה טחון מכולת · ספק נייר · SKU-1 2 יח׳ מלאי קריטי שקיות מכולת · ספק נייר · SKU-7 4 יח׳ מלאי קריטי נייר מכולת · ספק נייר · SKU-5 8 יח׳ מלאי נמוך כוסות מכולת · ספ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": {
+        "w": 912,
+        "h": 413,
+        "x": 60,
+        "y": 247
+      },
+      "cards": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  {
+    "label": "inventory-items",
+    "width": 1440,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\inventory-items-1440.png",
+    "metrics": {
+      "title": "מלאי · Dubiz",
+      "overflow": false,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "text": "מלאי 8 מוצרים · 4 דורשים טיפול הכל קריטי נמוך תקין מוצר פרטים כמות סטטוס חלב מכולת · ספק נייר · SKU-4 0 יח׳ מלאי קריטי קפה טחון מכולת · ספק נייר · SKU-1 2 יח׳ מלאי קריטי שקיות מכולת · ספק נייר · SKU-7 4 יח׳ מלאי קריטי נייר מכולת · ספק נייר · SKU-5 8 יח׳ מלאי נמוך כוסות מכולת · ספ",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": {
+        "w": 1072,
+        "h": 413,
+        "x": 60,
+        "y": 247
+      },
+      "cards": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  {
+    "label": "inventory-items",
+    "width": 1600,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\inventory-items-1600.png",
+    "metrics": {
+      "title": "מלאי · Dubiz",
+      "overflow": false,
+      "clientWidth": 1600,
+      "scrollWidth": 1600,
+      "text": "מלאי 8 מוצרים · 4 דורשים טיפול הכל קריטי נמוך תקין מוצר פרטים מינימום הזמנה עלות מחיר כמות סטטוס חלב מכולת · ספק נייר · SKU-4 5 8 ₪13 ₪21 0 יח׳ מלאי קריטי קפה טחון מכולת · ספק נייר · SKU-1 5 8 ₪10 ₪18 2 יח׳ מלאי קריטי שקיות מכולת · ספק נייר · SKU-7 5 8 ₪16 ₪24 4 יח׳ מלאי קריטי ני",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": {
+        "w": 1232,
+        "h": 413,
+        "x": 60,
+        "y": 247
+      },
+      "cards": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  {
+    "label": "inventory-items",
+    "width": 1920,
+    "file": "C:\\dev\\bp-desktop-ux\\qa-evidence\\desktop-ux-phase-2\\inventory-items-1920.png",
+    "metrics": {
+      "title": "מלאי · Dubiz",
+      "overflow": false,
+      "clientWidth": 1920,
+      "scrollWidth": 1920,
+      "text": "מלאי 8 מוצרים · 4 דורשים טיפול הכל קריטי נמוך תקין מוצר פרטים מינימום הזמנה עלות מחיר כמות סטטוס חלב מכולת · ספק נייר · SKU-4 5 8 ₪13 ₪21 0 יח׳ מלאי קריטי קפה טחון מכולת · ספק נייר · SKU-1 5 8 ₪10 ₪18 2 יח׳ מלאי קריטי שקיות מכולת · ספק נייר · SKU-7 5 8 ₪16 ₪24 4 יח׳ מלאי קריטי ני",
+      "start": null,
+      "end": null,
+      "desk": null,
+      "queue": null,
+      "side": null,
+      "threadSide": null,
+      "threadQueue": null,
+      "pack": null,
+      "packSide": null,
+      "home": null,
+      "billing": null,
+      "actions": null,
+      "archive": null,
+      "table": {
+        "w": 1552,
+        "h": 413,
+        "x": 60,
+        "y": 247
+      },
+      "cards": {
+        "w": 0,
+        "h": 0,
+        "x": 0,
+        "y": 0
+      }
+    }
+  }
+]
