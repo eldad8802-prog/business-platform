@@ -6,6 +6,11 @@
       "lab": "pure",
       "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
     },
+    "app/api/billing/customers/route.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on main"
+    },
     "app/api/billing/documents/list-response.regression.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
