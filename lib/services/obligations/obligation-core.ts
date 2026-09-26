@@ -95,6 +95,12 @@ export function nextOccurrence(
       return new Date(dueAt.getTime() + 7 * DAY_MS);
     case "MONTHLY":
       return addMonthsClamped(dueAt, 1);
+    case "BIMONTHLY":
+      return addMonthsClamped(dueAt, 2);
+    case "QUARTERLY":
+      return addMonthsClamped(dueAt, 3);
+    case "SEMIANNUAL":
+      return addMonthsClamped(dueAt, 6);
     case "YEARLY":
       return addMonthsClamped(dueAt, 12);
     case "NONE":

@@ -408,6 +408,9 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
             >
               <option value="WEEKLY">{CADENCE_LABEL.WEEKLY}</option>
               <option value="MONTHLY">{CADENCE_LABEL.MONTHLY}</option>
+              <option value="BIMONTHLY">{CADENCE_LABEL.BIMONTHLY}</option>
+              <option value="QUARTERLY">{CADENCE_LABEL.QUARTERLY}</option>
+              <option value="SEMIANNUAL">{CADENCE_LABEL.SEMIANNUAL}</option>
               <option value="YEARLY">{CADENCE_LABEL.YEARLY}</option>
             </select>
           </div>

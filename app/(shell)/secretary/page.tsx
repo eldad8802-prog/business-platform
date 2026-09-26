@@ -19,6 +19,8 @@ import {
   type UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { recordPayment } from "@/lib/payables/payables-client";
+import { PaidQuestionSheet, type PaidDetails } from "./paid-question";
 import {
   SecretaryErrorBoundary,
   SecretaryFlowScreen,
@@ -53,6 +55,9 @@ const RECURRENCE_LABEL: Record<RecurrenceCadence, string> = {
   NONE: "חד-פעמי",
   WEEKLY: "שבועי",
   MONTHLY: "חודשי",
+  BIMONTHLY: "דו-חודשי",
+  QUARTERLY: "רבעוני",
+  SEMIANNUAL: "חצי-שנתי",
   YEARLY: "שנתי",
 };
 
@@ -94,6 +99,8 @@ function SecretaryPageInner() {
   const tokenRef = useRef<string | null>(null);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [flash, setFlash] = useState<string | null>(null);
+  // "שילמת?" — open while the owner decides; resolves the pending complete.
+  const [paidPrompt, setPaidPrompt] = useState<{ obligation: ObligationApi; resolve: () => void } | null>(null);
 
   function currentRouteState() {
     const screen = parseSecretaryScreen(searchParams.get("screen"));
@@ -246,13 +253,82 @@ function SecretaryPageInner() {
     return created;
   }
 
-  async function onCompleteFlow(id: number) {
-    const token = tokenRef.current;
-    if (!token) return;
+  async function finishComplete(token: string, id: number) {
     await completeObligation(token, id);
     await refreshAfterMutation(token);
     router.push("/secretary?screen=loops&id=" + id + "&loopMode=met");
   }
+
+  function findObligation(id: number): ObligationApi | null {
+    if (state.status !== "ready") return null;
+    return (
+      state.obligations.find((o) => o.id === id) ??
+      state.briefing.attention.find((a) => a.obligation.id === id)?.obligation ??
+      state.briefing.watching.find((o) => o.id === id) ??
+      null
+    );
+  }
+
+  /**
+   * "טופל". handled ≠ paid: on a ledger-backed item that still has something
+   * unpaid, ask "שילמת?" first — a yes goes through the real payment flow, a no
+   * only closes the reminder. Legacy items (no ledger link) close as before.
+   * The returned promise settles when the owner has answered, so callers keep
+   * their busy state exactly as they did.
+   */
+  async function onCompleteFlow(id: number) {
+    const token = tokenRef.current;
+    if (!token) return;
+    const obligation = findObligation(id);
+    const ledger = obligation?.ledger ?? null;
+    if (!obligation || !ledger || Number(ledger.remaining) <= 0) {
+      await finishComplete(token, id);
+      return;
+    }
+    await new Promise<void>((resolve) => setPaidPrompt({ obligation, resolve }));
+  }
+
+  function closePaidPrompt() {
+    setPaidPrompt((current) => {
+      current?.resolve();
+      return null;
+    });
+  }
+
+  async function onPaidAnswer(details: PaidDetails) {
+    const token = tokenRef.current;
+    const pending = paidPrompt;
+    if (!token || !pending?.obligation.ledger) return;
+    const { commitmentId, installmentId } = pending.obligation.ledger;
+    await recordPayment({
+      commitmentId,
+      installmentIds: [installmentId],
+      amount: details.amount,
+      paidAt: new Date(details.paidAt + "T12:00:00+03:00").toISOString(),
+      method: details.method,
+      // One press, one payment: a retried request must not pay twice.
+      idempotencyKey: "secretary:" + installmentId + ":" + details.paidAt + ":" + details.amount,
+    });
+    await finishComplete(token, pending.obligation.id);
+    closePaidPrompt();
+  }
+
+  async function onHandledOnlyAnswer() {
+    const token = tokenRef.current;
+    const pending = paidPrompt;
+    if (!token || !pending) return;
+    await finishComplete(token, pending.obligation.id);
+    closePaidPrompt();
+  }
+
+  const paidSheet = paidPrompt ? (
+    <PaidQuestionSheet
+      obligation={paidPrompt.obligation}
+      onPaid={onPaidAnswer}
+      onHandledOnly={onHandledOnlyAnswer}
+      onCancel={closePaidPrompt}
+    />
+  ) : null;
 
   async function onSnoozeFlow(id: number, followUpAt: string) {
     const token = tokenRef.current;
@@ -301,6 +377,7 @@ function SecretaryPageInner() {
             onSnooze={onSnoozeFlow}
             onRelease={onReleaseFlow}
           />
+          {paidSheet}
           {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
         </SecretaryErrorBoundary>
       );
@@ -315,6 +392,7 @@ function SecretaryPageInner() {
             onSnooze={focus ? () => router.push("/secretary?screen=remind&id=" + focus.id) : undefined}
             onRelease={focus ? () => onReleaseFlow(focus.id) : undefined}
           />
+          {paidSheet}
           {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
         </SecretaryErrorBoundary>
       );

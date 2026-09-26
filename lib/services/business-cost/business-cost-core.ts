@@ -254,6 +254,11 @@ export type CostCommitment = {
   recurrenceSeriesId: string | null;
   status: CommitmentStatus;
   isLegacy: boolean;
+  /**
+   * Last civil day the commitment is in effect (`Commitment.endAt`, inclusive),
+   * or null when no end was recorded. Legacy obligations never carry one.
+   */
+  endDate: CivilDate | null;
   installments: CostInstallment[];
 };
 
@@ -569,6 +574,22 @@ export function deriveBusinessCostForDate(input: BusinessCostInput): BusinessCos
       continue;
     }
 
+    // An end date is a fact the owner recorded: nothing is allocated after it,
+    // and a period that straddles it is compressed into the days that were in
+    // effect — the full recorded amount still sums exactly, over fewer days,
+    // rather than leaking cost past the end or silently dropping part of it.
+    const endDay = head.endDate ? toDayNumber(head.endDate) : null;
+    if (endDay !== null && target > endDay) {
+      excluded.push({
+        source: head.source,
+        commitmentId: head.id,
+        title: head.title,
+        reason: "ENDED",
+        detail: `ended ${head.endDate}`,
+      });
+      continue;
+    }
+
     // A cancelled occurrence that was replaced on the same date is history,
     // not a period: the live one owns that date.
     const liveDaySet = new Set(liveDays);
@@ -608,6 +629,7 @@ export function deriveBusinessCostForDate(input: BusinessCostInput): BusinessCos
         excluded.push({ source: occ.commitment.source, commitmentId: occ.commitment.id, title: occ.commitment.title, reason: "INVALID_AMOUNT" });
         return;
       }
+      if (endDay !== null) toExclusive = Math.min(toExclusive, endDay + 1);
       const days = toExclusive - from;
       const dayIndex = target - from;
       lines.push({

@@ -18,6 +18,11 @@ import {
   generateInstallmentPlan,
   isActiveAllocation,
   nextOccurrence,
+  nextDueAt,
+  cadenceMonths,
+  planAmountChange,
+  planEnd,
+  PayablesConflictError,
   PayablesValidationError,
   planAllocation,
   sumActiveAllocations,
@@ -420,6 +425,84 @@ console.log("\n[D] recurrence");
   check("WEEKLY steps 7 days", nextOccurrence(D("2026-01-15T09:00:00.000Z"), "WEEKLY")!.getUTCDate() === 22);
   check("NONE does not recur", nextOccurrence(NOW, "NONE") === null);
   check("Jan 31 clamps to Feb 28", nextOccurrence(D("2026-01-31T09:00:00.000Z"), "MONTHLY")!.getUTCDate() === 28);
+}
+
+/* ── E. Phase 2: cadences, anchored due dates, amount change, end ─────────── */
+console.log("\n[E] phase 2 — cadences, anchored next due, amount change, end");
+{
+  const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "null");
+  const next = (last: string, cadence: Parameters<typeof nextDueAt>[0]["cadence"], anchor = last) =>
+    day(nextDueAt({ lastDueAt: D(last), cadence, anchorDueAt: D(anchor) }));
+
+  check("BIMONTHLY is 2 months", cadenceMonths("BIMONTHLY") === 2);
+  check("QUARTERLY is 3 months", cadenceMonths("QUARTERLY") === 3);
+  check("SEMIANNUAL is 6 months", cadenceMonths("SEMIANNUAL") === 6);
+  check("BIMONTHLY via nextOccurrence", nextOccurrence(D("2026-09-01T00:00:00.000Z"), "BIMONTHLY")!.getUTCMonth() === 10);
+
+  check("monthly Sep 1 → Oct 1", next("2026-09-01T00:00:00.000Z", "MONTHLY") === "2026-10-01");
+  check("bimonthly Sep 1 → Nov 1", next("2026-09-01T00:00:00.000Z", "BIMONTHLY") === "2026-11-01");
+  check("quarterly Nov 30 → Feb 28", next("2026-11-30T00:00:00.000Z", "QUARTERLY") === "2027-02-28");
+  check("semiannual Aug 31 → Feb 28", next("2026-08-31T00:00:00.000Z", "SEMIANNUAL") === "2027-02-28");
+  check("yearly Feb 29 2028 → Feb 28 2029", next("2028-02-29T00:00:00.000Z", "YEARLY") === "2029-02-28");
+  check("weekly +7 calendar days", next("2026-09-28T00:00:00.000Z", "WEEKLY") === "2026-10-05");
+  check(
+    "the anchor survives a clamp: Feb 28 (series of the 31st) → Mar 31, not Mar 28",
+    next("2027-02-28T00:00:00.000Z", "MONTHLY", "2027-01-31T00:00:00.000Z") === "2027-03-31",
+  );
+  check(
+    "a deliberate move is respected: last on the 10th (series of the 1st) → the 10th",
+    next("2026-10-10T00:00:00.000Z", "MONTHLY", "2026-09-01T00:00:00.000Z") === "2026-11-10",
+  );
+  check(
+    "legacy Israeli-midnight row (21:00Z Aug 31 = Sep 1 local) → Oct 1, never Sep 30",
+    next("2026-08-31T21:00:00.000Z", "MONTHLY") === "2026-10-01",
+  );
+  check(
+    "legacy Israeli-midnight row at a month end (21:00Z Jan 30 = Jan 31) → Feb 28",
+    next("2027-01-30T22:00:00.000Z", "MONTHLY") === "2027-02-28",
+  );
+  check("NONE has no next", nextDueAt({ lastDueAt: NOW, cadence: "NONE", anchorDueAt: NOW }) === null);
+
+  const conflict = (name: string, fn: () => unknown) => {
+    total += 1;
+    try {
+      fn();
+      failures += 1;
+      console.log(`  [FAIL] ${name} — expected a conflict, none thrown`);
+    } catch (err) {
+      const ok = err instanceof PayablesConflictError;
+      if (!ok) failures += 1;
+      console.log(`  [${ok ? "PASS" : "FAIL"}] ${name}`);
+    }
+  };
+  const rows = [
+    { id: 1, dueAt: D("2026-09-01T00:00:00.000Z"), status: "SCHEDULED" as const, activeAllocationCount: 1 },
+    { id: 2, dueAt: D("2026-10-01T00:00:00.000Z"), status: "SCHEDULED" as const, activeAllocationCount: 0 },
+    { id: 3, dueAt: D("2026-11-01T00:00:00.000Z"), status: "CANCELLED" as const, activeAllocationCount: 0 },
+    { id: 4, dueAt: D("2026-12-01T00:00:00.000Z"), status: "SCHEDULED" as const, activeAllocationCount: 0 },
+  ];
+  check(
+    "amount change from Oct 1 rewrites Oct and Dec, never the paid September, skips the cancelled November",
+    JSON.stringify(planAmountChange({ effectiveFrom: D("2026-10-01T00:00:00.000Z"), rows }).targetIds) === "[2,4]",
+  );
+  check(
+    "effective date between due dates starts at the next occurrence",
+    JSON.stringify(planAmountChange({ effectiveFrom: D("2026-09-15T00:00:00.000Z"), rows }).targetIds) === "[2,4]",
+  );
+  conflict("amount change reaching a PAID occurrence is refused", () =>
+    planAmountChange({ effectiveFrom: D("2026-09-01T00:00:00.000Z"), rows }),
+  );
+  check(
+    "end on Oct 31 cancels only the unpaid December",
+    JSON.stringify(planEnd({ endsOn: D("2026-10-31T00:00:00.000Z"), rows }).cancelIds) === "[4]",
+  );
+  check(
+    "end ON a due date keeps that occurrence",
+    JSON.stringify(planEnd({ endsOn: D("2026-10-01T00:00:00.000Z"), rows }).cancelIds) === "[4]",
+  );
+  conflict("ending before a PAID occurrence is refused, not stranded", () =>
+    planEnd({ endsOn: D("2026-08-15T00:00:00.000Z"), rows }),
+  );
 }
 
 console.log(`\n${failures === 0 ? "PASS" : "FAIL"} — ${total - failures}/${total} checks passed\n`);

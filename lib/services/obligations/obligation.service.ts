@@ -38,6 +38,9 @@ const RECURRENCE_VALUES: readonly RecurrenceCadence[] = [
   "NONE",
   "WEEKLY",
   "MONTHLY",
+  "BIMONTHLY",
+  "QUARTERLY",
+  "SEMIANNUAL",
   "YEARLY",
 ];
 
@@ -334,7 +337,20 @@ export async function completeObligation(
   });
 
   let nextInstance: ObligationRecord | null = null;
-  if (current.recurrence !== "NONE") {
+  if (current.recurrence !== "NONE" && deps.store.continueSeries) {
+    // Ledger store: the ledger places the next occurrence (anchored, Israel
+    // calendar, never past an end date). "Handled" above moved no money.
+    nextInstance = await deps.store.continueSeries(businessId, id);
+    if (nextInstance) {
+      await emitChange(deps, {
+        businessId,
+        obligationId: nextInstance.id,
+        action: "CREATED",
+        fields: ["dueAt", "recurrence"],
+        bySystem: true,
+      });
+    }
+  } else if (current.recurrence !== "NONE") {
     const nextDue = nextOccurrence(current.dueAt, current.recurrence);
     if (nextDue) {
       nextInstance = await deps.store.createObligation({
