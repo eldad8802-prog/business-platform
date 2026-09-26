@@ -21,7 +21,7 @@ $$;
 
 -- Guarded: an environment where the policy was already created by hand must not
 -- fail the release (CREATE POLICY has no IF NOT EXISTS).
-DO $
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -31,4 +31,4 @@ BEGIN
       FOR SELECT TO app_admin USING (true);
   END IF;
 END
-$;
+$$;
