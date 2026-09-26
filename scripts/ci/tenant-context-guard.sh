@@ -228,9 +228,16 @@ own="$(grep -rn "neondb_owner" --include=*.ts "$ROOT/app" "$ROOT/lib" 2>/dev/nul
 n="$(printf '%s' "$own" | grep -c . || true)"
 ok "CI-TC-11 runtime code never names the owner role" "$([ "$n" -eq 0 ] && echo 1 || echo 0)" "$(printf '%s' "$own" | tr '\n' ' ' | cut -c1-160)"
 
-# --- 12. the admin plane is still allowed to read cross-tenant -------------
-n=$(grep -rc "prisma\." "$ROOT/lib/services/platform-admin/platform-business-detail.service.ts" 2>/dev/null || echo 0)
-ok "CI-TC-12 platform-admin retains its own (non-tenant) read path" "$([ "$n" -ge 1 ] && echo 1 || echo 0)"
+# --- 12. the admin plane reads cross-tenant through the ADMIN identity --------
+# (sec/A, from workstream C T-07.) The cross-tenant read must go through getPrismaAdmin() — the
+# app_admin credential with SELECT-only admin policies — never the bare tenant client. While the
+# file is still the documented legacy exception in tenant-scoped-access-guard.mjs (bare client,
+# pre-T-07), that allowlist entry is the only thing that permits the bare path; once T-07 removes
+# the entry, this check REQUIRES getPrismaAdmin().
+BD="$ROOT/lib/services/platform-admin/platform-business-detail.service.ts"
+adm=$(grep -c "getPrismaAdmin()" "$BD" 2>/dev/null || true); adm=${adm:-0}
+legacy=$(grep -c '"lib/services/platform-admin/platform-business-detail.service.ts"' "$ROOT/scripts/ci/tenant-scoped-access-guard.mjs" 2>/dev/null || true); legacy=${legacy:-0}
+ok "CI-TC-12 platform-admin reads cross-tenant via getPrismaAdmin() (or is the listed legacy exception)" "$({ [ "$adm" -ge 1 ] || [ "$legacy" -ge 1 ]; } && echo 1 || echo 0)" "getPrismaAdmin=$adm legacy-allowlisted=$legacy"
 
 # --- 13. KNOWLEDGE tables are never reached through the global client ------
 # The check CI-TC-1..5 could not perform, because these were never pilot models. The Learning Center

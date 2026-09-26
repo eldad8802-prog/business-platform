@@ -62,7 +62,7 @@ const CANONICAL_PRISMA = "lib/prisma";
 /** Privileged client module -> the only surfaces allowed to import it (regex on repo path). */
 const PRIVILEGED = {
   "lib/prisma-admin": [/^app\/api\/platform-admin\//, /^app\/api\/dev\//, /^lib\/services\/platform-admin\//, /^lib\/services\/learning-center\//],
-  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/],
+  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */],
   "lib/prisma-control-plane": null, // read from privwrite-guard's own allowlist below
 };
 
@@ -225,6 +225,9 @@ export function analyseFile(root, file, ctx) {
       if (ts.isParameter(n) && n.initializer && isCanonical(unwrap(n.initializer))) d("AST-2", n, "default-param");
       if (ts.isVariableDeclaration(n) && n.initializer && isCanonical(unwrap(n.initializer))) d("AST-2", n, "alias");
       if (ts.isPropertyAssignment(n) && isCanonical(unwrap(n.initializer))) d("AST-2", n, "alias-prop");
+      // run(prisma) / fn(prisma) / helper(x ?? prisma): the canonical client handed to a callee
+      // runs that callee with NO tenant context (found in customer.service listCustomers).
+      if ((ts.isCallExpression(n) || ts.isNewExpression(n)) && (n.arguments ?? []).some((arg) => isCanonical(unwrap(arg)))) d("AST-2", n, "arg");
       // AST-3 bare tenant access
       if (ts.isPropertyAccessExpression(n) && isCanonical(n.expression)) {
         const m = n.name.text;
@@ -415,6 +418,7 @@ function selfTest() {
     ["namespace PrismaClient", { "lib/x/b.ts": 'import * as P from "@prisma/client";\nexport const c = new P.PrismaClient();' }, "AST-1"],
     ["require PrismaClient", { "lib/x/c.js": 'const { PrismaClient } = require("@prisma/client");\nmodule.exports = new PrismaClient();' }, "AST-1"],
     ["tx ?? prisma fallback", { "lib/x/d.ts": 'import { prisma } from "@/lib/prisma";\nexport function f(o?: { tx?: any }) { const db = o?.tx ?? prisma; return db; }' }, "AST-2"],
+    ["run(prisma) — the canonical client passed as an argument", { "lib/x/k.ts": 'import { prisma } from "@/lib/prisma";\nexport function f(o?: { tx?: any }) { const run = (db: any) => db.x.findMany(); return o?.tx ? run(o.tx) : run(prisma); }' }, "AST-2"],
     ["default parameter = prisma", { "lib/x/e.ts": 'import { prisma as p } from "@/lib/prisma";\nexport function f(db = p) { return db; }' }, "AST-2"],
     ["prisma[\"customer\"] element access", { "lib/x/f.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = () => prisma["customer"].findMany();' }, "AST-3"],
     ["bare FORCE-RLS model", { "lib/x/g.ts": 'import { prisma } from "../prisma";\nexport const f = () => prisma\n  .customer\n  .findMany();' }, "AST-3"],
