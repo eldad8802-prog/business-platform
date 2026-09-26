@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+// M-14(c)/T-07: platform-admin reads run as the admin identity (app_admin family,
+// p7adm_read + explicit grants), never as the tenant runtime.
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { getClientIp } from "@/lib/security/rate-limit";
 import {
   PLATFORM_ADMIN_AREA_ENTERED_THROTTLE_MINUTES,
@@ -61,16 +63,15 @@ export async function createPlatformAuditEventTx(
  *
  * D2/P7-W2-GATE migration ratchet: migrated admin routes pass the sanctioned
  * admin client (`{ db: getPrismaAdmin() }`) so the append runs as the admin
- * role; not-yet-migrated routes still default to the tenant singleton. The
- * default is removed as the remaining admin routes migrate — never add new
- * callers relying on it.
+ * role. M-14(c)/T-07: the default is now the admin client too — every caller is
+ * a platform-admin route, and none may append through the tenant runtime.
  */
 export async function logPlatformAuditEvent(
   input: LogPlatformAuditEventInput,
   options?: { db?: PrismaTx }
 ): Promise<void> {
   try {
-    await createPlatformAuditEventTx(options?.db ?? prisma, input);
+    await createPlatformAuditEventTx(options?.db ?? getPrismaAdmin(), input);
   } catch (error) {
     console.error("logPlatformAuditEvent error:", error);
   }
@@ -89,7 +90,7 @@ export async function logPlatformAdminAreaEnteredIfDue(
       Date.now() - PLATFORM_ADMIN_AREA_ENTERED_THROTTLE_MINUTES * 60 * 1000
     );
 
-    const recent = await prisma.platformAuditEvent.findFirst({
+    const recent = await getPrismaAdmin().platformAuditEvent.findFirst({
       where: {
         actorUserId,
         action: PLATFORM_AUDIT_ACTIONS.AREA_ENTERED,

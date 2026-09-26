@@ -200,6 +200,28 @@ test("signup stays ONE transaction on the auth plane (no orphaned Business or Us
     "signup performs a create outside the transaction handle");
 });
 
+// ---- T-05: the production deployment never runs legacy ---------------------
+test("T-05: production + unset flag throws (no silent legacy)", () =>
+  withEnv({ VERCEL_ENV: "production", AUTH_PLANE_ENABLED: undefined, AUTH_DATABASE_URL: undefined }, (m) => {
+    assert.throws(() => m.authPlaneMode(), /must be "true" on the production deployment/);
+    assert.throws(() => m.authDb(), /must be "true" on the production deployment/);
+  }));
+
+test("T-05: production + flag false throws", () =>
+  withEnv({ VERCEL_ENV: "production", AUTH_PLANE_ENABLED: "false", AUTH_DATABASE_URL: undefined }, (m) => {
+    assert.throws(() => m.authPlaneMode(), /must be "true" on the production deployment/);
+  }));
+
+test("T-05: production + flag true is active", () =>
+  withEnv({ VERCEL_ENV: "production", AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: AUTH_URL }, (m) => {
+    assert.equal(m.authPlaneMode(), "active");
+  }));
+
+test("T-05: preview + unset flag stays legacy (explicitly scoped to production)", () =>
+  withEnv({ VERCEL_ENV: "preview", AUTH_PLANE_ENABLED: undefined, AUTH_DATABASE_URL: undefined }, (m) => {
+    assert.equal(m.authPlaneMode(), "legacy");
+  }));
+
 // ---- no escalation --------------------------------------------------------
 test("the auth plane is not the admin plane", () => {
   assert.ok(!/prisma-admin|getPrismaAdmin|app_admin/.test(SRC),

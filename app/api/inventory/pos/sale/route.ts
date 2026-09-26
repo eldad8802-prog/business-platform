@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryMovementReason } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -8,6 +7,7 @@ import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-a
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
+import { lookupPosApiKey, touchPosApiKey } from "@/lib/services/inventory/pos-api-key.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { MAX_LIST, MAX_STRING } from "@/lib/sensors/sensor.contract";
 import type { Prisma } from "@prisma/client";
@@ -85,10 +85,9 @@ export async function POST(request: NextRequest) {
     let source: string;
     let apiKeyId: number | null = null;
 
-    const dbKey = await prisma.pOSApiKey.findUnique({
-      where: { keyHash },
-      select: { id: true, businessId: true, source: true, active: true },
-    });
+    // sec(C)/M-14(a): narrow pre-context lookup (SECURITY DEFINER), not a
+    // cross-tenant read of POSApiKey.
+    const dbKey = await lookupPosApiKey(keyHash);
 
     if (dbKey && dbKey.active) {
       // Per-business key found — source is locked to the key, not the request body.
@@ -141,9 +140,7 @@ export async function POST(request: NextRequest) {
 
     // Fire-and-forget lastUsedAt — does not block the ingest flow.
     if (apiKeyId !== null) {
-      prisma.pOSApiKey
-        .update({ where: { id: apiKeyId }, data: { lastUsedAt: new Date() } })
-        .catch(() => {});
+      void touchPosApiKey(businessId, apiKeyId);
     }
 
     const body = await request.json();

@@ -4,7 +4,11 @@ import { deriveKnowledgeForBusiness } from "@/lib/knowledge/derive.service";
 import { resolveIdentitiesForBusiness } from "@/lib/identity/entity-identity.service";
 import { generateInsightsForBusiness } from "@/lib/knowledge/insight.service";
 import { deriveTemporalForBusiness } from "@/lib/knowledge/temporal/derive-temporal.service";
+import { buildBusinessKnowledgeSnapshot } from "@/lib/knowledge/snapshot/build-snapshot";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { runTenantJob } from "@/lib/tenant/job";
+import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
+import { resolveKnowledgeDeriveSecret } from "@/lib/security/knowledge-derive-secret";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 
 /**
@@ -21,9 +25,15 @@ import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status
  * place a derivation can prove BOTH that the rules are right and that the tenant context reaches the
  * database is inside the runtime itself. That is this route.
  *
- * AUTHENTICATION is the scheduler's, not a user's: the same CRON_SECRET bearer contract the settlement
- * recovery route uses, fail-closed on a missing or placeholder secret. There is no session, no UI and
- * no navigation entry — a business owner cannot reach this, and neither can a logged-in user.
+ * AUTHENTICATION is the scheduler's, not a user's: the settlement-recovery bearer contract
+ * (decideRecoveryAuth), fail-closed on a missing or placeholder secret. The secret is this route's OWN
+ * (KNOWLEDGE_DERIVE_SECRET, L-8); CRON_SECRET is accepted only as a transitional fallback while the
+ * dedicated secret is unset. There is no session, no UI and no navigation entry — a business owner
+ * cannot reach this, and neither can a logged-in user.
+ *
+ * LIFECYCLE (T-09): the derivation writes tenant rows, so it runs as a tenant JOB (runTenantJob): a
+ * business that is quarantined for deletion, purged, or does not exist is refused before any work,
+ * with one answer for all three (no existence oracle).
  *
  * THE TENANT IS EXPLICIT. One businessId, derived for exactly that one. A sweep across tenants is a
  * decision about cadence and cost that nobody has the numbers to make yet; the per-source timings in
@@ -36,6 +46,13 @@ import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status
  * THE RESPONSE CARRIES NO IDENTIFIERS beyond the businessId the caller already supplied, and no
  * business content: statuses, counts, rule ids, versions, durations. No vendor name, no payee, no
  * amount, no fact text.
+ *
+ * T-09 — NO DB POSTURE IN THE RESPONSE. The dispatch workflow prints this body into a PUBLIC log. The
+ * role name, its superuser/bypassrls flags, per-table RLS/privilege flags and the "rows visible without
+ * a tenant" / "foreign rows" counts are still MEASURED on this connection, but only two verdicts leave
+ * the process: `proofLevel` (FULL | DERIVATION-ONLY) and `isolation.holds` (boolean). The detail is
+ * returned only when the server-side KNOWLEDGE_DERIVE_DIAGNOSTICS=true (default off; a caller cannot
+ * opt in) — and must never be enabled while the workflow prints the body publicly.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +72,7 @@ const ISOLATION_TABLES = [
 async function handle(req: NextRequest) {
   const decision = decideRecoveryAuth(
     req.headers.get("authorization"),
-    process.env.CRON_SECRET
+    resolveKnowledgeDeriveSecret().secret
   );
   if (decision === "NOT_CONFIGURED") {
     return NextResponse.json({ error: "derive_not_configured" }, { status: 503 });
@@ -70,10 +87,27 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ error: "businessId must be a positive integer" }, { status: 400 });
   }
 
+  const diagnostics = process.env.KNOWLEDGE_DERIVE_DIAGNOSTICS?.trim() === "true";
+
   try {
-    // Posture is reported, not assumed. If this ever runs as a role that can bypass RLS, the response
-    // says so, and the run stops being evidence of tenant enforcement — which is a thing the reader
-    // must be able to see rather than infer from where the request happened to be sent.
+    return await runTenantJob({ businessId }, () => derive(businessId, diagnostics));
+  } catch (error) {
+    if (error instanceof BusinessQuarantinedError) {
+      // Quarantined, purged and nonexistent all answer the same.
+      return NextResponse.json({ ok: false, error: "tenant_unavailable" }, { status: 409 });
+    }
+    console.error("[knowledge/derive] run failed", {
+      error: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ ok: false, error: "derive_failed" }, { status: 500 });
+  }
+}
+
+async function derive(businessId: number, diagnostics: boolean) {
+  {
+    // Posture is measured, not assumed. If this ever runs as a role that can bypass RLS, the response
+    // says so (proofLevel), and the run stops being evidence of tenant enforcement. Only the verdict
+    // leaves the process by default — the role name and flags stay server-side (T-09).
     const { prisma } = await import("@/lib/prisma");
     const posture = await prisma.$queryRawUnsafe<{ u: string; s: boolean; b: boolean }[]>(
       `SELECT current_user AS u, rolsuper AS s, rolbypassrls AS b FROM pg_roles WHERE rolname = current_user`
@@ -97,6 +131,11 @@ async function handle(req: NextRequest) {
     const insights = await generateInsightsForBusiness(businessId);
     // M6 — temporal knowledge AS OF the same instant the measures were derived at.
     const temporal = await deriveTemporalForBusiness(businessId, new Date(derivation.now));
+    // M7 — the Business Knowledge Snapshot, built TWICE at the same instant: the second build must
+    // reproduce the first fingerprint exactly. Only its stats leave this function — never its contents.
+    const snapAsOf = new Date(derivation.now);
+    const snap1 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+    const snap2 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
 
     // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
     //
@@ -133,11 +172,16 @@ async function handle(req: NextRequest) {
       foreignRows[t] = scoped[0]?.n ?? -1;
     }
 
+    const holds =
+      rls.length === ISOLATION_TABLES.length &&
+      rls.every((x) => x.rls && x.force) &&
+      Object.values(withoutTenant).every((n) => n === 0) &&
+      Object.values(foreignRows).every((n) => n === 0);
+
     return NextResponse.json(
       {
         ok: true,
         businessId,
-        role: { name: role?.u, superuser: role?.s, bypassrls: role?.b },
         proofLevel: role?.b === false && role?.s === false ? "FULL" : "DERIVATION-ONLY",
         facts: { total: snapshot.items.length, byDomain, snapshotTenant: snapshot.businessId },
         identity,
@@ -168,16 +212,7 @@ async function handle(req: NextRequest) {
             durationMs: r.durationMs,
           })),
         },
-        isolation: {
-          rls,
-          withoutTenant,
-          foreignRows,
-          holds:
-            rls.length === ISOLATION_TABLES.length &&
-            rls.every((x) => x.rls && x.force) &&
-            Object.values(withoutTenant).every((n) => n === 0) &&
-            Object.values(foreignRows).every((n) => n === 0),
-        },
+        isolation: { holds },
         // Per temporal rule: outcome and COUNTS by knowledge type and status. No baseline, no value,
         // no entity id — the same public-log rule as the measures above.
         temporal: {
@@ -192,15 +227,36 @@ async function handle(req: NextRequest) {
             superseded: r.superseded, staled: r.staled, durationMs: r.durationMs,
           })),
         },
+        // M7 — counts, sizes, timing and the fingerprint's equality. Not the snapshot.
+        snapshot: {
+          contractVersion: snap1.contractVersion,
+          counts: snap1.stats.counts,
+          truncated: snap1.stats.truncated,
+          serializedBytes: snap1.stats.serializedBytes,
+          largestSection: snap1.stats.largestSection,
+          queries: snap1.stats.queries,
+          buildMs: snap1.buildMs,
+          secondBuildMs: snap2.buildMs,
+          deterministic: snap1.snapshotFingerprint === snap2.snapshotFingerprint,
+          knowledgeByKind: snap1.knowledge.reduce<Record<string, number>>((a, k) => ({ ...a, [k.kind]: (a[k.kind] ?? 0) + 1 }), {}),
+          findingsByRule: snap1.crossDomainFindings.reduce<Record<string, number>>((a, f) => ({ ...a, [f.ruleId]: (a[f.ruleId] ?? 0) + 1 }), {}),
+          conflictsByKind: snap1.conflicts.reduce<Record<string, number>>((a, c) => ({ ...a, [c.kind]: (a[c.kind] ?? 0) + 1 }), {}),
+          gapsByKind: snap1.knowledgeGaps.reduce<Record<string, number>>((a, g) => ({ ...a, [g.kind]: (a[g.kind] ?? 0) + 1 }), {}),
+        },
         insights: insights.length,
+        ...(diagnostics
+          ? {
+              diagnostics: {
+                role: { name: role?.u, superuser: role?.s, bypassrls: role?.b },
+                rls,
+                withoutTenant,
+                foreignRows,
+              },
+            }
+          : {}),
       },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("[knowledge/derive] run failed", {
-      error: error instanceof Error ? error.name : "unknown",
-    });
-    return NextResponse.json({ ok: false, error: "derive_failed" }, { status: 500 });
   }
 }
 

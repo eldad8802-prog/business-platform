@@ -95,9 +95,38 @@ export function getPrismaAuth(): PrismaClient {
  */
 export type AuthPlaneMode = "legacy" | "active";
 
+/**
+ * T-05 — the production deployment never runs legacy mode.
+ *
+ * Legacy mode serves login through `app_runtime`. Since the E4 narrowing
+ * (20260908180000, applied to Production on 2026-09-08 per the public
+ * release-migrate log) `app_runtime` holds no SELECT on `User.password`,
+ * `tokenVersion` or `role` and no INSERT on `User`/`Business`, so a legacy-mode
+ * production would already fail every login with a permission error. Production
+ * logins work, which means Production runs `active` (owner to verify). Making that
+ * explicit costs nothing and removes the only way the boundary could silently come
+ * back: were the runtime ever re-granted `User`, an unset flag would quietly route
+ * auth through the tenant identity again. So on the production deployment an
+ * unset/"false" flag is a hard error, not a mode.
+ *
+ * "Production deployment" = VERCEL_ENV === "production" (Vercel sets it; Preview
+ * and local stay free to run legacy while their own identities are provisioned).
+ */
+function isProductionDeployment(): boolean {
+  return process.env.VERCEL_ENV?.trim() === "production";
+}
+
 export function authPlaneMode(): AuthPlaneMode {
   const raw = process.env.AUTH_PLANE_ENABLED?.trim().toLowerCase();
-  if (raw === undefined || raw === "" || raw === "false") return "legacy";
+  if (raw === undefined || raw === "" || raw === "false") {
+    if (isProductionDeployment()) {
+      throw new Error(
+        'AUTH_PLANE_ENABLED must be "true" on the production deployment. ' +
+          "Refusing to serve authentication through the tenant runtime identity."
+      );
+    }
+    return "legacy";
+  }
   if (raw === "true") return "active";
   // Neither silently. An unrecognised value ("1", "yes", "True ") must not be
   // read as "legacy", because that turns a typo into a quiet downgrade of the
