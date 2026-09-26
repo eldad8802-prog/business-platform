@@ -386,6 +386,41 @@ async function main(): Promise<void> {
     const arnona = (await deriveBusinessCost({ businessId: A.id, date: "2026-10-20" })).allocatedCost.lines.find((l) => l.title === "ארנונה BIMONTHLY");
     eq("the engine spreads 4,200 over Sep 1 – Oct 31 (61 days)", [arnona?.period.days, arnona?.basis], [61, "RECORDED"]);
 
+    /* ── L · the one behaviour that ships with the switch OFF ─────────────── */
+    section("L · settlement materialisation with SECRETARY_LEDGER_STORE OFF (live the moment #538 merges)");
+    setMode("legacy");
+    await as(B.id, () => payables.createCommitment({ businessId: B.id, title: "ליסינג B", payeeNameSnapshot: "x", scheduleKind: "RECURRING", recurrence: "MONTHLY", recurringAmount: "9999", firstDueAt: D("2026-09-10T00:00:00Z") }));
+    const bSideBefore = await prisma.installment.count({ where: { businessId: B.id } });
+    check("B has installments to protect", bSideBefore > 0);
+    const lease = await as(A.id, () =>
+      payables.createCommitment({ businessId: A.id, title: "ליסינג", payeeNameSnapshot: "חברת ליסינג", scheduleKind: "RECURRING", recurrence: "MONTHLY", recurringAmount: "1500", firstDueAt: D("2026-09-10T00:00:00Z") }),
+    );
+    const leaseRows = async () => (await installmentsOf(lease.id)).map((i) => ymd(i.dueAt));
+    const first = (await installmentsOf(lease.id))[0];
+    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "500", paidAt: D("2026-09-10T09:00:00Z"), method: "CASH", installmentIds: [first.id] }));
+    eq("a PARTIAL payment of the latest occurrence materialises nothing", await leaseRows(), ["2026-09-10"]);
+    const key = "l-idem-" + runId;
+    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1000", paidAt: D("2026-09-11T09:00:00Z"), method: "CASH", installmentIds: [first.id], idempotencyKey: key }));
+    eq("completing it materialises exactly ONE next occurrence", await leaseRows(), ["2026-09-10", "2026-10-10"]);
+    const replay = await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1000", paidAt: D("2026-09-11T09:00:00Z"), method: "CASH", installmentIds: [first.id], idempotencyKey: key }));
+    eq("a replayed request (same idempotency key) is a replay…", replay.replayed, true);
+    eq("…and materialises nothing more", await leaseRows(), ["2026-09-10", "2026-10-10"]);
+    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1500", paidAt: D("2026-10-10T09:00:00Z"), method: "CASH", installmentIds: [(await installmentsOf(lease.id))[1].id] }));
+    eq("settling the new latest occurrence adds the next one (Nov 10)", await leaseRows(), ["2026-09-10", "2026-10-10", "2026-11-10"]);
+    const older = await as(A.id, () =>
+      payables.createCommitment({ businessId: A.id, title: "תוכנה", payeeNameSnapshot: "ספק תוכנה", scheduleKind: "RECURRING", recurrence: "MONTHLY", recurringAmount: "100", firstDueAt: D("2026-08-01T00:00:00Z") }),
+    );
+    await as(A.id, () => payables.materialiseNextRecurringInstallment({ businessId: A.id, commitmentId: older.id }));
+    const olderRows = await installmentsOf(older.id);
+    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: older.id, amount: "100", paidAt: D("2026-08-01T09:00:00Z"), method: "CASH", installmentIds: [olderRows[0].id] }));
+    eq("settling an OLDER (not latest) occurrence materialises nothing", (await installmentsOf(older.id)).length, 2);
+    eq("no InstallmentWorkflow row is written by payments (switch off)", await prisma.installmentWorkflow.count({ where: { installmentId: { in: [...(await installmentsOf(lease.id)), ...(await installmentsOf(older.id))].map((i) => i.id) } } }), 0);
+    eq("no BusinessObligation row is written by payments", await prisma.businessObligation.count({ where: { businessId: A.id } }), 0);
+    eq("business B's installments are untouched by A's settlements", await prisma.installment.count({ where: { businessId: B.id } }), bSideBefore);
+    const leaseCost = (await deriveBusinessCost({ businessId: A.id, date: "2026-10-20" })).allocatedCost.lines.find((l) => l.commitmentId === lease.id);
+    eq("the materialised occurrence is exactly where the engine had projected it (1,500 over Oct 10 – Nov 9)", [leaseCost?.basis, leaseCost?.period.from, leaseCost?.period.to, leaseCost?.periodAmountMinor], ["RECORDED", "2026-10-10", "2026-11-09", 150000]);
+    setMode("ledger");
+
     /* ── J · cutover ───────────────────────────────────────────────────── */
     section("J · cutover (legacy writes → backfill → drift → cutover)");
     setMode("legacy");
@@ -494,6 +529,12 @@ async function main(): Promise<void> {
                  AND p.qual LIKE '%app.current_business_id%' AND p.with_check LIKE '%app.current_business_id%')::bigint AS policies
          FROM pg_class c WHERE c.relname = 'InstallmentWorkflow'`,
     );
+    // The read-only Production verification script must pass on this database too.
+    const verify = splitSql(readFileSync(path.join(process.cwd(), "scripts", "payables", "installment-workflow-verify.sql"), "utf8"));
+    const verifyRows = await prisma.$queryRawUnsafe<Array<{ check: string; ok: boolean }>>(verify[0]);
+    const failing = verifyRows.filter((r) => !r.ok && r.check !== "table is empty (no backfill ran; the flag is off, nothing writes it)");
+    eq("installment-workflow-verify.sql: every catalog check true (emptiness aside — this DB has test rows)", failing.map((r) => r.check), []);
+    eq("…and it covers all the reviewed objects", verifyRows.length, 13);
     eq("InstallmentWorkflow: RLS enabled + FORCED + tenant policy (from the migration)", [installed[0]?.rls, installed[0]?.forced, Number(installed[0]?.policies)], [true, true, 1]);
 
     const roleName = "secretary_ledger_runtime";
