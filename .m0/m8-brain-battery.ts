@@ -96,7 +96,9 @@ async function main(): Promise<void> {
   for (const b of [bizA.id, bizB.id]) {
     for (let i = 0; i < 8; i++) {
       const d = await owner.document.create({ data: { businessId: b, fileUrl: `s3://m8/${NONCE}-${b}-${i}`, source: "upload", mimeType: "application/pdf", status: "approved" } as never });
-      await owner.financialRecord.create({ data: { documentId: d.id, businessId: b, amount: 4321 + i, date: ago(20 + i * 15), vendorName: "Secret Vendor Ltd",
+      // A files in ~3 days, B in ~20: similar businesses, different knowledge — so their contexts differ.
+      const lag = b === bizA.id ? 3 : 20;
+      await owner.financialRecord.create({ data: { documentId: d.id, businessId: b, amount: 4321 + i, date: ago(17 + lag + i * 15), vendorName: "Secret Vendor Ltd",
         direction: "expense", category: "lab", approvedAt: ago(17 + i * 15) } as never });
     }
     await owner.customer.create({ data: { businessId: b, name: "Dana Private", phone: "0541112233" } as never });
@@ -139,7 +141,12 @@ async function main(): Promise<void> {
     findings: [{ findingId: "x", type: "ATTENTION", priority: "LOW", knowledgeRefs: ["K1"], findingRefs: [], conflictRefs: [], gapRefs: [],
       observation: "ידע.", interpretation: null, hypothesis: null, causalClaim: false, uncertainty: "SUPPORTED" }],
   })) });
+  check("B's context is not A's (different knowledge → different fingerprint)", ctxB.fingerprint !== fingerprint);
   check("an answer built on B's context is rejected for A", cross.status === "INVALID_OUTPUT" && cross.rejected.some((r) => r.code === "CONTEXT_FINGERPRINT_MISMATCH"));
+  // Structural guarantee, independent of fingerprints: refs are resolved ONLY through A's own alias
+  // map, so any accepted ref can only ever name A's knowledge.
+  check("every ref the Brain ever accepted for A resolves inside A's snapshot",
+    good.findings.every((f) => f.knowledgeSlots.every((s) => snapA.knowledge.some((k) => k.slot === s))));
   const callsBefore = calls;
   const wrongTenant = await runBrain(bizA.id, { mode: "shadow", buildSnapshot: () => build(bizB.id), provider: fake(() => ({})) });
   check("a snapshot of B handed to A's run stops before any model call", wrongTenant.status === "INVALID_OUTPUT" && !wrongTenant.meta.modelCalled && calls === callsBefore);
