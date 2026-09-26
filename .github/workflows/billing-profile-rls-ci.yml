@@ -27,6 +27,9 @@ on:
     branches: [main]
     paths:
       - "app/api/billing/documents/**"
+      - "app/api/billing/customers/**"
+      - "lib/services/crm/customer.service.ts"
+      - "app/api/customers/**"
       - "app/api/business/profile/**"
       - "app/api/video/plan/**"
       - "app/api/rls-tenant-scoped-routes.integration.test.ts"
@@ -122,6 +125,14 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/rls-tenant-scoped-routes.integration.test.ts
+
+      - name: Billing customer picker under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/billing/customers/route.rls.integration.test.ts
 
       - name: Notifications, awaiting payment, pricing and authority identity
         env:
