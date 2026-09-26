@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, authRequiredResponse } from "@/lib/auth";
+import { getAuthContext, authRequiredResponse } from "@/lib/auth";
+import {
+  readStepUpHeader,
+  stepUpRequiredBody,
+  verifyAndConsumeStepUp,
+} from "@/lib/auth/step-up";
 import {
   deleteOwnBusinessAccount,
   AccountDeletionError,
@@ -15,9 +20,25 @@ export const dynamic = "force-dynamic";
  * fiscal records. Sole-active-user only (v1); fails closed.
  */
 export async function DELETE(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) {
+  const context = await getAuthContext(req);
+  if (!context) {
     return authRequiredResponse(req);
+  }
+  const user = context.user;
+
+  // M-9: irreversible, so a bearer token alone is not enough. The caller must
+  // present a fresh, single-use step-up token for exactly this action, bound to
+  // this device and this token generation (POST /api/auth/step-up).
+  const stepUp = await verifyAndConsumeStepUp(
+    readStepUpHeader(req),
+    { userId: user.id, sessionId: context.sessionId, tokenVersion: user.tokenVersion },
+    "account.delete"
+  );
+  if (!stepUp.ok) {
+    return NextResponse.json(stepUpRequiredBody(stepUp), {
+      status: stepUp.reason === "unavailable" ? 503 : 403,
+      headers: { "cache-control": "no-store" },
+    });
   }
 
   try {

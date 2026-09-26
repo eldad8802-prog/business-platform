@@ -56,6 +56,21 @@ export async function signOut(): Promise<void> {
     }
   }
 
+  // Always, token or not: the refresh cookie is only sent to /api/auth/refresh*,
+  // so this is the one request that can end the refresh sessions when the access
+  // token has already expired (and it clears the cookie on this device).
+  try {
+    const res = await fetch("/api/auth/refresh/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    if (!res.ok) {
+      console.error("signOut: server did not end the refresh session", res.status);
+    }
+  } catch (error) {
+    console.error("signOut: could not reach the server to end the refresh session", error);
+  }
+
   clearClientSession();
 }
 

@@ -5,6 +5,11 @@
  * obtaining elevation. The caller must still be an authenticated,
  * allowlisted PLATFORM_ADMIN, so an ordinary business user cannot reach this.
  *
+ * ENROLLMENT AUTHORITY (M-10): identity alone is NOT enough. The body must carry
+ * the out-of-band bootstrap code whose SHA-256 is PLATFORM_ADMIN_ENROLLMENT_CODE_HASH
+ * (see lib/auth/admin-mfa-enrollment.ts). A stolen admin bearer can therefore no
+ * longer enroll the thief's authenticator. Unset variable = enrollment disabled.
+ *
  * Returns the provisioning URI EXACTLY ONCE. The seed is stored encrypted and
  * is never returned again — not by this route, not by any other. Enrollment is
  * not yet active: MFA turns on only after /confirm proves a real code.
@@ -15,6 +20,10 @@ import {
 } from "@/lib/auth/platform-admin";
 import { beginAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
 import { isAdminMfaCryptoConfigured } from "@/lib/auth/admin-mfa-crypto";
+import { verifyAdminEnrollmentCode } from "@/lib/auth/admin-mfa-enrollment";
+import { authThrottleResponse } from "@/lib/auth/credential-check";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { getClientIp } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +37,25 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "MFA is not configured on this environment", code: "MFA_NOT_CONFIGURED" },
       { status: 503 }
+    );
+  }
+
+  const rl = await checkRateLimit({ bucket: "ADMIN_MFA_ENROLL", user: gate.id, ip: getClientIp(req) });
+  if (!rl.allowed) return authThrottleResponse(rl);
+
+  const body = (await req.json().catch(() => null)) as { enrollmentCode?: unknown } | null;
+  const verdict = verifyAdminEnrollmentCode(body?.enrollmentCode);
+  if (verdict === "disabled") {
+    return NextResponse.json(
+      { error: "Authenticator enrollment is disabled on this environment", code: "ENROLLMENT_DISABLED" },
+      { status: 403 }
+    );
+  }
+  if (verdict !== "ok") {
+    console.warn(JSON.stringify({ event: "admin_mfa_enroll_code_refused", userId: gate.id }));
+    return NextResponse.json(
+      { error: "Enrollment code required", code: "ENROLLMENT_CODE_INVALID" },
+      { status: 403 }
     );
   }
 

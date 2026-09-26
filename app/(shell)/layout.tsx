@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 import { ShellChrome } from "@/components/navigation/shell-chrome";
 import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
@@ -25,10 +26,13 @@ d.style.cssText='position:fixed;inset:0;z-index:2147483600;background:radial-gra
 setTimeout(function(){try{r.removeAttribute('data-dubiz-intro');var x=document.getElementById('dubiz-intro-preboot');if(x)x.remove();}catch(e){}},22000);
 }catch(e){}})();`;
 
-export default function ShellLayout({ children }: { children: ReactNode }) {
+export default async function ShellLayout({ children }: { children: ReactNode }) {
+  // CSP (M-8): this inline script runs only because it carries the request's
+  // nonce (set by proxy.ts).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <>
-      <script dangerouslySetInnerHTML={{ __html: INTRO_PREBOOT }} />
+      <script nonce={nonce} dangerouslySetInnerHTML={{ __html: INTRO_PREBOOT }} />
       <RefreshCoordinator>
         <ShellChrome>{children}</ShellChrome>
       </RefreshCoordinator>

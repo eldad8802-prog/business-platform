@@ -101,4 +101,80 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 25, windowSeconds: 24 * 60 * 60 },
     ],
   },
+
+  // ── Authentication (security closure, workstream B) ────────────────────────
+  //
+  // Every auth bucket is fail-CLOSED and requires all of its identifiers. "The
+  // limiter is down" must never become "unlimited password guessing", and a
+  // rule that is skipped because an identifier was not passed is not a rule.
+  //
+  // The numbers are conservative defaults and an OWNER POLICY DECISION: tune
+  // here, never in the routes. The per-account rules stop a distributed guess
+  // against one owner; they are looser than the per-(account, IP) rule so that
+  // spraying one victim from many addresses cannot lock them out as cheaply.
+
+  // Before the body is parsed: pure per-address flood control (10/min is the
+  // value the login route enforced before this change).
+  AUTH_LOGIN_IP: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "ip", limit: 10, windowSeconds: 60 },
+      { scope: "ip", limit: 100, windowSeconds: 60 * 60 },
+    ],
+  },
+  // After the address is known. Keyed by the NORMALIZED email whether or not an
+  // account exists, so throttling itself is not an enumeration oracle.
+  AUTH_LOGIN_ACCOUNT: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "account_ip", limit: 5, windowSeconds: 60 },
+      { scope: "account", limit: 20, windowSeconds: 15 * 60 },
+      { scope: "account", limit: 100, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
+  // Changing a password proves the current one — so it is a guessing surface.
+  AUTH_PASSWORD_CHANGE: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "user", limit: 5, windowSeconds: 15 * 60 },
+      { scope: "ip", limit: 20, windowSeconds: 60 * 60 },
+    ],
+  },
+  // Step-up re-proves the password before a destructive action.
+  AUTH_STEP_UP: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "user", limit: 5, windowSeconds: 5 * 60 },
+      { scope: "ip", limit: 30, windowSeconds: 60 * 60 },
+    ],
+  },
+  // Reset requests send mail to an inbox: tight per account, and per address so
+  // one client cannot fan out across many accounts.
+  AUTH_PASSWORD_RESET_REQUEST: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "account", limit: 3, windowSeconds: 60 * 60 },
+      { scope: "ip", limit: 10, windowSeconds: 60 * 60 },
+    ],
+  },
+  AUTH_PASSWORD_RESET_CONFIRM: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [{ scope: "ip", limit: 10, windowSeconds: 60 * 60 }],
+  },
+  // Admin MFA enrollment requires an out-of-band bootstrap code; this caps
+  // guessing it with a stolen admin bearer.
+  ADMIN_MFA_ENROLL: {
+    failMode: "closed",
+    requireAllIdentifiers: true,
+    rules: [
+      { scope: "user", limit: 5, windowSeconds: 60 * 60 },
+      { scope: "ip", limit: 20, windowSeconds: 60 * 60 },
+    ],
+  },
 };

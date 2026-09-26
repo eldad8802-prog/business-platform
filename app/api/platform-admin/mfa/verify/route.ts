@@ -10,7 +10,10 @@
  * cannot be spread across addresses.
  */
 import { NextResponse } from "next/server";
-import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
+import {
+  elevationBindingFor,
+  requirePlatformAdminIdentityOrResponse,
+} from "@/lib/auth/platform-admin";
 import { verifyAdminMfaCode } from "@/lib/auth/admin-mfa.service";
 import {
   ADMIN_ELEVATION_TTL_SECONDS,
@@ -30,6 +33,7 @@ export async function POST(req: Request) {
     key: `admin:mfa:verify:${gate.id}`,
     limit: 10,
     windowMs: 5 * 60_000,
+    failMode: "closed",
   });
   if (!rl.allowed) {
     return NextResponse.json(
@@ -58,7 +62,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        elevation: issueAdminElevation(gate.id),
+        elevation: issueAdminElevation(elevationBindingFor(gate)),
         expiresInSeconds: ADMIN_ELEVATION_TTL_SECONDS,
         via: result.via,
       },

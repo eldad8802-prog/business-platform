@@ -353,6 +353,10 @@ async function main() {
   }));
 
   process.env.PLATFORM_ADMIN_EMAILS = "admin@p7w2g.test";
+  // sec-B (M-10): admin MFA is now fail-closed; this battery proves the
+  // allowlist and the admin DB plane, so it takes the explicit non-production
+  // opt-out (the flag is ignored in production).
+  process.env.PLATFORM_ADMIN_MFA_REQUIRED = "false";
   let res = await call(signAuthToken(adminUser.id));
   const body = res.status === 200 ? await res.json() : null;
   ok("allowlisted PLATFORM_ADMIN -> 200", res.status === 200, `status=${res.status}`);

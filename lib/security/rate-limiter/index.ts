@@ -8,6 +8,7 @@
  * misconfigured deploy fails hard instead of silently running unprotected.
  */
 
+import { createHash } from "node:crypto";
 import { BUCKETS } from "./buckets";
 import { RateLimiterBackendError } from "./errors";
 import { memoryBackend } from "./memory-backend";
@@ -31,7 +32,16 @@ export type RateLimitIdentifiers = {
   user?: number | string | null;
   business?: number | string | null;
   ip?: string | null;
+  /**
+   * An account key (e.g. a normalized email). It is hashed here before it is
+   * used as a backend key, so no address is ever written to Redis.
+   */
+  account?: string | null;
 };
+
+function accountKey(raw: string): string {
+  return createHash("sha256").update(`rl-account:${raw}`, "utf8").digest("hex").slice(0, 32);
+}
 
 function resolveBackendName(): "redis" | "memory" {
   const explicit = process.env.RATE_LIMIT_BACKEND?.trim().toLowerCase();
@@ -54,6 +64,10 @@ function identifierForScope(
       return ids.business != null ? `b:${ids.business}` : null;
     case "ip":
       return ids.ip ? `ip:${ids.ip}` : null;
+    case "account":
+      return ids.account ? `a:${accountKey(ids.account)}` : null;
+    case "account_ip":
+      return ids.account && ids.ip ? `ai:${accountKey(ids.account)}:${ids.ip}` : null;
     case "global":
       return "global";
     default:
@@ -85,6 +99,22 @@ export async function checkRateLimit(
 
   for (const rule of config.rules) {
     const identifier = identifierForScope(rule.scope, input);
+    if (identifier === null && config.requireAllIdentifiers) {
+      console.error(
+        `[rate-limit] missing identifier on strict bucket=${bucket} scope=${rule.scope} -> deny`
+      );
+      return {
+        allowed: false,
+        outcome: "misconfigured",
+        bucket,
+        scope: rule.scope,
+        limit: rule.limit,
+        remaining: 0,
+        resetAt: Date.now() + 5000,
+        retryAfterSeconds: 5,
+        degraded: false,
+      };
+    }
     if (identifier === null) {
       // Missing identifier for this scope (e.g. business rule but no businessId).
       // Skip rather than crash, but make it visible — this is a wiring bug.
@@ -175,12 +205,17 @@ export async function checkRateLimit(
  * Legacy callers fail OPEN on a transient backend blip (preserving the prior
  * "never spuriously blocked" behavior), but the degradation is logged. Config
  * errors still propagate (hard fail in production).
+ *
+ * `failMode: "closed"` is the explicit opt-in for authentication and other
+ * security-sensitive keys: a backend failure then DENIES, reported through
+ * `backendUnavailable` so the caller can answer 503 rather than 429.
  */
 export async function consumeRawLimit(params: {
   key: string;
   limit: number;
   windowSeconds: number;
-}): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  failMode?: "open" | "closed";
+}): Promise<{ allowed: boolean; remaining: number; resetAt: number; backendUnavailable?: boolean }> {
   const backend = getBackend();
   try {
     const result = await backend.evaluate(
@@ -195,6 +230,18 @@ export async function consumeRawLimit(params: {
       resetAt: result.resetAt,
     };
   } catch (error) {
+    if (error instanceof RateLimiterBackendError && params.failMode === "closed") {
+      console.error(
+        `[rate-limit] backend_unavailable legacy failMode=closed -> deny`,
+        error.message
+      );
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + 5000,
+        backendUnavailable: true,
+      };
+    }
     if (error instanceof RateLimiterBackendError) {
       console.error(
         `[rate-limit] backend_unavailable legacy key=${params.key} failMode=open -> allow (degraded)`,
@@ -205,6 +252,31 @@ export async function consumeRawLimit(params: {
         remaining: params.limit,
         resetAt: Date.now() + params.windowSeconds * 1000,
       };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Single-use marker on the shared limiter backend: the FIRST call for an id
+ * within `ttlSeconds` returns "first", every later one "reused". Used to make a
+ * signed, short-lived envelope (e.g. a step-up token) single-use without a
+ * table. Always fail-CLOSED: if the backend cannot answer, the caller must
+ * treat the envelope as unusable ("unavailable").
+ */
+export async function consumeOnce(
+  namespace: string,
+  id: string,
+  ttlSeconds: number
+): Promise<"first" | "reused" | "unavailable"> {
+  const backend = getBackend();
+  try {
+    const result = await backend.evaluate(`once:${namespace}`, id, 1, ttlSeconds);
+    return result.success ? "first" : "reused";
+  } catch (error) {
+    if (error instanceof RateLimiterBackendError) {
+      console.error(`[rate-limit] backend_unavailable once:${namespace} -> deny`, error.message);
+      return "unavailable";
     }
     throw error;
   }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Heebo, Rubik } from "next/font/google";
 import "./globals.css";
 import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
@@ -42,11 +43,16 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // CSP (M-8): proxy.ts issues a per-request nonce, and Next.js can only stamp
+  // it onto its scripts when the page is rendered per request. Reading the
+  // request headers here makes every route dynamic — a prerendered page would
+  // carry scripts with no nonce, and the policy would (correctly) block them.
+  await headers();
   return (
     <html
       lang="he"

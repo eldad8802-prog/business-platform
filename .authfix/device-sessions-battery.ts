@@ -366,7 +366,26 @@ async function main() {
     const bobLive = await issue(bob.id, bob.tokenVersion, CHROME_WIN);
 
     const t = signAuthToken(alice.id, alice.tokenVersion, keep.sessionId);
-    const res = await revokeOthersRoute.POST(post(t, "https://lab.invalid/api/security/sessions/revoke-others"));
+    // sec-B (M-9): signing every other device out now requires a fresh,
+    // single-use step-up bound to this session. Without one it is refused.
+    const noStep = await revokeOthersRoute.POST(post(t, "https://lab.invalid/api/security/sessions/revoke-others"));
+    ok("REVOKE OTHERS without a step-up is refused", noStep.status === 403);
+    const stepUpRoute = await import("@/app/api/auth/step-up/route");
+    const su = await stepUpRoute.POST(
+      new Request("https://lab.invalid/api/auth/step-up", {
+        method: "POST",
+        headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
+        body: JSON.stringify({ password: PASSWORD, action: "sessions.revoke_others" }),
+      })
+    );
+    const stepUpToken = ((await su.json()) as { stepUpToken?: string }).stepUpToken ?? "";
+    ok("...a step-up is issued for the right password", su.status === 200 && stepUpToken.length > 0);
+    const res = await revokeOthersRoute.POST(
+      new Request("https://lab.invalid/api/security/sessions/revoke-others", {
+        method: "POST",
+        headers: { authorization: `Bearer ${t}`, "x-step-up": stepUpToken },
+      })
+    );
     const body = (await res.json()) as { revoked?: number };
     ok("REVOKE OTHERS returns 200", res.status === 200);
     ok("...and reports how many", typeof body.revoked === "number" && (body.revoked ?? 0) >= 2);

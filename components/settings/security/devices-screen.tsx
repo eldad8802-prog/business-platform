@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
+import { STEP_UP_HEADER, obtainStepUpToken, stepUpErrorMessage } from "@/lib/auth/step-up-client";
 
 type SessionStatus = "active" | "revoked" | "expired";
 
@@ -60,6 +61,8 @@ export function DevicesScreen() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [stepUpPassword, setStepUpPassword] = useState("");
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -118,11 +121,23 @@ export function DevicesScreen() {
 
   async function revokeOthers() {
     setBusy("others");
-    setConfirming(null);
+    setStepUpError(null);
     try {
+      // M-9: re-enter the password; the server issues a single-use step-up.
+      const stepUp = await obtainStepUpToken(stepUpPassword, "sessions.revoke_others");
+      setStepUpPassword("");
+      if (!stepUp.ok) {
+        if (stepUp.reason === "unauthorized") {
+          redirectToLogin();
+          return;
+        }
+        setStepUpError(stepUpErrorMessage(stepUp.reason));
+        return;
+      }
+      setConfirming(null);
       const res = await fetch("/api/security/sessions/revoke-others", {
         method: "POST",
-        headers: buildClientAuthHeaders(),
+        headers: buildClientAuthHeaders({ [STEP_UP_HEADER]: stepUp.token }),
       });
       if (res.status === 401) {
         redirectToLogin();
@@ -240,18 +255,35 @@ export function DevicesScreen() {
               <p className="text-sm text-[var(--dz-text-secondary)]">
                 לנתק את כל {others.length} המכשירים האחרים? המכשיר הזה יישאר מחובר.
               </p>
+              <label htmlFor="revoke-others-password" className="text-sm text-[var(--dz-text-secondary)]">
+                לאישור, הזינו את הסיסמה שלכם
+              </label>
+              <input
+                id="revoke-others-password"
+                type="password"
+                autoComplete="current-password"
+                value={stepUpPassword}
+                onChange={(e) => setStepUpPassword(e.target.value)}
+                className="w-full rounded-xl border border-[var(--dz-border-strong)] px-3 py-2 text-sm"
+                aria-describedby={stepUpError ? "revoke-others-error" : undefined}
+              />
+              {stepUpError ? (
+                <p id="revoke-others-error" role="alert" className="text-sm text-[var(--dz-danger,#9c3232)]">
+                  {stepUpError}
+                </p>
+              ) : null}
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => void revokeOthers()}
-                  disabled={busy !== null}
+                  disabled={busy !== null || stepUpPassword.length === 0}
                   className="min-h-11 rounded-2xl bg-[var(--dz-danger,#9c3232)] px-4 text-sm font-bold text-white disabled:opacity-70"
                 >
                   כן, נתק את כולם
                 </button>
                 <button
                   type="button"
-                  onClick={() => setConfirming(null)}
+                  onClick={() => { setConfirming(null); setStepUpPassword(""); setStepUpError(null); }}
                   disabled={busy !== null}
                   className="min-h-11 rounded-2xl px-4 text-sm font-bold text-[var(--dz-text-secondary)]"
                 >
