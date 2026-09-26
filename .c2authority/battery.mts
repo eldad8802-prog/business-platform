@@ -435,7 +435,8 @@ async function main() {
   // exploit that: business A's allocation pointing at business B's ISSUED
   // receipt. If the join were written without a business predicate, B's
   // issuance would settle A's invoice.
-  console.log("\n=== tenant isolation ===");
+  console.log("\n=== tenant isolation — APP-LAYER FILTER PROOF ===");
+  console.log("APP-LAYER FILTER PROOF (sec/A F-5): this section runs as the lab OWNER, which bypasses row-level security. It proves the application's own business predicate (the C2 join's businessId predicate); it does NOT prove database isolation. DB-level isolation for these tables is proven by the rls-db lab of security/gate and the p7/cutover batteries (NOSUPERUSER NOBYPASSRLS roles).");
   {
     const a = await makeBusiness("ten-a");
     const b = await makeBusiness("ten-b");
