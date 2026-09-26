@@ -93,6 +93,12 @@ export const COVERED_MODELS = [
   "User",
   "BusinessProfile",
   "Customer",
+  // SEC-E / M-13. The two integration connections were ERASURE_MANAGED at model level
+  // with no column contract, so a new identifier column on either would have been
+  // absorbed silently. Every column now carries an answer, and the identifiers are
+  // actually erased.
+  "EmailConnection",
+  "WhatsAppConnection",
   "Lead",
   "Notification",
   "ReceivingSession",
@@ -120,11 +126,52 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     tokenVersion: {
       disposition: "RETAIN_BY_DESIGN",
       purpose:
-        "not currently changed by the deletion. Sessions are refused by the business " +
-        "lifecycle gate rather than by invalidating the token itself. Recorded here as a " +
-        "known single-control gap rather than described as a decision.",
-      basis: "UNPROVEN",
+        "SEC-E / M-12(a): INCREMENTED by the erasure's AUTHORITY_REVOKE stage on the auth " +
+        "plane (session-directory.revokeAuthorityOfBusinessUsers), which kills every token " +
+        "and refresh session minted before the deletion independently of the lifecycle " +
+        "gate. The value itself is a generation counter and identifies nobody.",
+      basis: "SECURITY/AUDIT",
     },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // ── SEC-E / M-13 — the integration connections ─────────────────────────────
+  EmailConnection: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    provider: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    // The mailbox address: NOT NULL and unique per (business, provider), so a per-row
+    // tombstone rather than a clear.
+    emailAddress: { disposition: "ANONYMISE" },
+    // Google's stable account id for the person, and the grant they gave.
+    providerAccountId: { disposition: "ERASE" },
+    scopes: { disposition: "ERASE" },
+    lastSyncedAt: { disposition: "STRUCTURAL" },
+    lastSyncCursor: { disposition: "ERASE" },
+    // Provider error text routinely quotes the address or the message.
+    lastError: { disposition: "ERASE" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  WhatsAppConnection: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    // Globally @unique: left in place it locked the number to the deleted business
+    // forever (L-18). Tombstoned, which releases it.
+    phoneNumberId: { disposition: "ANONYMISE" },
+    displayPhoneNumber: { disposition: "ERASE" },
+    wabaId: { disposition: "ERASE" },
+    accessTokenEncrypted: { disposition: "ERASE" },
+    accessTokenIv: { disposition: "ERASE" },
+    accessTokenTag: { disposition: "ERASE" },
+    status: { disposition: "STRUCTURAL" },
+    lastVerifiedAt: { disposition: "STRUCTURAL" },
+    lastErrorAt: { disposition: "ERASE" },
+    lastErrorCode: { disposition: "ERASE" },
+    lastErrorMessage: { disposition: "ERASE" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

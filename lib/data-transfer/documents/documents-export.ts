@@ -131,6 +131,7 @@ export function statusLabel(status: string): string {
 export function sourceLabel(source: string): string {
   if (source === "email") return 'דוא"ל';
   if (source === "whatsapp") return "וואטסאפ";
+  if (source === "whatsapp_unverified") return "וואטסאפ (שולח לא מאומת)";
   if (source === "file") return "קובץ";
   return "אחר";
 }

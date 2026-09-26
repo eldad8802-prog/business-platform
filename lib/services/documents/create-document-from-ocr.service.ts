@@ -77,7 +77,7 @@ export type DocumentAnalysis = {
 
 export type CreateDocumentFromOcrParams = {
   businessId: number;
-  source: "email" | "file" | "whatsapp";
+  source: "email" | "file" | "whatsapp" | "whatsapp_unverified";
   mimeType: string;
   /**
    * The OCR text, or null when extraction produced nothing usable.

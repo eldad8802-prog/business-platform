@@ -148,6 +148,7 @@ export async function POST(req: NextRequest) {
             wamid: decision.wamid,
             mediaType: decision.mediaType,
             mediaId: decision.mediaId,
+            senderTrust: decision.senderTrust,
           })
         );
         console.info(

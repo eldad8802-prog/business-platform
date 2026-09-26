@@ -108,6 +108,14 @@ export type ModelCoverage = {
   question?: string;
   /** Optional for NON_PERSONAL_OPERATIONAL: proof instead of a promise. */
   evidence?: NonPersonalEvidence;
+  /**
+   * SEC-E. For an ERASURE_MANAGED model the adapter cannot write DIRECTLY because
+   * another plane owns it (the auth plane's AuthSession rows, reachable only through
+   * the auth client that CI-2a confines to lib/auth/**). Checked, not trusted (C27):
+   * the adapter must call `adapterCall`, and `file`, read with the same AST analyzer,
+   * must contain a delete or write on this model's delegate inside that function.
+   */
+  erasedVia?: { adapterCall: string; file: string; fn: string };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,6 +141,17 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   WhatsAppConnection: { disposition: "ERASURE_MANAGED" },
   EmailConnection: { disposition: "ERASURE_MANAGED" },
   OAuthToken: { disposition: "ERASURE_MANAGED" },
+  // SEC-E / M-12(a). Revoked at AUTHORITY_REVOKE and DELETED at SESSION_ERASE on the
+  // auth plane — which is also what finally erases the User-Agent of every login.
+  // They were UNMANAGED_PERSONAL_DATA ("refused by the lifecycle gate, not invalidated").
+  AuthSession: {
+    disposition: "ERASURE_MANAGED",
+    erasedVia: { adapterCall: "eraseSessionsOfBusinessUsers", file: "lib/auth/session-directory.ts", fn: "eraseSessionsOfBusinessUsers" },
+  },
+  AuthSessionSecret: {
+    disposition: "ERASURE_MANAGED",
+    erasedVia: { adapterCall: "eraseSessionsOfBusinessUsers", file: "lib/auth/session-directory.ts", fn: "eraseSessionsOfBusinessUsers" },
+  },
   POSApiKey: { disposition: "ERASURE_MANAGED" },
   BillingAuthorityConnection: { disposition: "ERASURE_MANAGED" },
   BusinessPaymentConnection: { disposition: "ERASURE_MANAGED" },
@@ -242,6 +261,17 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 });
 
 const UNMANAGED: Record<string, ModelCoverage> = {
+  // SEC-E revalidation (raised by workstream C). The old claim — "no free text, no
+  // identifiers beyond userId" — does not survive a read of the writer:
+  // recordProductUsageEvent stores the caller's `metadata` object verbatim under
+  // `data`, `sessionId` is the client-supplied x-session-id device identifier, and
+  // `entityId` is free-form. None of it is erased. Closing it needs an explicit
+  // erasure-authority path, because the tenant runtime becomes INSERT-only on this
+  // table in C's phase 3 (a runtime UPDATE/DELETE will be refused).
+  ProductUsageEvent: unmanaged(
+    "metadata (caller-supplied Json, stored verbatim), sessionId (client device id), entityId (free-form), userId",
+    "E2 — erasure-authority path; runtime is INSERT-only after C phase 3"
+  ),
   Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
   Task: unmanaged("title and description as free text"),
@@ -284,8 +314,6 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   SupplierPurchaseDraft: unmanaged("supplierName and supplierId"),
   VendorLearning: unmanaged("vendorName and its normalised form"),
   BusinessBotKnowledge: unmanaged("address and notes, entered by the owner"),
-  AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
-  AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
   InboundEmailMessage: unmanaged(
     "fromEmail, subject, providerMessageId and rawObjectKey — and rawObjectKey references " +
       "a raw MIME object OUTSIDE Postgres, which a database erasure cannot reach"
@@ -306,7 +334,6 @@ const operational = (reason: string): ModelCoverage => ({
 
 const OPERATIONAL: Record<string, ModelCoverage> = {
   Usage: operational("per-week feature counters"),
-  ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
   LearningSignal: operational("numeric learning signals"),

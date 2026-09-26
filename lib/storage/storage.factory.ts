@@ -22,3 +22,14 @@ export function getStorageService(): StorageService {
 export function resetStorageServiceForTests(): void {
   cachedService = null;
 }
+
+/**
+ * Test-only: install a service (e.g. a fake that counts writes). Refused in
+ * production so no runtime path can swap the storage backend.
+ */
+export function setStorageServiceForTests(service: StorageService | null): void {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("setStorageServiceForTests is not available in production");
+  }
+  cachedService = service;
+}

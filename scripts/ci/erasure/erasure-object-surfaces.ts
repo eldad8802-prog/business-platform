@@ -228,3 +228,39 @@ export const NOT_OWNED_POINTERS: readonly NotOwnedPointer[] = [
  * a new pointer column a finding instead of a silent addition.
  */
 export const POINTER_NAME_PATTERN = /(storagekey|objectkey|imageurl|fileurl|avatar|url|path)$/i;
+
+/**
+ * SEC-E / M-13 — object surfaces with NO database pointer at all, reachable only by
+ * their tenant prefix. A content upload (`/api/content/upload`) is written to
+ * `biz/{businessId}/content/<uuid>.<ext>` and its public URL is kept only in the
+ * browser's localStorage; no column anywhere names it, so the column-keyed contract
+ * above could never see it and no row-driven erasure could reach it.
+ *
+ * Checked by C28: an ERASED prefix surface must be carried out by the adapter calling
+ * `erasedBy.fn` with the surface's domain as a literal argument, and every
+ * `putPublicAsset({ domain })` writer in the product must write into a domain that is
+ * either declared here or backs a declared column surface — so a new pointer-less
+ * upload path is a finding, not a silent addition.
+ */
+export type PrefixSurface = {
+  /** Human-readable template; the domain is what is enforced. */
+  prefix: string;
+  domain: string;
+  state: "ERASED" | "OPEN";
+  reason: string;
+  /** Required for ERASED: the function the adapter calls, with `domain` as a literal argument. */
+  erasedBy?: { fn: string };
+  /** Required for OPEN. */
+  target?: string;
+};
+
+export const PREFIX_SURFACES: readonly PrefixSurface[] = [
+  {
+    prefix: "biz/{businessId}/content/",
+    domain: "content",
+    state: "ERASED",
+    reason:
+      "owner content uploads: no DB pointer exists (the URL lives only in the browser), so the erasure lists the tenant's content prefix and deletes every object under it, object-first, before any row is touched",
+    erasedBy: { fn: "deletePublicAssetsOfBusiness" },
+  },
+];

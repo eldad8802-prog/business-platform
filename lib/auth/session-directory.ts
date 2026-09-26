@@ -173,3 +173,86 @@ export async function revokeOtherSessions(input: {
 
 /** Re-exported so callers do not reach into the refresh engine for a constant. */
 export { REVOKED_REASON };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEC-E / M-12(a) — ACCOUNT ERASURE: the authority a deleted account still held
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Until this existed the ONLY thing standing between a token minted before a deletion
+// and the account was the business lifecycle gate (lib/auth.ts gate 2, and the same
+// check in refreshSession). One control, and erasure-dispositions.ts said so: "a known
+// single-control gap". These two functions make the deletion revoke the authority
+// itself, on the auth plane that owns it, so a token or refresh cookie issued before
+// the deletion fails gate 3 / gate 4 / the refresh generation check even if the
+// lifecycle gate were ever lost.
+//
+// They live HERE because this is the module CI-2a already allows to hold the auth
+// client, and every query the session plane makes about ownership lives in one place.
+// The erasure never imports the auth client itself.
+
+/** Recorded on every session the erasure ends, so the row says why it died. */
+export const ERASURE_REVOKED_REASON = "account_erasure" as const;
+
+/**
+ * Revoke every credential of every user of `businessId`:
+ *
+ *   1. `User.tokenVersion` +1 — every bearer token and every refresh session minted
+ *      before this instant stops matching the user's generation (gate 3 and the
+ *      refresh generation check). This is the load-bearing half, exactly as in logout.
+ *   2. every live `AuthSession` marked revoked — gate 4 and refresh both refuse it
+ *      explicitly rather than by accident of ordering.
+ *
+ * Idempotent in effect: a retry bumps the generation again, which can only kill more
+ * tokens (there are none left to kill), and the session update is conditional on
+ * `revokedAt: null`. The scope is `businessId` in the write predicate, never an id
+ * list assembled above the call.
+ */
+export async function revokeAuthorityOfBusinessUsers(
+  businessId: number,
+  now: Date
+): Promise<{ users: number; sessions: number }> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("revokeAuthorityOfBusinessUsers: a positive, server-derived businessId is required");
+  }
+  const db = authDb();
+  const users = await db.user.updateMany({
+    where: { businessId },
+    data: { tokenVersion: { increment: 1 } },
+  });
+  const sessions = await db.authSession.updateMany({
+    where: { user: { businessId }, revokedAt: null },
+    data: { revokedAt: now, revokedReason: ERASURE_REVOKED_REASON },
+  });
+  return { users: users.count, sessions: sessions.count };
+}
+
+/**
+ * Delete the session rows of every user of `businessId` — the device history, with the
+ * User-Agent each login recorded. Run by the erasure AFTER `revokeAuthorityOfBusinessUsers`
+ * (the revocation is the security control; this is the personal-data erasure).
+ *
+ * Children first and explicitly, for the same reason the tenant erasure never leans on
+ * a cascade it cannot see. The auth plane holds DELETE on both tables (migration
+ * 20260908200000) for exactly this kind of cleanup. Idempotent: a second run deletes
+ * nothing.
+ */
+export async function eraseSessionsOfBusinessUsers(
+  businessId: number
+): Promise<{ secrets: number; sessions: number }> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("eraseSessionsOfBusinessUsers: a positive, server-derived businessId is required");
+  }
+  const db = authDb();
+  const secrets = await db.authSessionSecret.deleteMany({
+    where: { session: { user: { businessId } } },
+  });
+  const sessions = await db.authSession.deleteMany({
+    where: { user: { businessId } },
+  });
+  return { secrets: secrets.count, sessions: sessions.count };
+}
+
+/** Post-condition read for the erasure VERIFY stage: no session row may survive. */
+export async function countSessionsOfBusinessUsers(businessId: number): Promise<number> {
+  return authDb().authSession.count({ where: { user: { businessId } } });
+}

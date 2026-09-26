@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
@@ -22,7 +23,7 @@ export async function writeTempOcrFile(params: {
   await mkdir(tmpDir, { recursive: true });
 
   const ext = safeExtFromMime(params.mimeType);
-  const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const unique = `${Date.now()}-${randomUUID()}`;
   const fileName = `gmail-${unique}${ext}`;
 
   const tempPath = path.join(tmpDir, fileName);

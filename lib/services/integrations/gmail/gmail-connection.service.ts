@@ -15,7 +15,7 @@ async function dbStep<T>(
   }
   return fn(prisma);
 }
-import { decryptToken } from "./token-crypto.placeholder";
+import { decryptTokenForRevocation } from "./token-crypto.placeholder";
 import { revokeGoogleGmailToken } from "./gmail-token-revoke.service";
 
 export type DisconnectedGmailConnection = {
@@ -58,9 +58,12 @@ const tokenRow = await dbStep((db) => db.oAuthToken.findUnique({
   select: { accessTokenEncrypted: true, refreshTokenEncrypted: true },
 }));
   if (tokenRow) {
+    // L-17: the revocation-only decoder also reads a quarantined enc_v0 blob —
+    // revoking a plaintext-at-rest grant is the one thing it is still good for.
+    const tokenCtx = { businessId, connectionId: existing.id };
     const tokenToRevoke =
-      decryptToken(tokenRow.refreshTokenEncrypted) ??
-      decryptToken(tokenRow.accessTokenEncrypted);
+      decryptTokenForRevocation(tokenRow.refreshTokenEncrypted, { ...tokenCtx, field: "refresh" }) ??
+      decryptTokenForRevocation(tokenRow.accessTokenEncrypted, { ...tokenCtx, field: "access" });
     await revokeGoogleGmailToken(tokenToRevoke);
   }
 

@@ -16,6 +16,7 @@ import {
   ERASURE_MANIFEST,
   RETAIN_MODELS,
 } from "./account-erasure-manifest";
+import { createMemoryErasureLedger } from "./erasure-memory-ledger";
 
 let failed = 0;
 function ok(name: string, cond: boolean, extra?: unknown): void {
@@ -63,6 +64,28 @@ function makeStore(state: StoreState) {
       calls.push("finalizeAndAudit");
       if (state.business) state.business.state = "PURGED";
     },
+    // SEC-E stages. Recorded in the same call log so ORDER stays assertable.
+    async revokeAccountAuthority() {
+      calls.push("revokeAccountAuthority");
+    },
+    async eraseAccountSessions() {
+      calls.push("eraseAccountSessions");
+    },
+    async readProviderGrants() {
+      calls.push("readProviderGrants");
+      return [];
+    },
+    async destroyIntegrationCredentials() {
+      calls.push("destroyIntegrationCredentials");
+    },
+    async verifyErased() {
+      calls.push("verifyErased");
+      return [];
+    },
+    async listStrandedErasures() {
+      return state.business && state.business.state === "DELETION_REQUESTED" ? [state.business.id] : [];
+    },
+    ledger: createMemoryErasureLedger().ledger,
   };
   return { store, calls, state };
 }
@@ -109,11 +132,22 @@ function makeStore(state: StoreState) {
     const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
     const res = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
     ok("sole user → deleted", res.status === "deleted");
+    // SEC-E: the full durable order. Provider grants are READ before the credentials
+    // are destroyed, and nothing reaches finalize without a verify.
+    const order = [
+      "quarantineAndRevokeIntegrations",
+      "revokeAccountAuthority",
+      "purgeOperationalData",
+      "eraseAccountSessions",
+      "readProviderGrants",
+      "destroyIntegrationCredentials",
+      "verifyErased",
+      "finalizeAndAudit",
+    ];
     ok(
-      "execution order: QUARANTINE FIRST → purge → finalize+audit",
-      calls
-        .join(">")
-        .includes("quarantineAndRevokeIntegrations>purgeOperationalData>finalizeAndAudit")
+      "execution order: QUARANTINE FIRST → authority → purge → sessions → provider grants → credentials → verify → finalize",
+      order.every((c, i) => i === 0 || calls.indexOf(order[i - 1]) < calls.indexOf(c)) && order.every((c) => calls.includes(c)),
+      calls.join(">")
     );
   }
 
