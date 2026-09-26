@@ -20,7 +20,7 @@
 import { createHash } from "node:crypto";
 import type { BusinessKnowledgeSnapshot, KnowledgeItem } from "../snapshot/snapshot.contract";
 
-export const CONTEXT_VERSION = "brain-ctx.v1";
+export const CONTEXT_VERSION = "brain-context.v1";
 
 export const CONTEXT_BUDGET = {
   knowledge: 60,

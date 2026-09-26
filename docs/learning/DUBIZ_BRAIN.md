@@ -37,7 +37,7 @@ validated findings  →  SHADOW telemetry today; owner surface only after an own
   run stops before any model call. An answer is valid only for the exact context it was given: the
   `contextFingerprint` must match.
 
-## Context builder (`brain-ctx.v1`)
+## Context builder (`brain-context.v1`)
 
 **Deterministic.** The same snapshot always yields the same context and the same fingerprint (tested).
 
