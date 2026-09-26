@@ -103,13 +103,13 @@ run_guard() {
   done
 
   # ── 5/6: the client reads one env var and never falls back ──────────────
-  if ! tscode "$CLIENT" | grep -q "CONTROL_PLANE_DATABASE_URL"; then
+  if ! tscode "$CLIENT" | grep  "CONTROL_PLANE_DATABASE_URL" >/dev/null; then
     echo "CI-PRIVWRITE-5 FAIL: $CLIENT does not read CONTROL_PLANE_DATABASE_URL"; fail=1
   fi
-  if tscode "$CLIENT" | grep -qE "process\.env\.(DATABASE_URL|DIRECT_URL|ADMIN_DATABASE_URL)"; then
+  if tscode "$CLIENT" | grep -E "process\.env\.(DATABASE_URL|DIRECT_URL|ADMIN_DATABASE_URL)" >/dev/null; then
     echo "CI-PRIVWRITE-6 FAIL: $CLIENT references a fallback credential"; fail=1
   fi
-  if ! tscode "$CLIENT" | grep -q "throw new Error"; then
+  if ! tscode "$CLIENT" | grep  "throw new Error" >/dev/null; then
     echo "CI-PRIVWRITE-6 FAIL: $CLIENT does not fail loud on a missing credential"; fail=1
   fi
 
@@ -181,7 +181,7 @@ run_guard() {
   fi
 
   # ── 14: the mutation route authorizes PLATFORM_ADMIN ────────────────────
-  if ! tscode "$ROUTE" | grep -q "requirePlatformAdmin"; then
+  if ! tscode "$ROUTE" | grep  "requirePlatformAdmin" >/dev/null; then
     echo "CI-PRIVWRITE-14 FAIL: the feature mutation route lacks the canonical admin guard"; fail=1
   fi
   # The guard must precede the privileged service call in source order.
@@ -193,21 +193,21 @@ run_guard() {
   fi
 
   # ── 15: actor is never body/query supplied ──────────────────────────────
-  if tscode "$ROUTE" | grep -qE "actorUserId:[[:space:]]*(record|body|rawBody|searchParams)"; then
+  if tscode "$ROUTE" | grep -E "actorUserId:[[:space:]]*(record|body|rawBody|searchParams)" >/dev/null; then
     echo "CI-PRIVWRITE-15 FAIL: the route takes actorUserId from the request"; fail=1
   fi
-  if ! tscode "$ROUTE" | grep -q "actorUserId: auth.id"; then
+  if ! tscode "$ROUTE" | grep  "actorUserId: auth.id" >/dev/null; then
     echo "CI-PRIVWRITE-15 FAIL: the route does not pass the authenticated admin as actor"; fail=1
   fi
-  if tscode "$UPDSVC" | grep -qE "req\.(json|headers)|searchParams"; then
+  if tscode "$UPDSVC" | grep -E "req\.(json|headers)|searchParams" >/dev/null; then
     echo "CI-PRIVWRITE-15 FAIL: the privileged service reads the request directly"; fail=1
   fi
 
   # ── 16: the tenant resolver never uses the context-less singleton ───────
-  if tscode "$RESOLVER" | grep -qE "from ['\"]@/lib/prisma['\"]"; then
+  if tscode "$RESOLVER" | grep -E "from ['\"]@/lib/prisma['\"]" >/dev/null; then
     echo "CI-PRIVWRITE-16 FAIL: the tenant resolver imports the context-less singleton"; fail=1
   fi
-  if ! tscode "$RESOLVER" | grep -q "withTenantTransaction"; then
+  if ! tscode "$RESOLVER" | grep  "withTenantTransaction" >/dev/null; then
     echo "CI-PRIVWRITE-16 FAIL: the tenant resolver does not run inside a tenant transaction"; fail=1
   fi
 
@@ -215,32 +215,32 @@ run_guard() {
   # It reads one named business, so it needs no cross-tenant credential. What it
   # must never do is read this FORCE-RLS'd table with no context at all — that is
   # the fail-silent shape that renders every business as "no override".
-  if tscode "$ADMSVC" | grep -qE "from ['\"]@/lib/prisma['\"]"; then
+  if tscode "$ADMSVC" | grep -E "from ['\"]@/lib/prisma['\"]" >/dev/null; then
     echo "CI-PRIVWRITE-17 FAIL: the admin features read imports the context-less tenant singleton"; fail=1
   fi
-  if ! tscode "$ADMSVC" | grep -q "runTenantJob"; then
+  if ! tscode "$ADMSVC" | grep  "runTenantJob" >/dev/null; then
     echo "CI-PRIVWRITE-17 FAIL: the admin features read establishes no explicit target context"; fail=1
   fi
-  if ! tscode "$ADMSVC" | grep -q "withTenantTransaction"; then
+  if ! tscode "$ADMSVC" | grep  "withTenantTransaction" >/dev/null; then
     echo "CI-PRIVWRITE-17 FAIL: the admin features read is not GUC-scoped"; fail=1
   fi
 
   # ── 18: no bare prisma.$transaction on the mutation path ────────────────
-  if tscode "$UPDSVC" | grep -qE "prisma\.\\\$transaction"; then
+  if tscode "$UPDSVC" | grep -E "prisma\.\\\$transaction" >/dev/null; then
     echo "CI-PRIVWRITE-18 FAIL: bare prisma.\$transaction on the privileged mutation path"; fail=1
   fi
-  if ! tscode "$UPDSVC" | grep -q "withControlPlaneTransaction"; then
+  if ! tscode "$UPDSVC" | grep  "withControlPlaneTransaction" >/dev/null; then
     echo "CI-PRIVWRITE-18 FAIL: the mutation does not run in a control-plane transaction"; fail=1
   fi
-  if ! tscode "$UPDSVC" | grep -q "assertAffected"; then
+  if ! tscode "$UPDSVC" | grep  "assertAffected" >/dev/null; then
     echo "CI-PRIVWRITE-18 FAIL: the mutation has no affected-row assertion"; fail=1
   fi
 
   # ── 19: mutation and audit share one transaction ────────────────────────
-  if ! tscode "$UPDSVC" | grep -q "createPlatformAuditEventTx(tx"; then
+  if ! tscode "$UPDSVC" | grep  "createPlatformAuditEventTx(tx" >/dev/null; then
     echo "CI-PRIVWRITE-19 FAIL: the audit append is not on the mutation transaction"; fail=1
   fi
-  if tscode "$UPDSVC" | grep -q "logPlatformAuditEvent"; then
+  if tscode "$UPDSVC" | grep  "logPlatformAuditEvent" >/dev/null; then
     echo "CI-PRIVWRITE-19 FAIL: the privileged path uses the best-effort (non-atomic) audit"; fail=1
   fi
 
@@ -248,7 +248,7 @@ run_guard() {
   if sqlflat "$MIG" | grep -qiE "CREATE POLICY[^;]*FOR DELETE"; then
     echo "CI-PRIVWRITE-20 FAIL: a DELETE policy exists on the table"; fail=1
   fi
-  if tscode "$UPDSVC" | grep -qE "businessFeatureAccess\.delete"; then
+  if tscode "$UPDSVC" | grep -E "businessFeatureAccess\.delete" >/dev/null; then
     echo "CI-PRIVWRITE-20 FAIL: the mutation path still deletes rows (INHERIT is the contract)"; fail=1
   fi
 

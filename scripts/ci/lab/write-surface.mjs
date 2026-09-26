@@ -2,7 +2,7 @@
  * write-surface.mjs — AST facts for "this code path writes nothing" proofs (M-16 F-3).
  *
  * The substring guards these replace could be walked around by formatting alone:
- * `db["historicalFiscalDocument"]["create"](...)`, an alias, a helper module one import
+ * `db["someModel"]["create"](...)`, an alias, a helper module one import
  * away. These functions parse with the TypeScript compiler and follow the import graph.
  *
  *   importClosure(entry, { within })  every repo module reachable from `entry` through
