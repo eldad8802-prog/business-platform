@@ -1797,6 +1797,12 @@ async function main() {
     console.log("[battery] AD2A_CRASH_AFTER_FK_DROP: killing the process with the composite FK dropped");
     process.kill(process.pid, "SIGKILL");
   }
+  // sec(C) #530: the tenant-coherent composite FKs (*_tenant_fkey) also forbid this
+  // planted corruption. Drop them for the injection exactly like the AD-2A.3 FK, and
+  // restore them (with the Conversation's original customer) below.
+  const int530Fks = await owner.$queryRawUnsafe(`SELECT conrelid::regclass::text AS t, conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname LIKE '%\_tenant\_fkey'`);
+  for (const f of int530Fks) await owner.$executeRawUnsafe(`ALTER TABLE ${f.t} DROP CONSTRAINT "${f.n}"`);
+  const int530Cust = (await owner.conversation.findUnique({ where: { id: fConv.id } })).customerId;
   await owner.$executeRawUnsafe(
     `UPDATE "Message" SET "businessId" = ${G.biz.id} WHERE "conversationId" = ${fConv.id}`
   );
@@ -1823,6 +1829,10 @@ async function main() {
        FOREIGN KEY ("conversationId", "businessId") REFERENCES "Conversation"("id", "businessId")
        ON DELETE CASCADE ON UPDATE CASCADE`
   );
+  await owner.conversation.update({ where: { id: fConv.id }, data: { customerId: int530Cust } });
+  for (const f of int530Fks) await owner.$executeRawUnsafe(`ALTER TABLE ${f.t} ADD CONSTRAINT "${f.n}" ${f.d}`);
+  ok("sec(C) tenant FKs restored after the scanner fixture",
+    (await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname LIKE '%\_tenant\_fkey' AND convalidated`))[0].n === int530Fks.length);
   const fkBack = await owner.$queryRawUnsafe(
     `SELECT count(*)::int AS n FROM pg_constraint WHERE conname='Message_conversationId_businessId_fkey'`
   );
