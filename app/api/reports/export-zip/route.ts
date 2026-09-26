@@ -2,7 +2,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
+  AccountantExportInputError,
   buildAccountantPackZipBuffer,
+  resolveExportDateRange,
   type AccountantPackBody,
 } from "@/lib/reports/accountant-export-zip";
 
@@ -20,6 +22,18 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as AccountantPackBody;
+
+    // L-6: the period is validated strictly HERE, before any work, so a
+    // malformed or path-like `month` is a 400 and never reaches entry names.
+    // (The builder re-validates; the archive collector also refuses unsafe names.)
+    try {
+      resolveExportDateRange(body);
+    } catch (e) {
+      if (e instanceof AccountantExportInputError) {
+        return Response.json({ error: "Invalid period", code: e.code }, { status: 400 });
+      }
+      throw e;
+    }
 
     // Fully materialized before responding: a Node stream is not a valid Fetch
     // body, and the previous stream-based version awaited finalize() with no

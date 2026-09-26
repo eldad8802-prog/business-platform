@@ -9,10 +9,16 @@
  * DB / API continue storing the client-facing URL string (not the storage key).
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getStorageService, normalizeStorageKey, parseStorageKey } from "@/lib/storage";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 import type { StorageDomain } from "@/lib/storage/types";
+import {
+  PublicAssetRejectedError,
+  verifyPublicAsset,
+} from "./public-asset-validation";
+
+export { PublicAssetRejectedError } from "./public-asset-validation";
 
 export type PublicAssetDomain = Extract<StorageDomain, "content" | "inventory" | "offers">;
 
@@ -34,10 +40,6 @@ export function extensionFromMime(mimeType: string): string | null {
       return "webp";
     case "image/gif":
       return "gif";
-    case "image/heic":
-      return "heic";
-    case "image/heif":
-      return "heif";
     case "video/mp4":
       return "mp4";
     case "video/webm":
@@ -45,8 +47,9 @@ export function extensionFromMime(mimeType: string): string | null {
     case "video/quicktime":
       return "mov";
     default:
-      if (mime.startsWith("image/")) return "img";
-      if (mime.startsWith("video/")) return "mp4";
+      // M-2: CLOSED set. There is no catch-all any more — an unknown image/*
+      // (svg+xml, x-icon, heic, ...) used to be stored as ".img" with the
+      // client's Content-Type, which is how SVG reached a public bucket.
       return null;
   }
 }
@@ -58,6 +61,22 @@ export function buildPublicAssetFileName(contentType: string): string {
   }
   return `${randomUUID()}.${ext}`;
 }
+
+export type StoredPublicAsset = {
+  key: string;
+  publicUrl: string;
+  filename: string;
+  /**
+   * What an erasure / audit ledger (workstream E, M-13) needs to track the
+   * object without re-reading it: the VERIFIED content type, byte size and a
+   * sha256 of the stored bytes.
+   */
+  businessId: number;
+  domain: PublicAssetDomain;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+};
 
 export function buildPublicAssetKey(
   businessId: number,
@@ -107,20 +126,43 @@ export function requirePublicAssetUrl(key: string): string {
   return `${publicBase.replace(/\/+$/, "")}/${normalized}`;
 }
 
+/**
+ * The ONLY writer of public objects. Verification (M-2) runs here, before any
+ * storage call, so no caller can put unverified bytes in a public domain:
+ * a rejected file throws {@link PublicAssetRejectedError} and nothing is written.
+ *
+ * `contentType` is the CLIENT's declared type — it is checked, never stored.
+ * The stored Content-Type / Content-Disposition / Cache-Control come from the
+ * verified container.
+ */
 export async function putPublicAsset(input: {
   businessId: number;
   domain: PublicAssetDomain;
   body: Buffer;
   contentType: string;
+  /** Client filename — used only for the extension-consistency check. */
+  fileName?: string | null;
   custom?: Record<string, string>;
-}): Promise<{ key: string; publicUrl: string; filename: string }> {
-  const filename = buildPublicAssetFileName(input.contentType);
+}): Promise<StoredPublicAsset> {
+  const verdict = verifyPublicAsset({
+    domain: input.domain,
+    body: input.body,
+    declaredContentType: input.contentType,
+    fileName: input.fileName,
+  });
+  if (!verdict.ok) {
+    throw new PublicAssetRejectedError(verdict);
+  }
+
+  const filename = `${randomUUID()}.${verdict.ext}`;
   const key = buildPublicAssetKey(input.businessId, input.domain, filename);
 
   await getStorageService().putObject({
     key,
     body: input.body,
-    contentType: input.contentType,
+    contentType: verdict.contentType,
+    contentDisposition: `${verdict.contentDisposition}; filename="${filename}"`,
+    cacheControl: verdict.cacheControl,
     metadata: {
       businessId: input.businessId,
       domain: input.domain,
@@ -133,6 +175,11 @@ export async function putPublicAsset(input: {
     key,
     filename,
     publicUrl: requirePublicAssetUrl(key),
+    businessId: input.businessId,
+    domain: input.domain,
+    contentType: verdict.contentType,
+    sizeBytes: input.body.length,
+    sha256: createHash("sha256").update(input.body).digest("hex"),
   };
 }
 
