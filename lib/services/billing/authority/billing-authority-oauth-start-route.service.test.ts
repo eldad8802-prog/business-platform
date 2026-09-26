@@ -126,13 +126,26 @@ async function run() {
     );
     ok("forbidden never starts oauth", called === false);
 
-    // Admin may target another business
-    const adminOutcome = await resolveAuthorityOAuthStart(
+    // CASA 3.3.1 made the cross-tenant branch require the MFA elevation; this
+    // suite predated it and still expected an UN-elevated admin to pass, so it was
+    // red on main (unnoticed: no workflow ran it — sec/A F-9). Both halves now.
+    let unelevatedCalled = false;
+    const unelevated = await resolveAuthorityOAuthStart(
       { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
+      { startOAuth: fakeStart(() => { unelevatedCalled = true; }) }
+    );
+    ok(
+      "platform admin WITHOUT MFA elevation cannot target another business",
+      !unelevated.ok && unelevatedCalled === false
+    );
+
+    // Elevated admin may target another business
+    const adminOutcome = await resolveAuthorityOAuthStart(
+      { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false, adminElevated: true },
       { startOAuth: fakeStart() }
     );
     ok(
-      "platform admin may target another business",
+      "MFA-elevated platform admin may target another business",
       adminOutcome.ok && adminOutcome.businessId === 99
     );
   }

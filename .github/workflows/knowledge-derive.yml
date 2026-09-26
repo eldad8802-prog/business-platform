@@ -34,6 +34,10 @@ concurrency:
 
 jobs:
   derive:
+    # H-3/M-1: CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the
+    # protected `cron` environment (owner moves the secret there; see the owner-actions section of PR 525).
+    if: github.ref == 'refs/heads/main'
+    environment: cron
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -55,7 +59,9 @@ jobs:
           code=$(curl -sS -o body.json -w "%{http_code}" -m 120 \
             -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${DERIVE_URL}?businessId=${BID}")
           echo "HTTP $code"
-          cat body.json; echo
+          # M-1: this log is public. Print ONLY aggregate, assert-style fields — never the body
+          # (it carries the business id, role name and per-rule detail).
+          jq -c '{ok, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights}' body.json 2>/dev/null             || echo "(body is not the expected JSON shape — not printed)"
           [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }
 
           # The run is only evidence of tenant enforcement if the runtime said it was. A FULL proof

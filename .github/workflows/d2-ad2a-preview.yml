@@ -36,6 +36,10 @@ env:
 jobs:
   gate_a_identity:
     name: Gate A — Preview target identity
+    # H-3: only from main, and only inside the protected neon-preview environment
+    # (required reviewer + main-only branch policy; NEON_API_KEY lives THERE, not at repo level).
+    if: github.ref == 'refs/heads/main'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -65,16 +69,19 @@ jobs:
   ad2a_preview:
     name: AD-2A.1 proof on Preview
     needs: gate_a_identity
-    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    if: github.ref == 'refs/heads/main' && needs.gate_a_identity.outputs.gate_a == 'PASS'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # --ignore-scripts: no dependency lifecycle script runs in a job that later holds NEON_API_KEY.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx prisma generate
       - run: node --check .ad2a/preview.mjs
 
       - name: CI-AD guards (blocking)
@@ -122,7 +129,9 @@ jobs:
           set -uo pipefail
           DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
           echo "::add-mask::${DBD}"
-          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::precondition: no Preview URI — cleanup/rollback NOT performed"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::precondition: URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::precondition: URI DENY"; exit 1 ;; esac; done
           cat > .ad2a/fixnet.gen.mjs <<'FIX_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
@@ -137,5 +146,6 @@ jobs:
           const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'ad2a-prev-%') AS biz`;
           console.log('[fixnet] residue business=' + r[0].biz);
           await c.$disconnect();
+          if (Object.values(r[0]).some((v) => Number(v) !== 0)) { console.log('[fixnet] FAIL residue remains'); process.exit(1); }
           FIX_EOF
-          DIRECT_URL="${DBD}" node .ad2a/fixnet.gen.mjs || true
+          DIRECT_URL="${DBD}" node .ad2a/fixnet.gen.mjs

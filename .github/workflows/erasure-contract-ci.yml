@@ -20,13 +20,17 @@ on:
   push:
     branches: [main]
 
+# I-3: explicit least privilege (was the repository default).
+permissions:
+  contents: read
+
 jobs:
   contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -61,7 +65,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M1
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:62:68" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a nonexistent column passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -75,7 +79,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:76:82" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a wrong-model column passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -86,7 +90,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:87:93" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unkept promise passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -97,7 +101,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:98:104" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared mutation passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -110,7 +114,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:111:117" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a relation satisfied a column requirement"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -123,7 +127,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts M6
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:124:130" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified covered column passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -141,7 +145,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts D1
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:142:148" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undelivered row deletion passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -155,7 +159,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts D2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:156:162" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a clear satisfied a DELETE ROW declaration"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -167,7 +171,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts D3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:168:174" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a deleteRow for no model passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -180,7 +184,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts D4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:181:187" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a downgraded deleteRow passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -197,7 +201,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts R1
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:198:204" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a new writer kept the non-personal claim"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -208,7 +212,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts R2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:209:215" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared write site passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -221,7 +225,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts R3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:222:228" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a non-derived message value passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -232,7 +236,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts R4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:233:239" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified text column inherited the claim"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -537,7 +541,7 @@ jobs:
           cp "$F" "$F.bak"
           printf 'model FuturePersonalThing {\n  id Int @id @default(autoincrement())\n  secret String?\n}\n' >> "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:538:544" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified model passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -548,7 +552,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:549:555" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale classification passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -561,7 +565,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:562:568" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a conflicting classification passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -573,7 +577,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:574:580" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hollow ERASURE_MANAGED claim passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -584,7 +588,7 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:585:591" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a de-classified model passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
@@ -607,7 +611,7 @@ jobs:
           if cmp -s "$A" "$A.bak"; then mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "REFLOW CHANGED NOTHING"; exit 1; fi
           npx tsx scripts/ci/erasure-mutate.ts M4
           npx tsx scripts/ci/erasure-mutate.ts M5
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "erasure-contract-ci.yml:603:614" -- npm run verify:erasure-contract -- --baseline-check; then
             mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "FORMAT-ROBUSTNESS FAIL: the guard stayed green"; exit 1
           fi
           mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "FORMAT-ROBUSTNESS PASS"
