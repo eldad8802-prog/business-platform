@@ -111,5 +111,8 @@ jobs:
       - name: "negative N10 — auth-plane signup createdAt grant removed"
         run: node .secc/mutate.mjs N10
 
+      - name: "negative N11 — pending-state originMessageId ownership check removed"
+        run: node .secc/mutate.mjs N11
+
       - name: Typecheck
         run: npx tsc --noEmit

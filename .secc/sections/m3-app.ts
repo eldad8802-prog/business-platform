@@ -93,6 +93,26 @@ void section("m3-app", async () => {
     }
   }
 
+  {
+    // Pending appointment request: originMessageId later becomes Appointment.sourceMessageId.
+    const { POST } = await import("@/app/api/conversations/[id]/pending-state/route");
+    const call = async (convId: number, originMessageId: number) =>
+      read(await POST(post({ kind: "appointment", originMessageId }) as never, { params: Promise.resolve({ id: String(convId) }) } as never));
+    const pendingOf = async () => JSON.stringify((await owner.$queryRawUnsafe<{ p: unknown }[]>(`SELECT "pendingAppointmentRequest" AS p FROM "Conversation" WHERE id = ${a.conversationId}`))[0].p);
+    const p0 = await pendingOf();
+    const foreign = await call(a.conversationId, b.messageId);
+    const none = await call(a.conversationId, MISSING);
+    ok("M3-APP pending-state foreign originMessageId -> 404", foreign.status === 404, foreign);
+    ok("M3-APP pending-state nonexistent originMessageId -> byte-identical to foreign", none.status === foreign.status && none.body === foreign.body, { foreign, none });
+    ok("M3-APP pending-state rejected originMessageId stored nothing", (await pendingOf()) === p0);
+    const own = await call(a.conversationId, a.messageId);
+    ok("M3-APP pending-state own originMessageId -> 200", own.status === 200, own);
+    const appt = await import("@/lib/services/appointment/appointment.service");
+    const conv = await appt.createFromPending({ businessId: a.businessId, conversationId: a.conversationId, actor: { actor: "OWNER", sourceChannel: "INBOX_WEB", userId: a.userId } } as never);
+    ok("M3-APP createFromPending carries the verified own message", (conv as { ok?: boolean; appointment?: { sourceMessageId?: number } }).ok === true
+      && (conv as { appointment: { sourceMessageId: number } }).appointment.sourceMessageId === a.messageId, conv);
+  }
+
   const bAfter: Record<string, string> = {};
   for (const t of Object.keys(bBefore)) bAfter[t] = await fingerprint(owner, t, b.businessId);
   ok("M3-APP tenant B rows byte-unchanged", JSON.stringify(bAfter) === JSON.stringify(bBefore), { bBefore, bAfter });

@@ -111,6 +111,14 @@ SECURITY INVOKER`,
     expect: "FAIL: AUTH signup on the active auth plane succeeds with the migration-shipped grants",
     reason: "Prisma emits createdAt on the Business insert; without the column grant every auth-plane signup is 42501",
   },
+  N11: {
+    file: "lib/services/conversation/pending-state.service.ts",
+    anchor: `  if (!Number.isInteger(messageId) || messageId <= 0) return false;`,
+    replace: `  if (!Number.isInteger(messageId) || messageId <= 0 || messageId > 0) return true;`,
+    run: tsx(".secc/sections/m3-app.ts"),
+    expect: "FAIL: M3-APP pending-state foreign originMessageId -> 404",
+    reason: "an unchecked originMessageId stores another tenant's message id, later copied into Appointment.sourceMessageId",
+  },
 };
 
 const sha = (f) => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
