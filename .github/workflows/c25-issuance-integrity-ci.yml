@@ -64,8 +64,8 @@ jobs:
       AUTH_TOKEN_SECRET: c25_ci_auth_secret_synthetic
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -101,7 +101,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  await lockBillingDocumentRowsTx\(\n    tx,\n    args\.businessId,\n    allocations\.map\(\(a\) => a\.invoiceDocumentId\)\n  \);\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "c25-issuance-integrity-ci.yml:98:104" --expect '[FAIL] every iteration: exactly one issued, one refused by capacity' -- npx tsx .c25integrity/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two concurrent receipts settled one invoice and the battery did not notice"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -113,7 +113,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  assertReceiptAllocationsMatchTotal\(allocations, args\.receiptTotal, args\.unappliedAmount\);\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "c25-issuance-integrity-ci.yml:110:116" --expect '[FAIL] issuance refused by the equality rule' -- npx tsx .c25integrity/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a 300 receipt settled 1,000 and the battery did not notice"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -127,7 +127,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      \.\.\.authoritativeAllocationWhere\(args\.businessId\),\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "c25-issuance-integrity-ci.yml:122:130" --expect '[FAIL] B prepared despite A'\''s allocation' -- npx tsx .c25integrity/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an abandoned draft blocked a real payment and the battery did not notice"; exit 1
           fi
           mv "$F.bak" "$F"

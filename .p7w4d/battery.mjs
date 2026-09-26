@@ -22,6 +22,7 @@
  */
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
+import { expectDenied } from "../scripts/ci/lab/denial.mjs";
 
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const RT_ROLE = TARGET === "neon" ? "app_runtime_preview_p4b" : "wave1_runtime";
@@ -250,17 +251,18 @@ async function main() {
   ok("A sees only A documents", aDocs.length >= 1 && aDocs.every((d) => d.businessId === bizA.id));
   const aEx = await rtx(rt, bizA.id, (t) => t.extractedData.findMany({}));
   ok("ExtractedData visible only via own Document parent", aEx.every((e) => e.documentId !== docB.id) && aEx.length >= 1);
-  let wrongEx = false;
+  // F-2: "any exception" used to short-circuit this check. Under RLS the foreign row is
+  // invisible (P2025 is the expected shape), so what proves isolation is the row's STATE:
+  // it is always read back by the owner, whatever the attempt did.
   try {
     await rtx(rt, bizA.id, (t) => t.extractedData.update({ where: { documentId: docB.id }, data: { amount: 1 } }));
-  } catch { wrongEx = true; }
-  ok("foreign ExtractedData parent not mutable", wrongEx ||
-    (await owner.extractedData.findUnique({ where: { documentId: docB.id } }))?.amount === 200);
-  let wrongEv = false;
-  try {
+  } catch { /* expected: record not found through RLS */ }
+  const foreignEx = await owner.extractedData.findUnique({ where: { documentId: docB.id } });
+  ok("foreign ExtractedData parent not mutable (owner reads the unchanged amount)", foreignEx?.amount === 200, `amount=${foreignEx?.amount}`);
+  const wrongEv = await expectDenied(async () => {
     await rtx(rt, bizA.id, (t) => t.extractionEvidence.create({ data: { extractionSnapshotId: snapB.id, ocrGeometry: {} } }));
-  } catch { wrongEv = true; }
-  ok("ExtractionEvidence for foreign snapshot rejected", wrongEv);
+  }, ["RLS"]);
+  ok("ExtractionEvidence for foreign snapshot rejected (RLS 42501)", wrongEv.denied, wrongEv.detail);
   const okEv = await rtx(rt, bizA.id, (t) => t.extractionEvidence.create({ data: { extractionSnapshotId: snapA.id, ocrGeometry: {} } }));
   ok("ExtractionEvidence for own snapshot works", !!okEv?.id);
   const frX = await rtx(rt, bizA.id, (t) => t.financialRecord.updateMany({ where: { businessId: bizB.id }, data: { amount: 1 } }));
@@ -518,24 +520,21 @@ async function main() {
   res = await lcRoute.GET(new NextRequest("http://p7w4d.local/api/dev/learning-center", {
     headers: { authorization: `Bearer ${tokA}` } }));
   ok("learning-center denies non-admin", res.status === 403 || res.status === 401, `status=${res.status}`);
-  let admVl = false;
-  try { await adm.vendorLearning.findMany({}); } catch { admVl = true; }
-  ok("admin VendorLearning read denied (no grant)", admVl);
-  let admWrite = false;
-  try { await adm.document.updateMany({ where: {}, data: { status: "x" } }); } catch { admWrite = true; }
-  ok("admin Document write denied", admWrite);
+  const admVl = await expectDenied(async () => { await adm.vendorLearning.findMany({}); }, ["PRIVILEGE"]);
+  ok("admin VendorLearning read denied (no grant) (42501 permission denied)", admVl.denied, admVl.detail);
+  const admWrite = await expectDenied(async () => { await adm.document.updateMany({ where: {}, data: { status: "x" } }); }, ["PRIVILEGE", "RLS"]); // admin has SELECT-only policies: either refusal (42501) is the control
+  ok("admin Document write denied (42501)", admWrite.denied, admWrite.detail);
 
   // ── Phase 11: fail-closed + raw SQL ─────────────────────────────────────
   console.log("--- fail-closed + raw ---");
   ok("no context -> 0 documents", (await rt.document.findMany({ where: { businessId: inIds } })).length === 0);
-  let malformed = false;
-  try {
+  const malformed = await expectDenied(async () => {
     await rt.$transaction(async (t) => {
       await t.$queryRaw`SELECT set_config('app.current_business_id', 'evil', true)`;
       return t.financialRecord.findMany({});
     });
-  } catch { malformed = true; }
-  ok("malformed context errors", malformed);
+  }, ["CODE:22P02"]);
+  ok("malformed context errors (22P02)", malformed.denied, malformed.detail);
   const rawDoc = await rtx(rt, bizA.id, (t) => t.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "Document"`));
   ok("raw Document = tenant-only", Number(rawDoc[0].c) === (await owner.document.count({ where: { businessId: bizA.id } })));
   // Intent: B's raw view is exactly B's own evidence — not a hardcoded 0. B now
@@ -547,21 +546,19 @@ async function main() {
   ok("raw ExtractionEvidence = own-snapshot only (admits own, excludes A's)",
     Number(rawEv[0].c) === ownEv && ownEv >= 1 && otherEv >= 1,
     `raw=${rawEv[0].c} ownB=${ownEv} ownA=${otherEv}`);
-  let rawIns = false;
-  try {
+  const rawIns = await expectDenied(async () => {
     await rtx(rt, bizA.id, (t) => t.$executeRawUnsafe(
       `INSERT INTO "FinancialRecord" ("documentId","businessId","amount","vendorName","category","direction","date") VALUES (${docB.id}, ${bizB.id}, 9, 'x', 'c', 'expense', now())`));
-  } catch { rawIns = true; }
-  ok("raw wrong-tenant FinancialRecord INSERT WITH CHECK denied", rawIns);
-  let ddl = false;
-  try { await rt.$executeRawUnsafe(`CREATE TABLE p7w4d_evil (id int)`); } catch { ddl = true; }
-  ok("runtime DDL denied", ddl);
-  let mig = false;
-  try { await rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`); } catch { mig = true; }
-  ok("runtime _prisma_migrations denied", mig);
-  let del = false;
-  try { await rtx(rt, bizA.id, (t) => t.document.deleteMany({ where: { businessId: bizA.id } })); } catch { del = true; }
-  ok("runtime DELETE on Document denied (never granted)", del);
+  }, ["RLS"]);
+  ok("raw wrong-tenant FinancialRecord INSERT WITH CHECK denied (RLS 42501)", rawIns.denied, rawIns.detail);
+  const ddl = await expectDenied(async () => { await rt.$executeRawUnsafe(`CREATE TABLE p7w4d_evil (id int)`); }, ["PRIVILEGE"]);
+  ok("runtime DDL denied (42501 permission denied)", ddl.denied, ddl.detail);
+  // A db-push lab has no _prisma_migrations: the old check was green on 42P01 (missing table).
+  if (process.env.BATTERY_TARGET !== "neon") await owner.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY)`);
+  const mig = await expectDenied(async () => { await rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`); }, ["PRIVILEGE"]);
+  ok("runtime _prisma_migrations denied (42501 permission denied)", mig.denied, mig.detail);
+  const del = await expectDenied(async () => { await rtx(rt, bizA.id, (t) => t.document.deleteMany({ where: { businessId: bizA.id } })); }, ["PRIVILEGE"]);
+  ok("runtime DELETE on Document denied (never granted) (42501 permission denied)", del.denied, del.detail);
 
   // Concurrency: parallel A/B reads with sleeps.
   const [ca, cb] = await Promise.all([

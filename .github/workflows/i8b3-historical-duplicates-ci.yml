@@ -20,6 +20,7 @@ on:
       - "app/api/data-transfer/import/historical/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+      - ".github/workflows/i8b3-historical-duplicates-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -51,8 +52,8 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -98,18 +99,17 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
           RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
           AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        # Without the tenant GUC, row-level security shows the role nothing — so every
+        # duplicate silently becomes NONE. F-3 (sec/A): the previous mutation called an
+        # UNDECLARED `prisma` and went red on ReferenceError whatever RLS did. This one is
+        # valid TypeScript: the same read on the real global client, via a dynamic import.
         run: |
-          F="lib/data-transfer/historical/historical-duplicates.ts"
-          cp "$F" "$F.bak"
-          # Without the tenant GUC, row-level security shows the role nothing —
-          # so every duplicate silently becomes NONE.
-          perl -0pi -e 's/  const \{ records, queryCount \} = await withTenantTransaction\(\(tx\) =>\n    readExistingRecords\(tx, businessId, allIdentities\)\n  \);/  const { records, queryCount } = await readExistingRecords(prisma as never, businessId, allIdentities);/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a lookup without tenant context passed"; exit 1
-          fi
-          mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS"
+          node scripts/ci/negative-proof.mjs --id i8b3-lookup-outside-tx \
+            --file lib/data-transfer/historical/historical-duplicates.ts \
+            --anchor 'await withTenantTransaction((tx) =>' \
+            --replace 'await (async (run: (tx: never) => unknown) => run((await import("@/lib/prisma")).prisma as never))((tx) =>' \
+            --expect "FAIL  tenant A finds its OWN record as an exact duplicate" \
+            -- npx tsx .i8b3/battery.mjs
 
       - name: negative proof — row-level security not forced
         env:
@@ -122,7 +122,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b3-historical-duplicates-ci.yml:114:125" --expect 'FAIL  row-level security is ENABLED and FORCED' -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -142,7 +142,7 @@ jobs:
           # they never read.
           perl -0pi -e 's/    input\.expectedEvidenceFingerprint \&\&\n    input\.expectedEvidenceFingerprint !== evidenceFingerprint\n  \) \{/    false\n  ) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b3-historical-duplicates-ci.yml:131:145" --expect 'FAIL  a record inserted before Preview makes the analysis STALE, not silently different' -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale analysis was rebuilt silently"; exit 1
           fi
           mv "$F.bak" "$F"

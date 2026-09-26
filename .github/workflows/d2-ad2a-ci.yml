@@ -33,6 +33,7 @@ on:
       - "scripts/security/**"
       - "scripts/ci/erasure-mutate.ts"
       - "lib/data-transfer/historical/**"
+      - ".github/workflows/d2-ad2a-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -68,8 +69,8 @@ jobs:
       AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -198,7 +199,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/export const DELETE_MODELS = \[\n/export const DELETE_MODELS = [\n  "historicalFiscalDocument",\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/services/account/account-deletion.test.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "d2-ad2a-ci.yml:195:201" --expect 'FAIL: manifest is safe (no retained model in a purge set)' -- npx tsx lib/services/account/account-deletion.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a purged fiscal model passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -216,7 +217,7 @@ jobs:
           # structural firewall must refuse it.
           perl -0pi -e 's/          await tx\.messageAnalysis\.updateMany\(\{/          await tx.historicalFiscalDocument.deleteMany({ where: { businessId } });\n          await tx.messageAnalysis.updateMany({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "d2-ad2a-ci.yml:207:219" --expect 'a new consumer appeared; that is a decision for its own increment' -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an executor touching fiscal history passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -228,7 +229,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "d2-ad2a-ci.yml:225:231" --expect 'a new consumer appeared; that is a decision for its own increment' -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unlisted consumer passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -240,7 +241,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "d2-ad2a-ci.yml:237:243" --expect 'a new consumer appeared; that is a decision for its own increment' -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the tax filing reached fiscal history"; exit 1
           fi
           mv "$F.bak" "$F"

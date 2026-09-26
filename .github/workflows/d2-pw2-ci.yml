@@ -28,6 +28,7 @@ on:
       - "app/api/platform-admin/businesses/**"
       - "app/api/business/capabilities/**"
       - "lib/tenant/**"
+      - ".github/workflows/d2-pw2-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -58,8 +59,8 @@ jobs:
       OWNER_URL: postgresql://pw2_owner:pw2_ci_synthetic_owner_pw@localhost:5432/dubiz_pw2
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'

@@ -36,6 +36,7 @@ on:
       # contract it was meant to protect.
       - "lib/services/account/**"
       - "scripts/ci/erasure/**"
+      - ".github/workflows/i8a-historical-fiscal-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -67,8 +68,8 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -146,7 +147,7 @@ jobs:
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" FORCE ROW LEVEL SECURITY;//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:138:149" --expect 'FAIL  row-level security is FORCED (the table owner is subject to it too)' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: unforced RLS passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -163,7 +164,7 @@ jobs:
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:155:166" --expect 'FAIL  row-level security is ENABLED' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -181,7 +182,7 @@ jobs:
           perl -0pi -e 's/CREATE POLICY i8a_hist_tenant_read ON "HistoricalFiscalDocument" FOR SELECT\n  USING \([^;]*\);/CREATE POLICY i8a_hist_tenant_read ON "HistoricalFiscalDocument" FOR SELECT\n  USING (true);/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:172:184" --expect 'FAIL  an unfiltered SELECT under tenant A returns ONLY tenant A rows' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant read passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -198,7 +199,7 @@ jobs:
           perl -0pi -e 's/CREATE POLICY i8a_hist_tenant_insert ON "HistoricalFiscalDocument" FOR INSERT\n  WITH CHECK \([^;]*\);/CREATE POLICY i8a_hist_tenant_insert ON "HistoricalFiscalDocument" FOR INSERT\n  WITH CHECK (true);/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:190:201" --expect 'FAIL  an insert naming ANOTHER tenant is refused by the INSERT policy alone' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: writing into another tenant passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -215,7 +216,7 @@ jobs:
           perl -0pi -e 's/    REVOKE (UPDATE|DELETE) ON "HistoricalFiscalDocument" FROM app_runtime;//g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:207:218" --expect 'FAIL  runtime may NOT UPDATE' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a mutable fiscal record passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -234,7 +235,7 @@ jobs:
           perl -0pi -e 's/CREATE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/CREATE UNIQUE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8a-historical-fiscal-ci.yml:224:237" -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hidden uniqueness rule passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -251,7 +252,7 @@ jobs:
           perl -0pi -e 's/FOREIGN KEY \("businessId", "documentId"\) REFERENCES "Document"\("businessId", "id"\)/FOREIGN KEY ("documentId") REFERENCES "Document"("id")/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:243:254" --expect 'FAIL  a tenant-A record cannot point at a tenant-B Document' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant artifact link passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -268,7 +269,7 @@ jobs:
           perl -0pi -e 's/REFERENCES "Document"\("businessId", "id"\) ON DELETE RESTRICT/REFERENCES "Document"("businessId", "id") ON DELETE CASCADE/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:260:271" --expect 'FAIL  deleting the linked Document is refused while a historical record cites it' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cascading delete passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -285,7 +286,7 @@ jobs:
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" ADD CONSTRAINT "HistoricalFiscalDocument_no_self_reversal"\n  CHECK \([^;]*\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:277:288" --expect 'FAIL  a record cannot reverse itself' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a self-reversing record passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -307,7 +308,7 @@ jobs:
           SQL
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           ./.i8a/reset.sh
-          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8a-historical-fiscal-ci.yml:294:310" --expect 'FAIL  every foreign key points at Business, Document, ImportRun or itself' -- npx tsx .i8a/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a billing foreign key passed"; exit 1
           fi
           mv "$F.bak" "$F"; ./.i8a/reset.sh
@@ -321,7 +322,7 @@ jobs:
           # issued one. The firewall must notice a single added line.
           perl -0pi -e 's/  sourceSystemCode    String\n/  sourceSystemCode    String\n  status              String?\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8a-historical-fiscal-ci.yml:316:324" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an issuance status passed"; exit 1
           fi
           mv "$F.bak" "$F"

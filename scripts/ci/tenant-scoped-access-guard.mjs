@@ -112,9 +112,18 @@ function main() {
   console.log(`FORCE-RLS tables declared by migrations: ${tables.size}`);
   console.log(`application files scanned: ${files.length}`);
 
+  const staleAllow = [];
   for (const [file, reason] of ALLOWLIST) {
     const n = allowedHits.filter((h) => h.file === file).length;
     console.log(`  allowed: ${file} (${n} call sites) — ${reason}`);
+    // sec/A: an exemption that no longer exempts anything is removed, not kept "just in case"
+    // (platform-business-detail loses its bare-client reads when T-07 moves it to getPrismaAdmin()).
+    if (n === 0) staleAllow.push(file);
+  }
+  if (staleAllow.length > 0) {
+    for (const f of staleAllow) console.log(`  [FAIL] STALE ALLOWLIST ENTRY ${f}: 0 call sites — delete the entry`);
+    console.log("\nTENANT-SCOPED ACCESS GUARD: FAIL");
+    process.exit(1);
   }
 
   if (violations.length > 0) {

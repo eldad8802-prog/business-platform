@@ -233,7 +233,8 @@ async function main() {
       ok("C: exactly one Document across two channels", n === 1, `count=${n}`);
     }
 
-    console.log("\n--- D: two tenants, identical bytes ---");
+    console.log("\n--- D: two tenants, identical bytes — APP-LAYER FILTER PROOF ---");
+    console.log("APP-LAYER FILTER PROOF (sec/A F-5): this section runs as the lab OWNER, which bypasses row-level security. It proves the application's own business predicate (the duplicate lookup's business scoping and lock key); it does NOT prove database isolation. DB-level isolation for these tables is proven by the rls-db lab of security/gate and the p7/cutover batteries (NOSUPERUSER NOBYPASSRLS roles).");
     {
       const bizA = await biz("D1");
       const bizB = await biz("D2");
