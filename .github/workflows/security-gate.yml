@@ -97,6 +97,15 @@ jobs:
       - name: AST security guard (F-7 / F-11)
         run: node scripts/ci/ast-security-guard.mjs .
 
+      # The legacy tenant guards used to run only on narrow path filters; here they run on
+      # every change, beside the AST guard that supersedes their grep logic.
+      - name: Tenant guards on every PR (tenant-scoped access, tenant context, admin boundary)
+        run: |
+          set -euo pipefail
+          node scripts/ci/tenant-scoped-access-guard.mjs .
+          bash scripts/ci/tenant-context-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+
       - name: Workflow policy guard (H-3 / I-3 / L-21)
         run: node scripts/ci/workflow-policy-guard.mjs .
 
