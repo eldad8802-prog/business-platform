@@ -28,6 +28,7 @@ import { PAYABLES_THEME } from "../payables-theme";
 import { ChequeCard, ChequeForm } from "../cheque-parts";
 import { PreparationCard, PreparePaymentForm } from "../prepare-parts";
 import styles from "../payables.module.css";
+import { RecurringChanges } from "./recurring-changes";
 
 const BADGE_CLASS: Record<DerivedState, string> = {
   OVERDUE: styles.badgeOverdue,
@@ -194,6 +195,10 @@ export default function CommitmentDetailPage({
         <div className={styles.notice}>
           התחייבות מתחדשת — אין סכום כולל ואין יתרה סופית. מוצג התשלום הקרוב בלבד.
         </div>
+      )}
+
+      {detail.scheduleKind === "RECURRING" && detail.status === "ACTIVE" && (
+        <RecurringChanges commitmentId={detail.id} endAt={detail.endAt} run={run} />
       )}
 
       {/* The legacy assertion, stated as an assertion. It must not read as a

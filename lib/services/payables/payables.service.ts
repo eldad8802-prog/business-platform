@@ -19,14 +19,18 @@ import {
   assertFinitePlanIntegrity,
   assertInstallmentCancellable,
   assertPositiveAmount,
+  civilDayStart,
   deriveCommitmentBalance,
   deriveInstallmentBalance,
   fromMinorUnits,
   generateInstallmentPlan,
-  nextOccurrence,
+  nextDueAt,
+  PayablesConflictError,
   PayablesNotFoundError,
   PayablesValidationError,
   planAllocation,
+  planAmountChange,
+  planEnd,
   sumActiveAllocations,
   toMinorUnits,
   type AllocationTarget,
@@ -65,6 +69,10 @@ export type PayablesAuditType =
   | "COMMITMENT_CLOSED"
   | "INSTALLMENT_CREATED"
   | "INSTALLMENT_CANCELLED"
+  // Phase 2 (secretary → ledger). A changed amount rewrites only occurrences
+  // on or after its effective date; an end cancels only unpaid ones after it.
+  | "INSTALLMENT_AMOUNT_CHANGED"
+  | "COMMITMENT_ENDED"
   | "PAYMENT_RECORDED"
   | "PAYMENT_VOIDED"
   | "ALLOCATION_CREATED"
@@ -232,6 +240,8 @@ export type CreateCommitmentInput = {
   firstDueAt: Date;
   defaultPaymentMethod?: string | null;
   note?: string | null;
+  /** Ties a recurring commitment into a series (the secretary always sets one). */
+  recurrenceSeriesId?: string | null;
 };
 
 /**
@@ -246,13 +256,23 @@ export type CreateCommitmentInput = {
  *                     schedule would mean inventing an end date.
  */
 export async function createCommitment(input: CreateCommitmentInput) {
+  return withTenantTransaction((tx) => createCommitmentInTx(tx, input));
+}
+
+/**
+ * The body of `createCommitment`, inside a transaction the CALLER opened — the
+ * secretary's ledger store runs in its route's tenant transaction and cannot
+ * nest another. One implementation, so the secretary and the payables screen
+ * can never create commitments by different rules.
+ */
+export async function createCommitmentInTx(tx: Tx, input: CreateCommitmentInput) {
   const title = input.title?.trim();
   if (!title) throw new PayablesValidationError("Commitment title is required");
 
   const currency = (input.currency ?? "ILS").trim().toUpperCase();
   const recurrence: RecurrenceCadenceValue = input.recurrence ?? "NONE";
 
-  return withTenantTransaction(async (tx) => {
+  {
     // The snapshot is resolved once, here, and never mutated afterwards.
     let payeeNameSnapshot = input.payeeNameSnapshot?.trim() || "";
     if (input.payeeId != null) {
@@ -326,6 +346,7 @@ export async function createCommitment(input: CreateCommitmentInput) {
         totalAmount: totalMinor === null ? null : new Prisma.Decimal(fromMinorUnits(totalMinor)),
         scheduleKind: input.scheduleKind as never,
         recurrence,
+        recurrenceSeriesId: input.recurrenceSeriesId?.trim() || null,
         defaultPaymentMethod: (input.defaultPaymentMethod ?? null) as never,
         startAt: input.firstDueAt,
         note: input.note?.trim() || null,
@@ -358,7 +379,7 @@ export async function createCommitment(input: CreateCommitmentInput) {
     });
 
     return commitment;
-  });
+  }
 }
 
 /* ───────────────────────────── derived read model ────────────────────────── */
@@ -622,6 +643,7 @@ export async function recordPaymentInTx(
         currency: true,
         payeeId: true,
         payeeNameSnapshot: true,
+        scheduleKind: true,
       },
     });
     if (!commitment) throw new PayablesNotFoundError("Commitment not found");
@@ -739,6 +761,30 @@ export async function recordPaymentInTx(
         summary: `Allocated ${fromMinorUnits(allocation.amountMinor)} ${commitment.currency}`,
         metadata: { allocatedAmount: fromMinorUnits(allocation.amountMinor) },
       });
+    }
+
+    // Settling the LATEST occurrence of a recurring commitment brings the next
+    // one into existence — what the payables screen has always promised
+    // ("הבא אחריו ייווצר לאחר שיוסדר") and, until Phase 2, never did. Same
+    // transaction, so a payment and the occurrence it unlocks land together.
+    if (commitment.scheduleKind === "RECURRING" && created.length > 0) {
+      const latest = await tx.installment.findFirst({
+        where: { commitmentId: commitment.id, businessId: input.businessId },
+        orderBy: { sequence: "desc" },
+        include: { allocations: { include: { payment: { select: { status: true } } } } },
+      });
+      if (
+        latest &&
+        latest.status === "SCHEDULED" &&
+        created.some((a) => a.installmentId === latest.id) &&
+        deriveInstallmentBalance(toFacts(latest), input.paidAt).remainingMinor <= 0
+      ) {
+        await materialiseNextRecurringInstallmentInTx(tx, {
+          businessId: input.businessId,
+          commitmentId: commitment.id,
+          actorUserId: input.actorUserId,
+        });
+      }
     }
 
     await writeAudit(tx, {
@@ -901,57 +947,313 @@ export async function cancelInstallment(input: {
 /**
  * Materialise the next occurrence of a RECURRING commitment.
  *
- * Called when the current installment is fully settled. One at a time, never a
- * pre-generated horizon: an open-ended commitment has no last installment, so
- * any horizon would be an invented end date.
+ * One at a time, never a pre-generated horizon: an open-ended commitment has no
+ * last installment, so any horizon would be an invented end date. Callers:
+ * settling the latest occurrence (`recordPaymentInTx`), the secretary marking
+ * one handled, and `changeRecurringAmountFrom` reaching its effective date.
+ *
+ * The due date comes from `nextDueAt` — anchored on the series' day and read in
+ * Israel's calendar — so a materialised occurrence always lands exactly where
+ * the Daily Business Cost engine had projected it. It never materialises past
+ * the commitment's end date. The amount is the latest occurrence's, which is
+ * how an amount change carries forward.
  */
 export async function materialiseNextRecurringInstallment(input: {
   businessId: number;
   commitmentId: number;
   actorUserId?: number | null;
 }) {
+  return withTenantTransaction((tx) => materialiseNextRecurringInstallmentInTx(tx, input));
+}
+
+export async function materialiseNextRecurringInstallmentInTx(
+  tx: Tx,
+  input: { businessId: number; commitmentId: number; actorUserId?: number | null },
+) {
+  const commitment = await tx.commitment.findFirst({
+    where: { id: input.commitmentId, businessId: input.businessId },
+    include: { installments: { where: { businessId: input.businessId }, orderBy: { sequence: "asc" } } },
+  });
+  if (!commitment) throw new PayablesNotFoundError("Commitment not found");
+  if (commitment.scheduleKind !== "RECURRING") {
+    throw new PayablesValidationError("Only a RECURRING commitment rolls forward");
+  }
+  if (commitment.status !== "ACTIVE") return null;
+
+  const first = commitment.installments[0];
+  const last = commitment.installments[commitment.installments.length - 1];
+  if (!first || !last) throw new PayablesValidationError("Commitment has no installments");
+
+  const nextDue = nextDueAt({
+    lastDueAt: last.dueAt,
+    cadence: commitment.recurrence as RecurrenceCadenceValue,
+    anchorDueAt: first.dueAt,
+  });
+  if (!nextDue) return null;
+  if (commitment.endAt && nextDue.getTime() > civilDayStart(commitment.endAt).getTime()) return null;
+
+  const next = await tx.installment.create({
+    data: {
+      businessId: input.businessId,
+      commitmentId: commitment.id,
+      sequence: last.sequence + 1,
+      scheduledAmount: last.scheduledAmount,
+      currency: last.currency,
+      dueAt: nextDue,
+    },
+  });
+
+  await writeAudit(tx, {
+    businessId: input.businessId,
+    actorUserId: input.actorUserId,
+    commitmentId: commitment.id,
+    installmentId: next.id,
+    eventType: "INSTALLMENT_CREATED",
+    summary: `Next recurring installment #${next.sequence} materialised`,
+    metadata: { dueAt: nextDue.toISOString() },
+  });
+
+  return next;
+}
+
+/** Hard stop for a materialisation walk; a weekly commitment ten years out is ~520. */
+const MAX_MATERIALISE_STEPS = 600;
+
+/** Count of allocations that still hold money (the frozen active predicate). */
+function activeAllocationCount(row: {
+  allocations: Array<{ reversedAt: Date | null; payment: { status: string } }>;
+}): number {
+  return row.allocations.filter((a) => a.reversedAt === null && a.payment.status === "RECORDED").length;
+}
+
+/* ───────────────────────── amount change from a date ─────────────────────── */
+
+/**
+ * "From <date> the rent is 9,500" — change a RECURRING commitment's amount
+ * without rewriting its history.
+ *
+ * The change starts at the first occurrence due on or after `effectiveFrom`.
+ * Occurrences up to it are materialised first (so the new amount has a row to
+ * live on), then every SCHEDULED occurrence from it on takes the new amount.
+ * Nothing before it is touched: September keeps costing what September cost.
+ * Later occurrences inherit the amount through materialisation, which copies
+ * the latest one. Refused if any target already has a payment against it.
+ */
+export async function changeRecurringAmountFrom(input: {
+  businessId: number;
+  commitmentId: number;
+  effectiveFrom: Date;
+  amount: string | number;
+  actorUserId?: number | null;
+}) {
+  const amountMinor = toMinorUnits(input.amount);
+  assertPositiveAmount(amountMinor, "amount");
   return withTenantTransaction(async (tx) => {
     const commitment = await tx.commitment.findFirst({
       where: { id: input.commitmentId, businessId: input.businessId },
-      include: { installments: { orderBy: { sequence: "desc" }, take: 1 } },
+      select: { id: true, title: true, scheduleKind: true, status: true, endAt: true },
     });
     if (!commitment) throw new PayablesNotFoundError("Commitment not found");
     if (commitment.scheduleKind !== "RECURRING") {
-      throw new PayablesValidationError(
-        "Only a RECURRING commitment rolls forward",
-      );
+      throw new PayablesValidationError("Only a RECURRING commitment changes its amount from a date");
     }
-    if (commitment.status !== "ACTIVE") return null;
+    if (commitment.status !== "ACTIVE") {
+      throw new PayablesValidationError(`A ${commitment.status} commitment cannot change its amount`);
+    }
+    const from = civilDayStart(input.effectiveFrom);
+    if (commitment.endAt && from.getTime() > civilDayStart(commitment.endAt).getTime()) {
+      throw new PayablesValidationError("The commitment ends before that date");
+    }
 
-    const last = commitment.installments[0];
-    if (!last) throw new PayablesValidationError("Commitment has no installments");
+    // Serialise with concurrent payments exactly as recordPaymentInTx does.
+    await tx.$queryRaw`
+      SELECT "id" FROM "Installment"
+      WHERE "commitmentId" = ${commitment.id} AND "businessId" = ${input.businessId}
+      ORDER BY "id" FOR UPDATE
+    `;
 
-    const nextDue = nextOccurrence(last.dueAt, commitment.recurrence as RecurrenceCadenceValue);
-    if (!nextDue) return null;
-
-    const next = await tx.installment.create({
-      data: {
+    // Bring the first occurrence on/after the effective date into existence.
+    for (let step = 0; step < MAX_MATERIALISE_STEPS; step += 1) {
+      const last = await tx.installment.findFirst({
+        where: { commitmentId: commitment.id, businessId: input.businessId },
+        orderBy: { sequence: "desc" },
+        select: { dueAt: true },
+      });
+      if (last && civilDayStart(last.dueAt).getTime() >= from.getTime()) break;
+      const next = await materialiseNextRecurringInstallmentInTx(tx, {
         businessId: input.businessId,
         commitmentId: commitment.id,
-        sequence: last.sequence + 1,
-        scheduledAmount: last.scheduledAmount,
-        currency: last.currency,
-        dueAt: nextDue,
-      },
-    });
+        actorUserId: input.actorUserId,
+      });
+      if (!next) break;
+    }
 
+    const rows = await tx.installment.findMany({
+      where: { commitmentId: commitment.id, businessId: input.businessId },
+      include: { allocations: { include: { payment: { select: { status: true } } } } },
+      orderBy: { sequence: "asc" },
+    });
+    const { targetIds } = planAmountChange({
+      effectiveFrom: from,
+      rows: rows.map((r) => ({
+        id: r.id,
+        dueAt: r.dueAt,
+        status: r.status as InstallmentFacts["status"],
+        activeAllocationCount: activeAllocationCount(r),
+      })),
+    });
+    if (targetIds.length === 0) {
+      throw new PayablesValidationError("No scheduled occurrence on or after that date");
+    }
+
+    const newAmount = new Prisma.Decimal(fromMinorUnits(amountMinor));
+    for (const id of targetIds) {
+      const before = rows.find((r) => r.id === id)!;
+      await tx.installment.update({ where: { id }, data: { scheduledAmount: newAmount } });
+      await writeAudit(tx, {
+        businessId: input.businessId,
+        actorUserId: input.actorUserId,
+        commitmentId: commitment.id,
+        installmentId: id,
+        eventType: "INSTALLMENT_AMOUNT_CHANGED",
+        summary: `Installment #${before.sequence} amount changed from ${before.scheduledAmount.toString()} to ${fromMinorUnits(amountMinor)}`,
+        metadata: {
+          before: before.scheduledAmount.toString(),
+          after: fromMinorUnits(amountMinor),
+          effectiveFrom: from.toISOString(),
+        },
+      });
+    }
+
+    const first = rows.find((r) => r.id === targetIds[0])!;
+    return {
+      commitmentId: commitment.id,
+      firstChangedInstallmentId: first.id,
+      effectiveDueAt: first.dueAt,
+      changedCount: targetIds.length,
+    };
+  });
+}
+
+/* ─────────────────────────────── end from a date ─────────────────────────── */
+
+/**
+ * "The contract ended on 31/12" — `endsOn` is the LAST day the commitment is in
+ * effect (inclusive, Israel calendar), stored on `Commitment.endAt`.
+ *
+ * Unpaid occurrences due after it are cancelled; nothing is materialised past
+ * it; the Daily Business Cost engine stops allocating after it. Status stays
+ * ACTIVE, so an occurrence still owed for the final period can be paid. A paid
+ * occurrence after the end date is refused rather than stranded.
+ */
+export async function endCommitment(input: {
+  businessId: number;
+  commitmentId: number;
+  endsOn: Date;
+  actorUserId?: number | null;
+}) {
+  return withTenantTransaction((tx) => endCommitmentInTx(tx, input));
+}
+
+export async function endCommitmentInTx(
+  tx: Tx,
+  input: { businessId: number; commitmentId: number; endsOn: Date; actorUserId?: number | null },
+) {
+  const commitment = await tx.commitment.findFirst({
+    where: { id: input.commitmentId, businessId: input.businessId },
+    select: { id: true, title: true, status: true, endAt: true },
+  });
+  if (!commitment) throw new PayablesNotFoundError("Commitment not found");
+  if (commitment.status === "RELEASED") {
+    throw new PayablesValidationError("A RELEASED commitment has nothing left to end");
+  }
+  const endsOn = civilDayStart(input.endsOn);
+
+  await tx.$queryRaw`
+    SELECT "id" FROM "Installment"
+    WHERE "commitmentId" = ${commitment.id} AND "businessId" = ${input.businessId}
+    ORDER BY "id" FOR UPDATE
+  `;
+  const rows = await tx.installment.findMany({
+    where: { commitmentId: commitment.id, businessId: input.businessId },
+    include: { allocations: { include: { payment: { select: { status: true } } } } },
+    orderBy: { sequence: "asc" },
+  });
+  const firstDue = rows[0] ? civilDayStart(rows[0].dueAt) : null;
+  if (firstDue && endsOn.getTime() < firstDue.getTime()) {
+    throw new PayablesValidationError("The end date is before the commitment's first occurrence");
+  }
+  const { cancelIds } = planEnd({
+    endsOn,
+    rows: rows.map((r) => ({
+      id: r.id,
+      dueAt: r.dueAt,
+      status: r.status as InstallmentFacts["status"],
+      activeAllocationCount: activeAllocationCount(r),
+    })),
+  });
+
+  const now = new Date();
+  for (const id of cancelIds) {
+    await tx.installment.update({ where: { id }, data: { status: "CANCELLED" as never, cancelledAt: now } });
     await writeAudit(tx, {
       businessId: input.businessId,
       actorUserId: input.actorUserId,
       commitmentId: commitment.id,
-      installmentId: next.id,
-      eventType: "INSTALLMENT_CREATED",
-      summary: `Next recurring installment #${next.sequence} materialised`,
-      metadata: { dueAt: nextDue.toISOString() },
+      installmentId: id,
+      eventType: "INSTALLMENT_CANCELLED",
+      summary: `Installment cancelled — the commitment ends ${endsOn.toISOString().slice(0, 10)}`,
+      metadata: { reason: "COMMITMENT_ENDED" },
     });
-
-    return next;
+  }
+  const updated = await tx.commitment.update({ where: { id: commitment.id }, data: { endAt: endsOn } });
+  await writeAudit(tx, {
+    businessId: input.businessId,
+    actorUserId: input.actorUserId,
+    commitmentId: commitment.id,
+    eventType: "COMMITMENT_ENDED",
+    summary: `Commitment "${commitment.title}" ends ${endsOn.toISOString().slice(0, 10)}`,
+    metadata: {
+      endsOn: endsOn.toISOString(),
+      endAtBefore: commitment.endAt ? commitment.endAt.toISOString() : null,
+      cancelledInstallments: cancelIds,
+    },
   });
+  return { commitment: updated, cancelledInstallmentIds: cancelIds };
+}
+
+/** Cancel a scheduled installment inside a caller's transaction (the secretary's release). */
+export async function cancelInstallmentInTx(
+  tx: Tx,
+  input: { businessId: number; installmentId: number; actorUserId?: number | null; reason?: string | null },
+) {
+  const installment = await tx.installment.findFirst({
+    where: { id: input.installmentId, businessId: input.businessId },
+    include: { allocations: { include: { payment: { select: { status: true } } } } },
+  });
+  if (!installment) throw new PayablesNotFoundError("Installment not found");
+  const activeCount = activeAllocationCount(installment);
+  if (activeCount > 0) {
+    throw new PayablesConflictError("This occurrence already has a payment against it — reverse it first");
+  }
+  assertInstallmentCancellable({
+    status: installment.status as InstallmentFacts["status"],
+    activeAllocationCount: activeCount,
+  });
+  const cancelled = await tx.installment.update({
+    where: { id: installment.id },
+    data: { status: "CANCELLED" as never, cancelledAt: new Date() },
+  });
+  await writeAudit(tx, {
+    businessId: input.businessId,
+    actorUserId: input.actorUserId,
+    commitmentId: installment.commitmentId,
+    installmentId: installment.id,
+    eventType: "INSTALLMENT_CANCELLED",
+    summary: `Installment #${installment.sequence} cancelled`,
+    metadata: input.reason?.trim() ? { reason: input.reason.trim() } : null,
+  });
+  return cancelled;
 }
 
 export { sumActiveAllocations, deriveInstallmentBalance, deriveCommitmentBalance };

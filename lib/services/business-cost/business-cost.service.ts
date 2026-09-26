@@ -82,6 +82,7 @@ export async function deriveBusinessCost(input: {
         recurrenceSeriesId: true,
         status: true,
         legacyObligationId: true,
+        endAt: true,
         payee: { select: { kind: true } },
         installments: {
           where: { businessId },
@@ -162,6 +163,7 @@ export async function deriveBusinessCost(input: {
     recurrenceSeriesId: c.recurrenceSeriesId,
     status: c.status,
     isLegacy: c.legacyObligationId !== null,
+    endDate: c.endAt ? civilDateInZone(c.endAt, timeZone) : null,
     installments: c.installments.map((i) => ({
       id: i.id,
       sequence: i.sequence,
@@ -187,6 +189,7 @@ export async function deriveBusinessCost(input: {
       recurrenceSeriesId: o.recurrenceSeriesId,
       status: o.state === "MET" ? "CLOSED" : o.state === "RELEASED" ? "RELEASED" : "ACTIVE",
       isLegacy: true,
+      endDate: null,
       installments: [
         {
           id: o.id,

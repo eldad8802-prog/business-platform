@@ -5,7 +5,14 @@
  */
 
 export type ObligationState = "OPEN" | "MET" | "RELEASED";
-export type RecurrenceCadence = "NONE" | "WEEKLY" | "MONTHLY" | "YEARLY";
+export type RecurrenceCadence =
+  | "NONE"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "BIMONTHLY"
+  | "QUARTERLY"
+  | "SEMIANNUAL"
+  | "YEARLY";
 export type MorningState = "CALM" | "BUSY" | "CRITICAL" | "STILL_SETTLING_IN";
 export type AttentionReason = "OVERDUE" | "DUE_TODAY" | "DUE_SOON";
 
@@ -26,6 +33,8 @@ export interface ObligationApi {
   releasedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Present when the secretary reads the payables ledger (Phase 2). */
+  ledger?: { commitmentId: number; installmentId: number; paid: string; remaining: string } | null;
 }
 
 export interface BriefingItemApi {

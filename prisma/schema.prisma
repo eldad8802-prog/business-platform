@@ -241,6 +241,7 @@ model Business {
   payees                        Payee[]
   commitments                   Commitment[]
   installments                  Installment[]
+  installmentWorkflows          InstallmentWorkflow[]
   payments                      Payment[]
   paymentAllocations            PaymentAllocation[]
   paymentEvidences              PaymentEvidence[]
@@ -4572,11 +4573,38 @@ model Installment {
   cheques                 Cheque[]
   preparations            PaymentPreparation[]
   externalMatchRejections ExternalTransactionMatchRejection[]
+  workflow                InstallmentWorkflow?
 
   @@unique([commitmentId, sequence])
   @@index([businessId, dueAt])
   @@index([businessId, status])
   @@index([commitmentId])
+}
+
+/// The secretary's WORKFLOW over one installment — never financial truth.
+///
+///   followUpAt  "not now": hide from attention until then (snooze).
+///   handledAt   the owner said "טופל". It closes the reminder. It is NOT a
+///               payment, NOT a settlement and NOT an installment status:
+///               handled ≠ paid. Money is only ever a `Payment`.
+///
+/// Kept OUT of `Installment` on purpose. No column here may change a due date,
+/// a coverage period, an allocated cost or a cash figure, and the Daily
+/// Business Cost engine never reads this table. Deleting every row would
+/// change what the secretary nags about and nothing Dubiz knows about money.
+model InstallmentWorkflow {
+  installmentId   Int       @id
+  businessId      Int
+  followUpAt      DateTime?
+  handledAt       DateTime?
+  handledByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installment Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, followUpAt])
 }
 
 /// The economic fact: money left the business.

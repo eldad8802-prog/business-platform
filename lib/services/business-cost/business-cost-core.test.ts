@@ -73,6 +73,7 @@ function commitment(extra: Partial<CostCommitment> & { installments: CostInstall
     recurrenceSeriesId: null,
     status: "ACTIVE",
     isLegacy: false,
+    endDate: null,
     ...extra,
     installments,
   };
@@ -283,6 +284,7 @@ section("legacy recurring series — N rows, ONE economic commitment");
     recurrenceSeriesId: series,
     status,
     isLegacy: true,
+    endDate: null,
     installments: [{ id: id * 10, sequence: 1, dueDate: due, amountMinor: amount, currency: "ILS", status: iStatus }],
   });
   const rows = [
@@ -330,6 +332,19 @@ section("amounts: zero, negative, foreign currency");
   eq("zero amount is a real, zero line", run("2026-09-15", [commitment({ installments: [inst("2026-09-01", 0)] })]).allocatedCost.lines.map((l) => l.allocatedMinor), [0]);
   eq("negative amount excluded as INVALID_AMOUNT", run("2026-09-15", [commitment({ installments: [inst("2026-09-01", -100)] })]).excluded.map((e) => e.reason), ["INVALID_AMOUNT"]);
   eq("USD commitment never converted", run("2026-09-15", [commitment({ currency: "USD", installments: [inst("2026-09-01", 100000, { currency: "USD" })] })]).excluded.map((e) => e.reason), ["NON_BASE_CURRENCY"]);
+}
+
+section("end date (Commitment.endAt) — Phase 2");
+{
+  const rent = commitment({ title: "שכירות", endDate: "2026-09-15", installments: [inst("2026-09-01", 900000)] });
+  eq("a period straddling the end is compressed into its 15 in-effect days", run("2026-09-10", [rent]).allocatedCost.totalMinor, 60000);
+  eq("Σ Sep 1–15 = the full 9,000 — nothing leaks past the end, nothing is dropped", sumAllocated("2026-09-01", "2026-09-15", [rent]), 900000);
+  eq("the day after the end: 0, ENDED", [run("2026-09-16", [rent]).allocatedCost.totalMinor, run("2026-09-16", [rent]).excluded[0]?.reason], [0, "ENDED"]);
+  eq("nothing projected past the end", run("2026-11-10", [rent]).allocatedCost.totalMinor, 0);
+  const long = commitment({ title: "חוזה", endDate: "2026-12-31", installments: [inst("2026-09-01", 900000)] });
+  eq("an end months away does not touch earlier projected periods", sumAllocated("2026-10-01", "2026-10-31", [long]), 900000);
+  eq("end on the last day of a period keeps that period whole", sumAllocated("2026-12-01", "2026-12-31", [long]), 900000);
+  eq("…and stops the day after", run("2027-01-01", [long]).allocatedCost.totalMinor, 0);
 }
 
 /* ───────────────────────────── cash vs allocation ────────────────────────── */

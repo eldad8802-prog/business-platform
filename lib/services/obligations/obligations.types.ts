@@ -26,8 +26,17 @@ export type ObligationLifecycleState = "OPEN" | "MET" | "RELEASED";
  * intake channels (Documents, Suppliers, Bank) plug in later without change. */
 export type ObligationSource = "MANUAL";
 
-/** Simple fixed recurrence cadence. No RRULE-grade scheduling in MVP. */
-export type RecurrenceCadence = "NONE" | "WEEKLY" | "MONTHLY" | "YEARLY";
+/** Simple fixed recurrence cadence. No RRULE-grade scheduling in MVP.
+ * Phase 2 adds every-2-months (ארנונה), quarterly and half-yearly — the same
+ * values the payables ledger accepts, so the two can never disagree. */
+export type RecurrenceCadence =
+  | "NONE"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "BIMONTHLY"
+  | "QUARTERLY"
+  | "SEMIANNUAL"
+  | "YEARLY";
 
 /** Who asserted that the obligation was met. MVP: the owner. Future: an
  * event-verified settlement from Payments/Billing/bank (Integration §4 / §7).
@@ -75,6 +84,18 @@ export interface ObligationRecord {
   releasedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Present only when the record is read from the payables ledger (Phase 2):
+   * the commitment and installment it IS, and what the ledger says is paid.
+   * The secretary uses it to ask "שילמת?" and hand the answer to the real
+   * payment flow. Never set by the legacy store.
+   */
+  ledger?: {
+    commitmentId: number;
+    installmentId: number;
+    paid: string;
+    remaining: string;
+  };
 }
 
 // --- Store inputs ----------------------------------------------------------
@@ -177,4 +198,13 @@ export interface ObligationStore {
 
   getOrientation(businessId: number): Promise<OrientationRecord>;
   setOriented(businessId: number, orientedAt: Date): Promise<OrientationRecord>;
+
+  /**
+   * Optional (ledger store). Carry a recurring series forward from occurrence
+   * `id` and return the next one, or null when the series has ended. When a
+   * store provides it, the service uses it instead of computing the next due
+   * date itself — the ledger's anchored, Israel-calendar rule then decides, so
+   * the secretary and the payables ledger can never place it differently.
+   */
+  continueSeries?(businessId: number, id: number): Promise<ObligationRecord | null>;
 }

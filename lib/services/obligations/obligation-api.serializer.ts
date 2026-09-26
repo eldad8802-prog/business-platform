@@ -29,6 +29,9 @@ export function toObligationApi(o: ObligationRecord) {
     releasedAt: o.releasedAt ? o.releasedAt.toISOString() : null,
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
+    // Ledger store only: what the item IS in the payables ledger and what is
+    // paid, so the UI can ask "שילמת?". Null from the legacy store.
+    ledger: o.ledger ?? null,
   };
 }
 
