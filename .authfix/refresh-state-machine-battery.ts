@@ -99,7 +99,8 @@ async function main() {
     `GRANT USAGE ON SCHEMA public TO app_auth`,
     `GRANT SELECT, INSERT, UPDATE, DELETE ON public."AuthSession", public."AuthSessionSecret" TO app_auth`,
     `GRANT SELECT, INSERT, UPDATE, DELETE ON public."User", public."Business" TO app_auth`,
-    `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_auth`,
+    // F-13 (sec/A): no blanket sequence grant. The shipped migration grants app_auth USAGE on
+    // User_id_seq and Business_id_seq only; the lab now holds exactly that, from the migration.
   ]) await owner.$executeRawUnsafe(sql);
   for (const f of [
     "20260908180000_d2_user_business_privilege_narrowing",
