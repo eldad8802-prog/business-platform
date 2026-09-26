@@ -214,8 +214,7 @@
   overflow: hidden;
   max-width: 100%;
   min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 15px;
+  overflow-wrap: anywhere;  font-size: 15px;
   font-weight: var(--crm-w-medium);
   color: var(--crm-ink);
 }
@@ -257,8 +256,7 @@
 .crm-row__meta-part + .crm-row__meta-part::before {
   content: "·";
   margin-inline: 6px;
-  color: var(--crm-tertiary);
-  unicode-bidi: isolate;
+  color: var(--crm-tertiary);  unicode-bidi: isolate;
 }
 .crm-row__chevron {
   flex-shrink: 0;
@@ -806,7 +804,24 @@
    sync with the canonical workspace tier (LAYOUT.bp.wide) used by
    customers/layout.tsx and SuppliersWorkspace. */
 @media (min-width: 1280px) {
+  .crm-scope {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .crm-scope > [data-wsl] {
+    flex: 1 1 auto;
+  }
   .crm-scope .crm-hd__back {
     display: none;
+  }
+  .crm-page {
+    max-width: none;
+  }
+  .crm-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
   }
 }

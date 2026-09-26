@@ -135,11 +135,14 @@ export default function InventoryHomePage() {
                   onCritical={() => router.push("/inventory/alerts")}
                 />
 
+                <div className="inv-hm-actions">
                 <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
                   <h2>פעולות מהירות</h2>
                 </div>
                 <QuickActionsGrid actions={quickActions} />
+                </div>
 
+                <div className="inv-hm-attn">
                 <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.22s" }}>
                   <h2>דורש טיפול</h2>
                   {attentionItems.length > 4 ? (
@@ -156,6 +159,7 @@ export default function InventoryHomePage() {
                 ) : (
                   <AttentionList items={visibleAttention} onSelect={(id) => router.push(`/inventory/items/${id}`)} />
                 )}
+                </div>
               </>
             )}
           </>

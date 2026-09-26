@@ -209,7 +209,47 @@ export default function SupplierPurchasesHubPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-desk-table" aria-label="הזמנות ספק">
+          <table>
+            <thead>
+              <tr>
+                <th>ספק</th>
+                <th>הזמנה</th>
+                <th>פריטים</th>
+                <th>סכום</th>
+                <th>תאריך</th>
+                <th>סטטוס</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleOrders.map((order) => {
+                const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
+                const total = orderTotal(order);
+                const canReceive = order.status === "AWAITING_DELIVERY";
+                return (
+                  <tr key={order.id}>
+                    <td>{order.supplierName || "הזמנה ללא ספק"}</td>
+                    <td className="num">{order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`}</td>
+                    <td className="num">{order.lines.length}</td>
+                    <td className="num">{total > 0 ? `₪${total.toLocaleString("he-IL")}` : "—"}</td>
+                    <td className="num">{formatDate(order.orderDate ?? order.createdAt) || "—"}</td>
+                    <td>{badge.label}</td>
+                    <td>
+                      {canReceive ? (
+                        <button type="button" onClick={() => router.push(`/inventory/supplier-purchases/${order.id}/receive`)}>
+                          קבל סחורה
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-rows inv-cards">
           {visibleOrders.map((order) => {
             const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
             const idLabel = order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`;
@@ -269,6 +309,7 @@ export default function SupplierPurchasesHubPage() {
             );
           })}
         </div>
+        </>
       )}
     </InventorySubPage>
   );

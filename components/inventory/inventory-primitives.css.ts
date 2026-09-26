@@ -850,12 +850,12 @@ export const inventoryPrimitivesCss = `
     line-clamp: 2;
     overflow: hidden;
     overflow-wrap: anywhere;
-    min-width: 0;
-    font-size: 16px;
+    min-width: 0;    font-size: 16px;
     font-weight: 600;
     color: var(--inv-text);
   }
   [data-inventory-module] .inv-row__meta {
+    display: block;
     font-size: 12.5px;
     color: var(--inv-text-muted);
     font-weight: 500;
@@ -863,8 +863,7 @@ export const inventoryPrimitivesCss = `
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    unicode-bidi: isolate;
+    white-space: nowrap;    unicode-bidi: isolate;
   }
   [data-inventory-module] .inv-row__barcap {
     font-size: 11.5px;
@@ -1004,4 +1003,63 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-sup__note--warn {
     color: var(--inv-warning-ink);
   }
+
+  [data-inventory-module] .inv-desk-table { display: none; }
+
+  @media (min-width: 1200px) {
+    [data-inventory-module] .inv-hd,
+    [data-inventory-module] .inv-search,
+    [data-inventory-module] .inv-chips {
+      max-width: none;
+    }
+    [data-inventory-module] .inv-hd { margin-inline: 0; }
+    [data-inventory-module] .inv-search {
+      width: auto;
+      margin: 14px 28px 0;
+    }
+    [data-inventory-module] .inv-chips { margin-inline: 0; }
+    [data-inventory-module] .inv-cards { display: none !important; }
+    [data-inventory-module] .inv-desk-table {
+      display: block;
+      margin: 12px 28px 0;
+      background: var(--inv-card-bg);
+      border: 1px solid var(--inv-border);
+      border-radius: 16px;
+      overflow: auto;
+    }
+    [data-inventory-module] .inv-desk-table table { width: 100%; border-collapse: collapse; }
+    [data-inventory-module] .inv-desk-table th,
+    [data-inventory-module] .inv-desk-table td {
+      text-align: start;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--inv-border);
+      vertical-align: middle;
+    }
+    [data-inventory-module] .inv-desk-table th {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--inv-text-muted);
+      background: var(--inv-surface-2);
+      white-space: nowrap;
+    }
+    [data-inventory-module] .inv-desk-table td { font-size: 14px; color: var(--inv-text); }
+    [data-inventory-module] .inv-desk-table tbody tr { cursor: pointer; }
+    [data-inventory-module] .inv-desk-table tbody tr:hover td { background: var(--inv-surface-2); }
+    [data-inventory-module] .inv-desk-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    [data-inventory-module] .inv-desk-table a { color: inherit; text-decoration: none; font-weight: 600; }
+    [data-inventory-module] .inv-rows:has(.inv-dcard) {
+      max-width: none;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+    [data-inventory-module] .inv-detail-desk {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+      gap: 20px;
+      align-items: start;
+      max-width: none;
+      padding-inline: 28px;
+    }  }
 `;
