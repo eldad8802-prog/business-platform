@@ -97,23 +97,23 @@ jobs:
 
       # ── Contract negative proofs (no DB) ─────────────────────────────────────
       - name: "NEG · F-6: a personal column on indebted Appointment is a NEW shaped C12 key"
-        run: bash .sec-e/prove.sh DEBT_APPOINTMENT red 'NEW +C12-UNMANAGED-PERSONAL-DATA::Appointment@[0-9a-f]{12}' "column-set change on an indebted model is new debt, not absorbed" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+        run: bash .sec-e/prove.sh DEBT_APPOINTMENT red 'NEW .*[key C12-UNMANAGED-PERSONAL-DATA::Appointment@[0-9a-f]{12}]' "column-set change on an indebted model is new debt, not absorbed" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
       - name: "NEG · F-6: nationalId on Supplier fails the ratchet with the specific key"
         run: |
           # Supplier is C12 debt on this base; if the supplier erasure (PR #503) lands first,
           # Supplier is a covered model and the same column is C6-NO-DISPOSITION instead.
           if grep -q 'key: "Supplier"' scripts/ci/erasure/erasure-contract-debt.ts; then
-            EXP='NEW +C12-UNMANAGED-PERSONAL-DATA::Supplier@[0-9a-f]{12}'
+            EXP='NEW .*[key C12-UNMANAGED-PERSONAL-DATA::Supplier@[0-9a-f]{12}]'
           else
-            EXP='NEW +C6-NO-DISPOSITION::Supplier.nationalId'
+            EXP='NEW .*[key C6-NO-DISPOSITION::Supplier.nationalId]'
           fi
           bash .sec-e/prove.sh DEBT_SUPPLIER red "$EXP" "nationalId on Supplier cannot hide behind model-level debt" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
       - name: "NEG · L-18: the WhatsApp number tombstone removed"
-        run: bash .sec-e/prove.sh IDENT_OFF red 'NEW +C3-DECLARED-NOT-IMPLEMENTED::WhatsAppConnection.phoneNumberId' "the number would stay locked to the deleted business" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+        run: bash .sec-e/prove.sh IDENT_OFF red 'NEW .*[key C3-DECLARED-NOT-IMPLEMENTED::WhatsAppConnection.phoneNumberId]' "the number would stay locked to the deleted business" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
       - name: "NEG · C27: the auth-plane session erasure no longer called"
-        run: bash .sec-e/prove.sh SESSIONS_OFF red 'NEW +C27-EXTERNAL-ERASER-BROKEN::AuthSession' "AuthSession claims ERASURE_MANAGED with nothing erasing it" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+        run: bash .sec-e/prove.sh SESSIONS_OFF red 'NEW .*[key C27-EXTERNAL-ERASER-BROKEN::AuthSession]' "AuthSession claims ERASURE_MANAGED with nothing erasing it" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
       - name: "NEG · C28: the content-prefix erasure removed (static)"
-        run: bash .sec-e/prove.sh CONTENT_OFF red 'NEW +C28-PREFIX-ERASURE-NOT-IMPLEMENTED::prefix:content' "pointer-less content uploads would survive" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
+        run: bash .sec-e/prove.sh CONTENT_OFF red 'NEW .*[key C28-PREFIX-ERASURE-NOT-IMPLEMENTED::prefix:content]' "pointer-less content uploads would survive" -- npx tsx lib/services/account/erasure-contract.verify.test.ts --baseline-check
 
       # ── Fresh-lab batteries ─────────────────────────────────────────────────
       - name: AD-2A battery (regression, now with the auth plane)

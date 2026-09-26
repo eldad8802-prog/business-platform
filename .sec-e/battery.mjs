@@ -628,8 +628,7 @@ async function main() {
       );
     } catch (e) {
       seeded = false;
-      console.log(`  [info] audit row could not be seeded under this schema: ${String(e.message).split("
-")[0]}`);
+      console.log(`  [info] audit row could not be seeded under this schema: ${String(e.message).split("\n")[0]}`);
     }
     const res = await requestAccountDeletion(store, { businessId: fx.biz.id, actorUserId: fx.user.id });
     ok("F-AUDIT · the erasure completes with an audit row pointing at the user", res.status === "deleted", JSON.stringify(res));

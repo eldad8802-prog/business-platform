@@ -68,7 +68,7 @@ const MUTATIONS = {
     REVOKE_OFF();
   },
   // M-12(c) — the in-transaction lifecycle gate removed from the tenant wrapper.
-  INFLIGHT_OFF: () => replaceOnce(TX, "      await assertTenantTxAcceptsWrites(tx, businessId);\n", ""),
+  INFLIGHT_OFF: () => replaceOnce(TX, "        await assertTenantTxAcceptsWrites(tx, businessId);\n", ""),
   // M-13 — the content-prefix erasure removed from the adapter.
   CONTENT_OFF: () => replaceOnce(ADAPTER, '        await deletePublicAssetsOfBusiness(businessId, "content");\n', ""),
   // M-12(b) — an exhausted revoke is reported as a provider-side revoke.

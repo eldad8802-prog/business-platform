@@ -60,20 +60,18 @@ export async function withTenantTransaction<T>(
 
   return prisma.$transaction(
     async (tx) => {
-      if (erasure) {
-        // The erasure worker acts ON a quarantined business by design; it neither takes
-        // the shared lifecycle lock (its own finalisation takes that key exclusive) nor
-        // is refused by the gate below.
-        // Transaction-local (is_local = true). Parameterized — never string-interpolated.
-        await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
-        return fn(tx);
+      // Transaction-local (is_local = true). Parameterized — never string-interpolated.
+      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+      if (!erasure) {
+        // The SHARED lifecycle lock, taken before any tenant statement runs, so a
+        // quarantine can never commit between "this transaction started" and "this
+        // transaction checked the lifecycle". The quarantine takes it EXCLUSIVE.
+        // The erasure worker skips both: it acts ON a quarantined business by design,
+        // and its own finalisation takes this key exclusive.
+        await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock_shared(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+        // NEW statement, new snapshot: fail closed for a business under erasure.
+        await assertTenantTxAcceptsWrites(tx, businessId);
       }
-      // Transaction-local GUC, plus the SHARED lifecycle lock in the same statement, so a
-      // quarantine can never commit between "this transaction started" and "this
-      // transaction checked the lifecycle" (see assertTenantTxAcceptsWrites).
-      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true) FROM pg_advisory_xact_lock_shared(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
-      // NEW statement, new snapshot: fail closed for a business under erasure.
-      await assertTenantTxAcceptsWrites(tx, businessId);
       return fn(tx);
     },
     options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,

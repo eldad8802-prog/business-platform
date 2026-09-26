@@ -261,6 +261,17 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 });
 
 const UNMANAGED: Record<string, ModelCoverage> = {
+  // SEC-E revalidation (raised by workstream C). The old claim — "no free text, no
+  // identifiers beyond userId" — does not survive a read of the writer:
+  // recordProductUsageEvent stores the caller's `metadata` object verbatim under
+  // `data`, `sessionId` is the client-supplied x-session-id device identifier, and
+  // `entityId` is free-form. None of it is erased. Closing it needs an explicit
+  // erasure-authority path, because the tenant runtime becomes INSERT-only on this
+  // table in C's phase 3 (a runtime UPDATE/DELETE will be refused).
+  ProductUsageEvent: unmanaged(
+    "metadata (caller-supplied Json, stored verbatim), sessionId (client device id), entityId (free-form), userId",
+    "E2 — erasure-authority path; runtime is INSERT-only after C phase 3"
+  ),
   Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
   Task: unmanaged("title and description as free text"),
@@ -323,7 +334,6 @@ const operational = (reason: string): ModelCoverage => ({
 
 const OPERATIONAL: Record<string, ModelCoverage> = {
   Usage: operational("per-week feature counters"),
-  ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
   LearningSignal: operational("numeric learning signals"),

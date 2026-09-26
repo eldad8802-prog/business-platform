@@ -27,6 +27,8 @@ export const SHAPED_CODES: ReadonlySet<string> = new Set([
 export const DEBT_SHAPES: Readonly<Record<string, string>> = {
   // M6 (main b5d165a): derived temporal summaries; classified NEEDS_OWNER_DECISION on main.
   TemporalKnowledge: "f8892e139ffa",
+  // SEC-E revalidation: ProductUsageEvent is C12 debt (was mis-declared non-personal).
+  ProductUsageEvent: "e3510a127453",
   Appointment: "b9b226035368",
   BusinessBotKnowledge: "dcebf6cb0bc0",
   BusinessObligation: "af1eb33a1e68",

@@ -1281,7 +1281,7 @@ function main(): number {
   console.log(`NEW FINDINGS      = ${fresh.length}`);
   console.log(`ACCEPTED DEBT     = ${accepted.size}`);
   console.log(`DEBT NOW RESOLVED = ${fixed.length}`);
-  for (const f of fresh) console.log(`  NEW    ${debtKey(f)}  ${f.detail}`);
+  for (const f of fresh) console.log(`  NEW    ${f.code}  ${f.detail}  [key ${debtKey(f)}]`);
   for (const k of fixed) console.log(`  FIXED  ${k}`);
 
   if (fresh.length > 0) {
