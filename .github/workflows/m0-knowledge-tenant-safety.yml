@@ -88,11 +88,17 @@ jobs:
           node -e "
             const fs=require('fs');
             const p='lib/business-memory/read/coordinator.ts';
-            let s=fs.readFileSync(p,'utf8');
-            s=s.replace('import { tenantTx } from \"@/lib/tenant/tenant-tx\";','import { prisma } from \"@/lib/prisma\";');
-            s=s.replace(/return await tenantTx\(query\.businessId, \(tx\) =>\s*\n\s*readClaim\(query, tx as unknown as ClaimReaderClient\),\s*\n\s*\);/,'return await readClaim(query, prisma as unknown as ClaimReaderClient);');
+            const s0=fs.readFileSync(p,'utf8');
+            // F-10 (sec/A): each replacement must apply EXACTLY once, or the proof runs on
+            // an unmutated tree and its red means nothing.
+            const imp='import { tenantTx } from \"@/lib/tenant/tenant-tx\";';
+            const re=/return await tenantTx\(query\.businessId, \(tx\) =>\s*\n\s*readClaim\(query, tx as unknown as ClaimReaderClient\),\s*\n\s*\);/g;
+            const nImp=s0.split(imp).length-1, nRead=(s0.match(re)||[]).length;
+            if (nImp!==1 || nRead!==1) { console.error('MUTATION NOT APPLIED: import x'+nImp+', readClaim x'+nRead); process.exit(1); }
+            const s=s0.replace(imp,'import { prisma } from \"@/lib/prisma\";').replace(re,'return await readClaim(query, prisma as unknown as ClaimReaderClient);');
             fs.writeFileSync(p,s);
           "
+          cmp -s lib/business-memory/read/coordinator.ts /tmp/coordinator.bak && { echo "MUTATION NOT APPLIED"; exit 1; }
           if bash scripts/ci/tenant-context-guard.sh . > /tmp/neg.txt 2>&1; then
             echo '::error::CI-TC PASSED on the pre-M0 wiring — the guard does not actually detect it.'
             cat /tmp/neg.txt
@@ -103,6 +109,7 @@ jobs:
             echo '::error::the guard failed, but not on CI-TC-14 — it failed for the wrong reason.'
             cat /tmp/neg.txt; cp /tmp/coordinator.bak lib/business-memory/read/coordinator.ts; exit 1; }
           cp /tmp/coordinator.bak lib/business-memory/read/coordinator.ts
+          git diff --quiet -- lib/business-memory/read/coordinator.ts || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
           echo "negative proof held: CI-TC-14 detects the pre-M0 wiring."
 
       - run: npx prisma generate
