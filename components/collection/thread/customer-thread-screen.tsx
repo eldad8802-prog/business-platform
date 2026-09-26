@@ -134,13 +134,22 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
 
   return (
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto", display: "grid", gap: 14 }}>
-        <Link href="/collection" style={{ color: W.muted, textDecoration: "none", fontSize: 14 }}>→ גבייה</Link>
+      <style>{`
+        .col-thread { max-width: 680px; margin: 0 auto; display: grid; gap: 14px; }
+        @media (min-width: 1200px) {
+          .col-thread { max-width: 1120px; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: start; column-gap: 28px; }
+          .col-thread__span { grid-column: 1 / -1; }
+          .col-thread__side { position: sticky; top: 16px; }
+          .col-thread__queue { min-width: 0; }
+        }
+      `}</style>
+      <div className="col-thread">
+        <Link className="col-thread__span" href="/collection" style={{ color: W.muted, textDecoration: "none", fontSize: 14 }}>→ גבייה</Link>
         {error ? <WarmCard><p style={{ margin: 0 }}>{error}</p></WarmCard> : null}
         {!thread && !error ? <p style={{ color: W.muted }}>טוען…</p> : null}
         {thread ? (
           <>
-            <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <header className="col-thread__side" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
               <div>
                 <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>{thread.customer.name}</h1>
                 <p style={{ margin: "4px 0 0", color: W.muted, fontSize: 14 }}>
@@ -157,15 +166,17 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
             </header>
 
             {notice ? (
-              <div role="status" style={{ background: W.surface2, border: `1px solid ${W.line}`, borderRadius: 12, padding: "10px 12px", fontSize: 14, color: W.ink }}>
+              <div className="col-thread__span" role="status" style={{ background: W.surface2, border: `1px solid ${W.line}`, borderRadius: 12, padding: "10px 12px", fontSize: 14, color: W.ink }}>
                 {notice}
               </div>
             ) : null}
 
             {thread.events.length === 0 ? (
-              <WarmCard><p style={{ margin: 0, color: W.muted }}>עדיין אין תנועות כספיות ללקוח הזה.</p></WarmCard>
+              <div className="col-thread__queue">
+                <WarmCard><p style={{ margin: 0, color: W.muted }}>עדיין אין תנועות כספיות ללקוח הזה.</p></WarmCard>
+              </div>
             ) : (
-              <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              <ol className="col-thread__queue" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                 {thread.events.map((e, i) => (
                   <li key={`${e.kind}-${i}`} id={"requestId" in e ? `req-${e.requestId}` : undefined}>
                     <EventCard

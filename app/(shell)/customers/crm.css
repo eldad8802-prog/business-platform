@@ -799,6 +799,8 @@
   box-shadow: inset 0 0 0 1px var(--crm-accent), var(--crm-shadow-card);
 }
 
+.crm-unselected__desk { display: none; }
+
 /* In two-pane mode the list is always visible beside the card, so the card's
    "back" link is redundant (customers AND suppliers). Keep this breakpoint in
    sync with the canonical workspace tier (LAYOUT.bp.wide) used by
@@ -822,6 +824,63 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+    align-items: start;
+  }
+  .crm-unselected__desk { display: grid; gap: 12px; align-content: start; padding: 28px 8px 28px 28px; }
+  .crm-unselected__lead {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--crm-ink);
+    line-height: 1.35;
+  }
+  .crm-unselected__note {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--crm-muted);
+    max-width: 42ch;
+  }
+  .crm-unselected__facts {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .crm-unselected__facts li {
+    background: var(--crm-card, #fff);
+    border: 1px solid var(--crm-line);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .crm-unselected__facts strong {
+    display: block;
+    font-size: 14px;
+    color: var(--crm-ink);
+    margin-bottom: 4px;
+  }
+  .crm-unselected__facts span {
+    display: block;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--crm-muted);
+  }
+}
+
+@media (min-width: 1440px) {
+  .crm-scope [data-wsl][data-visible] > .wsl-start {
+    flex: 0 0 460px !important;
+  }
+}
+
+@media (min-width: 1800px) {
+  .crm-scope [data-wsl][data-visible] > .wsl-start {
+    flex: 0 0 520px !important;
+  }
+  .crm-unselected {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     align-items: start;
   }
 }

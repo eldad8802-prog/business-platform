@@ -293,4 +293,10 @@ export const inventoryLayoutCss = `
       --inv-content-max: 1280px;
     }
   }
+  @media (min-width: 1600px) {
+    [data-inventory-subpage][data-page-intent="data"] {
+      --inv-max-width: none;
+      --inv-content-max: none;
+    }
+  }
 `;

@@ -57,6 +57,17 @@ export default function DocumentsLayout({
             align-items: start;
           }
           .dz-report-span { grid-column: 1 / -1; }
+          .dz-pack { max-width: 1120px !important; }
+          .dz-pack-desk {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+            gap: 20px;
+            align-items: start;
+          }
+          .dz-pack-span { grid-column: 1 / -1; }
+          .dz-pack-side { position: sticky; top: 16px; }
+          .dz-pack-download { display: block !important; width: 100%; margin-top: 16px; }
+          .dz-pack-bottom { display: none !important; }
         }
         .dz-search-table { display: none; }
       `}</style>

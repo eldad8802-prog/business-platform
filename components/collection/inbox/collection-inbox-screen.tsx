@@ -162,8 +162,22 @@ export function CollectionInboxScreen() {
 
   return (
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
-      <div style={{ maxWidth: 760, margin: "0 auto", display: "grid", gap: 16 }}>
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <style>{`
+        .col-desk { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+        @media (min-width: 1200px) {
+          .col-desk {
+            max-width: 1120px;
+            grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+            align-items: start;
+            gap: 20px 28px;
+          }
+          .col-desk__side { position: sticky; top: 16px; display: grid !important; gap: 12px; align-content: start; justify-items: stretch; }
+          .col-desk__queue { display: grid; gap: 12px; min-width: 0; }
+          .col-desk__span { grid-column: 1 / -1; }
+        }
+      `}</style>
+      <div className="col-desk">
+        <header className="col-desk__side" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>גבייה</h1>
             {inbox ? (
@@ -178,7 +192,7 @@ export function CollectionInboxScreen() {
         </header>
 
         {notice ? (
-          <div role="status" style={{ background: W.surface2, border: `1px solid ${W.line}`, borderRadius: 12, padding: "10px 12px", color: W.ink, fontSize: 14, display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <div className="col-desk__span" role="status" style={{ background: W.surface2, border: `1px solid ${W.line}`, borderRadius: 12, padding: "10px 12px", color: W.ink, fontSize: 14, display: "flex", justifyContent: "space-between", gap: 8 }}>
             <span>{notice}</span>
             <button onClick={() => setNotice(null)} aria-label="סגור הודעה" style={{ background: "none", border: 0, color: W.muted, cursor: "pointer" }}>✕</button>
           </div>
@@ -194,7 +208,7 @@ export function CollectionInboxScreen() {
         ) : null}
 
         {inbox && segment ? (
-          <>
+          <div className="col-desk__queue">
             <nav role="tablist" aria-label="מצבי גבייה" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, background: W.surface2, padding: 4, borderRadius: 14 }}>
               {SEGMENTS.map((s) => {
                 const active = segment === s.key;
@@ -279,9 +293,9 @@ export function CollectionInboxScreen() {
                 </>
               )}
             </section>
-          </>
+          </div>
         ) : !error ? (
-          <p style={{ color: W.muted, textAlign: "center" }}>טוען…</p>
+          <p className="col-desk__queue" style={{ color: W.muted, textAlign: "center" }}>טוען…</p>
         ) : null}
       </div>
 
