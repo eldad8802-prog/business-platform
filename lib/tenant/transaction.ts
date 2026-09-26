@@ -23,6 +23,7 @@
  * nest it inside another interactive `$transaction`; pass the provided `tx`
  * down instead. Active-transaction reuse/propagation is a later increment.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { getTenantContextOrThrow } from "./context";
@@ -31,6 +32,23 @@ import { holdsErasureAuthority } from "./erasure-authority";
 
 /** The Prisma interactive-transaction client handed to the callback. */
 export type TenantTx = Prisma.TransactionClient;
+
+/**
+ * SEC-E — nesting is refused LOUDLY. A withTenantTransaction called from inside another
+ * one's callback used to open a SECOND interactive transaction on another pooled
+ * connection, silently: its writes committed even when the outer one rolled back, and
+ * under connection_limit=1 it waited on itself until the timeout. The rule was only a
+ * comment ("do NOT nest; pass the tx down"); now it is enforced. The marker is closed in
+ * a finally, so work merely scheduled from inside a transaction and run after it ended
+ * is not mistaken for nesting.
+ */
+export class TenantTransactionNestingError extends Error {
+  constructor() {
+    super("withTenantTransaction called inside an open tenant transaction — pass the tx down instead of opening a second one");
+    this.name = "TenantTransactionNestingError";
+  }
+}
+const openTenantTx = new AsyncLocalStorage<{ open: boolean }>();
 
 /**
  * Run `fn` inside an interactive transaction whose transaction-local GUC
@@ -53,6 +71,9 @@ export async function withTenantTransaction<T>(
 ): Promise<T> {
   // Read the trusted, server-derived tenant BEFORE opening a transaction.
   const { businessId } = getTenantContextOrThrow();
+  if (openTenantTx.getStore()?.open) {
+    throw new TenantTransactionNestingError();
+  }
 
   // SEC-E / M-12(c): decided BEFORE the transaction opens, from the ALS capability that
   // only `runTenantJob with the erasure quarantine policy` grants.
@@ -72,7 +93,12 @@ export async function withTenantTransaction<T>(
         // NEW statement, new snapshot: fail closed for a business under erasure.
         await assertTenantTxAcceptsWrites(tx, businessId);
       }
-      return fn(tx);
+      const marker = { open: true };
+      try {
+        return await openTenantTx.run(marker, () => fn(tx));
+      } finally {
+        marker.open = false;
+      }
     },
     options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
   );

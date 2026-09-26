@@ -4,7 +4,7 @@
  *
  *   node .ad2a/fresh-lab.mjs <label> -- npx tsx .sec-e/battery.mjs [--only <group>]
  *
- * groups: fault | provider | sweeper | m12a | m12c | content | audit   (default: all)
+ * groups: fault | provider | sweeper | m12a | m12c | content | audit | wrapper   (default: all)
  *
  * Every proof gets a NEW database, a NEW NOSUPERUSER/NOBYPASSRLS runtime role and a NEW
  * auth-plane role (fresh-lab.mjs); the substrate is the AD-2A Production RLS contract
@@ -613,6 +613,113 @@ async function main() {
     ok("M13-CONTENT-ERASED · every content object of the deleted business is gone", after === 0, `remaining=${after}`);
     const refused = await throws(() => realStorage.listByPrefix("biz/"));
     ok("M13-PREFIX-BOUNDED · a listing wider than one tenant domain is refused", refused?.name === "StorageKeyError", String(refused?.name));
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // The tenant transaction wrapper — eight properties, each with its own label
+  // ═════════════════════════════════════════════════════════════════════════
+  if (want("wrapper")) {
+    console.log("--- wrapper properties (NOBYPASSRLS runtime role) ---");
+    const { prisma: rtPrisma } = await import("@/lib/prisma");
+    const { getTenantContext, TenantContextError } = await import("@/lib/tenant/context");
+    const { tenantTx } = await import("@/lib/tenant/tenant-tx");
+    const { runWithErasureAuthority } = await import("@/lib/tenant/erasure-authority");
+    const { TenantTransactionNestingError } = await import("@/lib/tenant/transaction");
+    const A = await mk("wrap-a");
+    const B = await mk("wrap-b");
+    const guc = (db) => db.$queryRaw`SELECT NULLIF(current_setting('app.current_business_id', true), '') AS g, pg_backend_pid() AS pid, txid_current_if_assigned()::text AS tx`;
+    const noteData = (fx, body) => ({ businessId: fx.biz.id, subjectType: "CUSTOMER", subjectId: 1, body, createdByUserId: fx.user.id });
+
+    // W1 — the GUC is transaction-local: it never survives onto the pooled connection.
+    for (let i = 0; i < 5; i++) {
+      await runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.count({ where: { businessId: A.biz.id } })));
+    }
+    const leaks = [];
+    for (let i = 0; i < 30; i++) {
+      const [r] = await guc(rtPrisma);
+      if (r.g !== null) leaks.push(`${r.pid}:${r.g}`);
+    }
+    ok("W1-GUC-TX-LOCAL · no pooled connection carries a tenant GUC after the transaction", leaks.length === 0, leaks.join(","));
+
+    // W2 — the GUC set is exactly the context's tenant.
+    const seen = await runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction(async (tx) => (await guc(tx))[0].g));
+    ok("W2-GUC-MATCHES-CONTEXT · the transaction's GUC equals the ALS tenant", seen === String(A.biz.id), `guc=${seen} ctx=${A.biz.id}`);
+
+    // W3 — no context: refused before any transaction is opened.
+    ok("W3-NO-CONTEXT-FAILS-CLOSED · precondition: no ambient context", getTenantContext() === undefined);
+    let opened = false;
+    const w3 = await throws(() => withTenantTransaction(async () => { opened = true; }));
+    ok("W3-NO-CONTEXT-FAILS-CLOSED · withTenantTransaction without a context throws and runs nothing",
+      w3 instanceof TenantContextError && opened === false, `threw=${w3?.name} ran=${opened}`);
+
+    // W4 — cross-tenant: a switch is refused, and RLS refuses B's row under A's GUC.
+    const sw = await throws(() =>
+      runWithTenantContext({ businessId: A.biz.id }, () => runWithTenantContext({ businessId: B.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.create({ data: noteData(B, `${MARK}xswitch`), select: { id: true } }))))
+    );
+    const xw = await throws(() =>
+      runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.create({ data: noteData(B, `${MARK}xwrite`), select: { id: true } })))
+    );
+    const xr = await runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.count({ where: { businessId: B.biz.id } })));
+    const bLeak = await owner.crmNote.count({ where: { businessId: B.biz.id, body: { in: [`${MARK}xswitch`, `${MARK}xwrite`] } } });
+    ok("W4-CROSS-TENANT-REFUSED · a nested tenant switch throws; A's GUC cannot write or read B's rows (RLS 42501 / zero rows)",
+      sw instanceof TenantContextError && /42501|row-level security/i.test(String(xw?.message) + JSON.stringify(xw?.meta ?? {})) && xr === 0 && bLeak === 0,
+      `switch=${sw?.name} write=${String(xw?.message).split("\n").slice(-1)[0]} readB=${xr} leaked=${bLeak}`);
+
+    // W5 — rollback: a throw inside commits nothing, and leaves no GUC behind.
+    const w5 = await throws(() =>
+      runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction(async (tx) => {
+        await tx.crmNote.create({ data: noteData(A, `${MARK}rolled-back`), select: { id: true } });
+        throw new Error("lab: abort");
+      }))
+    );
+    const survived = await owner.crmNote.count({ where: { body: `${MARK}rolled-back` } });
+    const [after5] = await guc(rtPrisma);
+    ok("W5-ROLLBACK · a throw inside the callback propagates and commits nothing (row and GUC)",
+      w5?.message === "lab: abort" && survived === 0 && after5.g === null, `threw=${w5?.message} rows=${survived} guc=${after5.g}`);
+
+    // W6 — nesting never opens a second transaction silently.
+    let innerRan = false;
+    const w6 = await throws(() =>
+      runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction(async () => {
+        await tenantTx(A.biz.id, async () => { innerRan = true; });
+      }))
+    );
+    ok("W6-NO-SILENT-NESTING · a tenant transaction opened inside another is refused, loudly",
+      w6 instanceof TenantTransactionNestingError && innerRan === false, `threw=${w6?.name} innerRan=${innerRan}`);
+    // ...and work that merely STARTED inside a transaction but runs after it closed is not nesting.
+    let later;
+    await runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction(async () => {
+      // Scheduled INSIDE (it inherits both the tenant context and the open-transaction marker), run AFTER.
+      later = new Promise((r) => setTimeout(r, 200)).then(() => withTenantTransaction((tx) => tx.crmNote.count({ where: { businessId: A.biz.id } })));
+      later.catch(() => {});
+    }));
+    const w6b = await throws(() => later);
+    ok("W6-NO-SILENT-NESTING · a continuation after the outer transaction ended runs normally", w6b === null, String(w6b));
+
+    // W7 — no bare-Prisma fallback: the callback's client IS the transaction, under the GUC.
+    const w7 = await runWithTenantContext({ businessId: A.biz.id }, () => withTenantTransaction(async (tx) => {
+      const [r] = await guc(tx);
+      const n = await tx.crmNote.count({ where: { businessId: A.biz.id } });
+      return { g: r.g, n, notBare: tx !== rtPrisma };
+    }));
+    const bare = await rtPrisma.crmNote.count({ where: { businessId: A.biz.id } });
+    ok("W7-NO-BARE-FALLBACK · the callback runs inside a real transaction with the GUC, reaching rows a bare client cannot",
+      w7.notBare && w7.g === String(A.biz.id) && w7.n >= 1 && bare === 0, JSON.stringify({ ...w7, bare }));
+
+    // W8 — the erasure bypass is narrow.
+    await store.quarantineAndRevokeIntegrations(B.biz.id, new Date());
+    const w8a = await throws(() =>
+      runWithTenantContext({ businessId: B.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.create({ data: noteData(B, `${MARK}w8a`), select: { id: true } })))
+    );
+    const w8b = await throws(() =>
+      runWithErasureAuthority(A.biz.id, () => runWithTenantContext({ businessId: B.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.create({ data: noteData(B, `${MARK}w8b`), select: { id: true } }))))
+    );
+    const w8c = await throws(() => runTenantJob({ businessId: B.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.count())));
+    const w8rows = await owner.crmNote.count({ where: { body: { in: [`${MARK}w8a`, `${MARK}w8b`] } } });
+    const w8d = await throws(() => runTenantJob({ businessId: B.biz.id }, () => withTenantTransaction((tx) => tx.crmNote.count({ where: { businessId: B.biz.id } })), { quarantinePolicy: "erasure" }));
+    ok("W8-BYPASS-NARROW · a normal writer, a normal job, and an authority held for ANOTHER business are refused on a quarantined tenant; only the erasure policy passes",
+      w8a instanceof BusinessQuarantinedError && w8b instanceof BusinessQuarantinedError && w8c instanceof BusinessQuarantinedError && w8rows === 0 && w8d === null,
+      `normal=${w8a?.name} foreignAuthority=${w8b?.name} job=${w8c?.name} rows=${w8rows} erasure=${w8d}`);
   }
 
   // ═════════════════════════════════════════════════════════════════════════

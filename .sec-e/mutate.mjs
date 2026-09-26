@@ -19,6 +19,8 @@ const AUTH = "lib/auth.ts";
 const REFRESH = "lib/auth/refresh-session.ts";
 const SESSIONS = "lib/auth/session-directory.ts";
 const TX = "lib/tenant/transaction.ts";
+const CONTEXT = "lib/tenant/context.ts";
+const AUTHORITY = "lib/tenant/erasure-authority.ts";
 const ADAPTER = "lib/services/account/account-deletion.prisma-store.ts";
 const SCHEMA = "prisma/schema.prisma";
 
@@ -69,6 +71,23 @@ const MUTATIONS = {
   },
   // M-12(c) — the in-transaction lifecycle gate removed from the tenant wrapper.
   INFLIGHT_OFF: () => replaceOnce(TX, "        await assertTenantTxAcceptsWrites(tx, businessId);\n", ""),
+  // ── Tenant transaction wrapper: one mutation per property ───────────────
+  W1_SESSION_GUC: () =>
+    replaceOnce(TX, "await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;", "await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, false)`;"),
+  W2_WRONG_TENANT: () =>
+    replaceOnce(TX, "await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;", "await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId + 1)}, true)`;"),
+  W3_DEFAULT_TENANT: () =>
+    replaceOnce(TX, "  const { businessId } = getTenantContextOrThrow();\n", "  const { businessId } = (() => { try { return getTenantContextOrThrow(); } catch { return { businessId: 1 }; } })();\n"),
+  W4_SILENT_SWITCH: () =>
+    replaceOnce(CONTEXT, "  if (existing && existing.businessId !== context.businessId) {", "  if (false && existing && existing.businessId !== context.businessId) {"),
+  W5_SWALLOW: () =>
+    replaceOnce(TX, "        return await openTenantTx.run(marker, () => fn(tx));", "        return await openTenantTx.run(marker, () => fn(tx)).catch(() => undefined as T);"),
+  W6_SILENT_NEST: () =>
+    replaceOnce(TX, "  if (openTenantTx.getStore()?.open) {\n    throw new TenantTransactionNestingError();\n  }\n", ""),
+  W7_BARE_CLIENT: () =>
+    replaceOnce(TX, "        return await openTenantTx.run(marker, () => fn(tx));", "        return await openTenantTx.run(marker, () => fn(prisma as unknown as TenantTx));"),
+  W8_WIDE_BYPASS: () =>
+    replaceOnce(AUTHORITY, "  return held !== undefined && held.businessId === businessId;", "  return held !== undefined;"),
   // M-13 — the content-prefix erasure removed from the adapter.
   CONTENT_OFF: () => replaceOnce(ADAPTER, '        await deletePublicAssetsOfBusiness(businessId, "content");\n', ""),
   // M-12(b) — an exhausted revoke is reported as a provider-side revoke.
