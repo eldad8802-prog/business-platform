@@ -299,6 +299,7 @@ if [ -f "$sr" ] && [ -f "$mr" ] && [ -f "$mw" ] && [ -f "$id" ] && [ -f "$ca" ];
             | grep -v '/evidence/sources.ts$' | grep -v 'measure-writer.ts$' \
             | grep -v 'measure-reconciler.ts$' | grep -v 'insight.service.ts$' \
             | grep -v '/temporal/temporal-writer.ts$' | grep -v 'knowledge-selector.ts$' \
+            | grep -v '/snapshot/snapshot-sources.ts$' \
             | grep -v '\.test\.' | grep -c . || true)
   ins=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/insight.service.ts" || true)
   rec=$(grep -c "tenantTx(businessId" "$mr" || true)
@@ -307,9 +308,11 @@ if [ -f "$sr" ] && [ -f "$mr" ] && [ -f "$mw" ] && [ -f "$id" ] && [ -f "$ca" ];
   # M6 — the temporal writer and the M7-facing selector are the two further named seams.
   tw=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/temporal/temporal-writer.ts" 2>/dev/null || echo 0)
   ks=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/knowledge-selector.ts" 2>/dev/null || echo 0)
+  # M7 — the snapshot's governed producers are the one further named seam.
+  sn=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/snapshot/snapshot-sources.ts" 2>/dev/null || echo 0)
   [ "$loaders" -ge 7 ] && [ "$txs" -ge 7 ] && [ "$nosingleton" -eq 0 ] && [ "$strays" -eq 0 ] \
     && [ "$rec" -ge 1 ] && [ "$idn" -ge 1 ] && [ "$can" -ge 1 ] && [ "$ins" -ge 1 ] \
-    && [ "$tw" -ge 1 ] && [ "$ks" -ge 1 ] && n=1
+    && [ "$tw" -ge 1 ] && [ "$ks" -ge 1 ] && [ "$sn" -ge 1 ] && n=1
 fi
 ok "CI-TC-15 M4/M5 evidence, writer, reconciler, identity and collection seams are tenant-bound" "$n" \
    "loaders=${loaders:-?} tenantTx=${txs:-?} singleton=${nosingleton:-?} strays=${strays:-?}"
