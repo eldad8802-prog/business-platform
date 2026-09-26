@@ -24,6 +24,8 @@
  *
  * Synthetic data only. No secrets, no Neon, no network.
  *
+ * Also covers the legacy `GET /api/customer`, which had the identical defect.
+ *
  * Run: npx tsx app/api/billing/customers/route.rls.integration.test.ts
  */
 import { PrismaClient } from "@prisma/client";
@@ -36,6 +38,7 @@ import { GET as billingCustomersGET, POST as billingCustomersPOST } from "./rout
 import { GET as billingCustomerByIdGET } from "./[id]/route";
 import { POST as billingDocumentsPOST } from "../../billing/documents/route";
 import { GET as customersGET } from "../../customers/route";
+import { GET as legacyCustomerGET } from "../../customer/route";
 
 const prisma = new PrismaClient();
 
@@ -253,6 +256,31 @@ async function main() {
   ok("R1 /api/customers still answers 200", canon.status === 200, `status ${canon.status}`);
   ok("R1 and lists A's customers", a.customerIds.every((id) => canonIds.has(id)));
   ok("R2 and none of B's", !b.customerIds.some((id) => canonIds.has(id)));
+
+  // ------------------------------------------ legacy GET /api/customer ---
+  // The singular legacy route had the identical defect (service called with no
+  // tenant transaction) and answered 200 [] for every tenant. Contract: the
+  // full customer array, ordered by id ascending.
+  const legacy = await legacyCustomerGET(authed(a.token, "http://localhost/api/customer") as never);
+  const legacyBody = (await legacy.json()) as unknown;
+  const legacyRows = Array.isArray(legacyBody) ? (legacyBody as { id: number; businessId: number }[]) : [];
+  const legacyIds = legacyRows.map((r) => r.id);
+  ok("LG1 legacy /api/customer answers 200", legacy.status === 200, `status ${legacy.status}`);
+  ok(
+    "LG1 it lists tenant A's customers",
+    a.customerIds.every((id) => legacyIds.includes(id)),
+    `listed ${JSON.stringify(legacyIds)}, expected ${JSON.stringify(a.customerIds)}`
+  );
+  ok("LG2 it lists nothing of tenant B's", !b.customerIds.some((id) => legacyIds.includes(id)));
+  ok("LG2 every row it returns is tenant A's", legacyRows.every((r) => r.businessId === a.businessId));
+  ok("LG3 the list length matches A's scoped count", legacyRows.length === aScoped + 1, // + the W1 quick-create
+    `${legacyRows.length} vs ${aScoped + 1}`);
+  ok("LG4 ordered by id ascending (contract kept)", legacyIds.every((id, i) => i === 0 || legacyIds[i - 1] < id));
+  const legacyB = await legacyCustomerGET(authed(b.token, "http://localhost/api/customer") as never);
+  const legacyBIds = ((await legacyB.json()) as { id: number }[]).map((r) => r.id);
+  ok("LG5 tenant B sees exactly its own customer and none of A's",
+    legacyB.status === 200 && legacyBIds.length === b.customerIds.length && b.customerIds.every((id) => legacyBIds.includes(id)),
+    JSON.stringify(legacyBIds));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length > 0) {
