@@ -66,8 +66,7 @@ export function loadStorageConfig(): StorageConfig {
   const accountId = requireNonEmpty("R2_ACCOUNT_ID");
   const accessKeyId = requireNonEmpty("R2_ACCESS_KEY_ID");
   const secretAccessKey = requireNonEmpty("R2_SECRET_ACCESS_KEY");
-  const bucketName = requireNonEmpty("R2_BUCKET_NAME");
-  const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.trim() || undefined;
+  const buckets = resolveR2Buckets();
 
   return {
     provider: "r2",
@@ -76,8 +75,95 @@ export function loadStorageConfig(): StorageConfig {
       accountId,
       accessKeyId,
       secretAccessKey,
-      bucketName,
-      publicBaseUrl,
+      ...buckets,
     },
+  };
+}
+
+function optionalEnv(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined;
+}
+
+let legacyTopologyWarned = false;
+
+/** Test-only: allow a test to observe the warning again. */
+export function resetStorageTopologyWarningForTests(): void {
+  legacyTopologyWarned = false;
+}
+
+/**
+ * H-4 bucket topology resolution. Pure over process.env.
+ *
+ *   R2_PRIVATE_BUCKET_NAME + R2_PUBLIC_BUCKET_NAME  -> "split"
+ *       (must differ; R2_PUBLIC_BASE_URL binds to the PUBLIC bucket only)
+ *   only R2_BUCKET_NAME                             -> "legacy-single" + loud warning
+ *   exactly one of the split pair                   -> StorageConfigError (a half
+ *       split would silently route one class of objects to the wrong place)
+ */
+export function resolveR2Buckets(): Pick<
+  NonNullable<StorageConfig["r2"]>,
+  "topology" | "privateBucketName" | "publicBucketName" | "publicBaseUrl"
+> {
+  const privateBucket = optionalEnv("R2_PRIVATE_BUCKET_NAME");
+  const publicBucket = optionalEnv("R2_PUBLIC_BUCKET_NAME");
+  const legacyBucket = optionalEnv("R2_BUCKET_NAME");
+  const publicBaseUrl = optionalEnv("R2_PUBLIC_BASE_URL");
+
+  if (privateBucket || publicBucket) {
+    if (!privateBucket || !publicBucket) {
+      throw new StorageConfigError(
+        "R2 bucket split is half-configured: set BOTH R2_PRIVATE_BUCKET_NAME and R2_PUBLIC_BUCKET_NAME (or neither)"
+      );
+    }
+    if (privateBucket === publicBucket) {
+      throw new StorageConfigError(
+        "R2_PRIVATE_BUCKET_NAME and R2_PUBLIC_BUCKET_NAME must name different buckets"
+      );
+    }
+    if (legacyBucket && legacyBucket !== privateBucket && !legacyTopologyWarned) {
+      legacyTopologyWarned = true;
+      console.warn(
+        JSON.stringify({
+          event: "storage_topology_legacy_bucket_ignored",
+          message:
+            "R2_BUCKET_NAME is set alongside the private/public split and is ignored.",
+        })
+      );
+    }
+    return {
+      topology: "split",
+      privateBucketName: privateBucket,
+      publicBucketName: publicBucket,
+      publicBaseUrl,
+    };
+  }
+
+  if (!legacyBucket) {
+    throw new StorageConfigError(
+      "R2 bucket is not configured: set R2_PRIVATE_BUCKET_NAME and R2_PUBLIC_BUCKET_NAME"
+    );
+  }
+
+  if (!legacyTopologyWarned) {
+    legacyTopologyWarned = true;
+    // Loud on purpose: this topology relies on object metadata for privacy,
+    // which R2 does not enforce. Any public exposure of the bucket (r2.dev or a
+    // custom domain) serves private documents to anyone who has a key.
+    console.error(
+      JSON.stringify({
+        event: "storage_topology_legacy_single_bucket",
+        severity: "SECURITY_WARNING",
+        publicBaseUrlConfigured: Boolean(publicBaseUrl),
+        message:
+          "Private documents and public assets share ONE R2 bucket. Migrate to R2_PRIVATE_BUCKET_NAME + R2_PUBLIC_BUCKET_NAME (see docs/security/r2-bucket-split.md).",
+      })
+    );
+  }
+
+  return {
+    topology: "legacy-single",
+    privateBucketName: legacyBucket,
+    publicBucketName: legacyBucket,
+    publicBaseUrl,
   };
 }

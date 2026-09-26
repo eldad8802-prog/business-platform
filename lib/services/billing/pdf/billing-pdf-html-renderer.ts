@@ -95,13 +95,56 @@ export async function renderBillingPdfHtmlFromSnapshot(
   const fontDataUri = getNotoSansHebrewFontDataUri();
   const html = buildBillingInvoiceHtml(snapshot, fontDataUri);
 
+  return renderHtmlToPdfHardened(
+    html,
+    buildFooterTemplate(fontDataUri, snapshot.issuer.name)
+  );
+}
+
+/** Requests the renderer lets through: inline data only. */
+export function isAllowedRendererRequestUrl(url: string): boolean {
+  return url.startsWith("data:") || url === "about:blank";
+}
+
+/**
+ * L-14 — HTML → PDF with the page locked down.
+ *
+ * The invoice HTML embeds owner/customer-controlled text (escaped) and images
+ * (data: URLs only, checked in the template). Defence in depth for the day an
+ * escape is missed:
+ *   - JavaScript is DISABLED for the page: the template contains no script, and
+ *     the output (page count, text, footer page numbers) is identical without
+ *     it — proven by the sec-d battery rendering a fixture both ways.
+ *   - EVERY network request is aborted except data: / about:blank, so injected
+ *     markup cannot reach internal hosts, cloud metadata or the internet.
+ *   - service workers are blocked.
+ *
+ * `--no-sandbox` stays: serverless Linux runtimes (AWS Lambda, which backs
+ * Vercel Functions) provide no user namespaces / setuid helper, so Chromium's
+ * sandbox cannot start there. With JS off and the network closed, the renderer
+ * process has no attacker-driven code path left for the sandbox to contain.
+ */
+export async function renderHtmlToPdfHardened(
+  html: string,
+  footerTemplate: string
+): Promise<Buffer> {
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   try {
-    const page = await browser.newPage();
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+      serviceWorkers: "block",
+    });
+    await context.route("**/*", (route) => {
+      if (isAllowedRendererRequestUrl(route.request().url())) {
+        return route.continue();
+      }
+      return route.abort("blockedbyclient");
+    });
+    const page = await context.newPage();
     await page.setContent(html, { waitUntil: "networkidle" });
 
     const pdf = await page.pdf({
@@ -109,7 +152,7 @@ export async function renderBillingPdfHtmlFromSnapshot(
       printBackground: true,
       displayHeaderFooter: true,
       headerTemplate: "<div></div>",
-      footerTemplate: buildFooterTemplate(fontDataUri, snapshot.issuer.name),
+      footerTemplate,
       margin: {
         top: "0px",
         right: "0px",

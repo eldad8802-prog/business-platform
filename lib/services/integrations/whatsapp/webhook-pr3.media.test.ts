@@ -45,7 +45,7 @@ function mockDeps(
     fetchGraphMetadata: async () => ({
       ok: true,
       metadata: {
-        url: "https://example.com/media.bin",
+        url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=media.bin",
         mimeType: "image/jpeg",
         fileSize: SMALL_JPEG.length,
         filename: null,
@@ -156,7 +156,7 @@ const zipMime = await fetchAndValidateWhatsAppMedia(
     fetchGraphMetadata: async () => ({
       ok: true,
       metadata: {
-        url: "https://example.com/f",
+        url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=f",
         mimeType: "application/zip",
         fileSize: 100,
         filename: "x.zip",
@@ -197,7 +197,7 @@ const trackingDeps = mockDeps({
     return {
       ok: true,
       metadata: {
-        url: "https://example.com/m",
+        url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=m",
         mimeType: "image/jpeg",
         fileSize: SMALL_JPEG.length,
         filename: null,
