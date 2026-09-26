@@ -48,6 +48,8 @@
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
+    "verify:business-cost-core": "npx tsx lib/services/business-cost/business-cost-core.test.ts",
+    "verify:business-cost-db": "npx tsx lib/services/business-cost/business-cost.db.test.ts",
     "verify:payables-core": "npx tsx lib/services/payables/payables-core.test.ts",
     "verify:payables-db": "npx tsx lib/services/payables/payables.db.test.ts",
     "verify:payables-product": "npx tsx lib/services/payables/payables-1b.db.test.ts",
