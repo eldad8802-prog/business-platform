@@ -366,18 +366,31 @@ export function scan(root) {
   return { files: files.length, models: ctx.models.size, violations, debt };
 }
 
-function readRatchet(root) {
+function readRatchetDoc(root) {
   const f = path.join(root, RATCHET_FILE);
-  if (!fs.existsSync(f)) return {};
-  return JSON.parse(fs.readFileSync(f, "utf8")).sites ?? {};
+  if (!fs.existsSync(f)) return { sites: {}, sanctioned: {} };
+  const doc = JSON.parse(fs.readFileSync(f, "utf8"));
+  return { sites: doc.sites ?? {}, sanctioned: doc.sanctioned ?? {} };
+}
+function readRatchet(root) {
+  return readRatchetDoc(root).sites;
 }
 
 export function check(root, { log = console.log } = {}) {
   const { files, models, violations, debt } = scan(root);
   const ratchet = readRatchet(root);
   const problems = [...violations.map((x) => `[FAIL] ${x.rule} ${x.file}:${x.line} — ${x.msg}`)];
+  // SANCTIONED = deliberate, reasoned exceptions (not debt), e.g. a pre-authentication write
+  // that has no tenant by definition. Exact file::symbol::kind + count + reason. An entry may
+  // carry pendingPr while the PR that introduces the site is unmerged; once present it is exact.
+  const { sanctioned } = readRatchetDoc(root);
+  for (const [id, s] of Object.entries(sanctioned)) {
+    if (!s || !s.reason || String(s.reason).length < 20) problems.push(`[FAIL] SANCTIONED-NO-REASON ${id}`);
+    const got = debt.get(id) ?? 0;
+    if (got !== (s.count ?? 1) && !(got === 0 && s.pendingPr)) problems.push(`[FAIL] SANCTIONED-MISMATCH ${id} (sanctioned ${s.count ?? 1}, found ${got})`);
+  }
   for (const [id, n] of debt) {
-    const allowed = ratchet[id] ?? 0;
+    const allowed = (ratchet[id] ?? 0) + (sanctioned[id]?.count ?? (sanctioned[id] ? 1 : 0));
     if (n > allowed) problems.push(`[FAIL] ${id.includes("::bare:") || id.includes("::raw:") || id.includes("::element:") ? "AST-3" : "AST-2"} NEW-SITE ${id} (found ${n}, ratchet allows ${allowed}) — route it through the tenant transaction instead of the bare client`);
   }
   for (const [id, n] of Object.entries(ratchet)) {
@@ -393,7 +406,10 @@ export function check(root, { log = console.log } = {}) {
 function writeRatchet(root) {
   const { violations, debt } = scan(root);
   const sites = Object.fromEntries([...debt.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  const { sanctioned } = readRatchetDoc(root);
+  for (const id of Object.keys(sanctioned)) delete sites[id];
   const doc = {
+    sanctioned,
     note:
       "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). " +
       "Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, " +
