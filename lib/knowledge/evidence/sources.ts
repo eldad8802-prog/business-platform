@@ -321,6 +321,41 @@ export async function loadPaperwork(
 }
 
 /**
+ * M6 · DOC-04's evidence plus the document's direction, for the temporal rule's context slices.
+ *
+ * A separate loader rather than a new field on DOC-04's observation, so the M2/M4 rule and its
+ * fingerprints stay exactly as they were. Same predicate, same window semantics.
+ */
+export type PaperworkWithDirection = {
+  readonly recordId: number;
+  readonly businessId: number;
+  readonly documentDate: Date;
+  readonly approvedAt: Date;
+  readonly direction: string;
+};
+
+export async function loadPaperworkWithDirection(
+  businessId: number,
+  now: Date,
+  windowDays: number,
+): Promise<PaperworkWithDirection[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.financialRecord.findMany({
+      where: { businessId, approvedAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
+      select: { id: true, businessId: true, date: true, approvedAt: true, direction: true },
+    }),
+  );
+  return rows.map((r) => ({
+    recordId: r.id,
+    businessId: r.businessId,
+    documentDate: r.date,
+    approvedAt: r.approvedAt,
+    direction: r.direction,
+  }));
+}
+
+/**
  * Approved documents, attributed to a RESOLVED vendor identity.
  *
  * The join that makes DOC-02 and DOC-05 possible, and the reason M4 and M5 are one milestone:

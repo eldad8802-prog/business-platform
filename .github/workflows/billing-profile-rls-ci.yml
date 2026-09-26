@@ -27,6 +27,10 @@ on:
     branches: [main]
     paths:
       - "app/api/billing/documents/**"
+      - "app/api/billing/customers/**"
+      - "lib/services/crm/customer.service.ts"
+      - "app/api/customers/**"
+      - "app/api/customer/**"
       - "app/api/business/profile/**"
       - "app/api/video/plan/**"
       - "app/api/rls-tenant-scoped-routes.integration.test.ts"
@@ -122,6 +126,45 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/rls-tenant-scoped-routes.integration.test.ts
+
+      - name: Billing customer picker under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/billing/customers/route.rls.integration.test.ts
+
+      # Each route's read is put back on the global client (the tenant transaction
+      # is dropped, exactly the defect that emptied the picker in Production), and
+      # the suite must go red on THAT route's own case — not merely somewhere.
+      - name: Negative proof — customer reads without the tenant transaction are caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          prove() {
+            local file="$1" expect="$2"
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/\{ tx \}\s*\)/undefined)/g' "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
+            fi
+            npx tsx app/api/billing/customers/route.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: $file read without the tenant transaction and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] $expect" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — $file without the tenant transaction fails $expect"
+          }
+          prove app/api/billing/customers/route.ts "L1" || exit 1
+          prove app/api/customer/route.ts "LG1" || exit 1
 
       - name: Notifications, awaiting payment, pricing and authority identity
         env:

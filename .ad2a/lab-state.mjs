@@ -14,6 +14,7 @@
  */
 import {
   PRODUCTION_RLS_CONTRACT,
+  SECF_MIGRATION_LAB_STATE,
   EXPECTED_RUNTIME_TABLE_PRIVILEGES,
   EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES,
 } from "./production-contract.mjs";
@@ -33,6 +34,34 @@ export function freshLabIdentity(env = process.env) {
 }
 
 /**
+ * SEC-F: does the lab carry the row-level-security state migration 20260926140000
+ * ships? Answered EXACTLY: "absent" (no row security and no policy at all),
+ * "present" (every declared table flag and every declared policy, by table and
+ * name, and nothing else), or "partial" (anything else — refused as dirty).
+ */
+export async function measureSecfMigrationState(owner) {
+  const q = (sql) => owner.$queryRawUnsafe(sql);
+  const rls = (await q(
+    `SELECT c.relname::text AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND c.relrowsecurity`
+  )).map((r) => r.t).sort();
+  const force = (await q(
+    `SELECT c.relname::text AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND c.relforcerowsecurity`
+  )).map((r) => r.t).sort();
+  const pol = (await q(
+    `SELECT c.relname::text || '.' || p.polname::text AS k FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+       JOIN pg_namespace ns ON ns.oid = c.relnamespace WHERE ns.nspname = 'public'`
+  )).map((r) => r.k).sort();
+  const want = SECF_MIGRATION_LAB_STATE;
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify([...b].sort());
+  let state = "partial";
+  if (rls.length === 0 && force.length === 0 && pol.length === 0) state = "absent";
+  else if (same(rls, want.rls) && same(force, want.force) && same(pol, want.policies.map((x) => `${x.table}.${x.name}`))) state = "present";
+  return { state, rls, force, pol };
+}
+
+/**
  * Measure the precondition. Returns [{ name, ok, detail }] — the caller reports and
  * decides; nothing here changes the database.
  */
@@ -49,18 +78,20 @@ export async function measureCleanPrecondition(owner, id) {
   );
   add("the database carries this proof's freshness nonce", c === `ad2a-fresh:${id.nonce}`, `comment=${c}`);
 
-  const rls = await q(
-    `SELECT c.relname::text AS t, c.relrowsecurity AS r, c.relforcerowsecurity AS f
-       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND (c.relrowsecurity OR c.relforcerowsecurity)`
+  // No row-level security and no policy — except, when the lab was built by applying
+  // the repository's migrations, EXACTLY the state SEC-F's migration ships (declared
+  // in production-contract.mjs). Any subset or superset of it is still dirty.
+  const secf = await measureSecfMigrationState(owner);
+  add(
+    "no table has row-level security enabled or forced (beyond the exact SEC-F migration state)",
+    secf.state !== "partial",
+    `secf=${secf.state} rls=${secf.rls.join(",")} force=${secf.force.join(",")}`
   );
-  add("no table has row-level security enabled or forced", rls.length === 0, rls.map((r) => r.t).join(","));
-
-  const [{ n: pol }] = await q(
-    `SELECT count(*)::int AS n FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-       JOIN pg_namespace ns ON ns.oid = c.relnamespace WHERE ns.nspname = 'public'`
+  add(
+    "no policy exists (beyond the exact SEC-F migration state)",
+    secf.state !== "partial",
+    `secf=${secf.state} policies=${secf.pol.length}`
   );
-  add("no policy exists", pol === 0, `policies=${pol}`);
 
   const [{ n: privs }] = await q(
     `SELECT count(*)::int AS n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace,
@@ -140,7 +171,10 @@ export async function readLiveState(owner, rtRole) {
   };
 }
 
-/** What the lab SHOULD hold, from the declared contract alone (predicates normalised by PostgreSQL). */
+/**
+ * What the lab SHOULD hold, from the declared contract (predicates normalised by
+ * PostgreSQL) — plus, when the lab carries it, the exact SEC-F migration state.
+ */
 export async function expectedState(owner, sequences) {
   const policies = [];
   const items = [];
@@ -156,6 +190,20 @@ export async function expectedState(owner, sequences) {
       items.push({ table: spec.table, expr: p.using ?? null }, { table: spec.table, expr: p.check ?? null });
     }
   }
+  // SEC-F: when the lab carries the migration's state (the precondition proved it
+  // was the exact declared state before the contract was applied), all of it is
+  // expected EXACTLY — command, permissive/restrictive, roles and both predicates —
+  // so a declared SEC-F rule that went missing is reported as missing.
+  const [{ n: secfRules }] = await owner.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM pg_policy WHERE polname LIKE 'secf\_%'`
+  );
+  const secfPresent = secfRules > 0;
+  if (secfPresent) {
+    for (const p of SECF_MIGRATION_LAB_STATE.policies) {
+      policies.push({ table: p.table, name: p.name, command: p.command, permissive: p.permissive, roles: [...p.roles].sort() });
+      items.push({ table: p.table, expr: p.using }, { table: p.table, expr: p.check });
+    }
+  }
   const dep = await deparseAll(owner, items);
   policies.forEach((p, i) => {
     p.using = dep[2 * i];
@@ -166,7 +214,9 @@ export async function expectedState(owner, sequences) {
   const seqPrivs = [];
   for (const s of sequences) for (const v of EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES) seqPrivs.push(`${s}:${v}`);
   const tables = PRODUCTION_RLS_CONTRACT.map((s) => s.table);
-  return { rls: new Set(tables), force: new Set(tables), policies, tablePrivs, seqPrivs };
+  const rls = new Set([...tables, ...(secfPresent ? SECF_MIGRATION_LAB_STATE.rls : [])]);
+  const force = new Set([...tables, ...(secfPresent ? SECF_MIGRATION_LAB_STATE.force : [])]);
+  return { rls, force, policies, tablePrivs, seqPrivs };
 }
 
 const setDiff = (live, want) => {

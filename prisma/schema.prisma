@@ -229,6 +229,7 @@ model Business {
   derivedClaimProjections       DerivedClaimProjection[]
   derivedClaimEvidenceLinks     DerivedClaimEvidenceLink[]
   knowledgeMeasures             KnowledgeMeasure[]
+  temporalKnowledge             TemporalKnowledge[]
   knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
   businessInsights              BusinessInsight[]
   entityLinkProposals           EntityLinkProposal[]
@@ -3437,6 +3438,7 @@ model DerivationPolicyVersion {
   /// policy history outlives its materializations. This is a virtual relation (no column, no behavior).
   claimProjections  DerivedClaimProjection[]
   knowledgeMeasures KnowledgeMeasure[]
+  temporalKnowledge TemporalKnowledge[]
 
   /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
   /// (policy, version)); it does NOT imply order, currentness, precedence, or "one active version".
@@ -5347,6 +5349,64 @@ enum KnowledgeStatus {
 
 /// Direction of travel across a measure's window. Deliberately coarse: with the observation counts a
 /// small business produces, a percentage change would imply a precision the data cannot support.
+/// M6 · Per-business temporal knowledge — what is normal for THIS business, what is changing, what is
+/// unusual. Fed by the same evidence sources as KnowledgeMeasure, never by another business. Rows are
+/// appended and superseded, never deleted by the application (DELETE is revoked). See
+/// docs/learning/TEMPORAL_KNOWLEDGE.md for every rule's contract.
+model TemporalKnowledge {
+  id                  Int                     @id @default(autoincrement())
+  businessId          Int
+  temporalKey         String
+  domain              String
+  rulePolicyVersionId Int
+  knowledgeType       TemporalKnowledgeType
+  status              TemporalKnowledgeStatus
+  entityType          String?
+  entityId            Int?
+  contextKey          String                  @default("")
+  valueKind           String
+  unit                String
+  asOf                DateTime
+  historyStart        DateTime
+  historyEnd          DateTime
+  recentStart         DateTime?
+  recentEnd           DateTime?
+  historyCount        Int
+  recentCount         Int
+  baseline            Json?
+  recent              Json?
+  finding             Json?
+  reason              Json?
+  evidenceRefs        Json
+  evidenceFingerprint String
+  semanticHash        String
+  materializedAt      DateTime                @default(now())
+  confirmedAt         DateTime                @default(now())
+  supersededAt        DateTime?
+
+  business      Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyVersion DerivationPolicyVersion @relation(fields: [rulePolicyVersionId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@index([businessId, temporalKey, entityType, entityId, contextKey, knowledgeType], map: "TemporalKnowledge_slot_idx")
+  @@index([rulePolicyVersionId])
+}
+
+enum TemporalKnowledgeType {
+  BASELINE
+  STABLE_PATTERN
+  TREND
+  MATERIAL_CHANGE
+  ANOMALY
+}
+
+enum TemporalKnowledgeStatus {
+  ACTIVE
+  INSUFFICIENT_HISTORY
+  STALE
+  SUPERSEDED
+}
+
 enum KnowledgeTrend {
   IMPROVING
   STABLE

@@ -76,7 +76,11 @@ export function dateTime(iso: string | null | undefined): string {
 }
 
 /** Why a verified payment's receipt is paused — and what the owner can do. */
-export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAME_CUSTOMER" | "FIX_BUSINESS" | "RETRY" }> = {
+export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAME_CUSTOMER" | "FIX_BUSINESS" | "RETRY" | "REVIEW" }> = {
+  // M1 — the provider charged a different sum or currency than was requested.
+  // Retrying cannot change what the provider charged, so it is not the lead action.
+  VERIFIED_AMOUNT_MISMATCH: { title: "התשלום התקבל בסכום שונה מהבקשה — הקבלה לא הופקה", action: "REVIEW" },
+  VERIFIED_CURRENCY_MISMATCH: { title: "התשלום התקבל במטבע שונה מהבקשה — הקבלה לא הופקה", action: "REVIEW" },
   NO_CUSTOMER: { title: "התשלום התקבל, אבל לא ידוע מי שילם", action: "NAME_CUSTOMER" },
   BILLING_IDENTITY_INCOMPLETE: { title: "התשלום התקבל — חסרים פרטי העסק כדי להפיק קבלה", action: "FIX_BUSINESS" },
   RETRY_EXHAUSTED: { title: "התשלום התקבל — הפקת הקבלה נכשלה שוב ושוב", action: "RETRY" },
