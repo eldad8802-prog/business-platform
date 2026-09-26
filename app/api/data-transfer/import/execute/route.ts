@@ -11,6 +11,7 @@ import type { ResolvedMapping } from "@/lib/data-transfer/import/mapping/mapping
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { getClientIp } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -176,6 +177,7 @@ export async function POST(req: Request) {
       // Every one of these means "re-run the check", not "the server broke".
       return NextResponse.json(result, { status: 409, headers: NO_STORE });
     }
+    await recordSecurityEvent({ type: "DATA_IMPORT_EXECUTED", outcome: "SUCCESS", reason: "tabular_import", businessId: user.businessId, userId: user.id, req });
     return NextResponse.json(result, { status: 200, headers: NO_STORE });
   } catch (error) {
     // Never echo the thrown message: it can carry a row value.

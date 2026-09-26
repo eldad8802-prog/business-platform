@@ -4,6 +4,7 @@ import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "./billing-tenant-tx";
 import { billingDbStep } from "./billing-db-step";
+import { nextAuditChainLink } from "@/lib/audit/audit-chain";
 
 /** Document-scoped authority events — require billingDocumentId. */
 export const BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES = [
@@ -259,6 +260,20 @@ export async function createBillingAuditEventTx(
 ): Promise<void> {
   const normalized = normalizeAuditEventInput(input);
 
+  // SEC-F: keyed chain link (HMAC over the row, linked to the previous row of
+  // this business). Null only when AUDIT_CHAIN_KEY is not configured.
+  const link = await nextAuditChainLink(tx, "BillingAuditEvent", {
+    businessId: normalized.businessId,
+    eventType: normalized.eventType,
+    source: normalized.source,
+    summary: normalized.summary,
+    metadata: normalized.metadata,
+    eventHash: normalized.eventHash,
+    occurredAt: normalized.occurredAt,
+    actorUserId: normalized.actorUserId,
+    refs: { billingDocumentId: normalized.billingDocumentId },
+  });
+
   await tx.billingAuditEvent.create({
     data: {
       businessId: normalized.businessId,
@@ -273,6 +288,7 @@ export async function createBillingAuditEventTx(
           : (normalized.metadata as Prisma.InputJsonValue),
       eventHash: normalized.eventHash,
       occurredAt: normalized.occurredAt,
+      ...(link ?? {}),
     },
   });
 }

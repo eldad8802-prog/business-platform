@@ -1,10 +1,12 @@
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
   buildAccountantPackZipBuffer,
   type AccountantPackBody,
 } from "@/lib/reports/accountant-export-zip";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 // Real months fetch dozens of originals from object storage; the platform
 // default duration is what turned the historic stream deadlock into a 504.
@@ -17,6 +19,8 @@ export async function POST(req: Request) {
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   try {
     const body = (await req.json()) as AccountantPackBody;
@@ -31,6 +35,7 @@ export async function POST(req: Request) {
     );
 
     // M5.5 sensor — fail-open, after the pack was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "accountant_pack_zip", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { revokeOtherSessions } from "@/lib/auth/session-directory";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export async function POST(req: Request) {
   try {
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
+    await recordSecurityEvent({ type: "AUTH_SESSION_REVOKED", outcome: "SUCCESS", reason: "all_other_sessions", userId: context.user.id, req, metadata: { revoked } });
     return NextResponse.json(
       { success: true, revoked },
       { headers: { "cache-control": "no-store" } }

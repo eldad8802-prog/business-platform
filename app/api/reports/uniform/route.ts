@@ -13,6 +13,7 @@
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { loadUniformExportInput } from "@/lib/services/billing/uniform/uniform-export-loader";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
@@ -22,6 +23,7 @@ import {
   makePrimaryId,
   parseUniformExportRange,
 } from "@/lib/services/billing/uniform/uniform-export-package.service";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +38,8 @@ function json(body: unknown, status: number): Response {
 export async function GET(req: Request): Promise<Response> {
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   const { searchParams } = new URL(req.url);
   const parsed = parseUniformExportRange(searchParams.get("from"), searchParams.get("to"));
@@ -55,6 +59,7 @@ export async function GET(req: Request): Promise<Response> {
     });
 
     // M5.5 sensor — fail-open, after the uniform file was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "uniform_export", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

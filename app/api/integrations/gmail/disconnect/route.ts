@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { disconnectGmailConnection } from "@/lib/services/integrations/gmail/gmail-connection.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
         { status: 404 }
       );
     }
+    await recordSecurityEvent({ type: "INTEGRATION_DISCONNECTED", outcome: "SUCCESS", reason: "gmail", businessId: user.businessId, userId: user.id, req });
     return NextResponse.json({ success: true, disconnected: true, connection });
   } catch (error) {
     console.error("GMAIL_DISCONNECT_ERROR:", error);

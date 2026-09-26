@@ -6,6 +6,7 @@ import { encryptToken } from "@/lib/services/integrations/gmail/token-crypto.pla
 import { verifySignedGmailState } from "@/lib/services/integrations/gmail/signed-state.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -233,6 +234,7 @@ export async function GET(req: NextRequest) {
       return redirectError(req, "max_accounts");
     }
 
+    await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "gmail", businessId, req });
     return redirectSuccess(req);
   } catch (error) {
     console.error("GMAIL_CALLBACK_ERROR:", error);

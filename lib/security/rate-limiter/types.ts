@@ -26,7 +26,15 @@ export type BucketName =
   | "WHATSAPP_INTAKE"
   | "CRM_ATTACHMENT_UPLOAD"
   | "DATA_TRANSFER_IMPORT_EXECUTE"
-  | "DATA_TRANSFER_DOCUMENTS_IMPORT";
+  | "DATA_TRANSFER_DOCUMENTS_IMPORT"
+  // SEC-F / L-7 cost buckets (lib/security/cost-limits.ts)
+  | "COST_LLM_GENERATION"
+  | "COST_OCR_IMPORT"
+  | "COST_DOCUMENT_APPROVE"
+  | "COST_MESSAGE_SEND"
+  | "COST_PDF_RENDER"
+  | "COST_REPORT_EXPORT"
+  | "COST_IMPORT_ANALYZE";
 
 export type BucketConfig = {
   failMode: FailMode;

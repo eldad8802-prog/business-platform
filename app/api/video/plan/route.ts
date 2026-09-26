@@ -12,6 +12,7 @@ import {
 import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprint/creative-blueprint.engine";
 import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_LLM_GENERATION", user, req);
+  if (costLimited) return costLimited;
 
   try {
     const body = (await req.json()) as VideoPlanRequestBody;
