@@ -1,0 +1,69 @@
+# SEC-F — observability & integrity closure (ephemeral PG17).
+#
+# migration-battery: builds a FRESH lab (schema.prisma + main's RLS rules, a
+#   non-superuser BYPASSRLS owner, an over-granted NOBYPASSRLS non-owner runtime),
+#   reproduces each gap on main, applies the SEC-F migration, and proves every
+#   control with its specific SQLSTATE (42501 / DZ001 / DZ002 / DZ010 / 23503).
+# negative-proofs: mutates the migration one control at a time (anchor exactly
+#   once), asserts the SPECIFIC [FAIL] label turns red in a fresh lab, restores
+#   byte-identically (sha256), and requires a post-restore green run.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: sec-f — observability & integrity (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main, sec/f-observability-migration]
+    paths:
+      - ".secf/**"
+      - "prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/**"
+      - "prisma/schema.prisma"
+      - "lib/audit/**"
+      - "lib/security/**"
+      - "lib/observability/**"
+      - "lib/services/billing/billing-audit.service.ts"
+      - "lib/services/payables/payables.service.ts"
+      - "lib/services/payables/payables-reconciliation.service.ts"
+      - "scripts/security/verify-audit-chain.ts"
+      - "app/api/**"
+      - "android/app/src/main/**"
+      - ".github/workflows/sec-f-observability-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration:
+    name: SEC-F migration battery + negative proofs (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: secf_super
+          POSTGRES_PASSWORD: secf_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secf_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SECF_SUPER_URL: postgresql://secf_super:secf_ci_synthetic_super_pw@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .secf/lab.mjs && node --check .secf/migration-battery.mjs && node --check .secf/negative-proofs.mjs
+      - name: Migration battery (positive + baseline gap reproduction)
+        run: node .secf/migration-battery.mjs
+      - name: Negative proofs (mutation → specific red → sha256 restore → green)
+        run: node .secf/negative-proofs.mjs
