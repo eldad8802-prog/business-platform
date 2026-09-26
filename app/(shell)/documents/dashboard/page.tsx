@@ -249,7 +249,7 @@ export default function Dashboard() {
 
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
-      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
+      <PageContainer intent="data" className="dz-report" style={{ paddingBlock: "14px 40px" }}>
         <div style={{ marginBottom: 12 }}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
         </div>
@@ -320,9 +320,10 @@ export default function Dashboard() {
         {loading ? <DocumentsDashboardSkeleton /> : null}
         {error ? <div style={alertError}>{error}</div> : null}
 
+        <div className="dz-report-grid">
         {/* Summary metrics */}
         {!loading && !error && data ? (
-          <div style={card}>
+          <div className="dz-report-span" style={card}>
             <div style={cardHeaderRow}>
               <div style={iconWrap} aria-hidden>
                 📊
@@ -471,6 +472,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : null}
+        </div>
 
         {/* Accountant CTA — surface the existing wizard prominently from the
             reports center, instead of relying on hidden navigation. */}

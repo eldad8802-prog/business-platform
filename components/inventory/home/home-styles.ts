@@ -371,4 +371,29 @@ export const homeCss = `
     grid-template-columns: repeat(4, 1fr);
   }
 }
+@media (min-width: 1200px) {
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) {
+    max-width: none;
+    padding: 24px 32px 48px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+    grid-template-areas:
+      "head head"
+      "hero health"
+      "actions actions"
+      "attn attn";
+    gap: 8px 20px;
+    align-items: start;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > * {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-head { grid-area: head; }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-hero { grid-area: hero; }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-health { grid-area: health; }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-actions { grid-area: actions; }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-attn { grid-area: attn; }
+  [data-inventory-home] .inv-hm-qa { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 `;
