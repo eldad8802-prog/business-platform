@@ -140,6 +140,34 @@ jobs:
       - name: "NEG · M-13: content-prefix erasure removed → objects survive"
         run: bash .sec-e/prove.sh CONTENT_OFF red '\[FAIL\] M13-CONTENT-ERASED' "pointer-less uploads survive the deletion" -- node .ad2a/fresh-lab.mjs ncontent -- npx tsx .sec-e/battery.mjs --only content
 
+      - name: "NEG · wrapper W1_SESSION_GUC: the GUC leaks onto the pooled connection"
+        run: bash .sec-e/prove.sh W1_SESSION_GUC red '[FAIL] W1-GUC-TX-LOCAL' "the GUC leaks onto the pooled connection" -- node .ad2a/fresh-lab.mjs w1_session_g -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W2_WRONG_TENANT: the GUC names a tenant other than the context"
+        run: bash .sec-e/prove.sh W2_WRONG_TENANT red '[FAIL] W2-GUC-MATCHES-CONTEXT' "the GUC names a tenant other than the context" -- node .ad2a/fresh-lab.mjs w2_wrong_ten -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W3_DEFAULT_TENANT: a missing context falls back to a default tenant"
+        run: bash .sec-e/prove.sh W3_DEFAULT_TENANT red '[FAIL] W3-NO-CONTEXT-FAILS-CLOSED · withTenant' "a missing context falls back to a default tenant" -- node .ad2a/fresh-lab.mjs w3_default_t -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W4_SILENT_SWITCH: a nested tenant switch is honoured"
+        run: bash .sec-e/prove.sh W4_SILENT_SWITCH red '[FAIL] W4-CROSS-TENANT-REFUSED' "a nested tenant switch is honoured" -- node .ad2a/fresh-lab.mjs w4_silent_sw -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W5_SWALLOW: a failing callback commits its partial work"
+        run: bash .sec-e/prove.sh W5_SWALLOW red '[FAIL] W5-ROLLBACK' "a failing callback commits its partial work" -- node .ad2a/fresh-lab.mjs w5_swallow -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W6_SILENT_NEST: a nested call silently opens a second transaction"
+        run: bash .sec-e/prove.sh W6_SILENT_NEST red '[FAIL] W6-NO-SILENT-NESTING · a tenant transaction opened' "a nested call silently opens a second transaction" -- node .ad2a/fresh-lab.mjs w6_silent_ne -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W7_BARE_CLIENT: the callback receives the bare client"
+        run: bash .sec-e/prove.sh W7_BARE_CLIENT red '[FAIL] W7-NO-BARE-FALLBACK' "the callback receives the bare client" -- node .ad2a/fresh-lab.mjs w7_bare_clie -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "NEG · wrapper W8_WIDE_BYPASS: erasure authority for one business admits writes to another"
+        run: bash .sec-e/prove.sh W8_WIDE_BYPASS red '[FAIL] W8-BYPASS-NARROW' "erasure authority for one business admits writes to another" -- node .ad2a/fresh-lab.mjs w8_wide_bypa -- npx tsx .sec-e/battery.mjs --only wrapper
+      - name: "COMPAT · workstream F #521 (append-only audit, DZ010) and C #530 (composite tenant FKs) applied under the erasure"
+        run: |
+          # Read each peer migration from the tree once it has merged, from its branch until then.
+          get() { # <path> <branch> <out>
+            if [ -f "$1" ]; then cp "$1" "$3"; return; fi
+            git fetch --no-tags --depth=1 origin "$2:refs/remotes/origin/$2"
+            git show "origin/$2:$1" > "$3"
+          }
+          get prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/migration.sql sec/f-observability-migration "$RUNNER_TEMP/f521.sql"
+          get prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql sec/c-tenant-db-migration "$RUNNER_TEMP/c530.sql"
+          SEC_E_EXTRA_MIGRATION="$RUNNER_TEMP/f521.sql" node .ad2a/fresh-lab.mjs compatf -- npx tsx .sec-e/battery.mjs
+          SEC_E_EXTRA_MIGRATION="$RUNNER_TEMP/c530.sql" node .ad2a/fresh-lab.mjs compatc -- npx tsx .sec-e/battery.mjs
       - name: Post-restore green (unmutated, fresh lab)
         run: node .ad2a/fresh-lab.mjs postgreen -- npx tsx .sec-e/battery.mjs
       - name: The tree is exactly the commit (every mutation restored)

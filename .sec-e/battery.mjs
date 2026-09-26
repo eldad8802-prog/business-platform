@@ -125,8 +125,10 @@ async function main() {
   // ISSUED fiscal row (those triggers raise DZ001/DZ010 even for the owner).
   const EXTRA = process.env.SEC_E_EXTRA_MIGRATION;
   if (EXTRA) {
-    const fsx = await import("node:fs");
-    await owner.$executeRawUnsafe(fsx.readFileSync(EXTRA, "utf8"));
+    // A migration is many statements (and DO blocks); psql runs it exactly as release-migrate would.
+    const { spawnSync } = await import("node:child_process");
+    const r = spawnSync(process.env.SEC_E_PSQL ?? "psql", [OWNER_URL, "-v", "ON_ERROR_STOP=1", "-q", "-f", EXTRA], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`extra migration failed: ${(r.stderr || String(r.error)).slice(0, 500)}`);
     ok(`SUBSTRATE · extra migration applied: ${EXTRA}`, true);
   }
 
