@@ -119,6 +119,51 @@ jobs:
       - name: Security tests — lab pure
         run: node scripts/ci/security-test-coverage.mjs --run --lab pure
 
+      # ── the gate's OWN negative proofs ───────────────────────────────────
+      # Each breaks one property this gate exists to protect, in the real tree, and requires
+      # the gate component to go red for THAT reason (label), not merely exit non-zero; the
+      # file is restored byte-identical (sha256) and the positive steps above are the GREEN.
+      - name: Gate self-proof G1 — an aliased, multi-line PrismaClient is caught (AST-1)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G1-ast-prismaclient --file lib/services/crm/customer.service.ts \
+            --anchor 'import { prisma } from "@/lib/prisma";' \
+            --replace 'import { prisma } from "@/lib/prisma"; import { PrismaClient as C } from "@prisma/client"; export const g1 = new
+            C();' \
+            --expect '[FAIL] AST-1 lib/services/crm/customer.service.ts' \
+            -- node scripts/ci/ast-security-guard.mjs .
+
+      - name: Gate self-proof G2 — a new run(prisma) tenant fallback is caught (AST-2 ratchet)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G2-ast-fallback --file lib/services/crm/customer.service.ts \
+            --anchor 'import { prisma } from "@/lib/prisma";' \
+            --replace 'import { prisma } from "@/lib/prisma"; export function g2(o?: { tx?: unknown }) { const run = (db: unknown) => db; return o?.tx ? run(o.tx) : run(prisma); }' \
+            --expect '[FAIL] AST-2 NEW-SITE lib/services/crm/customer.service.ts::g2::arg' \
+            -- node scripts/ci/ast-security-guard.mjs .
+
+      - name: Gate self-proof G3 — a security test dropped from the inventory is caught (C1)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G3-coverage-unclassified --file scripts/ci/test-coverage/workstream-a.json \
+            --anchor '"lib/auth/token-revocation.verify.test.ts": {' \
+            --replace '"lib/auth/token-revocation.verify.test.ts.removed": {' \
+            --expect '[FAIL] C1 UNCLASSIFIED lib/auth/token-revocation.verify.test.ts' \
+            -- node scripts/ci/security-test-coverage.mjs
+
+      - name: Gate self-proof G4 — a broken token signature check fails the security suite
+        run: |
+          node scripts/ci/negative-proof.mjs --id G4-token-signature --file lib/auth-token.ts \
+            --anchor '    !timingSafeEqual(receivedSig, expectedSig)' \
+            --replace '    false' \
+            --expect 'editing the generation breaks the signature' \
+            -- node "$TSX_CLI" lib/auth/token-revocation.verify.test.ts
+
+      - name: Gate self-proof G5 — an unpinned action is caught (WP-2)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G5-unpinned-action --file .github/workflows/release-migrate.yml \
+            --anchor 'uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0' \
+            --replace 'uses: actions/setup-node@v4' \
+            --expect '[FAIL] WP-2 release-migrate.yml: unpinned action actions/setup-node@v4' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}
@@ -137,6 +182,12 @@ jobs:
 
       - name: Security tests — lab rls-db (NOSUPERUSER NOBYPASSRLS runtime role)
         run: node scripts/ci/security-test-coverage.mjs --run --lab rls-db
+
+      - name: Gate self-proof G6 — the rls-db lab refuses a role that bypasses RLS (F-5)
+        run: |
+          node scripts/ci/expect-red.mjs --id G6-rls-lab-refuses-superuser \
+            --expect "must be NOSUPERUSER NOBYPASSRLS" --expect "SECURITY-GATE LAB rls-db: FAIL" \
+            -- env GATE_RLS_ROLE=gate_owner GATE_RLS_PASSWORD=gate_ci_synthetic_owner_pw node scripts/ci/security-test-coverage.mjs --run --lab rls-db
 
       - name: Security tests — lab owner-lab (empty database, shipped DDL)
         run: node scripts/ci/security-test-coverage.mjs --run --lab owner-lab
