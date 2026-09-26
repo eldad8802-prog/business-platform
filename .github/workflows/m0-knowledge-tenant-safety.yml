@@ -167,3 +167,23 @@ jobs:
 
       - name: M5.5 sensor battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m55-sensor-battery.ts
+
+      # M6 — temporal knowledge. The pure engine first (insufficient history, robust baselines, spike
+      # vs trend, shift vs anomaly, no poisoning, determinism, and the sensor-manifest boundary parsed
+      # from docs/learning/SENSOR_COVERAGE.md), then the battery: the real derivation service and
+      # writer, as a MEASURED NOBYPASSRLS role, across tenants that look alike.
+      - name: M6 temporal engine (pure + manifest boundary)
+        run: npx tsx lib/knowledge/temporal/temporal.test.ts
+
+      - name: M6 temporal battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m6-temporal-battery.ts
+
+      # M7 — the Business Knowledge Snapshot: governed knowledge for ONE business, gaps apart from
+      # knowledge, conflicts kept, duplicates collapsed, cross-domain findings only through authority,
+      # non-causal, deterministic, bounded, and free of raw personal content. Pure first, then the
+      # real derivations + builder as a MEASURED NOBYPASSRLS role.
+      - name: M7 snapshot assembly (pure + no-AI / privacy static checks)
+        run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
+
+      - name: M7 snapshot battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m7-snapshot-battery.ts

@@ -191,7 +191,7 @@ async function main() {
       store,
       resolveProvider: () =>
         createStubProvider({
-          verifiedStatus: { outcome: "PAID", providerTransactionId: null },
+          verifiedStatus: { outcome: "PAID", providerTransactionId: "t1", verifiedAmount: "100.00", verifiedCurrency: "ILS" },
         }),
     };
 

@@ -481,6 +481,13 @@ const DECIDE: Record<string, ModelCoverage> = {
       "proposal is NOT rebuildable. It is the owner's own decision, and re-deriving it after an " +
       "erasure would resurrect a question they have already answered."
   ),
+  TemporalKnowledge: decide(
+    "M6. Robust summaries of this business's own history — a vendor party's typical charge, a " +
+      "payee's typical payment timing, an item's restock rhythm — keyed by entityType/entityId, plus " +
+      "the ids of the evidence rows they came from. No free text and no names, but an entity-level " +
+      "row is a statement about one counterparty. It cascades with Business, and every row is " +
+      "rebuildable from retained evidence; decide whether it is erased with the account or retained."
+  ),
   CollectionAction: decide(
     "M5. Records that this business chased a NAMED customer for money, when, and through which " +
       "channel. No free text and no message content — but `customerId` makes every row a statement " +

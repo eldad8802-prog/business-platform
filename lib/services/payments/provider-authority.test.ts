@@ -156,7 +156,7 @@ async function main() {
       store,
       resolveProvider: () =>
         createStubProvider({
-          verifiedStatus: { outcome: "PAID", providerTransactionId: "TXN-9" },
+          verifiedStatus: { outcome: "PAID", providerTransactionId: "TXN-9", verifiedAmount: "100.00", verifiedCurrency: "ILS" },
         }),
       decryptConnectionCredential: () => "credential",
     };

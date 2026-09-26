@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { handleError } from "@/lib/handle-error";
+import { withHomeCollectionDiagnostics } from "@/lib/services/home/home-collection-diagnostics";
 import { loadHomeCollection } from "@/lib/services/home/home-collection.service";
 import { authorizePaymentAction, PAYMENT_ACTIONS } from "@/lib/services/payments/payment-authorization";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -20,7 +20,9 @@ export const dynamic = "force-dynamic";
  * request, and the read runs inside the tenant context so RLS applies.
  */
 export async function GET(req: NextRequest) {
-  try {
+  // Observability only: the same work, the same error to the same handleError.
+  // A 5xx additionally leaves one safe `home_collection_failed` line.
+  return withHomeCollectionDiagnostics(req, async () => {
     const user = await getCurrentUser(req);
     const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.VIEW_TRANSACTIONS);
     const { searchParams } = new URL(req.url);
@@ -29,7 +31,5 @@ export async function GET(req: NextRequest) {
       loadHomeCollection(actor.businessId, { period: searchParams.get("period") })
     );
     return NextResponse.json(model, { status: 200 });
-  } catch (error) {
-    return handleError(error);
-  }
+  });
 }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { customerService } from "@/lib/services/crm/customer.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 /**
  * Legacy endpoint — retained for existing callers. Delegates to the canonical
@@ -47,10 +49,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const customers = await customerService.listCustomers({
-      businessId: user.businessId,
-      sort: "id-asc",
-    });
+    // Customer is FORCE RLS. Without a tenant transaction the service falls back to
+    // the global client, runs with no `app.current_business_id`, and the policy
+    // matches zero rows — an empty list behind a green 200. Same fix as
+    // /api/billing/customers (#535). businessId is ALWAYS the server-derived one.
+    const customers = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.listCustomers(
+            { businessId: user.businessId, sort: "id-asc" },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(customers, { status: 200 });
   } catch (error) {
