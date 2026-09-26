@@ -46,11 +46,6 @@ import { join } from "node:path";
  */
 const ALLOWLIST = new Map([
   [
-    "lib/services/platform-admin/platform-business-detail.service.ts",
-    "platform-admin reads ACROSS tenants by design; its boundary is the admin " +
-      "identity and its p7adm_read policies, not a tenant GUC",
-  ],
-  [
     "lib/security/security-events.ts",
     "SEC-F: a pre-authentication security event has no tenant by definition; the " +
       "SecurityEvent insert rule admits a bare-client write ONLY with businessId NULL, " +
