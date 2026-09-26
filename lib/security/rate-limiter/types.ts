@@ -40,7 +40,15 @@ export type BucketName =
   | "AUTH_STEP_UP"
   | "AUTH_PASSWORD_RESET_REQUEST"
   | "AUTH_PASSWORD_RESET_CONFIRM"
-  | "ADMIN_MFA_ENROLL";
+  | "ADMIN_MFA_ENROLL"
+  // SEC-F / L-7 cost buckets (lib/security/cost-limits.ts)
+  | "COST_LLM_GENERATION"
+  | "COST_OCR_IMPORT"
+  | "COST_DOCUMENT_APPROVE"
+  | "COST_MESSAGE_SEND"
+  | "COST_PDF_RENDER"
+  | "COST_REPORT_EXPORT"
+  | "COST_IMPORT_ANALYZE";
 
 export type BucketConfig = {
   failMode: FailMode;

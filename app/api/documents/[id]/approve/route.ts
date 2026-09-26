@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -18,6 +19,8 @@ export async function POST(
     if (!user) {
       return Response.json({ error: "לא מחובר" }, { status: 401 });
     }
+    const costLimited = await enforceCostLimit("COST_DOCUMENT_APPROVE", user, req);
+    if (costLimited) return costLimited;
 
     const params = await context.params;
     const documentId = Number(params.id);

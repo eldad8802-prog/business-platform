@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { disconnectByBusinessId } from "@/lib/services/integrations/whatsapp/connection.service";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
         { status: 404 }
       );
     }
+    await recordSecurityEvent({ type: "INTEGRATION_DISCONNECTED", outcome: "SUCCESS", reason: "whatsapp", businessId: user.businessId, userId: user.id, req });
     return NextResponse.json(
       { connection, disconnected: true },
       { status: 200 }

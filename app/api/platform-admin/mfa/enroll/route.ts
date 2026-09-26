@@ -24,6 +24,7 @@ import { verifyAdminEnrollmentCode } from "@/lib/auth/admin-mfa-enrollment";
 import { authThrottleResponse } from "@/lib/auth/credential-check";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { getClientIp } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
         { status: 409 }
       );
     }
+    await recordSecurityEvent({ type: "ADMIN_MFA_ENROLLED", outcome: "INFO", reason: "enrollment_started", userId: gate.id, actor: "PLATFORM_ADMIN", req });
     // The URI embeds the seed. It is returned once, never logged, and the
     // response is explicitly non-cacheable.
     return NextResponse.json(

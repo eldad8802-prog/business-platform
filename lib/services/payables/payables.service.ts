@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { nextAuditChainLink } from "@/lib/audit/audit-chain";
 import {
   assertAllocationAllowed,
   assertFinitePlanIntegrity,
@@ -51,6 +52,47 @@ function stableStringify(value: unknown): string {
     a < b ? -1 : a > b ? 1 : 0,
   );
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+}
+
+/**
+ * SEC-F: every PayablesAuditEvent row carries a keyed chain link (HMAC over the
+ * row, linked to the previous row of the same business — lib/audit/audit-chain).
+ * The one place both payables audit writers compute it, so the two can never
+ * disagree on what the MAC covers. Null only when AUDIT_CHAIN_KEY is unset.
+ */
+export function payablesAuditChainLink(
+  tx: Tx,
+  row: {
+    businessId: number;
+    eventType: string;
+    source: string;
+    summary: string;
+    metadata: Record<string, unknown> | null | undefined;
+    eventHash: string;
+    occurredAt: Date;
+    actorUserId: number | null;
+    commitmentId: number | null;
+    installmentId: number | null;
+    paymentId: number | null;
+    allocationId: number | null;
+  },
+) {
+  return nextAuditChainLink(tx, "PayablesAuditEvent", {
+    businessId: row.businessId,
+    eventType: row.eventType,
+    source: row.source,
+    summary: row.summary,
+    metadata: row.metadata ?? null,
+    eventHash: row.eventHash,
+    occurredAt: row.occurredAt,
+    actorUserId: row.actorUserId,
+    refs: {
+      allocationId: row.allocationId,
+      commitmentId: row.commitmentId,
+      installmentId: row.installmentId,
+      paymentId: row.paymentId,
+    },
+  });
 }
 
 /** Mirrors the billing audit hasher: stable JSON, then sha256. */
@@ -121,6 +163,31 @@ export async function writeAudit(
   },
 ): Promise<void> {
   const occurredAt = new Date();
+  const eventHash = hashAuditEvent({
+    businessId: input.businessId,
+    eventType: input.eventType,
+    summary: input.summary,
+    commitmentId: input.commitmentId ?? null,
+    paymentId: input.paymentId ?? null,
+    allocationId: input.allocationId ?? null,
+    actorUserId: input.actorUserId ?? null,
+    metadata: input.metadata ?? null,
+    occurredAt: occurredAt.toISOString(),
+  });
+  const link = await payablesAuditChainLink(tx, {
+    businessId: input.businessId,
+    eventType: input.eventType,
+    source: "USER",
+    summary: input.summary,
+    metadata: input.metadata,
+    eventHash,
+    occurredAt,
+    actorUserId: input.actorUserId ?? null,
+    commitmentId: input.commitmentId ?? null,
+    installmentId: input.installmentId ?? null,
+    paymentId: input.paymentId ?? null,
+    allocationId: input.allocationId ?? null,
+  });
   await tx.payablesAuditEvent.create({
     data: {
       businessId: input.businessId,
@@ -133,18 +200,9 @@ export async function writeAudit(
       source: "USER",
       summary: input.summary,
       metadata: (input.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
-      eventHash: hashAuditEvent({
-        businessId: input.businessId,
-        eventType: input.eventType,
-        summary: input.summary,
-        commitmentId: input.commitmentId ?? null,
-        paymentId: input.paymentId ?? null,
-        allocationId: input.allocationId ?? null,
-        actorUserId: input.actorUserId ?? null,
-        metadata: input.metadata ?? null,
-        occurredAt: occurredAt.toISOString(),
-      }),
+      eventHash,
       occurredAt,
+      ...(link ?? {}),
     },
   });
 }

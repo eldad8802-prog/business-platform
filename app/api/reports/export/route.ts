@@ -1,15 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { buildFinancialRecordsCsvBuffer } from "@/lib/reports/financial-records-csv";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -49,6 +53,7 @@ export async function GET(req: Request) {
     const csv = buildFinancialRecordsCsvBuffer(records);
 
     // M5.5 sensor — fail-open, after the CSV was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "financial_records_csv", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

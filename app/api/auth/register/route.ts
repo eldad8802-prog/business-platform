@@ -25,6 +25,7 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const dynamic = "force-dynamic";
 
@@ -194,6 +195,7 @@ export async function handleRegister(
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
+    await recordSecurityEvent({ type: "AUTH_REGISTER", outcome: "SUCCESS", businessId: account.businessId, userId: account.userId, req });
     const res = NextResponse.json({
       success: true,
       // Retained from the previous contract so an older client build keeps
