@@ -80,8 +80,6 @@ const LEAD_RESIDUALS: DebtEntry[] = [
  *  the point: one more unmanaged model cannot slip in as a one-line edit. */
 const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Appointment", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSession", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSessionSecret", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
   // Payables Phase 1a. Commitment and Installment are what BusinessObligation
@@ -118,6 +116,8 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryItem", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryMovement", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrder", why: "E2" },
+  // SEC-E: reclassified from NON_PERSONAL_OPERATIONAL on revalidation (see coverage).
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ProductUsageEvent", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Recommendation", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "RecommendationOutcome", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Supplier", why: "E2" },

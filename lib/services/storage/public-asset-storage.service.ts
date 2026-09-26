@@ -216,3 +216,41 @@ export function normalizeAssetUrlsForCreatomate(urls: string[]): string[] {
 export function isAbsoluteHttpsUrl(url: string): boolean {
   return /^https:\/\/.+/i.test(String(url || "").trim());
 }
+
+/**
+ * SEC-E / M-13 — delete EVERY public asset one business owns in one public domain.
+ *
+ * Exists for account erasure and the surfaces it cannot reach any other way: a content
+ * upload (`/api/content/upload`) is written to `biz/{id}/content/*` and its URL is kept
+ * only in the browser's localStorage. There is NO database pointer, so a row-driven
+ * erasure can never find it; the tenant's prefix is the only handle there is.
+ *
+ * Built on the storage adapter's own prefix operations (workstream D:
+ * `deleteByPrefix` / `listByPrefix`, guarded by `assertSafeStoragePrefix` to exactly
+ * one tenant and one domain, and routed to the PUBLIC bucket under the split topology
+ * because the bucket is chosen from the prefix's domain). Nothing here lists or deletes
+ * by itself.
+ *
+ * FAIL CLOSED: after the delete, the prefix is listed again and must be empty; a
+ * survivor throws, so the erasure's object-first stage fails before any row is touched
+ * and the retry deletes whatever is left. Idempotent: an empty prefix deletes nothing.
+ */
+export async function deletePublicAssetsOfBusiness(
+  businessId: number,
+  domain: PublicAssetDomain
+): Promise<number> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("deletePublicAssetsOfBusiness: invalid businessId");
+  }
+  if (!PUBLIC_ASSET_DOMAINS.has(domain)) {
+    throw new Error("deletePublicAssetsOfBusiness: invalid public asset domain");
+  }
+  const storage = getStorageService();
+  const prefix = `biz/${businessId}/${domain}/`;
+  const { deleted } = await storage.deleteByPrefix(prefix);
+  const after = await storage.listByPrefix(prefix, { limit: 1 });
+  if (after.keys.length > 0) {
+    throw new StorageConfigError("public asset erasure left objects under the tenant prefix");
+  }
+  return deleted;
+}
