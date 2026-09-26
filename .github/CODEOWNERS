@@ -59,7 +59,7 @@
 # map survives a future narrowing of `*` and so a second reviewer / review App
 # added later is routed here first. Enforcing ONLY once branch protection sets
 # "require review from Code Owners" with a reviewer other than the PR author —
-# see docs/security/ci-owner-actions.md.
+# see the owner-actions section of PR 525.
 /.github/**                         @eldad8802-prog
 /prisma/migrations/**               @eldad8802-prog
 /scripts/ci/**                      @eldad8802-prog

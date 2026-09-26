@@ -17,7 +17,7 @@
  * `SET`, `BEGIN`, `ROLLBACK`, `\echo`, `\set`, `SHOW` and comments are ignored.
  *
  * Grandfathered files are NOT allowed: a file that fails must be rewritten to
- * assert-style output, or retired (its workflow deleted) — see docs/security/ci-owner-actions.md.
+ * assert-style output, or retired (its workflow deleted) — see the owner-actions section of PR 525.
  *
  * Usage: node scripts/ci/evidence-output-guard.mjs [--self-test] [--list]
  */

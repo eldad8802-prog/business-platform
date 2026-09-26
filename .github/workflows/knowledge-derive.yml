@@ -35,7 +35,7 @@ concurrency:
 jobs:
   derive:
     # H-3/M-1: CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the
-    # protected `cron` environment (owner moves the secret there; see docs/security/ci-owner-actions.md).
+    # protected `cron` environment (owner moves the secret there; see the owner-actions section of PR 525).
     if: github.ref == 'refs/heads/main'
     environment: cron
     runs-on: ubuntu-latest
