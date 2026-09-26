@@ -114,6 +114,20 @@ async function loadConversationScoped(
   return row;
 }
 
+async function originMessageBelongs(
+  tx: Prisma.TransactionClient,
+  messageId: number,
+  conversationId: number,
+  businessId: number
+): Promise<boolean> {
+  if (!Number.isInteger(messageId) || messageId <= 0) return false;
+  const m = await tx.message.findFirst({
+    where: { id: messageId, businessId, conversationId },
+    select: { id: true },
+  });
+  return m !== null;
+}
+
 export async function getOpenPendingState(
   conversationId: number,
   businessId: number
@@ -143,6 +157,13 @@ export async function setPendingFollowUp(
   return tenantTx(businessId, async (tx) => {
     const row = await loadConversationScoped(tx, conversationId, businessId);
     if (!row) return { ok: false, reason: "conversation_not_found" };
+    // sec(C) M-3: the origin message must be THIS conversation's, in THIS business —
+    // checked on the same tenant transaction. A foreign or nonexistent id answers the
+    // same not-found (no oracle); stored unchecked it later reached
+    // Appointment.sourceMessageId through createFromPending.
+    if (!(await originMessageBelongs(tx, input.originMessageId, conversationId, businessId))) {
+      return { ok: false, reason: "conversation_not_found" };
+    }
 
     const existing = parsePendingFollowUp(row.pendingFollowUp);
     if (existing) {
@@ -192,6 +213,13 @@ export async function setPendingAppointmentRequest(
   return tenantTx(businessId, async (tx) => {
     const row = await loadConversationScoped(tx, conversationId, businessId);
     if (!row) return { ok: false, reason: "conversation_not_found" };
+    // sec(C) M-3: the origin message must be THIS conversation's, in THIS business —
+    // checked on the same tenant transaction. A foreign or nonexistent id answers the
+    // same not-found (no oracle); stored unchecked it later reached
+    // Appointment.sourceMessageId through createFromPending.
+    if (!(await originMessageBelongs(tx, input.originMessageId, conversationId, businessId))) {
+      return { ok: false, reason: "conversation_not_found" };
+    }
 
     const existing = parsePendingAppointmentRequest(row.pendingAppointmentRequest);
     if (existing) {

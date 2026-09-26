@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+// M-14(c)/T-07: platform-admin reads run as the admin identity (app_admin family,
+// p7adm_read + explicit grants), never as the tenant runtime.
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { ValidationError } from "@/lib/errors";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "./constants";
 import type {
@@ -67,7 +69,7 @@ export async function listPlatformBusinesses(
   };
 
   const [rows, total] = await Promise.all([
-    prisma.business.findMany({
+    getPrismaAdmin().business.findMany({
       where: businessListWhere,
       orderBy,
       skip,
@@ -89,7 +91,7 @@ export async function listPlatformBusinesses(
         },
       },
     }),
-    prisma.business.count({ where: businessListWhere }),
+    getPrismaAdmin().business.count({ where: businessListWhere }),
   ]);
 
   const items: PlatformAdminBusinessListItem[] = rows.map((row) => ({

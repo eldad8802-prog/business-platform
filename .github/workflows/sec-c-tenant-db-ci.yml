@@ -1,0 +1,118 @@
+# sec(C) — tenant & database boundary battery (ephemeral PG17).
+#
+# Every DB proof runs in its OWN database cloned from a template built by
+# `prisma migrate deploy` (the path Production takes) + the repo's grant scripts,
+# with NEW per-proof LOGIN roles (NOSUPERUSER NOBYPASSRLS, non-owner). See .secc/lab.mjs.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network DB, ZERO Production.
+
+name: sec(C) — tenant & database boundary (ephemeral PG17)
+
+on:
+  pull_request:
+  push:
+    branches: ["sec/c-tenant-db", "sec/c-tenant-db-migration"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-c-tenant-db-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  battery:
+    name: sec(C) battery + negative proofs (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: secc_owner
+          POSTGRES_PASSWORD: secc_ci_synthetic_owner_pw
+          POSTGRES_DB: secc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secc_owner -d secc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SECC_PG_URL: postgresql://secc_owner:secc_ci_synthetic_owner_pw@localhost:5432/postgres
+      PSQL: psql
+      PGCONNECT_TIMEOUT: "10"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: |
+          psql --version
+          node --check .secc/lab.mjs
+          node --check .secc/mutate.mjs
+          node --check scripts/security/gen-security-catalog.mjs
+
+      - name: Catalog manifest is generated from the migrations (not stale)
+        run: node scripts/security/gen-security-catalog.mjs --check
+
+      - name: Unit — T-05 auth plane fail-closed in production, L-8 derive secret, derive route contract
+        run: |
+          npx tsx lib/prisma-auth.test.ts
+          npx tsx lib/security/knowledge-derive-secret.test.ts
+          npx tsx lib/knowledge/derive-route.verify.test.ts
+
+      - name: Existing boundary guards (no regression)
+        run: |
+          node scripts/ci/tenant-scoped-access-guard.mjs
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/prisma-centralization-guard.sh .
+
+      # ── positive proofs (each section builds its own fresh databases) ─────────
+      - name: M-3 database layer — composite tenant FKs (control, A->A, A->B 23503, nonexistent, legacy NOT VALID)
+        run: npx tsx .secc/sections/m3-db.ts
+      - name: M-3 app layer + T-09 — real routes/services, uniform 404 / invalid_input, no oracle, no posture
+        run: npx tsx .secc/sections/m3-app.ts
+      - name: M-14(a)(d) — WhatsAppConnection / POSApiKey / ProductUsageEvent under FORCE RLS, definer lookups, admin column grant
+        run: npx tsx .secc/sections/phase3.ts
+      - name: M-14(b) default-deny + production catalog evidence (green lab, broken labs name the offender)
+        run: npx tsx .secc/sections/catalog.ts
+
+      - name: M-14 identity grants — auth-plane signup columns, PlatformAdminMfa off the runtime
+        run: npx tsx .secc/sections/auth-grants.ts
+
+      # ── negative proofs (mutation → specific red → byte-identical restore → green) ──
+      - name: "negative N1 — composite FK removed from the migration"
+        run: node .secc/mutate.mjs N1
+      - name: "negative N2 — appointment in-transaction ownership check removed"
+        run: node .secc/mutate.mjs N2
+      - name: "negative N3 — derive route returns DB posture"
+        run: node .secc/mutate.mjs N3
+      - name: "negative N4 — bootstrap lookup made SECURITY INVOKER"
+        run: node .secc/mutate.mjs N4
+      - name: "negative N5 — ProductUsageEvent insert policy made unconditional"
+        run: node .secc/mutate.mjs N5
+      - name: "negative N6 — default-deny script grants instead of revokes"
+        run: node .secc/mutate.mjs N6
+      - name: "negative N7 — production legacy auth plane allowed"
+        run: node .secc/mutate.mjs N7
+      - name: "negative N8 — pre-migration lookup fallback removed"
+        run: node .secc/mutate.mjs N8
+      - name: "negative N9 — CRON_SECRET still opens derive with a dedicated secret set"
+        run: node .secc/mutate.mjs N9
+
+      - name: "negative N10 — auth-plane signup createdAt grant removed"
+        run: node .secc/mutate.mjs N10
+
+      - name: "negative N11 — pending-state originMessageId ownership check removed"
+        run: node .secc/mutate.mjs N11
+
+      - name: Typecheck
+        run: npx tsc --noEmit
