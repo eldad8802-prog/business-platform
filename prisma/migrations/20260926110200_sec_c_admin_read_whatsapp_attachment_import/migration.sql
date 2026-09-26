@@ -19,5 +19,16 @@ BEGIN
 END
 $$;
 
-CREATE POLICY p7adm_read ON "WhatsAppAttachmentImport"
-  FOR SELECT TO app_admin USING (true);
+-- Guarded: an environment where the policy was already created by hand must not
+-- fail the release (CREATE POLICY has no IF NOT EXISTS).
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'WhatsAppAttachmentImport' AND policyname = 'p7adm_read'
+  ) THEN
+    CREATE POLICY p7adm_read ON "WhatsAppAttachmentImport"
+      FOR SELECT TO app_admin USING (true);
+  END IF;
+END
+$;
