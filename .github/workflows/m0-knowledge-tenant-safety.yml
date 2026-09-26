@@ -187,3 +187,13 @@ jobs:
 
       - name: M7 snapshot battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m7-snapshot-battery.ts
+
+      # M8 — the Brain. Every hard safety requirement is proven WITHOUT a paid model call: a scripted
+      # fake provider plays obedient, sloppy, hallucinating, causal, injected, broken and slow models,
+      # and only grounded findings may survive. Then the Brain over a real snapshot as a MEASURED
+      # NOBYPASSRLS role: one tenant, minimised outbound data, and zero writes whatever happens.
+      - name: M8 brain evaluation corpus (fake provider — grounding, safety, privacy, failure)
+        run: npx tsx lib/knowledge/brain/brain.eval.test.ts
+
+      - name: M8 brain battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m8-brain-battery.ts
