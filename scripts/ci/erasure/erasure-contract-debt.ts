@@ -148,6 +148,7 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C13-NEEDS-OWNER-DECISION", key: "PaymentWebhookEvent", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "ReviewEvent", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "SliceDecision", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "TemporalKnowledge", why: "E2" },
 ];
 
 /**

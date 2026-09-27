@@ -54,6 +54,8 @@ export type SettlementAttentionReason =
   | "CUSTOMER_MISMATCH"
   | "BILLING_IDENTITY_INCOMPLETE"
   | "CURRENCY_MISMATCH"
+  | "VERIFIED_AMOUNT_MISMATCH"
+  | "VERIFIED_CURRENCY_MISMATCH"
   | "DOCUMENT_NOT_ALLOCATABLE"
   | "TRANSACTION_NOT_ELIGIBLE"
   | "RETRY_EXHAUSTED";
@@ -254,8 +256,15 @@ async function settleInTx(
     }
     const request = payment.paymentRequest;
     const currency = payment.currency.toUpperCase();
+    // M1 — the recorded money is what the PROVIDER verified. When it is not
+    // what was asked for, no receipt is issued automatically: a receipt for the
+    // requested sum would misstate the money, and one for the charged sum would
+    // settle a debt nobody agreed to. Deterministic, so a retry pauses again.
     if (request.currency.toUpperCase() !== currency) {
-      throw new SettlementAttention("CURRENCY_MISMATCH");
+      throw new SettlementAttention("VERIFIED_CURRENCY_MISMATCH");
+    }
+    if (!payment.amount.equals(request.amount)) {
+      throw new SettlementAttention("VERIFIED_AMOUNT_MISMATCH");
     }
     const amount = payment.amount;
 

@@ -1,4 +1,5 @@
-# C3 — scheduled local recovery of verified payments.
+# C3 — scheduled local recovery of verified payments, preceded by M1 inbound
+# reconciliation (ask the provider about requests not yet known to be paid).
 #
 # The webhook settles a verified payment inline. If that process dies or the
 # attempt fails transiently, the PaymentAccountingSettlement row stays PENDING.
@@ -33,7 +34,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      # M1 — ask the provider about every request not yet known to be paid, so
+      # a payment whose webhook was lost, early or unverifiable is recorded
+      # (once, through the canonical path) BEFORE settlement recovery runs.
+      # The endpoint answers 500 whenever its run was unhealthy — a failure, a
+      # provider that could not be asked, or an anomalous answer — so this job
+      # goes red rather than looking like a quiet run.
+      - name: Inbound payment reconciliation on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RECONCILIATION_URL: https://promaxgroup.co.il/api/payments/reconciliation
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o reconcile.json -w "%{http_code}" -m 90 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$RECONCILIATION_URL")
+          echo "HTTP $code"
+          cat reconcile.json; echo
+          [ "$code" = "200" ] || { echo "::error::reconciliation endpoint answered $code"; exit 1; }
+
+      # Runs even when reconciliation went red: finishing accounting for money
+      # already recorded must never wait on the provider being reachable.
       - name: Trigger settlement recovery on Production
+        if: always()
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           RECOVERY_URL: https://promaxgroup.co.il/api/payments/settlement-recovery

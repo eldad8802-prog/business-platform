@@ -309,6 +309,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
+  // Payables, secretary → ledger. Two timestamps and the id of the user who
+  // pressed "טופל" — no name, no note, no free text. The row describes a
+  // reminder's state, not a person or their communication.
+  InstallmentWorkflow: operational("the secretary's snooze/handled timestamps for one installment; no free text"),
   LearningSignal: operational("numeric learning signals"),
   ServiceCostProfile: operational("cost inputs for pricing"),
   PricingRecommendation: operational("numeric pricing output"),
@@ -480,6 +484,13 @@ const DECIDE: Record<string, ModelCoverage> = {
       "It sits beside PartyResolutionClaim and raises the same question, with one twist: a REJECTED " +
       "proposal is NOT rebuildable. It is the owner's own decision, and re-deriving it after an " +
       "erasure would resurrect a question they have already answered."
+  ),
+  TemporalKnowledge: decide(
+    "M6. Robust summaries of this business's own history — a vendor party's typical charge, a " +
+      "payee's typical payment timing, an item's restock rhythm — keyed by entityType/entityId, plus " +
+      "the ids of the evidence rows they came from. No free text and no names, but an entity-level " +
+      "row is a statement about one counterparty. It cascades with Business, and every row is " +
+      "rebuildable from retained evidence; decide whether it is erased with the account or retained."
   ),
   CollectionAction: decide(
     "M5. Records that this business chased a NAMED customer for money, when, and through which " +

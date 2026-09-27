@@ -39,6 +39,28 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   "PAYMENT_SIGNAL_ONLY_NO_VERIFICATION",
   "PAYMENT_VERIFICATION_ERROR",
   "PAYMENT_VERIFICATION_UNAVAILABLE",
+  // M1 — inbound money truth. The provider proved money arrived on a request
+  // Dubiz had already closed (cancelled / lapsed / failed): the money is
+  // recorded and the request follows it to PAID, with the prior state kept here.
+  "PAYMENT_PAID_AFTER_REQUEST_CLOSED",
+  // The provider's own verified amount or currency differs from the request.
+  // The money is recorded as the provider states it; accounting is paused.
+  "PAYMENT_VERIFIED_AMOUNT_MISMATCH",
+  "PAYMENT_VERIFIED_CURRENCY_MISMATCH",
+  // The provider said PAID but its answer lacked what recording requires — its
+  // own transaction id, or the amount and currency. Nothing is recorded;
+  // reconciliation keeps asking. Written once per request.
+  "PAYMENT_VERIFIED_WITHOUT_TRANSACTION_ID",
+  "PAYMENT_VERIFIED_WITHOUT_AMOUNT",
+  // The provider's transaction id is already recorded against a DIFFERENT
+  // request. Never merged, never recorded twice. Written once per request.
+  "PAYMENT_PROVIDER_TRANSACTION_CONFLICT",
+  // The provider's answer concerned a different payment or terminal than the
+  // one asked about. Nothing recorded; written once per request.
+  "PAYMENT_PROVIDER_ANSWER_MISMATCH",
+  // M1 Production proof: the pinned QA tenant's request was issued with a
+  // callback URL nothing processes (qa-webhook-suppression.ts).
+  "PAYMENT_REQUEST_QA_WEBHOOK_SUPPRESSED",
   // M5 — Reversal. Four types, because a refund has four distinguishable ends
   // and collapsing them would hide the one that matters most. REQUESTED is
   // written BEFORE the provider is called, so an instruction that left Dubiz is

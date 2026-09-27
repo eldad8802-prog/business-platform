@@ -1,41 +1,47 @@
 /**
- * Inbound webhook processing.
+ * Inbound webhook processing — the SIGNAL side of inbound money.
  *
- *   1. persist the raw webhook BEFORE processing (idempotent on
- *      provider + providerEventId)
- *   2. verify signature / authenticity (provider-specific, if any)
- *   3. parse the event
- *   4. locate the PaymentRequest by providerRequestId
- *   5. create a PaymentTransaction
- *   6. update the PaymentRequest to PAID / FAILED / CANCELLED
- *   7. idempotency: a duplicate webhook never creates a double charge or a
- *      wrong status
- *   8. (future) hand off to Billing/Receipt — prepared, not auto-fired here
+ *   1. structural / signature gate (provider-specific)
+ *   2. parse the event (never authority)
+ *   3. correlate to a PaymentRequest THIS system issued (routing index,
+ *      + the round-tripped correlation value) — before anything is persisted
+ *   4. persist the event (idempotent on provider + providerEventId)
+ *   5. enter the request's tenant and ask the AUTHORITY through the one
+ *      canonical path (payment-verification.service), which records the money,
+ *      moves the request and settles accounting — exactly once
+ *
+ * M1: an event is CONSUMED (PROCESSED) only when the authority reached a
+ * conclusion. A provider that has no outcome yet leaves the event RECEIVED, and
+ * a failed ask leaves it FAILED — both are re-asked on redelivery, and inbound
+ * reconciliation asks the provider independently of any event row, so a signal
+ * that came early, failed, or never came cannot lose a payment.
  *
  * This function NEVER throws on a bad/duplicate/unrecognized webhook: it
  * records the outcome on the event row and returns a result object, so the
  * route can always answer 200 and the provider does not retry-storm.
  */
 
-import {
-  isTerminalRequestStatus,
-  type PaymentConnectionRecord,
-  type PaymentProvider,
-  type PaymentRequestRecord,
-  type PaymentRequestStatus,
-  type PaymentStore,
-  type PaymentTransactionStatus,
-  type PaymentWebhookProcessingStatus,
+import type {
+  PaymentConnectionRecord,
+  PaymentProvider,
+  PaymentRequestRecord,
+  PaymentRequestStatus,
+  PaymentStore,
+  PaymentWebhookProcessingStatus,
 } from "./payments.types";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import type {
-  ParsedPaymentOutcome,
   PaymentProviderAdapter,
-  ProviderPaymentStatus,
   VerifyWebhookResult,
 } from "./providers/payment-provider.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
 import { hashCallbackSecret } from "./payment-callback-secret";
+import {
+  resolvePaymentAuthoritatively,
+  type VerifiedPaidEvent,
+} from "./payment-verification.service";
+
+export type { VerifiedPaidEvent };
 
 export interface ProcessWebhookInput {
   provider: PaymentProvider;
@@ -88,16 +94,6 @@ export interface ProcessWebhookDeps {
   now?: () => Date;
 }
 
-export interface VerifiedPaidEvent {
-  businessId: number;
-  paymentRequestId: number;
-  /** The verified settlement record id — the money-in fact's stable key. */
-  transactionId: number;
-  amount: string;
-  currency: string;
-  occurredAt: Date;
-}
-
 export interface ProcessWebhookResult {
   ok: boolean;
   /**
@@ -120,73 +116,6 @@ export interface ProcessWebhookResult {
    *   null  — no authority decision reached (failure / duplicate / non-terminal)
    */
   verified: boolean | null;
-}
-
-function outcomeToTransactionStatus(
-  outcome: ParsedPaymentOutcome
-): PaymentTransactionStatus {
-  switch (outcome) {
-    case "PAID":
-      return "PAID";
-    case "CANCELLED":
-      return "CANCELLED";
-    case "FAILED":
-      return "FAILED";
-    default:
-      return "PENDING";
-  }
-}
-
-function outcomeToRequestStatus(
-  outcome: ParsedPaymentOutcome
-): PaymentRequestStatus | null {
-  switch (outcome) {
-    case "PAID":
-      return "PAID";
-    case "FAILED":
-      return "FAILED";
-    case "CANCELLED":
-      return "CANCELLED";
-    default:
-      return null; // PENDING / UNKNOWN — do not move the request
-  }
-}
-
-/** The audit event for a verified terminal outcome (PROVIDER-sourced). */
-function verifiedOutcomeAuditType(
-  outcome: ParsedPaymentOutcome
-):
-  | "PAYMENT_VERIFIED_PAID"
-  | "PAYMENT_VERIFIED_FAILED"
-  | "PAYMENT_VERIFIED_CANCELLED"
-  | null {
-  switch (outcome) {
-    case "PAID":
-      return "PAYMENT_VERIFIED_PAID";
-    case "FAILED":
-      return "PAYMENT_VERIFIED_FAILED";
-    case "CANCELLED":
-      return "PAYMENT_VERIFIED_CANCELLED";
-    default:
-      return null;
-  }
-}
-
-async function settleAccountingBestEffort(
-  deps: ProcessWebhookDeps,
-  businessId: number,
-  transaction: { id: number; status: string; amount: string }
-): Promise<void> {
-  if (!deps.settleAccounting) return;
-  if (transaction.status !== "PAID" || !(Number(transaction.amount) > 0)) return;
-  try {
-    await deps.settleAccounting({ businessId, paymentTransactionId: transaction.id });
-  } catch (err) {
-    console.error("settleAccounting hook error:", {
-      paymentTransactionId: transaction.id,
-      error: err instanceof Error ? err.name : "unknown",
-    });
-  }
 }
 
 export async function processPaymentWebhook(
@@ -409,270 +338,133 @@ export async function processPaymentWebhook(
     );
   }
 
+  // The tenant is the STORED request's — never the payload's (CI-W4E-1).
+  // `routed` keeps the narrowed type inside the async closure.
+  const routed: PaymentRequestRecord = request;
   return runWithTenantContext({ businessId: request.businessId }, async () => {
-
-  // 5. AUTHORITY. The webhook is only a signal. A PaymentRequest may move to
-  // PAID (and a PaymentTransaction may be recorded) ONLY from an outcome the
-  // provider's own verification establishes. There is no unverified settlement
-  // path — this enforces the Authority Principle uniformly across providers
-  // (see docs/payments-authority-principle-v1.md):
-  //
-  //   - Verification-capable provider (adapter.getPaymentStatus present) =>
-  //     verification IS the authority; the webhook's claimed outcome is ignored.
-  //   - Provider with no verification path yet (e.g. TRANZILA today) => the
-  //     webhook is recorded as a signal only and nothing settles. The request
-  //     stays PENDING until the provider gains a real verification path. A
-  //     webhook alone can NEVER produce PAID.
-  if (typeof adapter.getPaymentStatus !== "function") {
-    await deps.store.updateWebhookEvent(event.id, {
-      processingStatus: "PROCESSED",
-      processedAt: now(),
-    });
-    await recordPaymentAuditEvent(deps.store, {
-      businessId: request.businessId,
-      paymentRequestId: request.id,
-      eventType: "PAYMENT_SIGNAL_ONLY_NO_VERIFICATION",
-      source: "SYSTEM",
-      summary: `Webhook signal received for ${input.provider} request ${request.id}; provider has no verification path — not settled`,
-      metadata: {
-        provider: input.provider,
-        providerEventId: parsed.providerEventId,
-        claimedOutcome: parsed.outcome,
+    // AUTHORITY. The webhook is only a signal; the one canonical path asks the
+    // provider and alone may record money, move the request and settle
+    // accounting (docs/payments-authority-principle-v1.md). The callback body
+    // is kept only as the recorded row's raw evidence — never as authority.
+    const resolution = await resolvePaymentAuthoritatively(
+      {
+        request: routed,
+        adapter,
+        source: "WEBHOOK",
+        rawPayload: input.parsedBody ?? input.rawBody,
       },
-      occurredAt: now(),
-    });
-    return {
-      ok: true,
-      eventId: event.id,
-      processingStatus: "PROCESSED",
-      duplicate: false,
-      paymentRequestId: request.id,
-      paymentRequestStatus: request.status,
-      reason: "signal_only_no_verification",
-      verified: false,
-    };
-  }
-
-  const connection = await deps.store.findActiveConnection(
-    request.businessId,
-    input.provider
-  );
-  if (!connection) {
-    // Cannot establish authority without a connection => never PAID.
-    await recordPaymentAuditEvent(deps.store, {
-      businessId: request.businessId,
-      paymentRequestId: request.id,
-      eventType: "PAYMENT_VERIFICATION_UNAVAILABLE",
-      source: "SYSTEM",
-      summary: `Verification unavailable for ${input.provider} request ${request.id}: no active connection`,
-      metadata: { provider: input.provider },
-      occurredAt: now(),
-    });
-    return fail(
-      "FAILED",
-      "verification_unavailable_no_active_connection",
-      request.id,
-      request.status
+      deps
     );
-  }
-  const credential = deps.decryptConnectionCredential?.(connection) ?? null;
 
-  let status: ProviderPaymentStatus;
-  try {
-    status = await adapter.getPaymentStatus({
-      // The STORED request's provider id, which is null for a provider that
-      // issues none. Never the payload's.
-      providerRequestId: request.providerRequestId,
-      merchantId: connection.merchantId,
-      credential,
-      // The Dubiz side of the correlation, for a provider whose authoritative
-      // lookup cannot be keyed on a session id it never issued. Taken from the
-      // STORED request, never from the payload.
-      correlationValue: String(request.id),
-    });
-  } catch {
-    // Fail safe: a failed/erroring verification can never produce PAID.
-    await recordPaymentAuditEvent(deps.store, {
-      businessId: request.businessId,
-      paymentRequestId: request.id,
-      eventType: "PAYMENT_VERIFICATION_ERROR",
-      source: "SYSTEM",
-      summary: `Verification call failed for ${input.provider} request ${request.id}`,
-      metadata: { provider: input.provider },
-      occurredAt: now(),
-    });
-    return fail("FAILED", "verification_error", request.id, request.status);
-  }
+    const consume = async (): Promise<void> => {
+      await deps.store.updateWebhookEvent(event.id, {
+        processingStatus: "PROCESSED",
+        processedAt: now(),
+        error: null,
+      });
+    };
 
-  const authoritativeOutcome = status.outcome;
-  const authoritativeTransactionId =
-    status.providerTransactionId ?? parsed.providerTransactionId;
-  const verified = true;
-
-  // 6/7/8. Only a terminal authoritative outcome (PAID/FAILED/CANCELLED) may
-  // create a transaction or move the request. Non-terminal outcomes
-  // (PENDING/UNKNOWN) never settle anything.
-  const nextStatus = outcomeToRequestStatus(authoritativeOutcome);
-  let finalStatus: PaymentRequestStatus = request.status;
-
-  if (nextStatus) {
-    // transaction-level idempotency on the authoritative transaction id.
-    if (authoritativeTransactionId) {
-      const existingTx =
-        await deps.store.findTransactionByProviderTransactionId(
-          input.provider,
-          authoritativeTransactionId
-        );
-      if (existingTx) {
-        // Redelivery of a settlement already recorded: the money is not
-        // recorded twice, but accounting that did not finish the first time is
-        // finished now (idempotent — a settled payment is a no-op).
-        await settleAccountingBestEffort(deps, request.businessId, existingTx);
-        await deps.store.updateWebhookEvent(event.id, {
-          processingStatus: "PROCESSED",
-          processedAt: now(),
+    switch (resolution.kind) {
+      case "SIGNAL_ONLY": {
+        // A provider with no verification path yet (e.g. TRANZILA): the signal
+        // is recorded and nothing settles. A webhook alone can NEVER produce PAID.
+        await consume();
+        await recordPaymentAuditEvent(deps.store, {
+          businessId: routed.businessId,
+          paymentRequestId: routed.id,
+          eventType: "PAYMENT_SIGNAL_ONLY_NO_VERIFICATION",
+          source: "SYSTEM",
+          summary: `Webhook signal received for ${input.provider} request ${routed.id}; provider has no verification path — not settled`,
+          metadata: {
+            provider: input.provider,
+            providerEventId: parsed.providerEventId,
+            claimedOutcome: parsed.outcome,
+          },
+          occurredAt: now(),
         });
         return {
           ok: true,
           eventId: event.id,
           processingStatus: "PROCESSED",
+          duplicate: false,
+          paymentRequestId: routed.id,
+          paymentRequestStatus: routed.status,
+          reason: "signal_only_no_verification",
+          verified: false,
+        };
+      }
+
+      case "UNRESOLVED": {
+        if (resolution.reason === "PROVIDER_OUTCOME_PENDING") {
+          // M1 — an early signal. The provider has no outcome yet, so the
+          // event is NOT consumed: a redelivery asks again, and reconciliation
+          // asks regardless of this row.
+          await deps.store.updateWebhookEvent(event.id, {
+            processingStatus: "RECEIVED",
+            processedAt: null,
+            error: "awaiting_provider_outcome",
+          });
+          return {
+            ok: true,
+            eventId: event.id,
+            processingStatus: "RECEIVED",
+            duplicate: false,
+            paymentRequestId: routed.id,
+            paymentRequestStatus: routed.status,
+            reason: "provider_outcome_pending",
+            verified: null,
+          };
+        }
+        const reason =
+          resolution.reason === "NO_ACTIVE_CONNECTION"
+            ? "verification_unavailable_no_active_connection"
+            : resolution.reason === "VERIFICATION_ERROR"
+              ? "verification_error"
+              : resolution.reason.toLowerCase();
+        return fail("FAILED", reason, routed.id, routed.status);
+      }
+
+      case "ALREADY_RECORDED": {
+        await consume();
+        return {
+          ok: true,
+          eventId: event.id,
+          processingStatus: "PROCESSED",
           duplicate: true,
-          paymentRequestId: request.id,
-          paymentRequestStatus: request.status,
+          paymentRequestId: routed.id,
+          paymentRequestStatus: resolution.requestStatus,
           reason: "duplicate_transaction",
-          verified,
+          verified: true,
+        };
+      }
+
+      case "NO_CHANGE": {
+        await consume();
+        return {
+          ok: true,
+          eventId: event.id,
+          processingStatus: "PROCESSED",
+          duplicate: false,
+          paymentRequestId: routed.id,
+          paymentRequestStatus: resolution.requestStatus,
+          reason: "request_not_open",
+          verified: true,
+        };
+      }
+
+      case "RECORDED": {
+        await consume();
+        return {
+          ok: true,
+          eventId: event.id,
+          processingStatus: "PROCESSED",
+          duplicate: false,
+          paymentRequestId: routed.id,
+          paymentRequestStatus: resolution.requestStatus,
+          reason: null,
+          verified: true,
         };
       }
     }
-
-    // Record the verified transaction. The read-then-write duplicate check
-    // above narrows the common case, but it is a RACE: two concurrent
-    // callbacks for one settlement both read "no transaction" and both create
-    // one. W4E-A moved the real guarantee into the database — a unique
-    // (provider, providerTransactionId) — so the loser of the race lands here
-    // as a constraint violation and is treated as exactly what it is: a
-    // duplicate, with no second transaction and no second financial effect.
-    let transaction;
-    try {
-      transaction = await deps.store.createTransaction({
-        paymentRequestId: request.id,
-        provider: input.provider,
-        providerTransactionId: authoritativeTransactionId,
-        amount: parsed.amount ?? request.amount,
-        currency: parsed.currency ?? request.currency,
-        status: outcomeToTransactionStatus(authoritativeOutcome),
-        rawPayload: input.parsedBody ?? input.rawBody,
-        // C3: a verified incoming payment opens its accounting settlement in
-        // the same database transaction. Only PAID money IN — never a failure,
-        // a cancellation, or a pending outcome.
-        ...(authoritativeOutcome === "PAID" &&
-        Number(parsed.amount ?? request.amount) > 0
-          ? { openAccountingSettlement: { businessId: request.businessId } }
-          : {}),
-      });
-    } catch (error) {
-      // P2002 alone is not enough: swallowing ANY unique violation here would
-      // hide an unrelated constraint failure as a benign duplicate. Prisma does
-      // not reliably populate meta.target for this index ("Unique constraint
-      // failed on the (not available)"), so the discriminator is EVIDENCE
-      // rather than error metadata — the same shape ensurePaymentPostedEvent
-      // already uses: re-read, and treat it as a duplicate only if the winning
-      // transaction actually exists. Anything else surfaces.
-      const isUniqueViolation =
-        typeof error === "object" && error !== null &&
-        (error as { code?: string }).code === "P2002";
-      if (!isUniqueViolation) throw error;
-      const winner = authoritativeTransactionId
-        ? await deps.store.findTransactionByProviderTransactionId(
-            input.provider,
-            authoritativeTransactionId
-          )
-        : null;
-      if (!winner) throw error;
-      await settleAccountingBestEffort(deps, request.businessId, winner);
-      await deps.store.updateWebhookEvent(event.id, {
-        processingStatus: "PROCESSED",
-        processedAt: now(),
-      });
-      return {
-        ok: true,
-        eventId: event.id,
-        processingStatus: "PROCESSED",
-        duplicate: true,
-        paymentRequestId: request.id,
-        paymentRequestStatus: request.status,
-        reason: "duplicate_transaction",
-        verified,
-      };
-    }
-
-    // move the request — idempotently, without overwriting a terminal state.
-    if (!isTerminalRequestStatus(request.status)) {
-      const updated = await deps.store.updatePaymentRequest(request.id, {
-        status: nextStatus,
-        paidAt: nextStatus === "PAID" ? now() : null,
-      });
-      finalStatus = updated.status;
-    }
-
-    // audit the verified, provider-established settlement outcome.
-    const verifiedType = verifiedOutcomeAuditType(authoritativeOutcome);
-    if (verifiedType) {
-      await recordPaymentAuditEvent(deps.store, {
-        businessId: request.businessId,
-        paymentRequestId: request.id,
-        eventType: verifiedType,
-        source: "PROVIDER",
-        summary: `Provider verification established ${authoritativeOutcome} for ${input.provider} request ${request.id}`,
-        metadata: {
-          provider: input.provider,
-          providerTransactionId: authoritativeTransactionId,
-          outcome: authoritativeOutcome,
-        },
-        occurredAt: now(),
-      });
-    }
-
-    // Financial Control projection: a verified PAID settlement is money actually
-    // received. Fire the hook ONLY for PAID, AFTER the transaction exists, keyed
-    // on the transaction id. Best-effort — a downstream failure never breaks the
-    // payment, which is already PAID.
-    if (authoritativeOutcome === "PAID") {
-      try {
-        await deps.onVerifiedPaid?.({
-          businessId: request.businessId,
-          paymentRequestId: request.id,
-          transactionId: transaction.id,
-          amount: transaction.amount,
-          currency: transaction.currency,
-          occurredAt: now(),
-        });
-      } catch (err) {
-        console.error("onVerifiedPaid hook error:", err);
-      }
-      // C3 fast path: settle now. If this fails or the process dies, the
-      // PENDING settlement row is still there for recovery — no resend needed.
-      await settleAccountingBestEffort(deps, request.businessId, transaction);
-    }
-  }
-
-  // Billing/Receipt hand-off: see settleAccounting above (C3). Billing decides
-  // closure; Payments only signals the verified settlement.
-
-  await deps.store.updateWebhookEvent(event.id, {
-    processingStatus: "PROCESSED",
-    processedAt: now(),
   });
-
-  return {
-    ok: true,
-    eventId: event.id,
-    processingStatus: "PROCESSED",
-    duplicate: false,
-    paymentRequestId: request.id,
-    paymentRequestStatus: finalStatus,
-    reason: null,
-    verified,
-  };
-});
 }

@@ -44,12 +44,12 @@ const CRED = JSON.stringify({ apiName: "api", apiPassword: "pw" });
 /** GetLpResult body that means "this transaction really succeeded". */
 const GET_RESULT_PAID = {
   ResponseCode: 0,
-  TranzactionInfo: { ResponseCode: 0, TranzactionId: 777 },
+  TranzactionInfo: { ResponseCode: 0, TranzactionId: 777, Amount: 120, CoinId: 1 },
 };
 /** GetLpResult body that means "this transaction did NOT succeed". */
 const GET_RESULT_DECLINED = {
   ResponseCode: 0,
-  TranzactionInfo: { ResponseCode: 5, TranzactionId: 778 },
+  TranzactionInfo: { ResponseCode: 5, TranzactionId: 778, Amount: 120, CoinId: 1 },
 };
 
 function cardcom(getResultJson: unknown, onCall?: () => void) {
@@ -144,7 +144,7 @@ async function main() {
     assert.equal(t.store.transactions[0]?.providerTransactionId, "777");
     assert.equal(t.store.webhookEvents.length, 1);
     assert.equal(t.paidEvents.length, 1, "exactly one money-in projection");
-    // The settled amount comes from OUR request, never from the callback body.
+    // The settled amount is what GetLpResult verified (M1) — never the callback body.
     assert.equal(t.store.transactions[0]?.amount, "120.00");
   }
 

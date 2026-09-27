@@ -14,7 +14,8 @@ import {
   decryptPaymentCredential,
   encryptPaymentCredential,
 } from "./payment-crypto.service";
-import { createPaymentPrismaStore } from "./payment-store.prisma";
+import { createPaymentPrismaStore, listRoutedBusinessIds } from "./payment-store.prisma";
+import type { PaymentReconciliationDeps } from "./payment-reconciliation.service";
 import type { PaymentConnectionDeps } from "./payment-connection.service";
 import type {
   CreatePaymentRequestDeps,
@@ -93,6 +94,24 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
     settleAccounting: async (e) => {
       await settleVerifiedPayment(e);
     },
+  };
+}
+
+/**
+ * M1 — inbound reconciliation wiring. Deliberately the webhook's own wiring:
+ * the same store, provider registry, credential decryptor, money-in projection
+ * and C3 settlement — reconciliation is a second way to ASK, never a second way
+ * to record or settle.
+ */
+export function paymentReconciliationDeps(): PaymentReconciliationDeps {
+  const webhook = paymentWebhookDeps();
+  return {
+    store: webhook.store,
+    resolveProvider: webhook.resolveProvider,
+    decryptConnectionCredential: webhook.decryptConnectionCredential,
+    onVerifiedPaid: webhook.onVerifiedPaid,
+    settleAccounting: webhook.settleAccounting,
+    listBusinessIds: listRoutedBusinessIds,
   };
 }
 

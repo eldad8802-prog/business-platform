@@ -132,8 +132,7 @@ export default function DocumentsSearchPage() {
   if (!mounted || !authHeader) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
-          <Header onBack={() => router.push("/documents")} />
+        <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>          <Header onBack={() => router.push("/documents")} />
           <div style={emptyStyle}>טוען...</div>
         </PageContainer>
       </div>
@@ -142,8 +141,7 @@ export default function DocumentsSearchPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
-        <Header onBack={() => router.push("/documents")} />
+      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>        <Header onBack={() => router.push("/documents")} />
 
         <label style={searchStyle}>
           <SearchIcon />
@@ -182,7 +180,7 @@ export default function DocumentsSearchPage() {
           <section style={emptyStyle}>לא נמצאו מסמכים מאושרים לתצוגה.</section>
         ) : null}
 
-        <section style={resultsStyle}>
+        <section className="dz-search-cards" style={resultsStyle}>
           {results.map((item) => (
             <SearchRow
               key={item.id}
@@ -195,8 +193,38 @@ export default function DocumentsSearchPage() {
             />
           ))}
         </section>
-      </PageContainer>
-    </div>
+
+        <section className="dz-search-table" aria-label="תוצאות חיפוש">
+          <table>
+            <thead>
+              <tr>
+                <th>ספק</th>
+                <th>תאריך</th>
+                <th>קטגוריה</th>
+                <th>סכום</th>
+                <th>סטטוס</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((item) => {
+                const category = CATEGORY_MAP[item.category] || item.category || "כללי";
+                const open = Number.isFinite(item.documentId)
+                  ? () => router.push(`/documents/review/${item.documentId}`)
+                  : undefined;
+                return (
+                  <tr key={item.id} onClick={open} style={{ cursor: open ? "pointer" : "default" }}>
+                    <td>{item.vendorName || "ללא ספק"}</td>
+                    <td>{formatDate(item.date)}</td>
+                    <td>{category}</td>
+                    <td>{formatAmount(item.amount, item.direction)}</td>
+                    <td>אומת</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      </PageContainer>    </div>
   );
 }
 

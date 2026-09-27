@@ -294,6 +294,8 @@ export default function ProductDetailView({
         {success ? <div className="inv-fwrap"><div className="inv-alert inv-alert--success" style={{ marginTop: 8 }}>{success}</div></div> : null}
         {error ? <div className="inv-fwrap"><div className="inv-alert inv-alert--error" style={{ marginTop: 8 }}>{error}</div></div> : null}
 
+        <div className="inv-detail-desk">
+        <div>
         <ProductHero imageUrl={safeImage(item.imageUrl)} tone={tone} placeholder={<span style={{ fontSize: 64 }}>{getProductEmoji(item.name, item.category?.name)}</span>} />
         <div className="inv-dname">{item.name}</div>
         <ProductTags tags={[item.category?.name, item.supplierName ? `ספק: ${item.supplierName}` : null, unit]} />
@@ -352,6 +354,8 @@ export default function ProductDetailView({
           </>
         ) : null}
 
+        </div>
+        <div>
         <div className="inv-seclabel">פרטים</div>
         <KeyValueGrid pairs={kvPairs} />
 
@@ -375,6 +379,8 @@ export default function ProductDetailView({
               );
             })
           )}
+        </div>
+        </div>
         </div>
 
         {/* Portal the edit sheet to <body>: the shell wraps page content in a

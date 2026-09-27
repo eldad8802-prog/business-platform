@@ -37,6 +37,12 @@ export interface CreatePaymentLinkInput {
    * Never logged, never returned to a browser, never persisted in the clear.
    */
   callbackSecret?: string | null;
+  /**
+   * M1 Production proof only (see qa-webhook-suppression.ts): register a
+   * callback URL that nothing processes, so the payment must be discovered by
+   * reconciliation. Set by the orchestration for the pinned QA tenant alone.
+   */
+  suppressWebhookForQa?: boolean;
 }
 
 export interface CreatePaymentLinkResult {
@@ -131,6 +137,21 @@ export interface GetPaymentStatusInput {
 export interface ProviderPaymentStatus {
   outcome: ParsedPaymentOutcome;
   providerTransactionId: string | null;
+  /**
+   * M1 — the money the PROVIDER says moved, as a decimal string, read from its
+   * authoritative answer (never from a callback body). Null or absent when the
+   * adapter cannot state it. A PAID outcome without it is not recorded: Dubiz
+   * does not record an amount it only assumed.
+   */
+  verifiedAmount?: string | null;
+  /** M1 — the ISO currency of `verifiedAmount`, under the same rule. */
+  verifiedCurrency?: string | null;
+  /**
+   * Why a non-conclusive answer is non-conclusive, as a short code. Evidence
+   * for audit and reconciliation reports only — never shown to an owner and
+   * never used to decide an outcome.
+   */
+  detail?: string | null;
 }
 
 export interface PaymentProviderAdapter {

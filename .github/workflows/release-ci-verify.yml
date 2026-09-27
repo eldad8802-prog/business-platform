@@ -71,6 +71,29 @@ jobs:
           node scripts/ci/migration-first-guard.mjs --self-test
           node scripts/ci/migration-first-guard.mjs
 
+      # ── tenant isolation guards (BLOCKING) ─────────────────────────────────
+      # Offline and repository-only, like the migration guard. The RLS batteries
+      # are path-filtered and advisory, so a PR that never touched their paths
+      # skipped them and merged green — which is how a context-less Customer read
+      # reached Production (PR #535). These two run on EVERY PR:
+      #   - every businessId table is FORCE-RLS'd with a tenant policy, or is on a
+      #     named exemption list that can only shrink; new tables also need
+      #     per-command policies and explicit grants
+      #   - no unscoped access to a FORCE-RLS tenant table from application code
+      # Blocking via the Two-Tier status below (continue-on-error only so the
+      # summary can still be written; .outcome decides).
+      - name: tenant-table RLS guard (self-test, then the repository)
+        id: rls_guard
+        continue-on-error: true
+        run: |
+          node scripts/ci/tenant-table-rls-guard.mjs --self-test
+          node scripts/ci/tenant-table-rls-guard.mjs
+
+      - name: tenant-scoped access guard
+        id: tenant_access_guard
+        continue-on-error: true
+        run: node scripts/ci/tenant-scoped-access-guard.mjs
+
       # Non-connecting placeholders ONLY so env("DATABASE_URL")/env("DIRECT_URL")
       # resolve for OFFLINE schema validation. `prisma validate` never opens a
       # connection — these are NOT a DB binding and never touch any database.
@@ -118,6 +141,8 @@ jobs:
         if: always()
         env:
           GUARD: ${{ steps.migration_guard.outcome }}
+          RLS_GUARD: ${{ steps.rls_guard.outcome }}
+          ACCESS_GUARD: ${{ steps.tenant_access_guard.outcome }}
           VALIDATE: ${{ steps.validate.outcome }}
           BUILD: ${{ steps.build.outcome }}
           LINT: ${{ steps.lint.outcome }}
@@ -130,6 +155,8 @@ jobs:
             echo "| check | result |"
             echo "| --- | --- |"
             echo "| migration-first guard | ${GUARD} |"
+            echo "| tenant-table RLS guard | ${RLS_GUARD} |"
+            echo "| tenant-scoped access guard | ${ACCESS_GUARD} |"
             echo "| prisma validate | ${VALIDATE} |"
             echo "| build | ${BUILD} |"
             echo ""
@@ -141,6 +168,8 @@ jobs:
             echo ""
             failed=""
             [ "${GUARD}" != "success" ] && failed="${failed} migration-first-guard"
+            [ "${RLS_GUARD}" != "success" ] && failed="${failed} tenant-table-rls-guard"
+            [ "${ACCESS_GUARD}" != "success" ] && failed="${failed} tenant-scoped-access-guard"
             [ "${VALIDATE}" != "success" ] && failed="${failed} validate"
             [ "${BUILD}" != "success" ] && failed="${failed} build"
             if [ -n "${failed}" ]; then
@@ -162,13 +191,15 @@ jobs:
             // This status is REQUIRED by branch protection on `main`.
             const blockers = {
               'migration-first-guard': '${{ steps.migration_guard.outcome }}',
+              'tenant-table-rls-guard': '${{ steps.rls_guard.outcome }}',
+              'tenant-scoped-access-guard': '${{ steps.tenant_access_guard.outcome }}',
               validate: '${{ steps.validate.outcome }}',
               build: '${{ steps.build.outcome }}',
             };
             const failed = Object.entries(blockers).filter(([, o]) => o !== 'success').map(([k]) => k);
             const ok = failed.length === 0;
             const description = ok
-              ? 'blockers passed (migration-first-guard, validate, build); lint report-only'
+              ? 'blockers passed (migration-first-guard, tenant-table-rls-guard, tenant-scoped-access-guard, validate, build); lint report-only'
               : `blocking checks failed: ${failed.join(', ')} (lint report-only)`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
@@ -176,5 +207,7 @@ jobs:
               sha: context.payload.pull_request.head.sha,
               state: ok ? 'success' : 'failure',
               context: 'release/verify',
-              description,
+              // GitHub refuses a status description over 140 characters, and a
+              // refused status would leave the required check pending forever.
+              description: description.slice(0, 140),
             });

@@ -185,7 +185,39 @@ export default function InventoryAlertsPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-desk-table" aria-label="התראות">
+          <table>
+            <thead>
+              <tr>
+                <th>התראה</th>
+                <th>פריט</th>
+                <th>מתי</th>
+                <th>סטטוס</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((alert) => {
+                const m = metaForType(alert.type);
+                return (
+                  <tr key={alert.id}>
+                    <td>{m.title}</td>
+                    <td>{alert.item?.name || detailFor(alert) || "—"}</td>
+                    <td>{relativeTime(alert.createdAt) || "—"}</td>
+                    <td>{m.badge}</td>
+                    <td>
+                      <button type="button" disabled={busyId === alert.id} onClick={() => void resolve(alert.id)}>
+                        {busyId === alert.id ? "סוגר…" : "טופל"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-rows inv-cards">
           {visible.map((alert) => {
             const m = metaForType(alert.type);
             const detail = detailFor(alert);
@@ -214,6 +246,7 @@ export default function InventoryAlertsPage() {
             );
           })}
         </div>
+        </>
       )}
     </InventorySubPage>
   );

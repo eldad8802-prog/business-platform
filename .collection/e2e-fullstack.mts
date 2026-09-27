@@ -81,18 +81,19 @@ async function paymentRequest(b: Biz, amount: string, customerId: number | null,
   await prisma.paymentProviderRouting.create({ data: { provider: "CARDCOM", providerRequestId, paymentRequestId: r.id, businessId: b.id } });
   return r;
 }
-function adapter(outcome: "PAID" | "FAILED" | "PENDING", providerRequestId: string, providerTransactionId: string) {
+function adapter(outcome: "PAID" | "FAILED" | "PENDING", providerRequestId: string, providerTransactionId: string, money: { amount: string; currency: string }) {
   return {
     provider: "CARDCOM", supportedCurrencies: null,
     async verifyWebhook() { return { ok: true }; },
     parseWebhook() { return { providerEventId: `evt-${uniq()}`, eventType: "e2e", providerRequestId, providerTransactionId, outcome, amount: null, currency: null, correlationValue: null }; },
-    async getPaymentStatus() { return { outcome, providerTransactionId }; },
+    // M1: the authority states the money it verified — here, what was asked.
+    async getPaymentStatus() { return { outcome, providerTransactionId, verifiedAmount: money.amount, verifiedCurrency: money.currency }; },
   } as never;
 }
-async function providerCallback(r: { providerRequestId: string | null }, outcome: "PAID" | "FAILED" | "PENDING", ptx = `ptx-${uniq()}`) {
+async function providerCallback(r: { providerRequestId: string | null; amount: unknown; currency: string }, outcome: "PAID" | "FAILED" | "PENDING", ptx = `ptx-${uniq()}`) {
   return processPaymentWebhook(
     { provider: "CARDCOM", rawBody: "{}", parsedBody: {} },
-    { store, resolveProvider: () => adapter(outcome, r.providerRequestId!, ptx), decryptConnectionCredential: () => null, settleAccounting: async (e) => { await settleVerifiedPayment(e); } }
+    { store, resolveProvider: () => adapter(outcome, r.providerRequestId!, ptx, { amount: String(r.amount), currency: r.currency }), decryptConnectionCredential: () => null, settleAccounting: async (e) => { await settleVerifiedPayment(e); } }
   );
 }
 const txOf = (requestId: number) => prisma.paymentTransaction.findFirstOrThrow({ where: { paymentRequestId: requestId, amount: { gt: 0 } } });
