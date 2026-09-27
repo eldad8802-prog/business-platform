@@ -95,9 +95,15 @@ type Variant = {
   assetsPlan?: AssetsPlan;
 };
 
+type ContentEvidence = {
+  contentRunId: number;
+  variants: { variantKey: string; contentVariantId: number; runtimeId: string }[];
+};
+
 type ApiResponse = {
   success?: boolean;
   variants?: Variant[];
+  contentEvidence?: ContentEvidence;
   videoDecision?: {
     videoType?: VideoType;
     durationSeconds?: number;
@@ -185,6 +191,7 @@ export default function CreatorPlanPage() {
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
+  const [contentEvidence, setContentEvidence] = useState<ContentEvidence | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -312,6 +319,7 @@ export default function CreatorPlanPage() {
         if (cancelled) return;
 
         setVariants(nextVariants);
+        setContentEvidence(data.contentEvidence ?? null);
         setSelectedVariantId(nextVariants[0].id);
       } catch (err) {
         console.error(err);
@@ -335,13 +343,47 @@ export default function CreatorPlanPage() {
     setSelectedVariantId(id);
   }
 
-  function handleContinue() {
+  async function handleContinue() {
     if (!flow || !selectedVariant) return;
     try {
       setIsSaving(true);
+      setError("");
+
+      const evidenceVariant = contentEvidence?.variants.find(
+        (variant) => variant.runtimeId === selectedVariant.id
+      );
+      if (contentEvidence && evidenceVariant) {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          setError("כדי להמשיך צריך להתחבר מחדש.");
+          setIsSaving(false);
+          return;
+        }
+        const decisionRes = await fetch("/api/content/decisions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            contentRunId: contentEvidence.contentRunId,
+            variantKey: evidenceVariant.variantKey,
+          }),
+        });
+        if (!decisionRes.ok) {
+          setError("לא הצלחנו לשמור את הבחירה. נסה שוב.");
+          setIsSaving(false);
+          return;
+        }
+      }
+
       localStorage.setItem(
         "content_result",
-        JSON.stringify({ selectedVariant, variants })
+        JSON.stringify({
+          selectedVariant,
+          variants,
+          contentRunId: contentEvidence?.contentRunId ?? null,
+        })
       );
       router.push(
         prefersFilmingAssetsBranch(flow)

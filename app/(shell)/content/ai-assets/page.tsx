@@ -36,6 +36,7 @@ type ContentFlow = {
 };
 
 type ContentResult = {
+  contentRunId?: number | null;
   selectedVariant?: {
     script?: {
       scriptText?: string;
@@ -198,6 +199,9 @@ export default function AiAssetsPage() {
           body: JSON.stringify({
             flow,
             result,
+            ...(Number.isInteger(result.contentRunId) && (result.contentRunId as number) > 0
+              ? { contentRunId: result.contentRunId }
+              : {}),
           }),
         });
 

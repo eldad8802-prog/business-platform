@@ -48,7 +48,9 @@ model ContentRun {
 
   variants ContentVariant[]
   events   ContentEvent[]
+  assets   BusinessAsset[]
 
+  @@unique([id, businessId])
   @@index([businessId, createdAt])
 }
 
@@ -59,6 +61,7 @@ model ContentRun {
 model ContentVariant {
   id           Int                  @id @default(autoincrement())
   contentRunId Int
+  businessId   Int
   variantKey   String
   status       ContentVariantStatus @default(PENDING)
 
@@ -77,10 +80,13 @@ model ContentVariant {
   updatedAt DateTime @updatedAt
 
   contentRun ContentRun      @relation(fields: [contentRunId], references: [id], onDelete: Cascade)
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   renders    ContentRender[]
   events     ContentEvent[]
 
   @@unique([contentRunId, variantKey])
+  @@unique([id, businessId])
+  @@index([businessId])
 }
 
 /// ContentRender
@@ -127,6 +133,9 @@ model ContentEvent {
   /// Intentionally String (aligned with LearningEvent.eventType).
   eventType String
 
+  /// Retry identity for a single owner decision. Null on legacy rows.
+  idempotencyKey String?
+
   /// JSON governance: must include { schemaVersion, generatedAt, source, data } when present.
   payload  Json?
   metadata Json?
@@ -138,6 +147,7 @@ model ContentEvent {
   contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: Cascade)
   actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@index([contentRunId, createdAt])
   @@index([contentVariantId, createdAt])
@@ -187,7 +197,12 @@ model Business {
   inventoryCategories           InventoryCategory[]
   inventoryDrafts               InventoryDraft[]
   inventoryExternalSales        InventoryExternalSale[]
+  inventorySales                InventorySale[]
+  inventorySourceSaleLines      InventorySourceSaleLine[]
   inventoryItems                InventoryItem[]
+  contentVariants               ContentVariant[]
+  couponSurfaceEvents           CouponSurfaceEvent[]
+  businessAssets                BusinessAsset[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -899,9 +914,18 @@ model Offer {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   imageUrl            String?
+  /// Structured offer definition. Null on rows published before this column
+  /// existed — unknown, not a reconstructed value.
+  benefitType         String?
+  benefitValue        String?
+  benefitScope        String?
+  minPurchaseAmount   Decimal? @db.Decimal(18, 2)
+  newCustomersOnly    Boolean?
   coupons             Coupon[]
+  surfaceEvents       CouponSurfaceEvent[]
   issuingBusiness     Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
 
+  @@unique([id, issuingBusinessId])
   @@index([issuingBusinessId])
   @@index([validUntil])
   @@index([isActive])
@@ -923,7 +947,9 @@ model Coupon {
   issuingBusiness   Business         @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
   offer             Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
   redemptionEvents  RedemptionEvent?
+  surfaceEvents     CouponSurfaceEvent[]
 
+  @@unique([id, issuingBusinessId])
   @@index([offerId])
   @@index([issuingBusinessId])
   @@index([status])
@@ -944,6 +970,24 @@ model RedemptionEvent {
   @@index([issuingBusinessId])
   @@index([redeemingBusinessId])
   @@index([redeemedAt])
+}
+
+/// Observed attention on a coupon surface that Dubiz actually serves.
+/// Not a performance conclusion. No viewer identity is stored.
+model CouponSurfaceEvent {
+  id                Int      @id @default(autoincrement())
+  issuingBusinessId Int
+  couponId          Int
+  offerId           Int
+  eventType         String
+  createdAt         DateTime @default(now())
+
+  business Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  coupon   Coupon   @relation(fields: [couponId, issuingBusinessId], references: [id, issuingBusinessId], onDelete: Cascade)
+  offer    Offer    @relation(fields: [offerId, issuingBusinessId], references: [id, issuingBusinessId], onDelete: Cascade)
+
+  @@index([issuingBusinessId, couponId, createdAt])
+  @@index([issuingBusinessId, eventType, createdAt])
 }
 
 model Conversation {
@@ -1824,7 +1868,10 @@ model InventoryItem {
   supplierPurchaseDraftLines SupplierPurchaseDraftLine[]
   purchaseOrderLines         PurchaseOrderLine[]
   receivingLines             ReceivingLine[]
+  saleLines                  InventorySaleLine[]
+  recognizedSourceLines      InventorySourceSaleLine[]
 
+  @@unique([id, businessId])
   @@index([businessId])
   @@index([sku])
   @@index([barcode])
@@ -1845,7 +1892,10 @@ model InventoryMovement {
   createdAt       DateTime                @default(now())
   business        Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
   item            InventoryItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  saleLine        InventorySaleLine?
+  pendingMatchResolutions InventoryPendingMatch[] @relation("PendingMatchResolvedMovement")
 
+  @@unique([id, businessId])
   @@index([businessId])
   @@index([itemId])
   @@index([businessId, createdAt])
@@ -1905,6 +1955,7 @@ model InventoryPendingMatch {
   resolvedAt       DateTime?
   resolvedByUserId Int?
   resolvedItemId   Int?
+  resolvedMovementId Int?
   /// M5 — why the owner refused this match. A rejection already records WHO and WHEN; without the
   /// WHY it is a shrug, and "this product is not ours" and "we stopped stocking it" call for
   /// completely different responses from the system next time the same line arrives.
@@ -1912,6 +1963,7 @@ model InventoryPendingMatch {
   alerts           InventoryAlert[]
   business         Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   resolvedItem     InventoryItem?              @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id])
+  resolvedMovement InventoryMovement?          @relation("PendingMatchResolvedMovement", fields: [resolvedMovementId, businessId], references: [id, businessId], onDelete: SetNull)
 
   @@unique([businessId, externalSaleId])
   @@index([businessId])
@@ -1929,6 +1981,93 @@ model InventoryExternalSale {
 
   @@unique([businessId, externalSaleId])
   @@index([businessId])
+}
+
+/// One observed sale. Live stock stays on InventoryItem / InventoryMovement.
+model InventorySale {
+  id             Int      @id @default(autoincrement())
+  businessId     Int
+  source         String
+  externalSaleId String?
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  business Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines    InventorySaleLine[]
+
+  @@unique([id, businessId])
+  @@unique([businessId, externalSaleId])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, createdAt])
+}
+
+/// One sale line that produced exactly one inventory movement.
+/// unitPrice is null when the caller did not provide a price.
+model InventorySaleLine {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  saleId     Int
+  itemId     Int
+  movementId Int
+  lineKey    String
+  quantity   Float
+  unitPrice  Decimal? @db.Decimal(18, 2)
+  createdAt  DateTime @default(now())
+
+  sale     InventorySale     @relation(fields: [saleId, businessId], references: [id, businessId], onDelete: Cascade)
+  item     InventoryItem     @relation(fields: [itemId, businessId], references: [id, businessId], onDelete: Cascade)
+  movement InventoryMovement @relation(fields: [movementId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  sourceLines InventorySourceSaleLine[]
+
+  @@unique([id, businessId])
+  @@unique([saleId, lineKey])
+  @@unique([movementId, businessId])
+  @@index([businessId, createdAt])
+}
+
+/// Upstream POS line as received. A sale-line link exists only when this
+/// exact line produced a movement. Unmatched lines stay unlinked.
+model InventorySourceSaleLine {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  externalSaleId   String
+  lineKey          String
+  sku              String?
+  barcode          String?
+  name             String?
+  quantity         Float
+  unitPrice        Decimal? @db.Decimal(18, 2)
+  recognizedItemId Int?
+  saleLineId       Int?
+  createdAt        DateTime @default(now())
+
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recognizedItem InventoryItem?     @relation(fields: [recognizedItemId, businessId], references: [id, businessId])
+  saleLine       InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId])
+
+  @@unique([businessId, externalSaleId, lineKey])
+  @@index([businessId, createdAt])
+}
+
+/// Retained business visual. Public bucket storage is not publication permission.
+model BusinessAsset {
+  id                Int                 @id @default(autoincrement())
+  businessId        Int
+  origin            BusinessAssetOrigin
+  storageKey        String?
+  assetRef          String?
+  contentRunId      Int?
+  publicUseApproved Boolean             @default(false)
+  idempotencyKey    String?
+  createdAt         DateTime            @default(now())
+
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRun ContentRun? @relation(fields: [contentRunId, businessId], references: [id, businessId])
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, storageKey])
+  @@index([businessId, createdAt])
 }
 
 model POSApiKey {
@@ -2558,6 +2697,11 @@ enum ContentVariantStatus {
   PENDING
   READY
   FAILED
+}
+
+enum BusinessAssetOrigin {
+  OWNER_UPLOAD
+  GENERATED
 }
 
 enum ContentRenderStatus {
