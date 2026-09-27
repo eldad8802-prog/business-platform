@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { InventoryValidationError } from "@/lib/services/inventory/inventory.errors";
 
 type Tx = Prisma.TransactionClient;
@@ -222,7 +222,9 @@ export async function recordInventorySale(
   input: RecordInventorySaleInput
 ): Promise<RecordInventorySaleResult> {
   if (input.tx) return recordInTransaction(input.tx, input);
-  return prisma.$transaction((tx) => recordInTransaction(tx, input));
+  return tenantTx(input.businessId, (tx) => recordInTransaction(tx, input), {
+    timeoutMs: 20_000,
+  });
 }
 
 export function isSaleIdempotencyConflict(error: unknown): boolean {
