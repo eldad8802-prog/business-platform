@@ -441,6 +441,10 @@ async function main(): Promise<void> {
       END IF; END $$`);
     await prisma.$executeRawUnsafe(`ALTER ROLE ${roleName} LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT PASSWORD '${rolePassword}'`);
     await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${roleName}`);
+    // sec(E)/M-12(c): every tenant transaction reads the business lifecycle under the SHARED
+    // lifecycle lock, so any identity that opens one needs exactly these three columns (the
+    // Production runtime holds them). Column-level, SELECT only: nothing else about Business.
+    await prisma.$executeRawUnsafe(`GRANT SELECT ("id", "deletionRequestedAt", "deletedAt") ON "Business" TO ${roleName}`);
     for (const t of ENGINE_TABLES) await prisma.$executeRawUnsafe(`GRANT SELECT ON "${t}" TO ${roleName}`);
     // INSERT on one table, so the WITH CHECK half is what refuses the cross-
     // tenant write — not a missing privilege masquerading as isolation.
