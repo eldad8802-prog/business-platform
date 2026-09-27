@@ -10,6 +10,7 @@ import {
   AccountDeletionError,
 } from "@/lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "@/lib/services/account/account-deletion.prisma-store";
+import { emitErasureEvent } from "@/lib/services/account/erasure-security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export async function DELETE(req: NextRequest) {
     { userId: user.id, sessionId: context.sessionId, tokenVersion: user.tokenVersion },
     "account.delete"
   );
+  await emitErasureEvent(stepUp.ok ? "step_up_ok" : "step_up_refused", { businessId: user.businessId, userId: user.id, req }, stepUp.ok ? {} : { refusal: stepUp.reason });
   if (!stepUp.ok) {
     return NextResponse.json(stepUpRequiredBody(stepUp), {
       status: stepUp.reason === "unavailable" ? 503 : 403,

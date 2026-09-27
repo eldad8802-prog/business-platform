@@ -85,6 +85,12 @@ jobs:
           npx tsx lib/tenant/context.test.ts
           npx tsx lib/tenant/job.test.ts
 
+      # sec/INT: F security events at every erasure stage; telemetry never blocks erasure.
+      - name: Unit — account-deletion security events + negative proofs N1-N3
+        run: |
+          npx tsx lib/services/account/erasure-security-events.test.ts
+          node lib/services/account/erasure-security-events.prove.mjs
+
       - name: Existing guard families (no regression)
         run: |
           bash scripts/ci/account-deletion-guard.sh .

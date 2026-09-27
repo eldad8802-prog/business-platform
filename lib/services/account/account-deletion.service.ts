@@ -31,6 +31,7 @@
  * The concrete Prisma work lives behind `AccountDeletionStore` (adapter). This module is
  * DB-free so the gate/idempotency/order are unit-testable without a database.
  */
+import { emitErasureEvent } from "./erasure-security-events";
 import { assertManifestSafe } from "@/lib/services/account/account-erasure-manifest";
 import {
   runAccountErasure,
@@ -179,8 +180,9 @@ export async function deleteOwnBusinessAccount(
       );
     }
 
+    await emitErasureEvent("requested", { businessId, userId: actorUserId });
     // STAGE 1. Quarantine before anything destructive.
-    await store.quarantineAndRevokeIntegrations(businessId, now);
+    if (await store.quarantineAndRevokeIntegrations(businessId, now)) await emitErasureEvent("quarantine_entered", { businessId, userId: actorUserId });
   }
 
   // REQUEST, recorded durably: who asked. Best-effort — the quarantine above is the

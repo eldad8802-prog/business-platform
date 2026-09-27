@@ -44,6 +44,7 @@
  * This module is DB-free: the store, its ledger and the providers are injected, which
  * is how the fault-injection battery drives every stage into failure for real.
  */
+import { emitErasureEvent } from "./erasure-security-events";
 import type { AccountDeletionStore } from "@/lib/services/account/account-deletion.service";
 import { revokeGoogleGmailToken } from "@/lib/services/integrations/gmail/gmail-token-revoke.service";
 import { unsubscribeWabaFromApp } from "@/lib/services/integrations/whatsapp/graph.service";
@@ -235,6 +236,7 @@ export async function runAccountErasure(
   if (claim.kind === "BUSY") return { status: "BUSY", attempt: claim.attempt };
   if (claim.kind === "NOT_DUE") return { status: "NOT_DUE", attempt: claim.attempt, nextAttemptAt: claim.nextAttemptAt };
   const attempt = claim.attempt;
+  await emitErasureEvent(attempt === 1 ? "erasure_started" : "erasure_resumed", { businessId, userId: opts.actorUserId }, { attempt, trigger: opts.trigger });
 
   let stage: ErasureStage = "AUTHORITY_REVOKE";
   try {
@@ -267,11 +269,13 @@ export async function runAccountErasure(
     if (residual.length > 0) {
       throw new ErasureStageError("VERIFY", safeCode(`RESIDUAL:${[...residual].sort().join("+")}`));
     }
+    await emitErasureEvent("verified", { businessId }, { attempt });
 
     // ── FINALIZE — evidence, then the terminal transition ───────────────────
     stage = "FINALIZE";
     const actor = await resolveActor(store, businessId, opts.actorUserId);
     await store.finalizeAndAudit(businessId, actor, now);
+    await emitErasureEvent("completed", { businessId, userId: actor }, { attempt });
   } catch (error) {
     const errorClass = classifyErasureError(error);
     const failedStage = error instanceof ErasureStageError ? error.stage : stage;
@@ -298,6 +302,7 @@ export async function runAccountErasure(
         nextAttemptAt,
       })
     );
+    await emitErasureEvent("attempt_failed", { businessId }, { attempt, stage: failedStage, errorClass });
     return { status: "FAILED", attempt, stage: failedStage, errorClass, nextAttemptAt };
   }
 
@@ -342,7 +347,7 @@ async function revokeProviderGrants(
   );
   const grants = await store.readProviderGrants(businessId);
   const pending: string[] = [];
-  const record = (r: ProviderOutcomeRecord) => ledger.recordProviderOutcome(businessId, r, ctx.now);
+  const record = async (r: ProviderOutcomeRecord) => { await ledger.recordProviderOutcome(businessId, r, ctx.now); await emitErasureEvent("provider_cleanup", { businessId }, { provider: r.provider, action: r.action, outcome: r.outcome }); };
   const exhausted = ctx.attempt >= MAX_PROVIDER_REVOKE_ATTEMPTS;
 
   for (const g of grants) {
