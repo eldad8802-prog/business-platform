@@ -71,7 +71,7 @@ function section(t: string) {
 const D = (s: string) => new Date(s);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Split a migration into statements, respecting $tag$ … $tag$ bodies. */
+/** Split SQL into statements, respecting $tag$ … $tag$ bodies and '…' strings. */
 export function splitSql(sql: string): string[] {
   const text = sql
     .split("\n")
@@ -87,6 +87,14 @@ export function splitSql(sql: string): string[] {
         i += tag.length;
         tag = null;
       } else cur += text[i++];
+      continue;
+    }
+    if (text[i] === "'") {
+      // A quoted string may hold a semicolon: copy it whole ('' is an escaped quote).
+      let j = i + 1;
+      while (j < text.length && !(text[j] === "'" && text[j + 1] !== "'")) j += text[j] === "'" ? 2 : 1;
+      cur += text.slice(i, j + 1);
+      i = j + 1;
       continue;
     }
     const m = /^\$[A-Za-z0-9_]*\$/.exec(text.slice(i));
@@ -533,7 +541,7 @@ async function main(): Promise<void> {
     // The read-only Production verification script must pass on this database too.
     const verify = splitSql(readFileSync(path.join(process.cwd(), "scripts", "payables", "installment-workflow-verify.sql"), "utf8"));
     const verifyRows = await prisma.$queryRawUnsafe<Array<{ check: string; ok: boolean }>>(verify[0]);
-    const failing = verifyRows.filter((r) => !r.ok && r.check !== "table is empty (no backfill ran; the flag is off, nothing writes it)");
+    const failing = verifyRows.filter((r) => !r.ok && r.check !== "table is empty (no backfill ran, the flag is off, nothing writes it)");
     eq("installment-workflow-verify.sql: every catalog check true (emptiness aside — this DB has test rows)", failing.map((r) => r.check), []);
     eq("…and it covers all the reviewed objects", verifyRows.length, 13);
     eq("InstallmentWorkflow: RLS enabled + FORCED + tenant policy (from the migration)", [installed[0]?.rls, installed[0]?.forced, Number(installed[0]?.policies)], [true, true, 1]);

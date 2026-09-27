@@ -62,7 +62,7 @@ SELECT 'app_runtime: DELETE and TRUNCATE NOT granted',
        OR (NOT has_table_privilege('app_runtime', 'public."InstallmentWorkflow"', 'DELETE')
            AND NOT has_table_privilege('app_runtime', 'public."InstallmentWorkflow"', 'TRUNCATE'))
 UNION ALL
-SELECT 'table is empty (no backfill ran; the flag is off, nothing writes it)',
+SELECT 'table is empty (no backfill ran, the flag is off, nothing writes it)',
        (SELECT count(*) FROM "InstallmentWorkflow") = 0;
 
 -- Migration history (Production only — a db-push test database has no history table).
