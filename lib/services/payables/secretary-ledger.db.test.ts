@@ -551,6 +551,10 @@ async function main(): Promise<void> {
     await prisma.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${roleName}') THEN CREATE ROLE ${roleName} LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT; END IF; END $$`);
     await prisma.$executeRawUnsafe(`ALTER ROLE ${roleName} LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT PASSWORD '${pw}'`);
     await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${roleName}`);
+    // sec(E)/M-12(c): every tenant transaction reads the business lifecycle under the SHARED
+    // lifecycle lock, so any identity that opens one needs exactly these three columns (the
+    // Production runtime holds them). Column-level, SELECT only: nothing else about Business.
+    await prisma.$executeRawUnsafe(`GRANT SELECT ("id", "deletionRequestedAt", "deletedAt") ON "Business" TO ${roleName}`);
     await prisma.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "InstallmentWorkflow" TO ${roleName}`);
     await prisma.$executeRawUnsafe(`GRANT SELECT ON "Installment" TO ${roleName}`);
     // The migration's own grants model: no DELETE for the application role.
