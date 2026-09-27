@@ -49,6 +49,8 @@ import { BillingDocumentStatus, BillingDocumentType, Prisma } from "@prisma/clie
 
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const cleanupErrors: string[] = [];
+
 async function main(): Promise<void> {
   // Dynamic imports AFTER the guard, so the Prisma client constructs against TEST_DATABASE_URL.
   const { prisma } = await import("@/lib/prisma");
@@ -295,24 +297,55 @@ async function main(): Promise<void> {
     console.log("PASS — billing issue tenant-ownership regression guard.");
   } finally {
     // Self-cleaning (children → parents), scoped to this run's tenants only.
+    //
+    // SEC-F (#521): where the database carries the append-only / fiscal triggers,
+    // audit rows and ISSUED documents (with their lines) can never be deleted — and
+    // therefore neither can the users and businesses they reference. That is the
+    // product's contract, not a cleanup failure, so those rows are RETAINED and
+    // listed by run id rather than attempted. Every delete that IS attempted must
+    // succeed: a failure is reported and fails the run (it used to be swallowed).
+    // A fresh database per run avoids retained fixtures entirely.
     if (businessIds.length > 0) {
       const where = { businessId: { in: businessIds } };
-      await prisma.learningEvent.deleteMany({ where }).catch(() => {});
-      await prisma.financialEvent.deleteMany({ where }).catch(() => {});
-      await prisma.billingAuthoritySubmission.deleteMany({ where }).catch(() => {});
-      await prisma.billingAuditEvent.deleteMany({ where }).catch(() => {});
+      const triggers = (await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n FROM pg_trigger WHERE tgname IN ('secf_append_only', 'secf_fiscal_immutable')`
+      )) as { n: number }[];
+      const appendOnly = triggers[0].n > 0;
+      const notIssued = appendOnly ? { status: { not: BillingDocumentStatus.ISSUED } } : {};
+      const clean = async (label: string, fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+        } catch (e) {
+          const code = (e as { code?: string; meta?: { code?: string } })?.meta?.code ?? (e as { code?: string })?.code ?? "";
+          cleanupErrors.push(`${label}: ${code} ${e instanceof Error ? e.message.split("\n").slice(-1)[0] : String(e)}`);
+        }
+      };
+      await clean("learningEvent", () => prisma.learningEvent.deleteMany({ where }));
+      await clean("financialEvent", () => prisma.financialEvent.deleteMany({ where }));
+      await clean("billingAuthoritySubmission", () => prisma.billingAuthoritySubmission.deleteMany({ where }));
+      if (!appendOnly) await clean("billingAuditEvent", () => prisma.billingAuditEvent.deleteMany({ where }));
       if (documentIds.length > 0) {
-        await prisma.billingDocumentLine
-          .deleteMany({ where: { billingDocumentId: { in: documentIds } } })
-          .catch(() => {});
+        await clean("billingDocumentLine", () =>
+          prisma.billingDocumentLine.deleteMany({ where: { billingDocumentId: { in: documentIds }, document: notIssued } })
+        );
       }
-      await prisma.billingDocument.deleteMany({ where }).catch(() => {});
-      await prisma.billingDocumentNumberSequence.deleteMany({ where }).catch(() => {});
-      await prisma.businessProfile.deleteMany({ where }).catch(() => {});
-      await prisma.user.deleteMany({ where }).catch(() => {});
-      await prisma.business.deleteMany({ where: { id: { in: businessIds } } }).catch(() => {});
+      await clean("billingDocument", () => prisma.billingDocument.deleteMany({ where: { ...where, ...notIssued } }));
+      if (!appendOnly) {
+        await clean("billingDocumentNumberSequence", () => prisma.billingDocumentNumberSequence.deleteMany({ where }));
+        await clean("businessProfile", () => prisma.businessProfile.deleteMany({ where }));
+        await clean("user", () => prisma.user.deleteMany({ where }));
+        await clean("business", () => prisma.business.deleteMany({ where: { id: { in: businessIds } } }));
+      } else {
+        console.log(
+          `RETAINED (append-only audit + ISSUED fiscal rows, by design): run ${runId}, businesses [${businessIds.join(",")}] with their audit events, ISSUED documents, users, profile and sequences.`
+        );
+      }
     }
     await prisma.$disconnect().catch(() => {});
+    if (cleanupErrors.length > 0) {
+      console.error(`CLEANUP FAILED —\n  ${cleanupErrors.join("\n  ")}`);
+      process.exitCode = 1;
+    }
   }
 }
 
