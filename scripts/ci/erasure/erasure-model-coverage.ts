@@ -309,6 +309,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
+  // Payables, secretary → ledger. Two timestamps and the id of the user who
+  // pressed "טופל" — no name, no note, no free text. The row describes a
+  // reminder's state, not a person or their communication.
+  InstallmentWorkflow: operational("the secretary's snooze/handled timestamps for one installment; no free text"),
   LearningSignal: operational("numeric learning signals"),
   ServiceCostProfile: operational("cost inputs for pricing"),
   PricingRecommendation: operational("numeric pricing output"),

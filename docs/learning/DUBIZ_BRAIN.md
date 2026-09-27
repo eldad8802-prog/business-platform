@@ -199,4 +199,47 @@ M9 never parses prose to act. The recommendation → decision → action → out
 
 ## Production proof state
 
-Recorded at M8 closure. See the closure report.
+M8 was recorded on 2026-09-26.
+
+- PR #540 was squash-merged as `2601ef1`.
+- `2601ef1` was the Production deployment of `business-platform`, and it is an ancestor of `main`.
+  (A later migration-only PR, #539, has since merged on top of it.)
+- Both runs used `knowledge-derive.yml` with `brain: shadow` on the tenant-safe path: the running
+  application, as `app_runtime_prod`.
+- The public logs contain counts, codes and versions only. They contain no names, amounts, prose,
+  prompts, context, ids of other tenants, or secrets.
+
+| | business 3 (run 36267900004) | business 9 (run 36267910831) |
+|---|---|---|
+| HTTP / proof level | 200 / `FULL` (NOSUPERUSER, NOBYPASSRLS) | 200 / `FULL` |
+| isolation probe | holds: RLS + FORCE on 7 tables, 0 rows without tenant, 0 foreign rows | holds (same) |
+| snapshot | `bks.v1`, 24 knowledge, 0 relationships, 19 gaps, deterministic rebuild | `bks.v1`, 12 knowledge, 1 relationship, 20 gaps, deterministic rebuild |
+| Brain mode / provider / model | shadow / openai / `gpt-4.1-mini` | shadow / openai / `gpt-4.1-mini` |
+| context | `brain-context.v1`, 9,325 bytes, nothing omitted | `brain-context.v1`, 6,544 bytes, **1 PROPOSED relationship omitted** |
+| `snapshotMatches` (one tenant per call) | true | true |
+| `keyPresent` | **false** | **false** |
+| status / stage | `PROVIDER_FAILED` / `provider` | `PROVIDER_FAILED` / `provider` |
+| model called, tokens, latency | no, null, 0 ms | no, null, 0 ms |
+| accepted / rejected codes | 0 / none | 0 / none |
+| rest of the derivation | 14/14 rules, 10/10 temporal rules, insights unchanged (1) | 14/14 rules, 10/10 temporal rules, insights unchanged (1) |
+
+**Live provider path: `BLOCKED_CONFIGURATION`.**
+
+- `OPENAI_API_KEY` is not set in the Production environment. It is the same variable every OpenAI
+  feature in the product reads, so bot drafts and content LLM are equally unconfigured there.
+- The Brain therefore failed closed before any outbound call, and the deterministic product ran to
+  completion. That is the designed behaviour, observed in Production.
+- No provider was added or switched, no credential was created, and no proof requirement was relaxed.
+- Setting the key is an owner configuration decision. Once it is set, the same dispatch
+  (`brain: shadow`) is the bounded live proof: one call per business, at most 1,200 output tokens, and
+  metadata only in the log.
+
+**What CI proves on the merged code, rather than Production.** Grounding, safety and failure are
+proven by `m0-knowledge-tenant-safety` on the merged tree:
+
+- The eval corpus (47 checks) with a scripted provider.
+- The real-database battery as a measured NOBYPASSRLS role (12 checks):
+  - context minimized;
+  - accepted refs resolve only inside the caller's snapshot;
+  - another tenant's context is rejected by fingerprint;
+  - zero table writes on success and on every failure mode.

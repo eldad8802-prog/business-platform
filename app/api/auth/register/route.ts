@@ -17,6 +17,8 @@ import {
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { issueSession as issueDeviceSession } from "@/lib/auth/session-directory";
+import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -56,7 +58,19 @@ export type RegisterDeps = {
   hashPassword: (plain: string) => Promise<string>;
   /** Atomic. Throws EmailAlreadyRegisteredError when the unique index rejects. */
   createAccount: (input: CreateAccountInput) => Promise<CreatedAccount>;
-  signToken: (userId: number, tokenVersion: number) => string;
+  /** Every token names its session (L-9): the third argument is the sid. */
+  signToken: (userId: number, tokenVersion: number, sessionId: string) => string;
+  /**
+   * Creates the device session the token names, exactly as login does. A
+   * token minted without one would be unrevocable per device and would come
+   * with no refresh credential.
+   */
+  issueSession: (input: {
+    userId: number;
+    tokenVersion: number;
+    userAgent: string | null;
+    now: Date;
+  }) => Promise<{ sessionId: string; credential: string; absoluteExpiresAt: Date }>;
   /**
    * Usage telemetry. Injected so the route stays testable without a database —
    * the real implementation swallows its own errors, but it still opens a
@@ -71,6 +85,7 @@ const defaultDeps: RegisterDeps = {
   hashPassword: hashSignupPassword,
   createAccount,
   signToken: signAuthToken,
+  issueSession: issueDeviceSession,
   recordUsage: recordProductUsageEvent,
 };
 
@@ -106,6 +121,7 @@ export async function handleRegister(
       key: `auth:register:${ip}`,
       limit: 3,
       windowMs: 60 * 60_000,
+      failMode: "closed",
     });
 
     if (!rl.allowed) {
@@ -137,9 +153,37 @@ export async function handleRegister(
       businessName: input.businessName,
     });
 
+    // A REAL session, as login issues (L-9). This used to mint a sid-less
+    // 24-hour token with no refresh session behind it: not revocable per
+    // device, and gone after 24 hours. If the session cannot be created the
+    // account still exists, so the owner is told to sign in — never handed a
+    // token no device revocation can reach.
+    const now = new Date();
+    let session: Awaited<ReturnType<RegisterDeps["issueSession"]>>;
+    try {
+      session = await deps.issueSession({
+        userId: account.userId,
+        tokenVersion: account.tokenVersion,
+        userAgent: req.headers.get("user-agent"),
+        now,
+      });
+    } catch (error) {
+      console.error(
+        "REGISTER_SESSION_ISSUE_ERROR:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
+      return NextResponse.json(
+        {
+          error: "החשבון נוצר. יש להתחבר עם הפרטים שהוזנו.",
+          code: "ACCOUNT_CREATED_LOGIN_REQUIRED",
+        },
+        { status: 503 }
+      );
+    }
+
     // Minted before any bookkeeping below, so a failure there can never cost the
     // owner the session they just earned.
-    const token = deps.signToken(account.userId, account.tokenVersion);
+    const token = deps.signToken(account.userId, account.tokenVersion, session.sessionId);
     const sessionId = randomUUID();
 
     await deps.recordUsage({
@@ -152,7 +196,7 @@ export async function handleRegister(
     });
 
     await recordSecurityEvent({ type: "AUTH_REGISTER", outcome: "SUCCESS", businessId: account.businessId, userId: account.userId, req });
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       // Retained from the previous contract so an older client build keeps
       // working through a rolling deploy.
@@ -168,6 +212,11 @@ export async function handleRegister(
         businessName: account.businessName,
       },
     });
+    setRefreshCookie(res, session.credential, {
+      now,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+    });
+    return res;
   } catch (error) {
     if (error instanceof SignupValidationError) {
       await recordSignupFailure(deps, `invalid_${error.field}`);

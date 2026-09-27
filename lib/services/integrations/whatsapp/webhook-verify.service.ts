@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { secretsEqual } from "@/lib/security/constant-time";
 
 function getVerifyToken(): string | null {
   const v = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
@@ -39,7 +40,8 @@ export function verifySubscribeChallenge(params: {
     return { ok: false, reason: "missing_challenge" };
   }
 
-  if (params.verifyToken !== expectedToken) {
+  // L-11: constant-time (was `!==`).
+  if (!secretsEqual(params.verifyToken, expectedToken)) {
     return { ok: false, reason: "invalid_token" };
   }
 

@@ -79,6 +79,27 @@ function forcedRlsTables(root) {
   return tables;
 }
 
+/**
+ * sec/INT — NOT a file allowlist. A bare insert is exempt only when (a) the model's
+ * migrations declare an INSERT policy whose WITH CHECK admits "businessId" IS NULL
+ * (the database itself restricts a GUC-less insert to the untenanted shape) and (b)
+ * the call states that shape literally: every data row ends with `businessId: null`.
+ * The AST guard (ast-security-guard.mjs) applies the same rule on the syntax tree.
+ */
+function nullInsertTables(root) {
+  const out = new Set();
+  const dir = join(root, "prisma/migrations");
+  for (const entry of readdirSync(dir)) {
+    let sql = "";
+    try { sql = readFileSync(join(dir, entry, "migration.sql"), "utf8").replace(/--[^\n]*/g, ""); } catch { continue; }
+    for (const m of sql.matchAll(/CREATE POLICY\s+"?\w+"?\s+ON\s+"?(\w+)"?([^;]*);/gi)) {
+      if (/FOR\s+INSERT/i.test(m[2]) && /WITH\s+CHECK[\s\S]*"businessId"\s+IS\s+NULL/i.test(m[2])) out.add(m[1]);
+    }
+  }
+  return out;
+}
+const NULL_INSERT_CALL = /\.(create|createMany)\(\{\s*data:\s*\[?\s*\{[^{}]*,\s*businessId:\s*null\s*\}\s*\]?\s*\}\)/;
+
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
@@ -92,6 +113,8 @@ function walk(dir, out = []) {
 function main() {
   const root = process.argv[2] ?? ".";
   const tables = forcedRlsTables(root);
+  const nullInsert = nullInsertTables(root);
+  const dataRuleHits = [];
   const models = new Map(
     [...tables].map((t) => [t.charAt(0).toLowerCase() + t.slice(1), t])
   );
@@ -110,6 +133,7 @@ function main() {
       const m = line.match(/(?<![\w.])prisma\.(\w+)\.(\w+)\(/);
       if (!m || !models.has(m[1])) return;
       const hit = { file: rel, line: i + 1, table: models.get(m[1]), op: m[2] };
+      if (nullInsert.has(hit.table) && /^(create|createMany)$/.test(hit.op) && NULL_INSERT_CALL.test(line)) { dataRuleHits.push(hit); return; }
       if (ALLOWLIST.has(rel)) allowedHits.push(hit);
       else violations.push(hit);
     });
@@ -117,10 +141,20 @@ function main() {
 
   console.log(`FORCE-RLS tables declared by migrations: ${tables.size}`);
   console.log(`application files scanned: ${files.length}`);
+  for (const h of dataRuleHits) console.log(`  untenanted insert (DB restricts GUC-less inserts to businessId NULL): ${h.file}:${h.line} ${h.table}.${h.op}`);
 
+  const staleAllow = [];
   for (const [file, reason] of ALLOWLIST) {
     const n = allowedHits.filter((h) => h.file === file).length;
     console.log(`  allowed: ${file} (${n} call sites) — ${reason}`);
+    // sec/A: an exemption that no longer exempts anything is removed, not kept "just in case"
+    // (platform-business-detail loses its bare-client reads when T-07 moves it to getPrismaAdmin()).
+    if (n === 0) staleAllow.push(file);
+  }
+  if (staleAllow.length > 0) {
+    for (const f of staleAllow) console.log(`  [FAIL] STALE ALLOWLIST ENTRY ${f}: 0 call sites — delete the entry`);
+    console.log("\nTENANT-SCOPED ACCESS GUARD: FAIL");
+    process.exit(1);
   }
 
   if (violations.length > 0) {

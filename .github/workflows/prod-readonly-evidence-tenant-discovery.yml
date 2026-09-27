@@ -30,7 +30,7 @@ jobs:
     environment: production-db
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: SQL static guard (SELECT-only)
         run: |
@@ -75,4 +75,5 @@ jobs:
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/business-memory-tenant-discovery.sql
+            --file=ops/evidence/business-memory-tenant-discovery.sql \
+            | node scripts/ci/evidence-redact.mjs

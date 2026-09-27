@@ -40,14 +40,27 @@ jobs:
     # human-approval gate AND scopes the DATABASE_URL / DIRECT_URL secrets to
     # this job only (they do not exist anywhere else in CI).
     environment: production-db
+    # L-21: migrations are applied ONLY from main. The job-level condition keeps a
+    # dispatch from any other ref from even requesting the environment; the first
+    # step re-asserts it so the guarantee is visible in the log and cannot be lost
+    # by editing the condition alone.
+    if: github.ref == 'refs/heads/main'
     steps:
+      - name: Assert the dispatched ref is main (L-21)
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "${REF}" != "refs/heads/main" ]; then
+            echo "::error::release-migrate may only run from refs/heads/main (got ${REF})"; exit 1
+          fi
+          echo "ref OK: ${REF}"
       - name: Checkout (read-only, no persisted git credentials)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'

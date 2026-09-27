@@ -895,6 +895,8 @@ async function main() {
 
   process.env.FEATURE_ACCESS_MUTATIONS_ENABLED = "true";
   process.env.PLATFORM_ADMIN_EMAILS = "admin@pw2.test";
+  // sec-B (M-10): admin MFA is fail-closed; explicit non-production opt-out.
+  process.env.PLATFORM_ADMIN_MFA_REQUIRED = "false";
   const adminToken = signAuthToken(adminUser.id);
   const tenantUser = await owner.user.findUnique({ where: { email: "a@pw2.test" } });
   const tenantToken = signAuthToken(tenantUser.id);
