@@ -56,6 +56,17 @@ export const EXEMPT = {
     "KNOWN GAP — product analytics with nullable businessId, global writer; recorded in the M1 audit",
 };
 
+/**
+ * Tables created on or after the cutoff that merged BEFORE this guard existed
+ * and do not meet R2. Recorded debt, not approval: the guard does not rewrite
+ * history, but it names what it is not holding to R2 and why. A RATCHET — an
+ * entry that now meets R2, or that no longer names a new tenant table, fails.
+ */
+export const R2_GRANDFATHERED = {
+  InstallmentWorkflow:
+    "payables Phase 2 (#538), merged 2026-09-27 before this guard; tenant policy is FOR ALL (includes DELETE) — to be split per command in a payables follow-up",
+};
+
 // ── pure helpers (exercised by --self-test) ───────────────────────────────────
 
 /** Models → { table, hasBusinessId }. Reads @@map; ignores comments. */
@@ -131,7 +142,13 @@ export function newTables(migrations, cutoff = NEW_TABLE_CUTOFF) {
  * The whole decision. `migrations` is [{ dir, sql }] in any order.
  * Returns a list of violations; empty means pass.
  */
-export function evaluate({ schemaSrc, migrations, exempt = EXEMPT, cutoff = NEW_TABLE_CUTOFF }) {
+export function evaluate({
+  schemaSrc,
+  migrations,
+  exempt = EXEMPT,
+  cutoff = NEW_TABLE_CUTOFF,
+  grandfathered = R2_GRANDFATHERED,
+}) {
   const violations = [];
   const all = normalizeSql(migrations.map((m) => m.sql).join("\n"));
   const models = parseModels(schemaSrc);
@@ -163,16 +180,30 @@ export function evaluate({ schemaSrc, migrations, exempt = EXEMPT, cutoff = NEW_
   }
 
   // R2
-  for (const table of newTables(migrations, cutoff)) {
+  const created = newTables(migrations, cutoff);
+  for (const table of created) {
     if (!tenantTables.has(table)) continue;
     const f = rlsFacts(all, table);
+    const r2 = [];
     for (const p of f.policies) {
       if (isForAll(p)) {
-        violations.push(`R2 new table "${table}" has a FOR ALL policy (or one with no FOR clause): ${p.slice(0, 120)}`);
+        r2.push(`R2 new table "${table}" has a FOR ALL policy (or one with no FOR clause): ${p.slice(0, 120)}`);
       }
     }
     if (!f.granted) {
-      violations.push(`R2 new table "${table}" has no explicit GRANT ... TO app_runtime`);
+      r2.push(`R2 new table "${table}" has no explicit GRANT ... TO app_runtime`);
+    }
+    if (Object.prototype.hasOwnProperty.call(grandfathered, table)) {
+      if (r2.length === 0) {
+        violations.push(`R2 stale grandfather: "${table}" now meets R2 — remove it from R2_GRANDFATHERED`);
+      }
+      continue;
+    }
+    violations.push(...r2);
+  }
+  for (const table of Object.keys(grandfathered)) {
+    if (!created.has(table) || !tenantTables.has(table)) {
+      violations.push(`R2 stale grandfather: "${table}" is not a tenant table created after the cutoff — remove it`);
     }
   }
   return violations;
@@ -293,10 +324,26 @@ GRANT SELECT, INSERT ON "${t}" TO app_runtime;`;
       input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")}` }], exempt: {} },
       expect: 0,
     },
+    {
+      name: "grandfathered NEW table with FOR ALL passes R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget", true)}` }], exempt: {}, grandfathered: { Widget: "pre-guard" } },
+      expect: 0,
+    },
+    {
+      name: "stale grandfather (table now meets R2) fails",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")}` }], exempt: {}, grandfathered: { Widget: "pre-guard" } },
+      expect: 1,
+    },
+    {
+      name: "grandfather entry that is not a new table fails",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")}` }], exempt: {}, grandfathered: { Gone: "x" } },
+      expect: 1,
+    },
   ];
   let failed = 0;
   for (const c of cases) {
-    const v = evaluate(c.input);
+    // Hermetic: a case sees only the lists it names, never the real ones.
+    const v = evaluate({ grandfathered: {}, ...c.input });
     const got = v.length === 0 ? 0 : 1;
     const pass = got === c.expect;
     if (!pass) failed++;
