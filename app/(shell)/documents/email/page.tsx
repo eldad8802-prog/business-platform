@@ -341,7 +341,11 @@ export default function EmailDocumentsPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
+      <PageContainer
+        intent="focused"
+        className={connected ? "dz-doc-wide" : undefined}
+        style={{ paddingBlock: "14px 40px" }}
+      >
         <Header onBack={() => router.push("/documents")} />
 
         <section
@@ -471,7 +475,7 @@ export default function EmailDocumentsPage() {
           </section>
         ) : null}
 
-        {connected ? <section style={rowsStyle}>
+        {connected ? <section className="dz-email-rows" style={rowsStyle}>
           {visible.map((attachment) => {
             const status = statusByKey[attachment.key] || "pending";
             const canImport = attachment.bucket === "recommended" && status === "pending";
