@@ -181,8 +181,7 @@ export async function revokeOtherSessions(input: {
 /** Re-exported so callers do not reach into the refresh engine for a constant. */
 export { REVOKED_REASON };
 
-// =====================================================================}
-
+// ============================================================================
 // CREDENTIAL LIFECYCLE (security closure, workstream B)
 //
 // Password change, password reset, step-up and cookie-proven logout all need
@@ -356,7 +355,8 @@ export async function logoutByRefreshCredential(
     reason: REVOKED_REASON.LOGOUT,
   });
   return { kind: "signed_out", userId: session.userId };
-=======
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SEC-E / M-12(a) — ACCOUNT ERASURE: the authority a deleted account still held
 // ─────────────────────────────────────────────────────────────────────────────
