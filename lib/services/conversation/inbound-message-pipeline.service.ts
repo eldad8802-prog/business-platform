@@ -255,20 +255,24 @@ export async function runInboundMessagePipeline(
   // 3. Persist MessageAnalysis + write back labels on the Message itself —
   //    one atomic tenant transaction; the label write is tenant-scoped.
   const labelledMessage = await withTenantTransaction(async (tx) => {
-    // Upsert (MessageAnalysis.messageId is unique): a resumed run recomputes
-    // the same deterministic analysis and must not fail on the row it wrote.
-    await tx.messageAnalysis.upsert({
+    // Insert-if-absent, NEVER upsert: MessageAnalysis is append-only by grant
+    // (the runtime holds SELECT, INSERT — scripts/security/d2-p7-w4b-grants.sql),
+    // and INSERT … ON CONFLICT DO UPDATE needs UPDATE. A resumed run recomputes
+    // the same deterministic analysis, so the row an earlier attempt wrote is
+    // already the right one. The intake lease means one worker per message.
+    const existingAnalysis = await tx.messageAnalysis.findUnique({
       where: { messageId: message.id },
-      create: {
-        messageId: message.id,
-        intent: analysis.intent,
-        stage: analysis.stage,
-      },
-      update: {
-        intent: analysis.intent,
-        stage: analysis.stage,
-      },
+      select: { id: true },
     });
+    if (!existingAnalysis) {
+      await tx.messageAnalysis.create({
+        data: {
+          messageId: message.id,
+          intent: analysis.intent,
+          stage: analysis.stage,
+        },
+      });
+    }
 
     await tx.message.updateMany({
       where: { id: message.id, businessId },

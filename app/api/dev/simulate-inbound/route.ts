@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ingestInboundCustomerMessage } from "@/lib/services/conversation/inbound-customer-message.service";
@@ -22,12 +23,19 @@ export const runtime = "nodejs";
  * notifications), so what developers see is what production does. It carries
  * no provider message id, so the evidence it produces is attributed UNKNOWN,
  * never INTEGRATION — a simulation is not a provider fact.
+ *
+ * Two gates, both required: not a production build, AND the canonical
+ * platform-admin guard every /api/dev route carries (admin-boundary CI-3).
  */
 export async function POST(req: Request) {
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const gate = await requirePlatformAdminOrResponse(req);
+  if (gate instanceof NextResponse) return gate;
+
+  // The admin guard proves who is asking; the session names the business.
   const user = await getCurrentUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
