@@ -140,6 +140,17 @@ jobs:
             --expect '[FAIL] AST-2 NEW-SITE lib/services/crm/customer.service.ts::g2::arg' \
             -- node scripts/ci/ast-security-guard.mjs .
 
+      # sec/INT: the bare client must not be hideable behind an indirection hop (wrapper,
+      # DI object, alias, re-export, let-bound writer). G7 routes F's real untenanted
+      # SecurityEvent write through a wrapper hop; G8 breaks the DB-derived data rule.
+      - name: Gate self-proof G7 — a bare client hidden behind a wrapper hop is caught (AST-2 escape)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G7-ast-wrapper-hop --file lib/security/security-events.ts             --anchor '    await prisma.securityEvent.createMany({ data: [{ ...data, businessId: null }] });'             --replace '    const client = () => prisma; await client().securityEvent.createMany({ data: [data] });'             --expect '[FAIL] AST-2 NEW-SITE lib/security/security-events.ts::prismaSecurityEventWriter.prismaSecurityEventWriter.client::escape:return'             --post-green             -- node scripts/ci/ast-security-guard.mjs .
+
+      - name: Gate self-proof G8 — an untenanted insert that does not state businessId NULL is caught (AST-3)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G8-ast-null-insert-shape --file lib/security/security-events.ts             --anchor '    await prisma.securityEvent.createMany({ data: [{ ...data, businessId: null }] });'             --replace '    await prisma.securityEvent.createMany({ data: [data] });'             --expect '[FAIL] AST-3 NEW-SITE lib/security/security-events.ts::prismaSecurityEventWriter.prismaSecurityEventWriter::bare:securityEvent'             --post-green             -- node scripts/ci/ast-security-guard.mjs .
+
       - name: Gate self-proof G3 — a security test dropped from the inventory is caught (C1)
         run: |
           node scripts/ci/negative-proof.mjs --id G3-coverage-unclassified --file scripts/ci/test-coverage/workstream-a.json \

@@ -20,9 +20,31 @@
  *                            DEBT pinned in an EXACT-SET ratchet (file::symbol::kind
  *                            with count): a new site fails, and a removed site fails
  *                            until its entry is deleted (the set can only shrink).
+ *   AST-2  ESCAPE           (sec/INT) the canonical client may be used ONLY as
+ *                            `prisma.<member>`. Every other value flow is an escape
+ *                            that could carry the bare client somewhere this guard does
+ *                            not look: `return prisma` / `() => prisma` (wrapper),
+ *                            `{ prisma }` (DI object), `[prisma]`, `x = prisma`,
+ *                            destructuring, `export { prisma }`, `export ... from` the
+ *                            client module, `require()` / `import()` / `import = require`
+ *                            of it, a namespace import used other than `NS.prisma`, and
+ *                            `globalThis.prisma`. Each is ratchet debt (new site = FAIL).
  *   AST-3  BARE-TENANT       canonical `prisma.<FORCE-RLS model>.*`, `prisma[<expr>]`
  *                            and `prisma.$queryRaw*` / `$executeRaw*` — same exact-set
  *                            ratchet. FORCE-RLS models are read from the migrations.
+ *                            ONE data-flow exception, derived from the database, never
+ *                            from a file or function name: a bare `create`/`createMany`
+ *                            on model M whose every data row is an object literal that
+ *                            ENDS with `businessId: null` (nothing after it can override
+ *                            it), where M's migrations declare an INSERT policy whose
+ *                            WITH CHECK admits "businessId" IS NULL — i.e. the database
+ *                            itself restricts a GUC-less insert to the untenanted shape.
+ *                            And one for raw SQL, also derived from the migrations: a
+ *                            TAGGED `prisma.$queryRaw` whose whole text is a single
+ *                            `SELECT [cols FROM] public.<fn>(${...})` where <fn> is
+ *                            declared SECURITY DEFINER with a pinned search_path and
+ *                            REVOKE ALL ... FROM PUBLIC (a narrow pre-context lookup the
+ *                            database scopes; no table is read by the caller's query).
  *   AST-4  PRIVILEGED-CLIENT `@/lib/prisma-admin`, `@/lib/prisma-auth`,
  *                            `@/lib/prisma-control-plane` reached by static import,
  *                            `export ... from`, dynamic `import()` or `require()` from
@@ -81,6 +103,39 @@ function walk(dir, out) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) walk(full, out);
     else if (SRC_FILE.test(e.name) && !SKIP_FILE.test(e.name)) out.push(full);
+  }
+  return out;
+}
+
+/** Models whose migrations admit a GUC-less INSERT only for businessId NULL. */
+export function nullInsertModels(root) {
+  const out = new Set();
+  const dir = path.join(root, "prisma/migrations");
+  if (!fs.existsSync(dir)) return out;
+  for (const d of fs.readdirSync(dir)) {
+    const f = path.join(dir, d, "migration.sql");
+    if (!fs.existsSync(f)) continue;
+    const sql = fs.readFileSync(f, "utf8").replace(/--[^\n]*/g, "");
+    for (const m of sql.matchAll(/CREATE POLICY\s+"?\w+"?\s+ON\s+"?(\w+)"?([^;]*);/gi)) {
+      const body = m[2];
+      if (/FOR\s+INSERT/i.test(body) && /WITH\s+CHECK[\s\S]*"businessId"\s+IS\s+NULL/i.test(body)) out.add(m[1].charAt(0).toLowerCase() + m[1].slice(1));
+    }
+  }
+  return out;
+}
+
+/** SECURITY DEFINER functions with a pinned search_path and EXECUTE revoked from PUBLIC. */
+export function definerLookupFns(root) {
+  const out = new Set();
+  const dir = path.join(root, "prisma/migrations");
+  if (!fs.existsSync(dir)) return out;
+  const all = fs.readdirSync(dir).map((d) => path.join(dir, d, "migration.sql")).filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, "utf8").replace(/--[^\n]*/g, "")).join("\n");
+  for (const m of all.matchAll(/CREATE (?:OR REPLACE )?FUNCTION\s+public\.(\w+)\s*\(([\s\S]*?)\$(\w*)\$/gi)) {
+    const header = m[2];
+    const fn = m[1];
+    if (!/SECURITY\s+DEFINER/i.test(header) || !/SET\s+search_path\s*=/i.test(header)) continue;
+    if (!new RegExp(`REVOKE\\s+ALL\\s+ON\\s+FUNCTION\\s+public\\.${fn}\\s*\\([^)]*\\)\\s+FROM\\s+PUBLIC`, "i").test(all)) continue;
+    out.add(fn);
   }
   return out;
 }
@@ -149,6 +204,8 @@ export function analyseFile(root, file, ctx) {
   const prismaClientNames = new Set(); // local names bound to PrismaClient
   const prismaNamespaces = new Set(); // `import * as P from "@prisma/client"` / require
   const canonicalPrisma = new Set(); // local names bound to the canonical tenant client
+  const canonicalNs = new Set(); // namespace / default imports of the canonical client module
+  const globalAliases = new Set(["globalThis", "global"]);
   const modulesOf = []; // [spec, node, how]
 
   const visitBindings = (n) => {
@@ -166,7 +223,8 @@ export function analyseFile(root, file, ctx) {
         }
         if (target === CANONICAL_PRISMA && c.namedBindings && ts.isNamedImports(c.namedBindings))
           for (const el of c.namedBindings.elements) if ((el.propertyName ?? el.name).text === "prisma") canonicalPrisma.add(el.name.text);
-        if (target === CANONICAL_PRISMA && c.namedBindings && ts.isNamespaceImport(c.namedBindings)) canonicalPrisma.add(`${c.namedBindings.name.text}.prisma`);
+        if (target === CANONICAL_PRISMA && c.namedBindings && ts.isNamespaceImport(c.namedBindings)) { canonicalPrisma.add(`${c.namedBindings.name.text}.prisma`); canonicalNs.add(c.namedBindings.name.text); }
+        if (target === CANONICAL_PRISMA && c.name) canonicalNs.add(c.name.text);
       }
     }
     if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) modulesOf.push([n.moduleSpecifier.text, n, "export-from"]);
@@ -206,7 +264,98 @@ export function analyseFile(root, file, ctx) {
     return e;
   };
 
+  const WRAPPED = (e) => !!e && (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e) || !!ts.isTypeAssertionExpression?.(e) || !!ts.isSatisfiesExpression?.(e));
+  const isDeclName = (n) => {
+    const p = n.parent;
+    if (!p) return true;
+    if (ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return true;
+    if ((ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertySignature(p)) && p.name === n) return true;
+    if (ts.isBindingElement(p) && p.propertyName === n) return true;
+    if (ts.isPropertyAccessExpression(p) && p.name === n) return true;
+    if (ts.isQualifiedName(p) || ts.isTypeQueryNode(p)) return true;
+    return false;
+  };
+  // A reference to the canonical client VALUE: `prisma` (named import) or `NS.prisma`.
+  const isCanonicalRef = (n) => {
+    if (ts.isIdentifier(n)) return canonicalPrisma.has(n.text) && !isDeclName(n);
+    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) return canonicalPrisma.has(`${n.expression.text}.${n.name.text}`);
+    return false;
+  };
+  // null = a use another rule already classifies (member access, fallback, alias, arg ...).
+  const escapeKind = (ref) => {
+    let e = ref;
+    while (WRAPPED(e.parent)) e = e.parent;
+    const p = e.parent;
+    if (!p) return null;
+    if ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === e) return null;
+    if (ts.isBinaryExpression(p) && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(p.operatorToken.kind)) return null;
+    if (ts.isConditionalExpression(p) && (p.whenTrue === e || p.whenFalse === e)) return null;
+    if (ts.isParameter(p) && p.initializer === e) return null;
+    if (ts.isVariableDeclaration(p) && p.initializer === e && ts.isIdentifier(p.name)) return null;
+    if (ts.isPropertyAssignment(p) && p.initializer === e) return null;
+    if ((ts.isCallExpression(p) || ts.isNewExpression(p)) && (p.arguments ?? []).includes(e)) return null;
+    if (ts.isExpressionStatement(p) || ts.isVoidExpression(p) || ts.isTypeOfExpression(p)) return null;
+    if (ts.isBinaryExpression(p) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.InstanceOfKeyword].includes(p.operatorToken.kind)) return null;
+    if (ts.isReturnStatement(p) || ts.isArrowFunction(p)) return "return";
+    if (ts.isShorthandPropertyAssignment(p)) return "shorthand";
+    if (ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p) || ts.isSpreadAssignment(p)) return "array-or-spread";
+    if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.EqualsToken) return "assign";
+    if (ts.isVariableDeclaration(p)) return "destructure";
+    if (ts.isExportSpecifier(p) || ts.isExportAssignment(p)) return "export";
+    if (ts.isPropertyDeclaration(p)) return "class-field";
+    return `other-${ts.SyntaxKind[p.kind]}`;
+  };
+  const isDefinerLookup = (access) => {
+    let tag = access; let t = access.parent;
+    while (t && (ts.isExpressionWithTypeArguments?.(t) || (ts.isTaggedTemplateExpression(t) === false && WRAPPED(t)))) { tag = t; t = t.parent; }
+    if (!t || !ts.isTaggedTemplateExpression(t) || t.tag !== tag) return false;
+    const tpl = t.template;
+    const text = ts.isNoSubstitutionTemplateLiteral(tpl) ? tpl.text : tpl.head.text + tpl.templateSpans.map((sp) => "$" + sp.literal.text).join("");
+    const one = text.replace(/\s+/g, " ").trim();
+    const a = /^SELECT public\.(\w+)\((?:\$(?:, ?\$)*)?\)(?: AS "?\w+"?)?$/i.exec(one);
+    const b = /^SELECT ([\w" ,]+) FROM public\.(\w+)\((?:\$(?:, ?\$)*)?\)$/i.exec(one);
+    const fn = a ? a[1] : b && !/\b(FROM|JOIN|WHERE|UNION|SELECT)\b/i.test(b[1]) ? b[2] : null;
+    return !!fn && !!ctx.definerFns && ctx.definerFns.has(fn);
+  };
+  const isSanctionedNullInsert = (access, model) => {
+    if (!ctx.nullInsert || !ctx.nullInsert.has(model)) return false;
+    const op = access.parent;
+    if (!ts.isPropertyAccessExpression(op) || op.expression !== access || !["create", "createMany"].includes(op.name.text)) return false;
+    const call = op.parent;
+    if (!ts.isCallExpression(call) || call.expression !== op || call.arguments.length !== 1) return false;
+    const arg = call.arguments[0];
+    if (!ts.isObjectLiteralExpression(arg) || arg.properties.length !== 1) return false;
+    const dp = arg.properties[0];
+    if (!ts.isPropertyAssignment(dp) || dp.name.getText(sf) !== "data") return false;
+    const rows = ts.isArrayLiteralExpression(dp.initializer) ? [...dp.initializer.elements] : [dp.initializer];
+    if (rows.length === 0) return false;
+    return rows.every((row) => {
+      if (!ts.isObjectLiteralExpression(row)) return false;
+      const last = row.properties[row.properties.length - 1];
+      return !!last && ts.isPropertyAssignment(last) && last.name.getText(sf) === "businessId" && last.initializer.kind === ts.SyntaxKind.NullKeyword;
+    });
+  };
+
   const visit = (n) => {
+    if (r !== "lib/prisma.ts") {
+      const loadsClientModule = (spec) => resolveSpec(r, spec) === CANONICAL_PRISMA;
+      if (ts.isCallExpression(n) && n.arguments.length >= 1 && ts.isStringLiteralLike(n.arguments[0]) && loadsClientModule(n.arguments[0].text) &&
+          (n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === "require")))
+        d("AST-2", n, "escape:dynamic-load");
+      if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference) && ts.isStringLiteralLike(n.moduleReference.expression) && loadsClientModule(n.moduleReference.expression.text))
+        d("AST-2", n, "escape:dynamic-load");
+      if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && loadsClientModule(n.moduleSpecifier.text) && !n.isTypeOnly)
+        d("AST-2", n, "escape:reexport");
+      // globalThis.prisma: the singleton cache lib/prisma.ts keeps on the global object.
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+        let e = n.initializer; while (WRAPPED(e)) e = e.expression;
+        if (ts.isIdentifier(e) && globalAliases.has(e.text)) globalAliases.add(n.name.text);
+      }
+      if ((ts.isPropertyAccessExpression(n) && n.name.text === "prisma") || (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && n.argumentExpression.text === "prisma")) {
+        let e = n.expression; while (WRAPPED(e)) e = e.expression;
+        if (ts.isIdentifier(e) && globalAliases.has(e.text)) d("AST-2", n, "escape:global");
+      }
+    }
     // AST-1
     if (ts.isNewExpression(n)) {
       const e = unwrap(n.expression);
@@ -228,10 +377,23 @@ export function analyseFile(root, file, ctx) {
       // run(prisma) / fn(prisma) / helper(x ?? prisma): the canonical client handed to a callee
       // runs that callee with NO tenant context (found in customer.service listCustomers).
       if ((ts.isCallExpression(n) || ts.isNewExpression(n)) && (n.arguments ?? []).some((arg) => isCanonical(unwrap(arg)))) d("AST-2", n, "arg");
+      // AST-2 escape: every value flow of the client other than `prisma.<member>`
+      if (isCanonicalRef(n)) {
+        const esc = escapeKind(n);
+        if (esc) d("AST-2", n, `escape:${esc}`);
+      }
+      if (ts.isIdentifier(n) && canonicalNs.has(n.text) && !isDeclName(n)) {
+        const p = n.parent;
+        const member = ts.isPropertyAccessExpression(p) && p.expression === n;
+        if (!member) d("AST-2", n, "escape:namespace");
+      }
       // AST-3 bare tenant access
       if (ts.isPropertyAccessExpression(n) && isCanonical(n.expression)) {
         const m = n.name.text;
-        if (ctx.models.has(m)) d("AST-3", n, `bare:${m}`);
+        if (ctx.models.has(m) && isSanctionedNullInsert(n, m)) { /* DB-restricted untenanted insert (see header) */ }
+        else if (ctx.models.has(m)) d("AST-3", n, `bare:${m}`);
+        else if (m === "$extends") d("AST-2", n, "escape:extends"); // returns a NEW client carrying no tenant context
+        else if (m === "$queryRaw" && isDefinerLookup(n)) { /* DB-scoped definer lookup (see header) */ }
         else if (/^\$(queryRaw|queryRawUnsafe|executeRaw|executeRawUnsafe)$/.test(m)) d("AST-3", n, `raw:${m}`);
       }
       if (ts.isElementAccessExpression(n) && isCanonical(n.expression)) {
@@ -355,7 +517,7 @@ function findConst(body, name) {
 
 export function scan(root) {
   const files = [...SCAN_DIRS.flatMap((d) => walk(path.join(root, d), [])), ...ROOT_FILES.map((f) => path.join(root, f)).filter((f) => fs.existsSync(f))];
-  const ctx = { models: forcedRlsModels(root), controlPlaneAllow: controlPlaneAllow(root) };
+  const ctx = { models: forcedRlsModels(root), nullInsert: nullInsertModels(root), definerFns: definerLookupFns(root), controlPlaneAllow: controlPlaneAllow(root) };
   const violations = [];
   const debt = new Map();
   for (const f of files) {
@@ -426,7 +588,7 @@ function selfTest() {
   const w = (p, s) => { fs.mkdirSync(path.dirname(path.join(tmp, p)), { recursive: true }); fs.writeFileSync(path.join(tmp, p), s); };
   w("prisma/migrations/1_x/migration.sql", 'ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;');
   w("lib/prisma.ts", 'import { PrismaClient } from "@prisma/client";\nexport const prisma =\n  new PrismaClient();\n');
-  const base = () => { for (const d of ["app", "lib/x"]) fs.rmSync(path.join(tmp, d), { recursive: true, force: true }); fs.rmSync(path.join(tmp, RATCHET_FILE), { force: true }); };
+  const base = () => { for (const d of ["app", "lib/x", "prisma/migrations/2_n"]) fs.rmSync(path.join(tmp, d), { recursive: true, force: true }); fs.rmSync(path.join(tmp, RATCHET_FILE), { force: true }); };
   const cases = [
     ["clean tree passes", {}, null],
     ["aliased PrismaClient", { "lib/x/a.ts": 'import { PrismaClient as C } from "@prisma/client";\nexport const c = new C();' }, "AST-1"],
@@ -445,6 +607,27 @@ function selfTest() {
     ["admin route guard result ignored", { "app/api/platform-admin/z/route.ts": 'import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";\nimport { NextResponse } from "next/server";\nexport async function GET(req: Request) { const a = await requirePlatformAdminOrResponse(req); return NextResponse.json({ a }); }' }, "AST-5"],
     ["admin route with the guard name only in a comment", { "app/api/platform-admin/z/route.ts": '// requirePlatformAdminOrResponse\nexport async function GET() { return new Response("x"); }' }, "AST-5"],
     ["identity-only guard off the allowlist", { "app/api/platform-admin/z/route.ts": 'import { requirePlatformAdminIdentity } from "@/lib/auth/platform-admin";\nexport async function POST(req: Request) { await requirePlatformAdminIdentity(req); return new Response("x"); }' }, "AST-5"],
+    ["INT hop: function wrapper returning prisma", { "lib/x/w1.ts": 'import { prisma } from "@/lib/prisma";\nfunction c() { return prisma; }\nexport const f = () => c().customer.findMany();' }, "AST-2"],
+    ["INT hop: arrow wrapper () => prisma", { "lib/x/w2.ts": 'import { prisma } from "@/lib/prisma";\nconst c = () => prisma;\nexport const f = () => c().customer.findMany();' }, "AST-2"],
+    ["INT hop: re-export from the client module", { "lib/x/w3.ts": 'export { prisma as db } from "@/lib/prisma";' }, "AST-2"],
+    ["INT hop: re-export of the imported binding", { "lib/x/w4.ts": 'import { prisma } from "@/lib/prisma";\nexport { prisma as db };' }, "AST-2"],
+    ["INT hop: DI object { prisma }", { "lib/x/w5.ts": 'import { prisma } from "@/lib/prisma";\nconst deps = { prisma };\nexport const f = () => deps.prisma.customer.findMany();' }, "AST-2"],
+    ["INT hop: array [prisma]", { "lib/x/w6.ts": 'import { prisma } from "@/lib/prisma";\nconst [db] = [prisma];\nexport const f = () => db.customer.findMany();' }, "AST-2"],
+    ["INT hop: require of the client module", { "lib/x/w7.ts": 'export const f = () => require("@/lib/prisma").prisma.customer.findMany();' }, "AST-2"],
+    ["INT hop: dynamic import of the client module", { "lib/x/w8.ts": 'export const f = async () => (await import("@/lib/prisma")).prisma.customer.findMany();' }, "AST-2"],
+    ["INT hop: late assignment db = prisma", { "lib/x/w9.ts": 'import { prisma } from "@/lib/prisma";\nlet db: any; db = prisma;\nexport const f = () => db.customer.findMany();' }, "AST-2"],
+    ["INT hop: namespace destructure", { "lib/x/wa.ts": 'import * as P from "@/lib/prisma";\nconst { prisma: db } = P;\nexport const f = () => db.customer.findMany();' }, "AST-2"],
+    ["INT hop: getter returning prisma", { "lib/x/wb.ts": 'import { prisma } from "@/lib/prisma";\nconst o = { get db() { return prisma; } };\nexport const f = () => o.db.customer.findMany();' }, "AST-2"],
+    ["INT hop: globalThis.prisma", { "lib/x/wc.ts": 'const g = globalThis as any;\nexport const f = () => g.prisma.customer.findMany();' }, "AST-2"],
+    ["INT hop: bare site behind a let-bound writer", { "lib/x/wd.ts": 'import { prisma } from "@/lib/prisma";\nconst w = async () => { await prisma.customer.findMany(); };\nlet writer = w;\nexport const f = () => writer();' }, "AST-3"],
+    ["INT null-insert: businessId NULL insert on a NULL-only-insert-policy model passes", { "prisma/migrations/2_n/migration.sql": 'ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;\nCREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL OR "businessId" = 1);', "lib/x/we.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: null }] });' }, null],
+    ["INT null-insert: a spread AFTER businessId: null is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL);', "lib/x/wf.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ businessId: null, ...row }] });' }, "AST-3"],
+    ["INT null-insert: non-null businessId is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL);', "lib/x/wg.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: row.businessId }] });' }, "AST-3"],
+    ["INT null-insert: model WITHOUT a NULL-only insert policy is a site", { "lib/x/wh.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: null }] });' }, "AST-3"],
+    ["INT definer: SELECT cols FROM a DEFINER lookup passes", { "prisma/migrations/2_n/migration.sql": 'CREATE OR REPLACE FUNCTION public.lk(p text) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $f$ SELECT 1 $f$;\nREVOKE ALL ON FUNCTION public.lk(text) FROM PUBLIC;', "lib/x/wi.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (k: string) => prisma.$queryRaw`SELECT a, b FROM public.lk(${k})`;' }, null],
+    ["INT definer: a function NOT revoked from PUBLIC is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE OR REPLACE FUNCTION public.lk(p text) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $f$ SELECT 1 $f$;', "lib/x/wj.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (k: string) => prisma.$queryRaw`SELECT public.lk(${k}) AS b`;' }, "AST-3"],
+    ["INT definer: a table read smuggled beside the lookup is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE OR REPLACE FUNCTION public.lk(p text) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $f$ SELECT 1 $f$;\nREVOKE ALL ON FUNCTION public.lk(text) FROM PUBLIC;', "lib/x/wk.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (k: string) => prisma.$queryRaw`SELECT x FROM "Customer" c, public.lk(${k})`;' }, "AST-3"],
+    ["INT hop: prisma.$extends returns a new bare client", { "lib/x/wl.ts": 'import { prisma } from "@/lib/prisma";\nconst x = prisma.$extends({});\nexport const f = () => x.customer.findMany();' }, "AST-2"],
     ["correct admin route passes", { "app/api/platform-admin/z/route.ts": 'import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";\nimport { NextResponse } from "next/server";\nexport async function GET(req: Request) { try { const a = await requirePlatformAdminOrResponse(req); if (a instanceof NextResponse) { return a; } return NextResponse.json(await Promise.resolve(1)); } catch { return new Response("e", { status: 500 }); } }' }, null],
   ];
   let ok = true;

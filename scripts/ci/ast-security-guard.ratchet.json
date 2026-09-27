@@ -1,16 +1,8 @@
 {
-  "sanctioned": {
-    "lib/security/security-events.ts::prismaSecurityEventWriter::bare:securityEvent": {
-      "count": 1,
-      "pendingPr": 529,
-      "reason": "SEC-F (#529): a pre-authentication security event has no tenant by definition; the SecurityEvent insert policy admits a bare-client write ONLY with businessId NULL, and business-attributed events go through tenantTx. Mirrors F's tenant-scoped-access-guard allowlist entry."
-    }
-  },
+  "sanctioned": {},
   "note": "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, removed sites fail until their entry is removed. Regenerate only as a reviewed decision: node scripts/ci/ast-security-guard.mjs --write-ratchet",
   "sites": {
-    "lib/auth/admin-mfa.service.ts::beginAdminMfaEnrollment::alias": 1,
-    "lib/auth/admin-mfa.service.ts::confirmAdminMfaEnrollment::alias": 1,
-    "lib/auth/admin-mfa.service.ts::verifyAdminMfaCode::alias": 1,
+    "app/api/knowledge/derive/route.ts::derive::escape:dynamic-load": 1,
     "lib/business-memory/evidence/extraction-snapshot.mapper.ts::dbStep::arg": 1,
     "lib/business-memory/evidence/review-event.reader.ts::dbStep::arg": 1,
     "lib/business-memory/policy/resolver.ts::resolveDerivationPolicyVersion::default-param": 1,
@@ -92,12 +84,6 @@
     "lib/services/payments/payment-store.prisma.ts::bootstrapStep::arg": 1,
     "lib/services/payments/payment-store.prisma.ts::dbStep::arg": 1,
     "lib/services/payments/payment-store.prisma.ts::guardedDbStep::arg": 1,
-    "lib/services/platform-admin/platform-audit.service.ts::logPlatformAuditEvent::fallback??": 1,
-    "lib/services/platform-admin/platform-business-detail.service.ts::getPlatformAdminBusinessDetail::bare:billingDocument": 2,
-    "lib/services/platform-admin/platform-business-detail.service.ts::getPlatformAdminBusinessDetail::bare:conversation": 3,
-    "lib/services/platform-admin/platform-business-detail.service.ts::getPlatformAdminBusinessDetail::bare:document": 3,
-    "lib/services/platform-admin/platform-business-detail.service.ts::getPlatformAdminBusinessDetail::bare:emailConnection": 1,
-    "lib/services/platform-admin/platform-business-detail.service.ts::getPlatformAdminBusinessDetail::bare:whatsAppAttachmentImport": 1,
     "lib/services/usage.service.ts::checkUsage::fallback??": 1,
     "lib/services/usage.service.ts::incrementUsage::fallback??": 1,
     "lib/tenant/business-lifecycle.ts::assertBusinessAcceptsWrites::default-param": 1,

@@ -181,7 +181,7 @@ export const prismaSecurityEventWriter: SecurityEventWriter = async (row) => {
     metadata: row.metadata ?? undefined,
   };
   if (row.businessId === null) {
-    await prisma.securityEvent.createMany({ data: [data] });
+    await prisma.securityEvent.createMany({ data: [{ ...data, businessId: null }] });
     return;
   }
   await tenantTx(row.businessId, (tx) => tx.securityEvent.createMany({ data: [data] }));
