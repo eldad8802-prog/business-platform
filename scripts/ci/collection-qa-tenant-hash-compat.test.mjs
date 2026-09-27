@@ -51,9 +51,16 @@ ok(
   "signup hashes with bcrypt",
   /bcrypt\.hash\(plain, BCRYPT_ROUNDS\)/.test(signupSource)
 );
+// sec(B)/M-7 moved the comparison into lib/auth/credential-check.ts (one bcrypt
+// comparison per attempt, dummy hash for an unknown address). Follow it there:
+// login passes the stored column to verifyPassword with the bcrypt comparer by
+// default, and that comparer is bcrypt.compare.
+const credentialSource = readFileSync("lib/auth/credential-check.ts", "utf8");
 ok(
   "login verifies with bcrypt.compare against the stored column",
-  /bcrypt\.compare\(password, user\.password\)/.test(loginSource)
+  /verifyPassword\(password, user\?\.password \?\? null, deps\.compare\)/.test(loginSource) &&
+    /defaultLoginDeps: LoginDeps = \{ compare: bcryptCompare \}/.test(loginSource) &&
+    /export const bcryptCompare: PasswordComparer = \(plain, hash\) => bcrypt\.compare\(plain, hash\);/.test(credentialSource)
 );
 ok(
   "login resolves the account by the folded address",

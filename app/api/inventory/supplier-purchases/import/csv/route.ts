@@ -14,6 +14,10 @@ import { CsvSupplierConnector } from "@/lib/services/supplier-connectors/csv/csv
 import { mapNormalizedSupplierOrderToDraftInput } from "@/lib/services/supplier-connectors/supplier-order-to-draft.adapter";
 import { SupplierPurchaseDraftStatus } from "@prisma/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import {
+  precheckCsvRequestSize,
+  readBoundedCsvFile,
+} from "@/lib/data-transfer/import/bounded-csv-upload";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 
 export const runtime = "nodejs";
@@ -102,6 +106,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // L-5: bounded — declared size, real size and line count are checked
+    // before the CSV is decoded or parsed into orders.
+    const oversize = precheckCsvRequestSize(request);
+    if (oversize && !oversize.ok) {
+      return NextResponse.json({ error: oversize.error }, { status: oversize.status });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file");
 
@@ -109,11 +120,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing CSV file" }, { status: 400 });
     }
 
-    const csvText = await file.text();
-
-    if (!csvText || !csvText.trim()) {
-      return NextResponse.json({ error: "CSV file is empty" }, { status: 400 });
+    const bounded = await readBoundedCsvFile(file);
+    if (!bounded.ok) {
+      return NextResponse.json({ error: bounded.error }, { status: bounded.status });
     }
+    const csvText = bounded.text;
 
     const connector = new CsvSupplierConnector();
     const orders = connector.parseCsvTextToOrders(csvText);

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { UserRole } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { getAuthContext } from "@/lib/auth";
 import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
 import {
   readAdminElevationHeader,
   verifyAdminElevation,
+  type ElevationBinding,
 } from "./platform-admin-elevation";
 
 export type PlatformAdminUser = {
@@ -12,7 +13,16 @@ export type PlatformAdminUser = {
   email: string;
   name: string | null;
   role: UserRole;
+  /** The device session of this request (null only for a pre-rollout token). */
+  sessionId: string | null;
+  /** The user's current token generation. */
+  tokenVersion: number;
 };
+
+/** The binding an elevation for this admin, on this request, must carry. */
+export function elevationBindingFor(admin: PlatformAdminUser): ElevationBinding {
+  return { userId: admin.id, sessionId: admin.sessionId, tokenVersion: admin.tokenVersion };
+}
 
 function parsePlatformAdminEmails(): Set<string> {
   const raw = process.env.PLATFORM_ADMIN_EMAILS?.trim();
@@ -60,16 +70,32 @@ export function assertPlatformAdminAccess(
   }
 }
 
+/** A production runtime: Vercel Production, or any NODE_ENV=production build. */
+export function isProductionRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV?.trim().toLowerCase() === "production"
+  );
+}
+
 /**
- * CASA 3.3.1 enforcement switch.
+ * CASA 3.3.1 enforcement switch — FAIL-CLOSED (M-10).
  *
- * OFF during B-3a so the sole production administrator can reach the enrollment
- * flow; ON in B-3b once enrollment is proven. Enforcement is read per request,
- * so disabling it is an environment change and needs no redeploy — which is the
- * break-glass if elevation ever misbehaves.
+ * It used to be opt-in: enforcement was on only when PLATFORM_ADMIN_MFA_REQUIRED
+ * was exactly "true", so an unset variable (a new environment, a dropped
+ * variable, a typo) silently served every privileged route on a bearer token
+ * alone. Now:
+ *   - in a production runtime (NODE_ENV=production or VERCEL_ENV=production)
+ *     MFA is ALWAYS required. There is no opt-out; the flag is ignored.
+ *   - elsewhere (local dev, tests) it is required unless the flag is exactly
+ *     "false" — an explicit, visible opt-out that cannot happen by omission.
+ *
+ * Break-glass for a locked-out production admin is no longer "unset the flag";
+ * it is the enrollment bootstrap (see lib/auth/admin-mfa-enrollment.ts).
  */
 export function isPlatformAdminMfaRequired(): boolean {
-  return process.env.PLATFORM_ADMIN_MFA_REQUIRED?.trim().toLowerCase() === "true";
+  if (isProductionRuntime()) return true;
+  return process.env.PLATFORM_ADMIN_MFA_REQUIRED?.trim().toLowerCase() !== "false";
 }
 
 /**
@@ -88,7 +114,8 @@ export function isPlatformAdminMfaRequired(): boolean {
 export async function requirePlatformAdminIdentity(
   req: Request
 ): Promise<PlatformAdminUser> {
-  const user = await getCurrentUser(req);
+  const context = await getAuthContext(req);
+  const user = context?.user ?? null;
 
   assertPlatformAdminAccess(user);
   const admin = user as NonNullable<typeof user>;
@@ -98,6 +125,8 @@ export async function requirePlatformAdminIdentity(
     email: admin.email,
     name: admin.name,
     role: admin.role,
+    sessionId: context?.sessionId ?? null,
+    tokenVersion: admin.tokenVersion,
   };
 }
 
@@ -117,7 +146,7 @@ export async function requirePlatformAdmin(
   if (isPlatformAdminMfaRequired()) {
     const result = verifyAdminElevation(
       readAdminElevationHeader(req),
-      admin.id
+      elevationBindingFor(admin)
     );
     if (!result.ok) {
       // Distinct code so the UI can prompt for a code (or for enrollment)
@@ -173,7 +202,27 @@ export function requirePlatformAdminIdentityOrResponse(
  * cannot simply call the guard — see the cross-tenant branch of the Tax
  * Authority OAuth start.
  */
-export function hasAdminElevation(req: Request, userId: number): boolean {
+export function hasAdminElevation(req: Request, binding: ElevationBinding): boolean {
   if (!isPlatformAdminMfaRequired()) return true;
-  return verifyAdminElevation(readAdminElevationHeader(req), userId).ok;
+  return verifyAdminElevation(readAdminElevationHeader(req), binding).ok;
+}
+
+/**
+ * The FULL platform-admin authority for a privileged capability that lives
+ * outside the admin namespace (M-10: the cross-tenant ITA OAuth start used to
+ * check role + elevation only, skipping the email allowlist): role AND
+ * allowlist (assertPlatformAdminAccess) AND, when enforced, an elevation bound
+ * to this user, session and generation. Never throws; false on any doubt.
+ */
+export function isPlatformAdminAuthorizedForRequest(
+  req: Request,
+  user: { id: number; role: UserRole; email: string; tokenVersion: number },
+  sessionId: string | null
+): boolean {
+  try {
+    assertPlatformAdminAccess(user);
+  } catch {
+    return false;
+  }
+  return hasAdminElevation(req, { userId: user.id, sessionId, tokenVersion: user.tokenVersion });
 }

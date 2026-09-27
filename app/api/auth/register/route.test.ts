@@ -74,10 +74,17 @@ function makeDeps(
         tokenVersion: 0,
       };
     },
-    signToken: () => {
+    signToken: (_userId, _tv, sid) => {
       calls.signToken += 1;
+      // L-9: every token must name a real session.
+      if (sid !== "sess-register-1") throw new Error("token minted without the issued session");
       return "signed.token.value";
     },
+    issueSession: async () => ({
+      sessionId: "sess-register-1",
+      credential: "sess-register-1.secret",
+      absoluteExpiresAt: new Date(Date.now() + 86_400_000),
+    }),
     // Telemetry is injected so this stays a genuinely pure test. The real
     // implementation swallows its own errors, but it still opens a database
     // connection — which would quietly make "no database, no network" false.

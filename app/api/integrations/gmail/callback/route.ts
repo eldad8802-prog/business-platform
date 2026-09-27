@@ -6,6 +6,7 @@ import { encryptToken } from "@/lib/services/integrations/gmail/token-crypto.pla
 import { verifySignedGmailState } from "@/lib/services/integrations/gmail/signed-state.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -147,9 +148,7 @@ export async function GET(req: NextRequest) {
       return redirectError(req, "gmail_token_exchange_failed");
     }
 
-    const accessEnc = encryptToken(tokens.access_token);
-    const refreshEnc = encryptToken(tokens.refresh_token);
-    if (!accessEnc) {
+    if (!tokens.access_token) {
       return redirectError(req, "gmail_token_exchange_failed");
     }
 
@@ -206,6 +205,16 @@ export async function GET(req: NextRequest) {
           },
         });
 
+        // L-17: encrypt only now — the ciphertext is bound (AES-GCM AAD) to
+        // this business + connection row + field, which exist only after the
+        // upsert above. Pure CPU; no network inside the transaction.
+        const tokenCtx = { businessId, connectionId: connection.id };
+        const accessEnc = encryptToken(tokens.access_token, { ...tokenCtx, field: "access" });
+        const refreshEnc = encryptToken(tokens.refresh_token, { ...tokenCtx, field: "refresh" });
+        if (!accessEnc) {
+          throw new Error("Failed to encrypt Gmail access token");
+        }
+
         await tx.oAuthToken.upsert({
           where: { connectionId: connection.id },
           create: {
@@ -233,6 +242,7 @@ export async function GET(req: NextRequest) {
       return redirectError(req, "max_accounts");
     }
 
+    await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "gmail", businessId, req });
     return redirectSuccess(req);
   } catch (error) {
     console.error("GMAIL_CALLBACK_ERROR:", error);

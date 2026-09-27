@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { clearRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { revokeSession } from "@/lib/auth/session-directory";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 /** `<uuid>` and nothing else, so a malformed id never reaches a query. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +54,7 @@ export async function POST(
       );
     }
 
+    await recordSecurityEvent({ type: "AUTH_SESSION_REVOKED", outcome: "SUCCESS", reason: result.wasCurrent ? "current_session" : "other_session", userId: context.user.id, req });
     const res = NextResponse.json(
       {
         success: true,

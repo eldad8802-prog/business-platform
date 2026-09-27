@@ -17,6 +17,7 @@ async function dbStep<T>(
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { STORED_DOCUMENT_FILENAME_REGEX } from "@/lib/services/documents/document-storage-paths";
+import { isUntrustedDocumentSource } from "@/lib/services/integrations/whatsapp/sender-trust";
 import {
   formatYearMonthJerusalem,
   getCurrentYearMonthJerusalem,
@@ -484,7 +485,9 @@ export async function GET(req: Request) {
         thumbnailReady: false as const,
       };
 
-      const quickApprove = computeQuickApproveEligible({
+      // L-16: a document from an unverified WhatsApp sender is never offered
+      // one-tap approval — it goes through full review.
+      const quickApprove = !isUntrustedDocumentSource(doc.source) && computeQuickApproveEligible({
         status: doc.status,
         fileAvailable,
         amount: extracted?.amount ?? null,

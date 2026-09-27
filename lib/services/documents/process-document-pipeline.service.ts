@@ -20,6 +20,7 @@
  * needs_review so the user completes it manually — the upload is never lost.
  */
 
+import { randomUUID } from "node:crypto";
 import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
@@ -68,7 +69,7 @@ export async function processDocumentPipeline(
     await mkdir(tmpDir, { recursive: true });
 
     const ext = safeExtFromMime(mimeType) || ".bin";
-    const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const unique = `${Date.now()}-${randomUUID()}`;
     tempFilePath = path.join(tmpDir, `proc-${documentId}-${unique}${ext}`);
     await writeFile(tempFilePath, buffer);
 

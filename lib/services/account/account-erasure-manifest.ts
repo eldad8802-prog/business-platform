@@ -87,12 +87,17 @@ export const RETAIN_MODELS = [
  *  columns did not even exist on them. */
 export const REVOKE_INTEGRATIONS = [
   { model: "billingAuthorityConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag", "refreshTokenEncrypted", "refreshTokenIv", "refreshTokenTag"], set: { revokedAt: "now" } },
-  { model: "emailConnection", clear: ["lastSyncCursor"], set: { status: "revoked" } },
+  // SEC-E / M-13: the connection IDENTIFIERS go as well as the secrets. `emailAddress` is
+  // NOT NULL and unique per (business, provider), so it is a per-row tombstone.
+  { model: "emailConnection", clear: ["lastSyncCursor", "lastError", "providerAccountId", "scopes"], set: { status: "revoked", emailAddress: "tombstone-id" } },
   // Deleted, not cleared. The rows hang off EmailConnection and carry no fiscal FK,
   // so the whole row goes — ciphertext, key id, expiry and all. The delegate is
   // `oAuthToken`: Prisma Client uncapitalises only the FIRST character.
   { model: "oAuthToken", deleteRow: true },
-  { model: "whatsAppConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag"], set: { status: "REVOKED_BY_META" } },
+  // SEC-E / M-13 + L-18: `phoneNumberId` is globally @unique, so leaving it bound the
+  // number to the deleted business forever. Tombstoned from the business id (the table
+  // is one-row-per-business), which releases the real number.
+  { model: "whatsAppConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag", "displayPhoneNumber", "wabaId", "lastErrorMessage", "lastErrorCode", "lastErrorAt"], set: { status: "REVOKED_BY_META", phoneNumberId: "tombstone-business" } },
   { model: "businessPaymentConnection", clear: ["credentialEncrypted", "credentialIv", "credentialTag"], set: { isActive: "false" } },
   // Deleted for a reason a clear could not achieve: `keyHash` is globally @unique, so
   // blanking it to a constant would collide across two account deletions. The delegate

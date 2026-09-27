@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { executeHistoricalImport } from "@/lib/data-transfer/historical/historical-execute";
 import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config";
 import type { DateFormatContract } from "@/lib/data-transfer/historical/historical-date";
 import type { HistoricalDecisions } from "@/lib/data-transfer/historical/historical-decisions";
 import type { ResolvedMapping } from "@/lib/data-transfer/import/mapping/mapping-proposer";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +47,8 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
+  const costLimited = await enforceCostLimit("COST_IMPORT_ANALYZE", user, req);
+  if (costLimited) return costLimited;
 
   let form: FormData;
   try {
@@ -136,6 +140,7 @@ export async function POST(req: Request) {
             : 400;
       return NextResponse.json(result, { status, headers: NO_STORE });
     }
+    await recordSecurityEvent({ type: "DATA_IMPORT_EXECUTED", outcome: "SUCCESS", reason: "historical_import", businessId: user.businessId, userId: user.id, req });
     return NextResponse.json(result, { status: 200, headers: NO_STORE });
   } catch (error) {
     // The error NAME only. A message could carry a cell value from the file.

@@ -10,13 +10,17 @@
  * cannot be spread across addresses.
  */
 import { NextResponse } from "next/server";
-import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
+import {
+  elevationBindingFor,
+  requirePlatformAdminIdentityOrResponse,
+} from "@/lib/auth/platform-admin";
 import { verifyAdminMfaCode } from "@/lib/auth/admin-mfa.service";
 import {
   ADMIN_ELEVATION_TTL_SECONDS,
   issueAdminElevation,
 } from "@/lib/auth/platform-admin-elevation";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +34,7 @@ export async function POST(req: Request) {
     key: `admin:mfa:verify:${gate.id}`,
     limit: 10,
     windowMs: 5 * 60_000,
+    failMode: "closed",
   });
   if (!rl.allowed) {
     return NextResponse.json(
@@ -49,6 +54,7 @@ export async function POST(req: Request) {
     if (!result.ok) {
       // One generic refusal for every failure mode: a caller must not be able
       // to distinguish "wrong code" from "already used" from "not enrolled".
+      await recordSecurityEvent({ type: "ADMIN_MFA_VERIFY_FAILURE", outcome: "FAILURE", reason: result.reason, userId: gate.id, actor: "PLATFORM_ADMIN", req });
       const status = result.reason === "not_enrolled" || result.reason === "no_record" ? 409 : 401;
       return NextResponse.json(
         { error: "Verification failed", code: result.reason },
@@ -56,9 +62,10 @@ export async function POST(req: Request) {
       );
     }
 
+    await recordSecurityEvent({ type: "ADMIN_ELEVATION_GRANTED", outcome: "SUCCESS", reason: String(result.via), userId: gate.id, actor: "PLATFORM_ADMIN", req });
     return NextResponse.json(
       {
-        elevation: issueAdminElevation(gate.id),
+        elevation: issueAdminElevation(elevationBindingFor(gate)),
         expiresInSeconds: ADMIN_ELEVATION_TTL_SECONDS,
         via: result.via,
       },

@@ -27,6 +27,7 @@
 import { createHmac, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PrismaClient, Prisma } from "@prisma/client";
+import { expectDenied } from "../scripts/ci/lab/denial.mjs";
 
 const RT_ROLE = "wave1_runtime";
 const RT_PW = "p7w1_ci_synthetic_pw";
@@ -369,9 +370,8 @@ async function main() {
   } catch { rolledBack = true; }
   ok("rollback discards tenant write", rolledBack &&
     (await owner.customer.count({ where: { name: `${MARK}rb` } })) === 0);
-  let ddlDenied = false;
-  try { await rt.$executeRawUnsafe(`CREATE TABLE p7w4a_evil (id int)`); } catch { ddlDenied = true; }
-  ok("runtime DDL denied", ddlDenied);
+  const ddlDenied = await expectDenied(async () => { await rt.$executeRawUnsafe(`CREATE TABLE p7w4a_evil (id int)`); }, ["PRIVILEGE"]);
+  ok("runtime DDL denied (42501 permission denied)", ddlDenied.denied, ddlDenied.detail);
 
   // ── Phase 10: structural no-network-in-tx ordering ──────────────────────
   console.log("--- structural tx-boundary assertions ---");

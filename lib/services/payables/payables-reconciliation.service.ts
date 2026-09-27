@@ -40,7 +40,7 @@ import {
   type CandidateTarget,
   type DocumentFacts,
 } from "./payables-matching";
-import { hashAuditEvent, recordManualPayment } from "./payables.service";
+import { hashAuditEvent, payablesAuditChainLink, recordManualPayment } from "./payables.service";
 
 type Tx = Prisma.TransactionClient;
 
@@ -65,6 +65,32 @@ async function writeReconciliationAudit(
   },
 ): Promise<void> {
   const occurredAt = new Date();
+  const eventHash = hashAuditEvent({
+    businessId: input.businessId,
+    eventType: input.eventType,
+    summary: input.summary,
+    commitmentId: input.commitmentId ?? null,
+    paymentId: input.paymentId ?? null,
+    allocationId: null,
+    actorUserId: input.actorUserId ?? null,
+    metadata: input.metadata ?? null,
+    occurredAt: occurredAt.toISOString(),
+  });
+  // SEC-F: the same keyed chain link every payables audit row carries.
+  const link = await payablesAuditChainLink(tx, {
+    businessId: input.businessId,
+    eventType: input.eventType,
+    source: "USER",
+    summary: input.summary,
+    metadata: input.metadata,
+    eventHash,
+    occurredAt,
+    actorUserId: input.actorUserId ?? null,
+    commitmentId: input.commitmentId ?? null,
+    installmentId: input.installmentId ?? null,
+    paymentId: input.paymentId ?? null,
+    allocationId: null,
+  });
   await tx.payablesAuditEvent.create({
     data: {
       businessId: input.businessId,
@@ -80,18 +106,9 @@ async function writeReconciliationAudit(
       // The trail is append-only, so each row has to be independently
       // checkable; a reconciliation event with an empty hash would be the one
       // row nobody could verify, which is exactly the row worth forging.
-      eventHash: hashAuditEvent({
-        businessId: input.businessId,
-        eventType: input.eventType,
-        summary: input.summary,
-        commitmentId: input.commitmentId ?? null,
-        paymentId: input.paymentId ?? null,
-        allocationId: null,
-        actorUserId: input.actorUserId ?? null,
-        metadata: input.metadata ?? null,
-        occurredAt: occurredAt.toISOString(),
-      }),
+      eventHash,
       occurredAt,
+      ...(link ?? {}),
     },
   });
 }

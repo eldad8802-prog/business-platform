@@ -338,6 +338,20 @@ async function main() {
 
   const RUNTIME_URL = roleUrl(OWNER_URL, RT_ROLE, RT_PW);
   process.env.DATABASE_URL = RUNTIME_URL;
+  // SEC-E. The erasure now revokes the account's authority (token generation, sessions)
+  // on the AUTH plane, as Production does through app_auth. The lab's second fresh role
+  // gets exactly app_auth's migration grants — never a tenant-runtime grant on
+  // AuthSession, which the product deliberately does not hold.
+  {
+    const AUTH_ROLE = process.env.AD2A_AUTH_ROLE;
+    if (!AUTH_ROLE) throw new Error("fresh-lab did not provide an auth-plane role (AD2A_AUTH_ROLE)");
+    const { applyAuthPlane } = await import("../.sec-e/auth-plane.mjs");
+    await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${AUTH_ROLE}`);
+    const n = await applyAuthPlane(owner, AUTH_ROLE);
+    process.env.AUTH_PLANE_ENABLED = "true";
+    process.env.AUTH_DATABASE_URL = roleUrl(OWNER_URL, AUTH_ROLE, process.env.AD2A_AUTH_PW);
+    ok(`auth plane: ${n} app_auth migration grants replayed onto ${AUTH_ROLE}`, n >= 10);
+  }
   const rt = new PrismaClient({ datasourceUrl: RUNTIME_URL });
   const who = (await rt.$queryRawUnsafe("SELECT current_user::text AS u"))[0].u;
   ok(`connected as ${RT_ROLE}`, who === RT_ROLE, `got ${who}`);
@@ -1712,7 +1726,13 @@ async function main() {
   // ── Phase 11: audit atomicity ─────────────────────────────────────────────
   console.log("--- phase 11: audit atomicity ---");
   const E = await mkBiz("E");
-  await owner.$executeRawUnsafe(`REVOKE INSERT ON "LearningEvent" FROM ${RT_ROLE}`);
+  // SEC-E. The erasure now CLAIMS each attempt with a LearningEvent row (the durable
+  // erasure ledger), so revoking INSERT on the whole table would stop the attempt at
+  // its claim — before anything is anonymised — and this phase would no longer test a
+  // LATE failure. The failure is therefore made exactly as late as it always was: only
+  // the ACCOUNT_DELETED evidence insert is refused, by a lab trigger, with 42501.
+  await owner.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ad2a_refuse_evidence() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN IF NEW."eventType" = 'ACCOUNT_DELETED' THEN RAISE EXCEPTION 'lab: evidence refused' USING ERRCODE = '42501'; END IF; RETURN NEW; END $f$`);
+  await owner.$executeRawUnsafe(`CREATE TRIGGER ad2a_refuse_evidence BEFORE INSERT ON "LearningEvent" FOR EACH ROW EXECUTE FUNCTION ad2a_refuse_evidence()`);
   const auditFail = await throws(() =>
     deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: E.biz.id, actorUserId: E.user.id })
   );
@@ -1744,7 +1764,8 @@ async function main() {
       eSugg.every((s) => s.text === ""),
     `messages=${eMsgs.length}`
   );
-  await owner.$executeRawUnsafe(`GRANT INSERT ON "LearningEvent" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`DROP TRIGGER ad2a_refuse_evidence ON "LearningEvent"`);
+  await owner.$executeRawUnsafe(`DROP FUNCTION ad2a_refuse_evidence()`);
   // J-0. This phase used to prove that restoring the missing PRIVILEGE lets the
   // deletion resume. Under the Production contract it does not, and the reason is
   // the finding: the privilege was never what stopped it. `LearningEvent` carries a
@@ -1797,6 +1818,12 @@ async function main() {
     console.log("[battery] AD2A_CRASH_AFTER_FK_DROP: killing the process with the composite FK dropped");
     process.kill(process.pid, "SIGKILL");
   }
+  // sec(C) #530: the tenant-coherent composite FKs (*_tenant_fkey) also forbid this
+  // planted corruption. Drop them for the injection exactly like the AD-2A.3 FK, and
+  // restore them (with the Conversation's original customer) below.
+  const int530Fks = await owner.$queryRawUnsafe(`SELECT conrelid::regclass::text AS t, conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname LIKE '%\_tenant\_fkey'`);
+  for (const f of int530Fks) await owner.$executeRawUnsafe(`ALTER TABLE ${f.t} DROP CONSTRAINT "${f.n}"`);
+  const int530Cust = (await owner.conversation.findUnique({ where: { id: fConv.id } })).customerId;
   await owner.$executeRawUnsafe(
     `UPDATE "Message" SET "businessId" = ${G.biz.id} WHERE "conversationId" = ${fConv.id}`
   );
@@ -1823,6 +1850,10 @@ async function main() {
        FOREIGN KEY ("conversationId", "businessId") REFERENCES "Conversation"("id", "businessId")
        ON DELETE CASCADE ON UPDATE CASCADE`
   );
+  await owner.conversation.update({ where: { id: fConv.id }, data: { customerId: int530Cust } });
+  for (const f of int530Fks) await owner.$executeRawUnsafe(`ALTER TABLE ${f.t} ADD CONSTRAINT "${f.n}" ${f.d}`);
+  ok("sec(C) tenant FKs restored after the scanner fixture",
+    (await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname LIKE '%\_tenant\_fkey' AND convalidated`))[0].n === int530Fks.length);
   const fkBack = await owner.$queryRawUnsafe(
     `SELECT count(*)::int AS n FROM pg_constraint WHERE conname='Message_conversationId_businessId_fkey'`
   );

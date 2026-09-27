@@ -19,7 +19,14 @@
 
 import { authDb } from "@/lib/prisma-auth";
 import { deviceLabel } from "@/lib/auth/device-label";
-import { REVOKED_REASON } from "@/lib/auth/refresh-session";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { acceptsNormalWrites } from "@/lib/tenant/business-lifecycle";
+import {
+  REVOKED_REASON,
+  issueRefreshSession,
+  parseCredential,
+  revokeAllSessionsForUser,
+} from "@/lib/auth/refresh-session";
 
 /** Why a session was ended, when the owner did it themselves. */
 export const USER_REVOKED_REASON = {
@@ -173,3 +180,262 @@ export async function revokeOtherSessions(input: {
 
 /** Re-exported so callers do not reach into the refresh engine for a constant. */
 export { REVOKED_REASON };
+
+// ============================================================================
+// CREDENTIAL LIFECYCLE (security closure, workstream B)
+//
+// Password change, password reset, step-up and cookie-proven logout all need
+// the auth plane, and this module is one of the few the CI-2a boundary allows to
+// hold it. They live here rather than in the routes so the routes never import
+// the auth client, and so every generation move and every session revocation in
+// the product is written in one reviewed place.
+// ============================================================================
+
+/** What a credential operation needs about its subject. Never leaves the server. */
+export type CredentialSubject = {
+  id: number;
+  email: string;
+  passwordHash: string;
+  tokenVersion: number;
+  businessId: number;
+  /** The business is under the deletion quarantine (or has no business row). */
+  quarantined: boolean;
+};
+
+const CREDENTIAL_SUBJECT_SELECT = {
+  id: true,
+  email: true,
+  password: true,
+  tokenVersion: true,
+  businessId: true,
+  business: { select: { deletionRequestedAt: true, deletedAt: true } },
+} as const;
+
+type SubjectRow = {
+  id: number;
+  email: string;
+  password: string;
+  tokenVersion: number;
+  businessId: number;
+  business: { deletionRequestedAt: Date | null; deletedAt: Date | null } | null;
+};
+
+function toSubject(row: SubjectRow | null): CredentialSubject | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password,
+    tokenVersion: row.tokenVersion,
+    businessId: row.businessId,
+    quarantined: !row.business || !acceptsNormalWrites(row.business),
+  };
+}
+
+export async function loadCredentialSubjectById(userId: number): Promise<CredentialSubject | null> {
+  const row = await authDb().user.findUnique({
+    where: { id: userId },
+    select: CREDENTIAL_SUBJECT_SELECT,
+  });
+  return toSubject(row as SubjectRow | null);
+}
+
+/**
+ * By address. Folded first; the address as typed is ALSO looked up whenever
+ * folding changed it — unconditionally, not only on a miss — so the number of
+ * queries depends on what was typed and never on whether an account exists.
+ */
+export async function loadCredentialSubjectByEmail(
+  typed: string,
+  normalized: string
+): Promise<CredentialSubject | null> {
+  const [folded, raw] = await Promise.all([
+    authDb().user.findUnique({ where: { email: normalized }, select: CREDENTIAL_SUBJECT_SELECT }),
+    typed !== normalized
+      ? authDb().user.findUnique({ where: { email: typed }, select: CREDENTIAL_SUBJECT_SELECT })
+      : Promise.resolve(null),
+  ]);
+  return toSubject((folded ?? raw) as SubjectRow | null);
+}
+
+/**
+ * Move the user's generation forward IF it is still `expected`. One conditional
+ * UPDATE, so of two concurrent callers presenting the same generation exactly
+ * one wins — this is what makes a reset token single-use and a password change
+ * race-free. Every access token and every refresh session minted under the old
+ * generation is dead the instant this commits (gate 3 in lib/auth.ts, and the
+ * `tokenVersionAtIssue` check in the refresh engine).
+ */
+export async function advanceTokenGeneration(userId: number, expected: number): Promise<boolean> {
+  const { count } = await authDb().user.updateMany({
+    where: { id: userId, tokenVersion: expected },
+    data: { tokenVersion: { increment: 1 } },
+  });
+  return count === 1;
+}
+
+export const CREDENTIAL_REVOKED_REASON = {
+  PASSWORD_CHANGED: "password_changed",
+  PASSWORD_RESET: "password_reset",
+} as const;
+
+/** Mark every live session of the user revoked. Explicit state, not implied. */
+export async function revokeAllSessions(userId: number, reason: string, now = new Date()): Promise<number> {
+  return revokeAllSessionsForUser(authDb(), { userId, now, reason });
+}
+
+/** Issue a fresh device session (after a credential has been proven). */
+export async function issueSession(input: {
+  userId: number;
+  tokenVersion: number;
+  userAgent: string | null;
+  now?: Date;
+}) {
+  return issueRefreshSession(authDb(), {
+    userId: input.userId,
+    tokenVersion: input.tokenVersion,
+    now: input.now ?? new Date(),
+    userAgent: input.userAgent,
+  });
+}
+
+const sha256hex = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
+
+function sameHash(a: string, b: string): boolean {
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
+
+/**
+ * Logout proven by the REFRESH COOKIE instead of the access token.
+ *
+ * The refresh cookie is scoped to /api/auth/refresh, so /api/auth/logout never
+ * sees it; and when the 24-hour access token has already expired, that route
+ * has no user to sign out — it cleared the cookie and left every refresh
+ * session alive. This closes that: possession of the CURRENT secret (or one
+ * still inside its rotation grace) signs the user out exactly as logout does —
+ * generation moved, every session revoked.
+ *
+ * An unrecognised secret proves nothing and changes nothing (same rule as the
+ * refresh engine: the selector authenticates nobody).
+ */
+export async function logoutByRefreshCredential(
+  credential: string | null,
+  now = new Date()
+): Promise<{ kind: "signed_out"; userId: number } | { kind: "unknown" }> {
+  const parsed = parseCredential(credential);
+  if (!parsed) return { kind: "unknown" };
+
+  const session = await authDb().authSession.findUnique({
+    where: { id: parsed.sessionId },
+    select: { id: true, userId: true, secretHash: true, revokedAt: true },
+  });
+  if (!session || session.revokedAt !== null) return { kind: "unknown" };
+
+  const presented = sha256hex(parsed.secret);
+  let proven = sameHash(presented, session.secretHash);
+  if (!proven) {
+    const historic = await authDb().authSessionSecret.findUnique({
+      where: { sessionId_secretHash: { sessionId: session.id, secretHash: presented } },
+      select: { graceUntil: true },
+    });
+    proven = historic !== null && now <= historic.graceUntil;
+  }
+  if (!proven) return { kind: "unknown" };
+
+  await authDb().user.update({
+    where: { id: session.userId },
+    data: { tokenVersion: { increment: 1 } },
+    select: { id: true },
+  });
+  await revokeAllSessionsForUser(authDb(), {
+    userId: session.userId,
+    now,
+    reason: REVOKED_REASON.LOGOUT,
+  });
+  return { kind: "signed_out", userId: session.userId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEC-E / M-12(a) — ACCOUNT ERASURE: the authority a deleted account still held
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Until this existed the ONLY thing standing between a token minted before a deletion
+// and the account was the business lifecycle gate (lib/auth.ts gate 2, and the same
+// check in refreshSession). One control, and erasure-dispositions.ts said so: "a known
+// single-control gap". These two functions make the deletion revoke the authority
+// itself, on the auth plane that owns it, so a token or refresh cookie issued before
+// the deletion fails gate 3 / gate 4 / the refresh generation check even if the
+// lifecycle gate were ever lost.
+//
+// They live HERE because this is the module CI-2a already allows to hold the auth
+// client, and every query the session plane makes about ownership lives in one place.
+// The erasure never imports the auth client itself.
+
+/** Recorded on every session the erasure ends, so the row says why it died. */
+export const ERASURE_REVOKED_REASON = "account_erasure" as const;
+
+/**
+ * Revoke every credential of every user of `businessId`:
+ *
+ *   1. `User.tokenVersion` +1 — every bearer token and every refresh session minted
+ *      before this instant stops matching the user's generation (gate 3 and the
+ *      refresh generation check). This is the load-bearing half, exactly as in logout.
+ *   2. every live `AuthSession` marked revoked — gate 4 and refresh both refuse it
+ *      explicitly rather than by accident of ordering.
+ *
+ * Idempotent in effect: a retry bumps the generation again, which can only kill more
+ * tokens (there are none left to kill), and the session update is conditional on
+ * `revokedAt: null`. The scope is `businessId` in the write predicate, never an id
+ * list assembled above the call.
+ */
+export async function revokeAuthorityOfBusinessUsers(
+  businessId: number,
+  now: Date
+): Promise<{ users: number; sessions: number }> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("revokeAuthorityOfBusinessUsers: a positive, server-derived businessId is required");
+  }
+  const db = authDb();
+  const users = await db.user.updateMany({
+    where: { businessId },
+    data: { tokenVersion: { increment: 1 } },
+  });
+  const sessions = await db.authSession.updateMany({
+    where: { user: { businessId }, revokedAt: null },
+    data: { revokedAt: now, revokedReason: ERASURE_REVOKED_REASON },
+  });
+  return { users: users.count, sessions: sessions.count };
+}
+
+/**
+ * Delete the session rows of every user of `businessId` — the device history, with the
+ * User-Agent each login recorded. Run by the erasure AFTER `revokeAuthorityOfBusinessUsers`
+ * (the revocation is the security control; this is the personal-data erasure).
+ *
+ * Children first and explicitly, for the same reason the tenant erasure never leans on
+ * a cascade it cannot see. The auth plane holds DELETE on both tables (migration
+ * 20260908200000) for exactly this kind of cleanup. Idempotent: a second run deletes
+ * nothing.
+ */
+export async function eraseSessionsOfBusinessUsers(
+  businessId: number
+): Promise<{ secrets: number; sessions: number }> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("eraseSessionsOfBusinessUsers: a positive, server-derived businessId is required");
+  }
+  const db = authDb();
+  const secrets = await db.authSessionSecret.deleteMany({
+    where: { session: { user: { businessId } } },
+  });
+  const sessions = await db.authSession.deleteMany({
+    where: { user: { businessId } },
+  });
+  return { secrets: secrets.count, sessions: sessions.count };
+}
+
+/** Post-condition read for the erasure VERIFY stage: no session row may survive. */
+export async function countSessionsOfBusinessUsers(businessId: number): Promise<number> {
+  return authDb().authSession.count({ where: { user: { businessId } } });
+}

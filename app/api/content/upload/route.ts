@@ -1,18 +1,12 @@
 import { getCurrentUser } from "@/lib/auth";
-import { consumeRateLimit } from "@/lib/security/rate-limit";
-import {
-  extensionFromMime,
-  putPublicAsset,
-} from "@/lib/services/storage/public-asset-storage.service";
+import { receivePublicAssetUpload } from "@/lib/services/storage/public-asset-upload";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
-
-function isAllowedMime(mimeType: string): boolean {
-  const m = String(mimeType || "").toLowerCase().trim();
-  return m.startsWith("image/") || m.startsWith("video/");
-}
-
+/**
+ * Content media upload (photos + videos for the content/render flow).
+ * Acceptance, magic-byte verification, rate limits and serving metadata are
+ * owned by receivePublicAssetUpload / putPublicAsset (M-2).
+ */
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req);
@@ -20,66 +14,24 @@ export async function POST(req: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userLimit = await consumeRateLimit({
-      key: `content:upload:user:${user.id}`,
-      limit: 30,
-      windowMs: 60 * 60_000,
-    });
-    if (!userLimit.allowed) {
-      return Response.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 }
-      );
-    }
-
-    const businessLimit = await consumeRateLimit({
-      key: `content:upload:business:${user.businessId}`,
-      limit: 200,
-      windowMs: 24 * 60 * 60_000,
-    });
-    if (!businessLimit.allowed) {
-      return Response.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 }
-      );
-    }
-
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-
-    if (!file) {
-      return Response.json({ error: "No file" }, { status: 400 });
-    }
-
-    if (typeof file.type !== "string" || !isAllowedMime(file.type)) {
-      return Response.json({ error: "Unsupported file type" }, { status: 400 });
-    }
-
-    if (typeof file.size !== "number" || file.size > MAX_UPLOAD_BYTES) {
-      return Response.json(
-        { error: "File too large (max 10MB)" },
-        { status: 413 }
-      );
-    }
-
-    if (!extensionFromMime(file.type)) {
-      return Response.json({ error: "Unsupported file type" }, { status: 400 });
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    const stored = await putPublicAsset({
-      businessId: user.businessId,
+    const result = await receivePublicAssetUpload({
+      req,
+      user,
       domain: "content",
-      body: buffer,
-      contentType: file.type,
-      custom: { source: "content_upload" },
+      source: "content_upload",
     });
+    if (!result.ok) {
+      return Response.json({ error: result.error }, { status: result.status });
+    }
 
-    return Response.json({ url: stored.publicUrl });
+    return Response.json({ url: result.stored.publicUrl });
   } catch (err) {
     if (err instanceof StorageConfigError) {
-      return Response.json({ error: err.message }, { status: 503 });
+      console.error("[content-upload] storage config error:", err);
+      return Response.json(
+        { error: "Upload is temporarily unavailable" },
+        { status: 503 }
+      );
     }
     console.error(err);
     return Response.json({ error: "Upload failed" }, { status: 500 });

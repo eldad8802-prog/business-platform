@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { PRODUCT_USAGE_SOURCES } from "./product-usage-catalog";
 import type { RecordProductUsageEventInput } from "./product-usage.types";
 
@@ -39,21 +40,30 @@ export async function recordProductUsageEvent(
   }
 
   try {
-    await prisma.productUsageEvent.create({
-      data: {
-        businessId: input.businessId ?? null,
-        userId: input.userId ?? null,
-        sessionId: input.sessionId ?? null,
-        featureKey: input.featureKey,
-        action: input.action,
-        outcome: input.outcome ?? null,
-        entityType: input.entityType ?? null,
-        entityId: input.entityId ?? null,
-        durationMs: input.durationMs ?? null,
-        source: input.source ?? PRODUCT_USAGE_SOURCES.API,
-        metadata: buildMetadata(input.metadata),
-      },
-    });
+    // sec(C)/M-14(a): an attributed event is written inside its own tenant's
+    // transaction (GUC set), so under the prepared FORCE RLS policy
+    // (ops/security/sec-c-phase3-rls.sql) the runtime can only ever write events
+    // for the business it is acting for. createMany, not create: the runtime holds
+    // INSERT only on this table (no SELECT for INSERT ... RETURNING).
+    const businessId = input.businessId ?? null;
+    const row = {
+      userId: input.userId ?? null,
+      sessionId: input.sessionId ?? null,
+      featureKey: input.featureKey,
+      action: input.action,
+      outcome: input.outcome ?? null,
+      entityType: input.entityType ?? null,
+      entityId: input.entityId ?? null,
+      durationMs: input.durationMs ?? null,
+      source: input.source ?? PRODUCT_USAGE_SOURCES.API,
+      metadata: buildMetadata(input.metadata),
+    };
+    if (businessId !== null && Number.isInteger(businessId) && businessId > 0) {
+      await tenantTx(businessId, (tx) => tx.productUsageEvent.createMany({ data: { ...row, businessId } }));
+    } else {
+      // No trusted tenant: the event is written UNTENANTED, never under a caller value.
+      await prisma.productUsageEvent.createMany({ data: { ...row, businessId: null } });
+    }
   } catch (error) {
     console.error("recordProductUsageEvent error:", error);
   }

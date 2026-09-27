@@ -37,7 +37,7 @@ jobs:
     environment: production-db
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Validate inputs (businessId must be a positive integer)
         env:
@@ -94,4 +94,5 @@ jobs:
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
             --set=businessId="$BID" \
-            --file=ops/evidence/business-memory-read-comparison-evidence.sql
+            --file=ops/evidence/business-memory-read-comparison-evidence.sql \
+            | node scripts/ci/evidence-redact.mjs

@@ -9,6 +9,7 @@
  *   biz/{businessId}/crm/{subjectType}/{subjectId}/att-{timestamp}-{random}.{ext}
  */
 
+import { randomBytes } from "node:crypto";
 import { getStorageService } from "@/lib/storage";
 import { assertSafeStorageKey } from "@/lib/storage/key-validation";
 import { ValidationError } from "@/lib/errors";
@@ -140,7 +141,8 @@ export function buildAttachmentStorageKey(input: {
   if (!Number.isInteger(input.subjectId) || input.subjectId <= 0) {
     throw new ValidationError("Invalid subject id for storage key");
   }
-  const random = Math.random().toString(16).slice(2, 10);
+  // 128 bits from the OS CSPRNG (was 32 bits of Math.random).
+  const random = randomBytes(16).toString("hex");
   const basename = `att-${Date.now()}-${random}.${input.storageExt}`;
   const key = `biz/${input.businessId}/crm/${input.subjectType}/${input.subjectId}/${basename}`;
   // Defense-in-depth: run the same safety validation storage will apply.
@@ -152,12 +154,21 @@ export async function putAttachmentObject(input: {
   key: string;
   body: Buffer;
   contentType: string;
+  /** e.g. the malware-scan label { scan: "not_scanned", scanner: "none" }. */
+  custom?: Record<string, string>;
 }): Promise<void> {
   await getStorageService().putObject({
     key: assertSafeStorageKey(input.key),
     body: input.body,
     contentType: input.contentType,
-    metadata: { businessId: input.businessId, domain: "crm", visibility: "private" },
+    // Private object: a direct GET (signed URL) must download, never render.
+    contentDisposition: "attachment",
+    metadata: {
+      businessId: input.businessId,
+      domain: "crm",
+      visibility: "private",
+      ...(input.custom ? { custom: input.custom } : {}),
+    },
   });
 }
 

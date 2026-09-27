@@ -32,6 +32,11 @@ import {
   IMPORT_MAX_FILE_BYTES,
   IMPORT_MAX_ROWS,
 } from "./import-config";
+import {
+  assertXlsxWithinLimits,
+  XlsxLimitError,
+  type XlsxLimitCode,
+} from "@/lib/data-transfer/format/xlsx-guard";
 
 export type ImportSourceError =
   | "FILE_MISSING"
@@ -42,7 +47,9 @@ export type ImportSourceError =
   | "NO_HEADERS"
   | "TOO_MANY_ROWS"
   | "SHEET_CHOICE_REQUIRED"
-  | "SHEET_NOT_FOUND";
+  | "SHEET_NOT_FOUND"
+  /** L-5: over a zip / dimension / row / cell / time bound. */
+  | "FILE_TOO_COMPLEX";
 
 export type ImportSourceResult =
   | {
@@ -60,14 +67,33 @@ export type ImportSourceResult =
       message: string;
       /** Present for SHEET_CHOICE_REQUIRED so the UI can offer the list. */
       availableSheets?: string[];
+      /** Present for FILE_TOO_COMPLEX: which bound was crossed. */
+      limitCode?: XlsxLimitCode;
     };
 
 function fail(
   code: ImportSourceError,
   message: string,
-  availableSheets?: string[]
+  availableSheets?: string[],
+  limitCode?: XlsxLimitCode
 ): ImportSourceResult {
-  return { ok: false, code, message, availableSheets };
+  return {
+    ok: false,
+    code,
+    message,
+    availableSheets,
+    ...(limitCode ? { limitCode } : {}),
+  };
+}
+
+/** L-5: a workbook over a resource bound is refused with its specific code. */
+function tooComplex(error: XlsxLimitError): ImportSourceResult {
+  return fail(
+    "FILE_TOO_COMPLEX",
+    "הקובץ גדול או מורכב מדי לייבוא. פצלו אותו לקבצים קטנים יותר",
+    undefined,
+    error.code
+  );
 }
 
 function extensionOf(filename: string): string {
@@ -90,6 +116,8 @@ function looksLikeXlsx(bytes: Buffer): boolean {
 }
 
 async function listSheetsWithData(bytes: Buffer): Promise<string[]> {
+  // L-5: bounds first — ExcelJS inflates the whole archive on load.
+  assertXlsxWithinLimits(bytes);
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(bytes as unknown as ArrayBuffer);
@@ -160,7 +188,8 @@ export async function readImportSource(
   let sheets: string[];
   try {
     sheets = await listSheetsWithData(bytes);
-  } catch {
+  } catch (error) {
+    if (error instanceof XlsxLimitError) return tooComplex(error);
     return fail("UNREADABLE_FILE", "לא הצלחנו לקרוא את קובץ ה-Excel");
   }
 
@@ -197,7 +226,8 @@ export async function readImportSource(
       sheetName: chosen,
       maxRows: IMPORT_MAX_ROWS + 1,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof XlsxLimitError) return tooComplex(error);
     return fail("UNREADABLE_FILE", "לא הצלחנו לקרוא את הגיליון שנבחר");
   }
 

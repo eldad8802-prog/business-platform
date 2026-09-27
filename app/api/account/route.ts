@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, authRequiredResponse } from "@/lib/auth";
+import { getAuthContext, authRequiredResponse } from "@/lib/auth";
 import {
-  deleteOwnBusinessAccount,
+  readStepUpHeader,
+  stepUpRequiredBody,
+  verifyAndConsumeStepUp,
+} from "@/lib/auth/step-up";
+import {
+  requestAccountDeletion,
   AccountDeletionError,
 } from "@/lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "@/lib/services/account/account-deletion.prisma-store";
+import { emitErasureEvent } from "@/lib/services/account/erasure-security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,17 +21,36 @@ export const dynamic = "force-dynamic";
  * fiscal records. Sole-active-user only (v1); fails closed.
  */
 export async function DELETE(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) {
+  const context = await getAuthContext(req);
+  if (!context) {
     return authRequiredResponse(req);
+  }
+  const user = context.user;
+
+  // M-9: irreversible, so a bearer token alone is not enough. The caller must
+  // present a fresh, single-use step-up token for exactly this action, bound to
+  // this device and this token generation (POST /api/auth/step-up).
+  const stepUp = await verifyAndConsumeStepUp(
+    readStepUpHeader(req),
+    { userId: user.id, sessionId: context.sessionId, tokenVersion: user.tokenVersion },
+    "account.delete"
+  );
+  await emitErasureEvent(stepUp.ok ? "step_up_ok" : "step_up_refused", { businessId: user.businessId, userId: user.id, req }, stepUp.ok ? {} : { refusal: stepUp.reason });
+  if (!stepUp.ok) {
+    return NextResponse.json(stepUpRequiredBody(stepUp), {
+      status: stepUp.reason === "unavailable" ? 503 : 403,
+      headers: { "cache-control": "no-store" },
+    });
   }
 
   try {
-    const result = await deleteOwnBusinessAccount(prismaAccountDeletionStore, {
+    const result = await requestAccountDeletion(prismaAccountDeletionStore, {
       businessId: user.businessId,
       actorUserId: user.id,
     });
-    return NextResponse.json({ ok: true, status: result.status }, { status: 200 });
+    // SEC-E / H-5: "accepted" = quarantined and durably owed; the erasure sweeper
+    // finishes it. Never a 500 the owner (whose session just ended) cannot retry.
+    return NextResponse.json({ ok: true, status: result.status }, { status: result.status === "accepted" ? 202 : 200 });
   } catch (error) {
     if (error instanceof AccountDeletionError) {
       const status =
