@@ -190,6 +190,7 @@ export default function AiAssetsPage() {
           stepTimers.push(timer);
         });
 
+        const contentRunId = result?.contentRunId;
         const res = await fetch("/api/content/ai-assets", {
           method: "POST",
           headers: {
@@ -199,8 +200,8 @@ export default function AiAssetsPage() {
           body: JSON.stringify({
             flow,
             result,
-            ...(Number.isInteger(result.contentRunId) && (result.contentRunId as number) > 0
-              ? { contentRunId: result.contentRunId }
+            ...(typeof contentRunId === "number" && contentRunId > 0
+              ? { contentRunId }
               : {}),
           }),
         });
