@@ -52,3 +52,22 @@
 /scripts/ci/release-*               @eldad8802-prog
 /scripts/ci/migration-first-guard.mjs  @eldad8802-prog
 /docs/RELEASE-OWNERSHIP.md          @eldad8802-prog
+
+# ── Security proof system & delivery pipeline (sec/A, 2026-09-24) ───────────
+# Every path whose edit can change what CI proves, what reaches Production, or
+# who a tenant is. Listed explicitly (not only via the defaults above) so the
+# map survives a future narrowing of `*` and so a second reviewer / review App
+# added later is routed here first. Enforcing ONLY once branch protection sets
+# "require review from Code Owners" with a reviewer other than the PR author —
+# see the owner-actions section of PR 525.
+/.github/**                         @eldad8802-prog
+/prisma/migrations/**               @eldad8802-prog
+/scripts/ci/**                      @eldad8802-prog
+/lib/tenant/**                      @eldad8802-prog
+/lib/auth.ts                        @eldad8802-prog
+/lib/auth*/**                       @eldad8802-prog
+/lib/auth-token.ts                  @eldad8802-prog
+/lib/prisma*.ts                     @eldad8802-prog
+/lib/services/account/**            @eldad8802-prog
+/lib/services/payments/**           @eldad8802-prog
+/proxy.ts                           @eldad8802-prog

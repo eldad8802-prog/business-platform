@@ -140,19 +140,21 @@ async function run() {
       { startOAuth: fakeStart() }
     );
     ok(
-      "platform admin may target another business",
+      "MFA-elevated platform admin may target another business",
       adminOutcome.ok && adminOutcome.businessId === 99
     );
 
     // Without an elevation the admin role alone does not cross tenants.
+    let unelevatedCalled = false;
     const unelevated = await resolveAuthorityOAuthStart(
       { user: ADMIN_USER, requestedBusinessId: 99, redirectBaseUrl: BASE, secureCookies: false },
-      { startOAuth: fakeStart() }
+      { startOAuth: fakeStart(() => { unelevatedCalled = true; }) }
     );
     ok(
       "platform admin without elevation cannot target another business",
       !unelevated.ok && unelevated.reason === AUTHORITY_START_REASONS.BUSINESS_FORBIDDEN
     );
+    ok("un-elevated admin never starts oauth", unelevatedCalled === false);
 
     // M-10: role + elevation but NOT on the allowlist → refused.
     let crossCalled = false;
