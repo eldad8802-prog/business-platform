@@ -45,11 +45,6 @@ import { join } from "node:path";
  * Paths are repository-relative, with forward slashes.
  */
 const ALLOWLIST = new Map([
-  [
-    "lib/services/platform-admin/platform-business-detail.service.ts",
-    "platform-admin reads ACROSS tenants by design; its boundary is the admin " +
-      "identity and its p7adm_read policies, not a tenant GUC",
-  ],
 ]);
 
 /** Directories whose contents are not application runtime code. */
