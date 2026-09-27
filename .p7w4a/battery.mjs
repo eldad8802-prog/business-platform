@@ -375,9 +375,17 @@ async function main() {
 
   // ── Phase 10: structural no-network-in-tx ordering ──────────────────────
   console.log("--- structural tx-boundary assertions ---");
-  const intakeSrc = readFileSync("lib/services/integrations/whatsapp/conversation-intake.service.ts", "utf8");
+  // M2: the WhatsApp intake processor persists through ingestInboundCustomerMessage
+  // (one tenant tx, committed and recorded PERSISTED) and only THEN runs the
+  // LLM-capable pipeline — never inside a transaction.
+  const intakeSrc = readFileSync("lib/intake/whatsapp/whatsapp-intake.ts", "utf8");
   ok("intake: pipeline (LLM-capable) runs OUTSIDE the tenant tx",
-    intakeSrc.indexOf("runInboundMessagePipeline({") > intakeSrc.indexOf("if (persisted.kind === \"duplicate\")"));
+    intakeSrc.indexOf("await runInboundMessagePipeline({") > intakeSrc.indexOf("await markPersisted(") &&
+    intakeSrc.indexOf("await markPersisted(") > intakeSrc.indexOf("await ingestInboundCustomerMessage({"));
+  const ingestSrc = readFileSync("lib/services/conversation/inbound-customer-message.service.ts", "utf8");
+  const ingestCode = ingestSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  ok("ingest: no pipeline / network work inside its transaction",
+    !/runInboundMessagePipeline|fetch\(|sendWhatsApp/.test(ingestCode));
   const cbSrc = readFileSync("app/api/integrations/gmail/callback/route.ts", "utf8");
   ok("gmail callback: token exchange happens BEFORE tenant context/tx",
     cbSrc.indexOf("exchangeCodeForTokens") < cbSrc.indexOf("runWithTenantContext"));

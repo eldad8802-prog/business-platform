@@ -233,6 +233,7 @@ model Business {
   knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
   businessInsights              BusinessInsight[]
   entityLinkProposals           EntityLinkProposal[]
+  intakeEvents                  IntakeEvent[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -5529,4 +5530,99 @@ enum CollectionActionChannel {
   SYSTEM_SHARE
   CLIPBOARD
   UNKNOWN
+}
+
+// ---------------------------------------------------------------------------
+// Business Intake — M2 · the canonical receipt ledger
+//
+// One row per event an external source delivered to this business: the proof
+// that Dubiz accepted responsibility for it. The webhook answers the provider
+// ONLY after this row is durable, and everything downstream (Customer,
+// Conversation, Message, documents, delivery receipts) is derived from it by a
+// processor that can fail and retry without losing the event.
+//
+// It is a RECEIPT, not a domain record and not a learning event:
+//   - the operational truth stays in Message / Conversation / Customer;
+//   - LearningEvent stays evidence, and never holds the payload;
+//   - `payload` is the minimal normalized envelope needed to (re)process, and is
+//     purged the moment the event is processed. What survives is identity,
+//     lifecycle and non-personal `metadata` (message type, ad referral ids).
+//
+// Provider-neutral by construction: WhatsApp is only the first `provider`.
+// Future sources (lead forms, email, calls, orders) add enum values, not tables.
+// ---------------------------------------------------------------------------
+
+enum IntakeProvider {
+  WHATSAPP
+}
+
+/// What the provider says happened. Delivery / read receipts are their own kind
+/// — they describe an OUTBOUND message and must never become customer messages.
+enum IntakeEventKind {
+  MESSAGE_RECEIVED
+  MESSAGE_STATUS
+}
+
+/// RECEIVED  — durable, not yet processed (or waiting for its next attempt)
+/// PERSISTED — the domain records are committed; enrichment is still pending
+/// PROCESSED — done; payload purged
+/// FAILED    — the last attempt failed; `nextAttemptAt` says when to retry
+///             (null once attempts are exhausted — kept, never deleted)
+/// IGNORED   — deliberately not materialised (unsupported type, unknown
+///             outbound message for a receipt); the reason is in lastErrorCode
+enum IntakeEventStatus {
+  RECEIVED
+  PERSISTED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+model IntakeEvent {
+  id                 Int               @id @default(autoincrement())
+  businessId         Int
+  provider           IntakeProvider
+  kind               IntakeEventKind
+  /// Replay key derived from the provider's own identity for the event — never
+  /// a sender-controlled value, and never the raw provider id: a SHA-256
+  /// (`sha256:<hex>`). WhatsApp message: of the wamid; status: of
+  /// `<wamid>:<status>`. The raw wamid lives on Message.providerMessageId.
+  externalEventId    String
+  /// The business's own provider account the event arrived on (WhatsApp:
+  /// phone_number_id). Routing evidence, not a person.
+  providerAccountRef String?
+  /// Business time as the provider reports it. Null when the provider gave none
+  /// — never invented.
+  occurredAt         DateTime?
+  receivedAt         DateTime          @default(now())
+  status             IntakeEventStatus @default(RECEIVED)
+  attempts           Int               @default(0)
+  lastAttemptAt      DateTime?
+  /// Earliest time the next attempt may run. Doubles as the processing lease.
+  nextAttemptAt      DateTime?
+  /// A bounded, non-personal failure code (error class / provider code). Never
+  /// a free-text message that could echo payload content.
+  lastErrorCode      String?
+  processedAt        DateTime?
+  /// Minimal normalized envelope needed to process the event. PERSONAL DATA
+  /// until processed; nulled on PROCESSED and by account erasure.
+  payload            Json?
+  payloadPurgedAt    DateTime?
+  /// Non-personal normalized facts kept after the payload is purged (message
+  /// type, click-to-WhatsApp referral ids).
+  metadata           Json?
+  /// What the event became. Plain ids: the receipt is evidence about them and
+  /// must not cascade with them.
+  messageId          Int?
+  conversationId     Int?
+  customerId         Int?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  business           Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  /// Replay protection: one receipt per provider event per business. Tenant-
+  /// scoped, so identical provider ids in two businesses never cross-dedup.
+  @@unique([businessId, provider, externalEventId])
+  @@index([businessId, status, nextAttemptAt])
+  @@index([businessId, receivedAt])
 }

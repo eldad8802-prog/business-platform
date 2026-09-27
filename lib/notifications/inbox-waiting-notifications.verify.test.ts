@@ -25,7 +25,9 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (...p: string[]) => readFileSync(join(REPO_ROOT, ...p), "utf8");
 
 const CONSUMER = read("lib", "notifications", "inbox-waiting-notifications.ts");
-const INTAKE = read("lib", "services", "integrations", "whatsapp", "conversation-intake.service.ts");
+// M2: the WhatsApp intake processor (the only producer of inbound customer
+// messages besides the dev-only simulator).
+const INTAKE = read("lib", "intake", "whatsapp", "whatsapp-intake.ts");
 const MESSAGE_ROUTE = read("app", "api", "message", "route.ts");
 const CLOSE_A = read("app", "api", "conversation", "[id]", "route.ts");
 const CLOSE_B = read("app", "api", "conversation", "[id]", "close", "route.ts");
@@ -110,30 +112,35 @@ console.log("\nOpening producer sits after the commit");
   const txAt = code.lastIndexOf("withTenantTransaction", syncAt);
   const txCloses = code.slice(txAt, syncAt).includes("runInboundMessagePipeline");
   check("it is NOT nested inside one of the intake's transactions", txCloses);
-  // Exactly one call site, on the success path. The duplicate-delivery branch
-  // lives in the catch below and must not sync: nothing changed, and Meta
-  // redelivers often enough that a pointless pass per retry adds up.
+  // Exactly one call site, on the success path. The failure branch lives in the
+  // catch below and must not sync: nothing settled, and the receipt is retried.
   check("there is exactly one sync call in the intake",
     (code.match(/syncInboxWaitingNotifications\(/g) ?? []).length === 1);
-  check("it is on the success path, not in the duplicate-handling catch",
-    syncAt < code.indexOf("} catch (err)"), `sync@${syncAt} catch@${code.indexOf("} catch (err)")}`);
-  check("the businessId is the server-resolved input, never a payload field",
-    code.includes("syncInboxWaitingNotifications(input.businessId"));
+  check("it is on the success path, not in the failure catch",
+    syncAt > 0 && syncAt < code.indexOf("} catch (error)"),
+    `sync@${syncAt} catch@${code.indexOf("} catch (error)")}`);
+  check("it runs before the receipt is marked processed",
+    syncAt < code.indexOf("await markProcessed(businessId, event.id, refs)"));
+  check("the businessId is the server-resolved argument, never a payload field",
+    code.includes("syncInboxWaitingNotifications(businessId,") && !/payload\.businessId/.test(code));
   check("and it names the conversation it just wrote to",
-    code.includes("syncInboxWaitingNotifications(input.businessId, conversation.id"));
+    code.includes("syncInboxWaitingNotifications(businessId, ingested.conversation.id"));
 }
 
-console.log("\nMessage route syncs on both directions");
+console.log("\nMessage route syncs the business reply");
 {
   const code = stripComments(MESSAGE_ROUTE);
   const calls = code.match(/syncInboxWaitingNotifications\(/g) ?? [];
-  // Two success paths: the non-inbound branch (resolves) and the inbound
-  // customer branch (opens). Wiring only one would half-work forever.
-  check("both success paths sync", calls.length === 2, `n=${calls.length}`);
+  // M2: the route writes business messages only (a reply resolves the wait).
+  // The inbound side OPENS the wait in the intake processor, checked above.
+  check("the one success path syncs", calls.length === 1, `n=${calls.length}`);
   check("the tenant is the session user, never the request body",
     !/syncInboxWaitingNotifications\((?!user\.businessId)/.test(code));
-  check("both calls name the conversation",
-    (code.match(/syncInboxWaitingNotifications\(user\.businessId, conversationId,/g) ?? []).length === 2);
+  check("the call names the conversation",
+    (code.match(/syncInboxWaitingNotifications\(user\.businessId, conversationId,/g) ?? []).length === 1);
+  check("the route can no longer write a customer message",
+    !/senderType:\s*body\./.test(code) && !/direction:\s*body\./.test(code) &&
+      code.includes('direction: "OUTBOUND"') && code.includes('senderType: "BUSINESS_USER"'));
   check("the route never trusts a body businessId",
     !/body\.businessId/.test(code));
   check("the handler still runs under the session tenant context",

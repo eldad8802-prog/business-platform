@@ -1,14 +1,23 @@
 /**
  * Shared inbound-message pipeline — single source of truth.
  *
- * Both callers run THIS function:
- *   - `POST /api/message` (the manual / test path the inbox uses today)
- *   - `processWhatsAppConversationIntake` (the new webhook intake path)
+ * M2: this is the ONLY orchestration of what happens after an inbound customer
+ * `Message` is persisted. Before M2 the claim above was false: `/api/message`
+ * carried a second, inline copy that had drifted (counters, attribution,
+ * conversation status). That copy is gone — `/api/message` can no longer create
+ * a customer message at all — and every inbound customer message now enters
+ * through `ingestInboundCustomerMessage` and then this function:
+ *   - the Business Intake processor (provider-authenticated WhatsApp events);
+ *   - the local-development simulator (refused in production).
  *
- * Discipline contract: there is exactly one orchestration path for what
- * happens after a customer-inbound `Message` is persisted. Any caller that
- * persists an INBOUND CUSTOMER message MUST call `runInboundMessagePipeline`
- * to maintain analysis / state / bot-policy / suggestion parity.
+ * RESUMABLE. The intake processor may run this again for a message whose first
+ * run failed part-way (IntakeEvent status PERSISTED). With `resume: true` every
+ * step is safe to repeat: the analysis row is upserted, the state writer and
+ * outcome update are idempotent, the starter-bot draft is deduped per message,
+ * AUTO suggestions are not generated twice, and the two steps that cannot be
+ * made idempotent from here — the learning-evidence event and the optional LLM
+ * draft — are skipped (a missing learning signal is preferable to a doubled one,
+ * and the draft is optional by design).
  *
  * Responsibilities (in order):
  *   1. Pull short context window from prior messages.
@@ -108,6 +117,11 @@ export type InboundPipelineParams = {
   businessId: number;
   /** Where this call originated — used in structured logs only. */
   source: InboundPipelineSource;
+  /**
+   * True when re-running for a message whose earlier run did not finish
+   * (see the header). Default false.
+   */
+  resume?: boolean;
 };
 
 export type InboundPipelineResult = {
@@ -221,6 +235,7 @@ export async function runInboundMessagePipeline(
   params: InboundPipelineParams
 ): Promise<InboundPipelineResult> {
   const { conversation, message, businessId, source } = params;
+  const resume = params.resume === true;
 
   // D2/P7-W4B: the pipeline REQUIRES an established tenant context (webhook
   // runTenantJob / api-message runWithTenantContext). Each DB group below
@@ -240,9 +255,16 @@ export async function runInboundMessagePipeline(
   // 3. Persist MessageAnalysis + write back labels on the Message itself —
   //    one atomic tenant transaction; the label write is tenant-scoped.
   const labelledMessage = await withTenantTransaction(async (tx) => {
-    await tx.messageAnalysis.create({
-      data: {
+    // Upsert (MessageAnalysis.messageId is unique): a resumed run recomputes
+    // the same deterministic analysis and must not fail on the row it wrote.
+    await tx.messageAnalysis.upsert({
+      where: { messageId: message.id },
+      create: {
         messageId: message.id,
+        intent: analysis.intent,
+        stage: analysis.stage,
+      },
+      update: {
         intent: analysis.intent,
         stage: analysis.stage,
       },
@@ -294,8 +316,9 @@ export async function runInboundMessagePipeline(
 
   // 4b. W3 — durable evidence. The writer keeps only the CURRENT state, so the
   // transitions it just made are recorded here or lost forever. Best-effort:
-  // never breaks the message it describes.
-  await withTenantTransaction((tx) =>
+  // never breaks the message it describes. Skipped on resume: the event has no
+  // idempotency key, and a missing learning signal beats a doubled one.
+  if (!resume) await withTenantTransaction((tx) =>
     recordConversationEvidence(
       {
         businessId,
@@ -667,13 +690,26 @@ export async function runInboundMessagePipeline(
       humanTakeover,
     }) && policyDecision !== "HANDOFF_REQUIRED";
 
-  const generatedSuggestions = offerAutoSuggestions
+  // On resume, AUTO suggestions that the first run already persisted for this
+  // message are returned as they are, never generated a second time.
+  const existingAutoSuggestions = resume
     ? await withTenantTransaction((tx) =>
-        generateReplySuggestions(labelledMessage, analysis, contextMessages, {
-          tx,
+        tx.replySuggestion.findMany({
+          where: { businessId, messageId: labelledMessage.id, suggestionType: "AUTO" },
+          orderBy: { id: "asc" },
         })
       )
     : [];
+
+  const generatedSuggestions = !offerAutoSuggestions
+    ? []
+    : existingAutoSuggestions.length > 0
+      ? existingAutoSuggestions
+      : await withTenantTransaction((tx) =>
+          generateReplySuggestions(labelledMessage, analysis, contextMessages, {
+            tx,
+          })
+        );
 
   let suggestions: unknown[] = [];
   let shouldGenerate = offerAutoSuggestions;
@@ -693,7 +729,11 @@ export async function runInboundMessagePipeline(
   // Stage 4 (flag-gated, DEFAULT OFF → byte-identical to before): first LLM reply
   // DRAFT via the SHARED runner — identical to the `/api/message` inline path.
   // Draft-only, never sent; pre + post Guardrails inside the runner.
-  const llmDraftOutcome = await maybeCreateBotLlmDraft(
+  // Not repeated on resume: the draft is optional, and its runner has no
+  // per-message dedupe.
+  const llmDraftOutcome = resume
+    ? ({ status: "skipped", reason: "RESUME" } as const)
+    : await maybeCreateBotLlmDraft(
     {
       businessId,
       conversationId: conversation.id,
