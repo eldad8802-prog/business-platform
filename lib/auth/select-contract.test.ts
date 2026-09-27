@@ -74,7 +74,14 @@ for (const [label, src] of [
 // ---- the password column, path by path -------------------------------------
 test("login DOES select password (bcrypt needs the hash)", () => {
   assert.ok(/password:\s*true/.test(LOGIN), "login no longer selects password — it cannot verify a credential");
-  assert.ok(/bcrypt\.compare/.test(LOGIN), "login no longer compares the hash");
+  // sec-B (M-7): the comparison moved into lib/auth/credential-check.ts so it
+  // runs exactly once whether or not the account exists (dummy hash). Login
+  // must still route the hash it selected through that comparison.
+  assert.ok(/verifyPassword\(password, user\?\.password/.test(LOGIN), "login no longer compares the hash");
+  assert.ok(
+    /bcrypt\.compare/.test(read("lib/auth/credential-check.ts")),
+    "the shared credential check no longer uses bcrypt"
+  );
 });
 
 test("session resolution does NOT select password", () => {

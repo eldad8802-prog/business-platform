@@ -74,6 +74,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
+    | grep -vE "(^|/)lib/auth/admin-mfa\\.service\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

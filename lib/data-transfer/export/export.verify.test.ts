@@ -654,9 +654,16 @@ check("every export response forbids caching", () => {
   const src = fs.readFileSync("app/api/data-transfer/export/route.ts", "utf8");
   const returns = src.split("return ").slice(1);
   assert.equal(returns.length >= 4, true, "expected success + 400 + 413 + 500 paths");
+  // sec(F)/L-7 added one path that returns the cost-limit denial built by
+  // lib/security/cost-limits.ts. Follow it there instead of trusting it: BOTH of
+  // its responses (429 exceeded, 503 unavailable) must carry no-store.
+  const costSrc = fs.readFileSync("lib/security/cost-limits.ts", "utf8");
+  const costNoStore = (costSrc.match(/"cache-control": "no-store"/g) ?? []).length === 2;
   for (const block of returns) {
     assert.equal(
-      block.includes("private, no-store") || block.includes("authRequiredResponse"),
+      block.includes("private, no-store") ||
+        block.includes("authRequiredResponse") ||
+        (block.startsWith("costLimited;") && costNoStore),
       true,
       "an export response path is missing Cache-Control: private, no-store"
     );

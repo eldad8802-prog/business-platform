@@ -13,6 +13,7 @@ import {
 } from "@/lib/services/conversation/conversation-evidence.service";
 import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
@@ -48,6 +49,7 @@ import {
   defaultBotLlmDraftRunnerDeps,
   maybeCreateBotLlmDraft,
 } from "@/lib/services/conversation/bot-llm-draft-runner.service";
+import { logRouteError } from "@/lib/security/route-error";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
 
@@ -225,12 +227,11 @@ export async function GET(req: Request) {
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("GET /api/message error:", error);
+    logRouteError("GET /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to fetch messages",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -247,6 +248,8 @@ export async function POST(req: Request) {
         { status: 401 }
       );
     }
+    const costLimited = await enforceCostLimit("COST_MESSAGE_SEND", user, req);
+    if (costLimited) return costLimited;
 
     const body = await req.json();
     const conversationId = Number(body.conversationId);
@@ -265,12 +268,11 @@ export async function POST(req: Request) {
       handleAuthedPost(user, body, conversationId)
     );
   } catch (error: any) {
-    console.error("POST /api/message error:", error);
+    logRouteError("POST /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to create message",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -1086,12 +1088,11 @@ async function handleAuthedPost(
       { status: 201 }
     );
   } catch (error: any) {
-    console.error("POST /api/message error:", error);
+    logRouteError("POST /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to create message",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );

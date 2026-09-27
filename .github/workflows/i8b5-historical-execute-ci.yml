@@ -22,6 +22,7 @@ on:
       - "app/api/data-transfer/import/historical/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+      - ".github/workflows/i8b5-historical-execute-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -53,8 +54,8 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -110,7 +111,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        await lockHistoricalIdentity\(tx, businessId, identity\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:102:113" --expect 'FAIL  an execution whose identity is held elsewhere waits instead of inserting' -- npx tsx .i8b5/concurrency.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two concurrent creates passed without the lock"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -129,7 +130,7 @@ jobs:
           # so a replay would create it a second time.
           perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId: runId,\n          sourceRowNumber: row\.sourceRowNumber,\n          action: "CREATE",\n          status: "CREATED",\n        \}\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:119:132" --expect 'FAIL  every record this phase created carries a marker' -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a record without its marker passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -146,7 +147,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/            reversesHistoricalDocumentId: reversal,/            reversesHistoricalDocumentId: null,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:138:149" --expect 'FAIL  and is bound to the record it credits' -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a credit that binds to nothing passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -163,7 +164,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:155:166" --expect 'FAIL  the older approval is refused as stale, not quietly reinterpreted' -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale approval executed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -182,7 +183,7 @@ jobs:
           # not a plain CREATE" would silently drop every deliberate override.
           perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (row.selectedDecision !== "CREATE") {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:172:185" --expect 'FAIL  CREATE_ANYWAY creates a SECOND record on purpose' -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an approved create was dropped without a word"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -199,7 +200,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:191:202" --expect 'FAIL  CREATE_ANYWAY imports the duplicate it was given for' -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a row the owner declined was imported"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -218,7 +219,7 @@ jobs:
           # second copy is that an existing record defaults the row to SKIP.
           perl -0pi -e 's/  if \(row\.database === "EXACT" \|\| row\.database === "STRONG_CANDIDATE"\) return "SKIP";//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:208:221" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: re-importing a file duplicated the history"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -244,7 +245,7 @@ jobs:
           # aimed at what actually carries the identity now.
           perl -0pi -e 's/    "import-retry:v1",/    "import-retry:v1" + String(Math.random()),/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "i8b5-historical-execute-ci.yml:227:247" --expect 'FAIL  and both attempts resolve to the SAME run' -- npx tsx .i8b5/concurrency.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the same approval opened two runs"; exit 1
           fi
           mv "$F.bak" "$F"
