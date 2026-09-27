@@ -46,26 +46,23 @@ export async function recordProductUsageEvent(
     // for the business it is acting for. createMany, not create: the runtime holds
     // INSERT only on this table (no SELECT for INSERT ... RETURNING).
     const businessId = input.businessId ?? null;
-    const write = (db: Pick<typeof prisma, "productUsageEvent">) =>
-      db.productUsageEvent.createMany({
-      data: {
-        businessId,
-        userId: input.userId ?? null,
-        sessionId: input.sessionId ?? null,
-        featureKey: input.featureKey,
-        action: input.action,
-        outcome: input.outcome ?? null,
-        entityType: input.entityType ?? null,
-        entityId: input.entityId ?? null,
-        durationMs: input.durationMs ?? null,
-        source: input.source ?? PRODUCT_USAGE_SOURCES.API,
-        metadata: buildMetadata(input.metadata),
-      },
-    });
+    const row = {
+      userId: input.userId ?? null,
+      sessionId: input.sessionId ?? null,
+      featureKey: input.featureKey,
+      action: input.action,
+      outcome: input.outcome ?? null,
+      entityType: input.entityType ?? null,
+      entityId: input.entityId ?? null,
+      durationMs: input.durationMs ?? null,
+      source: input.source ?? PRODUCT_USAGE_SOURCES.API,
+      metadata: buildMetadata(input.metadata),
+    };
     if (businessId !== null && Number.isInteger(businessId) && businessId > 0) {
-      await tenantTx(businessId, (tx) => write(tx));
+      await tenantTx(businessId, (tx) => tx.productUsageEvent.createMany({ data: { ...row, businessId } }));
     } else {
-      await write(prisma);
+      // No trusted tenant: the event is written UNTENANTED, never under a caller value.
+      await prisma.productUsageEvent.createMany({ data: { ...row, businessId: null } });
     }
   } catch (error) {
     console.error("recordProductUsageEvent error:", error);
