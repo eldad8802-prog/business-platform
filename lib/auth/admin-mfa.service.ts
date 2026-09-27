@@ -21,7 +21,10 @@
  *   - recovery codes are single-use and stored only as hashes;
  *   - no code, seed, URI or recovery code is ever logged.
  *
- * Reads/writes go through the CANONICAL runtime client (`lib/prisma.ts`).
+ * Reads/writes go through the AUTH PLANE (`authDb()`, T-04): PlatformAdminMfa is
+ * authentication material, not tenant data. Migration 20260926110300 grants
+ * app_auth S/I/U/D on it; the runtime's legacy grant is revoked per environment
+ * once this ships. In legacy mode authDb() is the canonical client, as before.
  *
  * This was originally written against the sanctioned admin client, which was a
  * mistake: `PlatformAdminMfa` carries no `businessId`, has row-level security
@@ -35,7 +38,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import * as OTPAuth from "otpauth";
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 import {
   ADMIN_MFA_KEY_ID,
   decryptAdminMfaSecretWithFormat,
@@ -108,7 +111,7 @@ function generateRecoveryCode(): string {
 
 /** Current state for a user. Never returns the seed or any code. */
 export async function getAdminMfaState(userId: number): Promise<AdminMfaState> {
-  const row = await prisma.platformAdminMfa.findUnique({
+  const row = await authDb().platformAdminMfa.findUnique({
     where: { userId },
     select: {
       enrolledAt: true,
@@ -148,7 +151,7 @@ export async function beginAdminMfaEnrollment(
   | { ok: true; otpauthUri: string }
   | { ok: false; reason: "already_enrolled" }
 > {
-  const db = prisma;
+  const db = authDb();
   const existing = await db.platformAdminMfa.findUnique({
     where: { userId },
     select: { enrolledAt: true },
@@ -195,7 +198,7 @@ export async function confirmAdminMfaEnrollment(
   | { ok: true; recoveryCodes: string[] }
   | { ok: false; reason: "no_pending_enrollment" | "already_enrolled" | "invalid_code" }
 > {
-  const db = prisma;
+  const db = authDb();
   const row = await db.platformAdminMfa.findUnique({ where: { userId } });
   if (!row) return { ok: false, reason: "no_pending_enrollment" };
   if (row.enrolledAt) return { ok: false, reason: "already_enrolled" };
@@ -244,7 +247,7 @@ export async function verifyAdminMfaCode(
   code: string,
   now: Date = new Date()
 ): Promise<VerifyOutcome> {
-  const db = prisma;
+  const db = authDb();
   const row = await db.platformAdminMfa.findUnique({ where: { userId } });
   if (!row) return { ok: false, reason: "no_record" };
   if (!row.enrolledAt) return { ok: false, reason: "not_enrolled" };
@@ -323,7 +326,7 @@ export async function verifyAdminMfaCode(
 async function upgradeLegacySeed(userId: number, previous: string, secret: string): Promise<void> {
   try {
     const { encrypted, keyId } = encryptAdminMfaSecret(secret, userId);
-    await prisma.platformAdminMfa.updateMany({
+    await authDb().platformAdminMfa.updateMany({
       where: { userId, secretEncrypted: previous },
       data: { secretEncrypted: encrypted, encryptionKeyId: keyId },
     });
@@ -343,7 +346,7 @@ async function upgradeLegacySeed(userId: number, previous: string, secret: strin
  * still requires proving a code before MFA is active again.
  */
 export async function resetAdminMfa(userId: number): Promise<void> {
-  await prisma.platformAdminMfa.deleteMany({ where: { userId } });
+  await authDb().platformAdminMfa.deleteMany({ where: { userId } });
 }
 
 export const __testing = {
