@@ -112,7 +112,10 @@ ok("derive: the response carries no learned value, entity id, trend or error tex
   !/rules: derivation\.rules,/.test(derive));
 ok("derive: isolation is MEASURED on the runtime connection and must hold",
   /relforcerowsecurity/.test(derive) && /withoutTenant/.test(derive) &&
-  /foreignRows/.test(derive) && /holds:/.test(derive));
+  /foreignRows/.test(derive) &&
+  // sec(C)/T-09 returns the verdict as `isolation: { holds }` (shorthand); both spellings are the verdict.
+  /holds:|isolation: \{ holds \}/.test(derive) &&
+  /const holds =[\s\S]{0,240}withoutTenant[\s\S]{0,120}foreignRows/.test(derive));
 ok("derive: reports the role posture instead of assuming it",
   /rolbypassrls/.test(derive) && /proofLevel/.test(derive));
 // Compared at the CALL sites, not the imports — which are alphabetical and say nothing about order.
