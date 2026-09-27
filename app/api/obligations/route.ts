@@ -18,6 +18,9 @@ const RECURRENCE_VALUES: readonly RecurrenceCadence[] = [
   "NONE",
   "WEEKLY",
   "MONTHLY",
+  "BIMONTHLY",
+  "QUARTERLY",
+  "SEMIANNUAL",
   "YEARLY",
 ];
 

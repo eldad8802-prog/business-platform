@@ -28,7 +28,43 @@ export type PaymentStatusValue = "RECORDED" | "VOID";
 
 export type CommitmentScheduleKindValue = "ONE_OFF" | "RECURRING" | "INSTALLMENT_PLAN";
 
-export type RecurrenceCadenceValue = "NONE" | "WEEKLY" | "MONTHLY" | "YEARLY";
+export type RecurrenceCadenceValue =
+  | "NONE"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "BIMONTHLY"
+  | "QUARTERLY"
+  | "SEMIANNUAL"
+  | "YEARLY";
+
+/** Every cadence the ledger accepts, in the order a form should offer them. */
+export const RECURRENCE_CADENCES: readonly RecurrenceCadenceValue[] = [
+  "NONE",
+  "WEEKLY",
+  "MONTHLY",
+  "BIMONTHLY",
+  "QUARTERLY",
+  "SEMIANNUAL",
+  "YEARLY",
+];
+
+/** Months per step for a month-based cadence; null for WEEKLY and NONE. */
+export function cadenceMonths(cadence: RecurrenceCadenceValue): number | null {
+  switch (cadence) {
+    case "MONTHLY":
+      return 1;
+    case "BIMONTHLY":
+      return 2;
+    case "QUARTERLY":
+      return 3;
+    case "SEMIANNUAL":
+      return 6;
+    case "YEARLY":
+      return 12;
+    default:
+      return null;
+  }
+}
 
 /** What the owner sees. None of these are stored. */
 export type DerivedInstallmentState =
@@ -253,16 +289,124 @@ export function addMonthsClamped(from: Date, months: number): Date {
 }
 
 export function nextOccurrence(from: Date, cadence: RecurrenceCadenceValue): Date | null {
-  switch (cadence) {
-    case "WEEKLY":
-      return new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
-    case "MONTHLY":
-      return addMonthsClamped(from, 1);
-    case "YEARLY":
-      return addMonthsClamped(from, 12);
-    default:
-      return null;
+  if (cadence === "WEEKLY") return new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const months = cadenceMonths(cadence);
+  return months === null ? null : addMonthsClamped(from, months);
+}
+
+/* ─────────────────────── anchored recurrence (Phase 2) ───────────────────── */
+
+/**
+ * The due date after `lastDueAt`, as an Israel CALENDAR date stored at UTC
+ * midnight (the ledger's date-picker convention).
+ *
+ * Two defects of chaining `addMonthsClamped` from the last instant are fixed:
+ *   - drift: Jan 31 → Feb 28 → Mar 28 forever. Here the series' anchor day is
+ *     restored after a clamp (Jan 31 → Feb 28 → Mar 31), exactly the rule the
+ *     Daily Business Cost engine projects with, so a materialised installment
+ *     and a projected one can never disagree.
+ *   - zone: a legacy row stored at Israeli midnight (21:00Z the previous UTC
+ *     day) was advanced by its UTC day and could land a day early. Here the
+ *     calendar date is read in Asia/Jerusalem first.
+ *
+ * `anchorDueAt` is the series' first due date. If the owner moved an occurrence
+ * to another day, the last due date's own day wins unless it is a month-end
+ * clamp — a deliberate move is respected, a clamp is not inherited.
+ */
+export function nextDueAt(params: {
+  lastDueAt: Date;
+  cadence: RecurrenceCadenceValue;
+  anchorDueAt: Date;
+}): Date | null {
+  const last = civilParts(params.lastDueAt);
+  if (params.cadence === "WEEKLY") {
+    return new Date(Date.UTC(last.y, last.m - 1, last.d + 7));
   }
+  const months = cadenceMonths(params.cadence);
+  if (months === null) return null;
+  const anchor = civilParts(params.anchorDueAt);
+  const lastMonthEnd = daysInMonthUtc(last.y, last.m);
+  const anchorDay = last.d === lastMonthEnd && anchor.d > last.d ? anchor.d : last.d;
+  const monthIndex = last.m - 1 + months;
+  const y = last.y + Math.floor(monthIndex / 12);
+  const m0 = monthIndex % 12;
+  return new Date(Date.UTC(y, m0, Math.min(anchorDay, daysInMonthUtc(y, m0 + 1))));
+}
+
+/** The first day (Israel calendar) of an instant, at UTC midnight. */
+export function civilDayStart(instant: Date): Date {
+  const { y, m, d } = civilParts(instant);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+const ISRAEL_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Jerusalem",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function civilParts(instant: Date): { y: number; m: number; d: number } {
+  const [y, m, d] = ISRAEL_DAY.format(instant).split("-").map(Number);
+  return { y, m, d };
+}
+
+function daysInMonthUtc(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+
+/* ─────────────────── amount change / end planning (Phase 2) ──────────────── */
+
+export type ScheduleRow = {
+  id: number;
+  dueAt: Date;
+  status: InstallmentStatusValue;
+  activeAllocationCount: number;
+};
+
+/**
+ * Which installments a "from <date> the amount is X" change rewrites.
+ *
+ * The change starts at the FIRST occurrence due on or after `effectiveFrom`
+ * (calendar days, Israel). Everything before it is history and is never
+ * touched — that is what keeps every past day's cost what it was. Cancelled
+ * rows are skipped. A target that already carries money is refused: its amount
+ * was the basis of a real payment, and rewriting it would make the ledger
+ * disagree with the cash it recorded.
+ */
+export function planAmountChange(params: {
+  effectiveFrom: Date;
+  rows: ScheduleRow[];
+}): { targetIds: number[] } {
+  const from = civilDayStart(params.effectiveFrom).getTime();
+  const targets = params.rows.filter(
+    (r) => r.status === "SCHEDULED" && civilDayStart(r.dueAt).getTime() >= from,
+  );
+  const paid = targets.filter((r) => r.activeAllocationCount > 0);
+  if (paid.length > 0) {
+    throw new PayablesConflictError(
+      "An installment on or after that date already has a payment against it — reverse it first or choose a later date",
+    );
+  }
+  return { targetIds: targets.map((r) => r.id) };
+}
+
+/**
+ * Which installments ending a commitment on `endsOn` (inclusive, Israel
+ * calendar) cancels: every SCHEDULED one due after it. One that carries money
+ * is refused rather than stranded, as `assertInstallmentCancellable` does.
+ */
+export function planEnd(params: { endsOn: Date; rows: ScheduleRow[] }): { cancelIds: number[] } {
+  const end = civilDayStart(params.endsOn).getTime();
+  const after = params.rows.filter(
+    (r) => r.status === "SCHEDULED" && civilDayStart(r.dueAt).getTime() > end,
+  );
+  if (after.some((r) => r.activeAllocationCount > 0)) {
+    throw new PayablesConflictError(
+      "An installment after the end date already has a payment against it — reverse it first or choose a later end date",
+    );
+  }
+  return { cancelIds: after.map((r) => r.id) };
 }
 
 export type PlannedInstallment = { sequence: number; amountMinor: number; dueAt: Date };
@@ -311,9 +455,8 @@ export function generateInstallmentPlan(params: {
 
 function nextOccurrenceN(from: Date, cadence: RecurrenceCadenceValue, steps: number): Date | null {
   if (cadence === "WEEKLY") return new Date(from.getTime() + steps * 7 * 24 * 60 * 60 * 1000);
-  if (cadence === "MONTHLY") return addMonthsClamped(from, steps);
-  if (cadence === "YEARLY") return addMonthsClamped(from, steps * 12);
-  return null;
+  const months = cadenceMonths(cadence);
+  return months === null ? null : addMonthsClamped(from, steps * months);
 }
 
 /**
