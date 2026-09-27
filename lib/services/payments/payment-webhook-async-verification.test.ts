@@ -35,6 +35,8 @@ import type { ProviderPaymentStatus } from "./providers/payment-provider.types";
 const VERIFIED_PAID: ProviderPaymentStatus = {
   outcome: "PAID",
   providerTransactionId: "TXN-1",
+  verifiedAmount: "100.00",
+  verifiedCurrency: "ILS",
 };
 
 let pass = 0;

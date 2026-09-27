@@ -280,6 +280,16 @@ export default function AttentionPage() {
         overflowX: "hidden",
       }}
     >
+<style>{`
+        @media (min-width: 1200px) {
+          .attn-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            align-items: start;
+          }
+        }
+      `}</style>
       {/*
         The follow-up queue is a worklist: `data` intent, not a 640 column.
         The outer div keeps the surface background and the overflow guard;
@@ -383,6 +393,7 @@ export default function AttentionPage() {
 
         {!loading && !error && !isEmpty && (
           <ul
+            className="attn-list"
             style={{
               listStyle: "none",
               margin: 0,

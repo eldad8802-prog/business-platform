@@ -88,7 +88,7 @@ async function main() {
     await seedPending(store);
     const deps = depsFor(
       store,
-      capableProvider(async () => ({ outcome: "PAID", providerTransactionId: "txn-1" }))
+      capableProvider(async () => ({ outcome: "PAID", providerTransactionId: "txn-1", verifiedAmount: "100.00", verifiedCurrency: "ILS" }))
     );
     const res = await processPaymentWebhook({ provider: "TRANZILA", rawBody: body }, deps);
     assert.equal(res.ok, true);
@@ -137,7 +137,7 @@ async function main() {
     await seedPending(store, "TRANZILA", /* withConnection */ false);
     const deps = depsFor(
       store,
-      capableProvider(async () => ({ outcome: "PAID", providerTransactionId: "txn-x" }))
+      capableProvider(async () => ({ outcome: "PAID", providerTransactionId: "txn-x", verifiedAmount: "100.00", verifiedCurrency: "ILS" }))
     );
     const res = await processPaymentWebhook({ provider: "TRANZILA", rawBody: body }, deps);
     assert.equal(res.ok, false);

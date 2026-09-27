@@ -1,0 +1,157 @@
+# M1 — inbound money truth.
+#
+# "If CardCom took money, Dubiz eventually knows about it exactly once."
+#
+# NO PATH FILTER, deliberately. Payment truth regressed silently before because
+# the suites that would have caught it ran only when a PR happened to touch a
+# listed path, and a green check was read as proof. This workflow runs on every
+# pull request and every push to main, so its green means the suites ran.
+#
+#   unit  — EVERY payments test file (discovered by glob, so a new or forgotten
+#           file cannot fall out of CI), the F1 refund-outcome contract, and the
+#           structural tenant-access guard.
+#   db    — the M1 battery against real PostgreSQL 17, with the application
+#           connected as a measured NOSUPERUSER NOBYPASSRLS role and the tenant
+#           policies replayed verbatim from prisma/migrations; then the negative
+#           proofs, each of which puts one defect back and must turn it red.
+#
+# Synthetic data only. No secrets, no Neon, no real provider.
+
+name: m1 — inbound money truth
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m1-inbound-money-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Payment unit suites (all files) + F1 + tenant guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: No unscoped access to a FORCE-RLS tenant table
+        run: node scripts/ci/tenant-scoped-access-guard.mjs
+
+      - name: F1 — a completed refund is never announced as refused
+        run: npx tsx components/collection/thread/refund-outcome.test.ts
+
+      - name: F1 negative proof — the old screen comparison fails the contract
+        run: |
+          set -euo pipefail
+          F="components/collection/thread/customer-thread-screen.tsx"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/return refundOutcomeNotice\(r\.outcome\);/return r.outcome === "SETTLED" ? "ההחזר בוצע." : "חברת הסליקה לא ביצעה את ההחזר.";/' "$F"
+          grep -q 'r.outcome === "SETTLED"' "$F" || { mv "$F.bak" "$F"; echo "::error::negative-proof setup did not apply"; exit 1; }
+          if npx tsx components/collection/thread/refund-outcome.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "::error::NEGATIVE-PROOF FAIL: the F1 contract test passed against the old screen"; exit 1
+          fi
+          mv "$F.bak" "$F"
+
+      - name: Every payments test file
+        run: |
+          set -uo pipefail
+          files=$(ls lib/services/payments/*.test.ts lib/services/payments/providers/*/*.test.ts | sort)
+          total=0; failed=0
+          for f in $files; do
+            total=$((total+1))
+            if npx tsx "$f" > out.log 2>&1; then
+              echo "PASS $f :: $(tail -1 out.log)"
+            else
+              failed=$((failed+1)); echo "::error::FAIL $f"; tail -40 out.log
+            fi
+          done
+          echo "payments test files: $total run, $failed failed"
+          [ "$total" -ge 29 ] || { echo "::error::expected at least 29 payments test files, found $total"; exit 1; }
+          [ "$failed" -eq 0 ]
+
+      - name: Settlement and billing rules touched by M1
+        run: |
+          npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
+          npm run verify:receipt-issuance-integrity
+          npm run verify:allocation-authority
+
+  db:
+    name: M1 battery under FORCE RLS (PG17, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m1_owner
+          POSTGRES_PASSWORD: m1_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m1_owner -d dubiz_m1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m1_owner:m1_ci_synthetic_owner_pw@localhost:5432/dubiz_m1
+      RUNTIME_URL: postgresql://m1_runtime:m1_ci_synthetic_runtime_pw@localhost:5432/dubiz_m1
+      AUTH_TOKEN_SECRET: m1_ci_auth_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: m1_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "DROP ROLE IF EXISTS m1_runtime;" \
+            -c "CREATE ROLE m1_runtime LOGIN PASSWORD 'm1_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO m1_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO m1_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO m1_runtime;"
+
+      - name: M1 battery (the policies are installed by the battery, from prisma/migrations)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          M1_ADMIN_URL: ${{ env.OWNER_URL }}
+          M1_ITER: "25"
+        run: npx tsx .m1inbound/battery.mts
+
+      - name: M1 negative proofs (each restored defect must turn the battery red)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          M1_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: node .m1inbound/negative-proofs.mjs

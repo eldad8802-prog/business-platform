@@ -24,6 +24,12 @@ on:
       reason:
         description: "Audit note: why this run is happening"
         required: false
+      brain:
+        description: "M8: also run the Brain in SHADOW (never owner-visible; one bounded model call at most)"
+        required: false
+        type: choice
+        default: "none"
+        options: ["none", "shadow"]
 
 permissions:
   contents: read
@@ -41,6 +47,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           BID: ${{ inputs.business_id }}
+          BRAIN: ${{ inputs.brain }}
           DERIVE_URL: https://promaxgroup.co.il/api/knowledge/derive
         run: |
           set -euo pipefail
@@ -53,7 +60,7 @@ jobs:
           [ "${BID}" -gt 0 ] || { echo "::error::business_id must be > 0"; exit 1; }
 
           code=$(curl -sS -o body.json -w "%{http_code}" -m 120 \
-            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${DERIVE_URL}?businessId=${BID}")
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${DERIVE_URL}?businessId=${BID}$([ "${BRAIN:-none}" = "shadow" ] && echo '&brain=shadow')")
           echo "HTTP $code"
           cat body.json; echo
           [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }

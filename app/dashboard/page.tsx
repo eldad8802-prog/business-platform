@@ -61,7 +61,13 @@ export default function Dashboard() {
   ];
 
   return (
-    <div style={{ maxWidth: 500, margin: "0 auto", padding: 20 }}>
+    <div className="dash-frame" style={{ maxWidth: 500, margin: "0 auto", padding: 20 }}>
+      <style>{`
+        @media (min-width: 1200px) {
+          .dash-frame { max-width: 1100px !important; }
+          .dash-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+        }
+      `}</style>
       <div style={{ marginBottom: 16 }}>
         <BackButton />
       </div>
@@ -99,7 +105,9 @@ export default function Dashboard() {
       <p>Expense: {data.totalExpense}</p>
       <p>Records: {data.count}</p>
 
+      <div className="dash-charts">
       {/* Pie Chart */}
+      <div>
       <h3>Categories</h3>
       <PieChart width={300} height={300}>
         <Pie data={categoryData} dataKey="value" outerRadius={100}>
@@ -109,8 +117,10 @@ export default function Dashboard() {
         </Pie>
         <Tooltip />
       </PieChart>
+      </div>
 
       {/* Bar Chart */}
+      <div>
       <h3>Income vs Expense</h3>
       <BarChart width={300} height={250} data={barData}>
         <CartesianGrid strokeDasharray="3 3" />
@@ -119,6 +129,8 @@ export default function Dashboard() {
         <Tooltip />
         <Bar dataKey="value" />
       </BarChart>
+      </div>
+      </div>
 
       {/* List */}
       <h3>Categories List</h3>

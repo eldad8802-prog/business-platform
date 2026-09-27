@@ -3,6 +3,10 @@ import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement
 import { deriveKnowledgeForBusiness } from "@/lib/knowledge/derive.service";
 import { resolveIdentitiesForBusiness } from "@/lib/identity/entity-identity.service";
 import { generateInsightsForBusiness } from "@/lib/knowledge/insight.service";
+import { deriveTemporalForBusiness } from "@/lib/knowledge/temporal/derive-temporal.service";
+import { buildBusinessKnowledgeSnapshot } from "@/lib/knowledge/snapshot/build-snapshot";
+import { brainMode, runBrain } from "@/lib/knowledge/brain/brain.service";
+import { brainModel, openAiBrainProvider, openAiKeyPresent } from "@/lib/knowledge/brain/provider";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 
@@ -43,6 +47,7 @@ export const maxDuration = 120;
 /** Every tenant table the knowledge layer writes, and the two M5 evidence tables. */
 const ISOLATION_TABLES = [
   "KnowledgeMeasure",
+  "TemporalKnowledge",
   "BusinessInsight",
   "PartyResolutionClaim",
   "EntityLinkProposal",
@@ -93,6 +98,25 @@ async function handle(req: NextRequest) {
     const identity = await resolveIdentitiesForBusiness(businessId);
     const derivation = await deriveKnowledgeForBusiness(businessId);
     const insights = await generateInsightsForBusiness(businessId);
+    // M6 — temporal knowledge AS OF the same instant the measures were derived at.
+    const temporal = await deriveTemporalForBusiness(businessId, new Date(derivation.now));
+    // M7 — the Business Knowledge Snapshot, built TWICE at the same instant: the second build must
+    // reproduce the first fingerprint exactly. Only its stats leave this function — never its contents.
+    const snapAsOf = new Date(derivation.now);
+    const snap1 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+    const snap2 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+
+    // M8 — the Brain, in SHADOW, ONLY when the scheduler asks for it explicitly (?brain=shadow) and
+    // BRAIN_MODE is not "off". The server builds the snapshot; nothing comes from the caller but the
+    // businessId. Nothing is persisted and nothing reaches an owner: only operational metadata leaves.
+    const brainRequested = new URL(req.url).searchParams.get("brain") === "shadow";
+    const brain = brainRequested
+      ? await runBrain(businessId, {
+          mode: brainMode(),
+          provider: openAiBrainProvider(),
+          buildSnapshot: async (b) => buildBusinessKnowledgeSnapshot(b, { asOf: snapAsOf }),
+        })
+      : null;
 
     // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
     //
@@ -173,6 +197,63 @@ async function handle(req: NextRequest) {
             rls.every((x) => x.rls && x.force) &&
             Object.values(withoutTenant).every((n) => n === 0) &&
             Object.values(foreignRows).every((n) => n === 0),
+        },
+        // Per temporal rule: outcome and COUNTS by knowledge type and status. No baseline, no value,
+        // no entity id — the same public-log rule as the measures above.
+        temporal: {
+          asOf: temporal.asOf,
+          rulesRun: temporal.rulesRun,
+          rulesOk: temporal.rulesOk,
+          rulesFailed: temporal.rulesFailed,
+          totalDurationMs: temporal.totalDurationMs,
+          rules: temporal.rules.map((r) => ({
+            ruleId: r.ruleId, ruleVersion: r.ruleVersion, outcome: r.outcome, failedStage: r.failedStage,
+            series: r.series, artifacts: r.artifacts, written: r.written, confirmed: r.confirmed,
+            superseded: r.superseded, staled: r.staled, durationMs: r.durationMs,
+          })),
+        },
+        // M7 — counts, sizes, timing and the fingerprint's equality. Not the snapshot.
+        snapshot: {
+          contractVersion: snap1.contractVersion,
+          counts: snap1.stats.counts,
+          truncated: snap1.stats.truncated,
+          serializedBytes: snap1.stats.serializedBytes,
+          largestSection: snap1.stats.largestSection,
+          queries: snap1.stats.queries,
+          buildMs: snap1.buildMs,
+          secondBuildMs: snap2.buildMs,
+          deterministic: snap1.snapshotFingerprint === snap2.snapshotFingerprint,
+          knowledgeByKind: snap1.knowledge.reduce<Record<string, number>>((a, k) => ({ ...a, [k.kind]: (a[k.kind] ?? 0) + 1 }), {}),
+          findingsByRule: snap1.crossDomainFindings.reduce<Record<string, number>>((a, f) => ({ ...a, [f.ruleId]: (a[f.ruleId] ?? 0) + 1 }), {}),
+          conflictsByKind: snap1.conflicts.reduce<Record<string, number>>((a, c) => ({ ...a, [c.kind]: (a[c.kind] ?? 0) + 1 }), {}),
+          gapsByKind: snap1.knowledgeGaps.reduce<Record<string, number>>((a, g) => ({ ...a, [g.kind]: (a[g.kind] ?? 0) + 1 }), {}),
+        },
+        // M8 — provider configuration (never the key) and, when requested, the shadow run's outcome:
+        // status, counts, rejection CODES, versions, tokens, latency. No prose, no context, no values.
+        brain: {
+          mode: brainMode(),
+          provider: "openai",
+          model: brainModel(),
+          keyPresent: openAiKeyPresent(),
+          shadowRun: brain
+            ? {
+                status: brain.status,
+                accepted: brain.findings.length,
+                acceptedByType: brain.findings.reduce<Record<string, number>>((a, f) => ({ ...a, [f.type]: (a[f.type] ?? 0) + 1 }), {}),
+                rejectedCodes: brain.rejected.reduce<Record<string, number>>((a, r) => ({ ...a, [r.code]: (a[r.code] ?? 0) + 1 }), {}),
+                contractVersion: brain.meta.contractVersion,
+                promptVersion: brain.meta.promptVersion,
+                contextVersion: brain.meta.contextVersion,
+                contextBytes: brain.meta.contextBytes,
+                contextOmitted: brain.meta.contextOmitted,
+                modelCalled: brain.meta.modelCalled,
+                latencyMs: brain.meta.latencyMs,
+                inputTokens: brain.meta.inputTokens,
+                outputTokens: brain.meta.outputTokens,
+                failureStage: brain.meta.failureStage,
+                snapshotMatches: brain.meta.snapshotFingerprint === snap1.snapshotFingerprint,
+              }
+            : null,
         },
         insights: insights.length,
       },

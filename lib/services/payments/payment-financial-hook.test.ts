@@ -59,7 +59,7 @@ async function main() {
     const calls: VerifiedPaidEvent[] = [];
     await processPaymentWebhook(
       { provider: "TRANZILA", rawBody: body("PAID") },
-      depsWith(store, { outcome: "PAID", providerTransactionId: null }, async (e) => {
+      depsWith(store, { outcome: "PAID", providerTransactionId: "tx1", verifiedAmount: "100.00", verifiedCurrency: "ILS" }, async (e) => {
         calls.push(e);
       })
     );
@@ -109,7 +109,7 @@ async function main() {
     await seedPending(store);
     const res = await processPaymentWebhook(
       { provider: "TRANZILA", rawBody: body("PAID") },
-      depsWith(store, { outcome: "PAID", providerTransactionId: null }, async () => {
+      depsWith(store, { outcome: "PAID", providerTransactionId: "tx1", verifiedAmount: "100.00", verifiedCurrency: "ILS" }, async () => {
         throw new Error("financial-event store down");
       })
     );

@@ -13,7 +13,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
     <ShellChrome>
       <div className="min-h-screen bg-[var(--dz-background)] text-[var(--dz-text-primary)]" dir="rtl">
-        <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
+        <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl min-[1200px]:max-w-none min-[1200px]:px-8">
           <div className="flex-1">{children}</div>
           <SettingsSystemFooter appVersion={packageJson.version} />
         </div>

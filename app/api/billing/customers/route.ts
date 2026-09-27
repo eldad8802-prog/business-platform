@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { customerService } from "@/lib/services/crm/customer.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
@@ -45,12 +47,25 @@ export async function GET(req: NextRequest) {
     const q = (searchParams.get("q") ?? "").trim();
     const limit = parseLimit(searchParams.get("limit"));
 
-    const customers = await customerService.listCustomers({
-      businessId: user.businessId,
-      query: q,
-      limit,
-      sort: "recent",
-    });
+    // Customer is FORCE RLS. Without a tenant transaction the service falls back to
+    // the global client, runs with no `app.current_business_id`, and the policy
+    // matches zero rows — an empty picker for every tenant behind a green 200.
+    // businessId is ALWAYS the server-derived user.businessId.
+    const customers = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.listCustomers(
+            {
+              businessId: user.businessId,
+              query: q,
+              limit,
+              sort: "recent",
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(
       { customers: customers.map(toBillingCustomer) },
@@ -75,18 +90,30 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const customer = await customerService.createCustomer({
-      businessId: user.businessId,
-      name: body.name as string,
-      phone: (body.phone as string | null | undefined) ?? null,
-    }, {
-      // M5.5 — server-derived actor; no tx here, so the sensor opens its own (fail-open).
-      sensor: {
-        actor: { type: "OWNER_USER", userId: user.id },
-        source: "OWNER_UI",
-        origin: "BILLING",
-      },
-    });
+    // Same tenant transaction as the list: without it the INSERT policy's WITH CHECK
+    // refuses the row. The body is never read for businessId.
+    const customer = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.createCustomer(
+            {
+              businessId: user.businessId,
+              name: body.name as string,
+              phone: (body.phone as string | null | undefined) ?? null,
+            },
+            {
+              tx,
+              // M5.5 — server-derived actor; never read from the body.
+              sensor: {
+                actor: { type: "OWNER_USER", userId: user.id },
+                source: "OWNER_UI",
+                origin: "BILLING",
+              },
+            }
+          )
+        )
+    );
 
     return NextResponse.json(
       { customer: toBillingCustomer(customer) },

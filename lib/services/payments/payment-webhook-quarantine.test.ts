@@ -31,7 +31,9 @@ import type { ProviderPaymentStatus } from "./providers/payment-provider.types";
 
 const VERIFIED_PAID: ProviderPaymentStatus = {
   outcome: "PAID",
-  providerTransactionId: null,
+  providerTransactionId: "txn-q",
+  verifiedAmount: "100.00",
+  verifiedCurrency: "ILS",
 };
 
 type Lifecycle = "ACTIVE" | "DELETION_REQUESTED" | "PURGED" | null;

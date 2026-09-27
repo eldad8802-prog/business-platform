@@ -553,7 +553,13 @@ export default function OpportunitiesPage() {
 
   return (
     <div style={pageStyle}>
-      <PageContainer intent="data">
+      <style>{`
+        @media (min-width: 1200px) {
+          .opp-frame { max-width: none !important; padding-inline: 8px; }
+          .opp-deals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+        }
+      `}</style>
+      <PageContainer intent="data" className="opp-frame">
         <div style={headerCardStyle}>
           <div
             style={{
@@ -662,7 +668,7 @@ export default function OpportunitiesPage() {
                 )}
               </div>
             ) : (
-              <div style={listStyle}>
+              <div className="opp-deals" style={listStyle}>
                 {activeDeals.map((deal) => (
                   <div key={deal.id} style={cardStyle}>
                     <div style={topRowStyle}>
@@ -743,7 +749,7 @@ export default function OpportunitiesPage() {
             {completedDeals.length === 0 ? (
               <div style={emptyStyle}>עדיין אין היסטוריית פעולות.</div>
             ) : (
-              <div style={listStyle}>
+              <div className="opp-deals" style={listStyle}>
                 {completedDeals.map((deal) => (
                   <div key={deal.id} style={cardStyle}>
                     <div style={topRowStyle}>

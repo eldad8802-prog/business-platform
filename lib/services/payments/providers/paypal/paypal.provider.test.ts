@@ -60,7 +60,13 @@ const isCreate = (u: string, m: string) => m === "POST" && u.endsWith("/v2/check
 const COMPLETED_ORDER = {
   id: "ORDER-1",
   status: "COMPLETED",
-  purchase_units: [{ payments: { captures: [{ id: "CAP-1", status: "COMPLETED" }] } }],
+  purchase_units: [
+    {
+      payments: {
+        captures: [{ id: "CAP-1", status: "COMPLETED", amount: { value: "50.00", currency_code: "USD" } }],
+      },
+    },
+  ],
 };
 
 async function main() {

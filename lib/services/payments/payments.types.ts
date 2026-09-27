@@ -299,6 +299,40 @@ export interface PaymentStore {
   findPaymentRequestById(id: number): Promise<PaymentRequestRecord | null>;
 
   /**
+   * M1 — move a request to `to` ONLY while its status is one of `from`.
+   *
+   * Conditional at the database (UPDATE … WHERE status IN from), so two writers
+   * racing on one request — an owner cancelling while the provider's verified
+   * payment lands — cannot silently overwrite each other. Returns the updated
+   * record, or null when the request was no longer in any `from` state.
+   */
+  transitionPaymentRequestStatus(
+    id: number,
+    transition: {
+      from: readonly PaymentRequestStatus[];
+      to: PaymentRequestStatus;
+      paidAt?: Date | null;
+    }
+  ): Promise<PaymentRequestRecord | null>;
+
+  /**
+   * M1 — requests inbound reconciliation should ask the provider about: issued
+   * to a provider (a provider request id exists), not PAID, created inside the
+   * window. Every other status qualifies — a customer can still pay through a
+   * link after the owner cancelled the request or it lapsed, and that money is
+   * real. A request that already carries a verified payment but whose status
+   * never caught up (a crash between the two writes, or money that landed on a
+   * cancelled request before M1) qualifies too: asking again is how its status
+   * is brought back to the truth. Newest first, bounded. Tenant-scoped:
+   * `businessId` is in the predicate and the read runs under that tenant's RLS
+   * context.
+   */
+  listReconciliationCandidates(
+    businessId: number,
+    options: { createdAfter: Date; createdBefore: Date; limit: number }
+  ): Promise<PaymentRequestRecord[]>;
+
+  /**
    * SEC-01 + SEC-02 — resolve a billing document the caller wants to collect
    * against, scoped to the business doing the collecting.
    *
