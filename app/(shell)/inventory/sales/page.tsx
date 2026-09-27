@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   InventoryRow,
@@ -13,6 +14,7 @@ import { getPendingMatches, type InventoryPendingMatchDTO } from "@/lib/api/inve
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
 export default function InventorySalesPage() {
+  const router = useRouter();
   const [matches, setMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -70,7 +72,28 @@ export default function InventorySalesPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-desk-table" aria-label="מכירות שלא זוהו">
+          <table>
+            <thead>
+              <tr>
+                <th>מכירה</th>
+                <th>כמות</th>
+                <th>סטטוס</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matches.slice(0, 8).map((match) => (
+                <tr key={match.id} onClick={() => router.push("/inventory/unmatched")}>
+                  <td>{match.metadata.name || match.externalSaleId}</td>
+                  <td className="num">{match.metadata.quantity}</td>
+                  <td>ממתין לשיוך</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-rows inv-cards">
           {matches.slice(0, 8).map((match) => (
             <InventoryRow
               key={match.id}
@@ -87,6 +110,7 @@ export default function InventorySalesPage() {
             />
           ))}
         </div>
+        </>
       )}
     </InventorySubPage>
   );
