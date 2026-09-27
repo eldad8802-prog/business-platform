@@ -101,7 +101,7 @@ async function installIsolation(owner: PrismaClient, role: string) {
       await owner.$executeRawUnsafe(`CREATE POLICY m2lab_${name} ON "${t}" FOR ${cmd} ${clause}`);
     }
   }
-  const m2 = readFileSync("prisma/migrations/20260927090000_m2_intake_event/migration.sql", "utf8");
+  const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
   const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
   const doStart = m2.indexOf("DO $do$");
   if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");

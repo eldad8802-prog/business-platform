@@ -25,7 +25,7 @@ on:
       - "lib/services/account/**"
       - "lib/tenant/**"
       - "prisma/schema.prisma"
-      - "prisma/migrations/20260927090000_m2_intake_event/**"
+      - "prisma/migrations/20260927180000_m2_intake_event/**"
       - ".m2/**"
       - ".github/workflows/m2-whatsapp-intake-ci.yml"
   workflow_dispatch:

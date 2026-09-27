@@ -62,7 +62,7 @@ This document is the design record for M2. It does not change the frozen archite
 ## Release sequence
 
 1. **RELEASE-INFRA PR:** the guard. Merge first.
-2. **PR-1:** migration `20260927090000_m2_intake_event` (migration only). Then `release-migrate`, which is the owner's production-db approval.
+2. **PR-1:** migration `20260927180000_m2_intake_event` (migration only). Then `release-migrate`, which is the owner's production-db approval.
 3. **PR-2:** schema + code. Merge only after the migration is verified in Production.
 4. **Production proof:** a real inbound WhatsApp message produces a PROCESSED receipt and one Message. Then decide on scheduling the sweeper.
 
