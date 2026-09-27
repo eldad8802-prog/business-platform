@@ -48,6 +48,7 @@ import {
   defaultBotLlmDraftRunnerDeps,
   maybeCreateBotLlmDraft,
 } from "@/lib/services/conversation/bot-llm-draft-runner.service";
+import { logRouteError } from "@/lib/security/route-error";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
 
@@ -225,12 +226,11 @@ export async function GET(req: Request) {
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("GET /api/message error:", error);
+    logRouteError("GET /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to fetch messages",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -265,12 +265,11 @@ export async function POST(req: Request) {
       handleAuthedPost(user, body, conversationId)
     );
   } catch (error: any) {
-    console.error("POST /api/message error:", error);
+    logRouteError("POST /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to create message",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -1086,12 +1085,11 @@ async function handleAuthedPost(
       { status: 201 }
     );
   } catch (error: any) {
-    console.error("POST /api/message error:", error);
+    logRouteError("POST /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to create message",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );

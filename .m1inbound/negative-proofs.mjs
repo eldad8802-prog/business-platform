@@ -75,6 +75,14 @@ const PROOFS = [
     replace: "if (false) {",
     cases: "P",
   },
+  {
+    name: "the QA sink reaches the payment path when it is called",
+    file: "app/api/payments/qa-webhook-sink/route.ts",
+    find: '  console.info("[qa-webhook-sink] callback discarded");',
+    replace:
+      '  const { runPaymentReconciliation } = await import("@/lib/services/payments/payment-reconciliation.service"); const { paymentReconciliationDeps } = await import("@/lib/services/payments/payments.deps"); await runPaymentReconciliation(paymentReconciliationDeps());',
+    cases: "U",
+  },
 ];
 
 // A proof is interruptible (Ctrl-C, a cancelled CI job, a killed process). The

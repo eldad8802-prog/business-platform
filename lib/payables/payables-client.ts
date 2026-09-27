@@ -19,7 +19,14 @@ export type DerivedState =
   | "SETTLED_LEGACY";
 
 export type ScheduleKind = "ONE_OFF" | "RECURRING" | "INSTALLMENT_PLAN";
-export type Cadence = "NONE" | "WEEKLY" | "MONTHLY" | "YEARLY";
+export type Cadence =
+  | "NONE"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "BIMONTHLY"
+  | "QUARTERLY"
+  | "SEMIANNUAL"
+  | "YEARLY";
 
 export type PayeeApi = { id: number; displayName: string; kind: string };
 
@@ -93,6 +100,8 @@ export type CommitmentDetailApi = {
   scheduleKind: ScheduleKind;
   recurrence: Cadence;
   status: string;
+  /** Last day in effect (inclusive), when the commitment was ended. */
+  endAt: string | null;
   note: string | null;
   total: string | null;
   paid: string;
@@ -272,8 +281,27 @@ export const CADENCE_LABEL: Record<Cadence, string> = {
   NONE: "ללא",
   WEEKLY: "שבועי",
   MONTHLY: "חודשי",
+  BIMONTHLY: "כל חודשיים",
+  QUARTERLY: "רבעוני",
+  SEMIANNUAL: "חצי-שנתי",
   YEARLY: "שנתי",
 };
+
+/** "From <effectiveFrom> the amount is <amount>" — history before it is kept. */
+export function changeRecurringAmount(commitmentId: number, body: { effectiveFrom: string; amount: string }) {
+  return call<{ commitmentId: number; firstChangedInstallmentId: number; effectiveDueAt: string; changedCount: number }>(
+    `/api/payables/commitments/${commitmentId}/amount-change`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/** The commitment is in effect up to and including <endsOn>. */
+export function endCommitment(commitmentId: number, body: { endsOn: string }) {
+  return call<{ commitment: unknown; cancelledInstallmentIds: number[] }>(
+    `/api/payables/commitments/${commitmentId}/end`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
 
 export const METHOD_LABEL: Record<string, string> = {
   CASH: "מזומן",

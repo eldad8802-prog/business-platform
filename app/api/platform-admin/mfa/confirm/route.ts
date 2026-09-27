@@ -9,7 +9,10 @@
  * SHA-256 hashes and cannot be retrieved again.
  */
 import { NextResponse } from "next/server";
-import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
+import {
+  elevationBindingFor,
+  requirePlatformAdminIdentityOrResponse,
+} from "@/lib/auth/platform-admin";
 import { confirmAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
 import { issueAdminElevation, ADMIN_ELEVATION_TTL_SECONDS } from "@/lib/auth/platform-admin-elevation";
 
@@ -40,7 +43,7 @@ export async function POST(req: Request) {
       {
         enrolled: true,
         recoveryCodes: result.recoveryCodes,
-        elevation: issueAdminElevation(gate.id),
+        elevation: issueAdminElevation(elevationBindingFor(gate)),
         elevationExpiresInSeconds: ADMIN_ELEVATION_TTL_SECONDS,
       },
       { status: 200, headers: { "Cache-Control": "private, no-store" } }

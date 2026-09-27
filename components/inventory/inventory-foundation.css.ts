@@ -814,6 +814,13 @@ export const inventoryFoundationCss = `
     }
   }
 
+  @media (min-width: 1200px) {
+    [data-inventory-module] .inv-main-shell,
+    [data-inventory-module] .inv-subpage-main {
+      max-width: none !important;
+    }
+  }
+
   @media (min-width: 640px) {
     [data-inventory-module] .inv-cta-group {
       flex-direction: row;

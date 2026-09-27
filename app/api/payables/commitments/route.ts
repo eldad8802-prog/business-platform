@@ -13,9 +13,10 @@ import {
   requiredDate,
   requiredString,
 } from "@/lib/services/payables/payables-http";
-import type {
-  CommitmentScheduleKindValue,
-  RecurrenceCadenceValue,
+import {
+  RECURRENCE_CADENCES,
+  type CommitmentScheduleKindValue,
+  type RecurrenceCadenceValue,
 } from "@/lib/services/payables/payables-core";
 
 export const runtime = "nodejs";
@@ -25,12 +26,7 @@ const SCHEDULE_KINDS: readonly CommitmentScheduleKindValue[] = [
   "RECURRING",
   "INSTALLMENT_PLAN",
 ];
-const CADENCES: readonly RecurrenceCadenceValue[] = [
-  "NONE",
-  "WEEKLY",
-  "MONTHLY",
-  "YEARLY",
-];
+const CADENCES: readonly RecurrenceCadenceValue[] = RECURRENCE_CADENCES;
 
 /** GET — the owner's commitments, ordered by what needs attention first. */
 export async function GET(req: NextRequest) {

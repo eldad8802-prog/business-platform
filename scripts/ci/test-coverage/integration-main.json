@@ -1,0 +1,27 @@
+{
+  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2). Classified honestly; each is invoked by the workflow named.",
+  "tests": {
+    "lib/services/business-cost/business-cost.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-cost-ci.yml",
+      "reason": "proves tenant isolation of GET /api/business-cost twice: at the service and under the repo's RLS migrations as a NOSUPERUSER NOBYPASSRLS role (business-cost-ci.yml job db)"
+    },
+    "lib/services/business-cost/business-cost-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure allocation/projection/baseline arithmetic of the daily cost engine; no tenant or auth decision; run by business-cost-ci.yml job core"
+    },
+    "lib/knowledge/brain/brain.eval.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m0-knowledge-tenant-safety.yml",
+      "reason": "M8 brain safety corpus: prompt-injection, hallucination and ungrounded-claim rejection by the deterministic validator; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/services/payables/secretary-ledger.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "secretary-ledger-ci.yml",
+      "reason": "secretary writes the payables ledger; proves the InstallmentWorkflow table under a NOSUPERUSER NOBYPASSRLS role (secretary-ledger-ci.yml job proof, real RLS)"
+    }
+  }
+}

@@ -17,6 +17,11 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { revokeOtherSessions } from "@/lib/auth/session-directory";
+import {
+  readStepUpHeader,
+  stepUpRequiredBody,
+  verifyAndConsumeStepUp,
+} from "@/lib/auth/step-up";
 
 export async function POST(req: Request) {
   try {
@@ -31,6 +36,25 @@ export async function POST(req: Request) {
         { error: "Refresh required", code: "SESSION_UNIDENTIFIED" },
         { status: 409, headers: { "cache-control": "no-store" } }
       );
+    }
+
+    // M-9: signing every other device out is exactly what a thief holding a
+    // stolen token would do to lock the owner out, so it needs a fresh proof
+    // of the password — a single-use step-up bound to this device.
+    const stepUp = await verifyAndConsumeStepUp(
+      readStepUpHeader(req),
+      {
+        userId: context.user.id,
+        sessionId: context.sessionId,
+        tokenVersion: context.user.tokenVersion,
+      },
+      "sessions.revoke_others"
+    );
+    if (!stepUp.ok) {
+      return NextResponse.json(stepUpRequiredBody(stepUp), {
+        status: stepUp.reason === "unavailable" ? 503 : 403,
+        headers: { "cache-control": "no-store" },
+      });
     }
 
     const { revoked } = await revokeOtherSessions({

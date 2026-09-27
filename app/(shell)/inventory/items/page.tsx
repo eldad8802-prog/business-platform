@@ -287,7 +287,38 @@ function InventoryItemsListPageContent() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-desk-table" aria-label="מוצרים">
+          <table>
+            <thead>
+              <tr>
+                <th>מוצר</th>
+                <th>פרטים</th>
+                <th>כמות</th>
+                <th>סטטוס</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredItems.map((item) => {
+                const tone = getStockTone(item);
+                return (
+                  <tr key={item.id} onClick={() => router.push(`/inventory/items/${item.id}`)}>
+                    <td>
+                      <Link href={`/inventory/items/${item.id}`}>{item.name}</Link>
+                    </td>
+                    <td>{itemMeta(item) || "—"}</td>
+                    <td className="num">
+                      {item.currentQuantity}
+                      {UNIT_SHORT[item.unitType] ? ` ${UNIT_SHORT[item.unitType]}` : ""}
+                    </td>
+                    <td>{getStockStatusLabel(tone)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-rows inv-cards">
           {filteredItems.map((item) => {
             const tone = getStockTone(item);
             return (
@@ -312,6 +343,7 @@ function InventoryItemsListPageContent() {
             );
           })}
         </div>
+        </>
       )}
     </InventorySubPage>
   );

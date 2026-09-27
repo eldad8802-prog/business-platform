@@ -11,12 +11,14 @@ import DocumentsHubSkeleton from "@/components/documents/skeletons/DocumentsHubS
 import PulseCard from "@/components/documents/home/PulseCard";
 import CaptureHero from "@/components/documents/home/CaptureHero";
 import StationsSection from "@/components/documents/home/StationsSection";
-import { monthLabel } from "@/components/documents/home/home-format";
+import { formatMoney, monthLabel } from "@/components/documents/home/home-format";
 import {
   homeCss,
   pageShellStyle,
   contentStyle,
 } from "@/components/documents/home/home-styles";
+import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
+import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 
 type LoadState =
   | { status: "loading" }
@@ -59,13 +61,16 @@ export default function DocumentsHome() {
   const router = useRouter();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const inbox = useDocumentsInbox(authToken);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
 
   async function load() {
     const token =
       typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+    setAuthToken(token);
 
     if (!token) {
       router.replace("/login");
@@ -165,8 +170,10 @@ export default function DocumentsHome() {
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
   const pending = snapshot?.financialPulse.inboxDocumentCounts.pendingReview ?? 0;
+  const approved = snapshot?.financialPulse.inboxDocumentCounts.approvedDocuments ?? 0;
   const pulse = snapshot?.financialPulse.fromFinancialRecords;
   const pulseMonth = snapshot?.financialPulse.period.month;
+  const monthText = monthLabel(pulseMonth ?? "");
 
   // Open the file picker directly within the user gesture. A deferred
   // (setTimeout) click is blocked by iOS Safari — these CTAs open it
@@ -231,8 +238,51 @@ export default function DocumentsHome() {
               </section>
             ) : null}
 
+            <header className="dz-docs-deskhead">
+              <div>
+                <h1>מסמכים</h1>
+                <p>{monthText}</p>
+              </div>
+              <div className="dz-docs-deskactions">
+                <button
+                  type="button"
+                  className="dz-docs-search"
+                  onClick={() => router.push("/documents/search")}
+                >
+                  חיפוש מסמכים
+                </button>
+                <button
+                  type="button"
+                  className="dz-docs-upload"
+                  onClick={pickUpload}
+                  disabled={uploading}
+                >
+                  {uploading ? "מעלה…" : "העלאת מסמך"}
+                </button>
+              </div>
+            </header>
+
+            <section className="dz-docs-kpis" aria-label="סיכום מסמכים">
+              <div className="dz-kpi">
+                <span>מסמכים החודש</span>
+                <strong>{(pending + approved).toLocaleString("he-IL")}</strong>
+              </div>
+              <div className="dz-kpi">
+                <span>ממתינים לאישור</span>
+                <strong>{pending.toLocaleString("he-IL")}</strong>
+              </div>
+              <div className="dz-kpi">
+                <span>אושרו</span>
+                <strong>{approved.toLocaleString("he-IL")}</strong>
+              </div>
+              <div className="dz-kpi">
+                <span>נטו החודש</span>
+                <strong>{formatMoney(pulse?.net ?? 0)}</strong>
+              </div>
+            </section>
+
             <PulseCard
-              monthLabel={monthLabel(pulseMonth ?? "")}
+              monthLabel={monthText}
               income={pulse?.income ?? 0}
               expense={pulse?.expense ?? 0}
               net={pulse?.net ?? 0}
@@ -247,12 +297,20 @@ export default function DocumentsHome() {
               uploading={uploading}
             />
 
-            <StationsSection
-              pendingCount={pending}
-              onQueue={() => router.push("/documents/inbox")}
-              onSearch={() => router.push("/documents/search")}
-              onPack={() => router.push("/documents/accountant-pack")}
-            />
+            <div className="dz-docs-main">
+              <StationsSection
+                pendingCount={pending}
+                onQueue={() => router.push("/documents/inbox")}
+                onSearch={() => router.push("/documents/search")}
+                onPack={() => router.push("/documents/accountant-pack")}
+              />
+              <DocumentsDesktopTable
+                items={inbox.items}
+                loading={!authToken || inbox.loading}
+                error={authToken ? inbox.error : null}
+                onRetry={() => inbox.refetch()}
+              />
+            </div>
           </>
         ) : null}
       </main>
