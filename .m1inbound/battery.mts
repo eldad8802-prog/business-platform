@@ -31,6 +31,8 @@
  *   R reconciliation route: auth, healthy run, degraded run
  *   S a forged callback with a chosen event id cannot pre-empt the real payment
  *   T an old lost payment behind many newer closed requests is still found
+ *   U the QA sink accepts CardCom's callback (200) and discards it; only
+ *     reconciliation records it
  *   Q the Production QA scenario: invoice 10, collect 5, receipt 5, outstanding 10 → 5
  *
  * Every successful path ends with exactly one incoming PaymentTransaction, one
@@ -64,6 +66,7 @@ import {
 import { loadCustomerFinancialThread } from "../lib/services/billing/collection/customer-financial-thread.service";
 import * as cardcomWebhookRoute from "../app/api/payments/webhook/cardcom/route";
 import * as reconciliationRoute from "../app/api/payments/reconciliation/route";
+import * as qaSinkRoute from "../app/api/payments/qa-webhook-sink/route";
 
 const ADMIN_URL = process.env.M1_ADMIN_URL;
 if (!ADMIN_URL) {
@@ -893,6 +896,41 @@ async function main() {
     ok("T — every candidate in the window is reachable (no 200 cut-off)", r.candidates === 206, String(r.candidates));
     ok("T — the old lost payment is recorded", r.recorded === 1, JSON.stringify(r));
     await exactlyOnce("T", old.id, { amount: "12.00", allocated: "0.00" });
+  }
+
+  if (run("U")) {
+    console.log("\n== U — the QA sink accepts CardCom's callback (200) and discards it; only reconciliation records ==");
+    const ctx = await makeBusiness("U");
+    const inv = await invoice(ctx, "10.00");
+    const req = await request(ctx, "5.00", { invoiceId: inv.id });
+    provider(req.lowProfileId, { mode: "paid", tranId: tranId(), amount: 5, coinId: 1 });
+    const flagBefore = process.env.PAYMENTS_QA_SUPPRESS_WEBHOOK;
+    try {
+      delete process.env.PAYMENTS_QA_SUPPRESS_WEBHOOK;
+      const closed = await qaSinkRoute.POST();
+      ok("U — flag off: the sink answers 404", closed.status === 404, String(closed.status));
+      process.env.PAYMENTS_QA_SUPPRESS_WEBHOOK = "collection-qa-38";
+      // CardCom delivers its callback to the sink — the real route, as CardCom would hit it.
+      const delivered = await qaSinkRoute.POST();
+      const deliveredAgain = await qaSinkRoute.POST();
+      ok("U — flag on: CardCom's callback is accepted with 200 (twice)", delivered.status === 200 && deliveredAgain.status === 200);
+    } finally {
+      if (flagBefore === undefined) delete process.env.PAYMENTS_QA_SUPPRESS_WEBHOOK;
+      else process.env.PAYMENTS_QA_SUPPRESS_WEBHOOK = flagBefore;
+    }
+    await nothingRecorded("U (after the sink accepted the callback)", req.id, "PENDING");
+    ok("U — no webhook event of any kind was stored", (await webhookEvents(req.lowProfileId)).length === 0);
+    ok("U — CardCom was never asked by the sink", lp.get(req.lowProfileId)!.calls === 0, String(lp.get(req.lowProfileId)!.calls));
+    ok("U — the invoice is untouched (outstanding 10)", (await outstanding(ctx, inv.id)) === "10.00");
+
+    const r1 = await reconcile(ctx);
+    ok("U — reconciliation discovers and records the payment", r1.recorded === 1 && r1.healthy, JSON.stringify(r1));
+    await exactlyOnce("U", req.id, { amount: "5.00", allocated: "5.00" });
+    ok("U — outstanding 10 → 5", (await outstanding(ctx, inv.id)) === "5.00");
+    const r2 = await reconcile(ctx);
+    ok("U — a second reconciliation records nothing", r2.recorded === 0 && r2.checked === 0, JSON.stringify(r2));
+    await exactlyOnce("U (after second run)", req.id, { amount: "5.00", allocated: "5.00" });
+    ok("U — outstanding still 5", (await outstanding(ctx, inv.id)) === "5.00");
   }
 
   if (run("Q")) {
