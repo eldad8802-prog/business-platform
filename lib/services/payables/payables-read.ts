@@ -204,6 +204,8 @@ export type CommitmentDetail = {
   scheduleKind: CommitmentScheduleKindValue;
   recurrence: string;
   status: string;
+  /** Last day in effect (inclusive), when the commitment was ended. */
+  endAt: Date | null;
   note: string | null;
   total: string | null;
   paid: string;
@@ -373,6 +375,7 @@ export async function getCommitmentDetail(input: {
       scheduleKind: commitment.scheduleKind as CommitmentScheduleKindValue,
       recurrence: commitment.recurrence,
       status: commitment.status,
+      endAt: commitment.endAt,
       note: commitment.note,
       total: rollup.totalMinor === null ? null : fromMinorUnits(rollup.totalMinor),
       paid: fromMinorUnits(rollup.paidMinor),
