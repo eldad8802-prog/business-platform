@@ -140,6 +140,19 @@ jobs:
             --expect '[FAIL] AST-2 NEW-SITE lib/services/crm/customer.service.ts::g2::arg' \
             -- node scripts/ci/ast-security-guard.mjs .
 
+      # sec/INT: the bare client must not be hideable behind an indirection hop (wrapper,
+      # DI object, alias, re-export, let-bound writer). G7 routes a real bare-client read that
+      # exists on main through a wrapper hop. G8 (the DB-derived untenanted-insert rule broken
+      # on the real SecurityEvent writer) ships with that writer in #529, not here.
+      - name: Gate self-proof G7 — a bare client hidden behind a wrapper hop is caught (AST-2 escape)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G7-ast-wrapper-hop --file lib/services/billing/authority/billing-authority-decision.service.ts \
+            --anchor '    const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });' \
+            --replace '    const client = () => prisma; const u = await client().user.findUnique({ where: { id: userId }, select: { name: true } });' \
+            --expect '[FAIL] AST-2 NEW-SITE lib/services/billing/authority/billing-authority-decision.service.ts::defaultDecisionExecutionDeps.loadOperatorName.client::escape:return' \
+            --post-green \
+            -- node scripts/ci/ast-security-guard.mjs .
+
       - name: Gate self-proof G3 — a security test dropped from the inventory is caught (C1)
         run: |
           node scripts/ci/negative-proof.mjs --id G3-coverage-unclassified --file scripts/ci/test-coverage/workstream-a.json \
