@@ -1,5 +1,6 @@
 import { Prisma, type BusinessAssetOrigin } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export class BusinessAssetNotFoundError extends Error {
   constructor() {
@@ -39,10 +40,12 @@ export async function requireOwnedContentRun(businessId: number, contentRunId: n
 
 async function assertRunInTenant(businessId: number, contentRunId: number | null | undefined) {
   if (contentRunId == null) return;
-  const run = await prisma.contentRun.findFirst({
-    where: { id: contentRunId, businessId },
-    select: { id: true },
-  });
+  const run = await tenantTx(businessId, (tx) =>
+    tx.contentRun.findFirst({
+      where: { id: contentRunId, businessId },
+      select: { id: true },
+    })
+  );
   if (!run) throw new BusinessAssetNotFoundError();
 }
 

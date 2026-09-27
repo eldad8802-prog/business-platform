@@ -321,6 +321,13 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   InventoryCategory: operational("category names for stock, not people"),
   InventoryPendingMatch: operational("match bookkeeping between POS lines and stock"),
   InventoryExternalSale: operational("external sale counters"),
+  InventorySale: operational("a stock sale header: source and external id, no person"),
+  InventorySaleLine: operational("quantity and the charged unit price for one stock item"),
+  InventorySourceSaleLine: operational(
+    "an upstream POS line: identity, quantity, and unit price when the till sent one"
+  ),
+  CouponSurfaceEvent: operational("that a public coupon detail was served, with no viewer identity"),
+  BusinessAsset: operational("retained visual provenance: origin and a storage pointer, no person"),
   POSProductMapping: operational("maps a POS product code to a stock item"),
   ReceivingLine: operational("quantities received against a purchase-order line"),
   Coupon: operational("coupon definition and its public token; issued to no one until redeemed"),

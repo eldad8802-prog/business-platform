@@ -279,8 +279,8 @@ async function main() {
   const recB = await owner.businessBotRecommendation.create({ data: { botId: botB.id, type: `${MARK}r`, reason: "B" } });
   const runA = await owner.contentRun.create({ data: { businessId: bizA.id, status: "FAILED", inputSnapshot: {} } });
   const runB = await owner.contentRun.create({ data: { businessId: bizB.id, status: "FAILED", inputSnapshot: {} } });
-  const varA = await owner.contentVariant.create({ data: { contentRunId: runA.id, variantKey: "v1", creativeDna: {}, creativeBlueprint: {}, renderBlueprint: {}, creativeScore: {}, growthSemantics: {} } });
-  const varB = await owner.contentVariant.create({ data: { contentRunId: runB.id, variantKey: "v1", creativeDna: {}, creativeBlueprint: {}, renderBlueprint: {}, creativeScore: {}, growthSemantics: {} } });
+  const varA = await owner.contentVariant.create({ data: { contentRunId: runA.id, businessId: bizA.id, variantKey: "v1", creativeDna: {}, creativeBlueprint: {}, renderBlueprint: {}, creativeScore: {}, growthSemantics: {} } });
+  const varB = await owner.contentVariant.create({ data: { contentRunId: runB.id, businessId: bizB.id, variantKey: "v1", creativeDna: {}, creativeBlueprint: {}, renderBlueprint: {}, creativeScore: {}, growthSemantics: {} } });
   await owner.contentRender.create({ data: { contentVariantId: varA.id, provider: "CREATOMATE" } });
   await owner.contentRender.create({ data: { contentVariantId: varB.id, provider: "CREATOMATE" } });
   const levA = await owner.learningEvent.create({ data: { businessId: bizA.id, eventType: `${MARK}ev`, entityType: "T" } });

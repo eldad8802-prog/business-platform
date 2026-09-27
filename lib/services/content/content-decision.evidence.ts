@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export const CONTENT_EVENT_VARIANT_SELECTED = "VARIANT_SELECTED";
 export const CONTENT_EVENT_CONTENT_EDITED = "CONTENT_EDITED";
@@ -43,15 +43,17 @@ export async function recordContentDecision(input: {
   const variantKey = input.variantKey.trim();
   if (!variantKey) throw new ContentDecisionNotFoundError();
 
-  const variant = await prisma.contentVariant.findFirst({
-    where: {
-      variantKey,
-      businessId: input.businessId,
-      contentRunId: input.contentRunId,
-      contentRun: { businessId: input.businessId },
-    },
-    select: { id: true, variantKey: true, contentRunId: true, businessId: true },
-  });
+  const variant = await tenantTx(input.businessId, (tx) =>
+    tx.contentVariant.findFirst({
+      where: {
+        variantKey,
+        businessId: input.businessId,
+        contentRunId: input.contentRunId,
+        contentRun: { businessId: input.businessId },
+      },
+      select: { id: true, variantKey: true, contentRunId: true, businessId: true },
+    })
+  );
 
   if (!variant || variant.businessId !== input.businessId) {
     throw new ContentDecisionNotFoundError();
@@ -65,7 +67,8 @@ export async function recordContentDecision(input: {
   const payload = contentDecisionPayload(variant.variantKey);
 
   try {
-    const created = await prisma.contentEvent.create({
+    const created = await tenantTx(input.businessId, (tx) =>
+      tx.contentEvent.create({
       data: {
         businessId: input.businessId,
         contentRunId: variant.contentRunId,
@@ -76,17 +79,18 @@ export async function recordContentDecision(input: {
         payload,
       },
       select: { id: true },
-    });
+    }));
     return { eventId: created.id, created: true, variantKey: variant.variantKey };
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      const existing = await prisma.contentEvent.findFirst({
+      const existing = await tenantTx(input.businessId, (tx) =>
+        tx.contentEvent.findFirst({
         where: { businessId: input.businessId, idempotencyKey },
         select: { id: true, contentVariantId: true, eventType: true },
-      });
+      }));
       if (
         existing &&
         existing.contentVariantId === variant.id &&
