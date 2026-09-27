@@ -175,6 +175,7 @@ async function main() {
   const accountRoute = await import("@/app/api/account/route");
   const sweepRoute = await import("@/app/api/account/erasure-sweep/route");
   const { getAuthContext, signAuthToken } = await import("@/lib/auth");
+  const { issueStepUpToken, STEP_UP_HEADER } = await import("@/lib/auth/step-up");
   const { authDb } = await import("@/lib/prisma-auth");
   const { issueRefreshSession, refreshSession } = await import("@/lib/auth/refresh-session");
   const { encryptToken } = await import("@/lib/services/integrations/gmail/token-crypto.placeholder");
@@ -289,7 +290,16 @@ async function main() {
     return { biz: b, user: u, content, attachmentKey, gmailRefresh, waba, phoneNumberId, sess, sidToken, legacyToken, emailConnId: emailConn.id };
   };
 
-  const bearer = (t) => new Request("http://lab.invalid/api/account", { method: "DELETE", headers: { authorization: `Bearer ${t}` } });
+  // sec(B)/M-9 (#526): DELETE /api/account requires a fresh single-use step-up token bound to
+  // this user, device session and token generation — minted here exactly as POST /api/auth/step-up
+  // mints it after the password is re-proved (B's own battery proves that route).
+  const deleteRequest = (fx) => new Request("http://lab.invalid/api/account", {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${fx.sidToken}`,
+      [STEP_UP_HEADER]: issueStepUpToken({ userId: fx.user.id, sessionId: fx.sess.sessionId, tokenVersion: 0 }, "account.delete"),
+    },
+  });
   const lifecycle = async (id) => lifecycleOf(await owner.business.findUnique({ where: { id } }));
   const ledgerRows = (id) =>
     owner.learningEvent.findMany({ where: { businessId: id, eventType: { startsWith: "ACCOUNT_ERASURE" } }, orderBy: { id: "asc" } });
@@ -401,7 +411,7 @@ async function main() {
       const L = `H5-FAULT-${s.stage}${s.kind ? `-${s.kind.toUpperCase()}` : ""}`;
       const fx = await mk(L.toLowerCase());
       await s.inject(fx);
-      const res = await accountRoute.DELETE(bearer(fx.sidToken));
+      const res = await accountRoute.DELETE(deleteRequest(fx));
       const body = await res.json().catch(() => ({}));
       await s.heal(fx);
       ok(`${L} · the request is ACCEPTED (202), not a 500 the owner cannot retry`, res.status === 202 && body.status === "accepted", `http=${res.status} body=${JSON.stringify(body)}`);
