@@ -153,6 +153,28 @@ jobs:
             --post-green \
             -- node scripts/ci/ast-security-guard.mjs .
 
+      # sec/F (#529): the only sanctioned bare-client write is F's untenanted SecurityEvent
+      # insert, admitted by the DB-derived data rule (INSERT policy WITH CHECK "businessId"
+      # IS NULL + a row that literally ends with businessId: null). G7b routes that real
+      # writer through a wrapper hop; G8 breaks the null shape.
+      - name: Gate self-proof G7b — F's real writer hidden behind a wrapper hop is caught (AST-2 escape)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G7b-ast-wrapper-hop-writer --file lib/security/security-events.ts \
+            --anchor '    await prisma.securityEvent.createMany({ data: [{ ...data, businessId: null }] });' \
+            --replace '    const client = () => prisma; await client().securityEvent.createMany({ data: [data] });' \
+            --expect '[FAIL] AST-2 NEW-SITE lib/security/security-events.ts::prismaSecurityEventWriter.prismaSecurityEventWriter.client::escape:return' \
+            --post-green \
+            -- node scripts/ci/ast-security-guard.mjs .
+
+      - name: Gate self-proof G8 — an untenanted insert that does not state businessId NULL is caught (AST-3)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G8-ast-null-insert-shape --file lib/security/security-events.ts \
+            --anchor '    await prisma.securityEvent.createMany({ data: [{ ...data, businessId: null }] });' \
+            --replace '    await prisma.securityEvent.createMany({ data: [data] });' \
+            --expect '[FAIL] AST-3 NEW-SITE lib/security/security-events.ts::prismaSecurityEventWriter.prismaSecurityEventWriter::bare:securityEvent' \
+            --post-green \
+            -- node scripts/ci/ast-security-guard.mjs .
+
       - name: Gate self-proof G3 — a security test dropped from the inventory is caught (C1)
         run: |
           node scripts/ci/negative-proof.mjs --id G3-coverage-unclassified --file scripts/ci/test-coverage/workstream-a.json \
