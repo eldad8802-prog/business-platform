@@ -8,9 +8,9 @@
 -- It never selects a row of application data. The repository is public, so this
 -- output is designed to be public too.
 --
--- Expected state = the repository's migrations (150 directories):
---   119 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
---   150 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
+-- Expected state = the repository's migrations (155 directories):
+--   122 tables with RLS ENABLED + FORCED, 25 tables deliberately without RLS,
+--   167 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
 -- Role groups checked: app_runtime, app_auth, app_admin, app_ctlplane and every
 -- LOGIN member of them.
 
@@ -83,6 +83,8 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'InboundEmailMessage',
     'InboundEmailSenderChallenge',
     'Installment',
+    'InstallmentWorkflow',
+    'IntakeEvent',
     'InventoryAlert',
     'InventoryCategory',
     'InventoryDraft',
@@ -129,6 +131,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'ReviewEvent',
     'RiaCanonicalReferent',
     'RiaPolicyLineage',
+    'SecurityEvent',
     'ServiceCostProfile',
     'SliceDecision',
     'Supplier',
@@ -145,10 +148,15 @@ expected_non_rls(t) AS (SELECT unnest(ARRAY[
     'AuthSessionSecret',
     'BillingAuthorityApp',
     'Business',
+    'BusinessAsset',
     'ContentFeedback',
     'Coupon',
+    'CouponSurfaceEvent',
     'DerivationPolicy',
     'DerivationPolicyVersion',
+    'InventorySale',
+    'InventorySaleLine',
+    'InventorySourceSaleLine',
     'Offer',
     'PaymentProviderRouting',
     'PaymentWebhookEvent',
@@ -167,6 +175,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'Appointment.p7pilot_tenant_read',
     'Appointment.p7pilot_tenant_update',
     'BillingAuditEvent.p7w4eb2_tenant',
+    'BillingAuditEvent.secf_audit_insert',
+    'BillingAuditEvent.secf_audit_no_delete',
+    'BillingAuditEvent.secf_audit_no_update',
     'BillingAuthorityConnection.p7w4eb2_tenant',
     'BillingAuthoritySubmission.p7w4eb2_tenant',
     'BillingDocument.p7adm_read',
@@ -250,6 +261,10 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'InboundEmailMessage.inbound_msg_tenant',
     'InboundEmailSenderChallenge.inbound_challenge_tenant',
     'Installment.payables_p1a_tenant',
+    'InstallmentWorkflow.payables_p2_tenant',
+    'IntakeEvent.intake_event_tenant_insert',
+    'IntakeEvent.intake_event_tenant_read',
+    'IntakeEvent.intake_event_tenant_update',
     'InventoryAlert.p7w3_tenant',
     'InventoryCategory.p7w3_tenant',
     'InventoryDraft.p7w3_tenant',
@@ -271,6 +286,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'Party.p7w2_tenant',
     'PartyResolutionClaim.p7w2_tenant',
     'PayablesAuditEvent.payables_p1a_tenant',
+    'PayablesAuditEvent.secf_audit_insert',
+    'PayablesAuditEvent.secf_audit_no_delete',
+    'PayablesAuditEvent.secf_audit_no_update',
     'PayablesMatchRejection.payables_p2_tenant',
     'Payee.payables_p1a_tenant',
     'Payment.payables_p1a_tenant',
@@ -279,6 +297,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'PaymentAccountingSettlement.c3_settlement_tenant_update',
     'PaymentAllocation.payables_p1a_tenant',
     'PaymentAuditEvent.p7w4ea_tenant',
+    'PaymentAuditEvent.secf_audit_insert',
+    'PaymentAuditEvent.secf_audit_no_delete',
+    'PaymentAuditEvent.secf_audit_no_update',
     'PaymentDestination.payables_p46_tenant',
     'PaymentEvidence.payables_p1a_tenant',
     'PaymentPreparation.payables_p46_tenant',
@@ -301,6 +322,10 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'ReviewEvent.p7w4d_tenant',
     'RiaCanonicalReferent.p7w2_tenant',
     'RiaPolicyLineage.p7w2_tenant',
+    'SecurityEvent.secf_audit_no_delete',
+    'SecurityEvent.secf_audit_no_update',
+    'SecurityEvent.secf_security_event_admin_read',
+    'SecurityEvent.secf_security_event_insert',
     'ServiceCostProfile.p7w1_tenant',
     'SliceDecision.p7adm_read',
     'SliceDecision.p7w4d_tenant',
@@ -464,7 +489,12 @@ expected_migrations(m) AS (SELECT unnest(ARRAY[
     '20260926110000_sec_c_tenant_composite_fk',
     '20260926110100_sec_c_bootstrap_lookup_functions',
     '20260926110200_sec_c_admin_read_whatsapp_attachment_import',
-    '20260926110300_sec_c_explicit_identity_grants'
+    '20260926110300_sec_c_explicit_identity_grants',
+    '20260926120000_p0_business_evidence',
+    '20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events',
+    '20260927090000_payables_installment_workflow',
+    '20260927120000_p0_asset_provenance_and_source_lines',
+    '20260927180000_m2_intake_event'
   ]::text[])),
 expected_fks(c) AS (SELECT unnest(ARRAY[
     'Appointment_customerId_tenant_fkey',
