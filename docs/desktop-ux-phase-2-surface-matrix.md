@@ -35,6 +35,34 @@ authority changes.
 | Billing hub | `/billing` | list + create | 980 column | create actions beside the document archive | DESKTOP-ADAPTED |
 | Inventory data lists | inventory `data` intent | lists | 1280 cap on wide screens | workspace width from 1600 | DESKTOP-ADAPTED |
 
+## Documents slice
+
+There is no separate document-detail route. Review is the decision surface.
+WhatsApp ingestion opens `/settings/whatsapp`, which stays in the Settings domain.
+
+| Surface | Route | State | Desktop composition | Action |
+| --- | --- | --- | --- | --- |
+| Documents hub | `/documents` | empty | intake, stations, and an empty list with a selection prompt | DESKTOP-ADAPTED |
+| Documents hub | `/documents` | populated | month counts, intake, stations, document table | DESKTOP-ADAPTED |
+| Documents hub | `/documents` | selected | table beside the selected document, then open review | DESKTOP-ADAPTED |
+| Search | `/documents/search` | empty | persistent filters and an empty result pane | DESKTOP-ADAPTED |
+| Search | `/documents/search` | populated | filters, comparison table, selection pane | DESKTOP-ADAPTED |
+| Search | `/documents/search` | selected | row context and open action stay beside the table | DESKTOP-ADAPTED |
+| Inbox | `/documents/inbox` | empty | month queue with a pending count and an empty inspector | DESKTOP-ADAPTED |
+| Inbox | `/documents/inbox` | pending review | queue table beside the selected-document inspector | DESKTOP-ADAPTED |
+| Inbox | `/documents/inbox` | selected | extracted fields visible; approval stays on the review screen | DESKTOP-ADAPTED |
+| Review | `/documents/review/[id]` | review flow | source preview beside extracted fields and approve / correct actions | DESKTOP-ADAPTED |
+| Gmail ingestion | `/documents/email` | disconnected | connect action beside what the connection does | DESKTOP-ADAPTED |
+| Gmail ingestion | `/documents/email` | connected | account state beside the attachment table and import actions | DESKTOP-ADAPTED |
+| Upload | `/documents/upload` | empty | dropzone beside a real empty queue | DESKTOP-ADAPTED |
+| Upload | `/documents/upload` | populated | dropzone beside pending and recent documents | DESKTOP-ADAPTED |
+| Reports | `/documents/dashboard` | empty | period controls beside the empty report | DESKTOP-ADAPTED |
+| Reports | `/documents/dashboard` | populated | period beside summary, chart, and category breakdown | DESKTOP-ADAPTED |
+| Uniform export | `/documents/uniform-export` | configure | date range beside the real ZIP contents and generate action | DESKTOP-ADAPTED |
+| Accountant pack | `/documents/accountant-pack` | configure / export | unchanged from the previous slice; rechecked at 1280 / 1600 / 1920 | DESKTOP-ADAPTED |
+
+No Documents surface in this slice is INTENTIONALLY-FOCUSED. None of these routes remain NOT YET DONE.
+
 ## Still remaining
 
 These were found in the route crawl and are not closed by this slice. Each one
@@ -43,7 +71,6 @@ still needs a first-principles desktop composition, then visual QA.
 | Domain | Surfaces still open |
 | --- | --- |
 | Home / app | `/`, `/app` |
-| Documents | hub, search populated workspace, upload, inbox, review, email, uniform export, dashboard beyond the existing report grid |
 | Inventory | home control desk beyond the current band, items, item detail, alerts, unmatched, count, drafts, sales, supplier purchases and their create / cart / confirm / receive / send / import states |
 | Collection | `/collection/new` |
 | Payments | `/payments`, `/payments/new` |
@@ -75,6 +102,18 @@ Fixes after the first look:
 - Inventory items from 1600: minimum, reorder, cost, and sell price are their own columns.
 - Accountant pack from 1600: the configuration stays a readable width and the package summary uses the rest of the workspace.
 - CRM with nothing selected: the detail pane is three workspace regions (contact, documents, activity), not a sentence in an empty canvas.
+
+## Documents runtime QA
+
+Evidence: `qa-evidence/desktop-ux-phase-2/documents/`. Mocked `/api` only.
+Viewports: 390, 768, 1024, 1280, 1440, 1600, 1920.
+States: empty, populated, pending review, selected row, review flow, Gmail connected and disconnected.
+Horizontal overflow: none.
+
+Fixes after the first look:
+
+- The hub capture card was still placed by the 1024 grid, so it covered the counts and the table. It now sits in its own column beside the work area.
+- Uniform export's generate button lived in a fixed bar under the mobile navigation. The action now sits in the package-contents card, on every width.
 
 ## Counts for this slice only
 

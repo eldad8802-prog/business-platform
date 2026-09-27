@@ -72,13 +72,15 @@ export default function UniformExportPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
+      <PageContainer intent="focused" className="dz-uniform" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>הפקת מבנה אחיד</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
+        <div className="dz-uniform-desk">
+        <div>
         <section>
           <div style={labelStyle}>מתאריך</div>
           <label style={fieldStyle}>
@@ -109,20 +111,42 @@ export default function UniformExportPage() {
           </label>
         </section>
 
-        <section style={{ marginTop: 18 }}>
-          <div style={hintStyle}>
-            הקובץ יופק עבור המסמכים שהונפקו בטווח שנבחר ויורד כקובץ ZIP הכולל את
-            INI.TXT, BKMVDATA וכן דוחות 2.6 ו‑5.4.
-          </div>
-        </section>
-
         {status === "success" ? (
           <div style={successStyle}>הקבצים הופקו והורדו בהצלחה.</div>
         ) : null}
         {status === "error" ? <div style={errorStyle}>{error}</div> : null}
+        </div>
+
+        <aside className="dz-uniform-side" aria-label="תוכן הקובץ">
+          <h2>מה נכלל ב-ZIP</h2>
+          <ul>
+            <li>INI.TXT</li>
+            <li>BKMVDATA</li>
+            <li>דוח 2.6</li>
+            <li>דוח 5.4</li>
+          </ul>
+          <p>
+            הקובץ יופק עבור המסמכים שהונפקו בטווח {from} עד {to}.
+          </p>
+          <button
+            type="button"
+            className="dz-uniform-download"
+            disabled={loading}
+            onClick={() => void handleGenerate()}
+            style={{
+              ...downloadButtonStyle,
+              width: "100%",
+              opacity: loading ? 0.7 : 1,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "מפיק קבצים..." : "הפקת קבצים (ZIP)"}
+          </button>
+        </aside>
+        </div>
       </PageContainer>
 
-      <div style={bottomBarStyle}>
+      <div className="dz-uniform-bottom" style={bottomBarStyle}>
         <button
           type="button"
           disabled={loading}
@@ -197,13 +221,6 @@ const inputStyle = {
   color: TOKEN.ink.primary,
   fontSize: TOKEN.font.body,
   fontWeight: TOKEN.weight.bold,
-} as const;
-
-const hintStyle = {
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.semibold,
-  lineHeight: 1.6,
 } as const;
 
 const noticeBase = {
