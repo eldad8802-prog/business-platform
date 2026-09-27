@@ -405,7 +405,8 @@ async function main(): Promise<void> {
     const replay = await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1000", paidAt: D("2026-09-11T09:00:00Z"), method: "CASH", installmentIds: [first.id], idempotencyKey: key }));
     eq("a replayed request (same idempotency key) is a replay…", replay.replayed, true);
     eq("…and materialises nothing more", await leaseRows(), ["2026-09-10", "2026-10-10"]);
-    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1500", paidAt: D("2026-10-10T09:00:00Z"), method: "CASH", installmentIds: [(await installmentsOf(lease.id))[1].id] }));
+    const octLease = (await installmentsOf(lease.id))[1];
+    await as(A.id, () => payables.recordManualPayment({ businessId: A.id, commitmentId: lease.id, amount: "1500", paidAt: D("2026-10-10T09:00:00Z"), method: "CASH", installmentIds: [octLease.id] }));
     eq("settling the new latest occurrence adds the next one (Nov 10)", await leaseRows(), ["2026-09-10", "2026-10-10", "2026-11-10"]);
     const older = await as(A.id, () =>
       payables.createCommitment({ businessId: A.id, title: "תוכנה", payeeNameSnapshot: "ספק תוכנה", scheduleKind: "RECURRING", recurrence: "MONTHLY", recurringAmount: "100", firstDueAt: D("2026-08-01T00:00:00Z") }),
