@@ -92,7 +92,9 @@ async function handle(req: NextRequest) {
   const diagnostics = process.env.KNOWLEDGE_DERIVE_DIAGNOSTICS?.trim() === "true";
 
   try {
-    return await runTenantJob({ businessId }, () => derive(businessId, diagnostics));
+    // M8 (#540): the only caller-controlled input besides the businessId is this explicit opt-in.
+    const brainRequested = new URL(req.url).searchParams.get("brain") === "shadow";
+    return await runTenantJob({ businessId }, () => derive(businessId, diagnostics, brainRequested));
   } catch (error) {
     if (error instanceof BusinessQuarantinedError) {
       // Quarantined, purged and nonexistent all answer the same.
@@ -105,7 +107,7 @@ async function handle(req: NextRequest) {
   }
 }
 
-async function derive(businessId: number, diagnostics: boolean) {
+async function derive(businessId: number, diagnostics: boolean, brainRequested: boolean) {
   {
     // Posture is measured, not assumed. If this ever runs as a role that can bypass RLS, the response
     // says so (proofLevel), and the run stops being evidence of tenant enforcement. Only the verdict
@@ -142,7 +144,6 @@ async function derive(businessId: number, diagnostics: boolean) {
     // M8 — the Brain, in SHADOW, ONLY when the scheduler asks for it explicitly (?brain=shadow) and
     // BRAIN_MODE is not "off". The server builds the snapshot; nothing comes from the caller but the
     // businessId. Nothing is persisted and nothing reaches an owner: only operational metadata leaves.
-    const brainRequested = new URL(req.url).searchParams.get("brain") === "shadow";
     const brain = brainRequested
       ? await runBrain(businessId, {
           mode: brainMode(),
