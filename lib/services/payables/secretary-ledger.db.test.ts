@@ -168,6 +168,17 @@ async function rlsChild(): Promise<void> {
   const role = await prisma.$queryRawUnsafe<Array<{ rolsuper: boolean; rolbypassrls: boolean }>>(
     `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
   );
+  // The cutover dry run under a role WITHOUT BYPASSRLS: it must discover the
+  // businesses from `Business` and see the same rows the owner sees — never a
+  // false "nothing to do".
+  const { runSecretaryLedgerCutover } = await import("./secretary-ledger-cutover.service");
+  let cutoverDry: Record<string, unknown>;
+  try {
+    const r = await runSecretaryLedgerCutover(prisma, { mode: "dry-run" });
+    cutoverDry = { role: r.role, readOnly: r.readOnly, obligations: r.before.obligations, alreadyCopied: r.before.alreadyCopied };
+  } catch (e) {
+    cutoverDry = { error: String((e as Error).message) };
+  }
   process.stdout.write(
     "\n@@RESULT@@" +
       JSON.stringify({
@@ -178,6 +189,7 @@ async function rlsChild(): Promise<void> {
         foreignInstallment,
         deleteRefused,
         role: role[0],
+        cutoverDry,
       }) +
       "@@END@@\n",
   );
@@ -195,7 +207,7 @@ async function main(): Promise<void> {
   const secretary = await import("@/lib/services/obligations/obligation.service");
   const { obligationServiceDeps, secretaryStoreMode } = await import("@/lib/services/obligations/obligations.deps");
   const { deriveBusinessCost } = await import("@/lib/services/business-cost/business-cost.service");
-  const { runSecretaryLedgerCutover } = await import("./secretary-ledger-cutover.service");
+  const { runSecretaryLedgerCutover, expectedFrom } = await import("./secretary-ledger-cutover.service");
 
   // This phase's migration: the table comes from `db push`; its trigger, RLS
   // policy and grants are applied here from the migration file itself.
@@ -468,6 +480,31 @@ async function main(): Promise<void> {
     eq("dry run: the paid row is a conflict, listed by id", dry.before.conflicts.map((c) => [c.obligationId, c.reason]), [[paidBeforeCutover.id, "installment already carries a payment"]]);
     eq("dry run: migrated recurring rows with a total", dry.before.recurringWithTotalAmount, 2);
     eq("dry run wrote nothing", await prisma.commitment.count({ where: { businessId: C.id, legacyObligationId: newOne.id } }), 0);
+    eq("dry run is declared read-only and names its role", [dry.readOnly, dry.role.discovery, typeof dry.role.bypassRls], [true, "EXPLICIT", "boolean"]);
+    eq("dry run: rows the write phase will reconcile (Aug MET, VAT, old supplier)", dry.before.toReconcile, 3);
+    eq(
+      "dry run: the exact plan — 2 commitments + 2 installments created, 4 commitments + 2 installments updated, 1 workflow row, 7 audit events, 0 PAYMENTS",
+      dry.before.plan,
+      { commitmentsToCreate: 2, installmentsToCreate: 2, commitmentsToUpdate: 4, installmentsToUpdate: 2, workflowRowsToCreate: 1, workflowRowsToUpdate: 0, auditEventsToWrite: 7, paymentsToCreate: 0 },
+    );
+    eq(
+      "dry run: the conflict explains itself (legacy MET vs ledger SCHEDULED, paid in full, no action needed)",
+      dry.before.conflicts.map((c) => [c.legacy.state, c.ledger.installmentStatus, c.ledger.paymentTruth, c.ledger.paidInFull, c.proposedResolution.startsWith("none needed")]),
+      [["MET", "SCHEDULED", true, true, true]],
+    );
+    eq("dry run: nothing invalid or ambiguous here", [dry.before.invalid.length, dry.before.ambiguous.length], [0, 0]);
+
+    // READ ONLY is enforced by Postgres, through Prisma, exactly as the dry run opens it.
+    let readOnlyRefused = false;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+        await tx.$executeRawUnsafe(`UPDATE "Commitment" SET "note" = "note" WHERE "businessId" = ${C.id}`);
+      });
+    } catch (e) {
+      readOnlyRefused = String((e as Error).message).includes("read-only transaction");
+    }
+    check("a write inside a READ ONLY transaction is refused by Postgres", readOnlyRefused);
 
     // The read-only SQL preflight an operator can paste must agree with the dry run.
     const preflight = splitSql(readFileSync(path.join(process.cwd(), "scripts", "payables", "secretary-ledger-cutover-preflight.sql"), "utf8"));
@@ -481,7 +518,18 @@ async function main(): Promise<void> {
     const conflictRows = await prisma.$queryRawUnsafe<Array<{ obligation_id: number }>>(preflight[1]);
     eq("SQL preflight lists the same conflict by id", conflictRows.map((r) => Number(r.obligation_id)), [paidBeforeCutover.id]);
 
-    const exec = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id] });
+    const commitmentsBeforeExec = await prisma.commitment.count({ where: { businessId: C.id } });
+    await rejects("execute WITHOUT the approved counts is refused", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id] }),
+      "CutoverRefusedError",
+    );
+    await rejects("execute with counts that differ from the dry run is refused", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: { copy: 3, reconcile: 3, totals: 2 } }),
+      "CutoverRefusedError",
+    );
+    eq("…and a refused execute wrote nothing", await prisma.commitment.count({ where: { businessId: C.id } }), commitmentsBeforeExec);
+    const exec = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: expectedFrom(dry.before) });
+    eq("execute created exactly the planned commitments", (await prisma.commitment.count({ where: { businessId: C.id } })) - commitmentsBeforeExec, dry.before.plan.commitmentsToCreate);
     eq("execute: copied 2 · synced 3 (Aug MET, VAT, old supplier — the conflict is skipped) · 2 recurring totals cleared", [exec.applied?.copied, exec.applied?.synced, exec.applied?.totalsCleared], [2, 3, 2]);
     eq("after: nothing uncopied", exec.after?.uncopied, { OPEN: 0, MET: 0, RELEASED: 0, recurring: 0 });
     eq("after: only the conflict's MET remains as drift", exec.after?.drift.metNotSettled, 1);
@@ -493,8 +541,32 @@ async function main(): Promise<void> {
     eq("uncopied recurring row: RECURRING with NO total, and its snooze copied", [accSepC.scheduleKind, accSepC.totalAmount, !!accSepC.installments[0].workflow?.followUpAt], ["RECURRING", null, true]);
     const paidC = await prisma.installment.findFirstOrThrow({ where: { commitmentId: copiedPaid.id } });
     eq("the conflicting paid row was NOT rewritten", paidC.status, "SCHEDULED");
-    const again = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id] });
-    eq("idempotent: a second run changes nothing", again.applied, { copied: 0, synced: 0, totalsCleared: 0 });
+    const secondDry = await runSecretaryLedgerCutover(prisma, { mode: "dry-run", onlyBusinessIds: [C.id] });
+    eq("second dry run: nothing to copy, nothing to reconcile, no totals (only the conflict remains)", [expectedFrom(secondDry.before), secondDry.before.conflicts.length], [{ copy: 0, reconcile: 0, totals: 0 }, 1]);
+    const again = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: expectedFrom(secondDry.before) });
+    eq("idempotent: a second execute changes nothing", again.applied, { copied: 0, synced: 0, totalsCleared: 0 });
+
+    section("J2 · invalid and ambiguous legacy rows block execute");
+    const Dz = await makeBusiness("D");
+    created.push(Dz);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "BusinessObligation" ("businessId","obligeeName","amount","currency","dueAt","state","source","recurrence","updatedAt") VALUES ($1,'x',0,'ILS','2026-09-01','OPEN','MANUAL','NONE',now())`,
+      Dz.id,
+    );
+    for (let k = 0; k < 2; k += 1) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "BusinessObligation" ("businessId","obligeeName","amount","currency","dueAt","state","source","recurrence","recurrenceSeriesId","updatedAt") VALUES ($1,'y',100,'ILS','2026-09-05','OPEN','MANUAL','MONTHLY','dup-${runId}',now())`,
+        Dz.id,
+      );
+    }
+    const dryD = await runSecretaryLedgerCutover(prisma, { mode: "dry-run", onlyBusinessIds: [Dz.id] });
+    eq("a zero amount is reported invalid", dryD.before.invalid.map((r) => r.reason), ["amount is not positive"]);
+    eq("two open occurrences of one series on one date are reported ambiguous", dryD.before.ambiguous.length, 1);
+    await rejects("execute refuses while invalid/ambiguous rows exist — even with matching counts", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [Dz.id], expect: expectedFrom(dryD.before) }),
+      "CutoverRefusedError",
+    );
+    eq("…and wrote nothing for that business", await prisma.commitment.count({ where: { businessId: Dz.id } }), 0);
     let series = 0;
     for (const d of ["2026-07-15", "2026-08-15", "2026-09-15"]) {
       const r = await deriveBusinessCost({ businessId: C.id, date: d });
@@ -556,6 +628,14 @@ async function main(): Promise<void> {
     // The migration's own grants model: no DELETE for the application role.
     await prisma.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "InstallmentWorkflow" FROM ${roleName}`);
     for (const s of splitSql(migration("20260917090100_payables_phase_1a_tenant_rls"))) await prisma.$executeRawUnsafe(s);
+    for (const s of splitSql(migration("20260824210000_d2_p7_wave1_tenant_rls")).filter((x) => /"BusinessObligation(Orientation)?"/.test(x))) {
+      await prisma.$executeRawUnsafe(s);
+    }
+    // What the cutover dry run needs to READ; nothing more.
+    for (const t of ["Business", "BusinessObligation", "Commitment", "Payment", "PaymentAllocation"]) {
+      await prisma.$executeRawUnsafe(`GRANT SELECT ON "${t}" TO ${roleName}`);
+    }
+    const ownerDry = await runSecretaryLedgerCutover(prisma, { mode: "dry-run" });
     const url = new URL(TEST_DB);
     url.username = roleName;
     url.password = pw;
@@ -586,6 +666,12 @@ async function main(): Promise<void> {
       check("writing a B-owned workflow row under A → refused (trigger, then RLS)", r.crossTenantRow === "trigger" || r.crossTenantRow === "rls", r.crossTenantRow);
       eq("pointing A's workflow at B's installment → refused (B's installment is invisible to A)", r.foreignInstallment, "trigger");
       check("the application role cannot DELETE workflow rows", r.deleteRefused);
+      eq(
+        "cutover dry run WITHOUT BYPASSRLS: discovers via Business, read-only, and sees exactly what the owner sees (no false 'nothing to do')",
+        [r.cutoverDry.role?.bypassRls, r.cutoverDry.role?.discovery, r.cutoverDry.readOnly, r.cutoverDry.obligations, r.cutoverDry.alreadyCopied],
+        [false, "BUSINESS_TABLE", true, ownerDry.before.obligations, ownerDry.before.alreadyCopied],
+      );
+      check("…and the owner's view is not trivially empty", ownerDry.before.obligations > 0, String(ownerDry.before.obligations));
     }
   } finally {
     for (const b of created) await prisma.business.delete({ where: { id: b.id } }).catch((e) => console.error("cleanup", b.id, e));
