@@ -188,6 +188,12 @@ async function main(): Promise<void> {
       "updatedAt"                 timestamp(3) NOT NULL DEFAULT now()
     )`);
   for (const stmt of statements(rlsSql)) await owner.$executeRawUnsafe(stmt);
+  // sec(E)/M-12(c): every tenant transaction reads the business lifecycle (id, deletionRequestedAt,
+  // deletedAt) under the shared lifecycle lock. Business carries no RLS in Production and the runtime
+  // holds SELECT on exactly these columns there; the lab reproduces only that, both tenants ACTIVE.
+  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "Business" CASCADE`);
+  await owner.$executeRawUnsafe(`CREATE TABLE "Business" ("id" integer PRIMARY KEY, "deletionRequestedAt" timestamp(3), "deletedAt" timestamp(3))`);
+  await owner.$executeRawUnsafe(`INSERT INTO "Business" ("id") VALUES (${A}), (${B})`);
 
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${ROLE}`);
   await owner.$executeRawUnsafe(`CREATE ROLE ${ROLE} LOGIN PASSWORD '${PW}' NOBYPASSRLS`);
@@ -195,6 +201,7 @@ async function main(): Promise<void> {
   for (const g of allGrants) {
     await owner.$executeRawUnsafe(g.replace(/:ROLE|app_runtime/g, ROLE).replace(/;\s*$/, ""));
   }
+  await owner.$executeRawUnsafe(`GRANT SELECT ("id", "deletionRequestedAt", "deletedAt") ON "Business" TO ${ROLE}`);
 
   const bypass = await owner.$queryRawUnsafe<{ rolbypassrls: boolean }[]>(
     `SELECT rolbypassrls FROM pg_roles WHERE rolname = '${ROLE}'`
@@ -375,6 +382,7 @@ async function main(): Promise<void> {
 
   // ── teardown ─────────────────────────────────────────────────────────────
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "BusinessProfile" CASCADE`);
+  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "Business" CASCADE`);
   // The schema-level USAGE grant is a dependency of its own: without DROP OWNED
   // first, DROP ROLE fails with 2BP01 and leaves the lab dirty for the next run.
   await owner.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`);
