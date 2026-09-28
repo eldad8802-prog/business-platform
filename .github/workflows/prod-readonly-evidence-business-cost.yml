@@ -1,0 +1,80 @@
+name: Prod Read-Only Evidence (Daily Business Cost, QA tenant)
+
+# Runs the real Daily Business Cost engine against Production for the QA tenant
+# (business 38 — a repository constant in the script, not an input) and prints
+# only its QA-P2 commitments and the day's totals.
+#
+# Read-only, enforced by Postgres: one connection, session set to READ ONLY, and
+# the script refuses unless default_transaction_read_only is on (checked before
+# and after). Direct (non-pooled) URL only; host allowlisted like every other
+# Prod Read-Only Evidence workflow. Manual trigger; protected production-db.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: "1–12 comma-separated YYYY-MM-DD dates"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-business-cost
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Read-only Daily Business Cost evidence (QA tenant)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Validate dates
+        env:
+          DATES: ${{ inputs.dates }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$DATES" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(,[0-9]{4}-[0-9]{2}-[0-9]{2}){0,11}$'; then
+            echo "::error::dates must be 1-12 comma-separated YYYY-MM-DD values"; exit 1
+          fi
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL secret is not set."; exit 1; fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint — aborting."; exit 1 ;;
+          esac
+          case "$DIRECT_URL" in
+            *-pooler*) echo "::error::DIRECT_URL is a pooled URL — refusing (the read-only session must not be shared)."; exit 1 ;;
+          esac
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: Daily Business Cost for the QA tenant (READ ONLY session)
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          DATES: ${{ inputs.dates }}
+        run: npx tsx scripts/payables/business-cost-evidence.ts --dates "$DATES"

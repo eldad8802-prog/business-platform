@@ -37,6 +37,7 @@ on:
           - 'ops/evidence/m1-reconciliation-qa-evidence.sql'
           - 'ops/evidence/sec-f-521-production-evidence.sql'
           - 'ops/evidence/sec-c-530-preflight.sql'
+          - 'ops/evidence/secretary-ledger-cutover-evidence.sql'
 
 permissions:
   contents: read
@@ -70,6 +71,17 @@ jobs:
             echo "$MATCHES"
             exit 1
           fi
+          # The database enforces read-only below (PGOPTIONS). A session may switch
+          # that setting itself, so the file must never touch the boundary.
+          BOUNDARY='(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization'
+          # The only allowed form is switching read-only ON (several files do so).
+          ALLOWED_ON='[[:space:]]*set[[:space:]]+(session[[:space:]]+)?default_transaction_read_only[[:space:]]*(=|to)[[:space:]]*(on|true)[[:space:]]*;?[[:space:]]*(--.*)?$'
+          TOUCHES="$(grep -inE "$BOUNDARY" "$SQL_FILE" | grep -viE "^[0-9]+:$ALLOWED_ON" || true)"
+          if [ -n "$TOUCHES" ]; then
+            echo "::error::The SQL file tries to change the read-only boundary — aborting before any DB connection."
+            echo "$TOUCHES"
+            exit 1
+          fi
           echo "SQL guard passed: file is SELECT-only."
 
       - name: Host allowlist assertion (verified Production only)
@@ -96,10 +108,18 @@ jobs:
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           PGSSLMODE: require
+          # Postgres itself refuses writes: every transaction in this session
+          # starts READ ONLY. Independent of the static guard above.
+          PGOPTIONS: "-c default_transaction_read_only=on"
           SQL_FILE_INPUT: ${{ inputs.sql_file }}
         run: |
           set -euo pipefail
           SQL_FILE="${SQL_FILE_INPUT:-ops/evidence/cardcom-e2e-evidence.sql}"
+          RO="$(psql "$DIRECT_URL" --no-psqlrc -At -c 'SHOW default_transaction_read_only')"
+          if [ "$RO" != "on" ]; then
+            echo "::error::Postgres did not accept the read-only session (default_transaction_read_only=$RO) — aborting."; exit 1
+          fi
+          echo "Postgres read-only session confirmed: default_transaction_read_only=$RO"
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \

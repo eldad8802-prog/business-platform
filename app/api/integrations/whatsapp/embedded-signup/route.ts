@@ -2,7 +2,8 @@
  * POST /api/integrations/whatsapp/embedded-signup  (Ticket 4)
  *
  * Receives the Embedded Signup result captured client-side (Ticket 3):
- *   { code, phoneNumberId, wabaId }
+ *   { code, wabaId, phoneNumberId? }  (phoneNumberId is absent for coexistence
+ *   onboarding; the server then resolves the WABA's number)
  *
  * Orchestrates the connect flow ATOMICALLY:
  *   1. exchange `code` → access token   (App Secret, server-side)
@@ -32,6 +33,7 @@ import { getCurrentUser } from "@/lib/auth";
 import {
   exchangeCodeForToken,
   fetchPhoneNumberDisplay,
+  fetchWabaPhoneNumber,
   subscribeWabaToApp,
 } from "@/lib/services/integrations/whatsapp/graph.service";
 import { persistFromEmbeddedSignup } from "@/lib/services/integrations/whatsapp/connection.service";
@@ -58,6 +60,7 @@ export async function POST(req: Request) {
     {
       exchangeCodeForToken,
       fetchPhoneNumberDisplay,
+      fetchWabaPhoneNumber,
       subscribeWabaToApp,
       persistFromEmbeddedSignup,
       // Safe fields only (a stage name and a Graph status/error number).

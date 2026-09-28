@@ -50,6 +50,12 @@ jobs:
       - name: Connection state → settings view
         run: npx tsx components/whatsapp/connection-view.test.ts
 
+      - name: Call-scoped popup observer (browser refusal detection)
+        run: npx tsx components/whatsapp/popup-observer.test.ts
+
+      - name: Facebook SDK loader (never the sdk.js buffering stub)
+        run: npx tsx components/whatsapp/facebook-sdk.test.ts
+
       - name: Negative proof — an extendable deadline must fail the suite
         run: |
           set -uo pipefail
@@ -65,3 +71,50 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a re-armable deadline is caught"
+
+      - name: Negative proof — ignoring a refused popup must fail the suite
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/embedded-signup-controller.ts
+          cp "$F" "$F.bak"
+          # Re-introduce the Production defect: a refused Meta window goes unnoticed.
+          perl -0pi -e 's|if \(popupOpened === false && isCurrent\(id\)\) fail\("popup_blocked"\);|/* refusal ignored */|' "$F"
+          if grep -q '/\* refusal ignored \*/' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/embedded-signup-controller.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ignored popup refusal passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an ignored popup refusal is caught"
+
+      - name: Negative proof — FB.login on the preload reference (stale loader stub) must fail
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/embedded-signup-controller.ts
+          cp "$F" "$F.bak"
+          perl -0pi -e 's|const readyFb = env\.getReadyFb\(\);|const readyFb = fb ?? env.getReadyFb();|' "$F"
+          if grep -q 'const readyFb = fb ?? env.getReadyFb();' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/embedded-signup-controller.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale SDK reference passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a stale SDK reference is caught"
+
+      - name: Negative proof — init at the sdk.js onload (on the stub) must fail
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/facebook-sdk.ts
+          cp "$F" "$F.bak"
+          # Re-introduce the old loader: resolve with whatever window.FB is at script onload.
+          perl -0pi -e 's|// No onload → init: at the loader.s onload window.FB is still the STUB.|(script as unknown as { onload: () => void }).onload = () => { const fb = w.FB as FacebookSdk; settled = true; w.clearTimeout(timer); fb.init({ appId: config.appId, version: config.graphVersion, cookie: false, xfbml: false }); resolve(fb); };|' "$F"
+          if grep -q 'onload = () => { const fb = w.FB as FacebookSdk' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/facebook-sdk.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: init-at-onload passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: init-at-onload is caught"
