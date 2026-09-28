@@ -122,6 +122,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Lead: { disposition: "ERASURE_MANAGED" },
   Conversation: { disposition: "ERASURE_MANAGED" },
   Message: { disposition: "ERASURE_MANAGED" },
+  // M2 — intake receipts: payload / metadata / pointers scrubbed by the adapter;
+  // the replay key is a hash, never the raw provider id.
+  IntakeEvent: { disposition: "ERASURE_MANAGED" },
   MessageAnalysis: { disposition: "ERASURE_MANAGED" },
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },

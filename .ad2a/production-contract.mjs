@@ -207,6 +207,19 @@ export const PRODUCTION_RLS_CONTRACT = [
     why: "holds generated reply text, which the erasure anonymises in place",
     policies: [{ name: "p7w4b_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
+  // Business Intake M2 — the WhatsApp receipt ledger. Split per command, NO
+  // DELETE policy: the erasure scrubs a receipt's payload and pointers with an
+  // UPDATE under a proven context, and must never need to delete one.
+  {
+    table: "IntakeEvent",
+    migration: "20260927180000_m2_intake_event",
+    why: "holds the event as received (sender, text) until processed; the erasure scrubs it with an UPDATE",
+    policies: [
+      { name: "intake_event_tenant_read", command: "SELECT", using: TENANT },
+      { name: "intake_event_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "intake_event_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   {
     table: "MessageAnalysis",
     migration: "20260826150000_d2_p7_w4b_whatsapp_tenant_rls",
@@ -506,6 +519,10 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   ReceivingSession: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
   PurchaseOrderLine: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
   PurchaseOrder: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  IntakeEvent: {
+    verbs: SIU,
+    basis: "migration 20260927180000_m2_intake_event grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
 };
 
 /** Every sequence in the schema: USAGE and SELECT, nothing else. */
