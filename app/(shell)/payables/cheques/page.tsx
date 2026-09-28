@@ -80,6 +80,8 @@ export default function ChequesPage() {
         </div>
       )}
 
+      <div className={styles.work}>
+      <section>
       <h2 className={styles.sectionTitle}>חשבונות הבנק של העסק</h2>
       {accounts === null && !error ? (
         <div className={styles.empty}>טוען…</div>
@@ -88,6 +90,8 @@ export default function ChequesPage() {
           <BankAccountsSection accounts={accounts} configured={configured} onChanged={changed} />
         )
       )}
+      </section>
+      <section>
 
       <div className={styles.header}>
         <h2 className={styles.sectionTitle}>צ׳קים</h2>
@@ -141,6 +145,8 @@ export default function ChequesPage() {
           ))}
         </div>
       )}
+      </section>
+      </div>
     </div>
   );
 }

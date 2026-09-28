@@ -1020,28 +1020,40 @@ function CalendarMonth({ obligations }: { obligations: ObligationApi[] }) {
   );
 }
 
-function TimelineGroup({ title, items, empty }: { title: string; items: ObligationApi[]; empty: string }) {
+function TimelineGroup({ title, items, empty, selectedId, onSelect }: { title: string; items: ObligationApi[]; empty: string; selectedId?: number | null; onSelect?: (id: number) => void }) {
   return (
     <section className={styles.timelineGroup}>
       <div className={styles.timelineTitle}>{title}</div>
-      {items.length > 0 ? items.map((item) => <TimelineItem key={item.id} item={item} />) : <div className={styles.timelineEmpty}>{empty}</div>}
+      {items.length > 0 ? items.map((item) => <TimelineItem key={item.id} item={item} selected={item.id === selectedId} onSelect={onSelect} />) : <div className={styles.timelineEmpty}>{empty}</div>}
     </section>
   );
 }
 
-function TimelineItem({ item }: { item: ObligationApi }) {
+function TimelineItem({ item, selected, onSelect }: { item: ObligationApi; selected?: boolean; onSelect?: (id: number) => void }) {
+  const router = useRouter();
   const tone = obligationTone(item);
   const stripeTone = obligationStripeTone(item);
   const done = item.state === "MET";
   return (
-    <Link className={`${styles.timelineItem} ${stripeTone === "late" ? styles.timelineLate : stripeTone === "soon" ? styles.timelineSoon : ""} ${done ? styles.timelineDone : ""}`} href={screenHref("detail", item.id)}>
+    <button
+      type="button"
+      className={`${styles.timelineItem} ${stripeTone === "late" ? styles.timelineLate : stripeTone === "soon" ? styles.timelineSoon : ""} ${done ? styles.timelineDone : ""} ${selected ? styles.timelineSelected : ""}`}
+      aria-pressed={selected || undefined}
+      onClick={() => {
+        if (typeof window !== "undefined" && window.matchMedia("(min-width: 1200px)").matches && onSelect) {
+          onSelect(item.id);
+          return;
+        }
+        router.push(screenHref("detail", item.id));
+      }}
+    >
       <span className={styles.timelineEmoji}>{emojiForObligation(item)}</span>
       <span className={styles.timelineBody}>
         <strong>{item.obligeeName}</strong>
         <span>{done ? `טופל ב-${formatDateValue(item.metAt ?? item.updatedAt)}` : <><StatusPill tone={tone}>{shortDueLabel(item)}</StatusPill>{recurrenceText(item.recurrence)}</>}</span>
       </span>
       <b>{formatMoneyValue(item.amount, item.currency)}</b>
-    </Link>
+    </button>
   );
 }
 
@@ -1051,6 +1063,7 @@ function StatusPill({ tone, children }: { tone: ObligationCard["tone"] | "purple
 }
 
 function AllObligationsScreen({ obligations, loadMore }: { obligations: ObligationApi[]; loadMore?: ReactNode }) {
+  const [pickedId, setPickedId] = useState<number | null>(null);
   const now = new Date();
   // Headline count + total are computed over ALL open obligations so this
   // screen agrees exactly with the home briefing ("N במעקב · total להוצאה").
@@ -1069,6 +1082,7 @@ function AllObligationsScreen({ obligations, loadMore }: { obligations: Obligati
   const monthItems = currentMonthItems(obligations, now);
   const monthOpen = monthItems.filter((item) => item.state === "OPEN");
   const doneThisMonth = monthItems.filter((item) => item.state === "MET");
+  const selected = obligations.find((item) => item.id === pickedId) ?? openAll[0] ?? obligations[0] ?? null;
   return (
     <SecretaryScreen title="כל ההתחייבויות" backHref="/secretary">
       <section className={styles.monthSummary}>
@@ -1080,23 +1094,40 @@ function AllObligationsScreen({ obligations, loadMore }: { obligations: Obligati
           <span><b>{sumMoney(doneThisMonth)}</b><small>טופל החודש</small></span>
         </div>
       </section>
-      <div className={styles.calendarHead}><h3>היומן שלי · {monthLabel(now)}</h3><Link href="/secretary?today=1">היום</Link></div>
-      <CalendarMonth obligations={monthItems} />
-      <div className={styles.calendarLegend} aria-hidden="true">
-        <span><i className={styles.calendarDotUrgent} />באיחור</span>
-        <span><i className={styles.calendarDotSoon} />השבוע</span>
-        <span><i className={styles.calendarDotCalm} />בהמשך</span>
-        <span><b className={styles.calendarTodayKey} />היום</span>
+      <div className={styles.oblDesk}>
+        <div>
+          {obligations.length > 0 ? (
+            <>
+              <TimelineGroup title={`השבוע · ${thisWeek.length} התחייבויות`} items={thisWeek} empty="אין התחייבויות לשבוע הקרוב." selectedId={selected?.id} onSelect={setPickedId} />
+              <TimelineGroup title={`בהמשך · ${later.length}`} items={later} empty="אין עוד התחייבויות פתוחות בהמשך." selectedId={selected?.id} onSelect={setPickedId} />
+              <TimelineGroup title={`שהושלמו החודש · ${doneThisMonth.length}`} items={doneThisMonth} empty="עוד לא סומנה התחייבות שטופלה החודש." selectedId={selected?.id} onSelect={setPickedId} />
+            </>
+          ) : <EmptyMemory title="אין עדיין התחייבויות פתוחות" body="היומן ריק כרגע. אפשר למסור לי התחייבות ראשונה ואשמור אותה בשבילך." />}
+          <div className={styles.calendarHead}><h3>היומן שלי · {monthLabel(now)}</h3><Link href="/secretary?today=1">היום</Link></div>
+          <CalendarMonth obligations={monthItems} />
+          <div className={styles.calendarLegend} aria-hidden="true">
+            <span><i className={styles.calendarDotUrgent} />באיחור</span>
+            <span><i className={styles.calendarDotSoon} />השבוע</span>
+            <span><i className={styles.calendarDotCalm} />בהמשך</span>
+            <span><b className={styles.calendarTodayKey} />היום</span>
+          </div>
+          {loadMore}
+          <PrimaryLink href={screenHref("capture")}>למסור לי עוד התחייבות</PrimaryLink>
+        </div>
+        <aside className={styles.oblInspect} aria-label="ההתחייבות שנבחרה">
+          {selected ? (
+            <>
+              <DetailMemoryCard obligation={selected} />
+              {selected.note ? <p className={styles.inspectNote}>{selected.note}</p> : null}
+              <HistoryCard obligation={selected} obligations={obligations} />
+              <p className={styles.inspectNote}>הזיכרון נשאר אצל המזכירה. רישום תשלום נמצא ב<Link href="/payables">התחייבויות</Link>. סימון כטופל אינו תשלום.</p>
+              <PrimaryLink href={screenHref("detail", selected.id)}>הפעולה הבאה</PrimaryLink>
+            </>
+          ) : (
+            <p className={styles.inspectNote}>בחרו שורה כדי לראות למי, כמה, ומתי. הטיפול עצמו נשאר במסך של ההתחייבות.</p>
+          )}
+        </aside>
       </div>
-      {obligations.length > 0 ? (
-        <>
-          <TimelineGroup title={`השבוע · ${thisWeek.length} התחייבויות`} items={thisWeek} empty="אין התחייבויות לשבוע הקרוב." />
-          <TimelineGroup title={`בהמשך · ${later.length}`} items={later} empty="אין עוד התחייבויות פתוחות בהמשך." />
-          <TimelineGroup title={`שהושלמו החודש · ${doneThisMonth.length}`} items={doneThisMonth} empty="עוד לא סומנה התחייבות שטופלה החודש." />
-        </>
-      ) : <EmptyMemory title="אין עדיין התחייבויות פתוחות" body="היומן ריק כרגע. אפשר למסור לי התחייבות ראשונה ואשמור אותה בשבילך." />}
-      {loadMore}
-      <PrimaryLink href={screenHref("capture")}>למסור לי עוד התחייבות</PrimaryLink>
     </SecretaryScreen>
   );
 }
@@ -1183,28 +1214,36 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
       : "לתשלום ב-" + formatDateValue(obligation.dueAt);
   return (
     <SecretaryScreen title={name} backHref={screenHref("all")}>
-      <section className={[styles.detailObjectHead, isMet ? styles.detailObjectDone : ""].join(" ")}>
-          <div className={styles.detailObjectTile}>{emojiForObligation(obligation)}</div>
-          <div className={styles.detailObjectInfo}>
-            <strong>{name}</strong>
-            <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+      <div className={styles.detailDesk}>
+        <div>
+          <section className={[styles.detailObjectHead, isMet ? styles.detailObjectDone : ""].join(" ")}>
+            <div className={styles.detailObjectTile}>{emojiForObligation(obligation)}</div>
+            <div className={styles.detailObjectInfo}>
+              <strong>{name}</strong>
+              <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+            </div>
+          </section>
+          <div className={styles.detailMetaLine}>
+            <StatusPill tone={tone}>{isMet ? "טופל החודש" : isInstallment ? "פריסת תשלומים" : shortDueLabel(obligation)}</StatusPill>
+            <span>{metaText}</span>
           </div>
-        </section>
-        <div className={styles.detailMetaLine}>
-          <StatusPill tone={tone}>{isMet ? "טופל החודש" : isInstallment ? "פריסת תשלומים" : shortDueLabel(obligation)}</StatusPill>
-          <span>{metaText}</span>
+          <Say>{isMet ? "כבר טיפלת בזה החודש. אני שומרת את הזיכרון כדי שלא תצטרך לזכור שוב." : isInstallment ? "זה תשלום אחד מתוך פריסה שאני שומרת עבורך." : "זה מה שאני זוכרת על ההתחייבות הזאת."}</Say>
+          <DetailMemoryCard obligation={obligation} />
+          {obligation.note ? <p className={styles.inspectNote}>{obligation.note}</p> : null}
         </div>
-        <Say>{isMet ? "כבר טיפלת בזה החודש. אני שומרת את הזיכרון כדי שלא תצטרך לזכור שוב." : isInstallment ? "זה תשלום אחד מתוך פריסה שאני שומרת עבורך." : "זה מה שאני זוכרת על ההתחייבות הזאת."}</Say>
-        <DetailMemoryCard obligation={obligation} />
-        <HistoryCard obligation={obligation} obligations={obligations} />
-        <div className={styles.actions}>
-          {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? "רגע…" : "סמן שטופל"}</PrimaryButton> : null}
-          <div className={styles.ghosts}>
-            {!isMet ? <GhostLink href={screenHref("remind", obligation.id)}>להזכיר לי אחר כך</GhostLink> : null}
-            <GhostLink href={screenHref("update", obligation.id)}>עריכת התחייבות</GhostLink>
+        <div>
+          <HistoryCard obligation={obligation} obligations={obligations} />
+          <p className={styles.inspectNote}>הזיכרון נשאר אצל המזכירה. רישום תשלום נמצא ב<Link href="/payables">התחייבויות</Link>. סימון כטופל אינו תשלום.</p>
+          <div className={styles.actions}>
+            {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? "רגע…" : "סמן שטופל"}</PrimaryButton> : null}
+            <div className={styles.ghosts}>
+              {!isMet ? <GhostLink href={screenHref("remind", obligation.id)}>להזכיר לי אחר כך</GhostLink> : null}
+              <GhostLink href={screenHref("update", obligation.id)}>עריכת התחייבות</GhostLink>
+            </div>
+            {!isMet ? <ReleaseControl disabled={busy} onRelease={onRelease ? () => onRelease(obligation.id) : undefined} /> : null}
           </div>
-          {!isMet ? <ReleaseControl disabled={busy} onRelease={onRelease ? () => onRelease(obligation.id) : undefined} /> : null}
         </div>
+      </div>
     </SecretaryScreen>
   );
 }

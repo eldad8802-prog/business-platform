@@ -70,9 +70,6 @@ still needs a first-principles desktop composition, then visual QA.
 
 | Domain | Surfaces still open |
 | --- | --- |
-| Billing | document detail `/billing/[id]`, create modal, issue flow |
-| Secretary | obligation detail and other secretary routes beyond the home desk |
-| Payables | list, detail, cheques, bank, match |
 | Settings | settings hub, WhatsApp |
 | Inbox | `/inbox` conversations |
 | Opportunities / offers | offer creation and related routes |
@@ -190,6 +187,55 @@ Horizontal overflow in the captured set: none.
 
 Mobile keeps the home receipt carousel, the attention cards, and a single notification column. From 1200 the home splits into a waiting list and the collection, attention becomes a queue plus inspector, notifications become a list plus the selected notice, and search groups records beside the selected one.
 
+## Slice 5 — billing document detail, secretary beyond home, payables
+
+These three desks share one vocabulary. A billing document is the source evidence. A secretary obligation is what is owed and when. A payable is the payment workflow. Recording a payment, marking an obligation handled, and preparing a payout stay separate actions. There is no inline PDF on the document: view, download, and share open the existing file actions. There is no live outbound payment provider in this slice, and the payable desk says so.
+
+Document statuses that exist are draft, pending review, and issued. Paid, partial, and no-activity are collection figures on an issued tax invoice. Overdue and cancelled are not billing-document statuses, so they are not drawn as document badges. Receipts, credit notes, and payment requests are not a second document workspace: a payment request appears inside the collection pane and links to `/collection`.
+
+| Domain | Surface | Route | State | Desktop composition | Status |
+| --- | --- | --- | --- | --- | --- |
+| Billing | Document | `/billing/[id]` | draft, customer missing | editor in the stage, identity rail from 1200 | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | draft, lines | line editor beside the money rail | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | draft ready to issue | issue action in the rail; extra editing stays collapsed | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | quote ready | same rail; convert stays a confirmed action | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | quote converted | locked quote beside the invoice it became | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | pending review | revert and issue stay in the rail | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | issued, open balance | number, customer, lines, collection, and share | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | issued, partial | paid and remaining sit in the collection pane | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | issued, paid | closed collection, no collect action | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | issued, no request | collection shows the balance without a request | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | issued, with request | the latest request status links into collection | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | collection failed to load | the warning stays in the collection pane | DESKTOP-ADAPTED |
+| Billing | Document | `/billing/[id]` | load error / not found | one message and a retry or a missing-document card | INTENTIONALLY-FOCUSED |
+| Secretary | All obligations | `/secretary?screen=all` | empty / many / selected | calendar and queue beside the selected obligation | DESKTOP-ADAPTED |
+| Secretary | Detail | `/secretary?screen=detail` | overdue / today / future / recurring / installment / handled | payee, amount, due date, and history beside the next action | DESKTOP-ADAPTED |
+| Secretary | Watching | `/secretary?screen=watching` | quiet / horizons | three horizons across the desk | DESKTOP-ADAPTED |
+| Secretary | Category bank | `/secretary?screen=bank` | picker | category chips in a wider grid | DESKTOP-ADAPTED |
+| Secretary | Capture | `/secretary?screen=capture` | new obligation | a capture sheet; creating one is a single task | INTENTIONALLY-FOCUSED |
+| Secretary | Edit | `/secretary?screen=update` | edit | a short form, not a second ledger | INTENTIONALLY-FOCUSED |
+| Secretary | Remind | `/secretary?screen=remind` | snooze | a date choice, then a confirmation | INTENTIONALLY-FOCUSED |
+| Secretary | Loop result | `/secretary?screen=loops` | handled / removed | a confirmation, not a dashboard | INTENTIONALLY-FOCUSED |
+| Secretary | Notifications prefs | `/secretary?screen=notify` | settings | a short settings column | INTENTIONALLY-FOCUSED |
+| Payables | Queue | `/payables` | empty / open / selected | dense rows and the selected commitment | DESKTOP-ADAPTED |
+| Payables | New commitment | `/payables?new=1` | form | the form beside the queue | DESKTOP-ADAPTED |
+| Payables | Detail | `/payables/[id]` | installment / recurring / legacy | schedule and history beside prepare and record | DESKTOP-ADAPTED |
+| Payables | Preparation | `/payables/[id]` | prepared / approved / completed / failed | destination, source, and the real next step | DESKTOP-ADAPTED |
+| Payables | No provider | `/payables/[id]` | execution unavailable | the desk says money is not sent from here | DESKTOP-ADAPTED |
+| Payables | Cheques | `/payables/cheques` | accounts and cheques | accounts beside the cheque register | DESKTOP-ADAPTED |
+| Payables | Bank | `/payables/bank` | evidence / empty | the statement rule beside the lines | DESKTOP-ADAPTED |
+| Payables | Match | `/payables/match/[documentId]` | document evidence | the source document beside candidate payments | DESKTOP-ADAPTED |
+| Payables | Load error | `/payables` | error | one message and a retry | INTENTIONALLY-FOCUSED |
+
+No billing-detail, secretary-beyond-home, or payables surface in this slice is NOT-YET-DONE.
+
+## Slice 5 runtime QA
+
+Evidence: `qa-evidence/desktop-ux-phase-2/billing-detail/`, `secretary/`, and `payables/`.
+Mocked `/api` only. No document was issued, no payment was recorded, and no provider was called.
+Viewports represented: 390, 768, 1024, 1280, 1440, 1600, 1920.
+Horizontal overflow in the captured set: none.
+
 ## Counts
 
 Slice 1 (CRM, collection inbox, accountant pack, secretary home, billing hub, inventory items): 13 surfaces, 12 DESKTOP-ADAPTED, 1 INTENTIONALLY-FOCUSED.
@@ -209,4 +255,10 @@ Slice 4 (home, attention, notifications, search), counted as rows in the slice 4
 - Notifications: 1 row. 1 DESKTOP-ADAPTED. 0 NOT-YET-DONE.
 - Search: 1 row. 1 DESKTOP-ADAPTED. 0 NOT-YET-DONE.
 
-Still open: the domains in "Still remaining" above. Production merge: not requested.
+Slice 5 (billing document detail, secretary beyond home, payables), counted as rows in the slice 5 table:
+
+- Billing detail: 13 rows. 12 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (load error / not found). 0 NOT-YET-DONE.
+- Secretary beyond home: 9 rows. 4 DESKTOP-ADAPTED. 5 INTENTIONALLY-FOCUSED (capture, edit, remind, loop result, notification settings). 0 NOT-YET-DONE.
+- Payables: 9 rows. 8 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (load error). 0 NOT-YET-DONE.
+
+Still open: Settings, Inbox, Offers, Business, Content studio, Tools. Production merge: not requested.

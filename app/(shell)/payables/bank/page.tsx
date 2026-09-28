@@ -95,6 +95,8 @@ export default function BankLinesPage() {
         </div>
       </header>
 
+      <div className={styles.work}>
+      <section>
       <div className={styles.notice}>
         אין חיבור ישיר לבנק. התנועות כאן הן מה שהזנת או העלית. שיוך תנועה לתשלום קיים הוא ראיה בלבד — הוא לא
         רושם תשלום נוסף.
@@ -104,6 +106,8 @@ export default function BankLinesPage() {
 
       {mode === "manual" && <ManualLineForm accounts={accounts} onDone={(m) => { setMode("none"); changed(m); }} />}
       {mode === "upload" && <UploadForm accounts={accounts} onDone={(m) => { setMode("none"); changed(m); }} />}
+      </section>
+      <section>
 
       <div className={styles.header}>
         <h2 className={styles.sectionTitle}>תנועות</h2>
@@ -125,6 +129,8 @@ export default function BankLinesPage() {
           ))}
         </div>
       )}
+      </section>
+      </div>
     </div>
   );
 }
