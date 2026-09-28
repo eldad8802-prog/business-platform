@@ -211,3 +211,32 @@ M10 would consume:
 
 Showing recommendations to owners, and any automated action, are separate owner decisions. M9 builds
 neither.
+
+## Production proof (2026-09-29)
+
+**Releases**
+- The migration `20260928090000_m9_outcome_learning` shipped alone in #563 (`3949da0`). It was applied by `release-migrate` run 36493086831 after `production-db` approval. Exactly this migration was pending and applied.
+- The code shipped in #562 (`cfdc5cd`), and `business-platform` deployed to Production.
+
+**Runs.** All four ran through `knowledge-derive.yml` on the running application, as **`app_runtime_prod`** (NOSUPERUSER, NOBYPASSRLS, proof level FULL). Natural Production evidence only: no business record was created or changed, and no decision was made.
+
+| | business 3 | business 9 |
+|---|---|---|
+| runs (with Brain shadow, then replay) | 36499082205, 36499276277 | 36499124235, 36499321733 |
+| isolation (12 tables, including 5 M9 tables) | holds: RLS + FORCE, 0 rows without tenant, 0 foreign rows | holds |
+| M9 runtime privileges | history tables SELECT/INSERT only; no DELETE anywhere | same |
+| guard catalog | 10 CHECKs, 8 composite tenant keys, 2 partial unique indexes, 5 enabled guard triggers, 12 per-command policies, 0 `FOR ALL`; attribution CHECK is sequence-only | same |
+| refused writes (all rolled back) | UPDATE ×3 and DELETE ×5 → `42501`; causal attribution → `23514`; dangling tenant reference → `23503`; editing a live recommendation → `DZ902` | same |
+| first run | 2 candidates, 2 issued (`KNOWLEDGE_RULE`); decisions NONE; backlog-at-issue observed; 2 assessments `PENDING` / `NOT_STARTED` / `NOT_ASSESSABLE` | 3 candidates, 3 issued; decisions NONE; 3 assessments `PENDING` / `NOT_ASSESSABLE` |
+| replay | 0 issued (`DEDUPED_ACTIVE` ×2); 0 actions/observations inserted; 2 assessments **confirmed** (recomputed hash = stored hash), 0 written, 0 superseded | 0 issued (`DEDUPED_ACTIVE` ×3); 0 inserted; 3 confirmed |
+| feedback into bks.v1 | 2 `RECOMMENDATION_MEMORY`; pattern gaps (below threshold); snapshot deterministic; 10 queries | 3 `RECOMMENDATION_MEMORY`; pattern gaps; deterministic |
+| Brain shadow (`brain-context.v2` / `brain-prompt.v2`) | FINDINGS, 2 accepted, `CAUSAL_WORDING` ×3 rejected | FINDINGS, 1 accepted, `CAUSAL_WORDING` ×4 rejected |
+
+**Public logs** carry counts, states, codes and versions only. Scanned: no names, amounts or text.
+
+**What Production proves today**
+- It proves: `Recommendation → NO DECISION → (action pending) → assessment → snapshot memory`, together with tenant isolation, the guards and idempotent replay.
+- **Outcome windows are open.** Ledger actions and observations after issuance will accrue from natural activity. None exists yet, and none was created.
+- The owner-decision branch (ACCEPT / REJECT / MODIFY / NOT_NOW), reversal and from-scratch rebuild are proven only in the lab battery (52/52, as a NOBYPASSRLS role on the shipped DDL). No owner surface exists, so no Production decision can exist.
+
+**Brain.** Since `brain-prompt.v2` and the broader outcome-effect wording list, more model findings are rejected as `CAUSAL_WORDING`. The M8 live runs had 0 rejections; these had 3 and 4. It is a safe-direction change: false rejections silence a finding, they never admit a claim. The prose is not logged, so which terms fired is not observable. A follow-up could report the matched term family as a code.
