@@ -17,6 +17,10 @@ export const WA_COPY = {
     /** Shown on the CTA while Meta's popup is open. */
     connecting: "פותחים חלון מאובטח…",
     helper: "לוקח פחות מדקה.",
+    /** Shown under the CTA while Meta's popup is open — the owner's way out. */
+    popupHint:
+      "לא רואים את החלון של Meta? ייתכן שהוא נפתח מאחורי החלון הזה, או שהדפדפן חסם חלונות קופצים.",
+    cancelLaunch: "ביטול",
   },
 
   /** Moment 2 — after the popup closes, while the backend finishes. */
@@ -31,7 +35,49 @@ export const WA_COPY = {
     heading: "לא הצלחנו להשלים את החיבור",
     body: "זה בדרך כלל זמני. אפשר לנסות שוב.",
     retry: "נסה שוב",
+    /**
+     * Specific reason lines, keyed by the connect flow's error codes. Anything
+     * not listed falls back to `body`.
+     */
+    reasons: {
+      timeout: "החלון של Meta נשאר פתוח זמן רב מדי ולא הושלם. אפשר לנסות שוב.",
+      sdk_unavailable: "לא הצלחנו לטעון את החיבור של Meta. בדקו את החיבור לאינטרנט ונסו שוב.",
+      config_missing: "חיבור WhatsApp אינו זמין כרגע בסביבה הזו.",
+      meta_error: "Meta דיווחה על שגיאה בתהליך החיבור. אפשר לנסות שוב.",
+      missing_code: "Meta לא החזירה אישור לחיבור. אפשר לנסות שוב.",
+      missing_ids: "Meta לא החזירה את פרטי המספר. אפשר לנסות שוב.",
+      no_phone_number: "התהליך ב-Meta הסתיים בלי לבחור מספר טלפון. יש לבחור מספר ולנסות שוב.",
+      number_taken: "המספר הזה כבר מחובר לחשבון אחר ב-Dubiz.",
+      unauthorized: "פג תוקף ההתחברות ל-Dubiz. התחברו מחדש ונסו שוב.",
+      forbidden: "אין לך הרשאה לחבר WhatsApp לעסק הזה.",
+      meta_failed: "Meta לא אישרה את השלמת החיבור. אפשר לנסות שוב.",
+      server_error: "אירעה תקלה אצלנו בהשלמת החיבור. אפשר לנסות שוב.",
+      network: "החיבור לאינטרנט נקטע באמצע. בודקים אם החיבור הושלם…",
+    } as Record<string, string>,
   },
+
+  /** The connection status itself could not be read — never shown as "not connected". */
+  loadError: {
+    badge: "שגיאה",
+    heading: "לא הצלחנו לבדוק את מצב החיבור ל-WhatsApp",
+    body: "זה לא אומר שהחיבור נותק — רק שלא הצלחנו לקרוא אותו כרגע.",
+    retry: "נסה שוב",
+  },
+
+  /** A row exists and still receives messages, but it is not healthy. */
+  attention: {
+    badge: "דורש תשומת לב",
+    REVOKED_BY_META:
+      "הודעות מלקוחות עדיין מגיעות, אבל Meta ביטלה את ההרשאה לשלוח תשובות. יש להתחבר מחדש.",
+    ERROR: "נרשמה תקלה בחיבור. הודעות מלקוחות עדיין מגיעות; מומלץ להתחבר מחדש.",
+  } as { badge: string } & Record<string, string>,
+
+  /** A row exists but the number no longer receives messages in Dubiz. */
+  disconnectedNotice: {
+    DISCONNECTED: "המספר נותק מ-Dubiz והודעות חדשות לא מתקבלות. אפשר לחבר אותו מחדש.",
+    REVOKED: "ההרשאה למספר בוטלה והודעות חדשות לא מתקבלות. אפשר לחבר אותו מחדש.",
+    numberLabel: "המספר הקודם",
+  } as Record<string, string>,
 
   /** Moment 3 — the Inbox's own empty state once connected, no messages yet. */
   inboxConnected: {
@@ -85,3 +131,8 @@ export const WA_COPY = {
   /** Transient loader while the connection status resolves. */
   loader: "רגע, טוענים את השיחות שלך…",
 } as const;
+
+/** The owner-facing reason for a failed connect attempt (falls back to the generic line). */
+export function waConnectErrorText(code: string | null | undefined): string {
+  return (code && WA_COPY.error.reasons[code]) || WA_COPY.error.body;
+}
