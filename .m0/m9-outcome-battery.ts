@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   for (const s of m9) await owner.$executeRawUnsafe(s);
   check("the shipped M9 DDL replays (checks, partial indexes, 3 guards, 5 triggers, RLS, 12 policies)",
     m9.filter((s) => /^CREATE TRIGGER/.test(s)).length === 5 && m9.filter((s) => /^CREATE POLICY/.test(s)).length === 12 &&
-    m9.filter((s) => /FUNCTION public\.m9_/.test(s) && /^CREATE/.test(s)).length === 3, `n=${m9.length}`);
+    m9.filter((s) => /^CREATE OR REPLACE FUNCTION public\.m9_/.test(s)).length === 3 && m9.length === 45, `n=${m9.length}`);
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${GROUP}`);
   await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${GROUP}`);
   // …then the M9 grant block exactly as shipped, which REVOKEs what the blanket grant just gave.
