@@ -236,6 +236,8 @@ Mocked `/api` only. No document was issued, no payment was recorded, and no prov
 Viewports represented: 390, 768, 1024, 1280, 1440, 1600, 1920.
 Horizontal overflow in the captured set: none.
 
+Conflict closure with main kept `RecurringChanges` in the full-width recurrence context, directly under the single recurring notice and above the payment desk. Targeted payable-detail shots: `recurring-changes` at 390, 1024, 1440, 1920; `recurring-ended` at 390 and 1440; `recurring-installment` at 1440; `recurring-approved` at 390 and 1440. The recurring notice appears once. Overflow in that set: none.
+
 ## Counts
 
 Slice 1 (CRM, collection inbox, accountant pack, secretary home, billing hub, inventory items): 13 surfaces, 12 DESKTOP-ADAPTED, 1 INTENTIONALLY-FOCUSED.
