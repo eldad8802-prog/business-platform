@@ -1,0 +1,94 @@
+# SEC N-1 — tenant RLS on the five P0 evidence tables (ephemeral PG17).
+#
+# Builds a FRESH database with `prisma migrate deploy` (never db push), with the
+# Production role shape: NOLOGIN NOBYPASSRLS groups, app_runtime_prod LOGIN
+# NOSUPERUSER NOBYPASSRLS, and default privileges handing app_runtime a,r,w,d on
+# every new table. The N-1 migration is applied onto tables that already hold rows.
+# Then: the DB battery as app_runtime_prod, and the mutation proofs (FORCE removed,
+# WITH CHECK weakened/omitted) — each must go red for its named reason, restore
+# byte-identical, and the battery must be green again.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO network beyond the service
+# container, ZERO Production.
+
+name: sec/n1 — P0 evidence tenant RLS (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/**"
+      - "prisma/schema.prisma"
+      - ".secn1/**"
+      - ".github/workflows/sec-n1-ci.yml"
+      - "scripts/ci/tenant-table-rls-guard.mjs"
+      - "lib/services/inventory/sale-evidence.service.ts"
+      - "lib/services/inventory/sale-source-lines.service.ts"
+      - "lib/services/inventory/pending-match.service.ts"
+      - "lib/services/content/business-asset.service.ts"
+      - "lib/services/revenue/coupon-details-public.service.ts"
+      - "lib/tenant/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sec-n1:
+    name: sec-n1 tenant RLS battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: n1_owner
+          POSTGRES_PASSWORD: n1_ci_synthetic_owner_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U n1_owner -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      ADMIN_URL: postgresql://n1_owner:n1_ci_synthetic_owner_pw@localhost:5432/postgres
+      N1_RUNTIME_PW: n1_ci_synthetic_runtime_pw
+      N1_TEMPLATE: n1tpl
+      PRISMA_HIDE_UPDATE_MESSAGE: "1"
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Tenant-table RLS guard (repository) + its self-test
+        run: |
+          node scripts/ci/tenant-table-rls-guard.mjs
+          node scripts/ci/tenant-table-rls-guard.mjs --self-test
+
+      - name: Build the lab (stage 1 template, then N-1 onto populated tables)
+        run: |
+          set -euo pipefail
+          LAB_DB=n1tpl STOP_BEFORE_N1=1 bash .secn1/build-lab.sh
+          LAB_DB=n1lab bash .secn1/build-lab.sh
+
+      - name: DB battery as app_runtime_prod (NOSUPERUSER NOBYPASSRLS)
+        env:
+          OWNER_URL: postgresql://n1_owner:n1_ci_synthetic_owner_pw@localhost:5432/n1lab
+          RUNTIME_URL: postgresql://app_runtime_prod:n1_ci_synthetic_runtime_pw@localhost:5432/n1lab
+        run: node .secn1/db-battery.mjs
+
+      - name: Mutation proofs (FORCE / WITH CHECK) — red for the named reason, restore, green
+        run: node .secn1/mutate.mjs
+
+      - name: Working tree unchanged after the proofs
+        run: git diff --exit-code
