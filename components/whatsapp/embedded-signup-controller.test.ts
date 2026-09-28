@@ -62,6 +62,9 @@ function makeHarness(opts?: {
     },
   };
 
+  // What window.FB currently is (the LIVE sdk launch() must use). Set when the
+  // SDK "loads"; tests can swap it to model the loader stub being replaced.
+  let live: FacebookSdk | null = null;
   let resolveSdk: ((fb: FacebookSdk) => void) | null = null;
   let rejectSdk: ((e: unknown) => void) | null = null;
   let sdkPromise: Promise<FacebookSdk> | null = null;
@@ -81,7 +84,7 @@ function makeHarness(opts?: {
       });
       return sdkPromise;
     },
-    getReadyFb: () => null,
+    getReadyFb: () => live,
     addMessageListener: (fn) => {
       messageListeners.push(fn);
     },
@@ -162,7 +165,12 @@ function makeHarness(opts?: {
     },
     phase: () => ctrl.getState().phase,
     error: () => ctrl.getState().error,
+    setLive(fb: FacebookSdk | null) {
+      live = fb;
+    },
+    fakeFb,
     async settleSdk() {
+      live = fakeFb;
       resolveSdk?.(fakeFb);
       await sdkPromise;
       await Promise.resolve();
@@ -577,6 +585,32 @@ async function main() {
     assert.equal(isFinishEvent("FINISHED"), false);
     assert.equal(isFinishEvent("CANCEL"), false);
     assert.equal(isFinishEvent(undefined), false);
+  });
+
+  // ── Stale SDK reference (Production evidence after #558) ───────────────
+  await test("launch calls login on the LIVE sdk, not on the object preload resolved (loader stub)", async () => {
+    const h = makeHarness();
+    // Preload "resolved" with the sdk.js loader stub…
+    const stubCalls: unknown[] = [];
+    const stub = { init() {}, login: (...a: unknown[]) => void stubCalls.push(a), __buffer: { calls: stubCalls } } as unknown as FacebookSdk;
+    h.ctrl.preload();
+    h.setLive(stub);
+    // …then the real bundle replaced window.FB.
+    await h.settleSdk();
+    h.ctrl.launch();
+    assert.equal(h.loginCalls, 1, "the live (real) SDK's login ran");
+    assert.equal(stubCalls.length, 0, "nothing sent into the stale stub");
+    assert.equal(h.phase(), "launching");
+  });
+
+  await test("preload resolved but no real SDK is live now → sdk_unavailable, no login on a stale object", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.setLive(null); // e.g. window.FB is (again) only the loader stub
+    h.ctrl.launch();
+    assert.equal(h.loginCalls, 0);
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "sdk_unavailable");
   });
 
   // ── Popup refused by the browser (Production evidence after #557) ──────

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadFacebookSdk } from "./facebook-sdk";
+import { getLiveFacebookSdk, loadFacebookSdk } from "./facebook-sdk";
 import { getEmbeddedSignupConfig } from "./embedded-signup-config";
 import { observeWindowOpen } from "./popup-observer";
 import {
@@ -56,8 +56,7 @@ function browserEnv(): EmbeddedSignupEnv {
   return {
     getConfig: getEmbeddedSignupConfig,
     loadSdk: loadFacebookSdk,
-    getReadyFb: () =>
-      typeof window !== "undefined" ? window.FB ?? null : null,
+    getReadyFb: () => getLiveFacebookSdk(),
     // A "message" MessageEvent structurally satisfies MessageEventLike; the
     // double-cast keeps the SAME function reference so add/remove still match.
     addMessageListener: (fn) =>

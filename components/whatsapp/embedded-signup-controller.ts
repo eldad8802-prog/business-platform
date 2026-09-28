@@ -1,5 +1,9 @@
 import type { EmbeddedSignupConfig } from "./embedded-signup-config";
-import { isFacebookSdkInitialized, type FacebookSdk } from "./facebook-sdk";
+import {
+  isFacebookLoaderStubPresent,
+  isFacebookSdkInitialized,
+  type FacebookSdk,
+} from "./facebook-sdk";
 
 /**
  * Framework-agnostic controller for the Meta Embedded Signup capture.
@@ -107,7 +111,11 @@ export type EmbeddedSignupDiag = {
 export type EmbeddedSignupEnv = {
   getConfig: () => EmbeddedSignupConfig | null;
   loadSdk: (config: EmbeddedSignupConfig) => Promise<FacebookSdk>;
-  /** Synchronous check for an already-initialized SDK (e.g. `window.FB`). */
+  /**
+   * The LIVE, real SDK at click time (browser: `window.FB` only when it is not
+   * the sdk.js loader's buffering stub). launch() calls `login` on THIS — never
+   * on an object kept from the load, which may be the stale stub.
+   */
   getReadyFb: () => FacebookSdk | null;
   addMessageListener: (fn: (ev: MessageEventLike) => void) => void;
   removeMessageListener: (fn: (ev: MessageEventLike) => void) => void;
@@ -196,6 +204,7 @@ function defaultBrowserDiag(env: EmbeddedSignupEnv): EmbeddedSignupDiag | null {
           typeof document !== "undefined" &&
           !!document.getElementById("facebook-jssdk"),
         sdkInitialized: isFacebookSdkInitialized(),
+        loaderStubPresent: isFacebookLoaderStubPresent(),
         configIdPresent: !!cfg?.configId,
         appIdPresent: !!cfg?.appId,
         graphVersion: cfg?.graphVersion ?? null,
@@ -432,7 +441,10 @@ export function createEmbeddedSignupController(
       return;
     }
 
-    const readyFb = fb ?? env.getReadyFb();
+    // Always the live SDK. `fb` (from preload) only signals readiness: at the
+    // sdk.js loader's onload window.FB was a buffering stub that the real SDK
+    // later replaces, and a login on that stale stub is silently swallowed.
+    const readyFb = env.getReadyFb();
     if (!readyFb) {
       // SDK not ready yet (still preloading, or the load failed). Never leave
       // the owner stuck in "launching": surface a retryable error and kick a
