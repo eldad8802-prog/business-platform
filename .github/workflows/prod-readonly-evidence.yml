@@ -37,6 +37,7 @@ on:
           - 'ops/evidence/m1-reconciliation-qa-evidence.sql'
           - 'ops/evidence/sec-f-521-production-evidence.sql'
           - 'ops/evidence/sec-c-530-preflight.sql'
+          - 'ops/evidence/secretary-ledger-cutover-evidence.sql'
 
 permissions:
   contents: read
