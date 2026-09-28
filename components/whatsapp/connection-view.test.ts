@@ -97,7 +97,7 @@ test("the mapped connection never carries server error text", () => {
 
 test("every connect error code has an owner-facing Hebrew line; unknown codes fall back", () => {
   for (const code of [
-    "timeout", "sdk_unavailable", "config_missing", "meta_error", "missing_code", "missing_ids",
+    "timeout", "popup_blocked", "sdk_unavailable", "config_missing", "meta_error", "missing_code", "missing_ids",
     "no_phone_number", "number_taken", "unauthorized", "forbidden", "meta_failed", "server_error", "network",
   ]) {
     assert.ok(WA_COPY.error.reasons[code], `reason for ${code}`);

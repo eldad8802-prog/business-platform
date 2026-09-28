@@ -196,6 +196,58 @@ export async function fetchPhoneNumberDisplay(
   }
 }
 
+export type WabaPhoneResult =
+  | { ok: true; phoneNumberId: string; displayPhoneNumber: string }
+  | { ok: false; code: string; message: string };
+
+/**
+ * Resolves the business phone number of a WABA — used for coexistence
+ * onboarding, whose Embedded Signup finish event reports only `waba_id`.
+ *
+ * `GET /{waba-id}/phone_numbers` with the token from the code exchange, so it
+ * can only see numbers of the WABA the owner just authorized. Exactly one
+ * number is required: none or several is a named failure, never a guess.
+ */
+export async function fetchWabaPhoneNumber(
+  wabaId: string,
+  accessToken: string
+): Promise<WabaPhoneResult> {
+  const url = new URL(`${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(wabaId)}/phone_numbers`);
+  url.searchParams.set("fields", "id,display_phone_number");
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: connectSignal(),
+    });
+    const data = (await res.json().catch(() => null)) as { data?: unknown } | null;
+    if (!res.ok || !data || !Array.isArray(data.data)) {
+      return { ok: false, ...safeError(data, `phones_${res.status}`) };
+    }
+    const numbers = (data.data as Array<{ id?: unknown; display_phone_number?: unknown }>).filter(
+      (n) => typeof n?.id === "string" && n.id && typeof n.display_phone_number === "string" && n.display_phone_number
+    );
+    if (numbers.length === 0) {
+      return { ok: false, code: "phones_none", message: "The WhatsApp Business account has no phone number" };
+    }
+    if (numbers.length > 1) {
+      return { ok: false, code: "phones_multiple", message: "The WhatsApp Business account has several phone numbers" };
+    }
+    return {
+      ok: true,
+      phoneNumberId: numbers[0].id as string,
+      displayPhoneNumber: numbers[0].display_phone_number as string,
+    };
+  } catch (err) {
+    if (isTimeout(err)) {
+      return { ok: false, code: "phones_timeout", message: "Phone number lookup timed out" };
+    }
+    return { ok: false, code: "phones_network", message: "Network error listing phone numbers" };
+  }
+}
+
 export type SendTextResult =
   | { ok: true; providerMessageId: string }
   | { ok: false; kind: "auth" | "window" | "other"; code: string; message: string };

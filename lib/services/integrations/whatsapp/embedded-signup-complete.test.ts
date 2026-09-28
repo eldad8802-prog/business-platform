@@ -19,6 +19,7 @@ import {
 import {
   exchangeCodeForToken,
   fetchPhoneNumberDisplay,
+  fetchWabaPhoneNumber,
   GRAPH_CONNECT_TIMEOUT_MS,
   subscribeWabaToApp,
 } from "./graph.service";
@@ -53,6 +54,10 @@ function fakes(over: Partial<EmbeddedSignupCompleteDeps> = {}) {
     fetchPhoneNumberDisplay: async () => {
       order.push("display");
       return { ok: true, displayPhoneNumber: "+972 50-000-0000", verifiedName: null };
+    },
+    fetchWabaPhoneNumber: async () => {
+      order.push("waba_phones");
+      return { ok: true, phoneNumberId: "PN_FROM_WABA", displayPhoneNumber: "+972 52-111-1111" };
     },
     subscribeWabaToApp: async () => {
       order.push("subscribe");
@@ -101,7 +106,7 @@ async function main() {
     assert.ok("connection" in out.body);
   });
 
-  for (const missing of ["code", "phoneNumberId", "wabaId"] as const) {
+  for (const missing of ["code", "wabaId"] as const) {
     await test(`missing ${missing} → 400, no Graph call, no write`, async () => {
       const f = fakes();
       const body: Record<string, unknown> = { ...BODY };
@@ -110,6 +115,31 @@ async function main() {
       assert.equal(out.status, 400);
       assert.deepEqual(f.order, []);
       assert.equal((out.body as { stage: string }).stage, "input");
+    });
+  }
+
+  await test("coexistence (no phoneNumberId) → the WABA's single number is resolved and persisted", async () => {
+    const f = fakes();
+    const out = await completeEmbeddedSignup({ businessId: 7, body: { code: "CODE_SECRET", wabaId: "WABA1" } }, f.deps);
+    assert.equal(out.status, 201);
+    assert.deepEqual(f.order, ["exchange", "waba_phones", "subscribe", "persist"]);
+    assert.deepEqual(f.persisted[0], {
+      businessId: 7,
+      phoneNumberId: "PN_FROM_WABA",
+      displayPhoneNumber: "+972 52-111-1111",
+      wabaId: "WABA1",
+      accessToken: TOKEN,
+    });
+  });
+
+  for (const code of ["phones_none", "phones_multiple", "phones_timeout"]) {
+    await test(`coexistence resolution failure (${code}) → 502 stage=display, no subscribe, no write`, async () => {
+      const f = fakes({ fetchWabaPhoneNumber: async () => ({ ok: false, code, message: "m" }) });
+      const out = await completeEmbeddedSignup({ businessId: 7, body: { code: "CODE_SECRET", wabaId: "WABA1" } }, f.deps);
+      assert.equal(out.status, 502);
+      assert.equal((out.body as { code: string }).code, code);
+      assert.deepEqual(f.order, ["exchange"]);
+      assert.equal(f.persisted.length, 0);
     });
   }
 
@@ -222,8 +252,12 @@ async function main() {
       const r = await subscribeWabaToApp({ wabaId: "WABA1", accessToken: "TOKEN" });
       assert.deepEqual(r.ok ? null : r.code, "subscribe_timeout");
     });
+    await test("WABA phone lookup timeout → phones_timeout", async () => {
+      const r = await fetchWabaPhoneNumber("WABA1", "TOKEN");
+      assert.deepEqual(r.ok ? null : r.code, "phones_timeout");
+    });
     await test("every connect-flow Graph call carries an abort signal", async () => {
-      assert.equal(signals.length, 3);
+      assert.equal(signals.length, 4);
       assert.ok(signals.every((s) => s instanceof AbortSignal));
     });
 
@@ -233,6 +267,34 @@ async function main() {
     await test("a plain network failure stays *_network (not mislabelled as timeout)", async () => {
       const r = await exchangeCodeForToken("CODE");
       assert.deepEqual(r.ok ? null : r.code, "exchange_network");
+    });
+
+    const phoneList = (list: unknown, status = 200) =>
+      (globalThis.fetch = (async () => ({
+        ok: status === 200,
+        status,
+        json: async () => list,
+      })) as unknown as typeof fetch);
+    await test("WABA with exactly one number → that number", async () => {
+      phoneList({ data: [{ id: "PN9", display_phone_number: "+972 53-222-2222" }] });
+      assert.deepEqual(await fetchWabaPhoneNumber("W", "T"), {
+        ok: true,
+        phoneNumberId: "PN9",
+        displayPhoneNumber: "+972 53-222-2222",
+      });
+    });
+    await test("WABA with no number → phones_none; several → phones_multiple (never a guess)", async () => {
+      phoneList({ data: [] });
+      const none = await fetchWabaPhoneNumber("W", "T");
+      assert.equal(none.ok ? null : none.code, "phones_none");
+      phoneList({ data: [{ id: "A", display_phone_number: "1" }, { id: "B", display_phone_number: "2" }] });
+      const many = await fetchWabaPhoneNumber("W", "T");
+      assert.equal(many.ok ? null : many.code, "phones_multiple");
+    });
+    await test("Graph error on the WABA lookup → phones_<status>_<code>", async () => {
+      phoneList({ error: { code: 100, message: "Unsupported get request" } }, 400);
+      const r = await fetchWabaPhoneNumber("W", "T");
+      assert.equal(r.ok ? null : r.code, "phones_400_100");
     });
   } finally {
     globalThis.fetch = realFetch;

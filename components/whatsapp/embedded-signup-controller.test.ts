@@ -36,7 +36,16 @@ type LoginOpts = {
 
 type DiagCall = { event: string; data: Record<string, unknown> };
 
-function makeHarness(opts?: { diag?: boolean; config?: boolean; loginThrows?: boolean }) {
+function makeHarness(opts?: {
+  diag?: boolean;
+  config?: boolean;
+  loginThrows?: boolean;
+  /** Outcome the fake popup observer reports; omitted = no observer injected. */
+  popup?: boolean | null;
+  activation?: { isActive: boolean; hasBeenActive: boolean } | null;
+  /** The fake SDK answers synchronously inside FB.login with this response. */
+  syncResponse?: FbLoginResponse;
+}) {
   let loadCalls = 0;
   let loginCalls = 0;
   const loginCbs: Array<(r: FbLoginResponse) => void> = [];
@@ -49,6 +58,7 @@ function makeHarness(opts?: { diag?: boolean; config?: boolean; loginThrows?: bo
       if (opts?.loginThrows) throw new Error("boom");
       loginCbs.push(cb);
       lastOpts = o;
+      if (opts?.syncResponse) cb(opts.syncResponse);
     },
   };
 
@@ -89,6 +99,13 @@ function makeHarness(opts?: { diag?: boolean; config?: boolean; loginThrows?: bo
     timeoutMs: DEADLINE,
     reconcileMs: RECONCILE,
   };
+  if (opts && "popup" in opts) {
+    env.observePopup = (fn) => {
+      fn();
+      return { opened: opts.popup ?? null };
+    };
+  }
+  if (opts && "activation" in opts) env.getUserActivation = () => opts.activation ?? null;
 
   const diagCalls: DiagCall[] = [];
   let nowCounter = 1000;
@@ -283,6 +300,7 @@ async function main() {
       phoneNumberId: "PN1",
       wabaId: "WABA1",
       businessId: "BIZ",
+      flow: "cloud_api",
     });
     h.assertClean("finish-then-code");
   });
@@ -561,6 +579,96 @@ async function main() {
     assert.equal(isFinishEvent(undefined), false);
   });
 
+  // ── Popup refused by the browser (Production evidence after #557) ──────
+  await test("browser refuses Meta's window → error popup_blocked immediately, clean (no silent wait)", async () => {
+    const h = makeHarness({ popup: false });
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.loginCalls, 1, "FB.login was called");
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "popup_blocked");
+    h.assertClean("popup blocked");
+  });
+
+  await test("window opened → normal launching (deadline armed, listener on)", async () => {
+    const h = makeHarness({ popup: true });
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.phase(), "launching");
+    assert.deepEqual(h.timerMs(), [DEADLINE]);
+    assert.equal(h.messageListeners.length, 1);
+  });
+
+  await test("no open attempt observed (unknown) → no behaviour change, still bounded", async () => {
+    const h = makeHarness({ popup: null });
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.phase(), "launching");
+    h.fireDeadline();
+    assert.equal(h.error(), "timeout");
+  });
+
+  await test("a synchronous SDK answer that already settled the attempt is not overwritten by popup_blocked", async () => {
+    const h = makeHarness({ popup: false, syncResponse: { status: "unknown", authResponse: null } });
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.phase(), "cancelled", "the settled outcome stands");
+    assert.equal(h.error(), null);
+    h.assertClean("sync answer");
+  });
+
+  await test("FB.login is invoked synchronously inside launch() — no await between click and popup", async () => {
+    // The observer runs FB.login inside the same call stack as launch(): if any
+    // await sat between them, loginCalls would still be 0 right after launch().
+    const h = makeHarness({ popup: true });
+    await h.ready();
+    let calledDuringLaunch = false;
+    const before = h.loginCalls;
+    h.ctrl.launch();
+    calledDuringLaunch = h.loginCalls === before + 1;
+    assert.equal(calledDuringLaunch, true);
+  });
+
+  // ── Coexistence: Meta reports waba_id only ─────────────────────────────
+  await test("coexistence FINISH with waba_id only + code → success, flow=coexistence, no phone id", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish({ waba_id: "WABA1" }, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "success");
+    assert.deepEqual(h.ctrl.getState().result, { code: "C", wabaId: "WABA1", flow: "coexistence" });
+  });
+
+  await test("coexistence: code first, then waba-only FINISH → success", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.fireLogin({ authResponse: { code: "C" } });
+    h.finish({ waba_id: "WABA1" }, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    assert.equal(h.phase(), "success");
+    assert.equal(h.ctrl.getState().result?.flow, "coexistence");
+  });
+
+  await test("coexistence FINISH without waba_id → error missing_ids", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish({}, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.error(), "missing_ids");
+  });
+
+  await test("Cloud API FINISH still requires the phone number id", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish({ waba_id: "WABA1" }, "FINISH");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "no_phone_number");
+  });
+
   // ── Property: no event sequence can leave "launching" once timers ran ──
   await test("property: 2000 random event sequences never stay in launching", async () => {
     let seed = 42;
@@ -574,6 +682,7 @@ async function main() {
       (h) => h.finish(),
       (h) => h.finish({ waba_id: "W" }, "FINISH_ONLY_WABA"),
       (h) => h.finish({}, "FINISH"),
+      (h) => h.finish({ waba_id: "W" }, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"),
       (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: {} }),
       (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: {} }),
       (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "PROGRESS", data: {} }),
@@ -592,7 +701,8 @@ async function main() {
       h.assertClean(`sequence ${i}`);
       const st = h.ctrl.getState();
       if (st.phase === "success") {
-        assert.ok(st.result?.code && st.result.phoneNumberId && st.result.wabaId, "success always carries code + ids");
+        assert.ok(st.result?.code && st.result.wabaId, "success always carries code + waba");
+        if (st.result?.flow === "cloud_api") assert.ok(st.result.phoneNumberId, "cloud_api success carries the phone id");
       } else {
         assert.equal(st.result, null, "no result outside success");
       }
@@ -669,6 +779,35 @@ async function main() {
     }
     const msg = h.diagFind("message");
     assert.ok(!("data" in msg!.data), "no raw payload in message diag");
+  });
+
+  await test("diag on: FB.login returned is logged with popup + activation booleans only", async () => {
+    const h = makeHarness({ diag: true, popup: false, activation: { isActive: true, hasBeenActive: true } });
+    await h.ready();
+    h.ctrl.launch();
+    const ret = h.diagFind("fb_login_returned");
+    assert.ok(ret, "fb_login_returned logged");
+    assert.deepEqual(Object.keys(ret!.data).sort(), [
+      "activationHasBeenActive",
+      "activationIsActive",
+      "current",
+      "popupOpened",
+    ]);
+    assert.equal(ret!.data.popupOpened, false);
+    assert.equal(ret!.data.activationIsActive, true);
+    assert.equal(h.diagAll("settled").pop()!.data.error, "popup_blocked");
+  });
+
+  await test("diag on: FB.login throwing is logged with the error NAME only", async () => {
+    const h = makeHarness({ diag: true, loginThrows: true });
+    await h.ready();
+    h.ctrl.launch();
+    const t = h.diagFind("fb_login_threw");
+    assert.ok(t);
+    assert.deepEqual(Object.keys(t!.data).sort(), ["activationIsActive", "errorName"]);
+    assert.equal(t!.data.errorName, "Error");
+    assert.equal(JSON.stringify(h.diagCalls).includes("boom"), false, "no error message text");
+    assert.equal(h.error(), "login_threw");
   });
 
   await test("diag on: the deadline logs a settled timeout", async () => {

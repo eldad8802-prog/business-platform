@@ -8,7 +8,8 @@
 import assert from "node:assert/strict";
 import { submitEmbeddedSignup, type SubmitDeps } from "./embedded-signup-submit";
 
-const RESULT = { code: "CODE_SECRET", phoneNumberId: "PN1", wabaId: "WABA1" };
+const RESULT = { code: "CODE_SECRET", phoneNumberId: "PN1", wabaId: "WABA1", flow: "cloud_api" as const };
+const COEX = { code: "CODE_SECRET", wabaId: "WABA1", flow: "coexistence" as const };
 
 type Call = { input: string; init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal } };
 
@@ -54,7 +55,7 @@ async function main() {
     assert.equal(c.input, "/api/integrations/whatsapp/embedded-signup");
     assert.equal(c.init.method, "POST");
     assert.equal(c.init.headers.Authorization, "Bearer TOKEN");
-    assert.deepEqual(JSON.parse(c.init.body), { code: "CODE_SECRET", phoneNumberId: "PN1", wabaId: "WABA1" });
+    assert.deepEqual(JSON.parse(c.init.body), { code: "CODE_SECRET", wabaId: "WABA1", phoneNumberId: "PN1" });
     assert.ok(c.init.signal instanceof AbortSignal, "the request carries an abort signal");
   });
 
@@ -165,6 +166,12 @@ async function main() {
     );
     assert.equal(out.ok, false);
     if (!out.ok) assert.equal(out.error, "network");
+  });
+
+  await test("coexistence result → body carries code + wabaId only (server resolves the number)", async () => {
+    const d = deps(reply(201, { connection: { displayPhoneNumber: "X" } }));
+    await submitEmbeddedSignup(COEX, "T", d);
+    assert.deepEqual(JSON.parse(d.calls[0].init.body), { code: "CODE_SECRET", wabaId: "WABA1" });
   });
 
   await test("no bearer token → no Authorization header (server answers 401)", async () => {
