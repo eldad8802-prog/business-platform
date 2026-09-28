@@ -94,7 +94,10 @@ const PA = parents(A);
 const PB = parents(B);
 
 /** A fresh, well-formed insert for `table` carrying tenant `biz` (parents of `biz`). */
-function insertFor(table, biz, p, tag) {
+function insertFor(table, biz, p, tag, returning = true) {
+  return returning ? insertSql(table, biz, p, tag) : insertSql(table, biz, p, tag).replace(/ RETURNING "id";$/, ";");
+}
+function insertSql(table, biz, p, tag) {
   switch (table) {
     case "InventorySale":
       return `INSERT INTO "InventorySale" ("businessId","source","externalSaleId") VALUES (${biz},'POS',${q(tag)}) RETURNING "id";`;
@@ -183,10 +186,15 @@ check("CROSS_TENANT_READ_ZERO", () => {
 });
 
 check("CROSS_TENANT_INSERT_REFUSED", () => {
+  // Two shapes. Without RETURNING only the INSERT policy's WITH CHECK stands between
+  // tenant A and a row owned by B. With RETURNING (Prisma's create) the SELECT policy
+  // must ALSO pass for the new row, so that shape alone cannot prove WITH CHECK.
   const bad = [];
   for (const { t } of TABLES) {
-    const r = sql(RUNTIME_URL, asTenant(A, insertFor(t, B, PB, "xins-" + t)));
-    if (!isRlsDenial(r)) bad.push(`${t}: ${r.ok ? "B ROW INSERTED UNDER A" : r.sqlstate + " " + r.message}`);
+    const bare = sql(RUNTIME_URL, asTenant(A, insertFor(t, B, PB, "xins-" + t, false)));
+    if (!isRlsDenial(bare)) bad.push(`${t} (no RETURNING): ${bare.ok ? "B ROW INSERTED UNDER A" : bare.sqlstate + " " + bare.message}`);
+    const ret = sql(RUNTIME_URL, asTenant(A, insertFor(t, B, PB, "xinr-" + t, true)));
+    if (!isRlsDenial(ret)) bad.push(`${t} (RETURNING): ${ret.ok ? "B ROW INSERTED UNDER A" : ret.sqlstate + " " + ret.message}`);
   }
   return bad.length ? `tenant A could write tenant B's row: ${bad.join("; ")}` : null;
 });
@@ -204,7 +212,10 @@ check("OWN_TENANT_WRITES_WORK", () => {
 
 check("CROSS_TENANT_UPDATE_REFUSED", () => {
   // Moving an own row to tenant B must hit WITH CHECK; B's rows must be invisible to UPDATE.
-  const move = sql(RUNTIME_URL, asTenant(A, `UPDATE "InventorySourceSaleLine" SET "businessId" = ${B}, "recognizedItemId" = NULL, "saleLineId" = NULL WHERE "businessId" = ${A};`));
+  // No WHERE and no RETURNING on the move: a statement that reads the row's columns also
+  // runs the SELECT policy against the new row, which would hide a missing WITH CHECK.
+  // The UPDATE policy's USING already limits the target set to tenant A's rows.
+  const move = sql(RUNTIME_URL, asTenant(A, `UPDATE "InventorySourceSaleLine" SET "businessId" = ${B}, "recognizedItemId" = NULL, "saleLineId" = NULL;`));
   const other = sql(RUNTIME_URL, asTenant(A, `UPDATE "InventorySourceSaleLine" SET "sku" = 'hijack' WHERE "businessId" = ${B} RETURNING "id";`));
   const bad = [];
   if (!isRlsDenial(move)) bad.push(`move A->B: ${move.ok ? "ACCEPTED" : move.sqlstate + " " + move.message}`);
