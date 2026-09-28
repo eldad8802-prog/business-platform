@@ -834,6 +834,15 @@ export default function BillingHubPage() {
             justify-items: start !important;
           }
         }
+
+        @media (min-width: 1200px) {
+          .billing-action-buttons {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(220px, 320px));
+            justify-content: start;
+            gap: 12px;
+          }
+        }
       `}</style>
 
       {identityGateOpen ? (

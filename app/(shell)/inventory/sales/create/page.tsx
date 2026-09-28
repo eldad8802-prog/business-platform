@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/components/inventory/inventory-design";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
 import { createInventorySale, getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
 
 const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
   ok: "var(--inv-success-bg)",
@@ -24,10 +25,12 @@ export default function CreateInventorySalePage() {
   const router = useRouter();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
+  const [chargedPrice, setChargedPrice] = useState<Record<number, string>>({});
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saleAttempt = useRef<{ payload: string; key: string } | null>(null);
 
   const loadItems = useCallback(async () => {
     try {
@@ -62,7 +65,17 @@ export default function CreateInventorySalePage() {
   );
 
   const totalUnits = cartEntries.reduce((sum, e) => sum + e.qty, 0);
-  const totalPrice = cartEntries.reduce((sum, e) => sum + e.qty * (e.item!.sellPricePerUnit ?? 0), 0);
+  const chargedObservations = cartEntries.map((entry) => {
+    const raw = (chargedPrice[entry.item!.id] ?? "").trim();
+    if (!raw) return null;
+    return observeUnitPrice(raw);
+  });
+  const chargedInvalid = chargedObservations.some((observed) => observed?.kind === "invalid");
+  const chargedTotal = chargedObservations.reduce((sum, observed) => {
+    if (observed?.kind !== "present") return sum;
+    return sum + Number(observed.amount);
+  }, 0);
+  const anyChargedPrice = chargedObservations.some((observed) => observed?.kind === "present");
 
   function addToCart(item: InventoryItemDTO) {
     setCart((c) => ({ ...c, [item.id]: Math.min((c[item.id] ?? 0) + 1, item.currentQuantity || Infinity) }));
@@ -81,12 +94,29 @@ export default function CreateInventorySalePage() {
   }
 
   async function handleSubmit() {
-    if (saving || cartEntries.length === 0) return;
+    if (saving || cartEntries.length === 0 || chargedInvalid) return;
     try {
       setSaving(true);
       setError(null);
+      const saleItems = cartEntries.map((entry) => {
+        const raw = (chargedPrice[entry.item!.id] ?? "").trim();
+        const observed = raw ? observeUnitPrice(raw) : null;
+        return {
+          itemId: entry.item!.id,
+          quantity: entry.qty,
+          ...(observed?.kind === "present" ? { unitPrice: observed.amount } : {}),
+        };
+      });
+      const payload = JSON.stringify(saleItems);
+      if (!saleAttempt.current || saleAttempt.current.payload !== payload) {
+        saleAttempt.current = {
+          payload,
+          key: crypto.randomUUID(),
+        };
+      }
       await createInventorySale({
-        items: cartEntries.map((e) => ({ itemId: e.item!.id, quantity: e.qty })),
+        items: saleItems,
+        idempotencyKey: saleAttempt.current.key,
       });
       router.push("/inventory/sales");
     } catch (err: unknown) {
@@ -140,7 +170,7 @@ export default function CreateInventorySalePage() {
         <div className="inv-olines">
           {cartEntries.map(({ item, qty }) => {
             const tone = getStockTone(item!);
-            const price = item!.sellPricePerUnit ?? 0;
+            const catalogPrice = item!.sellPricePerUnit ?? 0;
             return (
               <InventoryOrderLine
                 key={item!.id}
@@ -150,7 +180,28 @@ export default function CreateInventorySalePage() {
                 sub={
                   <>
                     מלאי <bdi>{item!.currentQuantity}</bdi>
-                    {price > 0 ? <> · <bdi>₪{price} ליח׳</bdi></> : null}
+                    {catalogPrice > 0 ? <> · מחירון <bdi>₪{catalogPrice}</bdi></> : null}
+                    <input
+                      value={chargedPrice[item!.id] ?? ""}
+                      inputMode="decimal"
+                      aria-label={`מחיר שנגבה עבור ${item!.name}`}
+                      placeholder="מחיר שנגבה"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setChargedPrice((current) => ({ ...current, [item!.id]: value }));
+                        saleAttempt.current = null;
+                      }}
+                      style={{
+                        display: "block",
+                        marginTop: 6,
+                        width: "100%",
+                        maxWidth: 160,
+                        border: "1px solid var(--inv-border, #d6d3d1)",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        background: "#fff",
+                      }}
+                    />
                   </>
                 }
                 trailing={
@@ -170,9 +221,17 @@ export default function CreateInventorySalePage() {
       {cartEntries.length > 0 ? (
         <BottomActionBar
           label={`${totalUnits} פריטים · יופחת מהמלאי`}
-          value={<bdi>₪{totalPrice.toLocaleString("he-IL")}</bdi>}
+          value={
+            chargedInvalid ? (
+              "מחיר לא תקין"
+            ) : anyChargedPrice ? (
+              <bdi>₪{chargedTotal.toLocaleString("he-IL")}</bdi>
+            ) : (
+              "בלי מחיר שנגבה"
+            )
+          }
           cta={saving ? "שומר…" : "רשום מכירה"}
-          ctaDisabled={saving}
+          ctaDisabled={saving || chargedInvalid}
           onCta={() => void handleSubmit()}
         />
       ) : null}

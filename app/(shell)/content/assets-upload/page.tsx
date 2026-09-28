@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
@@ -22,14 +22,17 @@ type SelectedVariant = {
 
 type ContentResult = {
   selectedVariant?: SelectedVariant;
+  contentRunId?: number | null;
 };
 
 export default function AssetsUploadPage() {
   const router = useRouter();
 
+  const [contentRunId, setContentRunId] = useState<number | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const [files, setFiles] = useState<UploadedAssetMap>({});
   const [fileTypes, setFileTypes] = useState<Record<string, boolean>>({});
+  const uploadKeys = useRef<Record<number, string>>({});
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
 
@@ -44,6 +47,9 @@ export default function AssetsUploadPage() {
 
     try {
       const parsed: ContentResult = JSON.parse(rawResult);
+      if (Number.isInteger(parsed.contentRunId) && (parsed.contentRunId as number) > 0) {
+        setContentRunId(parsed.contentRunId as number);
+      }
       const selected = parsed.selectedVariant;
 
       if (!selected?.script?.shots || selected.script.shots.length === 0) {
@@ -78,10 +84,12 @@ export default function AssetsUploadPage() {
   }, [uploadedCount]);
 
   async function handleFileChange(index: number, file: File | null) {
-    if (!file) return;
+    if (!file || uploadingIndex !== null) return;
 
     setError("");
     setUploadingIndex(index);
+    const idempotencyKey = uploadKeys.current[index] ?? crypto.randomUUID();
+    uploadKeys.current[index] = idempotencyKey;
 
     try {
       const token = localStorage.getItem("token");
@@ -91,6 +99,10 @@ export default function AssetsUploadPage() {
 
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("idempotencyKey", idempotencyKey);
+      if (contentRunId) {
+        formData.append("contentRunId", String(contentRunId));
+      }
 
       const res = await fetch("/api/content/upload", {
         method: "POST",
@@ -116,6 +128,7 @@ export default function AssetsUploadPage() {
         };
 
         localStorage.setItem("content_assets", JSON.stringify(updated));
+        delete uploadKeys.current[index];
         return updated;
       });
     } catch (err: any) {

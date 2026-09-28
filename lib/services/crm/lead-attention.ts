@@ -12,16 +12,24 @@
  *
  * ── What it deliberately does NOT use ───────────────────────────────────────
  * Nothing here reads `Conversation.temperatureScore`, `unansweredInboundCount`,
- * `currentStage` or the inbound/outbound timestamps. Those fields are written
- * ONLY by `applyMessageEvent`, which is gated behind
- * `CONVERSATION_STATE_WRITER_ENABLED` — a flag that is absent from every
- * environment. Deriving "hot", "cooling", "waiting" or "stalled quote" from
- * columns nobody populates would render a confident badge over no evidence.
+ * `currentStage` or the inbound/outbound timestamps.
+ *
+ *   - `currentStage` / `temperatureScore` / `closeProbabilitySnapshot` are written
+ *     ONLY by `applyMessageEvent`, behind `CONVERSATION_STATE_WRITER_ENABLED`.
+ *     That flag IS defined in Production, but its effective value is not
+ *     readable (recorded as UNKNOWN at the Business Intake M1 gate, owner
+ *     decision 2026-09-26). Deriving "hot" or "stalled quote" from columns that
+ *     may be unpopulated would render a confident badge over possibly no
+ *     evidence.
+ *   - the timestamps and `unansweredInboundCount` are, since Business Intake M2,
+ *     written for every message by `conversation-activity.ts`, independent of
+ *     that flag — so a "waiting" signal could be derived from them. Doing so is
+ *     a lead-lifecycle change (M5), not made here.
  *
  * So W2 surfaces only what W1 genuinely writes: the follow-up clock, the
- * status, and when the lead arrived. When the state writer is switched on, the
- * conversation-derived signals can be added here — additively, behind their own
- * evidence check — without changing anything that already works.
+ * status, and when the lead arrived. Conversation-derived signals can be added
+ * here — additively, behind their own evidence check — without changing
+ * anything that already works.
  */
 
 import {

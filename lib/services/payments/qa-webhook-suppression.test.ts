@@ -79,9 +79,56 @@ async function main() {
   const pinned = /^COLLECTION_QA_BUSINESS_ID="(\d+)"/m.exec(identity)?.[1];
   ok("the pinned id equals COLLECTION_QA_BUSINESS_ID in the reviewed identity file", pinned === String(COLLECTION_QA_BUSINESS_ID), String(pinned));
 
-  // The sink has no route, and is not caught by the dynamic webhook route.
-  ok("the sink path has no route", !existsSync(join(process.cwd(), "app", ...QA_WEBHOOK_SINK_PATH.split("/").filter(Boolean))));
+  // The sink: a route of its own, outside /api/payments/webhook/* (so the
+  // dynamic [provider] webhook route can never catch it).
+  const sinkFile = join(process.cwd(), "app", ...QA_WEBHOOK_SINK_PATH.split("/").filter(Boolean), "route.ts");
+  ok("the sink route exists", existsSync(sinkFile));
   ok("the sink path is outside /api/payments/webhook/*", !QA_WEBHOOK_SINK_PATH.startsWith("/api/payments/webhook/"));
+
+  // Static isolation: the sink can reach nothing that processes a payment. Its
+  // ONLY imports are next/server and this module's constants.
+  const sinkSource = readFileSync(sinkFile, "utf8");
+  const imports = [...sinkSource.matchAll(/^\s*import[\s\S]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
+  ok(
+    "the sink imports only next/server and the QA constants",
+    imports.length === 2 &&
+      imports.includes("next/server") &&
+      imports.includes("@/lib/services/payments/qa-webhook-suppression"),
+    JSON.stringify(imports)
+  );
+  for (const forbidden of [
+    /processPaymentWebhook|handleProviderWebhook|payment-webhook/,
+    /getPaymentStatus|GetLpResult|resolvePaymentAuthoritatively|runPaymentReconciliation/,
+    /prisma|createPaymentPrismaStore|payment-store|\$queryRaw|\$executeRaw/i,
+    /req(uest)?\.(json|text|formData|arrayBuffer|body|headers|nextUrl|url)\b/,
+    /require\(|import\(/,
+  ]) {
+    ok(`the sink source has no ${forbidden.source.slice(0, 40)}…`, !forbidden.test(sinkSource.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "")));
+  }
+  ok("the sink exposes POST only", /export async function POST\(\)/.test(sinkSource) && !/export (async )?function (GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/.test(sinkSource));
+  ok("the sink handler takes no request argument (cannot read it)", !/export async function POST\([^)]+\)/.test(sinkSource));
+
+  // Behaviour, through the real handler.
+  const sinkRoute = await import("../../../app/api/payments/qa-webhook-sink/route");
+  const callbackBody = JSON.stringify({ LowProfileId: "11111111-2222-4333-8444-555555555555", ReturnValue: "7", TranzactionId: 424242, CardOwnerEmail: "someone@example.test" });
+  const flagBefore = process.env[QA_WEBHOOK_SUPPRESSION_FLAG];
+  try {
+    for (const value of [undefined, "", "1", "true", "collection-qa-39", "collection-qa-38x"]) {
+      if (value === undefined) delete process.env[QA_WEBHOOK_SUPPRESSION_FLAG];
+      else process.env[QA_WEBHOOK_SUPPRESSION_FLAG] = value;
+      const res = await sinkRoute.POST();
+      ok(`flag ${JSON.stringify(value)}: the sink answers 404`, res.status === 404, String(res.status));
+    }
+    process.env[QA_WEBHOOK_SUPPRESSION_FLAG] = QA_WEBHOOK_SUPPRESSION_VALUE;
+    const res = await sinkRoute.POST();
+    const text = await res.text();
+    ok("flag on: the sink answers 200", res.status === 200, String(res.status));
+    ok("flag on: the body is empty JSON", text === "{}", text);
+    ok("flag on: nothing of the callback is echoed", !/LowProfile|424242|someone@|ReturnValue/.test(text) && callbackBody.length > 0);
+  } finally {
+    if (flagBefore === undefined) delete process.env[QA_WEBHOOK_SUPPRESSION_FLAG];
+    else process.env[QA_WEBHOOK_SUPPRESSION_FLAG] = flagBefore;
+  }
 
   // End to end through request creation and the real CardCom adapter.
   const prev = process.env[QA_WEBHOOK_SUPPRESSION_FLAG];

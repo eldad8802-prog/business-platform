@@ -4,7 +4,7 @@ import { useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
 import type { WhatsAppPublicConnection } from "./use-whatsapp-connection";
-import { WA_COPY } from "./wa-copy";
+import { WA_COPY, waConnectErrorText } from "./wa-copy";
 import { IconChevronStart, IconPower, IconRefresh, IconSwap } from "./wa-icons";
 import { WaAvatar, WaBadge, WaConnecting } from "./wa-ui";
 import { WhatsAppDisconnectDialog } from "./WhatsAppDisconnectDialog";
@@ -20,6 +20,11 @@ import { WhatsAppDisconnectDialog } from "./WhatsAppDisconnectDialog";
  * (the same flow as the invitation). Disconnect opens the confirmation sheet,
  * which calls the existing disconnect endpoint. Only the session bearer token
  * leaves the client.
+ *
+ * Also used for a row that still RECEIVES messages but is not healthy
+ * (REVOKED_BY_META / ERROR): the card then shows the number with an
+ * "needs attention" badge and the reason, instead of pretending no connection
+ * exists. Inbound semantics are the server's (M2) — this is display only.
  */
 export function WhatsAppConnectedCard({
   connection,
@@ -28,7 +33,12 @@ export function WhatsAppConnectedCard({
   connection: WhatsAppPublicConnection;
   onChanged: () => void;
 }) {
-  const { status, detail, start, reset } = useWhatsAppConnect(() => onChanged());
+  const { status, detail, errorCode, start, reset, cancel } = useWhatsAppConnect(
+    () => onChanged(),
+    () => onChanged()
+  );
+  const attentionText =
+    connection.status !== "CONNECTED" ? WA_COPY.attention[connection.status] ?? null : null;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
@@ -92,7 +102,11 @@ export function WhatsAppConnectedCard({
           }}
         >
           <WaAvatar size={52} radius={TOKEN.radius.card} />
-          <WaBadge tone="success" label={WA_COPY.settingsCard.badge} />
+          {attentionText ? (
+            <WaBadge tone="neutral" label={WA_COPY.attention.badge} />
+          ) : (
+            <WaBadge tone="success" label={WA_COPY.settingsCard.badge} />
+          )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -119,6 +133,12 @@ export function WhatsAppConnectedCard({
         </div>
       </section>
 
+      {attentionText && (
+        <div role="status" style={noticeStyle}>
+          {attentionText}
+        </div>
+      )}
+
       {status === "error" && (
         <div
           role="alert"
@@ -132,7 +152,7 @@ export function WhatsAppConnectedCard({
             lineHeight: 1.5,
           }}
         >
-          {WA_COPY.error.heading} — {WA_COPY.error.body}
+          {WA_COPY.error.heading} — {waConnectErrorText(errorCode)}
         </div>
       )}
 
@@ -172,16 +192,38 @@ export function WhatsAppConnectedCard({
       </div>
 
       {connecting && (
-        <p
-          style={{
-            margin: 0,
-            fontSize: TOKEN.font.meta,
-            color: TOKEN.ink.muted,
-            textAlign: "center",
-          }}
-        >
-          {WA_COPY.invitation.connecting}
-        </p>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: TOKEN.font.meta,
+              color: TOKEN.ink.muted,
+              textAlign: "center",
+            }}
+          >
+            {WA_COPY.invitation.connecting}
+          </p>
+          <p style={{ margin: 0, fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, textAlign: "center", lineHeight: 1.5 }}>
+            {WA_COPY.invitation.popupHint}
+          </p>
+          <button
+            type="button"
+            onClick={cancel}
+            style={{
+              border: "none",
+              background: "transparent",
+              padding: "4px 8px",
+              fontFamily: "inherit",
+              fontSize: TOKEN.font.meta,
+              fontWeight: TOKEN.weight.semibold,
+              color: TOKEN.ink.primary,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            {WA_COPY.invitation.cancelLaunch}
+          </button>
+        </div>
       )}
 
       {confirmOpen && (
@@ -199,6 +241,16 @@ export function WhatsAppConnectedCard({
     </div>
   );
 }
+
+const noticeStyle: React.CSSProperties = {
+  background: TOKEN.semantic.info.bgSoft,
+  border: `1px solid ${TOKEN.semantic.info.border}`,
+  borderRadius: TOKEN.radius.input,
+  padding: "10px 12px",
+  fontSize: TOKEN.font.meta,
+  color: TOKEN.semantic.info.ink,
+  lineHeight: 1.5,
+};
 
 function ActionRow({
   icon,

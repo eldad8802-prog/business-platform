@@ -41,6 +41,9 @@ const RECURRENCE_OPTIONS: Array<{ value: RecurrenceCadence; label: string }> = [
   { value: "NONE", label: "חד-פעמי" },
   { value: "WEEKLY", label: "כל שבוע" },
   { value: "MONTHLY", label: "כל חודש" },
+  { value: "BIMONTHLY", label: "כל חודשיים" },
+  { value: "QUARTERLY", label: "כל רבעון" },
+  { value: "SEMIANNUAL", label: "כל חצי שנה" },
   { value: "YEARLY", label: "כל שנה" },
 ];
 
@@ -660,6 +663,9 @@ function recurrenceText(value: RecurrenceCadence): string {
   switch (value) {
     case "WEEKLY": return "כל שבוע";
     case "MONTHLY": return "כל חודש";
+    case "BIMONTHLY": return "כל חודשיים";
+    case "QUARTERLY": return "כל רבעון";
+    case "SEMIANNUAL": return "כל חצי שנה";
     case "YEARLY": return "כל שנה";
     case "NONE":
     default: return "חד-פעמי";
@@ -1658,6 +1664,12 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence): string | 
     }
     case "MONTHLY":
       return formatDateValue(addMonths(base, 1).toISOString());
+    case "BIMONTHLY":
+      return formatDateValue(addMonths(base, 2).toISOString());
+    case "QUARTERLY":
+      return formatDateValue(addMonths(base, 3).toISOString());
+    case "SEMIANNUAL":
+      return formatDateValue(addMonths(base, 6).toISOString());
     case "YEARLY":
       return formatDateValue(addMonths(base, 12).toISOString());
     case "NONE":

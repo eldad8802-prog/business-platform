@@ -207,6 +207,19 @@ export const PRODUCTION_RLS_CONTRACT = [
     why: "holds generated reply text, which the erasure anonymises in place",
     policies: [{ name: "p7w4b_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
+  // Business Intake M2 — the WhatsApp receipt ledger. Split per command, NO
+  // DELETE policy: the erasure scrubs a receipt's payload and pointers with an
+  // UPDATE under a proven context, and must never need to delete one.
+  {
+    table: "IntakeEvent",
+    migration: "20260927180000_m2_intake_event",
+    why: "holds the event as received (sender, text) until processed; the erasure scrubs it with an UPDATE",
+    policies: [
+      { name: "intake_event_tenant_read", command: "SELECT", using: TENANT },
+      { name: "intake_event_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "intake_event_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   {
     table: "MessageAnalysis",
     migration: "20260826150000_d2_p7_w4b_whatsapp_tenant_rls",
@@ -506,7 +519,55 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   ReceivingSession: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
   PurchaseOrderLine: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
   PurchaseOrder: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  IntakeEvent: {
+    verbs: SIU,
+    basis: "migration 20260927180000_m2_intake_event grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
 };
 
 /** Every sequence in the schema: USAGE and SELECT, nothing else. */
 export const EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES = ["SELECT", "USAGE"];
+
+/**
+ * SEC-F (migration 20260926140000) — the row-level-security state that migration
+ * SHIPS but this contract does not APPLY.
+ *
+ * None of these tables is touched by the deletion flow, so none belongs in
+ * PRODUCTION_RLS_CONTRACT. They are declared here because a lab built by applying
+ * the repository's migrations (rather than `db push` alone) arrives already holding
+ * them, and the precondition and the exact-set must then recognise them for what
+ * they are: this exact, declared state — never "some RLS", never a subset.
+ *
+ * The three audit trails keep their FOR ALL rule's NAME, now FOR SELECT, gain a
+ * FOR INSERT rule with the same tenant predicate, and two RESTRICTIVE denials.
+ * The migration does not ENABLE row security on them (earlier migrations did), so
+ * only SecurityEvent contributes to the RLS/FORCE sets.
+ *
+ * Copied from prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events.
+ */
+const secfAudit = (table, tenantName) => [
+  { table, name: tenantName, command: "SELECT", permissive: true, roles: ["public"], using: TENANT, check: null },
+  { table, name: "secf_audit_insert", command: "INSERT", permissive: true, roles: ["public"], using: null, check: TENANT },
+  { table, name: "secf_audit_no_update", command: "UPDATE", permissive: false, roles: ["public"], using: "false", check: null },
+  { table, name: "secf_audit_no_delete", command: "DELETE", permissive: false, roles: ["public"], using: "false", check: null },
+];
+export const SECF_MIGRATION_LAB_STATE = {
+  migration: "20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events",
+  rls: ["SecurityEvent"],
+  force: ["SecurityEvent"],
+  policies: [
+    ...secfAudit("BillingAuditEvent", "p7w4eb2_tenant"),
+    ...secfAudit("PaymentAuditEvent", "p7w4ea_tenant"),
+    ...secfAudit("PayablesAuditEvent", "payables_p1a_tenant"),
+    {
+      table: "SecurityEvent", name: "secf_security_event_insert", command: "INSERT", permissive: true,
+      roles: ["public"], using: null, check: `"businessId" IS NULL OR ${TENANT}`,
+    },
+    {
+      table: "SecurityEvent", name: "secf_security_event_admin_read", command: "SELECT", permissive: true,
+      roles: ["app_admin"], using: "true", check: null,
+    },
+    { table: "SecurityEvent", name: "secf_audit_no_update", command: "UPDATE", permissive: false, roles: ["public"], using: "false", check: null },
+    { table: "SecurityEvent", name: "secf_audit_no_delete", command: "DELETE", permissive: false, roles: ["public"], using: "false", check: null },
+  ],
+};

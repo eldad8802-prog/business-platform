@@ -360,6 +360,7 @@ function CustomerCardView({
         </div>
       </div>
 
+      <div className="crm-detail-grid">
       {customer.notes && customer.notes.trim() ? (
         <div className="crm-note">
           <div className="crm-note__label">הערה כללית</div>
@@ -386,6 +387,7 @@ function CustomerCardView({
       {card.appointments.total > 0 ? (
         <AppointmentsSection section={card.appointments} />
       ) : null}
+      </div>
 
       {!card.activity.hasAnyActivity ? (
         <div className="crm-panel">

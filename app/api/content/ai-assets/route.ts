@@ -1,5 +1,11 @@
 import { generateAiAssets } from "@/lib/services/ai-asset-generation.service";
 import { getCurrentUser } from "@/lib/auth";
+import {
+  BusinessAssetNotFoundError,
+  findBusinessAssetByIdempotency,
+  recordBusinessAsset,
+  requireOwnedContentRun,
+} from "@/lib/services/content/business-asset.service";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -28,10 +34,15 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       flow?: ContentFlow;
       result?: ContentResult;
+      contentRunId?: number;
     };
 
     const flow = body.flow;
     const result = body.result;
+    const contentRunId =
+      Number.isInteger(body.contentRunId) && (body.contentRunId as number) > 0
+        ? (body.contentRunId as number)
+        : null;
 
     if (!flow || !result) {
       return Response.json(
@@ -64,10 +75,50 @@ export async function POST(req: Request) {
       );
     }
 
+    if (contentRunId) {
+      await requireOwnedContentRun(user.businessId, contentRunId);
+    }
+
+    if (contentRunId) {
+      const retained: Record<string, string> = {};
+      let complete = true;
+      for (let index = 0; index < shots.length; index++) {
+        const existing = await findBusinessAssetByIdempotency(
+          user.businessId,
+          `generated:${contentRunId}:${index}`
+        );
+        if (!existing?.assetRef || existing.origin !== "GENERATED") {
+          complete = false;
+          break;
+        }
+        retained[String(index)] = existing.assetRef;
+      }
+      if (complete) {
+        return Response.json({
+          success: true,
+          assets: retained,
+          source: "ai",
+          retained: true,
+        });
+      }
+    }
+
     const assets = await generateAiAssets({
       flow,
       result,
     });
+
+    for (const [shotKey, url] of Object.entries(assets)) {
+      await recordBusinessAsset({
+        businessId: user.businessId,
+        origin: "GENERATED",
+        assetRef: url,
+        contentRunId,
+        idempotencyKey: contentRunId
+          ? `generated:${contentRunId}:${shotKey}`
+          : null,
+      });
+    }
 
     return Response.json({
       success: true,
@@ -75,6 +126,9 @@ export async function POST(req: Request) {
       source: "ai",
     });
   } catch (err) {
+    if (err instanceof BusinessAssetNotFoundError) {
+      return Response.json({ error: "Content run not found" }, { status: 404 });
+    }
     console.error(err);
 
     return Response.json(
