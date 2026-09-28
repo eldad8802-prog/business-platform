@@ -524,7 +524,7 @@ async function main(): Promise<void> {
       "CutoverRefusedError",
     );
     await rejects("execute with counts that differ from the dry run is refused", () =>
-      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: { copy: 3, reconcile: 3, totals: 2 } }),
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: { ...expectedFrom(dry.before), copy: 3 } }),
       "CutoverRefusedError",
     );
     eq("…and a refused execute wrote nothing", await prisma.commitment.count({ where: { businessId: C.id } }), commitmentsBeforeExec);
@@ -567,6 +567,56 @@ async function main(): Promise<void> {
       "CutoverRefusedError",
     );
     eq("…and wrote nothing for that business", await prisma.commitment.count({ where: { businessId: Dz.id } }), 0);
+
+    section("J3 · the Production-shaped correction: totals only (copy 0, reconcile 0, totals N)");
+    setMode("legacy");
+    const Ez = await makeBusiness("E");
+    created.push(Ez);
+    for (const [name, rec] of [["ארנונה E", "BIMONTHLY"], ["שכירות E", "MONTHLY"]] as const) {
+      await viaSecretary(Ez.id, (d) =>
+        secretary.recognizeObligation({ businessId: Ez.id, obligeeName: name, amount: "1000", dueAt: D("2026-09-01T00:00:00Z"), recurrence: rec }, d),
+      );
+    }
+    for (const st of splitSql(migration("20260917090200_payables_phase_1a_obligation_backfill"))) await prisma.$executeRawUnsafe(st);
+    const dryE = await runSecretaryLedgerCutover(prisma, { mode: "dry-run", onlyBusinessIds: [Ez.id] });
+    eq("dry run: nothing to copy or reconcile, 2 totals, no conflicts", [expectedFrom(dryE.before).copy, expectedFrom(dryE.before).reconcile, expectedFrom(dryE.before).totals, dryE.before.conflicts.length], [0, 0, 2, 0]);
+    eq("dry run: the plan is totals-only", dryE.before.plan, { commitmentsToCreate: 0, installmentsToCreate: 0, commitmentsToUpdate: 2, installmentsToUpdate: 0, workflowRowsToCreate: 0, workflowRowsToUpdate: 0, auditEventsToWrite: 2, paymentsToCreate: 0 });
+    const approvedE = expectedFrom(dryE.before);
+    await rejects("a plan that differs in ANY field is refused (same headline counts)", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [Ez.id], expect: { ...approvedE, plan: { ...approvedE.plan, auditEventsToWrite: 3 } } }),
+      "CutoverRefusedError",
+    );
+    await rejects("a different conflict count is refused (same headline counts)", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [Ez.id], expect: { ...approvedE, conflicts: 1 } }),
+      "CutoverRefusedError",
+    );
+    const eCommitmentsBefore = await prisma.commitment.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" } });
+    const eInstallmentsBefore = JSON.stringify(await prisma.installment.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" } }));
+    eq("…refusals wrote nothing (totals still set)", eCommitmentsBefore.every((c) => c.totalAmount !== null), true);
+    const paymentsAllBefore = await prisma.payment.count();
+    const auditsBefore = await prisma.payablesAuditEvent.count({ where: { businessId: Ez.id } });
+    const execE = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [Ez.id], expect: approvedE });
+    eq("execute: applied exactly the approved totals-only operation", execE.applied, { copied: 0, synced: 0, totalsCleared: 2 });
+    eq("execute: effect proven inside the transaction", execE.effect, { payments: 0, allocations: 0, obligations: 0, commitmentsCreated: 0, installmentsCreated: 0, workflowRowsCreated: 0, auditEvents: 2, totalsOnlyCommitmentsVerified: 2 });
+    const eCommitmentsAfter = await prisma.commitment.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" } });
+    const strip = (c: Record<string, unknown>) => {
+      const { totalAmount: _t, updatedAt: _u, ...rest } = c;
+      return JSON.stringify(rest);
+    };
+    eq("every commitment: totalAmount now NULL", eCommitmentsAfter.map((c) => c.totalAmount), [null, null]);
+    eq("every commitment: NO other field changed", eCommitmentsAfter.map((c) => strip(c as unknown as Record<string, unknown>)), eCommitmentsBefore.map((c) => strip(c as unknown as Record<string, unknown>)));
+    eq("installments byte-identical", JSON.stringify(await prisma.installment.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" } })), eInstallmentsBefore);
+    eq("no workflow row written", await prisma.installmentWorkflow.count({ where: { businessId: Ez.id } }), 0);
+    eq("exactly 2 audit events, both the totals correction", (await prisma.payablesAuditEvent.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" }, skip: auditsBefore })).map((a) => [a.eventType, a.source, (a.metadata as { field?: string } | null)?.field]), [["COMMITMENT_UPDATED", "MIGRATION", "totalAmount"], ["COMMITMENT_UPDATED", "MIGRATION", "totalAmount"]]);
+    eq("NO Payment anywhere", await prisma.payment.count(), paymentsAllBefore);
+    const dryE2 = await runSecretaryLedgerCutover(prisma, { mode: "dry-run", onlyBusinessIds: [Ez.id] });
+    eq("second dry run: everything zero", [expectedFrom(dryE2.before).copy, expectedFrom(dryE2.before).reconcile, expectedFrom(dryE2.before).totals, dryE2.before.conflicts.length, dryE2.before.plan], [0, 0, 0, 0, { commitmentsToCreate: 0, installmentsToCreate: 0, commitmentsToUpdate: 0, installmentsToUpdate: 0, workflowRowsToCreate: 0, workflowRowsToUpdate: 0, auditEventsToWrite: 0, paymentsToCreate: 0 }]);
+    await rejects("re-running the SAME approved correction is refused (Production changed: totals are now 0)", () =>
+      runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [Ez.id], expect: approvedE }),
+      "CutoverRefusedError",
+    );
+    eq("…and the refused re-run wrote nothing", await prisma.payablesAuditEvent.count({ where: { businessId: Ez.id } }), auditsBefore + 2);
+    setMode("legacy");
     let series = 0;
     for (const d of ["2026-07-15", "2026-08-15", "2026-09-15"]) {
       const r = await deriveBusinessCost({ businessId: C.id, date: d });
