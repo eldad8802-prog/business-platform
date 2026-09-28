@@ -39,7 +39,13 @@ import { runTenantJob } from "../lib/tenant/job";
 import { getTenantContext } from "../lib/tenant/context";
 import { POST as webhookPOST } from "../app/api/integrations/whatsapp/webhook/route";
 import { POST as messagePOST } from "../app/api/message/route";
-import { drainWhatsAppIntake, receiptKey } from "../lib/intake/whatsapp/whatsapp-intake";
+import { receiptKey } from "../lib/intake/whatsapp/whatsapp-intake";
+import { drainIntake } from "../lib/intake/core/processor";
+import { intakeRegistry } from "../lib/intake/sources";
+import { intakeIsolationStatements } from "../scripts/security/intake-isolation-lab.mjs";
+
+const drainWhatsAppIntake = (businessId: number, options: { now?: Date } = {}) =>
+  drainIntake(intakeRegistry, businessId, options);
 
 const prisma = new PrismaClient(); // runtime role (DATABASE_URL)
 let pass = 0;
@@ -101,14 +107,9 @@ async function installIsolation(owner: PrismaClient, role: string) {
       await owner.$executeRawUnsafe(`CREATE POLICY m2lab_${name} ON "${t}" FOR ${cmd} ${clause}`);
     }
   }
-  const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
-  const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
-  const doStart = m2.indexOf("DO $do$");
-  if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");
-  for (const stmt of splitSql(m2.slice(rlsStart, doStart))) {
-    await owner.$executeRawUnsafe(stmt.replace(/^CREATE POLICY/, "CREATE POLICY").trim());
-  }
-  await owner.$executeRawUnsafe(m2.slice(doStart).trim().replace(/;\s*$/, "").replaceAll("app_runtime", role));
+  // IntakeEvent (M2) + IntakeNormalizedEvent (M3): isolation from the REAL
+  // migration files, app_runtime renamed to this lab's role.
+  for (const stmt of intakeIsolationStatements(role)) await owner.$executeRawUnsafe(stmt);
 }
 
 // ── webhook plumbing ─────────────────────────────────────────────────────────
@@ -212,6 +213,28 @@ async function main() {
   ok("referral body not kept", !JSON.stringify(r1?.metadata ?? {}).includes("dropped"));
   const leadsA = await owner.lead.count({ where: { businessId: bizA.id } });
   ok("a message did NOT create a lead", leadsA === 0);
+
+  // M3 — the same message went through the canonical Business Intake core.
+  ok("M3: canonical receipt identity (source whatsapp, MESSAGE, message.received, completed)",
+    r1?.sourceKey === "whatsapp" && r1.family === "MESSAGE" && r1.eventType === "message.received" &&
+      r1.lastStage === "completed" && r1.dedupeBasis === "provider_event_id");
+  const n1 = r1 ? await owner.intakeNormalizedEvent.findUnique({ where: { intakeEventId: r1.id } }) : null;
+  ok("M3: normalized record routed to 'conversation', identity delegated to the canonical path",
+    n1?.routeTarget === "conversation" && n1.routeOutcome === "routed" && n1.identityOutcome === "delegated" &&
+      n1.normalizerVersion === "whatsapp@1");
+  ok("M3: contact hints purged once the message is stored (no second copy of the phone)",
+    n1?.contactHints === null && n1.contactHintsPurgedAt !== null && !JSON.stringify(n1).includes(ROI));
+  const n1Attr = n1?.attribution as { adId?: string; clickId?: string; channel?: string } | null;
+  ok("M3: CTWA referral preserved as structured attribution (ad id, click id), body dropped",
+    n1Attr?.channel === "whatsapp" && n1Attr.adId === "ad-777" && n1Attr.clickId === "clid-9" &&
+      !JSON.stringify(n1Attr).includes("dropped"));
+  const refs1 = n1?.resultRefs as { messageId?: number; conversationId?: number; customerId?: number } | null;
+  ok("M3: result refs name the message / conversation / customer", refs1?.messageId === m1?.id && typeof refs1?.customerId === "number");
+  const settled1 = r1
+    ? await owner.learningEvent.findFirst({ where: { businessId: bizA.id, eventType: "INTAKE_EVENT_SETTLED", entityId: r1.id } })
+    : null;
+  ok("M3: intake learning signal written, without phone, name or text",
+    settled1 !== null && !/972501111111|Roi|התקנה/.test(JSON.stringify(settled1?.payload)));
 
   // ── 3. duplicate delivery ──────────────────────────────────────────────────
   console.log("\n-- duplicate delivery --");

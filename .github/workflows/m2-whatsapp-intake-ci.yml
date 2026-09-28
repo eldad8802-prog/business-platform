@@ -26,6 +26,8 @@ on:
       - "lib/tenant/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260927180000_m2_intake_event/**"
+      - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "scripts/security/intake-isolation-lab.mjs"
       - ".m2/**"
       - ".github/workflows/m2-whatsapp-intake-ci.yml"
   workflow_dispatch:

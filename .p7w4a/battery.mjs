@@ -24,6 +24,7 @@
  * LAB-ONLY: all policies/roles here are battery-local. NO canonical RLS is
  * added by W4A. Synthetic p7w4a-* fixtures only; ZERO Neon; ZERO secrets.
  */
+import { intakeIsolationStatements } from "../scripts/security/intake-isolation-lab.mjs";
 import { createHmac, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PrismaClient, Prisma } from "@prisma/client";
@@ -73,14 +74,8 @@ async function main() {
   // REAL migration file (policies + grants + REVOKE), app_runtime renamed to
   // this lab's runtime role, so the battery proves the SQL that ships.
   {
-    const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
-    const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
-    const doStart = m2.indexOf("DO $do$");
-    if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");
-    const stmts = m2.slice(rlsStart, doStart).split(/;\s*\r?\n/)
-      .map((x) => x.replace(/^\s*--.*$/gm, "").trim()).filter(Boolean);
-    for (const stmt of stmts) await owner.$executeRawUnsafe(stmt);
-    await owner.$executeRawUnsafe(m2.slice(doStart).trim().replace(/;\s*$/, "").replaceAll("app_runtime", RT_ROLE));
+    // IntakeEvent (M2) + IntakeNormalizedEvent (M3), from the real migrations.
+    for (const stmt of intakeIsolationStatements(RT_ROLE)) await owner.$executeRawUnsafe(stmt);
   }
   console.log("[lab] runtime role + grants + LAB-ONLY policies ready");
 
@@ -392,13 +387,24 @@ async function main() {
 
   // ── Phase 10: structural no-network-in-tx ordering ──────────────────────
   console.log("--- structural tx-boundary assertions ---");
-  // M2: the WhatsApp intake processor persists through ingestInboundCustomerMessage
-  // (one tenant tx, committed and recorded PERSISTED) and only THEN runs the
+  // M2/M3: the WhatsApp message is persisted through ingestInboundCustomerMessage
+  // (one tenant tx, committed) in the adapter's route(); the provider-neutral
+  // processor records PERSISTED; only THEN does the adapter's enrich() run the
   // LLM-capable pipeline — never inside a transaction.
   const intakeSrc = readFileSync("lib/intake/whatsapp/whatsapp-intake.ts", "utf8");
-  ok("intake: pipeline (LLM-capable) runs OUTSIDE the tenant tx",
-    intakeSrc.indexOf("await runInboundMessagePipeline({") > intakeSrc.indexOf("await markPersisted(") &&
-    intakeSrc.indexOf("await markPersisted(") > intakeSrc.indexOf("await ingestInboundCustomerMessage({"));
+  const procSrc = readFileSync("lib/intake/core/processor.ts", "utf8");
+  const routeAt = intakeSrc.indexOf("async route(");
+  const enrichAt = intakeSrc.indexOf("async enrich(");
+  ok("intake: ingest is in route(), the pipeline (LLM-capable) only in enrich()",
+    routeAt > 0 && enrichAt > routeAt &&
+    intakeSrc.indexOf("await ingestInboundCustomerMessage({") > routeAt &&
+    intakeSrc.indexOf("await ingestInboundCustomerMessage({") < enrichAt &&
+    intakeSrc.indexOf("await runInboundMessagePipeline({") > enrichAt);
+  ok("intake: processor records PERSISTED between route() and enrich(), outside any tx",
+    procSrc.indexOf("await adapter.route(") > 0 &&
+    procSrc.indexOf("await markPersisted(") > procSrc.indexOf("await adapter.route(") &&
+    procSrc.indexOf("await adapter.enrich(") > procSrc.indexOf("await markPersisted(") &&
+    !procSrc.includes("withTenantTransaction"));
   const ingestSrc = readFileSync("lib/services/conversation/inbound-customer-message.service.ts", "utf8");
   const ingestCode = ingestSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
   ok("ingest: no pipeline / network work inside its transaction",
