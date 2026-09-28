@@ -388,6 +388,24 @@ async function main() {
   ok("status receipts recorded", statusReceipts.length === 3, String(statusReceipts.length));
   ok("a status for an unknown message is IGNORED, not invented",
     statusReceipts.some((r) => r.status === "IGNORED" && r.lastErrorCode === "unknown_outbound_message"));
+  ok("status receipts keep no recipient phone (payload purged, metadata non-personal)",
+    statusReceipts.every((r) => !JSON.stringify(r).includes(ROI)));
+  // Replay of the same statuses: nothing moves, nothing new is recorded.
+  const deliveredAtBefore = outAfter?.deliveredAt?.getTime();
+  const readAtBefore = outAfter?.readAt?.getTime();
+  await post(envelope(PN_A, {
+    statuses: [
+      { id: outWamid, status: "delivered", timestamp: String(Number(ts) + 60), recipient_id: ROI },
+      { id: outWamid, status: "read", timestamp: String(Number(ts) + 60), recipient_id: ROI },
+    ],
+  }));
+  const outReplayed = await owner.message.findFirst({ where: { id: outMsg.id } });
+  ok("replayed statuses change nothing (delivered/read keep their first time)",
+    outReplayed?.deliveredAt?.getTime() === deliveredAtBefore && outReplayed?.readAt?.getTime() === readAtBefore);
+  ok("replayed statuses record no new receipt",
+    (await owner.intakeEvent.count({ where: { businessId: bizA.id, kind: "MESSAGE_STATUS" } })) === statusReceipts.length);
+  ok("replayed statuses still never become inbound messages",
+    (await owner.message.count({ where: { businessId: bizA.id, direction: "INBOUND" } })) === inboundBefore);
   // A late failed status after delivery is not believed.
   await post(envelope(PN_A, { statuses: [{ id: outWamid, status: "failed", timestamp: ts, errors: [{ code: 131026 }] }] }));
   ok("a failed status after delivery does not overwrite it",
@@ -415,11 +433,22 @@ async function main() {
 
   // ── 11. counter is retry-safe ──────────────────────────────────────────────
   console.log("\n-- unanswered counter --");
-  const cntBefore = (await owner.conversation.findFirst({ where: { id: offConv!.id } }))?.unansweredInboundCount;
+  const convBeforeReplay = await owner.conversation.findFirst({ where: { id: offConv!.id } });
+  const cntBefore = convBeforeReplay?.unansweredInboundCount;
   await postMessages(PN_A, [text(`wamid.${RUN}.off`, OFF, "כמה זה עולה?")]);
   await runTenantJob({ businessId: bizA.id }, () => drainWhatsAppIntake(bizA.id, { now: new Date(Date.now() + 86_400_000) }));
-  ok("replay + retry do not inflate the counter",
-    (await owner.conversation.findFirst({ where: { id: offConv!.id } }))?.unansweredInboundCount === cntBefore);
+  const convAfterReplay = await owner.conversation.findFirst({ where: { id: offConv!.id } });
+  ok("replay + retry do not inflate the counter", convAfterReplay?.unansweredInboundCount === cntBefore);
+  ok("replay never moves timestamps backwards",
+    (convAfterReplay?.lastMessageAt?.getTime() ?? 0) >= (convBeforeReplay?.lastMessageAt?.getTime() ?? 0) &&
+      (convAfterReplay?.customerLastInboundAt?.getTime() ?? 0) >= (convBeforeReplay?.customerLastInboundAt?.getTime() ?? 0));
+  // A second genuine message moves them forward and adds exactly one.
+  await postMessages(PN_A, [text(`wamid.${RUN}.off2`, OFF, "ועוד שאלה")]);
+  const convSecond = await owner.conversation.findFirst({ where: { id: offConv!.id } });
+  ok("a new message moves lastMessageAt forward and adds exactly one",
+    (convSecond?.lastMessageAt?.getTime() ?? 0) >= (convAfterReplay?.lastMessageAt?.getTime() ?? 0) &&
+      convSecond?.unansweredInboundCount === (cntBefore ?? 0) + 1,
+    String(convSecond?.unansweredInboundCount));
 
   // ── 12. profile name never overwrites an owner-set name ────────────────────
   console.log("\n-- profile name --");
@@ -439,6 +468,19 @@ async function main() {
   status = await postMessages(PN_A, [text(wRev, ROI, "עדיין שם?")]);
   ok("REVOKED_BY_META (outbound token failure) still receives inbound",
     status === 200 && (await owner.message.count({ where: { businessId: bizA.id, providerMessageId: wRev } })) === 1);
+  await owner.whatsAppConnection.update({ where: { phoneNumberId: PN_A }, data: { status: "ERROR" } });
+  const wErr = `wamid.${RUN}.error-state`;
+  status = await postMessages(PN_A, [text(wErr, ROI, "שלום?")]);
+  ok("ERROR (recorded transient error) still receives inbound",
+    status === 200 && (await owner.message.count({ where: { businessId: bizA.id, providerMessageId: wErr } })) === 1);
+  await owner.whatsAppConnection.update({ where: { phoneNumberId: PN_A }, data: { status: "REVOKED" } });
+  const wOwnerRev = `wamid.${RUN}.owner-revoked`;
+  const receiptsBeforeRevoked = await owner.intakeEvent.count({ where: { businessId: bizA.id } });
+  status = await postMessages(PN_A, [text(wOwnerRev, ROI, "ghost")]);
+  ok("REVOKED (explicit revocation) → 200, nothing recorded",
+    status === 200 &&
+      (await owner.intakeEvent.count({ where: { businessId: bizA.id } })) === receiptsBeforeRevoked &&
+      (await owner.message.count({ where: { providerMessageId: wOwnerRev } })) === 0);
   await owner.whatsAppConnection.update({ where: { phoneNumberId: PN_A }, data: { status: "DISCONNECTED" } });
   const wDis = `wamid.${RUN}.disconnected`;
   const receiptsBefore = await owner.intakeEvent.count({ where: { businessId: bizA.id } });
