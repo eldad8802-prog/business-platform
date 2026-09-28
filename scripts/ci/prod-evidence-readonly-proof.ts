@@ -177,6 +177,12 @@ async function main(): Promise<void> {
   await mk(qa.id, "QA-P2 שכירות");
   await mk(other.id, "other business rent");
 
+  // `db push` cannot express the partial unique index; apply the migration's own statement, verbatim.
+  const partial = splitSql(migration("20260917090000_payables_phase_1a_foundation")).find((s) =>
+    s.startsWith('CREATE UNIQUE INDEX "PaymentAllocation_active_payment_installment_key"'),
+  );
+  if (!partial) throw new Error("the foundation migration no longer defines the active-allocation index");
+  await prisma.$executeRawUnsafe(partial);
   for (const s of splitSql(migration("20260917090100_payables_phase_1a_tenant_rls"))) await prisma.$executeRawUnsafe(s);
   for (const s of splitSql(migration("20260824210000_d2_p7_wave1_tenant_rls")).filter((x) => /"BusinessObligation(Orientation)?"/.test(x))) {
     await prisma.$executeRawUnsafe(s);
