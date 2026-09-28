@@ -37,7 +37,7 @@ validated findings  →  SHADOW telemetry today; owner surface only after an own
   run stops before any model call. An answer is valid only for the exact context it was given: the
   `contextFingerprint` must match.
 
-## Context builder (`brain-context.v1`)
+## Context builder (`brain-context.v2`; v1 at M8 closure, v2 admits the M9 outcome kinds — see OUTCOME_LEARNING.md)
 
 **Deterministic.** The same snapshot always yields the same context and the same fingerprint (tested).
 
@@ -136,7 +136,7 @@ A result whose findings are all rejected is `INVALID_OUTPUT`: nothing is shown.
 |---|---|
 | Provider / API | OpenAI Chat Completions with `response_format: json_schema, strict` (SDK `openai` 6.x), the provider the product already uses |
 | Model | `BRAIN_LLM_MODEL`, default `gpt-4.1-mini` (the bot-drafts model); reported by the route |
-| Prompt | `brain-prompt.v1`, one canonical constant in `prompt.ts` |
+| Prompt | `brain-prompt.v2` (M9 added rule 11: outcome memory is sequence, never effect), one canonical constant in `prompt.ts` |
 | Determinism | temperature 0, fixed seed. Best effort: the provider does not guarantee identical text, and the claim is not made. The input (snapshot, context, prompt, model, validator) is fully reproducible. |
 | Limits | ≤ 1,200 output tokens, 25 s timeout, **one** retry (timeouts and rate limits only), no provider fallback, one call per run, never per UI render |
 | Retention | the Brain sends the provider only the minimized context above. Locally it keeps **no** prompt, response or prose: only metadata. Provider-side retention follows the organization's existing OpenAI API account settings, unchanged by M8. |

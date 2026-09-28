@@ -508,6 +508,29 @@ const DECIDE: Record<string, ModelCoverage> = {
       "about one person's payment history. It cascades with Business; decide whether collection " +
       "history is erased with the account or retained as evidence of the business's own conduct."
   ),
+  OutcomeRecommendation: decide(
+    "M9. A system recommendation about this business's own records — target ids (documents, " +
+      "installments), snapshot slots and fingerprints. No free text, no names, no amounts. It cascades " +
+      "with Business and is regenerable from retained knowledge; decide whether it is erased with the account."
+  ),
+  OutcomeDecision: decide(
+    "M9. The owner's own answer to a recommendation: an actor user id, a decision, an optional " +
+      "structured reason CODE and a target subset. Deliberately no free text. Like a REJECTED " +
+      "EntityLinkProposal it is NOT rebuildable — it is the owner's authority — so erasing it loses " +
+      "what they already said; decide whether it is erased with the account or retained."
+  ),
+  OutcomeActionEvent: decide(
+    "M9. Which domain record (review event, payment allocation) followed a recommendation, with the " +
+      "acting user id and business time. Ids and times only; rebuildable from the ledger it points at."
+  ),
+  OutcomeObservation: decide(
+    "M9. Days and counts observed after a recommendation, with the evidence row ids. No money, no " +
+      "text; rebuildable from the ledger."
+  ),
+  OutcomeAssessment: decide(
+    "M9. A deterministic reading of decision, action and outcome: states, counts, days and evidence " +
+      "row ids. No text; rebuildable from the rows above."
+  ),
   DerivedClaimProjection: decide("subjectNormalizedKey may encode a counterparty name"),
   BusinessInsight: decide(
     "factLines and interpretation are free text by type. The one composer that exists today writes " +

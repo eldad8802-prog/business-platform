@@ -36,7 +36,9 @@ const MAX_FINDINGS = 5;
 const MAX_TEXT = 280;
 
 /** Causal wording, English and Hebrew. Deliberately broad: a false rejection costs nothing. */
-const CAUSAL = /\b(because|caused|causing|causes|due to|led to|leads to|result(?:s|ed)? in|as a result|driven by|owing to)\b|בגלל|גרמ|גורם ל|כתוצאה|עקב|הוביל|מוביל ל|בשל|מפני ש|משום ש|בעקבות|על רקע/i;
+// M9 adds the outcome-effect phrasings ("thanks to", "improved", "worked", "paid off", "helped") — an
+// outcome that FOLLOWED an action is a sequence, and these words turn it into an effect.
+const CAUSAL = /\b(because|caused|causing|causes|due to|led to|leads to|result(?:s|ed)? in|as a result|driven by|owing to|thanks to|improved|improves|worked|paid off|helped|effective|effect of)\b|בגלל|גרמ|גורם ל|כתוצאה|עקב|הוביל|מוביל ל|בשל|מפני ש|משום ש|בעקבות|על רקע|בזכות|שיפר|שיפור|השפיע|השפעה|עזר|הועיל|יעיל|הצליח/i;
 /** Identity assertions: allowed only when an authoritative linked-counterparty finding is cited. */
 const IDENTITY = /\b(same (entity|supplier|vendor|business|company|counterparty)|is actually|is the same as)\b|אותו ספק|אותה ישות|אותו גורם|אותה חברה|זהה ל|הוא בעצם|הם אותו/i;
 /** Internal vocabulary and reference codes never reach an owner. */

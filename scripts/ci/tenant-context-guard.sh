@@ -53,7 +53,7 @@ PILOT_MODELS="conversation customer appointment billingDocument paymentRequest"
 # WITHOUT being listed. That omission is the original defect's exact shape repeating: the tables were
 # FORCE RLS from their first migration and nothing checked that the code reached them through a tenant
 # transaction. They did, as it happens. Nothing was proving it.
-KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent knowledgeMeasure knowledgeMeasureEvidenceLink temporalKnowledge businessInsight entityLinkProposal collectionAction party partyResolutionClaim"
+KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent knowledgeMeasure knowledgeMeasureEvidenceLink temporalKnowledge businessInsight entityLinkProposal collectionAction party partyResolutionClaim outcomeRecommendation outcomeDecision outcomeActionEvent outcomeObservation outcomeAssessment"
 
 # Runtime trees that must never touch a pilot model through the global client.
 TENANT_TREES="app lib features components"
@@ -292,7 +292,7 @@ if [ -f "$sr" ] && [ -f "$mr" ] && [ -f "$mw" ] && [ -f "$id" ] && [ -f "$ca" ];
             | grep -v '/evidence/sources.ts$' | grep -v 'measure-writer.ts$' \
             | grep -v 'measure-reconciler.ts$' | grep -v 'insight.service.ts$' \
             | grep -v '/temporal/temporal-writer.ts$' | grep -v 'knowledge-selector.ts$' \
-            | grep -v '/snapshot/snapshot-sources.ts$' \
+            | grep -v '/snapshot/snapshot-sources.ts$' | grep -v '/outcomes/outcome-store.ts$' \
             | grep -v '\.test\.' | grep -c . || true)
   ins=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/insight.service.ts" || true)
   rec=$(grep -c "tenantTx(businessId" "$mr" || true)
@@ -303,9 +303,14 @@ if [ -f "$sr" ] && [ -f "$mr" ] && [ -f "$mw" ] && [ -f "$id" ] && [ -f "$ca" ];
   ks=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/knowledge-selector.ts" 2>/dev/null || echo 0)
   # M7 — the snapshot's governed producers are the one further named seam.
   sn=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/snapshot/snapshot-sources.ts" 2>/dev/null || echo 0)
+  # M9 — the outcome store is the one further named seam; every one of its entry points is tenant-bound.
+  os_f="$ROOT/lib/knowledge/outcomes/outcome-store.ts"
+  os_fns=$(grep -c "^export async function" "$os_f" 2>/dev/null || echo 0)
+  os_tx=$(grep -c "tenantTx(businessId" "$os_f" 2>/dev/null || echo 0)
   [ "$loaders" -ge 7 ] && [ "$txs" -ge 7 ] && [ "$nosingleton" -eq 0 ] && [ "$strays" -eq 0 ] \
     && [ "$rec" -ge 1 ] && [ "$idn" -ge 1 ] && [ "$can" -ge 1 ] && [ "$ins" -ge 1 ] \
-    && [ "$tw" -ge 1 ] && [ "$ks" -ge 1 ] && [ "$sn" -ge 1 ] && n=1
+    && [ "$tw" -ge 1 ] && [ "$ks" -ge 1 ] && [ "$sn" -ge 1 ] \
+    && [ "$os_fns" -ge 1 ] && [ "$os_tx" -ge "$os_fns" ] && n=1
 fi
 ok "CI-TC-15 M4/M5 evidence, writer, reconciler, identity and collection seams are tenant-bound" "$n" \
    "loaders=${loaders:-?} tenantTx=${txs:-?} singleton=${nosingleton:-?} strays=${strays:-?}"
