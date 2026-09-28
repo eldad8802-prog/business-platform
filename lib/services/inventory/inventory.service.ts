@@ -44,6 +44,8 @@ class InventoryService {
       sku,
       barcode,
       imageUrl,
+      description,
+      featuredByOwner,
       createdByUserId,
 
       // 🔥 חדש
@@ -76,6 +78,8 @@ class InventoryService {
           sku: sku?.trim() || null,
           barcode: barcode?.trim() || null,
           imageUrl: imageUrl?.trim() || null,
+          description: description?.trim() || null,
+          featuredByOwner: featuredByOwner === true,
 
           // 🔥 חדש
           categoryId: categoryId ?? null,

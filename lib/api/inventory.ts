@@ -265,6 +265,8 @@ export async function createInventoryItem(data: {
   costPerUnit?: number | null;
   sellPricePerUnit?: number | null;
   categoryId?: number | null;
+  description?: string | null;
+  featuredByOwner?: boolean;
 }) {
   const res = await fetchWithTimeout("/api/inventory/items", {
     method: "POST",

@@ -17,6 +17,8 @@ export type CreateInventoryItemInput = {
   sku?: string;
   barcode?: string;
   imageUrl?: string;
+  description?: string | null;
+  featuredByOwner?: boolean;
   createdByUserId?: number;
   categoryId?: number | null;
 };
