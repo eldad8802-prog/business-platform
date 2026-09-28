@@ -622,7 +622,9 @@ async function tableCounts(tx: Tx) {
 
 /** A commitment row with the two fields a totals-only correction may change removed. */
 function frozen(c: Record<string, unknown>): string {
-  const { totalAmount: _t, updatedAt: _u, ...rest } = c;
+  const rest: Record<string, unknown> = { ...c };
+  delete rest.totalAmount;
+  delete rest.updatedAt;
   return JSON.stringify(rest);
 }
 
@@ -668,13 +670,13 @@ export async function runSecretaryLedgerCutover(
 
   return db.$transaction(
     async (tx) => {
-      const useBusiness = (id: number) => tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(id)}, true)`;
+      const enterBusiness = (id: number) => tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(id)}, true)`;
 
       // 1 · recount inside the write transaction
       const before = emptyCounts();
       const loaded: Array<{ id: number; obligations: Obligation[]; copied: Copied[] }> = [];
       for (const id of discovered.ids) {
-        await useBusiness(id);
+        await enterBusiness(id);
         const { obligations, copied } = await loadBusiness(tx, id);
         countInto(before, obligations, copied);
         loaded.push({ id, obligations, copied });
@@ -714,7 +716,7 @@ export async function runSecretaryLedgerCutover(
       // 2 · apply from the same snapshot
       const applied = { copied: 0, synced: 0, totalsCleared: 0 };
       for (const b of loaded) {
-        await useBusiness(b.id);
+        await enterBusiness(b.id);
         const r = await applyBusiness(tx, b.obligations, b.copied);
         applied.copied += r.copied;
         applied.synced += r.synced;
@@ -744,7 +746,7 @@ export async function runSecretaryLedgerCutover(
       }
       const after = emptyCounts();
       for (const b of loaded) {
-        await useBusiness(b.id);
+        await enterBusiness(b.id);
         const { obligations, copied } = await loadBusiness(tx, b.id);
         countInto(after, obligations, copied);
       }

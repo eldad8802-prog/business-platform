@@ -542,7 +542,7 @@ async function main(): Promise<void> {
     const paidC = await prisma.installment.findFirstOrThrow({ where: { commitmentId: copiedPaid.id } });
     eq("the conflicting paid row was NOT rewritten", paidC.status, "SCHEDULED");
     const secondDry = await runSecretaryLedgerCutover(prisma, { mode: "dry-run", onlyBusinessIds: [C.id] });
-    eq("second dry run: nothing to copy, nothing to reconcile, no totals (only the conflict remains)", [expectedFrom(secondDry.before), secondDry.before.conflicts.length], [{ copy: 0, reconcile: 0, totals: 0 }, 1]);
+    eq("second dry run: nothing to copy, nothing to reconcile, no totals (only the conflict remains)", [expectedFrom(secondDry.before).copy, expectedFrom(secondDry.before).reconcile, expectedFrom(secondDry.before).totals, secondDry.before.conflicts.length], [0, 0, 0, 1]);
     const again = await runSecretaryLedgerCutover(prisma, { mode: "execute", onlyBusinessIds: [C.id], expect: expectedFrom(secondDry.before) });
     eq("idempotent: a second execute changes nothing", again.applied, { copied: 0, synced: 0, totalsCleared: 0 });
 
@@ -600,7 +600,9 @@ async function main(): Promise<void> {
     eq("execute: effect proven inside the transaction", execE.effect, { payments: 0, allocations: 0, obligations: 0, commitmentsCreated: 0, installmentsCreated: 0, workflowRowsCreated: 0, auditEvents: 2, totalsOnlyCommitmentsVerified: 2 });
     const eCommitmentsAfter = await prisma.commitment.findMany({ where: { businessId: Ez.id }, orderBy: { id: "asc" } });
     const strip = (c: Record<string, unknown>) => {
-      const { totalAmount: _t, updatedAt: _u, ...rest } = c;
+      const rest: Record<string, unknown> = { ...c };
+  delete rest.totalAmount;
+  delete rest.updatedAt;
       return JSON.stringify(rest);
     };
     eq("every commitment: totalAmount now NULL", eCommitmentsAfter.map((c) => c.totalAmount), [null, null]);
