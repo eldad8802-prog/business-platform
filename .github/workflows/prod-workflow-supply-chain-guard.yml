@@ -59,8 +59,9 @@ jobs:
           set -uo pipefail
           # No URLs are provided, so the script must REFUSE (exit 3) — proving it
           # was loaded and executed by the local tsx, with no database involved.
-          node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts --expected-runtime-user app_runtime_prod > out.txt 2>&1
-          code=$?
+          # (steps run under `bash -e`; capture the expected non-zero exit explicitly)
+          code=0
+          node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts --expected-runtime-user app_runtime_prod > out.txt 2>&1 || code=$?
           cat out.txt
           [ "$code" -eq 3 ] && grep -q "REFUSED" out.txt
       - name: Without the local binary the same invocation FAILS (no download fallback)
