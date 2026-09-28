@@ -71,9 +71,6 @@ still needs a first-principles desktop composition, then visual QA.
 | Domain | Surfaces still open |
 | --- | --- |
 | Home / app | `/`, `/app` |
-| Inventory | home control desk beyond the current band, items, item detail, alerts, unmatched, count, drafts, sales, supplier purchases and their create / cart / confirm / receive / send / import states |
-| Collection | `/collection/new` |
-| Payments | `/payments`, `/payments/new` |
 | Billing | document detail `/billing/[id]`, create modal, issue flow |
 | Secretary | obligation detail and other secretary routes beyond the home desk |
 | Payables | list, detail, cheques, bank, match |
@@ -85,6 +82,48 @@ still needs a first-principles desktop composition, then visual QA.
 | Content studio | the phone-shell wizard routes; desktop may become configuration beside preview without collapsing confirmation steps |
 | Inbox / notifications | `/inbox`, `/notifications` |
 | Tools | tools entry if it is only a launcher into billing |
+
+## Slice 3 — inventory operations, collection create, payments
+
+Desktop is a work queue plus a selected record. Mobile keeps the cards. Confirmation that changes stock or creates a payment request stays an explicit action.
+
+| Domain | Surface | Route | State | Desktop composition | Status |
+| --- | --- | --- | --- | --- | --- |
+| Inventory | Home | `/inventory` | populated | attention table and selected item beside health, value, and actions | DESKTOP-ADAPTED |
+| Inventory | Home | `/inventory` | empty | quick actions beside the empty-stock guidance | DESKTOP-ADAPTED |
+| Inventory | Home | `/inventory` | item selected | selected item context and open action | DESKTOP-ADAPTED |
+| Inventory | Alerts | `/inventory/alerts` | queue / empty / selected | filterable table and the resolve action for the selected alert | DESKTOP-ADAPTED |
+| Inventory | Drafts | `/inventory/drafts` | no selection / selected | decision queue; approve and merge stay on a confirmation sheet | DESKTOP-ADAPTED |
+| Inventory | Unmatched sales | `/inventory/unmatched` | no selection / selected | sale evidence beside link, create, or reject | DESKTOP-ADAPTED |
+| Inventory | Sales | `/inventory/sales` | pending POS | unmatched sales table and a link into the decision screen | DESKTOP-ADAPTED |
+| Inventory | Supplier purchases | `/inventory/supplier-purchases` | list / selected | order table, lines, supplier, and receive when quantity is still open | DESKTOP-ADAPTED |
+| Inventory | Purchase intake | `/inventory/supplier-purchases/pending` | selected draft | line match decisions beside the queue; cancel still needs a second press | DESKTOP-ADAPTED |
+| Inventory | Purchase history | `/inventory/supplier-purchases/history` | selected | past order lines in the inspector | DESKTOP-ADAPTED |
+| Inventory | New order | `/inventory/supplier-purchases/new` | browse | product table and the current cart; cart and confirm stay later steps | DESKTOP-ADAPTED |
+| Inventory | Order cart | `/inventory/supplier-purchases/new/cart` | lines | quantity and cost table; continue still goes to confirmation | DESKTOP-ADAPTED |
+| Inventory | Order confirm | `/inventory/supplier-purchases/new/confirm` | review | line totals beside the supplier; the send dialog stays | DESKTOP-ADAPTED |
+| Inventory | Receive | `/inventory/supplier-purchases/[id]/receive` | count | received lines beside the intake summary; posting still confirms | DESKTOP-ADAPTED |
+| Inventory | Send | `/inventory/supplier-purchases/[id]/send` | ready | order lines beside share, PDF, and intake | DESKTOP-ADAPTED |
+| Inventory | Import | `/inventory/supplier-purchases/import` | file | file picker beside the rule that import creates drafts, not stock | DESKTOP-ADAPTED |
+| Inventory | Integrations | `/inventory/supplier-purchases/integrations` | connections | connection list beside what each connection actually does | DESKTOP-ADAPTED |
+| Inventory | Stock count | `/inventory/count` | empty session | scan action, the rule for unscanned items, and a progress rail | DESKTOP-ADAPTED |
+| Inventory | Count sheet | `/inventory/count` | products counted | expected, counted, and delta table; save stays explicit | DESKTOP-ADAPTED |
+| Inventory | Create item | `/inventory/items/create` | form | two-column fields and a live summary of what will be saved | DESKTOP-ADAPTED |
+| Inventory | Create sale | `/inventory/sales/create` | search / cart | product search beside the cart | DESKTOP-ADAPTED |
+| Inventory | Item detail | `/inventory/items/[id]` | item | identity and stock beside details and movement history | DESKTOP-ADAPTED |
+| Inventory | Items list | `/inventory/items` | list | unchanged from slice 1 | DESKTOP-ADAPTED |
+| Inventory | Barcode camera | count and create item | scanner open | a camera capture stays on the barcode; it is not a dashboard | INTENTIONALLY-FOCUSED |
+| Collection | Create | `/collection/new` | entry | customer picker beside what must be seen before a request exists | DESKTOP-ADAPTED |
+| Collection | Create | `/collection/new` | customer and invoice | open invoices beside amount, partial-payment note, and the create button | DESKTOP-ADAPTED |
+| Collection | Create | `/collection/new` | validation | over-invoice amount keeps the create button disabled | DESKTOP-ADAPTED |
+| Collection | Create | `/collection/new` | configured | amount and invoice stay visible together before submit | DESKTOP-ADAPTED |
+| Collection | Create | `/collection/new` | not ready | setup blockers stay a single task until collection can run | INTENTIONALLY-FOCUSED |
+| Payments | Overview | `/payments` | redirect | the route opens the collection inbox, already a desktop queue | DESKTOP-ADAPTED |
+| Payments | New request | `/payments/new` | redirect | opens `/collection/new` with the same customer or invoice query | DESKTOP-ADAPTED |
+| Payments | Legacy request | `/payments/[id]` | redirect | resolves the customer and opens that financial thread | INTENTIONALLY-FOCUSED |
+| Payments | Thread | `/collection/c/[customerId]` | pending / failed / paid | history table; the selected event keeps share, cancel, retry, and refund | DESKTOP-ADAPTED |
+
+No inventory, collection-create, or payments surface in this slice is NOT-YET-DONE.
 
 ## Runtime QA for this slice
 
@@ -115,6 +154,17 @@ Fixes after the first look:
 - The hub capture card was still placed by the 1024 grid, so it covered the counts and the table. It now sits in its own column beside the work area.
 - Uniform export's generate button lived in a fixed bar under the mobile navigation. The action now sits in the package-contents card, on every width.
 
+## Slice 3 runtime QA
+
+Evidence: `qa-evidence/desktop-ux-phase-2/inventory/`, `collection-create/`, and `payments/`.
+Mocked `/api` only. No collection request was submitted and no provider was called.
+Viewports represented: 390, 768, 1024, 1280, 1440, 1600, 1920.
+Horizontal overflow in the captured set: none.
+
+The first pass of `/collection/new` and `/payments` was taken while Next was still compiling, so those frames were reshot after the page text was present. A later pass added import, integrations, send, receive, the order cart and confirmation, the count sheet after a manual barcode, collection blockers, and the payments overview after the `/payments` redirect. No order, receipt, or collection request was submitted. Horizontal overflow in that pass: none.
+
+Cart and confirmation keep the mobile sticky action bar. From 1200 the lines sit beside the cart summary or the supplier and send action, and the send dialog stays a separate confirmation.
+
 ## Counts for this slice only
 
 These counts are the slice, not the product.
@@ -123,5 +173,5 @@ These counts are the slice, not the product.
 - Classified DESKTOP-ADAPTED in this slice: 12
 - Classified INTENTIONALLY-FOCUSED in this slice: 1
 - Remaining: every surface in the table above, plus states inside those flows
-- Runtime screenshot QA: not done yet
+- Runtime screenshot QA: recorded in the slice sections above
 - Production merge: not requested

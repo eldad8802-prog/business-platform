@@ -40,6 +40,7 @@ export default function SupplierPurchasesIntegrationsPage() {
       sub="חברו קופה או ספק לעדכון מלאי אוטומטי"
       bottomNav="orders"
     >
+      <div className="inv-desk-workspace inv-ops">
       <div className="inv-rows">
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>🧾</span>}
@@ -60,6 +61,12 @@ export default function SupplierPurchasesIntegrationsPage() {
           trail={<InventoryBadge tone="neutral">בקרוב</InventoryBadge>}
           onClick={() => setComingSoon(true)}
         />
+      </div>
+      <aside className="inv-ops__side">
+        <h2>מה החיבור עושה</h2>
+        <p>קופה מעדכנת מלאי ממכירות. יבוא CSV יוצר טיוטות לבדיקה, והמלאי משתנה רק בקליטה.</p>
+        <p>חיבור API לספק עדיין לא פעיל. אין כאן סטטוס ספק מומצא.</p>
+      </aside>
       </div>
 
       {comingSoon ? (

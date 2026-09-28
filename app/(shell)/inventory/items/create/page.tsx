@@ -229,6 +229,7 @@ export default function CreateInventoryItemPage() {
 
   return (
     <InventorySubPage intent="standard" title="מוצר חדש" backHref="/inventory/items" bottomNav="products">
+      <div className="inv-desk-workspace inv-create-grid">
       <div className="inv-fwrap">
         <label
           className="inv-imgpick"
@@ -402,6 +403,13 @@ export default function CreateInventoryItemPage() {
         </div>
 
         {error ? <div className="inv-alert inv-alert--error" style={{ marginTop: 16 }}>{error}</div> : null}
+      </div>
+      <aside className="inv-ops__side">
+        <h2>{name.trim() || "מוצר חדש"}</h2>
+        <p>{categoryName.trim() || "בלי קטגוריה"} · {UNIT_OPTIONS.find((option) => option.value === unitType)?.label ?? unitType}</p>
+        <p>כמות התחלתית {initialQuantity || "0"}{supplierName.trim() ? ` · ספק ${supplierName.trim()}` : ""}</p>
+        <p>המוצר נוצר רק אחרי שמירה. הסריקה נשארת על הברקוד עצמו.</p>
+      </aside>
       </div>
 
       <SaveBar label={loading ? "שומר…" : "שמירת מוצר"} onClick={() => void handleSubmit()} disabled={loading} />

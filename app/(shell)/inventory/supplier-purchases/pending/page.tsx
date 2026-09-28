@@ -48,6 +48,82 @@ function buildHeaders() {
   };
 }
 
+function PendingDecision({
+  draft,
+  items,
+  decisions,
+  actionLoading,
+  confirmRejectId,
+  onDecision,
+  onApprove,
+  onReject,
+}: {
+  draft: Draft;
+  items: Item[];
+  decisions: Record<number, LineDecision>;
+  actionLoading: boolean;
+  confirmRejectId: number | null;
+  onDecision: (lineId: number, decision: LineDecision) => void;
+  onApprove: (draft: Draft) => void;
+  onReject: (draftId: number) => void;
+}) {
+  const totalUnits = draft.lines.reduce((sum, line) => sum + line.quantity, 0);
+  return (
+    <>
+      <h2>{draft.supplierName || "הזמנה ללא ספק"}</h2>
+      <p>{draft.lines.length} שורות · {totalUnits} יחידות. אישור מעדכן מלאי.</p>
+      {draft.lines.map((line) => {
+        const decision = decisions[line.id];
+        return (
+          <div key={line.id} style={{ display: "grid", gap: 6 }}>
+            <strong>{line.rawName || "מוצר ללא שם"} · {line.quantity}</strong>
+            <select
+              className="inv-input"
+              value={decision?.action || "CREATE_NEW"}
+              onChange={(event) => {
+                if (event.target.value === "MERGE") onDecision(line.id, { action: "MERGE", itemId: line.matchedItemId || "" });
+                else onDecision(line.id, { action: "CREATE_NEW", name: line.rawName || "", unitType: line.unitType || "UNIT" });
+              }}
+            >
+              <option value="MERGE">שיוך למוצר קיים</option>
+              <option value="CREATE_NEW">יצירת מוצר חדש</option>
+            </select>
+            {decision?.action === "MERGE" ? (
+              <select
+                className="inv-input"
+                value={decision.itemId || ""}
+                onChange={(event) => onDecision(line.id, { action: "MERGE", itemId: Number(event.target.value) })}
+              >
+                <option value="">בחרו מוצר קיים</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} · {item.currentQuantity}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="inv-input"
+                value={decision?.action === "CREATE_NEW" ? decision.name : line.rawName || ""}
+                onChange={(event) => onDecision(line.id, {
+                  action: "CREATE_NEW",
+                  name: event.target.value,
+                  unitType: decision?.action === "CREATE_NEW" ? decision.unitType : line.unitType || "UNIT",
+                })}
+              />
+            )}
+          </div>
+        );
+      })}
+      {confirmRejectId === draft.id ? <p>ביטול הזמנה הוא פעולה בלתי הפיכה. לחצו שוב כדי לאשר.</p> : null}
+      <button type="button" className="inv-btn-primary" disabled={actionLoading} onClick={() => onApprove(draft)}>
+        {actionLoading ? "מאשר…" : "אשר קליטה"}
+      </button>
+      <button type="button" className="inv-btn-secondary" disabled={actionLoading} onClick={() => onReject(draft.id)}>
+        {confirmRejectId === draft.id ? "אשר ביטול" : "בטל הזמנה"}
+      </button>
+    </>
+  );
+}
+
 export default function PendingSupplierPurchasesPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -322,7 +398,46 @@ export default function PendingSupplierPurchasesPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-ops">
+          <div className="inv-desk-table" aria-label="הזמנות לקליטה">
+            <table>
+              <thead>
+                <tr>
+                  <th>ספק</th>
+                  <th>שורות</th>
+                  <th>יחידות</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drafts.map((draft) => (
+                  <tr key={draft.id} className={openId === draft.id ? "is-selected" : undefined} onClick={() => openDraft(draft)}>
+                    <td>{draft.supplierName || "הזמנה ללא ספק"}</td>
+                    <td className="num">{draft.lines.length}</td>
+                    <td className="num">{draft.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <aside className="inv-ops__side">
+            {drafts.find((draft) => draft.id === openId) ? (
+              <PendingDecision
+                draft={drafts.find((draft) => draft.id === openId)!}
+                items={items}
+                decisions={decisions}
+                actionLoading={actionLoading}
+                confirmRejectId={confirmRejectId}
+                onDecision={updateDecision}
+                onApprove={(draft) => void approveDraft(draft)}
+                onReject={requestRejectDraft}
+              />
+            ) : (
+              <><h2>קליטה</h2><p>בחרו הזמנה. האישור מעדכן מלאי, והביטול דורש לחיצה שנייה.</p></>
+            )}
+          </aside>
+        </div>
+        <div className="inv-rows inv-decision-mobile">
           {drafts.map((draft) => {
             const isOpen = openId === draft.id;
             const totalUnits = draft.lines.reduce(
@@ -463,6 +578,7 @@ export default function PendingSupplierPurchasesPage() {
             );
           })}
         </div>
+        </>
       )}
     </InventorySubPage>
   );

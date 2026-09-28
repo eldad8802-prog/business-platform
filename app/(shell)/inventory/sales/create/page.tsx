@@ -98,6 +98,7 @@ export default function CreateInventorySalePage() {
 
   return (
     <InventorySubPage intent="standard" title="מכירה חדשה" backHref="/inventory/sales" bottomNav="sales">
+      <div className="inv-desk-workspace inv-sale-desk">
       <div style={{ position: "relative" }}>
         <InventorySearch value={query} onChange={setQuery} placeholder="הוסף מוצר או סרוק ברקוד" />
         {searchResults.length > 0 ? (
@@ -125,6 +126,7 @@ export default function CreateInventorySalePage() {
           </div>
         ) : null}
       </div>
+      <div>
 
       {error ? (
         <div className="inv-fwrap">
@@ -166,6 +168,8 @@ export default function CreateInventorySalePage() {
           })}
         </div>
       )}
+      </div>
+      </div>
 
       {cartEntries.length > 0 ? (
         <BottomActionBar

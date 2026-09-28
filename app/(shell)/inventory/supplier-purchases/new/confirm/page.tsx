@@ -42,18 +42,20 @@ export default function NewSupplierPurchaseConfirmPage() {
       showProgress={true}
       footer={
         selectedItems.length > 0 ? (
-          <BottomActionBar
-            secondary={{ label: "שמור טיוטה", onClick: persistDraft }}
-            label=""
-            value=""
-            cta={actionLoading ? "שולח…" : supplierName ? `שלח הזמנה ל${supplierName}` : "צור הזמנה"}
-            ctaDisabled={!canSubmit}
-            onCta={() => setConfirming(true)}
-          />
+          <div className="inv-decision-mobile">
+            <BottomActionBar
+              secondary={{ label: "שמור טיוטה", onClick: persistDraft }}
+              label=""
+              value=""
+              cta={actionLoading ? "שולח…" : supplierName ? `שלח הזמנה ל${supplierName}` : "צור הזמנה"}
+              ctaDisabled={!canSubmit}
+              onCta={() => setConfirming(true)}
+            />
+          </div>
         ) : null
       }
     >
-      <div className="inv-fwrap">
+      <div className="inv-fwrap inv-decision-mobile">
         <div className="inv-field">
           <div className="inv-field__lab">ספק</div>
           <select
@@ -90,7 +92,35 @@ export default function NewSupplierPurchaseConfirmPage() {
           />
         </div>
       ) : (
-        <div className="inv-olines">
+        <div className="inv-ops">
+        <div className="inv-desk-table" aria-label="פריטים לאישור">
+          <table>
+            <thead>
+              <tr>
+                <th>מוצר</th>
+                <th>כמות</th>
+                <th>עלות</th>
+                <th>סה״כ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedItems.map((item) => {
+                const qty = order[item.id] ?? 0;
+                const cost = Number(unitCosts[item.id] ?? "");
+                const hasCost = Number.isFinite(cost) && (unitCosts[item.id] ?? "").trim() !== "";
+                return (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td className="num">{qty}</td>
+                    <td className="num">{hasCost ? `₪${cost}` : "—"}</td>
+                    <td className="num">{hasCost ? `₪${(qty * cost).toLocaleString("he-IL")}` : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-olines inv-decision-mobile">
           {selectedItems.map((item) => {
             const qty = order[item.id] ?? 0;
             const cost = Number(unitCosts[item.id] ?? "");
@@ -106,9 +136,44 @@ export default function NewSupplierPurchaseConfirmPage() {
             );
           })}
         </div>
+        <aside className="inv-ops__side">
+          <h2>לפני שליחה</h2>
+          <label className="inv-field" style={{ marginTop: 0 }}>
+            <span className="inv-field__lab">ספק</span>
+            <select
+              className="inv-input"
+              value={supplierKey}
+              onChange={(e) => selectSupplier(e.target.value)}
+            >
+              <option value="">ללא ספק</option>
+              {supplierChoices.map((choice) => {
+                const key = choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
+                return (
+                  <option key={key} value={key}>
+                    {choice.name}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <p>
+            {supplierKey.startsWith("id:")
+              ? "ההזמנה תישמר על כרטיס הספק הזה ותופיע בהיסטוריית הרכש שלו."
+              : "בחירת ספק מהרשימה תקשר את ההזמנה לכרטיס הספק."}
+          </p>
+          <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות{total > 0 ? <> · <bdi>₪{total.toLocaleString("he-IL")}</bdi></> : null}</p>
+          <p>המלאי יתעדכן רק לאחר קליטת הסחורה בפועל. יצירת ההזמנה לא משנה מלאי.</p>
+          <button type="button" className="inv-btn-primary" style={{ width: "100%" }} disabled={!canSubmit} onClick={() => setConfirming(true)}>
+            {actionLoading ? "שולח…" : supplierName ? `שלח הזמנה ל${supplierName}` : "צור הזמנה"}
+          </button>
+          <button type="button" className="inv-sheet__ghost" style={{ width: "100%", minHeight: 44 }} onClick={persistDraft}>
+            שמור טיוטה
+          </button>
+        </aside>
+        </div>
       )}
 
-      <p className="inv-field__help" style={{ maxWidth: 720, margin: "8px auto 0", padding: "0 clamp(16px,3.5vw,28px)" }}>
+      <p className="inv-field__help inv-decision-mobile" style={{ maxWidth: 720, margin: "8px auto 0", padding: "0 clamp(16px,3.5vw,28px)" }}>
         המלאי יתעדכן רק לאחר קליטת הסחורה בפועל. יצירת ההזמנה לא משנה מלאי.
       </p>
 

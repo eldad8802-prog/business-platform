@@ -170,7 +170,44 @@ export default function SupplierHistoryPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-ops">
+          <div className="inv-desk-table" aria-label="היסטוריית הזמנות">
+            <table>
+              <thead>
+                <tr>
+                  <th>ספק</th>
+                  <th>תאריך</th>
+                  <th>שורות</th>
+                  <th>מצב</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((draft) => (
+                  <tr key={draft.id} className={openId === draft.id ? "is-selected" : undefined} onClick={() => setOpenId(openId === draft.id ? null : draft.id)}>
+                    <td>{draft.supplierName || "הזמנה ללא ספק"}</td>
+                    <td>{formatDate(draft.createdAt)}</td>
+                    <td className="num">{draft.lines.length}</td>
+                    <td>{statusLabel(draft.status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <aside className="inv-ops__side">
+            {visible.find((item) => item.id === openId) ? (
+              <>
+                <h2>{visible.find((item) => item.id === openId)?.supplierName || "הזמנה ללא ספק"}</h2>
+                {visible.find((item) => item.id === openId)?.lines.slice(0, 8).map((line) => (
+                  <p key={line.id}>{line.rawName || "מוצר ללא שם"} · {line.quantity}</p>
+                ))}
+              </>
+            ) : (
+              <><h2>הזמנה</h2><p>בחרו הזמנה כדי לראות את השורות.</p></>
+            )}
+          </aside>
+        </div>
+        <div className="inv-rows inv-decision-mobile">
           {visible.map((draft) => {
             const isOpen = openId === draft.id;
             const totalUnits = draft.lines.reduce((s, l) => s + l.quantity, 0);
@@ -226,6 +263,7 @@ export default function SupplierHistoryPage() {
             </button>
           ) : null}
         </div>
+        </>
       )}
     </InventorySubPage>
   );

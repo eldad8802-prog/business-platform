@@ -77,6 +77,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
   const [refundAmount, setRefundAmount] = useState("");
   const [refundMax, setRefundMax] = useState<string | null>(null);
   const [refundState, setRefundState] = useState<RefundState | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
   const load = () => setReloadKey((k) => k + 1);
@@ -157,13 +158,16 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-thread { max-width: 680px; margin: 0 auto; display: grid; gap: 14px; }
-        .col-thread__table, .col-thread__invoices { display: none; }
+        .col-thread__table, .col-thread__invoices, .col-thread__pick { display: none; }
         @media (min-width: 1200px) {
           .col-thread { max-width: none; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: start; column-gap: 28px; }
           .col-thread__span { grid-column: 1 / -1; }
           .col-thread__side { position: sticky; top: 16px; display: grid !important; gap: 12px; align-content: start; }
-          .col-thread__queue { min-width: 0; }
+          .col-thread__queue { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 16px; align-items: start; }
           .col-thread__cards { display: none !important; }
+          .col-thread__pick { display: block; position: sticky; top: 16px; }
+          .col-thread__table tr { cursor: pointer; }
+          .col-thread__table tr.is-selected td { background: #f6f3ee; }
           .col-thread__table { display: block; width: 100%; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 16px; overflow: auto; }
           .col-thread__table th, .col-thread__table td { text-align: start; padding: 12px 14px; border-bottom: 1px solid rgba(52,60,50,0.08); font-size: 14px; }
           .col-thread__table th { font-size: 12px; color: #6d675f; font-weight: 600; }
@@ -266,7 +270,11 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                   {thread.events.map((e, i) => {
                     const row = eventDeskRow(e);
                     return (
-                      <tr key={`${e.kind}-${i}`}>
+                      <tr
+                        key={`${e.kind}-${i}`}
+                        className={selectedEvent === i ? "is-selected" : undefined}
+                        onClick={() => setSelectedEvent(i)}
+                      >
                         <td>{dateTime(e.at)}</td>
                         <td>{row.what}</td>
                         <td>{row.amount}</td>
@@ -275,6 +283,48 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                   })}
                 </tbody>
               </table>
+              <aside className="col-thread__pick">
+                {selectedEvent == null || !thread.events[selectedEvent] ? (
+                  <WarmCard><p style={{ margin: 0, color: W.muted }}>בחרו תנועה כדי לראות סטטוס ואת הפעולות המותרות.</p></WarmCard>
+                ) : (
+                  <EventCard
+                    e={thread.events[selectedEvent]}
+                    highlighted={(() => {
+                      const selected = thread.events[selectedEvent];
+                      return selected != null && "requestId" in selected && selected.requestId === anchor;
+                    })()}
+                    busy={busy}
+                    onShare={async (url, amount, currency, invoiceNumber) => {
+                      const text = buildPaymentRequestMessage({
+                        customerName: thread.customer.name, amount: Number(amount).toLocaleString("he-IL"),
+                        currencySymbol: currencySymbol(currency), invoiceNumber, paymentUrl: url, businessName: thread.businessName,
+                      });
+                      const r = await shareOrCopy(text, url);
+                      if (r !== "failed") {
+                        recordCollectionAction(
+                          r === "shared" ? "SHARE_INITIATED" : "LINK_COPIED",
+                          r === "shared" ? "SYSTEM_SHARE" : "CLIPBOARD",
+                          { customerId: thread.customer.id },
+                        );
+                      }
+                      setNotice(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
+                    }}
+                    onCancel={(requestId) =>
+                      act(async () => {
+                        await collectionFetch(`/api/payments/requests/${requestId}/cancel`, { method: "POST" });
+                        return "הבקשה בוטלה.";
+                      })
+                    }
+                    onRetry={(ptx) =>
+                      act(async () => {
+                        const r = await collectionFetch<{ outcome: string }>(`/api/collection/settlements/${ptx}/retry`, { method: "POST", body: "{}" });
+                        return r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED" ? "הקבלה הופקה." : "עדיין חסר משהו כדי להפיק קבלה.";
+                      })
+                    }
+                    onRefund={(t) => void openRefund(t)}
+                  />
+                )}
+              </aside>
               </div>
             )}
           </>
