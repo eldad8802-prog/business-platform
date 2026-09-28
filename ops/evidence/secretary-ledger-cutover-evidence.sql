@@ -86,7 +86,7 @@ SELECT
   (SELECT count(*) FROM "Installment" i JOIN "Commitment" c ON c."id" = i."commitmentId"
      WHERE i."businessId" <> c."businessId")                                            AS installment_business_mismatch;
 
-\\echo '== Q9 catalog: what makes retries safe (by index IDENTITY), and RLS on the authority tables'
+\echo '== Q9 catalog: what makes retries safe (by index IDENTITY), and RLS on the authority tables'
 SELECT c.relname AS index_name,
        i.indisunique AS is_unique,
        t.relname AS on_table,
