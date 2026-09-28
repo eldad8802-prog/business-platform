@@ -165,13 +165,16 @@ The first pass of `/collection/new` and `/payments` was taken while Next was sti
 
 Cart and confirmation keep the mobile sticky action bar. From 1200 the lines sit beside the cart summary or the supplier and send action, and the send dialog stays a separate confirmation.
 
-## Counts for this slice only
+## Counts
 
-These counts are the slice, not the product.
+Slice 1 (CRM, collection inbox, accountant pack, secretary home, billing hub, inventory items): 13 surfaces, 12 DESKTOP-ADAPTED, 1 INTENTIONALLY-FOCUSED.
 
-- Surfaces touched in this slice: 13
-- Classified DESKTOP-ADAPTED in this slice: 12
-- Classified INTENTIONALLY-FOCUSED in this slice: 1
-- Remaining: every surface in the table above, plus states inside those flows
-- Runtime screenshot QA: recorded in the slice sections above
-- Production merge: not requested
+Documents slice: hub, search, inbox, review, email, upload, reports, uniform export, accountant pack recheck. None INTENTIONALLY-FOCUSED. None NOT-YET-DONE.
+
+Slice 3 (inventory operations, collection create, payments), counted as surface/state rows in the slice 3 table:
+
+- Inventory: 24 rows. 23 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (barcode camera). 0 NOT-YET-DONE.
+- Collection create: 5 rows. 4 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (setup blockers). 0 NOT-YET-DONE.
+- Payments: 4 rows. 3 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (legacy request redirect). 0 NOT-YET-DONE.
+
+Still open: the domains in "Still remaining" above. Production merge: not requested.
