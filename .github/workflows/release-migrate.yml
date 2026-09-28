@@ -62,7 +62,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: npx prisma migrate status
+        run: node_modules/.bin/prisma migrate status
 
       # The actual, approved apply. Applies pending migrations only, in order.
       # Fails the job (and stops the release) on any migration error.
@@ -70,7 +70,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: npx prisma migrate deploy
+        run: node_modules/.bin/prisma migrate deploy
 
       # Post-state verification. Must be "up to date" (exit 0); if not, the job
       # fails so the release is not declared complete.
@@ -78,7 +78,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: npx prisma migrate status
+        run: node_modules/.bin/prisma migrate status
 
       - name: Job Summary
         if: always()

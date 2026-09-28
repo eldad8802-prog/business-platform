@@ -61,13 +61,13 @@ jobs:
         run: npm ci
 
       - name: Generate the Prisma client
-        run: npx prisma generate
+        run: node_modules/.bin/prisma generate
 
       - name: Tenant isolation AS the runtime login (read-only, counts only)
         env:
           OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
           RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
         run: |
-          npx tsx scripts/ops/runtime-rls-evidence.ts \
+          node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts \
             --expected-runtime-user app_runtime_prod \
             --allow-host ep-flat-brook-am4bhq1y
