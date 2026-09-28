@@ -69,6 +69,19 @@ async function main() {
     await owner.$executeRawUnsafe(
       `CREATE POLICY w4a_lab ON "${t}" USING ("businessId" = ${GUC}) WITH CHECK ("businessId" = ${GUC})`);
   }
+  // M2: IntakeEvent — the webhook's receipt ledger. Isolation applied from the
+  // REAL migration file (policies + grants + REVOKE), app_runtime renamed to
+  // this lab's runtime role, so the battery proves the SQL that ships.
+  {
+    const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
+    const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
+    const doStart = m2.indexOf("DO $do$");
+    if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");
+    const stmts = m2.slice(rlsStart, doStart).split(/;\s*\r?\n/)
+      .map((x) => x.replace(/^\s*--.*$/gm, "").trim()).filter(Boolean);
+    for (const stmt of stmts) await owner.$executeRawUnsafe(stmt);
+    await owner.$executeRawUnsafe(m2.slice(doStart).trim().replace(/;\s*$/, "").replaceAll("app_runtime", RT_ROLE));
+  }
   console.log("[lab] runtime role + grants + LAB-ONLY policies ready");
 
   // ── Phase 2: fixtures (owner) ───────────────────────────────────────────
@@ -231,10 +244,14 @@ async function main() {
     dbFailOutcome = "threw";
   }
   ok("DB resolution failure throws loudly (no env fallback tenant)", dbFailOutcome === "threw", dbFailOutcome);
-  // Whole-webhook behavior under DB failure: 200 (per-message catch), zero rows.
+  // Whole-webhook behavior under DB failure. M2: acknowledgement means
+  // durability — a resolution DB error is answered 500 so Meta redelivers,
+  // instead of 200 (which dropped the message for good). Still zero rows,
+  // still no fallback context.
   const preFailCnt = await owner.message.count();
   res = await postWa(waPayload(PN_A, `${MARK}wam-dbfail`, "during outage"));
-  ok("webhook during DB failure: 200 + no rows + no fallback context", res.status === 200 && (await owner.message.count()) === preFailCnt);
+  ok("webhook during DB failure: 500 (redeliver) + no rows + no fallback context",
+    res.status === 500 && (await owner.message.count()) === preFailCnt, `status=${res.status}`);
   await owner.$executeRawUnsafe(`GRANT SELECT ON "WhatsAppConnection" TO ${RT_ROLE}`);
   delete process.env.WHATSAPP_ALLOW_ENV_FALLBACK;
   delete process.env.WHATSAPP_PHONE_NUMBER_BUSINESS_MAP;
@@ -375,9 +392,17 @@ async function main() {
 
   // ── Phase 10: structural no-network-in-tx ordering ──────────────────────
   console.log("--- structural tx-boundary assertions ---");
-  const intakeSrc = readFileSync("lib/services/integrations/whatsapp/conversation-intake.service.ts", "utf8");
+  // M2: the WhatsApp intake processor persists through ingestInboundCustomerMessage
+  // (one tenant tx, committed and recorded PERSISTED) and only THEN runs the
+  // LLM-capable pipeline — never inside a transaction.
+  const intakeSrc = readFileSync("lib/intake/whatsapp/whatsapp-intake.ts", "utf8");
   ok("intake: pipeline (LLM-capable) runs OUTSIDE the tenant tx",
-    intakeSrc.indexOf("runInboundMessagePipeline({") > intakeSrc.indexOf("if (persisted.kind === \"duplicate\")"));
+    intakeSrc.indexOf("await runInboundMessagePipeline({") > intakeSrc.indexOf("await markPersisted(") &&
+    intakeSrc.indexOf("await markPersisted(") > intakeSrc.indexOf("await ingestInboundCustomerMessage({"));
+  const ingestSrc = readFileSync("lib/services/conversation/inbound-customer-message.service.ts", "utf8");
+  const ingestCode = ingestSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  ok("ingest: no pipeline / network work inside its transaction",
+    !/runInboundMessagePipeline|fetch\(|sendWhatsApp/.test(ingestCode));
   const cbSrc = readFileSync("app/api/integrations/gmail/callback/route.ts", "utf8");
   ok("gmail callback: token exchange happens BEFORE tenant context/tx",
     cbSrc.indexOf("exchangeCodeForTokens") < cbSrc.indexOf("runWithTenantContext"));

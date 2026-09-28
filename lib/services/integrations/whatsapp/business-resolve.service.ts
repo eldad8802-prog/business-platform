@@ -3,7 +3,9 @@
  *
  * # Routing source-of-truth (Bot-MVP-1 →)
  *
- *   PRIMARY:  database — `WhatsAppConnection` row with `status = CONNECTED`.
+ *   PRIMARY:  database — `WhatsAppConnection` row whose status still accepts
+ *             inbound (CONNECTED / REVOKED_BY_META / ERROR — see
+ *             `connectionAcceptsInbound`, Business Intake M2 W8).
  *
  *   FALLBACK: process-env JSON map (`WHATSAPP_PHONE_NUMBER_BUSINESS_MAP`).
  *             Used ONLY when `WHATSAPP_ALLOW_ENV_FALLBACK=1`. The fallback

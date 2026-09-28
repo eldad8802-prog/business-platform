@@ -1,0 +1,86 @@
+# WhatsApp Embedded Signup — the owner's "connect WhatsApp Business" flow.
+#
+# Pure unit suites (fakes for the Facebook SDK, window messages, timers, fetch,
+# Graph and persistence): the controller state machine incl. a randomized
+# no-stuck-state property, the bounded client → Dubiz submit, the server-side
+# completion order + Graph timeouts, and the connection-state → UI mapping.
+#
+# ZERO secrets; ZERO network; ZERO database.
+
+name: whatsapp embedded signup — connect flow state machine
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "components/whatsapp/**"
+      - "components/inbox/WhatsAppConversationsGate.tsx"
+      - "app/(shell)/settings/whatsapp/**"
+      - "app/api/integrations/whatsapp/**"
+      - "lib/services/integrations/whatsapp/**"
+      - ".github/workflows/whatsapp-embedded-signup-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  embedded-signup:
+    name: Embedded Signup suites (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Controller state machine (incl. no-stuck-state property)
+        run: npx tsx components/whatsapp/embedded-signup-controller.test.ts
+
+      - name: Client → Dubiz submit (bounded, every HTTP outcome)
+        run: npx tsx components/whatsapp/embedded-signup-submit.test.ts
+
+      - name: Server completion (order, no partial write, Graph timeouts)
+        run: npx tsx lib/services/integrations/whatsapp/embedded-signup-complete.test.ts
+
+      - name: Connection state → settings view
+        run: npx tsx components/whatsapp/connection-view.test.ts
+
+      - name: Call-scoped popup observer (browser refusal detection)
+        run: npx tsx components/whatsapp/popup-observer.test.ts
+
+      - name: Negative proof — an extendable deadline must fail the suite
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/embedded-signup-controller.ts
+          cp "$F" "$F.bak"
+          # Re-introduce the old defect: Meta messages re-arm the launch timer.
+          perl -0pi -e 's|// Any other message is informational only: it does not extend any timer.|if (deadlineTimer !== null) { env.clearTimer(deadlineTimer); deadlineTimer = env.setTimer(() => { deadlineTimer = null; if (isCurrent(id)) fail("timeout"); }, env.timeoutMs); }|' "$F"
+          if grep -q 'if (deadlineTimer !== null) { env.clearTimer' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/embedded-signup-controller.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a re-armable deadline passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a re-armable deadline is caught"
+
+      - name: Negative proof — ignoring a refused popup must fail the suite
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/embedded-signup-controller.ts
+          cp "$F" "$F.bak"
+          # Re-introduce the Production defect: a refused Meta window goes unnoticed.
+          perl -0pi -e 's|if \(popupOpened === false && isCurrent\(id\)\) fail\("popup_blocked"\);|/* refusal ignored */|' "$F"
+          if grep -q '/\* refusal ignored \*/' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/embedded-signup-controller.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ignored popup refusal passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an ignored popup refusal is caught"

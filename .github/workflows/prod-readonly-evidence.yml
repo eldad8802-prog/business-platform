@@ -35,6 +35,8 @@ on:
           - 'ops/evidence/c3-migration-closure-evidence.sql'
           - 'ops/evidence/collection-production-closure-evidence.sql'
           - 'ops/evidence/m1-reconciliation-qa-evidence.sql'
+          - 'ops/evidence/sec-f-521-production-evidence.sql'
+          - 'ops/evidence/sec-c-530-preflight.sql'
 
 permissions:
   contents: read

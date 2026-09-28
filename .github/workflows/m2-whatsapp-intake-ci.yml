@@ -1,0 +1,100 @@
+# Business Intake M2 — WhatsApp intake stabilization under FORCE RLS.
+#
+# Real PostgreSQL 17, the schema pushed by the owner, and the battery run as a
+# separate NOSUPERUSER / NOBYPASSRLS role — the posture Production runs in. The
+# route handlers are called with no ambient tenant context, the way a request
+# arrives. IntakeEvent's isolation is applied from the REAL migration file.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m2 — whatsapp intake under FORCE RLS (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/intake/**"
+      - "app/api/integrations/whatsapp/**"
+      - "app/api/message/**"
+      - "app/api/dev/**"
+      - "app/api/intake/**"
+      - "lib/services/integrations/whatsapp/**"
+      - "lib/services/conversation/**"
+      - "lib/conversation-state/**"
+      - "lib/notifications/inbox-waiting-notifications.ts"
+      - "lib/services/account/**"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260927180000_m2_intake_event/**"
+      - ".m2/**"
+      - ".github/workflows/m2-whatsapp-intake-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m2-intake:
+    name: M2 WhatsApp intake battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m2_owner
+          POSTGRES_PASSWORD: m2_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m2_owner -d dubiz_m2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m2_owner:m2_ci_synthetic_owner_pw@localhost:5432/dubiz_m2
+      RUNTIME_URL: postgresql://m2_runtime:m2_ci_synthetic_runtime_pw@localhost:5432/dubiz_m2
+      AUTH_TOKEN_SECRET: m2_ci_secret_synthetic_at_least_32_characters_long
+      WHATSAPP_APP_SECRET: m2_ci_synthetic_whatsapp_app_secret
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Webhook event-class boundary (parser + route structure)
+        run: npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: m2_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "DROP ROLE IF EXISTS m2_runtime;" \
+            -c "CREATE ROLE m2_runtime LOGIN PASSWORD 'm2_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO m2_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO m2_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO m2_runtime;"
+          psql "$RUNTIME_URL" -tAc "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+
+      - name: M2 WhatsApp intake battery
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .m2/whatsapp-intake-battery.ts

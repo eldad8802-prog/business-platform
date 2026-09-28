@@ -1,10 +1,12 @@
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { InventoryMovementReason } from "@prisma/client";
-import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
+import {
+  isSaleIdempotencyConflict,
+  recordInventorySale,
+} from "@/lib/services/inventory/sale-evidence.service";
+import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -54,7 +56,10 @@ export async function POST(request: NextRequest) {
       throw new InventoryValidationError("Sale must include at least one item");
     }
 
-    const normalizedItems = items.map((item: any) => {
+    const idempotencyKey =
+      typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+
+    const normalizedItems = items.map((item: any, index: number) => {
       const itemId = Number(item.itemId);
       const quantity = Number(item.quantity);
 
@@ -66,35 +71,34 @@ export async function POST(request: NextRequest) {
         throw new InventoryValidationError("Invalid sale item quantity");
       }
 
+      const observedPrice = observeUnitPrice(item.unitPrice);
+      if (observedPrice.kind === "invalid") {
+        throw new InventoryValidationError("Invalid unit price");
+      }
+
       return {
         itemId,
         quantity,
+        unitPrice: observedPrice.kind === "present" ? observedPrice.amount : null,
+        lineKey: String(index),
       };
     });
 
-    // One tenant transaction — all sale movements are atomic.
-    const movements = await runWithTenantContext(
+    // One tenant transaction — sale evidence and stock movements commit together.
+    const recorded = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
         withTenantTransaction(
-          async (tx) => {
-            const out = [];
-            for (const saleItem of normalizedItems) {
-              const movement = await inventoryService.removeStock(
-                {
-                  businessId: user.businessId,
-                  itemId: saleItem.itemId,
-                  quantityDelta: saleItem.quantity,
-                  reason: InventoryMovementReason.SALE,
-                  note: note || undefined,
-                  createdByUserId: user.id,
-                },
-                { tx }
-              );
-              out.push(movement);
-            }
-            return out;
-          },
+          (tx) =>
+            recordInventorySale({
+              tx,
+              businessId: user.businessId,
+              source: "MANUAL",
+              idempotencyKey: idempotencyKey || null,
+              note: note || undefined,
+              createdByUserId: user.id,
+              lines: normalizedItems,
+            }),
           { timeoutMs: 15_000 }
         )
     );
@@ -115,11 +119,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        movements,
+        created: recorded.created,
+        saleId: recorded.saleId,
+        movements: recorded.movements,
       },
-      { status: 201 }
+      { status: recorded.created ? 201 : 200 }
     );
   } catch (error) {
+    if (isSaleIdempotencyConflict(error)) {
+      return NextResponse.json(
+        { success: true, created: false, movements: [] },
+        { status: 200 }
+      );
+    }
     return handleInventoryError(error);
   }
 }

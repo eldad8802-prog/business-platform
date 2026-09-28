@@ -166,6 +166,16 @@ export const ANONYMIZE_MODELS = [
       sendErrorCode: "null", sendErrorMessage: "null", customerId: "null",
     },
   },
+  // M2 — Business Intake receipts. The payload holds the event as received until
+  // it is processed (and kept for retry when it fails); the pointers would
+  // reconnect a receipt to the conversation graph. The replay key is a hash.
+  {
+    model: "intakeEvent",
+    fields: {
+      payload: "json-null", metadata: "json-null", providerAccountRef: "null",
+      messageId: "null", conversationId: "null", customerId: "null",
+    },
+  },
   {
     model: "conversation",
     fields: {

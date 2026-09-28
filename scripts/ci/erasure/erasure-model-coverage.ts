@@ -122,6 +122,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Lead: { disposition: "ERASURE_MANAGED" },
   Conversation: { disposition: "ERASURE_MANAGED" },
   Message: { disposition: "ERASURE_MANAGED" },
+  // M2 — intake receipts: payload / metadata / pointers scrubbed by the adapter;
+  // the replay key is a hash, never the raw provider id.
+  IntakeEvent: { disposition: "ERASURE_MANAGED" },
   MessageAnalysis: { disposition: "ERASURE_MANAGED" },
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },
@@ -309,6 +312,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
+  // Payables, secretary → ledger. Two timestamps and the id of the user who
+  // pressed "טופל" — no name, no note, no free text. The row describes a
+  // reminder's state, not a person or their communication.
+  InstallmentWorkflow: operational("the secretary's snooze/handled timestamps for one installment; no free text"),
   LearningSignal: operational("numeric learning signals"),
   ServiceCostProfile: operational("cost inputs for pricing"),
   PricingRecommendation: operational("numeric pricing output"),
@@ -317,6 +324,13 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   InventoryCategory: operational("category names for stock, not people"),
   InventoryPendingMatch: operational("match bookkeeping between POS lines and stock"),
   InventoryExternalSale: operational("external sale counters"),
+  InventorySale: operational("a stock sale header: source and external id, no person"),
+  InventorySaleLine: operational("quantity and the charged unit price for one stock item"),
+  InventorySourceSaleLine: operational(
+    "an upstream POS line: identity, quantity, and unit price when the till sent one"
+  ),
+  CouponSurfaceEvent: operational("that a public coupon detail was served, with no viewer identity"),
+  BusinessAsset: operational("retained visual provenance: origin and a storage pointer, no person"),
   POSProductMapping: operational("maps a POS product code to a stock item"),
   ReceivingLine: operational("quantities received against a purchase-order line"),
   Coupon: operational("coupon definition and its public token; issued to no one until redeemed"),

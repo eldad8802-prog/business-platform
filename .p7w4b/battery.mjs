@@ -164,6 +164,17 @@ async function main() {
     }
     // Document: FK target for markImported (not RLS'd in this wave).
     await owner.$executeRawUnsafe(`GRANT SELECT ON "Document" TO ${RT_ROLE}`);
+
+    // M2: IntakeEvent (the webhook's receipt ledger). The table comes from
+    // `db push`; its isolation comes from the REAL migration file — the
+    // tenant-isolation section, verbatim, with app_runtime renamed to this
+    // lab's runtime role — so the battery proves the SQL that ships.
+    const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
+    const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
+    const doStart = m2.indexOf("DO $do$");
+    if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");
+    for (const stmt of splitSql(m2.slice(rlsStart, doStart))) await owner.$executeRawUnsafe(stmt);
+    await owner.$executeRawUnsafe(m2.slice(doStart).trim().replace(/;\s*$/, "").replaceAll("app_runtime", RT_ROLE));
   }
 
   // ── Phase 3: apply W4B migration + grants ───────────────────────────────
@@ -322,8 +333,11 @@ async function main() {
   await owner.$executeRawUnsafe(`REVOKE SELECT ON "WhatsAppConnection" FROM ${RT_ROLE}`);
   const preFail = await owner.message.count();
   res = await postWa(waPayload(PN_A, `${MARK}wdb`, "outage"));
-  ok("bootstrap DB failure: 200 + zero rows + no env-fallback tenant",
-    res.status === 200 && (await owner.message.count()) === preFail);
+  // M2: acknowledgement means durability. A tenant-resolution DB failure is no
+  // longer answered 200 (which made Meta drop the message for good); it is 500,
+  // so Meta redelivers. Still zero rows, still no env-fallback tenant.
+  ok("bootstrap DB failure: 500 (redeliver) + zero rows + no env-fallback tenant",
+    res.status === 500 && (await owner.message.count()) === preFail, `status=${res.status}`);
   await owner.$executeRawUnsafe(`GRANT SELECT ON "WhatsAppConnection" TO ${RT_ROLE}`);
   delete process.env.WHATSAPP_ALLOW_ENV_FALLBACK;
   delete process.env.WHATSAPP_PHONE_NUMBER_BUSINESS_MAP;
@@ -424,12 +438,31 @@ async function main() {
     { headers: { authorization: `Bearer ${tokA}` } }));
   const gotB = await res.json();
   ok("GET /api/message cross-tenant -> empty", res.status === 200 && gotB.messages.length === 0);
+  // M2 trust boundary: a signed-in user can no longer manufacture a customer
+  // message. Refused before any write — and nothing lands.
+  const msgCountBefore = await owner.message.count({ where: { conversationId: convA.id } });
   res = await msgRoute.POST(new NextRequest("http://p7w4b.local/api/message", {
     method: "POST",
     headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" },
     body: JSON.stringify({ conversationId: convA.id, contentText: "מה המחיר?", direction: "INBOUND", senderType: "CUSTOMER" }),
   }));
-  ok("POST /api/message (A inbound) 201 under RLS", res.status === 201, `status=${res.status}`);
+  ok("POST /api/message forged INBOUND/CUSTOMER -> 400", res.status === 400, `status=${res.status}`);
+  ok("forged inbound wrote nothing",
+    (await owner.message.count({ where: { conversationId: convA.id } })) === msgCountBefore);
+  // A legitimate business message still works under RLS. A non-WhatsApp
+  // conversation, so no provider send is attempted from CI.
+  const convAOther = await owner.conversation.create({
+    data: { businessId: bizA.id, customerId: convA.customerId, channel: "OTHER", status: "OPEN" },
+  });
+  res = await msgRoute.POST(new NextRequest("http://p7w4b.local/api/message", {
+    method: "POST",
+    headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" },
+    body: JSON.stringify({ conversationId: convAOther.id, contentText: "ok, 200 ₪" }),
+  }));
+  const outBody = await res.json();
+  ok("POST /api/message (A business reply) 201 under RLS", res.status === 201, `status=${res.status}`);
+  ok("the reply is server-attributed OUTBOUND / BUSINESS_USER",
+    outBody.message?.direction === "OUTBOUND" && outBody.message?.senderType === "BUSINESS_USER");
   res = await msgRoute.POST(new NextRequest("http://p7w4b.local/api/message", {
     method: "POST",
     headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" },

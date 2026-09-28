@@ -7,9 +7,15 @@
  * be fabricated to get there, so the only honest lever is the one CardCom
  * itself uses — where it sends the notification.
  *
- * When suppression applies, the checkout is created with a WebHookUrl on a path
- * that has no route (it answers 404), so CardCom's callback reaches nothing that
- * processes it. The payment exists only at CardCom until reconciliation asks.
+ * When suppression applies, the checkout is created with a WebHookUrl on the QA
+ * sink, which accepts CardCom's callback with 200 and discards it unread — so
+ * delivery succeeds from CardCom's side and nothing processes it on ours. The
+ * payment exists only at CardCom until reconciliation asks.
+ *
+ * (The first version pointed at a path with NO route, answering 404. A checkout
+ * issued that way — Production request 7 — never rendered CardCom's form. Whether
+ * the 404 caused that is unproven; the 200 sink removes the only protocol
+ * difference from a normal checkout either way.)
  *
  * TWO GATES, both required:
  *   - the environment flag holds this exact value — unset everywhere by default;
@@ -26,7 +32,10 @@ export const COLLECTION_QA_BUSINESS_ID = 38;
 export const QA_WEBHOOK_SUPPRESSION_FLAG = "PAYMENTS_QA_SUPPRESS_WEBHOOK";
 export const QA_WEBHOOK_SUPPRESSION_VALUE = "collection-qa-38";
 
-/** Has no route: a callback sent here is answered 404 and processed by nothing. */
+/**
+ * A route that accepts the callback with 200 and discards it unread
+ * (app/api/payments/qa-webhook-sink/route.ts). With the flag off it answers 404.
+ */
 export const QA_WEBHOOK_SINK_PATH = "/api/payments/qa-webhook-sink";
 
 export function isQaWebhookSuppressed(

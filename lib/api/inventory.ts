@@ -85,8 +85,10 @@ export type CreateInventorySaleInput = {
   items: Array<{
     itemId: number;
     quantity: number;
+    unitPrice?: string | number | null;
   }>;
   note?: string;
+  idempotencyKey?: string;
 };
 
 export type ResolvePendingMatchInput =

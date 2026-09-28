@@ -449,15 +449,24 @@ async function main() {
       BillingDocumentStatus.ISSUED
     );
 
-    await prisma.billingPaymentAllocation.create({
-      data: {
-        businessId: a.businessId,
-        receiptDocumentId: receiptB.id,
-        invoiceDocumentId: invoiceA.id,
-        allocatedAmount: "1000.00",
-        currency: "ILS",
-      },
-    });
+    // SEC-F (#521): an ISSUED receipt's allocations are frozen at the database
+    // (DZ010). This fixture PLANTS the corruption the read model must ignore, so it
+    // does so behind an explicit, visible, owner-only trigger bypass, in one
+    // transaction. Where the lab was built without the migration (db push), the
+    // trigger does not exist and the toggles are no-ops.
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe(`DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'secf_fiscal_immutable' AND tgrelid = '"BillingPaymentAllocation"'::regclass) THEN ALTER TABLE "BillingPaymentAllocation" DISABLE TRIGGER secf_fiscal_immutable; END IF; END $do$`),
+      prisma.billingPaymentAllocation.create({
+        data: {
+          businessId: a.businessId,
+          receiptDocumentId: receiptB.id,
+          invoiceDocumentId: invoiceA.id,
+          allocatedAmount: "1000.00",
+          currency: "ILS",
+        },
+      }),
+      prisma.$executeRawUnsafe(`DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'secf_fiscal_immutable' AND tgrelid = '"BillingPaymentAllocation"'::regclass) THEN ALTER TABLE "BillingPaymentAllocation" ENABLE TRIGGER secf_fiscal_immutable; END IF; END $do$`),
+    ]);
 
     const seen = await outstandingEverywhere(a, invoiceA.id);
     agrees(

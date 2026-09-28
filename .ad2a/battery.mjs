@@ -248,6 +248,12 @@ async function main() {
   await owner.$executeRawUnsafe(
     `REVOKE DELETE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder" FROM ${RT_ROLE}`
   );
+  // Business Intake M2. Migration 20260927180000_m2_intake_event grants the
+  // runtime SELECT, INSERT and UPDATE on IntakeEvent and REVOKEs DELETE — the
+  // erasure scrubs receipts with an UPDATE. Mirrored exactly: a lab DELETE
+  // would let a deleteMany "fix" pass here and fail in Production.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IntakeEvent" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IntakeEvent" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );

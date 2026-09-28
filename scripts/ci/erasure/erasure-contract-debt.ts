@@ -164,6 +164,7 @@ const EXTERNAL_OBJECTS: DebtEntry[] = [
   // Public-URL images: the column holds a URL, and neither a URL→key inverse nor a
   // public-asset delete exists, so the bytes are unreachable from a database erasure.
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryItem.imageUrl", why: "S8-IMAGES" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "BusinessAsset.storageKey", why: "S8-IMAGES" },
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryDraft.imageUrl", why: "S8-IMAGES" },
   // Objects on models whose own classification is still NEEDS_OWNER_DECISION.
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "Offer.imageUrl", why: "C13-OFFER" },
