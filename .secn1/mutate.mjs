@@ -43,7 +43,7 @@ const MUTATIONS = [
     anchor: `CREATE POLICY inventory_sale_tenant_insert ON "InventorySale" FOR INSERT\n  WITH CHECK ${PRED};`,
     replace: `CREATE POLICY inventory_sale_tenant_insert ON "InventorySale" FOR INSERT\n  WITH CHECK (true);`,
     check: "CROSS_TENANT_INSERT_REFUSED",
-    reason: /InventorySale (no RETURNING): B ROW INSERTED UNDER A/,
+    reason: /InventorySale \(no RETURNING\): B ROW INSERTED UNDER A/,
     intended: "without the tenant WITH CHECK, tenant A can write a row owned by tenant B",
   },
   {
