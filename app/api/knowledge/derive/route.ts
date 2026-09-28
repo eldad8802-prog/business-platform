@@ -10,6 +10,7 @@ import { brainModel, openAiBrainProvider, openAiKeyPresent } from "@/lib/knowled
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 import { deriveOutcomesForBusiness } from "@/lib/knowledge/outcomes/outcome.service";
+import { probeOutcomeGuards } from "@/lib/knowledge/outcomes/outcome-store";
 
 /**
  * M2–M5 — derive one business's knowledge, inside the runtime.
@@ -132,6 +133,10 @@ async function handle(req: NextRequest) {
     // its stats leave this function — never its contents.
     const snap1 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
     const snap2 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+
+    // M9 guards, verified AS THIS ROLE: catalog facts, then writes that must be refused — each in a
+    // tenant transaction that is always rolled back. Nothing here persists.
+    const guards = await probeOutcomeGuards(businessId);
 
     // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
     //
@@ -274,6 +279,8 @@ async function handle(req: NextRequest) {
         // M9 — counts, states, codes and versions only. No recommendation text exists; no ids, no values.
         outcomes: {
           ...outcomes,
+          guards,
+          guardsHold: guards.holds,
           feedback: {
             memory: snap1.knowledge.filter((k) => k.kind === "RECOMMENDATION_MEMORY").length,
             decisionPatterns: snap1.knowledge.filter((k) => k.kind === "DECISION_PATTERN").length,

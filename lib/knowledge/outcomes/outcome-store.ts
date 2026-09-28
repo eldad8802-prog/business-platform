@@ -341,3 +341,64 @@ export async function appendOwnerDecision(
     return { ok: true as const, decisionId: created.id, duplicate: false };
   });
 }
+
+/** Sentinel: every probe transaction is rolled back, whether the database refused the write or not. */
+class ProbeRollback extends Error {}
+
+export type GuardProbe = { catalog: Record<string, number | boolean>; probes: Record<string, string>; holds: boolean };
+
+/**
+ * Production verification of the M9 guards AS THE RUNTIME ROLE, persisting nothing.
+ *
+ * Catalog facts (constraints, partial indexes, triggers, per-command policies, composite tenant keys)
+ * are read; then writes that MUST be refused are attempted, each in its own tenant transaction that is
+ * always rolled back. A probe that is not refused reports ALLOWED and fails `holds` — and still commits
+ * nothing. Only this business's own rows are touched, and only inside a rolled-back transaction.
+ */
+export async function probeOutcomeGuards(businessId: number): Promise<GuardProbe> {
+  const tables = ["OutcomeRecommendation", "OutcomeDecision", "OutcomeActionEvent", "OutcomeObservation", "OutcomeAssessment"];
+  const catalog = await tenantTx(businessId, async (tx) => {
+    const q = async (sql: string) => Number((await tx.$queryRawUnsafe<{ n: number }[]>(sql, tables))[0]?.n ?? -1);
+    return {
+      checkConstraints: await q(`SELECT count(*)::int AS n FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname = ANY($1::text[]) AND c.contype = 'c'`),
+      compositeTenantKeys: await q(`SELECT count(*)::int AS n FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname = ANY($1::text[]) AND c.contype = 'f' AND array_length(c.conkey, 1) = 2`),
+      partialUniqueIndexes: await q(`SELECT count(*)::int AS n FROM pg_indexes WHERE tablename = ANY($1::text[]) AND indexname LIKE '%_one_active_key' AND indexdef LIKE '%WHERE%'`),
+      enabledGuardTriggers: await q(`SELECT count(*)::int AS n FROM pg_trigger g JOIN pg_class t ON t.oid = g.tgrelid WHERE t.relname = ANY($1::text[]) AND NOT g.tgisinternal AND g.tgenabled = 'O'`),
+      perCommandPolicies: await q(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename = ANY($1::text[]) AND cmd <> 'ALL'`),
+      forAllPolicies: await q(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename = ANY($1::text[]) AND cmd = 'ALL'`),
+      attributionCheckIsSequenceOnly: (await q(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'OutcomeAssessment_attribution_chk'
+        AND pg_get_constraintdef(oid) LIKE '%OBSERVED_SEQUENCE%' AND pg_get_constraintdef(oid) NOT ILIKE '%CAUS%' AND pg_get_constraintdef(oid) NOT ILIKE '%CONTRIBUT%' AND ($1::text[]) IS NOT NULL`)) === 1,
+    };
+  });
+
+  const probes: Record<string, string> = {};
+  const attempt = async (name: string, sql: string, ...params: unknown[]) => {
+    try {
+      await tenantTx(businessId, async (tx) => { await tx.$executeRawUnsafe(sql, ...params); throw new ProbeRollback(); });
+    } catch (e) {
+      if (e instanceof ProbeRollback) { probes[name] = "ALLOWED"; return; }
+      const code = (e as { meta?: { code?: string } })?.meta?.code ?? /\b(42501|23514|23503|DZ90[12])\b/.exec(String((e as Error)?.message))?.[1] ?? "ERR";
+      probes[name] = `REFUSED:${code}`;
+    }
+  };
+  for (const t of ["OutcomeDecision", "OutcomeActionEvent", "OutcomeObservation"]) {
+    await attempt(`update_${t}`, `UPDATE "${t}" SET "createdAt" = "createdAt" WHERE false`);
+  }
+  for (const t of tables) await attempt(`delete_${t}`, `DELETE FROM "${t}" WHERE false`);
+  await attempt("causal_attribution", `INSERT INTO "OutcomeAssessment" ("businessId","recommendationId","assessorVersion","decisionState","actionState","outcomeState","direction","attribution","uncertainty","windowStart","windowEnd","observationCount","evidenceRefs","detail","semanticHash","assessedAt","confirmedAt")
+    VALUES ($1, -1, 'probe', 'NONE', 'NOT_STARTED', 'PENDING', 'NOT_MEASURABLE', 'CAUSED', 'probe', now(), now(), 0, '[]', '{}', 'probe', now(), now())`, businessId);
+  await attempt("dangling_tenant_reference", `INSERT INTO "OutcomeDecision" ("businessId","recommendationId","recommendationVersion","decision","actorUserId","source","decidedAt","idempotencyKey")
+    VALUES ($1, -1, 1, 'ACCEPT', 1, 'PROBE', now(), 'm9-guard-probe')`, businessId);
+  const live = await tenantTx(businessId, (tx) => tx.outcomeRecommendation.findFirst({ where: { businessId, status: "ACTIVE" }, select: { id: true } }));
+  if (live) await attempt("recommendation_content_edit", `UPDATE "OutcomeRecommendation" SET "targetCount" = "targetCount" + 1 WHERE "businessId" = $1 AND id = $2`, businessId, live.id);
+
+  const refused = (k: string, codes: string[]) => codes.some((c) => probes[k] === `REFUSED:${c}`);
+  const holds =
+    catalog.checkConstraints === 10 && catalog.compositeTenantKeys === 8 && catalog.partialUniqueIndexes === 2 &&
+    catalog.enabledGuardTriggers === 5 && catalog.perCommandPolicies === 12 && catalog.forAllPolicies === 0 && catalog.attributionCheckIsSequenceOnly &&
+    ["OutcomeDecision", "OutcomeActionEvent", "OutcomeObservation"].every((t) => refused(`update_${t}`, ["42501"])) &&
+    tables.every((t) => refused(`delete_${t}`, ["42501"])) &&
+    refused("causal_attribution", ["23514"]) && refused("dangling_tenant_reference", ["23503"]) &&
+    (!live || refused("recommendation_content_edit", ["DZ902", "P0001"]));
+  return { catalog, probes, holds };
+}

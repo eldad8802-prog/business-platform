@@ -78,3 +78,10 @@ jobs:
             echo "::error::isolation probe did not hold — see the isolation block above."
             exit 1; }
           echo "isolation probe holds."
+
+          # M9: the outcome-learning guards, verified as the runtime role by writes that must be refused
+          # (each rolled back). Present only once the M9 code is deployed; absent means an older build.
+          if grep -q '"outcomes":' body.json; then
+            grep -q '"guardsHold":true' body.json || { echo "::error::M9 guards did not hold — see outcomes.guards above."; exit 1; }
+            echo "M9 guards hold."
+          fi

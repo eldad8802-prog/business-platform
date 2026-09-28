@@ -330,6 +330,14 @@ async function main(): Promise<void> {
     snapB.knowledge.filter((k) => k.kind === "RECOMMENDATION_MEMORY").every((k) => k.provenance.every((p) => p.store !== "OutcomeRecommendation" || bRecIds.has(Number(p.id)))) &&
     !snapB.knowledge.some((k) => k.value.ownerDecision === "REJECT"));
 
+  section("O12b — the Production guard probe, run here as the same restricted role");
+  const { probeOutcomeGuards } = await import("@/lib/knowledge/outcomes/outcome-store");
+  const countsBeforeProbe = `${await owner.outcomeRecommendation.count()}|${await owner.outcomeDecision.count()}|${await owner.outcomeAssessment.count()}`;
+  const probe = await probeOutcomeGuards(A.biz);
+  check("the guard probe HOLDS as the runtime: catalog as designed; every forbidden write refused with the expected code",
+    probe.holds, JSON.stringify(probe));
+  check("… and it persisted nothing", `${await owner.outcomeRecommendation.count()}|${await owner.outcomeDecision.count()}|${await owner.outcomeAssessment.count()}` === countsBeforeProbe);
+
   section("O13 — no mutation, failures and the kill switch");
   check("across the whole loop, no business record was changed by M9 (only the lab's own seeding)", (await domainCounts()) !== before && (await domainCounts()) === seeded);
   const recCount = await owner.outcomeRecommendation.count();
