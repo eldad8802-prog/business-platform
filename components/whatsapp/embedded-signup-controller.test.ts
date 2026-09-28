@@ -3,19 +3,29 @@
  *   npx tsx components/whatsapp/embedded-signup-controller.test.ts
  *
  * Framework-agnostic: the controller takes injected deps, so the whole flow
- * (preload, synchronous FB.login, timeout recovery, listener/timer cleanup) is
- * exercised here with fakes — no browser, no React, no network.
+ * (preload, synchronous FB.login, both result halves in either order, the
+ * absolute deadline, the reconcile wait, listener/timer cleanup, stale-attempt
+ * isolation) is exercised here with fakes — no browser, no React, no network.
+ *
+ * The closing property test drives hundreds of random event sequences and
+ * proves none of them can leave the controller in "launching" once its timers
+ * have run.
  */
 import assert from "node:assert/strict";
 import {
   createEmbeddedSignupController,
+  isFinishEvent,
   isWaDiagEnabled,
 } from "./embedded-signup-controller";
 import type {
   EmbeddedSignupDiag,
   EmbeddedSignupEnv,
+  EmbeddedSignupState,
 } from "./embedded-signup-controller";
 import type { FacebookSdk, FbLoginResponse } from "./facebook-sdk";
+
+const DEADLINE = 600_000;
+const RECONCILE = 20_000;
 
 type LoginOpts = {
   config_id: string;
@@ -26,18 +36,19 @@ type LoginOpts = {
 
 type DiagCall = { event: string; data: Record<string, unknown> };
 
-function makeHarness(opts?: { diag?: boolean }) {
+function makeHarness(opts?: { diag?: boolean; config?: boolean; loginThrows?: boolean }) {
   let loadCalls = 0;
   let loginCalls = 0;
-  let lastLoginCb: ((r: FbLoginResponse) => void) | null = null;
+  const loginCbs: Array<(r: FbLoginResponse) => void> = [];
   let lastOpts: unknown = null;
 
   const fakeFb: FacebookSdk = {
     init: () => {},
-    login: (cb, opts) => {
+    login: (cb, o) => {
       loginCalls++;
-      lastLoginCb = cb;
-      lastOpts = opts;
+      if (opts?.loginThrows) throw new Error("boom");
+      loginCbs.push(cb);
+      lastOpts = o;
     },
   };
 
@@ -46,11 +57,12 @@ function makeHarness(opts?: { diag?: boolean }) {
   let sdkPromise: Promise<FacebookSdk> | null = null;
 
   let messageListeners: Array<(ev: { origin: string; data: unknown }) => void> = [];
-  const timers = new Map<number, () => void>();
+  const timers = new Map<number, { fn: () => void; ms: number }>();
   let timerSeq = 1;
 
   const env: EmbeddedSignupEnv = {
-    getConfig: () => ({ appId: "APP", configId: "CFG", graphVersion: "v25.0" }),
+    getConfig: () =>
+      opts?.config === false ? null : { appId: "APP", configId: "CFG", graphVersion: "v25.0" },
     loadSdk: () => {
       loadCalls++;
       sdkPromise = new Promise<FacebookSdk>((res, rej) => {
@@ -66,18 +78,18 @@ function makeHarness(opts?: { diag?: boolean }) {
     removeMessageListener: (fn) => {
       messageListeners = messageListeners.filter((f) => f !== fn);
     },
-    setTimer: (fn) => {
+    setTimer: (fn, ms) => {
       const id = timerSeq++;
-      timers.set(id, fn);
+      timers.set(id, { fn, ms });
       return id;
     },
     clearTimer: (id) => {
       timers.delete(id);
     },
-    timeoutMs: 60_000,
+    timeoutMs: DEADLINE,
+    reconcileMs: RECONCILE,
   };
 
-  // Recording fake diag (only when opts.diag). Fixed, secret-free snapshot.
   const diagCalls: DiagCall[] = [];
   let nowCounter = 1000;
   if (opts?.diag) {
@@ -99,12 +111,22 @@ function makeHarness(opts?: { diag?: boolean }) {
   }
 
   const ctrl = createEmbeddedSignupController(env);
+  const emitted: EmbeddedSignupState[] = [];
+  ctrl.subscribe((s) => emitted.push(s));
 
-  return {
+  function fireWhere(pred: (ms: number) => boolean) {
+    const due = [...timers.entries()].filter(([, t]) => pred(t.ms));
+    due.forEach(([id]) => timers.delete(id));
+    due.forEach(([, t]) => t.fn());
+    return due.length;
+  }
+
+  const h = {
     ctrl,
+    emitted,
     diagCalls,
-    diagEvents: () => diagCalls.map((c) => c.event),
     diagFind: (event: string) => diagCalls.find((c) => c.event === event),
+    diagAll: (event: string) => diagCalls.filter((c) => c.event === event),
     get loadCalls() {
       return loadCalls;
     },
@@ -117,9 +139,12 @@ function makeHarness(opts?: { diag?: boolean }) {
     get timers() {
       return timers;
     },
+    timerMs: () => [...timers.values()].map((t) => t.ms).sort(),
     get messageListeners() {
       return messageListeners;
     },
+    phase: () => ctrl.getState().phase,
+    error: () => ctrl.getState().error,
     async settleSdk() {
       resolveSdk?.(fakeFb);
       await sdkPromise;
@@ -134,163 +159,449 @@ function makeHarness(opts?: { diag?: boolean }) {
       }
       await Promise.resolve();
     },
-    fireLogin(resp: FbLoginResponse) {
-      lastLoginCb?.(resp);
+    /** Fires the FB.login callback of attempt `n` (default: the latest). */
+    fireLogin(resp: FbLoginResponse, n = loginCbs.length - 1) {
+      loginCbs[n]?.(resp);
     },
+    fireDeadline: () => fireWhere((ms) => ms === DEADLINE),
+    fireReconcile: () => fireWhere((ms) => ms === RECONCILE),
     fireAllTimers() {
-      const fns = [...timers.values()];
-      timers.clear();
-      fns.forEach((f) => f());
+      let n = 0;
+      while (timers.size > 0 && n < 10) {
+        fireWhere(() => true);
+        n++;
+      }
     },
     postMessage(msg: unknown, origin = "https://www.facebook.com") {
-      messageListeners.forEach((f) => f({ origin, data: msg }));
+      [...messageListeners].forEach((f) => f({ origin, data: msg }));
+    },
+    finish(data: Record<string, unknown> = { phone_number_id: "PN1", waba_id: "WABA1" }, event = "FINISH") {
+      h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event, data });
+    },
+    async ready() {
+      ctrl.preload();
+      await h.settleSdk();
+    },
+    /** No listener / no timer left behind. */
+    assertClean(label: string) {
+      assert.equal(timers.size, 0, `${label}: no timer left`);
+      assert.equal(messageListeners.length, 0, `${label}: no listener left`);
     },
   };
+  return h;
+}
+
+let checks = 0;
+async function test(name: string, fn: () => Promise<void> | void) {
+  await fn();
+  checks++;
+  console.log(`  ok  ${name}`);
 }
 
 async function main() {
-  // 1) SDK is preloaded exactly once (idempotent).
-  {
-    const h = makeHarness();
-    h.ctrl.preload();
-    h.ctrl.preload();
-    assert.equal(h.loadCalls, 1, "SDK preloaded exactly once");
-  }
+  console.log("\nEmbedded Signup controller\n");
 
-  // 2) Click when SDK ready → FB.login is called SYNCHRONOUSLY (no async wait
-  //    before it), with the correct Embedded Signup params.
-  {
+  // ── SDK / config ───────────────────────────────────────────────────────
+  await test("SDK is preloaded exactly once (idempotent)", async () => {
     const h = makeHarness();
     h.ctrl.preload();
-    await h.settleSdk();
+    h.ctrl.preload();
+    assert.equal(h.loadCalls, 1);
+  });
+
+  await test("SDK load success → FB.login called synchronously with the Embedded Signup params", async () => {
+    const h = makeHarness();
+    await h.ready();
     assert.equal(h.loginCalls, 0);
     h.ctrl.launch();
-    assert.equal(h.loginCalls, 1, "FB.login called synchronously within launch()");
-    assert.equal(h.ctrl.getState().phase, "launching");
+    assert.equal(h.loginCalls, 1, "FB.login called inside launch()");
+    assert.equal(h.phase(), "launching");
     const o = h.lastOpts;
     assert.equal(o.config_id, "CFG");
     assert.equal(o.response_type, "code");
     assert.equal(o.override_default_response_type, true);
     assert.equal(o.extras.featureType, "whatsapp_business_app_onboarding");
     assert.equal(o.extras.sessionInfoVersion, "3");
-  }
+    assert.deepEqual(h.timerMs(), [DEADLINE], "only the absolute deadline is armed at launch");
+  });
 
-  // 3) SDK not ready on click → NOT stuck at "launching"; no FB.login.
-  {
+  await test("SDK still loading on click → error sdk_unavailable, never launching", async () => {
     const h = makeHarness();
-    h.ctrl.preload(); // in flight, never settled
+    h.ctrl.preload();
     h.ctrl.launch();
-    assert.equal(h.loginCalls, 0, "FB.login not called when SDK not ready");
-    assert.equal(h.ctrl.getState().phase, "error", "not stuck at launching");
-  }
+    assert.equal(h.loginCalls, 0);
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "sdk_unavailable");
+    h.assertClean("sdk loading");
+  });
 
-  // 3b) SDK load failure → click surfaces error (retryable), never launching.
-  {
+  await test("SDK load failure → error sdk_unavailable, and a retry reloads the SDK", async () => {
     const h = makeHarness();
     h.ctrl.preload();
     await h.failSdk();
     h.ctrl.launch();
-    assert.equal(h.ctrl.getState().phase, "error", "SDK failure → error on click");
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "sdk_unavailable");
     assert.equal(h.loginCalls, 0);
-  }
-
-  // 4) Timeout moves a stuck launching → error and removes the listener.
-  {
-    const h = makeHarness();
-    h.ctrl.preload();
+    assert.equal(h.loadCalls, 2, "the failed load is retried in the background");
     await h.settleSdk();
     h.ctrl.launch();
-    assert.equal(h.ctrl.getState().phase, "launching");
-    assert.equal(h.timers.size, 1, "timer armed on launching");
-    h.fireAllTimers();
-    assert.equal(h.ctrl.getState().phase, "error", "timeout → error");
-    assert.equal(h.messageListeners.length, 0, "listener removed on timeout");
-  }
+    assert.equal(h.phase(), "launching", "the next click opens the popup");
+  });
 
-  // 5) Success clears the timeout and the listener.
-  {
-    const h = makeHarness();
+  await test("config missing → error config_missing, no FB.login, no timer", async () => {
+    const h = makeHarness({ config: false });
     h.ctrl.preload();
-    await h.settleSdk();
+    h.ctrl.launch();
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "config_missing");
+    assert.equal(h.loginCalls, 0);
+    h.assertClean("config missing");
+  });
+
+  await test("FB.login throwing → error login_threw", async () => {
+    const h = makeHarness({ loginThrows: true });
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "login_threw");
+    h.assertClean("login threw");
+  });
+
+  // ── Normal success, both orders ────────────────────────────────────────
+  await test("FINISH then code → success with code + ids", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish({ phone_number_id: "PN1", waba_id: "WABA1", business_id: "BIZ" });
+    assert.equal(h.phase(), "launching", "waits for the code");
+    assert.deepEqual(h.timerMs(), [RECONCILE, DEADLINE].sort(), "reconcile armed, deadline untouched");
+    h.fireLogin({ authResponse: { code: "CODE123" } });
+    assert.equal(h.phase(), "success");
+    assert.deepEqual(h.ctrl.getState().result, {
+      code: "CODE123",
+      phoneNumberId: "PN1",
+      wabaId: "WABA1",
+      businessId: "BIZ",
+    });
+    h.assertClean("finish-then-code");
+  });
+
+  await test("code then FINISH → success (the callback may arrive first)", async () => {
+    const h = makeHarness();
+    await h.ready();
     h.ctrl.launch();
     h.fireLogin({ authResponse: { code: "CODE123" } });
-    assert.equal(h.ctrl.getState().phase, "success");
-    assert.equal(h.ctrl.getState().result?.code, "CODE123");
-    assert.equal(h.timers.size, 0, "timer cleared on success");
-    assert.equal(h.messageListeners.length, 0, "listener removed on success");
-  }
+    assert.equal(h.phase(), "launching", "a code without ids is not posted");
+    assert.equal(h.ctrl.getState().result, null);
+    h.finish();
+    assert.equal(h.phase(), "success");
+    assert.equal(h.ctrl.getState().result?.phoneNumberId, "PN1");
+    assert.equal(h.ctrl.getState().result?.wabaId, "WABA1");
+    h.assertClean("code-then-finish");
+  });
 
-  // 6) Cancel clears the timeout.
-  {
+  await test("coexistence finish event (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING) completes like FINISH", async () => {
     const h = makeHarness();
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
     h.ctrl.launch();
-    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: {} });
-    assert.equal(h.ctrl.getState().phase, "cancelled");
-    assert.equal(h.timers.size, 0, "timer cleared on cancel");
-    assert.equal(h.messageListeners.length, 0);
-  }
+    h.finish({ phone_number_id: "PN1", waba_id: "WABA1" }, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "success");
+  });
 
-  // 7) Error clears the timeout.
-  {
+  // ── Missing halves ─────────────────────────────────────────────────────
+  await test("FINISH but the callback never arrives → error missing_code after the reconcile wait", async () => {
     const h = makeHarness();
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
     h.ctrl.launch();
-    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: {} });
-    assert.equal(h.ctrl.getState().phase, "error");
-    assert.equal(h.timers.size, 0, "timer cleared on error");
-    assert.equal(h.messageListeners.length, 0);
-  }
+    h.finish();
+    assert.equal(h.fireReconcile(), 1);
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "missing_code");
+    h.assertClean("finish-no-callback");
+  });
 
-  // 8) Dispose (unmount) clears listener + timer.
-  {
+  await test("code but FINISH never arrives → error missing_ids after the reconcile wait", async () => {
     const h = makeHarness();
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
     h.ctrl.launch();
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.fireReconcile(), 1);
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "missing_ids");
+    h.assertClean("code-no-finish");
+  });
+
+  await test("FINISH_ONLY_WABA (no phone number) + code → error no_phone_number", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish({ waba_id: "WABA1" }, "FINISH_ONLY_WABA");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "no_phone_number");
+    h.assertClean("only-waba");
+  });
+
+  await test("malformed FINISH (no data) + code → error missing_ids, never a partial post", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "FINISH" });
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "missing_ids");
+    assert.equal(h.ctrl.getState().result, null);
+  });
+
+  await test("unparseable / foreign messages are ignored", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.postMessage("{not json");
+    h.postMessage({ type: "SOMETHING_ELSE", event: "FINISH", data: { phone_number_id: "X", waba_id: "Y" } });
+    h.postMessage(
+      { type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: {} },
+      "https://evil.example.com"
+    );
+    assert.equal(h.phase(), "launching");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "launching", "ids from a foreign message were not used");
+  });
+
+  await test("callback without a code (popup closed) → cancelled", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.fireLogin({ status: "unknown", authResponse: null });
+    assert.equal(h.phase(), "cancelled");
+    assert.equal(h.error(), null);
+    h.assertClean("closed");
+  });
+
+  await test("callback without a code AFTER FINISH → error missing_code (not a silent cancel)", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish();
+    h.fireLogin({ authResponse: null });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "missing_code");
+  });
+
+  // ── Meta CANCEL / ERROR ───────────────────────────────────────────────
+  await test("Meta CANCEL → cancelled, clean", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: { current_step: "x" } });
+    assert.equal(h.phase(), "cancelled");
+    h.assertClean("cancel");
+  });
+
+  await test("Meta ERROR → error meta_error, clean", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: { error_message: "x" } });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "meta_error");
+    h.assertClean("meta error");
+  });
+
+  // ── Deadline: absolute, never extended ─────────────────────────────────
+  await test("callback never arrives → the absolute deadline ends it (error timeout)", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    assert.equal(h.fireDeadline(), 1);
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "timeout");
+    h.assertClean("deadline");
+  });
+
+  await test("repeated progress/other messages do not re-arm or extend anything", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    const before = [...h.timers.keys()];
+    for (let i = 0; i < 50; i++) {
+      h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "PROGRESS", data: {} });
+      h.postMessage({ type: "WA_EMBEDDED_SIGNUP", data: { phone_number_id: "PN1" } });
+    }
+    assert.deepEqual([...h.timers.keys()], before, "same single deadline timer, never re-armed");
+    h.fireDeadline();
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "timeout");
+  });
+
+  await test("FINISH does not extend the deadline", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    const deadlineId = [...h.timers.entries()].find(([, t]) => t.ms === DEADLINE)![0];
+    h.finish();
+    assert.ok(h.timers.has(deadlineId), "the original deadline timer is still the one armed");
+    h.fireDeadline();
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "timeout");
+    h.assertClean("finish-then-deadline");
+  });
+
+  await test("duplicate FINISH is recorded once; nothing re-armed", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish();
+    const afterFirst = [...h.timers.keys()];
+    h.finish();
+    h.finish();
+    assert.deepEqual([...h.timers.keys()], afterFirst, "no timer added by duplicates");
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "success");
+    const emittedSuccess = h.emitted.filter((s) => s.phase === "success").length;
+    h.finish(); // after success — listener is gone
+    assert.equal(h.emitted.filter((s) => s.phase === "success").length, emittedSuccess);
+    assert.equal(emittedSuccess, 1, "success emitted exactly once");
+  });
+
+  await test("duplicate FB.login callback is ignored", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.fireLogin({ authResponse: null }); // cancelled
+    h.fireLogin({ authResponse: { code: "LATE" } });
+    assert.equal(h.phase(), "cancelled", "a second callback cannot flip a settled attempt");
+  });
+
+  await test("late callback after the deadline cannot overwrite the timeout", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.finish();
+    h.fireDeadline();
+    h.fireLogin({ authResponse: { code: "LATE" } });
+    assert.equal(h.phase(), "error");
+    assert.equal(h.error(), "timeout");
+    assert.equal(h.ctrl.getState().result, null);
+  });
+
+  // ── Retry / cancel / unmount ───────────────────────────────────────────
+  await test("launch while launching is a no-op (one popup, one timer)", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    h.ctrl.launch();
+    assert.equal(h.loginCalls, 1);
     assert.equal(h.timers.size, 1);
     assert.equal(h.messageListeners.length, 1);
-    h.ctrl.dispose();
-    assert.equal(h.timers.size, 0, "timer cleared on dispose");
-    assert.equal(h.messageListeners.length, 0, "listener removed on dispose");
-  }
+  });
 
-  // 9) Retry (reset → relaunch) leaves exactly one timer + one listener — no
-  //    leftovers from the previous attempt.
-  {
+  await test("owner cancel (reset) while launching → idle, clean", async () => {
     const h = makeHarness();
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
     h.ctrl.launch();
     h.ctrl.reset();
-    assert.equal(h.timers.size, 0, "reset clears timer");
-    assert.equal(h.messageListeners.length, 0, "reset clears listener");
-    h.ctrl.launch();
-    assert.equal(h.timers.size, 1, "exactly one timer after retry");
-    assert.equal(h.messageListeners.length, 1, "exactly one listener after retry");
-  }
+    assert.equal(h.phase(), "idle");
+    h.assertClean("reset");
+  });
 
-  // 10) An Embedded Signup progress message (not CANCEL/ERROR) keeps the flow
-  //     alive and re-arms the recovery timer (so a slow user is not cut off).
-  {
+  await test("retry after failure: a stale callback of the old attempt is ignored", async () => {
     const h = makeHarness();
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
+    h.ctrl.launch(); // attempt 0
+    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: {} });
+    assert.equal(h.phase(), "error");
+    h.ctrl.launch(); // attempt 1
+    assert.equal(h.phase(), "launching");
+    assert.equal(h.timers.size, 1, "exactly one deadline after retry");
+    assert.equal(h.messageListeners.length, 1, "exactly one listener after retry");
+    h.fireLogin({ authResponse: { code: "OLD" } }, 0); // stale
+    assert.equal(h.phase(), "launching", "old attempt's callback ignored");
+    h.finish();
+    h.fireLogin({ authResponse: { code: "NEW" } }, 1);
+    assert.equal(h.phase(), "success");
+    assert.equal(h.ctrl.getState().result?.code, "NEW");
+  });
+
+  await test("retry after timeout works and starts a fresh deadline", async () => {
+    const h = makeHarness();
+    await h.ready();
     h.ctrl.launch();
-    h.postMessage({
-      type: "WA_EMBEDDED_SIGNUP",
-      data: { phone_number_id: "PN1", waba_id: "WABA1" },
-    });
-    assert.equal(h.ctrl.getState().phase, "launching", "activity keeps launching");
-    assert.equal(h.timers.size, 1, "recovery timer re-armed on activity");
-  }
+    h.fireDeadline();
+    assert.equal(h.error(), "timeout");
+    h.ctrl.launch();
+    assert.equal(h.phase(), "launching");
+    assert.equal(h.error(), null, "the old error is cleared");
+    assert.deepEqual(h.timerMs(), [DEADLINE]);
+    h.finish();
+    h.fireLogin({ authResponse: { code: "C" } });
+    assert.equal(h.phase(), "success");
+  });
 
-  // ---- Diagnostics instrumentation (temporary, gated) ----
+  await test("dispose (unmount) during launch: clean, and nothing is emitted afterwards", async () => {
+    const h = makeHarness();
+    await h.ready();
+    h.ctrl.launch();
+    const count = h.emitted.length;
+    h.ctrl.dispose();
+    h.assertClean("dispose");
+    h.fireLogin({ authResponse: { code: "C" } });
+    h.finish();
+    assert.equal(h.emitted.length, count, "no state emitted after dispose");
+  });
 
-  // D0) The gate is active ONLY for ?waDiag=1.
-  {
+  await test("isFinishEvent recognises Meta's finish variants only", () => {
+    assert.equal(isFinishEvent("FINISH"), true);
+    assert.equal(isFinishEvent("FINISH_ONLY_WABA"), true);
+    assert.equal(isFinishEvent("FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"), true);
+    assert.equal(isFinishEvent("FINISHED"), false);
+    assert.equal(isFinishEvent("CANCEL"), false);
+    assert.equal(isFinishEvent(undefined), false);
+  });
+
+  // ── Property: no event sequence can leave "launching" once timers ran ──
+  await test("property: 2000 random event sequences never stay in launching", async () => {
+    let seed = 42;
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    const actions: Array<(h: ReturnType<typeof makeHarness>) => void> = [
+      (h) => h.fireLogin({ authResponse: { code: "C" } }),
+      (h) => h.fireLogin({ authResponse: null }),
+      (h) => h.finish(),
+      (h) => h.finish({ waba_id: "W" }, "FINISH_ONLY_WABA"),
+      (h) => h.finish({}, "FINISH"),
+      (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: {} }),
+      (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: {} }),
+      (h) => h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "PROGRESS", data: {} }),
+      (h) => h.postMessage("garbage"),
+      (h) => h.fireReconcile(),
+      (h) => h.ctrl.launch(),
+    ];
+    for (let i = 0; i < 2000; i++) {
+      const h = makeHarness();
+      await h.ready();
+      h.ctrl.launch();
+      const steps = 1 + rnd(8);
+      for (let s = 0; s < steps; s++) actions[rnd(actions.length)](h);
+      h.fireAllTimers();
+      assert.notEqual(h.phase(), "launching", `sequence ${i} stayed in launching`);
+      h.assertClean(`sequence ${i}`);
+      const st = h.ctrl.getState();
+      if (st.phase === "success") {
+        assert.ok(st.result?.code && st.result.phoneNumberId && st.result.wabaId, "success always carries code + ids");
+      } else {
+        assert.equal(st.result, null, "no result outside success");
+      }
+      if (st.phase === "error") assert.ok(st.error, "every error is named");
+    }
+  });
+
+  // ── Diagnostics (gated, secret-free) ───────────────────────────────────
+  await test("diag gate is active ONLY for ?waDiag=1", () => {
     assert.equal(isWaDiagEnabled("?waDiag=1"), true);
     assert.equal(isWaDiagEnabled("waDiag=1"), true);
     assert.equal(isWaDiagEnabled("?waDiag=1&x=2"), true);
@@ -299,128 +610,80 @@ async function main() {
     assert.equal(isWaDiagEnabled(""), false);
     assert.equal(isWaDiagEnabled(undefined), false);
     assert.equal(isWaDiagEnabled(null), false);
-  }
+  });
 
-  // D1) With NO diag, nothing is logged and the flow is unchanged (the 10 tests
-  //     above already ran diag-off). Sanity: a diag-off harness exposes no calls.
-  {
-    const h = makeHarness(); // diag off
-    h.ctrl.preload();
-    await h.settleSdk();
+  await test("diag off → nothing logged, flow identical", async () => {
+    const h = makeHarness();
+    await h.ready();
     h.ctrl.launch();
+    h.finish();
     h.fireLogin({ authResponse: { code: "CODE123" } });
-    assert.equal(h.diagCalls.length, 0, "no diagnostics emitted when diag is off");
-    assert.equal(h.ctrl.getState().phase, "success", "flow unchanged when diag off");
-  }
+    assert.equal(h.diagCalls.length, 0);
+    assert.equal(h.phase(), "success");
+  });
 
-  // D2) With diag ON, the flow is IDENTICAL and the expected events are logged
-  //     with the exact fields, in order, up to a successful login.
-  {
+  await test("diag on → fb_login_call / fb_login_callback / settled carry only allowed fields", async () => {
     const h = makeHarness({ diag: true });
-    h.ctrl.preload();
-    await h.settleSdk();
-    assert.ok(h.diagFind("preload_resolved"), "preload_resolved logged");
-
+    await h.ready();
+    assert.ok(h.diagFind("preload_resolved"));
     h.ctrl.launch();
     const call = h.diagFind("fb_login_call");
-    assert.ok(call, "fb_login_call logged");
-    assert.deepEqual(
-      Object.keys(call!.data).sort(),
-      [
-        "appIdPresent",
-        "configIdPresent",
-        "graphVersion",
-        "hasLoginFn",
-        "hasReadyFb",
-        "phase",
-        "readyFbFromPreload",
-        "readyFbIsWindowFb",
-        "sdkInitialized",
-        "sdkScriptExists",
-        "timestamp",
-        "windowFbExists",
-      ],
-      "fb_login_call has exactly the allowed fields"
-    );
-    assert.equal(call!.data.phase, "launching");
-    assert.equal(call!.data.hasReadyFb, true);
-    assert.equal(call!.data.hasLoginFn, true);
-    assert.equal(call!.data.readyFbFromPreload, true);
-    assert.equal(call!.data.configIdPresent, true);
-    assert.equal(call!.data.appIdPresent, true);
-    // Flow unchanged: FB.login still called synchronously.
-    assert.equal(h.loginCalls, 1);
-    assert.equal(h.ctrl.getState().phase, "launching");
-
+    assert.ok(call);
+    assert.deepEqual(Object.keys(call!.data).sort(), [
+      "appIdPresent",
+      "configIdPresent",
+      "graphVersion",
+      "hasLoginFn",
+      "hasReadyFb",
+      "phase",
+      "readyFbFromPreload",
+      "readyFbIsWindowFb",
+      "sdkInitialized",
+      "sdkScriptExists",
+      "timestamp",
+      "windowFbExists",
+    ]);
+    h.finish({ phone_number_id: "PN_SECRET", waba_id: "WABA_SECRET" });
     h.fireLogin({ authResponse: { code: "CODE123" }, status: "connected" });
     const cb = h.diagFind("fb_login_callback");
-    assert.ok(cb, "fb_login_callback logged");
-    assert.deepEqual(
-      Object.keys(cb!.data).sort(),
-      ["hasAuthResponse", "hasCode", "hasResponse", "hasStatus"],
-      "fb_login_callback has only booleans"
-    );
-    assert.equal(cb!.data.hasCode, true);
-    assert.equal(cb!.data.hasResponse, true);
-    // Flow unchanged: success + timer cleared.
-    assert.equal(h.ctrl.getState().phase, "success");
-    assert.equal(h.timers.size, 0, "timer cleared on success (diag on)");
-  }
+    assert.deepEqual(Object.keys(cb!.data).sort(), ["current", "hasAuthResponse", "hasCode", "hasResponse", "hasStatus"]);
+    const settled = h.diagFind("settled");
+    assert.ok(settled);
+    assert.equal(settled!.data.phase, "success");
+    assert.equal(settled!.data.hasPhoneNumberId, true);
+    assert.equal(typeof settled!.data.elapsedMs, "number");
+    assert.equal(h.phase(), "success", "flow unchanged with diag on");
+  });
 
-  // D3) No secret values are ever emitted (App ID / Config ID / code).
-  {
+  await test("diag never emits the code, ids, app id or config id", async () => {
     const h = makeHarness({ diag: true });
-    h.ctrl.preload();
-    await h.settleSdk();
+    await h.ready();
     h.ctrl.launch();
-    h.postMessage({
-      type: "WA_EMBEDDED_SIGNUP",
-      event: "ERROR",
-      data: { phone_number_id: "PN_SECRET", waba_id: "WABA_SECRET" },
-    });
+    h.finish({ phone_number_id: "PN_SECRET", waba_id: "WABA_SECRET", business_id: "BIZ_SECRET" });
+    h.fireLogin({ authResponse: { code: "CODE_SECRET" } });
+    h.ctrl.launch();
+    h.postMessage({ type: "WA_EMBEDDED_SIGNUP", event: "ERROR", data: { error_message: "MSG_SECRET" } });
     const dump = JSON.stringify(h.diagCalls);
-    for (const secret of ["APP", "CFG", "CODE123", "PN_SECRET", "WABA_SECRET"]) {
+    for (const secret of ["APP", "CFG", "CODE_SECRET", "PN_SECRET", "WABA_SECRET", "BIZ_SECRET", "MSG_SECRET"]) {
       assert.equal(dump.includes(secret), false, `no '${secret}' in diagnostics`);
     }
-    // message event logs only the mapped event type, not the payload.
     const msg = h.diagFind("message");
-    assert.ok(msg, "message logged");
-    assert.equal(msg!.data.eventType, "ERROR");
-    assert.equal(msg!.data.isWaEmbeddedSignup, true);
     assert.ok(!("data" in msg!.data), "no raw payload in message diag");
-  }
+  });
 
-  // D4) Diagnostics do not harm timeout / reset / dispose.
-  {
-    // timeout still fires + logs, listener/timer cleaned.
-    const t = makeHarness({ diag: true });
-    t.ctrl.preload();
-    await t.settleSdk();
-    t.ctrl.launch();
-    t.fireAllTimers();
-    const to = t.diagFind("timeout");
-    assert.ok(to, "timeout logged");
-    assert.equal(to!.data.phase, "launching");
-    assert.equal(to!.data.callbackReceived, false);
-    assert.equal(typeof to!.data.elapsedMs, "number");
-    assert.equal(t.ctrl.getState().phase, "error", "timeout still → error (diag on)");
-    assert.equal(t.messageListeners.length, 0, "listener cleaned (diag on)");
+  await test("diag on: the deadline logs a settled timeout", async () => {
+    const h = makeHarness({ diag: true });
+    await h.ready();
+    h.ctrl.launch();
+    h.fireDeadline();
+    const settled = h.diagAll("settled").pop();
+    assert.equal(settled!.data.phase, "error");
+    assert.equal(settled!.data.error, "timeout");
+    assert.equal(settled!.data.callbackReceived, false);
+    h.assertClean("diag deadline");
+  });
 
-    // reset + dispose still clean up with diag on.
-    const r = makeHarness({ diag: true });
-    r.ctrl.preload();
-    await r.settleSdk();
-    r.ctrl.launch();
-    r.ctrl.reset();
-    assert.equal(r.timers.size, 0, "reset clears timer (diag on)");
-    assert.equal(r.messageListeners.length, 0, "reset clears listener (diag on)");
-    r.ctrl.launch();
-    r.ctrl.dispose();
-    assert.equal(r.timers.size, 0, "dispose clears timer (diag on)");
-    assert.equal(r.messageListeners.length, 0, "dispose clears listener (diag on)");
-  }
-
-  console.log("ALL EMBEDDED SIGNUP CONTROLLER TESTS PASSED");
+  console.log(`\nALL EMBEDDED SIGNUP CONTROLLER TESTS PASSED — ${checks} checks\n`);
 }
 
 main().catch((e) => {
