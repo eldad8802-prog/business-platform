@@ -16,6 +16,7 @@ import {
   validateTerms,
   validateValidUntil,
 } from "@/lib/revenue/coupon-terms";
+import { canonicalOfferSemantics } from "@/lib/services/revenue/offer-semantics";
 
 /**
  * Publishing a coupon — ONE atomic business operation (COUPON-01).
@@ -127,6 +128,13 @@ export async function publishCoupon(
 
   const token = randomUUID();
   const qrValue = buildCouponQrValue(baseUrl, token);
+  const semantics = canonicalOfferSemantics({
+    benefitType: input.benefitType,
+    value: benefitInput.value,
+    scope: benefitInput.scope,
+    minPurchase: terms.minPurchase,
+    newCustomersOnly: terms.newCustomersOnly,
+  });
 
   // ---- one atomic write: Offer + Coupon, or neither ------------------------
   //
@@ -146,6 +154,11 @@ export async function publishCoupon(
       imageUrl: null,
       validUntil,
       isActive: true,
+      benefitType: semantics.benefitType,
+      benefitValue: semantics.benefitValue,
+      benefitScope: semantics.benefitScope,
+      minPurchaseAmount: semantics.minPurchaseAmount,
+      newCustomersOnly: semantics.newCustomersOnly,
       coupons: {
         create: {
           issuingBusinessId: businessId,

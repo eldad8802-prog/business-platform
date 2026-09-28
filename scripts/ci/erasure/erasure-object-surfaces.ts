@@ -133,6 +133,16 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
 
   // ── Open debt: the object survives an account deletion ───────────────────
   {
+    model: "BusinessAsset",
+    field: "storageKey",
+    kind: "STORAGE_KEY",
+    domain: "content",
+    state: "OPEN",
+    reason:
+      "an owner-uploaded content asset in public storage. The row records the key and refuses publication permission, and no public-asset delete is wired into account erasure yet, so the bytes survive with the other public images",
+    target: "S8-IMAGES",
+  },
+  {
     model: "InventoryItem",
     field: "imageUrl",
     kind: "PUBLIC_URL",

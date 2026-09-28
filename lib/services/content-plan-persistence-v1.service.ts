@@ -11,7 +11,7 @@ import type { CreativeScore } from "@/lib/features/content/creative-scoring/type
 import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/types";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
-import { prisma } from "@/lib/prisma";
+import { sanitizeContentInsightAnswers } from "@/lib/services/content/content-insight-snapshot";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import { ContentRunStatus, ContentVariantStatus, Prisma } from "@prisma/client";
@@ -82,7 +82,7 @@ function pickDirectionSnapshot(
   };
 }
 
-function buildInputSnapshotData(body: VideoPlanBodyForPersistence) {
+export function buildInputSnapshotData(body: VideoPlanBodyForPersistence) {
   return {
     mode: body.mode,
     goal: body.goal,
@@ -102,8 +102,18 @@ function buildInputSnapshotData(body: VideoPlanBodyForPersistence) {
     priceLevel: body.priceLevel,
     differentiators: body.differentiators,
     selectedDirection: pickDirectionSnapshot(body.selectedDirection),
+    contentInsightAnswers: sanitizeContentInsightAnswers(body.contentInsightAnswers),
   };
 }
+
+export type PersistedContentPlan = {
+  contentRunId: number;
+  variants: {
+    variantKey: ContentPlanVariantKey;
+    contentVariantId: number;
+    runtimeId: string;
+  }[];
+};
 
 function buildCreativeDnaData(
   variantKey: ContentPlanVariantKey,
@@ -129,7 +139,7 @@ export async function persistContentPlanV1(params: {
   profileSubCategory: string | undefined;
   variants: VideoPlanVariantForPersistence[];
   selectedPlatform: SelectedPlatform;
-}, options?: { tx?: TenantTx }): Promise<void> {
+}, options?: { tx?: TenantTx }): Promise<PersistedContentPlan | null> {
   try {
     const { user, body, resolvedBusinessType, profileCategory, profileSubCategory, variants } =
       params;
@@ -139,7 +149,7 @@ export async function persistContentPlanV1(params: {
         "content plan persistence skipped: expected three variants, got",
         variants.length
       );
-      return;
+      return null;
     }
 
     for (let i = 0; i < variants.length; i++) {
@@ -151,13 +161,13 @@ export async function persistContentPlanV1(params: {
         v.growthSemantics == null
       ) {
         console.error("content plan persistence skipped: incomplete variant snapshots");
-        return;
+        return null;
       }
     }
 
     // D2/P7 Wave 2: when a tenant transaction is provided, run inside it (the
     // GUC-carrying tx) instead of opening a bare $transaction.
-    const runInTx = async (tx: TenantTx) => {
+    const runInTx = async (tx: TenantTx): Promise<PersistedContentPlan> => {
       const run = await tx.contentRun.create({
         data: {
           businessId: user.businessId,
@@ -176,13 +186,16 @@ export async function persistContentPlanV1(params: {
         },
       });
 
+      const variantRefs: PersistedContentPlan["variants"] = [];
+
       for (let i = 0; i < VARIANT_KEYS.length; i++) {
         const variantKey = VARIANT_KEYS[i];
         const v = variants[i];
         const blueprint = v.variantBlueprint!;
-        await tx.contentVariant.create({
+        const created = await tx.contentVariant.create({
           data: {
             contentRunId: run.id,
+            businessId: user.businessId,
             variantKey,
             status: ContentVariantStatus.READY,
             creativeDna: wrapJsonDocument(
@@ -202,15 +215,22 @@ export async function persistContentPlanV1(params: {
             }),
           },
         });
+        variantRefs.push({
+          variantKey,
+          contentVariantId: created.id,
+          runtimeId: v.id,
+        });
       }
+
+      return { contentRunId: run.id, variants: variantRefs };
     };
 
     if (options?.tx) {
-      await runInTx(options.tx);
-    } else {
-      await tenantTx(user.businessId, runInTx);
+      return await runInTx(options.tx);
     }
+    return await tenantTx(user.businessId, runInTx);
   } catch (err) {
     console.error("content plan persistence failed:", err);
+    return null;
   }
 }
