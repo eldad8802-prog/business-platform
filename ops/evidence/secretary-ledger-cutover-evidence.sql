@@ -11,6 +11,8 @@
 -- Run it before the owner flips SECRETARY_LEDGER_STORE and again after the QA
 -- scenarios; the difference between the two runs is the evidence.
 
+SET default_transaction_read_only = on;
+
 \echo '== Q1 whole-table baseline (counts only)'
 SELECT now()                                                    AS observed_at,
        (SELECT count(*)      FROM "BusinessObligation")         AS legacy_obligations,
