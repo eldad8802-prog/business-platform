@@ -70,17 +70,14 @@ still needs a first-principles desktop composition, then visual QA.
 
 | Domain | Surfaces still open |
 | --- | --- |
-| Home / app | `/`, `/app` |
 | Billing | document detail `/billing/[id]`, create modal, issue flow |
 | Secretary | obligation detail and other secretary routes beyond the home desk |
 | Payables | list, detail, cheques, bank, match |
 | Settings | settings hub, WhatsApp |
-| Search | `/search` |
-| Attention | `/attention` is still a card list (two columns is not a work queue) |
+| Inbox | `/inbox` conversations |
 | Opportunities / offers | offer creation and related routes |
 | Business / bot | `/business`, `/business/bot-settings` |
 | Content studio | the phone-shell wizard routes; desktop may become configuration beside preview without collapsing confirmation steps |
-| Inbox / notifications | `/inbox`, `/notifications` |
 | Tools | tools entry if it is only a launcher into billing |
 
 ## Slice 3 — inventory operations, collection create, payments
@@ -165,6 +162,34 @@ The first pass of `/collection/new` and `/payments` was taken while Next was sti
 
 Cart and confirmation keep the mobile sticky action bar. From 1200 the lines sit beside the cart summary or the supplier and send action, and the send dialog stays a separate confirmation.
 
+## Slice 4 — home, attention, notifications, search
+
+These four surfaces share one vocabulary. Home shows what is waiting and what came in. Attention is the business-status decision queue. Notifications say what happened and whether it was read. Search finds a financial record. Obligations stay on the Secretary; Attention does not copy them.
+
+Search limitation: `GET /api/search` matches vendor and category on financial records only. Customers, inventory, obligations, and settings are not in that index, and this slice does not add a search backend.
+
+| Domain | Surface | Route | State | Desktop composition | Status |
+| --- | --- | --- | --- | --- | --- |
+| Home | Redirect | `/` | forward | opens the home desk; there is no second home | INTENTIONALLY-FOCUSED |
+| Home | Desk | `/app` | sparse / calm | money context beside a calm line, then the three work entries | DESKTOP-ADAPTED |
+| Home | Desk | `/app` | busy | waiting queue beside collection, overdue, and the month | DESKTOP-ADAPTED |
+| Home | Load failure | `/app` | error | one retry; a failed read is not filled with a desk of zeros | INTENTIONALLY-FOCUSED |
+| Attention | Queue | `/attention` | empty | what the queue is for, with no invented items | DESKTOP-ADAPTED |
+| Attention | Queue | `/attention` | one / mixed / selected | domain filter, table, and the selected item's own action | DESKTOP-ADAPTED |
+| Notifications | Centre | `/notifications` | empty / unread / mixed / selected | what happened, read state, and a compact open action | DESKTOP-ADAPTED |
+| Search | Records | `/search` | recent / none / one / mixed / keyboard | query, direction, grouped results, and the selected record | DESKTOP-ADAPTED |
+
+No home, attention, notification, or search surface in this slice is NOT-YET-DONE.
+
+## Slice 4 runtime QA
+
+Evidence: `qa-evidence/desktop-ux-phase-2/home/`, `attention/`, `notifications/`, and `search/`.
+Mocked `/api` only. No notification was marked read and no document was opened.
+Viewports represented: 390, 768, 1024, 1280, 1440, 1600, 1920.
+Horizontal overflow in the captured set: none.
+
+Mobile keeps the home receipt carousel, the attention cards, and a single notification column. From 1200 the home splits into a waiting list and the collection, attention becomes a queue plus inspector, notifications become a list plus the selected notice, and search groups records beside the selected one.
+
 ## Counts
 
 Slice 1 (CRM, collection inbox, accountant pack, secretary home, billing hub, inventory items): 13 surfaces, 12 DESKTOP-ADAPTED, 1 INTENTIONALLY-FOCUSED.
@@ -176,5 +201,12 @@ Slice 3 (inventory operations, collection create, payments), counted as surface/
 - Inventory: 24 rows. 23 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (barcode camera). 0 NOT-YET-DONE.
 - Collection create: 5 rows. 4 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (setup blockers). 0 NOT-YET-DONE.
 - Payments: 4 rows. 3 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (legacy request redirect). 0 NOT-YET-DONE.
+
+Slice 4 (home, attention, notifications, search), counted as rows in the slice 4 table:
+
+- Home: 4 rows. 2 DESKTOP-ADAPTED. 2 INTENTIONALLY-FOCUSED (redirect, failed load). 0 NOT-YET-DONE.
+- Attention: 2 rows. 2 DESKTOP-ADAPTED. 0 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+- Notifications: 1 row. 1 DESKTOP-ADAPTED. 0 NOT-YET-DONE.
+- Search: 1 row. 1 DESKTOP-ADAPTED. 0 NOT-YET-DONE.
 
 Still open: the domains in "Still remaining" above. Production merge: not requested.
