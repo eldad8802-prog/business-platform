@@ -93,7 +93,7 @@ jobs:
           set -uo pipefail
           F=components/whatsapp/embedded-signup-controller.ts
           cp "$F" "$F.bak"
-          perl -0pi -e 's|const readyFb = env.getReadyFb();|const readyFb = fb ?? env.getReadyFb();|' "$F"
+          perl -0pi -e 's|const readyFb = env\.getReadyFb\(\);|const readyFb = fb ?? env.getReadyFb();|' "$F"
           if grep -q 'const readyFb = fb ?? env.getReadyFb();' "$F"; then :; else
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
           fi
