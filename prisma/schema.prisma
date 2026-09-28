@@ -2043,8 +2043,8 @@ model InventorySourceSaleLine {
   createdAt        DateTime @default(now())
 
   business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  recognizedItem InventoryItem?     @relation(fields: [recognizedItemId, businessId], references: [id, businessId])
-  saleLine       InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId])
+  recognizedItem InventoryItem?     @relation(fields: [recognizedItemId, businessId], references: [id, businessId], onDelete: Cascade)
+  saleLine       InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Cascade)
 
   @@unique([businessId, externalSaleId, lineKey])
   @@index([businessId, createdAt])
@@ -2063,7 +2063,7 @@ model BusinessAsset {
   createdAt         DateTime            @default(now())
 
   business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contentRun ContentRun? @relation(fields: [contentRunId, businessId], references: [id, businessId])
+  contentRun ContentRun? @relation(fields: [contentRunId, businessId], references: [id, businessId], onDelete: Cascade)
 
   @@unique([businessId, idempotencyKey])
   @@unique([businessId, storageKey])
