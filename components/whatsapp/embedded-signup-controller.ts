@@ -26,6 +26,17 @@ import { isFacebookSdkInitialized, type FacebookSdk } from "./facebook-sdk";
  *                   off a real owner mid-OTP. The owner can always cancel.
  *   - `reconcileMs` wait for the missing half after the first one arrived.
  *
+ * Popup refusal: the SDK opens Meta's window synchronously inside `FB.login`
+ * via `window.open`, and when the browser refuses it (site pop-up setting,
+ * an extension) the SDK fails SILENTLY — no window, no callback, no message,
+ * no console error. `observePopup` watches that one call, so a refused
+ * window ends the attempt at once as `popup_blocked` instead of waiting.
+ *
+ * Coexistence (`FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`) reports only
+ * `waba_id` — per Meta's docs there is no phone_number_id in that event — so
+ * for that flow the WABA alone completes the result and the server resolves
+ * the number from the WABA with the exchanged token.
+ *
  * Every attempt carries an id. Callbacks/messages from an earlier attempt (a
  * late FB.login callback after a timeout, a duplicate FINISH) are ignored, so a
  * finished attempt can never be overwritten.
@@ -50,15 +61,22 @@ export type EmbeddedSignupErrorCode =
   | "timeout" // absolute deadline reached
   | "missing_code" // Meta finished but the login callback carried no code
   | "missing_ids" // a code arrived but Meta never reported the phone/WABA
-  | "no_phone_number"; // Meta finished without a phone number (e.g. FINISH_ONLY_WABA)
+  | "no_phone_number" // Meta finished without a phone number (e.g. FINISH_ONLY_WABA)
+  | "popup_blocked"; // the browser refused to open Meta's window
 
 export type EmbeddedSignupResult = {
   /** Sensitive — held in memory only, never logged or persisted. */
   code: string;
-  phoneNumberId: string;
+  /** Absent for coexistence onboarding — the server resolves it from the WABA. */
+  phoneNumberId?: string;
   wabaId: string;
   businessId?: string;
+  /** Which Meta flow finished. */
+  flow: "cloud_api" | "coexistence";
 };
+
+/** Meta's coexistence finish event — carries waba_id only. */
+export const COEXISTENCE_FINISH_EVENT = "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
 
 export type EmbeddedSignupState = {
   phase: EmbeddedSignupPhase;
@@ -99,6 +117,14 @@ export type EmbeddedSignupEnv = {
   timeoutMs: number;
   /** Wait (ms) for the second half of the result once the first arrived. */
   reconcileMs?: number;
+  /**
+   * Runs `fn` (the FB.login call) and reports whether a window was opened
+   * during it: true / false (refused) / null (no open attempt was observed).
+   * Browser: a `window.open` wrapper installed only for that synchronous call.
+   */
+  observePopup?: (fn: () => void) => { opened: boolean | null };
+  /** navigator.userActivation booleans, for diagnostics only. */
+  getUserActivation?: () => { isActive: boolean; hasBeenActive: boolean } | null;
   /**
    * Optional diagnostics override (used by tests). When omitted, the controller
    * falls back to {@link defaultBrowserDiag}, which is active ONLY when the page
@@ -207,6 +233,7 @@ export function createEmbeddedSignupController(
   let code: string | null = null;
   let ids: { phoneNumberId?: string; wabaId?: string; businessId?: string } = {};
   let finished = false;
+  let finishEvent: string | null = null;
 
   let listener: ((ev: MessageEventLike) => void) | null = null;
   let deadlineTimer: number | null = null;
@@ -290,18 +317,20 @@ export function createEmbeddedSignupController(
   /** Succeeds when both halves are in; names the gap when one never can be. */
   function tryComplete(id: number) {
     if (!isCurrent(id) || code === null) return;
-    if (ids.phoneNumberId && ids.wabaId) {
+    const coexistence = finishEvent === COEXISTENCE_FINISH_EVENT;
+    if (ids.wabaId && (ids.phoneNumberId || coexistence)) {
       result = {
         code,
-        phoneNumberId: ids.phoneNumberId,
         wabaId: ids.wabaId,
+        flow: coexistence ? "coexistence" : "cloud_api",
+        ...(ids.phoneNumberId ? { phoneNumberId: ids.phoneNumberId } : {}),
         ...(ids.businessId ? { businessId: ids.businessId } : {}),
       };
       settle("success");
       return;
     }
     if (finished) {
-      // Meta already said it is done and did not name a phone number.
+      // Meta already said it is done and did not name what we need.
       fail(ids.wabaId ? "no_phone_number" : "missing_ids");
       return;
     }
@@ -381,6 +410,7 @@ export function createEmbeddedSignupController(
       } else if (isFinishEvent(evt)) {
         if (finished) return; // duplicate FINISH — already recorded
         finished = true;
+        finishEvent = evt;
         if (code !== null) {
           tryComplete(id);
         } else {
@@ -422,6 +452,7 @@ export function createEmbeddedSignupController(
     code = null;
     ids = {};
     finished = false;
+    finishEvent = null;
     callbackReceived = false;
     messageReceived = false;
     phase = "launching";
@@ -446,7 +477,8 @@ export function createEmbeddedSignupController(
       });
     }
 
-    try {
+    const activation = env.getUserActivation?.() ?? null;
+    const callLogin = () =>
       // Synchronous — called within the user gesture, with no await before it.
       readyFb.login(
         (response) => {
@@ -488,9 +520,27 @@ export function createEmbeddedSignupController(
           },
         }
       );
-    } catch {
+
+    let popupOpened: boolean | null = null;
+    try {
+      popupOpened = env.observePopup ? env.observePopup(callLogin).opened : (callLogin(), null);
+    } catch (err) {
+      diag?.log("fb_login_threw", {
+        errorName: typeof (err as { name?: unknown })?.name === "string" ? (err as { name: string }).name : "unknown",
+        activationIsActive: activation?.isActive ?? null,
+      });
       if (isCurrent(id)) fail("login_threw");
+      return;
     }
+    diag?.log("fb_login_returned", {
+      popupOpened,
+      activationIsActive: activation?.isActive ?? null,
+      activationHasBeenActive: activation?.hasBeenActive ?? null,
+      current: isCurrent(id),
+    });
+    // The SDK gives no signal when the browser refuses its window: without this
+    // the owner would wait on a spinner for a popup that will never exist.
+    if (popupOpened === false && isCurrent(id)) fail("popup_blocked");
   }
 
   function reset() {
@@ -500,6 +550,7 @@ export function createEmbeddedSignupController(
     code = null;
     ids = {};
     finished = false;
+    finishEvent = null;
     result = null;
     error = null;
     phase = "idle";

@@ -50,6 +50,9 @@ jobs:
       - name: Connection state → settings view
         run: npx tsx components/whatsapp/connection-view.test.ts
 
+      - name: Call-scoped popup observer (browser refusal detection)
+        run: npx tsx components/whatsapp/popup-observer.test.ts
+
       - name: Negative proof — an extendable deadline must fail the suite
         run: |
           set -uo pipefail
@@ -65,3 +68,19 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a re-armable deadline is caught"
+
+      - name: Negative proof — ignoring a refused popup must fail the suite
+        run: |
+          set -uo pipefail
+          F=components/whatsapp/embedded-signup-controller.ts
+          cp "$F" "$F.bak"
+          # Re-introduce the Production defect: a refused Meta window goes unnoticed.
+          perl -0pi -e 's|if \(popupOpened === false && isCurrent\(id\)\) fail\("popup_blocked"\);|/* refusal ignored */|' "$F"
+          if grep -q '/\* refusal ignored \*/' "$F"; then :; else
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAILED: mutation not applied"; exit 1
+          fi
+          if npx tsx components/whatsapp/embedded-signup-controller.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ignored popup refusal passed the suite"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an ignored popup refusal is caught"

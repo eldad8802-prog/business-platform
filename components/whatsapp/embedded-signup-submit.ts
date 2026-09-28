@@ -91,8 +91,9 @@ export async function submitEmbeddedSignup(
       },
       body: JSON.stringify({
         code: result.code,
-        phoneNumberId: result.phoneNumberId,
         wabaId: result.wabaId,
+        // Absent for coexistence onboarding — the server resolves it from the WABA.
+        ...(result.phoneNumberId ? { phoneNumberId: result.phoneNumberId } : {}),
       }),
       signal: controller.signal,
     });

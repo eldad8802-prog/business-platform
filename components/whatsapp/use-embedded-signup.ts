@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadFacebookSdk } from "./facebook-sdk";
 import { getEmbeddedSignupConfig } from "./embedded-signup-config";
+import { observeWindowOpen } from "./popup-observer";
 import {
   createEmbeddedSignupController,
   type EmbeddedSignupController,
@@ -41,6 +42,16 @@ export type {
  */
 export const LAUNCH_DEADLINE_MS = 10 * 60_000;
 
+function browserUserActivation(): { isActive: boolean; hasBeenActive: boolean } | null {
+  try {
+    const ua = (navigator as Navigator & { userActivation?: { isActive: boolean; hasBeenActive: boolean } })
+      .userActivation;
+    return ua ? { isActive: !!ua.isActive, hasBeenActive: !!ua.hasBeenActive } : null;
+  } catch {
+    return null;
+  }
+}
+
 function browserEnv(): EmbeddedSignupEnv {
   return {
     getConfig: getEmbeddedSignupConfig,
@@ -56,6 +67,8 @@ function browserEnv(): EmbeddedSignupEnv {
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (id) => window.clearTimeout(id),
     timeoutMs: LAUNCH_DEADLINE_MS,
+    observePopup: observeWindowOpen,
+    getUserActivation: browserUserActivation,
   };
 }
 
