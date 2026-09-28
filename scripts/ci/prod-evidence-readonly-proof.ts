@@ -13,9 +13,10 @@
  *   1. The guards accept every allow-listed evidence file, and refuse files that
  *      try to switch the read-only boundary off.
  *   2. The FULL secretary evidence SQL runs to completion under the workflow's
- *      read-only configuration (ON_ERROR_STOP), Q10 included, and its RLS probe
- *      — as a real NOSUPERUSER NOBYPASSRLS `app_runtime` with the repo's RLS
- *      migrations applied — sees nothing across tenants.
+ *      read-only configuration (ON_ERROR_STOP) to its last statement, and its
+ *      Q9 proves the retry-safety indexes by index identity. (The tenant-
+ *      isolation probe is no longer in this owner-side file: it runs AS the
+ *      runtime login — see scripts/ci/runtime-rls-evidence-proof.ts.)
  *   3. Negative: real writes attempted under the same configuration are refused
  *      by Postgres ("read-only transaction"), and a fingerprint of every
  *      involved table is identical before and after.
@@ -83,16 +84,6 @@ function psql(args: string[]) {
     encoding: "utf8",
     env: { ...process.env, PGOPTIONS },
   });
-}
-
-/** Values of the row under the header line that contains `column` (aligned psql output). */
-function row(output: string, column: string): Record<string, string> {
-  const lines = output.split(/\r?\n/);
-  const i = lines.findIndex((l) => l.split("|").map((c) => c.trim()).includes(column));
-  if (i < 0) return {};
-  const names = lines[i].split("|").map((c) => c.trim());
-  const values = (lines[i + 2] ?? "").split("|").map((c) => c.trim());
-  return Object.fromEntries(names.map((n, k) => [n, values[k] ?? ""]));
 }
 
 /** Statements of a migration file, $tag$ bodies and '…' strings respected. */
@@ -186,6 +177,12 @@ async function main(): Promise<void> {
   await mk(qa.id, "QA-P2 שכירות");
   await mk(other.id, "other business rent");
 
+  // `db push` cannot express the partial unique index; apply the migration's own statement, verbatim.
+  const partial = splitSql(migration("20260917090000_payables_phase_1a_foundation")).find((s) =>
+    s.startsWith('CREATE UNIQUE INDEX "PaymentAllocation_active_payment_installment_key"'),
+  );
+  if (!partial) throw new Error("the foundation migration no longer defines the active-allocation index");
+  await prisma.$executeRawUnsafe(partial);
   for (const s of splitSql(migration("20260917090100_payables_phase_1a_tenant_rls"))) await prisma.$executeRawUnsafe(s);
   for (const s of splitSql(migration("20260824210000_d2_p7_wave1_tenant_rls")).filter((x) => /"BusinessObligation(Orientation)?"/.test(x))) {
     await prisma.$executeRawUnsafe(s);
@@ -221,29 +218,15 @@ async function main(): Promise<void> {
   });
   eq("the pre-run SHOW reports read-only", (show.stdout ?? "").trim(), "on");
   const ev = psql(["--file=ops/evidence/secretary-ledger-cutover-evidence.sql"]);
-  check("psql exits 0 with ON_ERROR_STOP — every query ran, Q10 included", ev.status === 0, (ev.stderr ?? "").slice(-800));
+  check("psql exits 0 with ON_ERROR_STOP — every query in the file ran", ev.status === 0, (ev.stderr ?? "").slice(-800));
   const out = ev.stdout ?? "";
-  check("Q10 ran to the end", out.includes("commitments_visible_without_context"));
-  const who = row(out, "probing_as");
-  eq("the probe runs AS app_runtime, which cannot bypass RLS", [who.probing_as, who.role_bypasses_rls], ["app_runtime", "f"]);
-  const in38 = row(out, "other_business_commitments_visible_to_38");
-  eq("in business 38's context, other-business rows visible = 0 (commitments, installments, payments, workflow)", [
-    in38.other_business_commitments_visible_to_38,
-    in38.other_business_installments_visible_to_38,
-    in38.other_business_payments_visible_to_38,
-    in38.other_business_workflow_visible_to_38,
-  ], ["0", "0", "0", "0"]);
-  eq("…while business 38's own QA-P2 commitment IS visible (the probe is not vacuous)", in38.qa_commitments_visible_to_38, "1");
-  const inOther = row(out, "qa_commitments_visible_to_other");
-  eq("in another business's context, business 38 rows visible = 0 (commitments, installments, workflow, payments, allocations)", [
-    inOther.qa_commitments_visible_to_other,
-    inOther.qa_installments_visible_to_other,
-    inOther.qa_workflow_visible_to_other,
-    inOther.qa_payments_visible_to_other,
-    inOther.qa_allocations_visible_to_other,
-  ], ["0", "0", "0", "0", "0"]);
-  const none = row(out, "commitments_visible_without_context");
-  eq("without tenant context: commitments and payments visible = 0", [none.commitments_visible_without_context, none.payments_visible_without_context], ["0", "0"]);
+  check("the file ran to its last statement", out.includes("Q10 is NOT in this file"));
+  check("no SET ROLE remains in the owner evidence file (Q10 runs AS the runtime login)", !/set\s+role/i.test(readFileSync("ops/evidence/secretary-ledger-cutover-evidence.sql", "utf8")));
+  const idx = out.split(/\r?\n/).filter((l) => /_key\s*\|/.test(l)).map((l) => l.split("|").map((c) => c.trim()));
+  const byName = Object.fromEntries(idx.map((c) => [c[0], c]));
+  eq("Q9 Installment_commitmentId_sequence_key: unique, on Installment, {commitmentId,sequence}", byName["Installment_commitmentId_sequence_key"]?.slice(1, 4), ["t", "Installment", "{commitmentId,sequence}"]);
+  eq("Q9 Payment_businessId_idempotencyKey_key: unique, on Payment, {businessId,idempotencyKey}", byName["Payment_businessId_idempotencyKey_key"]?.slice(1, 4), ["t", "Payment", "{businessId,idempotencyKey}"]);
+  check("Q9 PaymentAllocation_active_payment_installment_key: unique and partial on active rows", byName["PaymentAllocation_active_payment_installment_key"]?.[1] === "t" && /reversedAt.*IS NULL/.test(byName["PaymentAllocation_active_payment_installment_key"]?.[4] ?? ""));
 
   console.log("\n3 · negative: writes under the same configuration are refused by Postgres");
   const attempts: Record<string, string> = {
