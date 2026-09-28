@@ -249,6 +249,11 @@ model Business {
   businessInsights              BusinessInsight[]
   entityLinkProposals           EntityLinkProposal[]
   intakeEvents                  IntakeEvent[]
+  outcomeRecommendations        OutcomeRecommendation[]
+  outcomeDecisions              OutcomeDecision[]
+  outcomeActionEvents           OutcomeActionEvent[]
+  outcomeObservations           OutcomeObservation[]
+  outcomeAssessments            OutcomeAssessment[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -5608,6 +5613,188 @@ enum InsightStatus {
   OPEN
   ADOPTED
   DISMISSED
+}
+
+/// M9 · A system-issued recommendation, VERSIONED. Content is immutable (database trigger); only the
+/// lifecycle moves, and only away from ACTIVE. At most one ACTIVE version per recommendationKey
+/// (partial unique index, migration 20260928090000_m9_outcome_learning). Not owner-visible.
+model OutcomeRecommendation {
+  id                   Int                         @id @default(autoincrement())
+  businessId           Int
+  recommendationKey    String
+  version              Int
+  type                 String
+  family               String
+  subjectType          String
+  subjectId            Int
+  targets              Json
+  targetCount          Int
+  supportingSlots      Json
+  severity             String?
+  evidenceFingerprint  String
+  sourceKind           String
+  sourceFindingKey     String?
+  brainContractVersion String?
+  brainPromptVersion   String?
+  brainContextVersion  String?
+  brainModel           String?
+  snapshotFingerprint  String
+  contextFingerprint   String?
+  generatorVersion     String
+  issuedAt             DateTime
+  validUntil           DateTime
+  outcomeWindowEnd     DateTime
+  status               OutcomeRecommendationStatus @default(ACTIVE)
+  closedAt             DateTime?
+  closedReason         String?
+  supersededById       Int?
+  createdAt            DateTime                    @default(now())
+
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  decisions    OutcomeDecision[]
+  actionEvents OutcomeActionEvent[]
+  observations OutcomeObservation[]
+  assessments  OutcomeAssessment[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, recommendationKey, version])
+  @@index([businessId, status])
+  @@index([businessId, issuedAt])
+}
+
+enum OutcomeRecommendationStatus {
+  ACTIVE
+  SUPERSEDED
+  RESOLVED
+  EXPIRED
+}
+
+/// M9 · What the OWNER decided about one recommendation version. APPEND-ONLY (privileges + trigger):
+/// a change of mind is a new row naming the one it supersedes. Never inferred from silence.
+model OutcomeDecision {
+  id                    Int                 @id @default(autoincrement())
+  businessId            Int
+  recommendationId      Int
+  recommendationVersion Int
+  decision              OutcomeDecisionKind
+  modification          Json?
+  reasonCode            String?
+  deferUntil            DateTime?
+  actorUserId           Int
+  source                String
+  decidedAt             DateTime
+  idempotencyKey        String
+  supersedesDecisionId  Int?
+  createdAt             DateTime            @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeDecision_recommendation_fkey")
+  supersedes     OutcomeDecision?      @relation("OutcomeDecisionSupersedes", fields: [businessId, supersedesDecisionId], references: [businessId, id], onDelete: Cascade, map: "OutcomeDecision_supersedes_fkey")
+  supersededBy   OutcomeDecision[]     @relation("OutcomeDecisionSupersedes")
+  actionEvents   OutcomeActionEvent[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+enum OutcomeDecisionKind {
+  ACCEPT
+  REJECT
+  MODIFY
+  NOT_NOW
+}
+
+/// M9 · What the domain ledger shows actually happened to a recommendation target — performed,
+/// reversed or withdrawn — linked to the real domain record. APPEND-ONLY.
+model OutcomeActionEvent {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  recommendationId Int
+  decisionId       Int?
+  actionKind       String
+  eventType        String
+  targetType       String
+  targetId         Int
+  domainStore      String
+  domainRecordId   Int
+  actorUserId      Int?
+  occurredAt       DateTime
+  observedAt       DateTime
+  idempotencyKey   String
+  createdAt        DateTime @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeActionEvent_recommendation_fkey")
+  decision       OutcomeDecision?      @relation(fields: [businessId, decisionId], references: [businessId, id], onDelete: Cascade, map: "OutcomeActionEvent_decision_fkey")
+  observations   OutcomeObservation[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+/// M9 · What was OBSERVED after a recommendation — never an effect of it. APPEND-ONLY; a reversal is a
+/// new observation naming the one it reverses. Days and counts only; no money, no text.
+model OutcomeObservation {
+  id                    Int      @id @default(autoincrement())
+  businessId            Int
+  recommendationId      Int
+  actionEventId         Int?
+  kind                  String
+  targetType            String?
+  targetId              Int?
+  valueInt              Int?
+  unit                  String?
+  evidenceStore         String
+  evidenceIds           Json
+  observedAt            DateTime
+  reversesObservationId Int?
+  idempotencyKey        String
+  createdAt             DateTime @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_recommendation_fkey")
+  actionEvent    OutcomeActionEvent?   @relation(fields: [businessId, actionEventId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_action_fkey")
+  reverses       OutcomeObservation?   @relation("OutcomeObservationReverses", fields: [businessId, reversesObservationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_reverses_fkey")
+  reversedBy     OutcomeObservation[]  @relation("OutcomeObservationReverses")
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+/// M9 · The deterministic reading of one recommendation's decision, action and outcome. APPEND +
+/// SUPERSEDE. attribution is CHECK-constrained to NOT_ASSESSABLE | NO_OUTCOME_OBSERVED |
+/// OBSERVED_SEQUENCE: no causal value is storable.
+model OutcomeAssessment {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  recommendationId Int
+  assessorVersion  String
+  decisionState    String
+  actionState      String
+  outcomeState     String
+  direction        String
+  attribution      String
+  uncertainty      String
+  windowStart      DateTime
+  windowEnd        DateTime
+  observationCount Int
+  evidenceRefs     Json
+  detail           Json
+  semanticHash     String
+  status           String    @default("ACTIVE")
+  assessedAt       DateTime
+  confirmedAt      DateTime
+  supersededAt     DateTime?
+  createdAt        DateTime  @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeAssessment_recommendation_fkey")
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
 }
 
 /// M5 · The reminder Dubiz actually knows about.
