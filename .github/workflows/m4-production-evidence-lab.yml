@@ -1,0 +1,140 @@
+# M4 Production evidence — proven in a lab before it reads Production.
+#
+# ops/evidence/m4-identity-routing-production-evidence.sql is the read-only
+# post-apply proof for 20261001090000_m4_identity_routing. This job shows it
+# is right in both directions on an ephemeral PG17:
+#   1. the pre-M4 schema (main at 2feaa836, the revision before PR #578) +
+#      sec-C's real composite-key migration;
+#   2. Production's role shape: a NOLOGIN group app_runtime, a NOSUPERUSER /
+#      NOBYPASSRLS login app_runtime_prod inheriting it, and a default ACL that
+#      would hand the group DELETE on every new table (the migration must take
+#      that back);
+#   3. the REAL M4 migration applied as the owner, and its ledger row recorded
+#      with the file's sha256 (what `prisma migrate deploy` records);
+#   4. the evidence file: every assertion PASS;
+#   5. four deliberate faults (ledger checksum, the partial unique key, FORCE
+#      RLS, a DELETE for the runtime login): exactly Q0, Q5, Q6 and Q8 FAIL.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m4 — Production evidence lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/evidence/m4-identity-routing-production-evidence.sql"
+      - "prisma/migrations/20261001090000_m4_identity_routing/**"
+      - ".github/workflows/m4-production-evidence-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: M4 Production evidence (PG17, real M4 migration, Production role shape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m4_owner
+          POSTGRES_PASSWORD: m4_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m4_ev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m4_owner -d dubiz_m4_ev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m4_owner:m4_ci_synthetic_owner_pw@localhost:5432/dubiz_m4_ev
+      EVIDENCE: ops/evidence/m4-identity-routing-production-evidence.sql
+      MIGRATION: prisma/migrations/20261001090000_m4_identity_routing/migration.sql
+      PRE_M4: 2feaa836418e313011633df2015d4133e5267f2d
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. The evidence file passes the Production workflow's SELECT-only guard
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$EVIDENCE"; then echo "write keyword in the evidence file"; exit 1; fi
+          grep -q "'$EVIDENCE'" .github/workflows/prod-readonly-evidence.yml || { echo "not selectable in prod-readonly-evidence.yml"; exit 1; }
+
+      - name: 1. Pre-M4 schema + sec-C composite keys (owner)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          git show "${PRE_M4}:prisma/schema.prisma" > /tmp/pre-m4.prisma
+          if grep -q 'model IdentityLink' /tmp/pre-m4.prisma; then echo 'pre-M4 revision already has M4'; exit 1; fi
+          npx prisma db push --schema /tmp/pre-m4.prisma --skip-generate
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+
+      - name: 2. Production role shape (group + inheriting login + a default ACL with DELETE)
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_runtime_prod LOGIN PASSWORD 'm4_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS IN ROLE app_runtime;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime;" \
+            -c "ALTER DEFAULT PRIVILEGES FOR ROLE m4_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime;" \
+            -c "ALTER DEFAULT PRIVILEGES FOR ROLE m4_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_runtime;"
+
+      - name: 3. The REAL M4 migration + its ledger row (sha256 of the file, as migrate deploy records)
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          echo "migration sha256: $sum"
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the evidence file pins a different checksum"; exit 1; }
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c 'CREATE TABLE "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0)' \
+            -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '20261001090000_m4_identity_routing', 1)"
+
+      - name: 4. Evidence on the migrated lab — every assertion PASS
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/pass.out
+          if grep -qE '[|] *FAIL *[|]' /tmp/pass.out; then echo "evidence FAILS on a correctly migrated database"; exit 1; fi
+          test "$(grep -cE '[|] *PASS *[|]' /tmp/pass.out)" = "13" || { echo "expected 13 PASS rows"; exit 1; }
+          echo "13/13 PASS"
+
+      - name: 5. Four deliberate faults — exactly Q0, Q5, Q6, Q8 FAIL
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "UPDATE \"_prisma_migrations\" SET checksum = repeat('0', 64) WHERE migration_name = '20261001090000_m4_identity_routing'" \
+            -c 'DROP INDEX "IdentityLink_active_identifier_key"' \
+            -c 'ALTER TABLE "IdentityLink" NO FORCE ROW LEVEL SECURITY' \
+            -c 'GRANT DELETE ON "IdentityProposal" TO app_runtime_prod'
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/fail.out
+          fails=$(grep -E '[|] *FAIL *[|]' /tmp/fail.out | grep -oE '[|] Q[0-9]+ ' | tr -d '| ' | sort -V | tr '\n' ' ')
+          test "$fails" = "Q0 Q5 Q6 Q8 " || { echo "expected exactly Q0 Q5 Q6 Q8 to fail, got: $fails"; exit 1; }
+          grep -E 'Q8 .*FAIL' /tmp/fail.out | grep -q 'app_runtime_prod:IdentityProposal=adrw' || { echo "Q8 detail does not name the runtime login's d"; exit 1; }
+          echo "faults detected exactly: $fails"
