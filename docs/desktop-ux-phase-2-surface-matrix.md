@@ -65,13 +65,7 @@ No Documents surface in this slice is INTENTIONALLY-FOCUSED. None of these route
 
 ## Still remaining
 
-These were found in the route crawl and are not closed by this slice. Each one
-still needs a first-principles desktop composition, then visual QA.
-
-| Domain | Surfaces still open |
-| --- | --- |
-| Inbox | `/inbox` conversations |
-| Tools | tools entry if it is only a launcher into billing |
+Nothing. Inbox and Tools, the last two open domains, were closed in slice 7 (below).
 
 ## Slice 3 — inventory operations, collection create, payments
 
@@ -98,7 +92,7 @@ Desktop is a work queue plus a selected record. Mobile keeps the cards. Confirma
 | Inventory | Integrations | `/inventory/supplier-purchases/integrations` | connections | connection list beside what each connection actually does | DESKTOP-ADAPTED |
 | Inventory | Stock count | `/inventory/count` | empty session | scan action, the rule for unscanned items, and a progress rail | DESKTOP-ADAPTED |
 | Inventory | Count sheet | `/inventory/count` | products counted | expected, counted, and delta table; save stays explicit | DESKTOP-ADAPTED |
-| Inventory | Create item | `/inventory/items/create` | form | two-column fields and a live summary of what will be saved | DESKTOP-ADAPTED |
+| Inventory | Create item | `/inventory/items/create` | form | two-column fields and a live summary of what will be saved. Rechecked in slice 7 with the description and featured fields main added: name pairs with description, featured and category take their own rows | DESKTOP-ADAPTED |
 | Inventory | Create sale | `/inventory/sales/create` | search / cart | product search beside the cart | DESKTOP-ADAPTED |
 | Inventory | Item detail | `/inventory/items/[id]` | item | identity and stock beside details and movement history | DESKTOP-ADAPTED |
 | Inventory | Items list | `/inventory/items` | list | unchanged from slice 1 | DESKTOP-ADAPTED |
@@ -257,7 +251,7 @@ Settings is a control center: a grouped rail beside the active area, and a hub t
 | Settings | Templates | `/settings/import-export/templates` | download | a sample file per domain | INTENTIONALLY-FOCUSED |
 | Settings | Document import | `/settings/import-export/documents` | check | file check before any write | INTENTIONALLY-FOCUSED |
 | Settings | Historical import | `/settings/import-export/historical` | check | review before write | INTENTIONALLY-FOCUSED |
-| Settings | Historical record | `/settings/import-export/historical/records/[id]` | detail | one read-only external document. Covered by the import/export layout; not captured separately | INTENTIONALLY-FOCUSED |
+| Settings | Historical record | `/settings/import-export/historical/records/[id]` | detail | one read-only external document: the facts it carried, its customer snapshot, where it came from, and its credit links. Captured in slice 7 (document, credit, missing). Each whole row of the records table now opens it on desktop; before, only the first cell was a link | INTENTIONALLY-FOCUSED |
 | Settings | Export | `/settings/import-export/export` | configure | what leaves the business; the fixed download bar aligns to the content column | INTENTIONALLY-FOCUSED |
 | Business | Identity | `/business` | populated | legal identity as a two-column form beside optional document details and links to the bot, coupons and connections | DESKTOP-ADAPTED |
 | Business | Identity | `/business` | sparse | the same desk with the existing missing-invoice-details warning. No new completeness score | DESKTOP-ADAPTED |
@@ -272,7 +266,7 @@ Settings is a control center: a grouped rail beside the active area, and a hub t
 | Offers | My coupons | `/revenue` | disabled / expired / long benefit | the same queue; the row truncates, the inspector shows the full benefit and the real state action | DESKTOP-ADAPTED |
 | Offers | Create | `/revenue?view=create` | goal / direction | the step beside the coupon being built | DESKTOP-ADAPTED |
 | Offers | Create | `/revenue?view=create` | builder | fields beside the live customer view, which stays in sight while editing | DESKTOP-ADAPTED |
-| Offers | Create | `/revenue?view=create` | published | one column: the step already shows the public coupon. Not reached in QA — publishing is not executed | INTENTIONALLY-FOCUSED |
+| Offers | Create | `/revenue?view=create` | published | one column: the step already shows the public coupon, then share / copy link. A one-time outcome. Captured in slice 7 with the publish answered in the browser; nothing was published | INTENTIONALLY-FOCUSED |
 | Offers | Legacy list | `/offers` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
 | Offers | Legacy create | `/offers/create` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
 | Offers | Legacy issue | `/revenue/issue` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
@@ -300,11 +294,74 @@ Settings is a control center: a grouped rail beside the active area, and a hub t
 
 No settings, business, offers, or content-studio surface in this slice is NOT-YET-DONE.
 
-Not surfaces: `/content/flow`, `/content/mode`, `/content/intent`, `/content/value`, `/content/style`, `/content/context` and `/content/summary` link only to each other and are linked from nowhere in the product. They inherit the studio frame but were not designed or counted; if opened by URL, their full-viewport fixed buttons run under the brief. `/settings/inbound-email` renders only when `INBOUND_EMAIL_ENABLED=true` and is not listed in Settings.
+Not surfaces: `/content/flow`, `/content/mode`, `/content/intent`, `/content/value`, `/content/style`, `/content/context` and `/content/summary` link only to each other and are linked from nowhere in the product. They inherit the studio frame but were not designed or counted. Slice 7 update: the brief is no longer rendered on these routes, so when opened by URL they keep the layout they had before the brief existed. `/settings/inbound-email` renders only when `INBOUND_EMAIL_ENABLED=true` and is not listed in Settings.
 
 ## Slice 6 runtime QA
 
 `qa-evidence/desktop-ux-phase-2/shoot-slice6.mjs` against local `next dev`, every `/api` call mocked. No provider was connected, no message sent, no coupon published, no content generated. The Next dev badge is hidden in the captures. Evidence: `settings/`, `business/`, `offers/`, `content-studio/`; per-shot overflow in `slice6-metrics.json`. Horizontal overflow: none.
+
+## Slice 7 — inbox, tools, carry-forward, final audit
+
+The Inbox is WhatsApp conversations: a queue, the selected thread and, from 1600, the conversation's context. It has no separate thread route; a conversation is `/inbox?conversationId=`. It does not duplicate the documents inbox (`/documents/inbox`), the collection inbox (`/collection`), attention or notifications, and none of them link into it except as a destination. Tools is a launcher, not a set of calculators. `/tools` lists the three families and `/tools/[category]` opens one family, reached from the Home family tiles. Every tool opens a canonical domain screen that is already in this matrix. No messaging backend, search backend, schema or provider was added.
+
+| Domain | Surface | Route | State | Desktop composition | Status |
+| --- | --- | --- | --- | --- | --- |
+| Inbox | Conversations | `/inbox` | no selection | queue beside a start pane: the open counts the tabs use, and one button that opens the most pressing open conversation (it replaces the blank "בחר שיחה" card). From 769 up the cards wrap in the narrower pane | DESKTOP-ADAPTED |
+| Inbox | Conversation | `/inbox?conversationId=` | long thread | queue, thread and composer in view together. Only the thread scrolls; the window no longer scrolls under it | DESKTOP-ADAPTED |
+| Inbox | Conversation | `/inbox?conversationId=` | short thread | same | DESKTOP-ADAPTED |
+| Inbox | Conversation | `/inbox?conversationId=` | closed | same, with the closed header | DESKTOP-ADAPTED |
+| Inbox | Conversation context | `/inbox?conversationId=` | wide (1600+) | a context column beside the thread: channel, phone, stage, situation, waiting time, bot or owner handling, next step, and a link to the customer card. All from the same item the queue row shows | DESKTOP-ADAPTED |
+| Inbox | Focus tabs | `/inbox` | filter / search | tab labels come from the canonical category list. Two tabs had both read "טיוטות" | DESKTOP-ADAPTED |
+| Inbox | WhatsApp broken | `/inbox` | reconnect | the reconnect banner above the same workspace | DESKTOP-ADAPTED |
+| Inbox | WhatsApp never connected | `/inbox` | onboarding | one connection invitation. From 1200 the action sits directly under the explanation instead of at the bottom of the viewport | INTENTIONALLY-FOCUSED |
+| Inbox | Connected, no conversations | `/inbox` | empty | nothing to list or inspect yet; the Inbox chrome plus one explanation | INTENTIONALLY-FOCUSED |
+| Inbox | Load failure | `/inbox` | failure | new: the same chrome says the conversations did not load and offers a retry. Before, a failed load was shown as "no conversations", on every device | INTENTIONALLY-FOCUSED |
+| Tools | All tools | `/tools` | items waiting | the three families side by side. Each shows what is waiting in it (the same business-status items that set its status line, each opening its screen) above its tools as rows with what each is for | DESKTOP-ADAPTED |
+| Tools | All tools | `/tools` | nothing waiting | same, without the waiting lists | DESKTOP-ADAPTED |
+| Tools | Money family | `/tools/money` | items waiting | the family's tools beside a "מחכה עכשיו" column of the items behind its status chip. It uses the read the chip already made | DESKTOP-ADAPTED |
+| Tools | Customers family | `/tools/customers` | items waiting | same | DESKTOP-ADAPTED |
+| Tools | Operations family | `/tools/operations` | items waiting | same | DESKTOP-ADAPTED |
+| Tools | Any family | `/tools/[category]` | nothing waiting | the column says there is nothing waiting. It is hidden while loading or if the read fails; it never guesses | DESKTOP-ADAPTED |
+
+No inbox or tools surface is NOT-YET-DONE.
+
+### Slice 6 carry-forward, closed
+
+- **Seven content routes** (`flow`, `mode`, `intent`, `value`, `style`, `context`, `summary`): a search of `app`, `components`, `features`, `lib`, `next.config` and the proxy found no link, redirect or rewrite into the chain from outside it. `flow`, `intent`, `value` and `summary`, the chain's entry points, have no inbound link at all, and `/dev/content-test` enters at `/content/create`. They are dead legacy routes that still work by URL. They are kept; deleting routes is not a UX decision. The studio brief is no longer rendered on them, so their fixed buttons do not run under it. Not counted as surfaces.
+- **Studio generated states**: creator plan with three variants, plan failure, populated shot direction and render in progress. All captured with the plan and render APIs answered in the browser; no model or render provider was called. The finished render with a video was already captured in slice 6 (result, ready).
+- **Coupon published**: captured with `POST /api/revenue/coupons` answered in the browser. No coupon exists; nothing was published.
+- **Historical record detail**: a distinct surface, linked from each records row. Captured as a document, a credit that links to what it reverses, and a missing record. It stays INTENTIONALLY-FOCUSED.
+- **Import/export colour fix across devices**: export (nothing chosen, then enabled), import (domain picked, then the file check button after an analysis answered in the browser) and document import, at 390 / 768 / 1024. The buttons are visible, readable, full-width and in their place. There is no overlap, except that the export bar is fixed above the bottom nav on a phone by design.
+
+### Whole-product route inventory
+
+All 134 `page` files under `app/` (excluding `app/api`) were compared with this matrix, the sidebar and bottom bar (`nav-destinations.tsx`), the "+" action sheet, the Home family tiles and every `TOOLS` destination. Every sidebar, action-sheet and tool destination is in the matrix.
+
+Gaps found and closed:
+- `/tools` and `/tools/[category]` were only vague "tools entry" rows. Now above.
+- The offering fields on `/inventory/items/create` post-dated its row. Rechecked, grid fixed, row updated.
+- The historical record detail was reachable only through the first cell of each table row. The whole row now opens it.
+
+Not surfaces (no product path reaches them; left as they are): `/pricing`, `/opportunities`, `/dashboard`, `/posts`, `/upload`, `/onboarding` (only from `/pricing` and `/opportunities`), `/promotions` and `/promotions/coupons` (redirects, pushed only from unused components), and the seven content routes above. Admin, dev, design-gallery, auth and marketing pages are out of scope.
+
+### Final desktop audit
+
+`shoot-final-audit.mjs` captures one state of 20 routes across the domains at 1280 / 1440 / 1920, and checks overflow at 390 / 768 / 1024. Home, collection, collection create, secretary, payables and notifications need modelled data to render at all. For those six, and for every earlier slice, all earlier slice scripts (`shoot`, `shoot-documents`, `shoot-slice3`, `-slice3-gap`, `-slice4`, `-slice5`, `-slice5-conflict`, `-slice6`) were re-run against the slice 7 HEAD into a scratch folder: 458 shots, 0 overflow. Those shots were reviewed and not re-committed, since the committed slice evidence already shows the same compositions.
+
+Issues found in the audit and fixed:
+1. Inbox: a thread scrolling to its last message scrolled the whole window 32px, clipping the top of both panes. The shell's bottom padding was not subtracted.
+2. Inbox: the start pane was unstyled between 769 and 1199.
+3. Inbox: a failed load read as "no conversations" (every device).
+4. Tools: the content-studio tool had no glyph on `/tools`.
+5. Tools family screens: a 2×3 launcher above empty canvas with nothing of what the status chip summarised. They now show what is waiting beside the tools.
+6. Item create: the offering fields from main put the featured checkbox beside the category field at label height.
+7. Historical records: only the first cell opened a record.
+
+Cross-domain consistency: queues with an inspector (documents, attention, notifications, payables, coupons, inbox) all select into a pane beside the list and keep the list. Focused screens (outcomes, one-time connections, destructive confirmations, camera) are centred reading-width columns. Toolbars and filters sit above the thing they filter. No domain was forced into another's template.
+
+## Slice 7 runtime QA
+
+`qa-evidence/desktop-ux-phase-2/shoot-slice7.mjs` and `shoot-final-audit.mjs` against local `next dev`, every `/api` call answered in the browser, every write refused. No message was sent, no coupon published, no provider connected, no content generated. Evidence: `inbox/`, `tools/`, the new files in `offers/`, `settings/`, `inventory/` and `content-studio/`, and `final-audit/`. Per-shot overflow is in `slice7-metrics.json` (92 shots) and `final-audit-metrics.json` (120 checks). Horizontal overflow: none.
 
 ## Counts
 
@@ -338,11 +395,16 @@ Slice 6 (settings, business, offers, content studio), counted as rows in the sli
 - Offers: 12 rows. 5 DESKTOP-ADAPTED. 7 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
 - Content studio: 18 rows. 18 DESKTOP-ADAPTED. 0 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
 
-Still open: Inbox, Tools. Production merge: not requested.
+Slice 7 (inbox, tools), counted as rows in the slice 7 table:
+
+- Inbox: 10 rows. 7 DESKTOP-ADAPTED. 3 INTENTIONALLY-FOCUSED (never connected, connected empty, load failure). 0 NOT-YET-DONE.
+- Tools: 6 rows. 6 DESKTOP-ADAPTED. 0 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+
+**Phase 2 total: 176 rows. 138 DESKTOP-ADAPTED. 38 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.** Still open: nothing. Production merge: not requested.
 
 Product limitations found in slice 6, left as they are:
 
 - Settings has no team, permissions, or notification-preferences model. Account is the signed-in person plus logout; locale is read-only.
 - Offers in the product are coupons. There is no line-item commercial offer and no sent/open/accepted/rejected lifecycle; coupon states are ACTIVE, DISABLED, EXPIRED and REDEEMED. `/offers`, `/offers/create` and `/revenue/issue` redirect to `/revenue`. Redemption counts beyond 0/1 are deliberately not modelled, so the queue shows no redemption totals.
-- The Business Offering migration on main (`BusinessServiceAsset`, `InventoryItemAsset`, `OfferingDemandSignal`) has no model in `schema.prisma` and no code reading it. There is no offering editor to design, and none was added.
+- The Business Offering migration on main (`BusinessServiceAsset`, `InventoryItemAsset`, `OfferingDemandSignal`) had no model in `schema.prisma` and no code reading it when slice 6 was done. There was no offering editor to design, and none was added. Slice 7 update: main has since released the offering application (336e9db2). Its only UI is two fields on `/inventory/items/create`, rechecked in slice 7. `/api/business/services` has no UI caller, so there is still no offering editor surface.
 - The content studio's intermediate steps call generation APIs that were mocked empty in QA, so their loading and empty states are what was captured.

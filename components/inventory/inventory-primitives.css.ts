@@ -1125,6 +1125,11 @@ export const inventoryPrimitivesCss = `
     [data-inventory-module] .inv-create-grid .inv-imgpick,
     [data-inventory-module] .inv-create-grid .inv-field:has(.inv-seg),
     [data-inventory-module] .inv-create-grid .inv-two { grid-column: 1 / -1; }
+    /* Name pairs with its description. The featured flag and the category
+       each take their own row, so neither sits beside an unrelated field. */
+    [data-inventory-module] .inv-create-grid .inv-field:has(input[type="checkbox"]),
+    [data-inventory-module] .inv-create-grid .inv-field:has(datalist) { grid-column: 1 / -1; }
+    [data-inventory-module] .inv-create-grid .inv-field:has(input[type="checkbox"]) { min-height: 44px; }
   }
   @media (min-width: 1600px) {
     [data-inventory-module] .inv-wide { display: table-cell; }

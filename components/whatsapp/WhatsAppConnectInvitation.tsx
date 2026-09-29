@@ -73,7 +73,7 @@ export function WhatsAppConnectInvitation({
   return (
     <ConnectSurface>
       {notice}
-      <div style={heroStyle}>
+      <div className="wa-connect-hero" style={heroStyle}>
         <WaAvatar size={70} />
         <div style={stackStyle}>
           <h1 style={headingStyle}>{c.heading}</h1>
@@ -121,11 +121,25 @@ export function WhatsAppConnectInvitation({
   );
 }
 
-/** Full-height, centered surface with bottom clearance for the global nav. */
+/**
+ * Full-height, centered surface with bottom clearance for the global nav.
+ * On a phone the action sits at the bottom, under the thumb. From 1200 there
+ * is no thumb and no bottom nav, so the hero stops stretching and the action
+ * stays directly under the explanation it belongs to.
+ */
+const CONNECT_DESK_CSS = `
+@media (min-width: 1200px) {
+  .wa-connect-surface { justify-content: center; }
+  .wa-connect-body { flex: 0 0 auto !important; }
+  .wa-connect-hero { flex: 0 0 auto !important; }
+}
+`;
+
 function ConnectSurface({ children }: { children: React.ReactNode }) {
   return (
     <div
       dir="rtl"
+      className="wa-connect-surface"
       style={{
         minHeight: "100vh",
         background: TOKEN.surface.page,
@@ -136,7 +150,9 @@ function ConnectSurface({ children }: { children: React.ReactNode }) {
         boxSizing: "border-box",
       }}
     >
+      <style>{CONNECT_DESK_CSS}</style>
       <div
+        className="wa-connect-body"
         style={{
           width: "100%",
           maxWidth: 420,

@@ -119,11 +119,20 @@ function rowsFor(flow: ContentFlow): Array<{ label: string; value: string }> {
   return rows.filter((row): row is { label: string; value: string } => Boolean(row.value));
 }
 
+/**
+ * The legacy chain (flow → mode → context, intent/value/style → mode, summary)
+ * is linked from nowhere in the product. Its steps use full-width fixed
+ * buttons that would run under this column, so on those routes the brief is
+ * not rendered and they behave exactly as they did before it existed.
+ */
+const LEGACY_STEPS = new Set(["flow", "mode", "intent", "value", "style", "context", "summary"]);
+
 export function StudioBrief() {
   // Subscribing to the pathname makes every route change re-render the brief.
-  usePathname();
+  const pathname = usePathname() ?? "";
   const raw = useSyncExternalStore(subscribe, readRaw, () => null);
   const rows = useMemo(() => rowsFor(parseFlow(raw)), [raw]);
+  if (LEGACY_STEPS.has(pathname.split("/")[2] ?? "")) return null;
 
   return (
     <aside className="studio-brief" aria-label="התוכן שנבנה">

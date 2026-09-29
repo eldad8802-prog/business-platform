@@ -441,9 +441,13 @@ export function HistoricalRecordsScreen({
               </thead>
               <tbody>
                 {(data?.items ?? []).map((item) => (
-                  <tr key={item.id}>
+                  <tr key={item.id} className="relative hover:bg-[var(--dz-surface-muted)]">
                     <td>
-                      <Link href={`${recordsBase}/${item.id}`} className="inline-flex min-h-[44px] items-center">
+                      {/* The link's hit area stretches over the whole row. */}
+                      <Link
+                        href={`${recordsBase}/${item.id}`}
+                        className="inline-flex min-h-[44px] items-center after:absolute after:inset-0 after:content-['']"
+                      >
                         {documentTypeLabel(item.documentTypeCode)}
                       </Link>
                     </td>

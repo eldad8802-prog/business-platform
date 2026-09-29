@@ -27,6 +27,12 @@
     min-width: 0;
   }
 
+  /* Routes without a brief (the unlinked legacy chain) keep their own layout. */
+  .studio-frame:not(:has(.studio-brief)) {
+    display: block;
+    padding-inline: 0;
+  }
+
   .studio-brief {
     display: block;
     position: sticky;
