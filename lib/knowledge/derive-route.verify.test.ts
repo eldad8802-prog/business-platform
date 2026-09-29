@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
+import { decideDeriveAuth } from "@/lib/services/knowledge-derive/derive-gate";
 
 let failed = 0;
 function ok(name: string, cond: boolean, extra?: unknown): void {
@@ -23,9 +24,28 @@ const src = readFileSync(
 );
 
 // ── Who may call it ────────────────────────────────────────────────────────
-ok("authentication is the CRON_SECRET bearer contract", /decideRecoveryAuth\(/.test(src));
-ok("a missing secret answers 503, never 'open'", /NOT_CONFIGURED[\s\S]{0,120}503/.test(src));
-ok("anything not AUTHORIZED is 401", /!==\s*"AUTHORIZED"[\s\S]{0,120}401/.test(src));
+ok("authentication is the DEDICATED derive authority, never the general CRON_SECRET",
+  /decideDeriveAuth\(/.test(src) && !/process\.env\.CRON_SECRET/.test(src) && !/decideRecoveryAuth\(/.test(src));
+ok("the gate runs before any derivation (admitDerivation precedes the first derive call)",
+  src.indexOf("admitDerivation(") > 0 && src.indexOf("admitDerivation(") < src.indexOf("deriveKnowledgeForBusiness("));
+ok("the Brain is gated by the lease AND a fresh lifecycle check", /gate\.brainAllowed && \(await stillActive\(businessId\)\)/.test(src));
+ok("M9 outcomes are gated by a fresh lifecycle check", /stillActive\(businessId\)[\s\S]{0,200}deriveOutcomesForBusiness/.test(src));
+ok("every refusal and every run leaves a security event", (src.match(/recordDeriveSecurityEvent\(/g) ?? []).length >= 5);
+{
+  const saved = { d: process.env.KNOWLEDGE_DERIVE_SECRET, c: process.env.CRON_SECRET };
+  process.env.CRON_SECRET = "c".repeat(40);
+  process.env.KNOWLEDGE_DERIVE_SECRET = "d".repeat(40);
+  ok("the general CRON_SECRET is refused by the derive authority", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "UNAUTHORIZED");
+  ok("the dedicated secret is accepted", decideDeriveAuth(`Bearer ${"d".repeat(40)}`) === "AUTHORIZED");
+  process.env.KNOWLEDGE_DERIVE_SECRET = "c".repeat(40);
+  ok("a dedicated secret EQUAL to CRON_SECRET is treated as not configured", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "NOT_CONFIGURED");
+  delete process.env.KNOWLEDGE_DERIVE_SECRET;
+  ok("no dedicated secret → not configured (fail closed)", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "NOT_CONFIGURED");
+  if (saved.d === undefined) delete process.env.KNOWLEDGE_DERIVE_SECRET; else process.env.KNOWLEDGE_DERIVE_SECRET = saved.d;
+  if (saved.c === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved.c;
+}
+ok("a missing secret answers 503, never 'open'", /NOT_CONFIGURED[\s\S]{0,300}503/.test(src));
+ok("anything not AUTHORIZED is 401", /!==\s*"AUTHORIZED"[\s\S]{0,400}401/.test(src));
 ok("no user session is consulted", !/getCurrentUser|requireUser|cookies\(\)/.test(src));
 ok("no platform-admin path either", !/requirePlatformAdmin/.test(src));
 
@@ -38,9 +58,11 @@ ok("the right bearer is authorized",
 ok("no bearer at all is unauthorized", decideRecoveryAuth(null, "y".repeat(40)) === "UNAUTHORIZED");
 
 // ── One tenant, explicitly ─────────────────────────────────────────────────
-ok("the tenant is validated as a positive integer",
-  /Number\.isInteger\(businessId\)[\s\S]{0,60}businessId\s*<=\s*0/.test(src));
-ok("an invalid tenant is rejected before any derivation", /400/.test(src));
+// The tenant check lives in the derive gate, which the route calls before any derivation.
+const gateSrc = readFileSync(join(__dirname, "..", "services", "knowledge-derive", "derive-gate.ts"), "utf8");
+ok("the tenant is validated as a positive integer (in the gate)",
+  /Number\.isInteger\(businessId\)[\s\S]{0,60}businessId\s*<=\s*0/.test(gateSrc));
+ok("an invalid tenant is rejected before any derivation (400 from the gate)", /status: 400, reason: "invalid_business"/.test(gateSrc));
 ok("there is no all-businesses sweep", !/findMany\(\s*\{\s*\}\s*\)|forEach.*business/i.test(src));
 
 // ── What it may say back ───────────────────────────────────────────────────

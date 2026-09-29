@@ -254,6 +254,7 @@ model Business {
   outcomeActionEvents           OutcomeActionEvent[]
   outcomeObservations           OutcomeObservation[]
   outcomeAssessments            OutcomeAssessment[]
+  knowledgeDerivationRuns       KnowledgeDerivationRun[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -5956,4 +5957,29 @@ model IntakeEvent {
   @@unique([businessId, provider, externalEventId])
   @@index([businessId, status, nextAttemptAt])
   @@index([businessId, receivedAt])
+}
+
+/// Knowledge-derive authority — one row per privileged /api/knowledge/derive run. At most one RUNNING per
+/// business (partial unique index, migration 20260930090000_knowledge_derive_authority); a run moves once
+/// from RUNNING to a terminal state (trigger). Counts, statuses, codes and versions only.
+model KnowledgeDerivationRun {
+  id             Int       @id @default(autoincrement())
+  businessId     Int
+  runId          String    @unique
+  callerClass    String
+  callerRef      String?
+  brainRequested Boolean   @default(false)
+  brainAllowed   Boolean   @default(false)
+  brainInvoked   Boolean   @default(false)
+  status         String    @default("RUNNING")
+  failureStage   String?
+  counts         Json?
+  versions       Json?
+  startedAt      DateTime
+  leaseExpiresAt DateTime
+  finishedAt     DateTime?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, startedAt])
 }
