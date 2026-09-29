@@ -215,3 +215,10 @@ jobs:
 
       - name: M9 outcome battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m9-outcome-battery.ts
+
+      # Tenant/RLS closure — the five tables 20260929090000_tenant_rls_closure put under FORCE RLS
+      # (InventorySale, InventorySaleLine, InventorySourceSaleLine, BusinessAsset, CouponSurfaceEvent),
+      # proven as a MEASURED NOBYPASSRLS role: no-context fail-closed, per-tenant visibility, refused
+      # cross-tenant writes and parent links, no stale context, jobs, and the product flows under FORCE.
+      - name: Tenant/RLS closure battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/tenant-rls-closure-battery.ts
