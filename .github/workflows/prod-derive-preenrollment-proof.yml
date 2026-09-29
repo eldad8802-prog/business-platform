@@ -5,7 +5,7 @@ name: Prod derive authority — pre-enrollment proof
 #               Production KNOWLEDGE_DERIVE_SECRET are live: the old route answers 401 to this secret, a
 #               #575 build without the secret answers 503. Anything but 400 stops here — CRON_SECRET is
 #               never sent to a route that might still accept it.)
-#   cron        CRON_SECRET,  businessId=3          → 401 unauthorized
+#   cron        CRON_SECRET,  businessId=0          → 401 unauthorized (0: never a derivable target, on any build)
 #   business 3  dedicated secret                     → 403 not_enrolled
 #   business 9  dedicated secret                     → 403 not_enrolled
 # bracketed by a read-only fingerprint of every table the derive pipeline can write (before/after), the
@@ -94,7 +94,10 @@ jobs:
             echo "::error::probe did not return 400 invalid_business — 401 means the #575 code is NOT live; 503 means the Production KNOWLEDGE_DERIVE_SECRET is NOT loaded. Stopping before any other call."
             echo "ok=0" >> "$GITHUB_OUTPUT"; exit 1
           fi
-          call cron_secret cron 3 401 unauthorized || ok=0
+          # businessId=0 is never a derivable target on ANY build: even if the sentinel were somehow wrong,
+          # this request cannot create business state. The #575 route refuses it at authentication (401)
+          # before the businessId is read.
+          call cron_secret cron 0 401 unauthorized || ok=0
           call business_3 derive 3 403 not_enrolled || ok=0
           call business_9 derive 9 403 not_enrolled || ok=0
           echo "ok=$ok" >> "$GITHUB_OUTPUT"
