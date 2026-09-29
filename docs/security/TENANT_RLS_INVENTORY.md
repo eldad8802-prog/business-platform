@@ -178,4 +178,24 @@ deliberate uncovered `businessId` tables. After the closure, exactly those remai
 
 - Lab battery: `.m0/tenant-rls-closure-battery.ts`, as a measured NOSUPERUSER + NOBYPASSRLS role on
   the shipped migration.
-- Production proof: recorded below after the owner-approved migration.
+- Production proof (2026-09-29), all as `app_runtime_prod` (NOSUPERUSER, NOBYPASSRLS, a member of
+  `app_runtime`):
+  1. **Deployment order held.** #572 (`2e4c063`) was first refused by the Vercel quota. It reached
+     Production through the normal deploy of `a9c6892` (#571), which contains it and both writer
+     changes. Only then was #573 merged (`3f3a023`).
+  2. **Migration.** `release-migrate` run 36518805858 applied exactly
+     `20260929090000_tenant_rls_closure`, byte-identical to the reviewed file.
+  3. **Post-migration read-only proof, run 36596361224.** An earlier identical run, 36519348274, failed
+     with a transient client error and passed on re-run.
+     - All five tables: RLS **and FORCE** on.
+     - Policies exactly as designed: SELECT and INSERT, plus UPDATE only on
+       `InventorySourceSaleLine`, with no FOR ALL.
+     - Runtime privileges now equal the application's authority: no DELETE anywhere, no UPDATE except
+       source lines. Before the migration the runtime held SELECT, INSERT, UPDATE and DELETE on all
+       five.
+     - **Zero rows visible without a tenant.** Integrity counts are all 0.
+  4. **The tenant-context closure battery passes:** 108 of 113 tenant tables under RLS, with the five
+     deliberate uncovered tables remaining.
+  5. **What Production did not prove.** The five tables hold 0 rows, so cross-tenant read and write
+     refusals and the product flows are proven in the lab battery (42/42) against the identical DDL,
+     not by Production writes. No Production row was created for proof.
