@@ -128,6 +128,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // M3 — normalized intake: contact hints, attribution and result pointers
   // scrubbed by the adapter; signals and lifecycle are non-personal.
   IntakeNormalizedEvent: { disposition: "ERASURE_MANAGED" },
+  // M4 — identity links (hash nulled) and proposals (hashes / evidence / effects nulled).
+  IdentityLink: { disposition: "ERASURE_MANAGED" },
+  IdentityProposal: { disposition: "ERASURE_MANAGED" },
   MessageAnalysis: { disposition: "ERASURE_MANAGED" },
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },
