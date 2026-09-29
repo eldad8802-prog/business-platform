@@ -31,7 +31,7 @@ jobs:
     environment: production-db
     env:
       DERIVE_URL: https://promaxgroup.co.il/api/knowledge/derive
-      EVIDENCE: node_modules/.bin/tsx scripts/ops/derive-preenrollment-evidence.ts --expected-runtime-user app_runtime_prod --allow-host ep-flat-brook-am4bhq1y --businesses 3,9
+      EVIDENCE_ARGS: --expected-runtime-user app_runtime_prod --allow-host ep-flat-brook-am4bhq1y --businesses 3,9
     steps:
       - name: Secrets present and distinct (fail closed, nothing printed)
         env:
@@ -70,7 +70,7 @@ jobs:
         env:
           OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
           RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
-        run: $EVIDENCE --phase snapshot --out before.json
+        run: node_modules/.bin/tsx scripts/ops/derive-preenrollment-evidence.ts $EVIDENCE_ARGS --phase snapshot --out before.json
 
       - name: Calls against the live route
         id: calls
@@ -108,4 +108,4 @@ jobs:
           RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
           KNOWLEDGE_DERIVE_SECRET: ${{ secrets.KNOWLEDGE_DERIVE_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: $EVIDENCE --phase verify --before before.json --caller-run ${{ github.run_id }}
+        run: node_modules/.bin/tsx scripts/ops/derive-preenrollment-evidence.ts $EVIDENCE_ARGS --phase verify --before before.json --caller-run ${{ github.run_id }}
