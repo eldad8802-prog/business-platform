@@ -4,6 +4,7 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
+import { logRouteError } from "@/lib/security/route-error";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -95,12 +96,11 @@ export async function POST(req: Request, context: RouteContext) {
       conversation: updatedConversation,
     });
   } catch (error: any) {
-    console.error("POST /api/conversation/[id]/close error:", error);
+    logRouteError("POST /api/conversation/[id]/close", error);
 
     return NextResponse.json(
       {
         error: "Failed to close conversation",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );

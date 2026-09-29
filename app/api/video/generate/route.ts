@@ -1,5 +1,6 @@
 import { generateVideo } from "@/lib/services/video.service";
 import { getCurrentUser } from "@/lib/auth";
+import { logRouteError } from "@/lib/security/route-error";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
@@ -10,24 +11,15 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    console.log("VIDEO INPUT:", body);
-
+    // L-12: the request body and the provider result are no longer logged —
+    // they carry customer-authored content.
     const result = await generateVideo(body, req);
 
-    console.log("VIDEO RESULT:", result);
-
     return Response.json(result);
-  } catch (e: any) {
-    console.error("VIDEO ERROR:", e);
+  } catch (e: unknown) {
+    logRouteError("POST /api/video/generate", e);
 
-    return new Response(
-      JSON.stringify({
-        error: e?.message || "Internal error",
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    // L-12: never the raw exception text.
+    return Response.json({ error: "Internal error" }, { status: 500 });
   }
 }

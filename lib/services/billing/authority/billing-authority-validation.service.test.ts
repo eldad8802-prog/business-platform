@@ -132,6 +132,15 @@ function makeFakeValidationDb(input: {
   };
 
   const tx = {
+    // e02763a moved the VAT read to tenantTx (tx.businessProfile). The suite still
+    // faked only the bare-client read, so every probe path threw inside the fake
+    // transaction and 14 checks were red on main — unnoticed because no workflow
+    // ran this file (sec/A F-9). Same fixture as before: no stored profile.
+    businessProfile: {
+      async findUnique() {
+        return null;
+      },
+    },
     billingAuthorityConnection: {
       async findUnique() {
         return { ...connection };

@@ -71,8 +71,8 @@ jobs:
       OWNER_URL: postgresql://authfix_owner:authfix_ci_synthetic_owner_pw@localhost:5432/dubiz_authfix
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -171,7 +171,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/if \(!user\.business \|\| !acceptsNormalWrites\(user\.business\)\) \{/if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .authfix/refresh-state-machine-battery.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:166:174" --expect 'FAIL  - DELETION_REQUESTED refuses the refresh' -- npx tsx .authfix/refresh-state-machine-battery.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an account being erased can still mint access tokens"
             exit 1
@@ -192,7 +192,7 @@ jobs:
           cp "$F" "$F.bak"
           node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('if (verified.sessionId !== null) {','if (false) {');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
             || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
-          if npx tsx .authfix/device-sessions-battery.ts >/dev/null 2>&1; then
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:187:195" --expect 'FAIL  - SID INVALID (no such session) is refused' -- npx tsx .authfix/device-sessions-battery.ts; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a revoked or expired session still authenticates"
             exit 1

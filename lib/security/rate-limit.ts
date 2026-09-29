@@ -34,10 +34,13 @@ export async function consumeRateLimit(params: {
   key: string;
   limit: number;
   windowMs: number;
-}): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  /** "closed" = deny when the backend is unreachable. Required for auth keys. */
+  failMode?: "open" | "closed";
+}): Promise<{ allowed: boolean; remaining: number; resetAt: number; backendUnavailable?: boolean }> {
   return consumeRawLimit({
     key: params.key,
     limit: params.limit,
     windowSeconds: Math.max(1, Math.ceil(params.windowMs / 1000)),
+    failMode: params.failMode,
   });
 }
