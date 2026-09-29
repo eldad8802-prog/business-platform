@@ -40,6 +40,7 @@ on:
           - 'ops/evidence/secretary-ledger-cutover-evidence.sql'
           - 'ops/evidence/sec-p1-business-offering-production-evidence.sql'
           - 'ops/evidence/sec-c-530-production-evidence.sql'
+          - 'ops/evidence/m4-identity-routing-preflight.sql'
 
 permissions:
   contents: read
