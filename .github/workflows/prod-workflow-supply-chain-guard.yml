@@ -68,12 +68,12 @@ jobs:
         run: |
           set -uo pipefail
           NPX_CACHE="$(npm config get cache)/_npx"
-          before="$(ls "$NPX_CACHE" 2>/dev/null | wc -l)"
+          before="$( (ls "$NPX_CACHE" 2>/dev/null || true) | wc -l)"
           rm -f node_modules/.bin/tsx
           if node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts --expected-runtime-user app_runtime_prod; then
             echo "::error::the invocation succeeded without a local tsx"; exit 1
           fi
-          after="$(ls "$NPX_CACHE" 2>/dev/null | wc -l)"
+          after="$( (ls "$NPX_CACHE" 2>/dev/null || true) | wc -l)"
           echo "npx cache entries before=$before after=$after"
           [ "$before" = "$after" ] || { echo "::error::something was downloaded"; exit 1; }
           echo "OK: missing local tsx → the step fails; nothing is downloaded"
