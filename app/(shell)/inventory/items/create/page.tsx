@@ -49,6 +49,8 @@ export default function CreateInventoryItemPage() {
   const [reorderPoint, setReorderPoint] = useState("");
   const [costPerUnit, setCostPerUnit] = useState("");
   const [sellPricePerUnit, setSellPricePerUnit] = useState("");
+  const [description, setDescription] = useState("");
+  const [featuredByOwner, setFeaturedByOwner] = useState(false);
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [categoryName, setCategoryName] = useState("");
   const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
@@ -199,6 +201,8 @@ export default function CreateInventoryItemPage() {
         costPerUnit: normalizedCostPerUnit,
         sellPricePerUnit: normalizedSellPricePerUnit,
         categoryId,
+        description: description.trim() ? description.trim() : null,
+        featuredByOwner,
       });
       if (selectedFile) await uploadInventoryItemImage(createdItem.id, selectedFile);
       inventoryToast.success("המוצר נוסף למלאי");
@@ -270,6 +274,26 @@ export default function CreateInventoryItemPage() {
           />
           {fieldErrors.name ? <div className="inv-field__err">{fieldErrors.name}</div> : null}
         </div>
+
+        <div className="inv-field">
+          <div className="inv-field__lab">תיאור</div>
+          <textarea
+            className="inv-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="מה המוצר, בלי טקסט שיווקי"
+            rows={3}
+          />
+        </div>
+
+        <label className="inv-field" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={featuredByOwner}
+            onChange={(e) => setFeaturedByOwner(e.target.checked)}
+          />
+          <span>מוצר שהעסק רוצה להבליט</span>
+        </label>
 
         <div className="inv-field">
           <div className="inv-field__lab">קטגוריה</div>

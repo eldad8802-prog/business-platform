@@ -203,6 +203,9 @@ model Business {
   contentVariants               ContentVariant[]
   couponSurfaceEvents           CouponSurfaceEvent[]
   businessAssets                BusinessAsset[]
+  serviceAssets                 BusinessServiceAsset[]
+  itemAssets                    InventoryItemAsset[]
+  offeringDemandSignals         OfferingDemandSignal[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -741,6 +744,9 @@ model BusinessBotLearningSuggestion {
   @@index([botId, status])
 }
 
+/// Canonical service the business provides. Not a product, and not a landing page.
+/// `basePrice` is a legacy number with no price mode. It is not a public price.
+/// A null `priceMode` means the public price is still unknown.
 model BusinessService {
   id                     Int                     @id @default(autoincrement())
   businessId             Int
@@ -748,6 +754,18 @@ model BusinessService {
   type                   BusinessServiceType
   description            String?
   basePrice              Float?
+  /// Null on rows that predate price semantics. Never inferred from basePrice.
+  priceMode              ServicePriceMode?
+  priceAmount            Decimal?                @db.Decimal(18, 2)
+  priceMax               Decimal?                @db.Decimal(18, 2)
+  /// Customer-facing duration. Null means unknown or not applicable.
+  durationMinutes        Int?
+  /// Owner label such as "Hair" or "Contracts". Not a taxonomy.
+  categoryLabel          String?
+  /// Owner emphasis. Demand signals must never write this.
+  featuredByOwner        Boolean                 @default(false)
+  /// Where the service is performed. Geography stays on BusinessProfile.
+  fulfillment            ServiceFulfillment      @default(UNSPECIFIED)
   active                 Boolean                 @default(true)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
@@ -755,6 +773,12 @@ model BusinessService {
   deals                  Deal[]
   pricingRecommendations PricingRecommendation[]
   costProfile            ServiceCostProfile?
+  appointments           Appointment[]
+  assetLinks             BusinessServiceAsset[]
+  demandSignals          OfferingDemandSignal[]
+
+  @@unique([id, businessId])
+  @@index([businessId, active])
 }
 
 /// A Lead is a live, unconverted piece of commercial demand: something the owner
@@ -1409,6 +1433,8 @@ model Appointment {
   sourceMessageId      Int?
   customerId           Int?
   leadId               Int?
+  /// Set only when the owner selected a catalog service. Never inferred from title text.
+  businessServiceId    Int?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   business             Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -1417,7 +1443,10 @@ model Appointment {
   sourceMessage        Message?          @relation(fields: [sourceMessageId], references: [id])
   customer             Customer?         @relation(fields: [customerId], references: [id])
   lead                 Lead?             @relation(fields: [leadId], references: [id])
+  businessService      BusinessService?  @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
+  demandSignals        OfferingDemandSignal[]
 
+  @@unique([id, businessId])
   @@index([businessId, startsAt])
   @@index([businessId, status])
   @@index([businessId, createdAt])
@@ -1861,6 +1890,10 @@ model InventoryItem {
   lastPurchaseCostAt         DateTime?
   sellPricePerUnit           Float?
   imageUrl                   String?
+  /// What the product is. Not marketing copy, and not a substitute for a missing price.
+  description                String?
+  /// Owner emphasis. Sales volume must never write this.
+  featuredByOwner            Boolean                     @default(false)
   isActive                   Boolean                     @default(true)
   categoryId                 Int?
   createdAt                  DateTime                    @default(now())
@@ -1877,6 +1910,8 @@ model InventoryItem {
   receivingLines             ReceivingLine[]
   saleLines                  InventorySaleLine[]
   recognizedSourceLines      InventorySourceSaleLine[]
+  assetLinks                 InventoryItemAsset[]
+  demandSignals              OfferingDemandSignal[]
 
   @@unique([id, businessId])
   @@index([businessId])
@@ -2025,7 +2060,8 @@ model InventorySaleLine {
   item     InventoryItem     @relation(fields: [itemId, businessId], references: [id, businessId], onDelete: Cascade)
   movement InventoryMovement @relation(fields: [movementId, businessId], references: [id, businessId], onDelete: Cascade)
 
-  sourceLines InventorySourceSaleLine[]
+  sourceLines   InventorySourceSaleLine[]
+  demandSignals OfferingDemandSignal[]
 
   @@unique([id, businessId])
   @@unique([saleId, lineKey])
@@ -2069,12 +2105,77 @@ model BusinessAsset {
   idempotencyKey    String?
   createdAt         DateTime            @default(now())
 
-  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contentRun ContentRun? @relation(fields: [contentRunId, businessId], references: [id, businessId], onDelete: Cascade)
+  business     Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRun   ContentRun?            @relation(fields: [contentRunId, businessId], references: [id, businessId], onDelete: Cascade)
+  serviceLinks BusinessServiceAsset[]
+  itemLinks    InventoryItemAsset[]
 
+  @@unique([id, businessId])
   @@unique([businessId, idempotencyKey])
   @@unique([businessId, storageKey])
   @@index([businessId, createdAt])
+}
+
+/// Which retained asset depicts a service. This is not publication permission.
+model BusinessServiceAsset {
+  id                Int      @id @default(autoincrement())
+  businessId        Int
+  businessServiceId Int
+  businessAssetId   Int
+  createdAt         DateTime @default(now())
+
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessService BusinessService @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Cascade)
+  businessAsset   BusinessAsset   @relation(fields: [businessAssetId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([businessServiceId, businessAssetId])
+  @@index([businessId])
+}
+
+/// Which retained asset depicts a product. This is not publication permission.
+model InventoryItemAsset {
+  id              Int      @id @default(autoincrement())
+  businessId      Int
+  inventoryItemId Int
+  businessAssetId Int
+  createdAt       DateTime @default(now())
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Cascade)
+  businessAsset BusinessAsset @relation(fields: [businessAssetId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([inventoryItemId, businessAssetId])
+  @@index([businessId])
+}
+
+/// A known offering received a known kind of demand.
+/// No customer name, phone, or message body. Unknown relationships are not stored.
+/// One logical demand fact. The idempotency key is the business identity of that fact.
+/// BOOKING key: booking:appointment:{appointmentId}
+/// PURCHASE key: purchase:sale-line:{saleLineId}
+model OfferingDemandSignal {
+  id                Int                       @id @default(autoincrement())
+  businessId        Int
+  offeringKind      OfferingKind
+  businessServiceId Int?
+  inventoryItemId   Int?
+  appointmentId     Int?
+  saleLineId        Int?
+  signalType        OfferingDemandSignalType
+  source            OfferingDemandSource
+  idempotencyKey    String
+  createdAt         DateTime                  @default(now())
+
+  business        Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessService BusinessService?  @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
+  inventoryItem   InventoryItem?    @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Restrict)
+  appointment     Appointment?      @relation(fields: [appointmentId, businessId], references: [id, businessId], onDelete: Restrict)
+  saleLine        InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Restrict)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, offeringKind, createdAt])
+  @@index([businessId, businessServiceId])
+  @@index([businessId, inventoryItemId])
 }
 
 model POSApiKey {
@@ -2709,6 +2810,38 @@ enum ContentVariantStatus {
 enum BusinessAssetOrigin {
   OWNER_UPLOAD
   GENERATED
+}
+
+enum ServicePriceMode {
+  FIXED
+  FROM
+  RANGE
+  QUOTE_REQUIRED
+  NO_PUBLIC_PRICE
+}
+
+enum ServiceFulfillment {
+  AT_BUSINESS
+  AT_CUSTOMER
+  ONLINE
+  UNSPECIFIED
+}
+
+enum OfferingKind {
+  PRODUCT
+  SERVICE
+}
+
+enum OfferingDemandSignalType {
+  PRICE
+  AVAILABILITY
+  BOOKING
+  PURCHASE
+}
+
+enum OfferingDemandSource {
+  APPOINTMENT
+  SALE
 }
 
 enum ContentRenderStatus {

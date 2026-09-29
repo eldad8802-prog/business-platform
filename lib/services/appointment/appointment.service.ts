@@ -19,6 +19,7 @@ import {
   __parsers,
   clearPendingAppointmentRequestTx,
 } from "@/lib/services/conversation/pending-state.service";
+import { recordOfferingDemand } from "@/lib/services/offering/offering-demand";
 import { assertTransition, isTerminal } from "./appointment.lifecycle";
 import type {
   AppointmentResult,
@@ -83,6 +84,20 @@ function sensorWho(ctx: ActorContext): { actor: SensorActor; source: SensorSourc
   return { actor: { type: "SYSTEM" }, source };
 }
 
+async function selectedService(
+  tx: Prisma.TransactionClient,
+  businessId: number,
+  businessServiceId: number | null | undefined
+) {
+  if (businessServiceId === undefined || businessServiceId === null) return null;
+  if (!isPositiveInt(businessServiceId)) return "invalid" as const;
+  const service = await tx.businessService.findFirst({
+    where: { id: businessServiceId, businessId, active: true },
+    select: { id: true, name: true, durationMinutes: true },
+  });
+  return service;
+}
+
 function mergeNote(existing: string | null, addition: string | null): string | null {
   const add = addition?.trim();
   if (!add) return existing;
@@ -134,13 +149,19 @@ async function createWithinTx(
     if (activeCount > 0) return { ok: false, reason: "already_converted" };
   }
 
+  const service = await selectedService(tx, input.businessId, input.links?.businessServiceId);
+  if (service === "invalid") return { ok: false, reason: "invalid_input" };
+  if (input.links?.businessServiceId && !service) {
+    return { ok: false, reason: "service_not_found" };
+  }
+
   const appointment = await tx.appointment.create({
     data: {
       businessId: input.businessId,
       status: "PROPOSED",
       startsAt: input.details?.startsAt ?? null,
-      durationMinutes: input.details?.durationMinutes ?? null,
-      title: input.details?.title ?? null,
+      durationMinutes: input.details?.durationMinutes ?? service?.durationMinutes ?? null,
+      title: input.details?.title ?? service?.name ?? null,
       notes: input.details?.notes ?? null,
       createdByActor: input.actor.actor,
       sourceChannel: input.actor.sourceChannel,
@@ -149,8 +170,22 @@ async function createWithinTx(
       sourceMessageId: input.links?.messageId ?? null,
       customerId: input.links?.customerId ?? null,
       leadId: input.links?.leadId ?? null,
+      businessServiceId: service?.id ?? null,
     },
   });
+
+  if (service) {
+    const signal = await recordOfferingDemand(tx, {
+      businessId: input.businessId,
+      kind: "SERVICE",
+      offeringId: service.id,
+      signalType: "BOOKING",
+      source: "APPOINTMENT",
+      appointmentId: appointment.id,
+      idempotencyKey: `booking:appointment:${appointment.id}`,
+    });
+    if (!signal) throw new Error("booking evidence was not written");
+  }
 
   return { ok: true, appointment };
 }
@@ -197,13 +232,19 @@ export async function createFromPending(
     });
     if (activeCount > 0) return { ok: false, reason: "already_converted" };
 
+    const service = await selectedService(tx, input.businessId, input.businessServiceId);
+    if (service === "invalid") return { ok: false, reason: "invalid_input" };
+    if (input.businessServiceId && !service) {
+      return { ok: false, reason: "service_not_found" };
+    }
+
     const appointment = await tx.appointment.create({
       data: {
         businessId: input.businessId,
         status: "PROPOSED",
         startsAt: null,
-        durationMinutes: null,
-        title: null,
+        durationMinutes: service?.durationMinutes ?? null,
+        title: service?.name ?? null,
         notes: pending.customerHint,
         createdByActor: input.actor.actor,
         sourceChannel: input.actor.sourceChannel,
@@ -212,8 +253,22 @@ export async function createFromPending(
         sourceMessageId: pending.originMessageId,
         customerId: conv.customerId,
         leadId: conv.leadId,
+        businessServiceId: service?.id ?? null,
       },
     });
+
+    if (service) {
+      const signal = await recordOfferingDemand(tx, {
+        businessId: input.businessId,
+        kind: "SERVICE",
+        offeringId: service.id,
+        signalType: "BOOKING",
+        source: "APPOINTMENT",
+        appointmentId: appointment.id,
+        idempotencyKey: `booking:appointment:${appointment.id}`,
+      });
+      if (!signal) throw new Error("booking evidence was not written");
+    }
 
     await clearPendingAppointmentRequestTx(tx, input.conversationId);
 
