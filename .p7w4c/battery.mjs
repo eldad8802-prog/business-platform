@@ -24,6 +24,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { expectDenied } from "../scripts/ci/lab/denial.mjs";
 
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const RT_ROLE = TARGET === "neon" ? "app_runtime_preview_p4b" : "wave1_runtime";
@@ -261,18 +262,30 @@ async function main() {
   ok("cross-tenant token UPDATE = 0 rows", tokX.count === 0);
   const delX = await rtx(rt, bizA.id, (t) => t.oAuthToken.deleteMany({ where: { connectionId: connB.id } }));
   ok("cross-tenant token DELETE = 0 rows", delX.count === 0);
-  let wrongTok = false;
+  // OAuthToken.connectionId is @unique and connB already holds a token, so inserting for
+  // connB would fail with P2002 whatever RLS did. Use FRESH token-less parents, and prove the
+  // same insert SUCCEEDS on the tenant's own fresh parent first (positive control).
+  const freshConnA = await owner.emailConnection.create({ data: { businessId: bizA.id, provider: "gmail", status: "connected", emailAddress: "fresh-a@p7w4c.test", providerAccountId: "fa", scopes: "s" } });
+  const freshConnB = await owner.emailConnection.create({ data: { businessId: bizB.id, provider: "gmail", status: "connected", emailAddress: "fresh-b@p7w4c.test", providerAccountId: "fb", scopes: "s" } });
+  let ownTokOk = false;
   try {
+    await rtx(rt, bizA.id, (t) => t.oAuthToken.create({ data: { connectionId: freshConnA.id, accessTokenEncrypted: "x", expiresAt: new Date(), encryptionKeyId: "k" } }));
+    ownTokOk = true;
+  } catch (e) { console.log("  positive control error:", String(e?.message ?? e).slice(0, 160)); }
+  ok("positive control: OAuthToken for OWN fresh connection is accepted", ownTokOk);
+  const wrongTok = await expectDenied(async () => {
     await rtx(rt, bizA.id, (t) => t.oAuthToken.create({
-      data: { connectionId: connB.id, accessTokenEncrypted: "x", expiresAt: new Date(), encryptionKeyId: "k" } }));
-  } catch { wrongTok = true; }
-  ok("wrong-parent OAuthToken INSERT rejected", wrongTok);
-  let wrongConn = false;
-  try {
+      data: { connectionId: freshConnB.id, accessTokenEncrypted: "x", expiresAt: new Date(), encryptionKeyId: "k" } }));
+  }, ["RLS"]);
+  ok("wrong-parent OAuthToken INSERT rejected (RLS 42501)", wrongTok.denied, wrongTok.detail);
+  // The fresh parents must not change what later phases see (the per-business account cap).
+  await owner.oAuthToken.deleteMany({ where: { connectionId: { in: [freshConnA.id, freshConnB.id] } } });
+  await owner.emailConnection.deleteMany({ where: { id: { in: [freshConnA.id, freshConnB.id] } } });
+  const wrongConn = await expectDenied(async () => {
     await rtx(rt, bizA.id, (t) => t.emailConnection.create({
       data: { businessId: bizB.id, provider: "gmail", status: "connected", emailAddress: "e@x", providerAccountId: "e", scopes: "s" } }));
-  } catch { wrongConn = true; }
-  ok("wrong-tenant EmailConnection INSERT rejected", wrongConn);
+  }, ["RLS"]);
+  ok("wrong-tenant EmailConnection INSERT rejected (RLS 42501)", wrongConn.denied, wrongConn.detail);
 
   // ── Phase 7: Google-stubbed fetch ───────────────────────────────────────
   const realFetch = globalThis.fetch;
@@ -460,12 +473,10 @@ async function main() {
   const admConns = await adm.emailConnection.findMany({ where: { businessId: inIds } });
   ok("admin sees A+B EmailConnection", admConns.length >= 2 &&
     new Set(admConns.map((c) => c.businessId)).size === 2);
-  let admTokDenied = false;
-  try { await adm.oAuthToken.findMany({}); } catch { admTokDenied = true; }
-  ok("admin OAuthToken read denied (no grant/policy)", admTokDenied);
-  let admWrite = false;
-  try { await adm.emailConnection.updateMany({ where: {}, data: { lastError: "x" } }); } catch { admWrite = true; }
-  ok("admin EmailConnection write denied", admWrite);
+  const admTokDenied = await expectDenied(async () => { await adm.oAuthToken.findMany({}); }, ["PRIVILEGE"]);
+  ok("admin OAuthToken read denied (no grant/policy) (42501 permission denied)", admTokDenied.denied, admTokDenied.detail);
+  const admWrite = await expectDenied(async () => { await adm.emailConnection.updateMany({ where: {}, data: { lastError: "x" } }); }, ["PRIVILEGE", "RLS"]); // admin has SELECT-only policies: either refusal (42501) is the control
+  ok("admin EmailConnection write denied (42501)", admWrite.denied, admWrite.detail);
 
   // ── Phase 11: fail-closed + raw SQL + concurrency ───────────────────────
   console.log("--- fail-closed + raw + concurrency ---");
@@ -475,33 +486,30 @@ async function main() {
     return t.oAuthToken.findMany({});
   });
   ok("empty context -> 0 tokens", emptyCtx.length === 0);
-  let malformed = false;
-  try {
+  const malformed = await expectDenied(async () => {
     await rt.$transaction(async (t) => {
       await t.$queryRaw`SELECT set_config('app.current_business_id', 'evil', true)`;
       return t.emailConnection.findMany({});
     });
-  } catch { malformed = true; }
-  ok("malformed context errors", malformed);
+  }, ["CODE:22P02"]);
+  ok("malformed context errors (22P02)", malformed.denied, malformed.detail);
   const rawEC = await rtx(rt, bizA.id, (t) => t.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "EmailConnection"`));
   ok("raw EmailConnection = tenant-only", Number(rawEC[0].c) === (await owner.emailConnection.count({ where: { businessId: bizA.id } })));
   const rawTok = await rtx(rt, bizA.id, (t) => t.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "OAuthToken"`));
   ok("raw OAuthToken = own-parent only", Number(rawTok[0].c) === 1);
-  let rawIns = false;
-  try {
+  const rawIns = await expectDenied(async () => {
     await rtx(rt, bizA.id, (t) => t.$executeRawUnsafe(
       `INSERT INTO "EmailConnection" ("businessId","provider","status","emailAddress","providerAccountId","scopes","updatedAt") VALUES (${bizB.id}, 'gmail', 'connected', 'x@x', 'x', 's', now())`));
-  } catch { rawIns = true; }
-  ok("raw wrong-tenant INSERT WITH CHECK denied", rawIns);
-  let ddl = false;
-  try { await rt.$executeRawUnsafe(`CREATE TABLE p7w4c_evil (id int)`); } catch { ddl = true; }
-  ok("runtime DDL denied", ddl);
-  let mig = false;
-  try { await rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`); } catch { mig = true; }
-  ok("runtime _prisma_migrations denied", mig);
-  let ecDel = false;
-  try { await rtx(rt, bizA.id, (t) => t.emailConnection.deleteMany({ where: { businessId: bizA.id } })); } catch { ecDel = true; }
-  ok("runtime DELETE on EmailConnection denied (never granted)", ecDel);
+  }, ["RLS"]);
+  ok("raw wrong-tenant INSERT WITH CHECK denied (RLS 42501)", rawIns.denied, rawIns.detail);
+  const ddl = await expectDenied(async () => { await rt.$executeRawUnsafe(`CREATE TABLE p7w4c_evil (id int)`); }, ["PRIVILEGE"]);
+  ok("runtime DDL denied (42501 permission denied)", ddl.denied, ddl.detail);
+  // A db-push lab has no _prisma_migrations: the old check was green on 42P01 (missing table).
+  if (process.env.BATTERY_TARGET !== "neon") await owner.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY)`);
+  const mig = await expectDenied(async () => { await rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`); }, ["PRIVILEGE"]);
+  ok("runtime _prisma_migrations denied (42501 permission denied)", mig.denied, mig.detail);
+  const ecDel = await expectDenied(async () => { await rtx(rt, bizA.id, (t) => t.emailConnection.deleteMany({ where: { businessId: bizA.id } })); }, ["PRIVILEGE"]);
+  ok("runtime DELETE on EmailConnection denied (never granted) (42501 permission denied)", ecDel.denied, ecDel.detail);
 
   const [ca, cb] = await Promise.all([
     rtx(rt, bizA.id, async (t) => { await t.$executeRawUnsafe("SELECT pg_sleep(0.04)"); return t.emailConnection.count({}); }),

@@ -12,6 +12,7 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
+import { logRouteError } from "@/lib/security/route-error";
 
 /**
  * Conversation messages.
@@ -129,12 +130,11 @@ export async function GET(req: Request) {
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("GET /api/message error:", error);
+    logRouteError("GET /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to fetch messages",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );
@@ -179,12 +179,11 @@ export async function POST(req: Request) {
       handleBusinessMessage(user, body, conversationId)
     );
   } catch (error: any) {
-    console.error("POST /api/message error:", error);
+    logRouteError("POST /api/message", error);
 
     return NextResponse.json(
       {
         error: "Failed to create message",
-        details: error?.message || String(error),
       },
       { status: 500 }
     );

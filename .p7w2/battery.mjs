@@ -476,6 +476,8 @@ async function main() {
   const overviewRoute = await import("@/app/api/platform-admin/overview/route");
   const callOverview = (tok) => overviewRoute.GET(new NextRequest("http://p7w2.local/api/platform-admin/overview", { headers: tok ? { authorization: `Bearer ${tok}` } : {} }));
   process.env.PLATFORM_ADMIN_EMAILS = "admin@p7w2.test";
+  // sec-B (M-10): admin MFA is fail-closed; explicit non-production opt-out.
+  process.env.PLATFORM_ADMIN_MFA_REQUIRED = "false";
   res = await callOverview(signAuthToken(adminUser.id));
   body = res.status === 200 ? await res.json() : null;
   ok("overview: allowlisted admin -> 200", res.status === 200, `status=${res.status}`);

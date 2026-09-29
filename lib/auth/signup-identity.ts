@@ -13,7 +13,11 @@
  * all is decided earlier, in the route.
  */
 
-export const MIN_PASSWORD_LENGTH = 6;
+import { checkNewPassword } from "./password-policy";
+
+// The password rule lives in ./password-policy.ts (one policy for signup,
+// change and reset). Re-exported so existing importers keep one name for it.
+export { MIN_PASSWORD_LENGTH } from "./password-policy";
 export const MIN_NAME_LENGTH = 2;
 
 /**
@@ -98,11 +102,16 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
   // Length is checked on the raw value: a password is a secret, not a label, so
   // it is never trimmed. Trimming would silently store a different secret than
   // the one the owner typed, and they would be locked out on the next login.
-  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
-    throw new SignupValidationError(
-      "password",
-      `הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים`
-    );
+  //
+  // The rule itself (length in characters, a 72-BYTE ceiling so bcrypt never
+  // silently truncates, a common-password screen) is the shared policy.
+  const policy = checkNewPassword(password, { email: email.trim() });
+  if (!policy.ok) {
+    throw new SignupValidationError("password", policy.message);
+  }
+  if (typeof password !== "string") {
+    // Unreachable: the policy refuses non-strings. Narrows the type.
+    throw new SignupValidationError("password", "יש להזין סיסמה");
   }
 
   return {

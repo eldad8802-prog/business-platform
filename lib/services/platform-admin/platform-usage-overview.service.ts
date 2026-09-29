@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+// M-14(c)/T-07: platform-admin reads run as the admin identity (app_admin family,
+// p7adm_read + explicit grants), never as the tenant runtime.
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { PRODUCT_USAGE_FEATURES } from "@/lib/services/product-usage/product-usage-catalog";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "./constants";
 
@@ -76,21 +78,21 @@ export async function getPlatformUsageOverview(): Promise<PlatformUsageOverviewR
     featureGroups,
     recentLogins,
   ] = await Promise.all([
-    prisma.productUsageEvent.count({
+    getPrismaAdmin().productUsageEvent.count({
       where: {
         featureKey: authLoginKey,
         action: "completed",
         createdAt: { gte: since },
       },
     }),
-    prisma.productUsageEvent.count({
+    getPrismaAdmin().productUsageEvent.count({
       where: {
         featureKey: authLoginKey,
         action: "failed",
         createdAt: { gte: since },
       },
     }),
-    prisma.productUsageEvent.findMany({
+    getPrismaAdmin().productUsageEvent.findMany({
       where: {
         featureKey: authLoginKey,
         action: "completed",
@@ -100,7 +102,7 @@ export async function getPlatformUsageOverview(): Promise<PlatformUsageOverviewR
       distinct: ["userId"],
       select: { userId: true },
     }),
-    prisma.productUsageEvent.findMany({
+    getPrismaAdmin().productUsageEvent.findMany({
       where: {
         userId: { not: null },
         createdAt: { gte: since },
@@ -108,7 +110,7 @@ export async function getPlatformUsageOverview(): Promise<PlatformUsageOverviewR
       distinct: ["userId"],
       select: { userId: true },
     }),
-    prisma.productUsageEvent.findMany({
+    getPrismaAdmin().productUsageEvent.findMany({
       where: {
         businessId: { not: null },
         createdAt: { gte: since },
@@ -119,7 +121,7 @@ export async function getPlatformUsageOverview(): Promise<PlatformUsageOverviewR
         business: { select: { name: true } },
       },
     }),
-    prisma.productUsageEvent.groupBy({
+    getPrismaAdmin().productUsageEvent.groupBy({
       by: ["featureKey", "action"],
       where: {
         createdAt: { gte: since },
@@ -127,7 +129,7 @@ export async function getPlatformUsageOverview(): Promise<PlatformUsageOverviewR
       },
       _count: { _all: true },
     }),
-    prisma.user.findMany({
+    getPrismaAdmin().user.findMany({
       where: {
         lastLoginAt: { not: null },
         business: { name: { not: PLATFORM_SYSTEM_BUSINESS_NAME } },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  elevationBindingFor,
   isPlatformAdminMfaRequired,
   requirePlatformAdminIdentityOrResponse,
 } from "@/lib/auth/platform-admin";
@@ -33,7 +34,10 @@ export async function GET(req: NextRequest) {
       serverTime: new Date().toISOString(),
       mfa: await (async () => {
         const state = await getAdminMfaState(auth.id);
-        const elevation = verifyAdminElevation(readAdminElevationHeader(req), auth.id);
+        const elevation = verifyAdminElevation(
+          readAdminElevationHeader(req),
+          elevationBindingFor(auth)
+        );
         return {
           required: isPlatformAdminMfaRequired(),
           enrolled: state.enrolled,

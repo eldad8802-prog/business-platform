@@ -60,7 +60,16 @@ run_guard() {
   # catch{return null} pattern that let a DB blip reroute to the env map).
   local CONN="lib/services/integrations/whatsapp/connection.service.ts"
   if [ -f "$CONN" ]; then
-    if awk '/export async function resolveBusinessIdByPhoneNumberId/,/^}/' "$CONN" | grep -qE "catch[[:space:]]*[({]"; then
+    # sec/INT: #532 (M-14a) added ONE catch, whose first statement rethrows everything
+    # except "function does not exist" (42883, the window before release-migrate), after
+    # which the direct lookup runs WITHOUT a catch, so its DB errors propagate. The rule
+    # stays "no catch swallows a DB error": every catch must open with exactly that rethrow,
+    # and there may be only one.
+    local body ncatch nguard
+    body="$(awk '/export async function resolveBusinessIdByPhoneNumberId/,/^}/' "$CONN")"
+    ncatch=$(printf '%s\n' "$body" | grep -cE "catch[[:space:]]*[({]" || true)
+    nguard=$(printf '%s\n' "$body" | awk '/catch[[:space:]]*\(error\)[[:space:]]*\{/{f=1;next} f&&/^[[:space:]]*\/\//{next} f{print;f=0}' | grep -cE "^[[:space:]]*if \(!isUndefinedFunction\(error\)\) throw error;" || true)
+    if [ "${ncatch:-0}" -gt 1 ] || { [ "${ncatch:-0}" -eq 1 ] && [ "${nguard:-0}" -ne 1 ]; }; then
       echo "CI-W4-3 FAIL: resolveBusinessIdByPhoneNumberId swallows DB errors again"; fail=1
     fi
   fi

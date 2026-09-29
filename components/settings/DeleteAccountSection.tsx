@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { STEP_UP_HEADER, obtainStepUpToken, stepUpErrorMessage } from "@/lib/auth/step-up-client";
 
 /**
  * Self-service account deletion (Wave 1B). Discoverable in-app entry that satisfies
@@ -21,6 +22,7 @@ export function DeleteAccountSection() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -29,9 +31,16 @@ export function DeleteAccountSection() {
     setBusy(true);
     setError(null);
     try {
+      // M-9: deletion requires re-entering the password (single-use step-up).
+      const stepUp = await obtainStepUpToken(password, "account.delete");
+      setPassword("");
+      if (!stepUp.ok) {
+        setError(stepUpErrorMessage(stepUp.reason));
+        return;
+      }
       const res = await fetch("/api/account", {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${authToken()}` },
+        headers: { Authorization: `Bearer ${authToken()}`, [STEP_UP_HEADER]: stepUp.token },
       });
       if (res.ok) {
         setDone(true);
@@ -94,10 +103,21 @@ export function DeleteAccountSection() {
             className="mb-3 w-full rounded-xl border border-[var(--dz-border-strong)] px-3 py-2 text-sm"
             aria-describedby={error ? "delete-error" : undefined}
           />
+          <label htmlFor="delete-password" className="mb-1 block text-sm font-medium text-[var(--dz-text-primary)]">
+            הסיסמה שלכם
+          </label>
+          <input
+            id="delete-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mb-3 w-full rounded-xl border border-[var(--dz-border-strong)] px-3 py-2 text-sm"
+          />
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy || confirmText.trim() !== CONFIRM_WORD}
+              disabled={busy || confirmText.trim() !== CONFIRM_WORD || password.length === 0}
               onClick={handleDelete}
               className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--dz-danger-accent)] px-4 text-sm font-semibold text-[var(--dz-text-on-brand)] disabled:opacity-50"
             >
@@ -106,7 +126,7 @@ export function DeleteAccountSection() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => { setOpen(false); setConfirmText(""); setError(null); }}
+              onClick={() => { setOpen(false); setConfirmText(""); setPassword(""); setError(null); }}
               className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] dz-mist px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
             >
               ביטול

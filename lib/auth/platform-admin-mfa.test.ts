@@ -26,8 +26,10 @@ import {
 } from "./platform-admin";
 import {
   decryptAdminMfaSecret,
+  decryptAdminMfaSecretWithFormat,
   encryptAdminMfaSecret,
 } from "./admin-mfa-crypto";
+import { verifyAdminEnrollmentCode } from "./admin-mfa-enrollment";
 import { __testing as mfaService } from "./admin-mfa.service";
 
 process.env.AUTH_TOKEN_SECRET =
@@ -38,6 +40,13 @@ process.env.ADMIN_MFA_ENCRYPTION_KEY =
 
 const ADMIN_ID = 21;
 const OTHER_ADMIN_ID = 99;
+
+/** An elevation binding: user, device session, token generation (L-10). */
+const B = (userId: number, sessionId: string | null = "sess-a", tokenVersion = 0) => ({
+  userId,
+  sessionId,
+  tokenVersion,
+});
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prev: Record<string, string | undefined> = {};
@@ -109,24 +118,24 @@ async function main() {
 
   // 3. valid TOTP → elevation created, and it verifies for that admin
   {
-    const e = issueAdminElevation(ADMIN_ID);
-    const r = verifyAdminElevation(e, ADMIN_ID);
+    const e = issueAdminElevation(B(ADMIN_ID));
+    const r = verifyAdminElevation(e, B(ADMIN_ID));
     assert.equal(r.ok, true, "a freshly issued elevation must verify");
   }
 
   // 4. elevation is BOUND to the user — another admin cannot reuse it
   {
-    const e = issueAdminElevation(ADMIN_ID);
-    const r = verifyAdminElevation(e, OTHER_ADMIN_ID);
+    const e = issueAdminElevation(B(ADMIN_ID));
+    const r = verifyAdminElevation(e, B(OTHER_ADMIN_ID));
     assert.equal(r.ok, false);
     assert.equal(r.ok === false && r.reason, "user_mismatch");
   }
 
   // 5. elevation expiry → rejected once past its lifetime
   {
-    const e = issueAdminElevation(ADMIN_ID);
+    const e = issueAdminElevation(B(ADMIN_ID));
     const past = Date.now() + (ADMIN_ELEVATION_TTL_SECONDS + 5) * 1000;
-    const r = verifyAdminElevation(e, ADMIN_ID, past);
+    const r = verifyAdminElevation(e, B(ADMIN_ID), past);
     assert.equal(r.ok, false);
     assert.equal(r.ok === false && r.reason, "expired");
     // and the lifetime really is the short step-up, not a second session
@@ -138,12 +147,12 @@ async function main() {
 
   // 6. tampering with the payload breaks the signature
   {
-    const e = issueAdminElevation(ADMIN_ID);
+    const e = issueAdminElevation(B(ADMIN_ID));
     const [payloadB64, sig] = e.split(".");
     const p = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
     p.sub = OTHER_ADMIN_ID; // try to point it at another admin
     const forged = `${Buffer.from(JSON.stringify(p), "utf8").toString("base64url")}.${sig}`;
-    const r = verifyAdminElevation(forged, OTHER_ADMIN_ID);
+    const r = verifyAdminElevation(forged, B(OTHER_ADMIN_ID));
     assert.equal(r.ok, false);
     assert.equal(r.ok === false && r.reason, "bad_signature");
   }
@@ -152,17 +161,17 @@ async function main() {
   {
     const { signAuthToken } = await import("../auth-token");
     const session = signAuthToken(ADMIN_ID);
-    const r = verifyAdminElevation(session, ADMIN_ID);
+    const r = verifyAdminElevation(session, B(ADMIN_ID));
     assert.equal(r.ok, false, "a session token must never elevate");
   }
 
   // 8. rotating AUTH_TOKEN_SECRET invalidates outstanding elevations
   {
-    const e = issueAdminElevation(ADMIN_ID);
-    assert.equal(verifyAdminElevation(e, ADMIN_ID).ok, true);
+    const e = issueAdminElevation(B(ADMIN_ID));
+    assert.equal(verifyAdminElevation(e, B(ADMIN_ID)).ok, true);
     withEnv({ AUTH_TOKEN_SECRET: "rotated_secret_value" }, () => {
       assert.equal(
-        verifyAdminElevation(e, ADMIN_ID).ok,
+        verifyAdminElevation(e, B(ADMIN_ID)).ok,
         false,
         "secret rotation must invalidate elevations, as it does sessions"
       );
@@ -172,58 +181,83 @@ async function main() {
   // 9. missing / malformed elevations are rejected, never defaulted
   {
     for (const bad of [null, undefined, "", "not-an-envelope", "a.b.c", "x".repeat(4000)]) {
-      const r = verifyAdminElevation(bad as string | null, ADMIN_ID);
+      const r = verifyAdminElevation(bad as string | null, B(ADMIN_ID));
       assert.equal(r.ok, false, `elevation ${JSON.stringify(bad)} must be rejected`);
     }
   }
 
   // ── Guard behaviour: enforcement OFF (B-3a) vs ON (B-3b) ──────────────────
 
-  // 10. enforcement flag semantics — only the exact string enables it
+  // 10. enforcement is FAIL-CLOSED (M-10). Outside production only the exact
+  //     opt-out "false" disables it; unset, empty or garbage keep it ON.
   {
-    for (const v of [undefined, "", "false", "0", "yes", "TRUE "]) {
-      const on = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: v }, () =>
-        isPlatformAdminMfaRequired()
+    for (const v of [undefined, "", "0", "yes", "TRUE ", "true", "off"]) {
+      const on = withEnv(
+        { PLATFORM_ADMIN_MFA_REQUIRED: v, NODE_ENV: "test", VERCEL_ENV: undefined },
+        () => isPlatformAdminMfaRequired()
       );
-      assert.equal(on, v === "TRUE " ? true : false, `flag "${v}" → ${on}`);
+      assert.equal(on, true, `non-production flag "${v}" must keep MFA required`);
     }
-    assert.equal(
-      withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: "true" }, () => isPlatformAdminMfaRequired()),
-      true
-    );
+    for (const v of ["false", " FALSE "]) {
+      assert.equal(
+        withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: v, NODE_ENV: "test", VERCEL_ENV: undefined }, () =>
+          isPlatformAdminMfaRequired()
+        ),
+        false,
+        `explicit non-production opt-out "${v}"`
+      );
+    }
+    // 10b. production ignores the flag entirely — even an explicit "false".
+    for (const env of [
+      { NODE_ENV: "production", VERCEL_ENV: undefined },
+      { NODE_ENV: "test", VERCEL_ENV: "production" },
+    ]) {
+      for (const v of [undefined, "false", ""]) {
+        assert.equal(
+          withEnv({ ...env, PLATFORM_ADMIN_MFA_REQUIRED: v }, () => isPlatformAdminMfaRequired()),
+          true,
+          `production (${JSON.stringify(env)}) with flag "${v}" must require MFA`
+        );
+      }
+    }
   }
 
   // 11. with enforcement OFF, hasAdminElevation is permissive (B-3a safety:
   //     the sole admin must be able to reach enrollment)
   {
-    const allowed = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: undefined }, () =>
-      hasAdminElevation(req(), ADMIN_ID)
+    const allowed = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: "false" }, () =>
+      hasAdminElevation(req(), B(ADMIN_ID))
     );
-    assert.equal(allowed, true, "enforcement OFF must not block the admin");
+    assert.equal(allowed, true, "explicit non-production opt-out must not block the admin");
+    // …and an UNSET flag no longer means "off" (M-10 fail-closed).
+    const unset = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: undefined }, () =>
+      hasAdminElevation(req(), B(ADMIN_ID))
+    );
+    assert.equal(unset, false, "an unset flag must NOT disable enforcement");
   }
 
   // 12. with enforcement ON, an un-elevated request is refused
   {
     const allowed = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: "true" }, () =>
-      hasAdminElevation(req(), ADMIN_ID)
+      hasAdminElevation(req(), B(ADMIN_ID))
     );
     assert.equal(allowed, false, "enforcement ON must require an elevation");
   }
 
   // 13. with enforcement ON, a valid elevation for THIS admin is accepted…
   {
-    const e = issueAdminElevation(ADMIN_ID);
+    const e = issueAdminElevation(B(ADMIN_ID));
     const allowed = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: "true" }, () =>
-      hasAdminElevation(req({ elevation: e }), ADMIN_ID)
+      hasAdminElevation(req({ elevation: e }), B(ADMIN_ID))
     );
     assert.equal(allowed, true);
   }
 
   // 14. …but another admin's elevation is not
   {
-    const e = issueAdminElevation(OTHER_ADMIN_ID);
+    const e = issueAdminElevation(B(OTHER_ADMIN_ID));
     const allowed = withEnv({ PLATFORM_ADMIN_MFA_REQUIRED: "true" }, () =>
-      hasAdminElevation(req({ elevation: e }), ADMIN_ID)
+      hasAdminElevation(req({ elevation: e }), B(ADMIN_ID))
     );
     assert.equal(allowed, false, "an elevation must not transfer between admins");
   }
@@ -285,30 +319,30 @@ async function main() {
   // 17. the seed round-trips under its own key, and is unreadable under another
   {
     const seed = new OTPAuth.Secret({ size: 20 }).base32;
-    const { encrypted, keyId } = encryptAdminMfaSecret(seed);
-    assert.ok(encrypted.startsWith("gcm_v1:"), "authenticated-encryption envelope");
+    const { encrypted, keyId } = encryptAdminMfaSecret(seed, ADMIN_ID);
+    assert.ok(encrypted.startsWith("gcm_v2:"), "authenticated-encryption envelope (v2, owner-bound)");
     assert.ok(!encrypted.includes(seed), "ciphertext must not contain the seed");
-    assert.equal(keyId, "gcm_v1");
-    assert.equal(decryptAdminMfaSecret(encrypted), seed);
+    assert.equal(keyId, "gcm_v2");
+    assert.equal(decryptAdminMfaSecret(encrypted, ADMIN_ID), seed);
 
     // A different key cannot read it — this is what makes the dedicated key
     // meaningful, and why AUTH_TOKEN_SECRET rotation cannot break enrollment.
     const underOtherKey = withEnv(
       { ADMIN_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64") },
-      () => decryptAdminMfaSecret(encrypted)
+      () => decryptAdminMfaSecret(encrypted, ADMIN_ID)
     );
     assert.equal(underOtherKey, null, "a wrong key must yield null, not garbage");
 
     // Tampered ciphertext fails authentication rather than decrypting.
-    const parts = encrypted.slice("gcm_v1:".length).split(".");
+    const parts = encrypted.slice("gcm_v2:".length).split(".");
     const flipped = Buffer.from(parts[2], "base64");
     flipped[0] ^= 0xff;
-    const tampered = `gcm_v1:${parts[0]}.${parts[1]}.${flipped.toString("base64")}`;
-    assert.equal(decryptAdminMfaSecret(tampered), null, "GCM must reject tampering");
+    const tampered = `gcm_v2:${parts[0]}.${parts[1]}.${flipped.toString("base64")}`;
+    assert.equal(decryptAdminMfaSecret(tampered, ADMIN_ID), null, "GCM must reject tampering");
 
     // Missing key → no plaintext fallback.
     const noKey = withEnv({ ADMIN_MFA_ENCRYPTION_KEY: undefined }, () =>
-      decryptAdminMfaSecret(encrypted)
+      decryptAdminMfaSecret(encrypted, ADMIN_ID)
     );
     assert.equal(noKey, null, "a missing key must fail closed");
   }
@@ -396,7 +430,96 @@ async function main() {
     );
   }
 
-  console.log("platform-admin MFA (Wave B / CASA 3.3.1): OK — 18/18");
+  // ── Workstream B additions (M-10 / L-10) ─────────────────────────────────
+
+  // 19. elevation is bound to the device SESSION — another session of the
+  //     same admin cannot reuse it.
+  {
+    const e = issueAdminElevation(B(ADMIN_ID, "sess-a", 3));
+    assert.equal(verifyAdminElevation(e, B(ADMIN_ID, "sess-a", 3)).ok, true);
+    const other = verifyAdminElevation(e, B(ADMIN_ID, "sess-b", 3));
+    assert.equal(other.ok === false && other.reason, "session_mismatch", "other session must be refused");
+    const sidless = verifyAdminElevation(e, B(ADMIN_ID, null, 3));
+    assert.equal(sidless.ok === false && sidless.reason, "session_mismatch");
+  }
+
+  // 20. elevation is bound to the token GENERATION — logout / password change
+  //     (which move it) kill the elevation at once.
+  {
+    const e = issueAdminElevation(B(ADMIN_ID, "sess-a", 3));
+    const moved = verifyAdminElevation(e, B(ADMIN_ID, "sess-a", 4));
+    assert.equal(moved.ok === false && moved.reason, "session_mismatch", "a moved generation must refuse");
+  }
+
+  // 21. a v1 (unbound) envelope is refused outright.
+  {
+    const { createHmac } = await import("node:crypto");
+    const key = createHmac("sha256", process.env.AUTH_TOKEN_SECRET as string)
+      .update("dubiz-platform-admin-elevation-v1")
+      .digest();
+    const iat = Math.floor(Date.now() / 1000);
+    const payloadB64 = Buffer.from(
+      JSON.stringify({ v: 1, purpose: "platform-admin-elevation", sub: ADMIN_ID, nonce: "n", iat, exp: iat + 600 }),
+      "utf8"
+    ).toString("base64url");
+    const sig = createHmac("sha256", key).update(payloadB64).digest("base64url");
+    const r = verifyAdminElevation(`${payloadB64}.${sig}`, B(ADMIN_ID));
+    assert.equal(r.ok === false && r.reason, "wrong_version", "an unbound v1 elevation must be refused");
+  }
+
+  // 22. the seed ciphertext is bound to its OWNER (AAD) — copying it to another
+  //     admin's row yields nothing.
+  {
+    const seed = new OTPAuth.Secret({ size: 20 }).base32;
+    const { encrypted } = encryptAdminMfaSecret(seed, ADMIN_ID);
+    assert.equal(decryptAdminMfaSecret(encrypted, ADMIN_ID), seed);
+    assert.equal(
+      decryptAdminMfaSecret(encrypted, OTHER_ADMIN_ID),
+      null,
+      "a seed moved to another admin's row must not decrypt"
+    );
+  }
+
+  // 23. legacy v1 ciphertext (no AAD) still decrypts — no data loss — and is
+  //     reported as legacy so the service re-encrypts it on use.
+  {
+    const { createCipheriv, randomBytes } = await import("node:crypto");
+    const seed = new OTPAuth.Secret({ size: 20 }).base32;
+    const key = Buffer.from(process.env.ADMIN_MFA_ENCRYPTION_KEY as string, "base64");
+    const iv = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", key, iv);
+    const ct = Buffer.concat([c.update(seed, "utf8"), c.final()]);
+    const v1 = `gcm_v1:${iv.toString("base64")}.${c.getAuthTag().toString("base64")}.${ct.toString("base64")}`;
+    const out = decryptAdminMfaSecretWithFormat(v1, ADMIN_ID);
+    assert.equal(out?.secret, seed, "a v1 seed must still be readable");
+    assert.equal(out?.legacy, true, "a v1 seed must be flagged for re-encryption");
+  }
+
+  // 24. enrollment authority: disabled without the bootstrap hash; only the
+  //     exact code opens it; compared as a hash (M-10).
+  {
+    const { createHash } = await import("node:crypto");
+    const code = "bootstrap-code-synthetic-0123456789abcdef";
+    const hash = createHash("sha256").update(code, "utf8").digest("hex");
+    assert.equal(
+      withEnv({ PLATFORM_ADMIN_ENROLLMENT_CODE_HASH: undefined }, () => verifyAdminEnrollmentCode(code)),
+      "disabled",
+      "no bootstrap hash → enrollment disabled"
+    );
+    assert.equal(
+      withEnv({ PLATFORM_ADMIN_ENROLLMENT_CODE_HASH: "not-hex" }, () => verifyAdminEnrollmentCode(code)),
+      "disabled",
+      "a malformed hash → disabled, never open"
+    );
+    withEnv({ PLATFORM_ADMIN_ENROLLMENT_CODE_HASH: hash }, () => {
+      assert.equal(verifyAdminEnrollmentCode(code), "ok");
+      for (const bad of [undefined, "", "wrong", hash, code + "x"]) {
+        assert.equal(verifyAdminEnrollmentCode(bad), "invalid", `code ${JSON.stringify(bad)} must be refused`);
+      }
+    });
+  }
+
+  console.log("platform-admin MFA (Wave B / CASA 3.3.1 + sec-B): OK — 24/24");
 }
 
 main().catch((err) => {

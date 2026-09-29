@@ -21,7 +21,10 @@
  *   - recovery codes are single-use and stored only as hashes;
  *   - no code, seed, URI or recovery code is ever logged.
  *
- * Reads/writes go through the CANONICAL runtime client (`lib/prisma.ts`).
+ * Reads/writes go through the AUTH PLANE (`authDb()`, T-04): PlatformAdminMfa is
+ * authentication material, not tenant data. Migration 20260926110300 grants
+ * app_auth S/I/U/D on it; the runtime's legacy grant is revoked per environment
+ * once this ships. In legacy mode authDb() is the canonical client, as before.
  *
  * This was originally written against the sanctioned admin client, which was a
  * mistake: `PlatformAdminMfa` carries no `businessId`, has row-level security
@@ -35,10 +38,10 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import * as OTPAuth from "otpauth";
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 import {
   ADMIN_MFA_KEY_ID,
-  decryptAdminMfaSecret,
+  decryptAdminMfaSecretWithFormat,
   encryptAdminMfaSecret,
 } from "./admin-mfa-crypto";
 
@@ -108,7 +111,7 @@ function generateRecoveryCode(): string {
 
 /** Current state for a user. Never returns the seed or any code. */
 export async function getAdminMfaState(userId: number): Promise<AdminMfaState> {
-  const row = await prisma.platformAdminMfa.findUnique({
+  const row = await authDb().platformAdminMfa.findUnique({
     where: { userId },
     select: {
       enrolledAt: true,
@@ -148,7 +151,7 @@ export async function beginAdminMfaEnrollment(
   | { ok: true; otpauthUri: string }
   | { ok: false; reason: "already_enrolled" }
 > {
-  const db = prisma;
+  const db = authDb();
   const existing = await db.platformAdminMfa.findUnique({
     where: { userId },
     select: { enrolledAt: true },
@@ -159,7 +162,7 @@ export async function beginAdminMfaEnrollment(
 
   const secret = new OTPAuth.Secret({ size: 20 }); // 160-bit, RFC 4226 minimum
   const base32 = secret.base32;
-  const { encrypted, keyId } = encryptAdminMfaSecret(base32);
+  const { encrypted, keyId } = encryptAdminMfaSecret(base32, userId);
 
   await db.platformAdminMfa.upsert({
     where: { userId },
@@ -195,12 +198,12 @@ export async function confirmAdminMfaEnrollment(
   | { ok: true; recoveryCodes: string[] }
   | { ok: false; reason: "no_pending_enrollment" | "already_enrolled" | "invalid_code" }
 > {
-  const db = prisma;
+  const db = authDb();
   const row = await db.platformAdminMfa.findUnique({ where: { userId } });
   if (!row) return { ok: false, reason: "no_pending_enrollment" };
   if (row.enrolledAt) return { ok: false, reason: "already_enrolled" };
 
-  const secret = decryptAdminMfaSecret(row.secretEncrypted);
+  const secret = decryptAdminMfaSecretWithFormat(row.secretEncrypted, userId)?.secret ?? null;
   if (!secret) return { ok: false, reason: "no_pending_enrollment" };
 
   const delta = buildTotp(secret).validate({
@@ -213,8 +216,11 @@ export async function confirmAdminMfaEnrollment(
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
   const step = BigInt(Math.floor(now.getTime() / 1000 / PERIOD_SECONDS) + delta);
 
-  await db.platformAdminMfa.update({
-    where: { userId },
+  // Conditional on the row still being the UNCONFIRMED enrollment whose seed
+  // was just checked: a concurrent confirm, or a restart that replaced the
+  // seed, makes this match nothing instead of enabling the wrong seed.
+  const { count } = await db.platformAdminMfa.updateMany({
+    where: { userId, enrolledAt: null, secretEncrypted: row.secretEncrypted },
     data: {
       enrolledAt: now,
       lastVerifiedAt: now,
@@ -223,6 +229,7 @@ export async function confirmAdminMfaEnrollment(
       recoveryCodesGeneratedAt: now,
     },
   });
+  if (count !== 1) return { ok: false, reason: "no_pending_enrollment" };
 
   return { ok: true, recoveryCodes: codes };
 }
@@ -240,13 +247,14 @@ export async function verifyAdminMfaCode(
   code: string,
   now: Date = new Date()
 ): Promise<VerifyOutcome> {
-  const db = prisma;
+  const db = authDb();
   const row = await db.platformAdminMfa.findUnique({ where: { userId } });
   if (!row) return { ok: false, reason: "no_record" };
   if (!row.enrolledAt) return { ok: false, reason: "not_enrolled" };
 
   const submitted = (code ?? "").trim();
-  const secret = decryptAdminMfaSecret(row.secretEncrypted);
+  const decrypted = decryptAdminMfaSecretWithFormat(row.secretEncrypted, userId);
+  const secret = decrypted?.secret ?? null;
 
   if (secret) {
     const delta = buildTotp(secret).validate({
@@ -261,10 +269,21 @@ export async function verifyAdminMfaCode(
       if (row.lastUsedStep != null && step <= row.lastUsedStep) {
         return { ok: false, reason: "replayed_code" };
       }
-      await db.platformAdminMfa.update({
-        where: { userId },
+      // ATOMIC (L-10). The replay check above is advisory; THIS is the gate:
+      // one conditional UPDATE that only matches while the stored step is still
+      // below this one. Two concurrent submissions of the same code both pass
+      // the read above, but PostgreSQL re-evaluates the predicate for the second
+      // after the first commits, so exactly one of them is accepted.
+      const { count } = await db.platformAdminMfa.updateMany({
+        where: {
+          userId,
+          enrolledAt: { not: null },
+          OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }],
+        },
         data: { lastUsedStep: step, lastVerifiedAt: now },
       });
+      if (count !== 1) return { ok: false, reason: "replayed_code" };
+      if (decrypted?.legacy) await upgradeLegacySeed(userId, row.secretEncrypted, secret);
       return { ok: true, via: "totp" };
     }
   }
@@ -275,17 +294,48 @@ export async function verifyAdminMfaCode(
     constantTimeHashEquals(h, submittedHash)
   );
   if (match) {
-    await db.platformAdminMfa.update({
-      where: { userId },
-      data: {
-        recoveryCodeHashes: row.recoveryCodeHashes.filter((h) => h !== match),
-        lastVerifiedAt: now,
-      },
-    });
+    // ATOMIC (L-10). Removal happens IN the database, conditional on the hash
+    // still being present: `array_remove` on the current row value, never a
+    // client-computed array written back. The old read-filter-write let two
+    // concurrent requests both spend the same code, and let two different codes
+    // spent concurrently resurrect each other (last writer wins).
+    // An explicit UTC instant cast to the column type: no session-TimeZone
+    // conversion (see the timestamp note in refresh-session.ts).
+    const nowIso = now.toISOString().replace("T", " ").replace("Z", "");
+    const consumed = await db.$executeRaw`
+      UPDATE "PlatformAdminMfa"
+         SET "recoveryCodeHashes" = array_remove("recoveryCodeHashes", ${match}),
+             "lastVerifiedAt" = CAST(${nowIso} AS timestamp(3)),
+             "updatedAt" = CAST(${nowIso} AS timestamp(3))
+       WHERE "userId" = ${userId}
+         AND "enrolledAt" IS NOT NULL
+         AND ${match} = ANY("recoveryCodeHashes")`;
+    if (consumed !== 1) return { ok: false, reason: "invalid_code" };
     return { ok: true, via: "recovery_code" };
   }
 
   return { ok: false, reason: "invalid_code" };
+}
+
+/**
+ * Re-encrypt a legacy (v1, unbound) seed as v2, bound to its owner. Conditional
+ * on the ciphertext being unchanged, so it can never overwrite a newer seed.
+ * Best effort: the verification has already succeeded, and a failure here only
+ * postpones the upgrade to the next use.
+ */
+async function upgradeLegacySeed(userId: number, previous: string, secret: string): Promise<void> {
+  try {
+    const { encrypted, keyId } = encryptAdminMfaSecret(secret, userId);
+    await authDb().platformAdminMfa.updateMany({
+      where: { userId, secretEncrypted: previous },
+      data: { secretEncrypted: encrypted, encryptionKeyId: keyId },
+    });
+  } catch (error) {
+    console.error(
+      "ADMIN_MFA_SEED_UPGRADE_ERROR:",
+      error instanceof Error ? error.name : "UnknownError"
+    );
+  }
 }
 
 /**
@@ -296,7 +346,7 @@ export async function verifyAdminMfaCode(
  * still requires proving a code before MFA is active again.
  */
 export async function resetAdminMfa(userId: number): Promise<void> {
-  await prisma.platformAdminMfa.deleteMany({ where: { userId } });
+  await authDb().platformAdminMfa.deleteMany({ where: { userId } });
 }
 
 export const __testing = {

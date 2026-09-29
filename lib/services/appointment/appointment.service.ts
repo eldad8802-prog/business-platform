@@ -134,6 +134,21 @@ async function createWithinTx(
     if (activeCount > 0) return { ok: false, reason: "already_converted" };
   }
 
+  // M-3: every other link must belong to THIS business too, checked on the same
+  // tenant transaction as the create (a single-column FK is checked by PostgreSQL
+  // WITHOUT row-level security, so it would accept another tenant's id). A foreign
+  // and a nonexistent id answer the same `invalid_input` — no existence oracle.
+  const refs = input.links ?? {};
+  if (refs.customerId != null && !(await tx.customer.findFirst({
+    where: { id: refs.customerId, businessId: input.businessId }, select: { id: true },
+  }))) return { ok: false, reason: "invalid_input" };
+  if (refs.leadId != null && !(await tx.lead.findFirst({
+    where: { id: refs.leadId, businessId: input.businessId }, select: { id: true },
+  }))) return { ok: false, reason: "invalid_input" };
+  if (refs.messageId != null && !(await tx.message.findFirst({
+    where: { id: refs.messageId, businessId: input.businessId }, select: { id: true },
+  }))) return { ok: false, reason: "invalid_input" };
+
   const appointment = await tx.appointment.create({
     data: {
       businessId: input.businessId,

@@ -6,7 +6,9 @@ import {
   WhatsAppAttachmentImportStatus,
 } from "@prisma/client";
 import { NotFoundError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
+// M-14(c)/T-07: platform-admin reads run as the admin identity (app_admin family,
+// p7adm_read + explicit grants), never as the tenant runtime.
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { PRODUCT_USAGE_FEATURES } from "@/lib/services/product-usage/product-usage-catalog";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "./constants";
 import type {
@@ -170,7 +172,7 @@ export async function getPlatformAdminBusinessDetail(
   const since7d = daysAgo(WINDOW_DAYS);
   const stuckBefore = daysAgo(STUCK_DOC_DAYS);
 
-  const business = await prisma.business.findFirst({
+  const business = await getPrismaAdmin().business.findFirst({
     where: {
       id: businessId,
       name: { not: PLATFORM_SYSTEM_BUSINESS_NAME },
@@ -215,48 +217,48 @@ export async function getPlatformAdminBusinessDetail(
     loginEvents7d,
     usageUsers7d,
   ] = await Promise.all([
-    prisma.document.count({
+    getPrismaAdmin().document.count({
       where: { businessId, status: DOCUMENT_NEEDS_REVIEW },
     }),
-    prisma.document.count({
+    getPrismaAdmin().document.count({
       where: {
         businessId,
         status: DOCUMENT_NEEDS_REVIEW,
         createdAt: { lt: stuckBefore },
       },
     }),
-    prisma.document.findMany({
+    getPrismaAdmin().document.findMany({
       where: { businessId },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: { id: true, createdAt: true, status: true, source: true },
     }),
-    prisma.billingDocument.groupBy({
+    getPrismaAdmin().billingDocument.groupBy({
       by: ["status"],
       where: { businessId },
       _count: { _all: true },
     }),
-    prisma.billingDocument.count({
+    getPrismaAdmin().billingDocument.count({
       where: {
         businessId,
         pdfRenderStatus: BillingPdfRenderStatus.FAILED,
       },
     }),
-    prisma.conversation.count({
+    getPrismaAdmin().conversation.count({
       where: { businessId, status: ConversationStatus.OPEN },
     }),
-    prisma.conversation.count({
+    getPrismaAdmin().conversation.count({
       where: {
         businessId,
         status: ConversationStatus.OPEN,
         unansweredInboundCount: { gte: 1 },
       },
     }),
-    prisma.conversation.aggregate({
+    getPrismaAdmin().conversation.aggregate({
       where: { businessId },
       _max: { lastMessageAt: true },
     }),
-    prisma.emailConnection.findFirst({
+    getPrismaAdmin().emailConnection.findFirst({
       where: { businessId },
       orderBy: { lastSyncedAt: "desc" },
       select: {
@@ -265,18 +267,18 @@ export async function getPlatformAdminBusinessDetail(
         lastSyncedAt: true,
       },
     }),
-    prisma.whatsAppAttachmentImport.count({
+    getPrismaAdmin().whatsAppAttachmentImport.count({
       where: {
         businessId,
         status: WhatsAppAttachmentImportStatus.failed,
       },
     }),
-    prisma.productUsageEvent.findFirst({
+    getPrismaAdmin().productUsageEvent.findFirst({
       where: { businessId },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     }),
-    prisma.productUsageEvent.groupBy({
+    getPrismaAdmin().productUsageEvent.groupBy({
       by: ["featureKey", "action"],
       where: {
         businessId,
@@ -285,7 +287,7 @@ export async function getPlatformAdminBusinessDetail(
       },
       _count: { _all: true },
     }),
-    prisma.productUsageEvent.count({
+    getPrismaAdmin().productUsageEvent.count({
       where: {
         businessId,
         featureKey: PRODUCT_USAGE_FEATURES.AUTH_LOGIN,
@@ -293,7 +295,7 @@ export async function getPlatformAdminBusinessDetail(
         createdAt: { gte: since7d },
       },
     }),
-    prisma.productUsageEvent.findMany({
+    getPrismaAdmin().productUsageEvent.findMany({
       where: {
         businessId,
         userId: { not: null },

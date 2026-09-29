@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { logRouteError } from "@/lib/security/route-error";
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
@@ -422,15 +423,12 @@ export async function GET(req: Request) {
       })
     );
   } catch (error: unknown) {
-    console.error("GET /api/inbox/attention error:", error);
+    logRouteError("GET /api/inbox/attention", error);
 
-    const details =
-      error instanceof Error ? error.message : String(error);
 
     return NextResponse.json(
       {
         error: "Failed to load attention inbox",
-        details,
       },
       { status: 500 }
     );
