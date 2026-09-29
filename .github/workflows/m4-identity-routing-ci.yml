@@ -41,6 +41,7 @@ on:
       - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
       - ".m3/reference-lead-adapter.ts"
       - ".m4/**"
+      - "ops/evidence/m4-identity-routing-preflight.sql"
       - ".github/workflows/m4-identity-routing-ci.yml"
   workflow_dispatch:
 
@@ -167,11 +168,34 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/isolation.sql
           psql "$RUNTIME_URL" -tAc "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
 
+      - name: 1c. The Production preflight file passes on the pre-M4 lab
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          # db push keeps no migration ledger; the preflight reads one (Prisma's shape).
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0)'
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/pre.out
+          if grep -qE "|s*FAILs*$" /tmp/pre.out; then echo "preflight FAILS on the pre-M4 lab"; exit 1; fi
+          test "$(grep -cE "|s*PASSs*$" /tmp/pre.out)" = "10" || { echo "expected 10 PASS rows"; exit 1; }
+
       - name: 2. Apply the REAL M4 migration (owner)
         if: steps.base.outputs.mode == 'migration'
         env:
           PGPASSWORD: m4_ci_synthetic_owner_pw
         run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql
+
+      - name: 2b. …and after the migration it reports the names as taken (N1-N3 FAIL, the rest PASS)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/post.out
+          fails=$(grep -E "|s*FAILs*$" /tmp/post.out | grep -oE "N[1-3] " | sort | tr -d " 
+")
+          test "$fails" = "N1N2N3" || { echo "expected exactly N1-N3 to fail after the migration, got: $fails"; exit 1; }
 
       - name: 2a. The migration's preflight refuses a database without its prerequisites
         if: steps.base.outputs.mode == 'migration'
