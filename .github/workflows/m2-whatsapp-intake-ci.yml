@@ -26,6 +26,9 @@ on:
       - "lib/tenant/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260927180000_m2_intake_event/**"
+      - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
+      - "scripts/security/intake-isolation-lab.mjs"
       - ".m2/**"
       - ".github/workflows/m2-whatsapp-intake-ci.yml"
   workflow_dispatch:
@@ -76,6 +79,15 @@ jobs:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
         run: npx prisma db push --skip-generate
+
+      - name: sec-C composite tenant FKs — the REAL migration (already in Production before M3)
+        env:
+          PGPASSWORD: m2_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -tAc "SELECT count(*) FILTER (WHERE convalidated) || '/' || count(*) FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'"
 
       - name: Create the governed runtime role
         env:

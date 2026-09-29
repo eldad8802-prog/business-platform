@@ -1,14 +1,15 @@
 /**
  * Business Intake · the IntakeEvent receipt store.
  *
- * The ONE place that reads or writes `IntakeEvent`. Every function runs inside a
+ * The ONE place that reads or writes `IntakeEvent` (M2; provider-neutral since
+ * M3 — every source's receipts live here, keyed by `sourceKey`). Every function runs inside a
  * tenant transaction (`withTenantTransaction`), so the table's FORCE RLS policy
  * is what decides which rows exist — a caller cannot reach another business's
  * receipts by passing its id, and a call with no tenant context sees nothing.
  *
  * LIFECYCLE
  *
- *   recordReceipts      RECEIVED (idempotent on (businessId, provider, externalEventId))
+ *   recordReceipts      RECEIVED (idempotent on (businessId, sourceKey, externalEventId))
  *   claimEvent          takes a lease: attempts+1, nextAttemptAt = now + lease.
  *                       Only one worker can hold an event; a crashed worker's
  *                       lease simply expires and the event becomes due again.
@@ -26,8 +27,16 @@
  */
 
 import { Prisma } from "@prisma/client";
-import type { IntakeEventKind, IntakeEventStatus, IntakeProvider } from "@prisma/client";
+import type { IntakeEventStatus } from "@prisma/client";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import {
+  isValidEventType,
+  isValidSourceKey,
+  type ClaimedIntakeEvent,
+  type IntakeReceiptDraft,
+  type IntakeStage,
+} from "@/lib/intake/core/contract";
+import { isValidReceiptKey } from "@/lib/intake/core/event-identity";
 
 /** How long a claim holds an event before another worker may take it over. */
 export const INTAKE_LEASE_MS = 2 * 60 * 1000;
@@ -53,15 +62,16 @@ export function nextAttemptAfterFailure(attempts: number, now: Date): Date | nul
   return new Date(now.getTime() + delay);
 }
 
-export type IntakeReceiptInput = {
-  provider: IntakeProvider;
-  kind: IntakeEventKind;
-  externalEventId: string;
-  providerAccountRef: string | null;
-  occurredAt: Date | null;
-  payload: Prisma.InputJsonValue;
-  metadata: Prisma.InputJsonValue | null;
-};
+/** @deprecated M2 name — the canonical draft is {@link IntakeReceiptDraft}. */
+export type IntakeReceiptInput = IntakeReceiptDraft;
+
+/** Programming error in an adapter: never write a receipt the contract forbids. */
+function assertDraft(sourceKey: string, r: IntakeReceiptDraft): void {
+  if (!isValidSourceKey(sourceKey)) throw new Error("intake: invalid sourceKey");
+  if (!isValidEventType(r.eventType)) throw new Error("intake: invalid eventType");
+  if (!isValidReceiptKey(r.externalEventId)) throw new Error("intake: externalEventId must be a sha256 key");
+  if (r.legacy && sourceKey !== "whatsapp") throw new Error("intake: legacy provider/kind is WhatsApp-only");
+}
 
 export type RecordedReceipt = {
   id: number;
@@ -80,63 +90,55 @@ export type RecordedReceipt = {
  */
 export async function recordReceipts(
   businessId: number,
-  receipts: IntakeReceiptInput[]
+  sourceKey: string,
+  receipts: IntakeReceiptDraft[]
 ): Promise<RecordedReceipt[]> {
   if (receipts.length === 0) return [];
+  for (const r of receipts) assertDraft(sourceKey, r);
+  const keys = [...new Set(receipts.map((r) => r.externalEventId))];
   return withTenantTransaction(async (tx) => {
     const before = await tx.intakeEvent.findMany({
-      where: {
-        businessId,
-        OR: receipts.map((r) => ({ provider: r.provider, externalEventId: r.externalEventId })),
-      },
-      select: { externalEventId: true, provider: true },
+      where: { businessId, sourceKey, externalEventId: { in: keys } },
+      select: { externalEventId: true },
     });
-    const existed = new Set(before.map((r) => `${r.provider}:${r.externalEventId}`));
+    const existed = new Set(before.map((r) => r.externalEventId));
 
     await tx.intakeEvent.createMany({
       data: receipts.map((r) => ({
         businessId,
-        provider: r.provider,
-        kind: r.kind,
+        sourceKey,
+        family: r.family,
+        eventType: r.eventType,
+        dedupeBasis: r.dedupeBasis,
+        lastStage: "received",
+        provider: r.legacy?.provider ?? null,
+        kind: r.legacy?.kind ?? null,
         externalEventId: r.externalEventId,
         providerAccountRef: r.providerAccountRef,
         occurredAt: r.occurredAt,
         payload: r.payload,
         metadata: r.metadata ?? Prisma.DbNull,
       })),
-      // ON CONFLICT DO NOTHING on the (businessId, provider, externalEventId)
+      // ON CONFLICT DO NOTHING on the (businessId, sourceKey, externalEventId)
       // unique: a concurrent duplicate delivery can never fail this transaction.
       skipDuplicates: true,
     });
 
     const rows = await tx.intakeEvent.findMany({
-      where: {
-        businessId,
-        OR: receipts.map((r) => ({ provider: r.provider, externalEventId: r.externalEventId })),
-      },
-      select: { id: true, externalEventId: true, provider: true, status: true },
+      where: { businessId, sourceKey, externalEventId: { in: keys } },
+      select: { id: true, externalEventId: true, status: true },
     });
     return rows.map((r) => ({
       id: r.id,
       externalEventId: r.externalEventId,
       status: r.status,
-      isNew: !existed.has(`${r.provider}:${r.externalEventId}`),
+      isNew: !existed.has(r.externalEventId),
     }));
   });
 }
 
-export type ClaimedEvent = {
-  id: number;
-  businessId: number;
-  provider: IntakeProvider;
-  kind: IntakeEventKind;
-  externalEventId: string;
-  providerAccountRef: string | null;
-  occurredAt: Date | null;
-  status: IntakeEventStatus;
-  attempts: number;
-  payload: Prisma.JsonValue | null;
-  metadata: Prisma.JsonValue | null;
+export type ClaimedEvent = ClaimedIntakeEvent & {
+  lastStage: string | null;
   messageId: number | null;
   conversationId: number | null;
   customerId: number | null;
@@ -175,11 +177,14 @@ export async function claimEvent(
       select: {
         id: true,
         businessId: true,
-        provider: true,
-        kind: true,
+        sourceKey: true,
+        family: true,
+        eventType: true,
+        lastStage: true,
         externalEventId: true,
         providerAccountRef: true,
         occurredAt: true,
+        receivedAt: true,
         status: true,
         attempts: true,
         payload: true,
@@ -219,7 +224,7 @@ export async function markPersisted(
   await withTenantTransaction((tx) =>
     tx.intakeEvent.updateMany({
       where: { id: eventId, businessId },
-      data: { status: "PERSISTED", ...refsData(refs) },
+      data: { status: "PERSISTED", lastStage: "routed", ...refsData(refs) },
     })
   );
 }
@@ -235,6 +240,7 @@ export async function markProcessed(
       where: { id: eventId, businessId },
       data: {
         status: "PROCESSED",
+        lastStage: "completed",
         processedAt: now,
         nextAttemptAt: null,
         lastErrorCode: null,
@@ -258,6 +264,7 @@ export async function markIgnored(
       where: { id: eventId, businessId },
       data: {
         status: "IGNORED",
+        lastStage: "completed",
         processedAt: now,
         nextAttemptAt: null,
         lastErrorCode: boundedCode(reasonCode),
@@ -290,6 +297,27 @@ export async function markFailed(
         nextAttemptAt: next,
         lastErrorCode: boundedCode(errorCode),
       },
+    })
+  );
+}
+
+/** Record how far processing got (normalized / routed), without other changes. */
+export async function markStage(businessId: number, eventId: number, stage: IntakeStage): Promise<void> {
+  await withTenantTransaction((tx) =>
+    tx.intakeEvent.updateMany({ where: { id: eventId, businessId }, data: { lastStage: stage } })
+  );
+}
+
+/**
+ * Terminal now: a failure retrying cannot fix (malformed payload, an adapter's
+ * explicit terminal error). FAILED with no next attempt — the payload is kept
+ * for the bounded operator-replay window, then purged like any exhausted event.
+ */
+export async function markDeadLetter(businessId: number, eventId: number, errorCode: string): Promise<void> {
+  await withTenantTransaction((tx) =>
+    tx.intakeEvent.updateMany({
+      where: { id: eventId, businessId },
+      data: { status: "FAILED", nextAttemptAt: null, lastErrorCode: boundedCode(errorCode) },
     })
   );
 }
