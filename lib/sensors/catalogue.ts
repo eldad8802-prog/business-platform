@@ -312,6 +312,27 @@ export const SENSORS = {
     describes: "A legacy obligation was created, edited, snoozed, completed, released, oriented or continued by its series.",
     consumer: "planned: legacy obligation handling (the Commitment ledger has its own audit)",
   }),
+
+  /* ─────────────────────────────── business intake (M3) ─────────────────────────────── */
+  INTAKE_EVENT_SETTLED: S({
+    eventType: "INTAKE_EVENT_SETTLED",
+    domain: "intake",
+    entityType: "INTAKE_EVENT",
+    version: 1,
+    payloadKeys: [
+      "sourceKey",
+      "family",
+      "eventType",
+      "outcome",
+      "routeTarget",
+      "identityOutcome",
+      "attempts",
+      "latencyMs",
+    ],
+    describes:
+      "A business-intake receipt reached a terminal outcome (processed, ignored or dead-lettered): its source, family, route, attempts and latency.",
+    consumer: "planned: intake health + per-source volume/latency (M8 attribution joins on the receipt, not on this)",
+  }),
 } as const;
 
 export type SensorKey = keyof typeof SENSORS;
