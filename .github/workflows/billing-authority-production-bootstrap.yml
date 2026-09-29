@@ -108,7 +108,7 @@ jobs:
         run: npm ci
 
       - name: Prisma generate
-        run: npx prisma generate
+        run: node_modules/.bin/prisma generate
 
       - name: Bootstrap — DRY-RUN (no DB write)
         if: ${{ inputs.mode == 'dry-run' }}
@@ -120,7 +120,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          npx tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION
+          node_modules/.bin/tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION
 
       - name: Bootstrap — APPLY (writes the PRODUCTION row)
         if: ${{ inputs.mode == 'apply' }}
@@ -132,4 +132,4 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          npx tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION --apply
+          node_modules/.bin/tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION --apply

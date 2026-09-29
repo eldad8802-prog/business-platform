@@ -216,7 +216,7 @@ export async function POST(req: Request) {
 
     const result = await buildVideoPlan({ ...planInput, blueprint });
 
-    await runWithTenantContext({ businessId: user.businessId }, () =>
+    const contentEvidence = await runWithTenantContext({ businessId: user.businessId }, () =>
       withTenantTransaction((tx) =>
         persistContentPlanV1(
           {
@@ -258,6 +258,7 @@ export async function POST(req: Request) {
       businessProfile,
       blueprint,
       renderBlueprint,
+      ...(contentEvidence ? { contentEvidence } : {}),
     });
   } catch (error) {
     console.error("VIDEO PLAN ROUTE ERROR:", error);

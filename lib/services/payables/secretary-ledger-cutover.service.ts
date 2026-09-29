@@ -113,6 +113,17 @@ export type CutoverReport = {
   before: CutoverCounts;
   applied?: { copied: number; synced: number; totalsCleared: number };
   after?: CutoverCounts;
+  /** Execute only: whole-table deltas proven inside the write transaction. */
+  effect?: {
+    payments: number;
+    allocations: number;
+    obligations: number;
+    commitmentsCreated: number;
+    installmentsCreated: number;
+    workflowRowsCreated: number;
+    auditEvents: number;
+    totalsOnlyCommitmentsVerified: number;
+  };
 };
 
 export class CutoverRefusedError extends Error {
@@ -549,22 +560,92 @@ async function countAll(db: PrismaClient, ids: number[]): Promise<CutoverCounts>
   return total;
 }
 
-/** The three numbers an execute must reproduce exactly (from the approved dry run). */
-export type ExpectedCounts = { copy: number; reconcile: number; totals: number };
+/**
+ * Everything an execute must reproduce exactly — the approved dry run, whole:
+ * the three headline counts, the conflict count, and the full plan. A new
+ * conflict or a differently-shaped plan with the same headline counts is a
+ * different operation from the one the owner approved, and is refused.
+ */
+export type ExpectedCounts = {
+  copy: number;
+  reconcile: number;
+  totals: number;
+  conflicts: number;
+  plan: CutoverPlan;
+};
 
 export function expectedFrom(counts: CutoverCounts): ExpectedCounts {
   return {
     copy: counts.uncopied.OPEN + counts.uncopied.MET + counts.uncopied.RELEASED,
     reconcile: counts.toReconcile,
     totals: counts.recurringWithTotalAmount,
+    conflicts: counts.conflicts.length,
+    plan: { ...counts.plan },
   };
 }
 
+const PLAN_KEYS: Array<keyof CutoverPlan> = [
+  "commitmentsToCreate",
+  "installmentsToCreate",
+  "commitmentsToUpdate",
+  "installmentsToUpdate",
+  "workflowRowsToCreate",
+  "workflowRowsToUpdate",
+  "auditEventsToWrite",
+  "paymentsToCreate",
+];
+
+function sameExpectation(a: ExpectedCounts, b: ExpectedCounts): boolean {
+  return (
+    a.copy === b.copy &&
+    a.reconcile === b.reconcile &&
+    a.totals === b.totals &&
+    a.conflicts === b.conflicts &&
+    PLAN_KEYS.every((k) => a.plan[k] === b.plan[k])
+  );
+}
+
+async function tableCounts(tx: Tx) {
+  const [r] = await tx.$queryRawUnsafe<Array<Record<string, bigint>>>(`
+    SELECT (SELECT count(*) FROM "Payment")               AS payments,
+           (SELECT count(*) FROM "PaymentAllocation")     AS allocations,
+           (SELECT count(*) FROM "Commitment")            AS commitments,
+           (SELECT count(*) FROM "Installment")           AS installments,
+           (SELECT count(*) FROM "InstallmentWorkflow")   AS workflows,
+           (SELECT count(*) FROM "BusinessObligation")    AS obligations,
+           (SELECT count(*) FROM "PayablesAuditEvent")    AS audits`);
+  return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)])) as Record<
+    "payments" | "allocations" | "commitments" | "installments" | "workflows" | "obligations" | "audits",
+    number
+  >;
+}
+
+/** A commitment row with the two fields a totals-only correction may change removed. */
+function frozen(c: Record<string, unknown>): string {
+  const rest: Record<string, unknown> = { ...c };
+  delete rest.totalAmount;
+  delete rest.updatedAt;
+  return JSON.stringify(rest);
+}
+
 /**
- * Dry run: read-only counts and the exact plan. Execute: refuses on invalid or
- * ambiguous rows and on any difference from `expect` (the approved dry run),
- * applies per business, then counts again — `after` must show zero uncopied,
- * zero drift outside `conflicts`, and zero recurring totals.
+ * Dry run: read-only counts and the exact plan, per business, READ ONLY.
+ *
+ * Execute: ONE transaction, REPEATABLE READ, all or nothing.
+ *   1. inside the transaction, recount every business and refuse unless the
+ *      result equals `expect` exactly (headline counts, conflicts, full plan)
+ *      and no invalid or ambiguous row exists;
+ *   2. apply from that same snapshot — nothing written between the check and
+ *      the write can slip in;
+ *   3. still inside the transaction, prove the effect: Payments and
+ *      allocations +0; commitments / installments / workflow rows / audit
+ *      events grew by exactly the plan; legacy rows untouched; every
+ *      totals-only commitment changed in `totalAmount` (and `updatedAt`) and
+ *      nothing else; the after-state has nothing left to copy, reconcile or
+ *      clear; the applied counts equal the approved ones.
+ *   Any violation throws, and Postgres rolls the whole run back.
+ * Execute requires a role with BYPASSRLS (Production's owner role has it): the
+ * whole-table proofs in step 3 are meaningless under a tenant-scoped view.
  */
 export async function runSecretaryLedgerCutover(
   db: PrismaClient,
@@ -575,32 +656,126 @@ export async function runSecretaryLedgerCutover(
     ? { ids: options.onlyBusinessIds, discovery: "EXPLICIT" as const }
     : await discoverBusinesses(db, baseRole);
   const role: CutoverRole = { ...baseRole, discovery: discovered.discovery };
-  const before = await countAll(db, discovered.ids);
-  if (options.mode === "dry-run") return { mode: "dry-run", readOnly: true, role, before };
 
-  if (before.invalid.length > 0 || before.ambiguous.length > 0) {
-    throw new CutoverRefusedError(
-      `refusing to execute: ${before.invalid.length} invalid and ${before.ambiguous.length} ambiguous row(s) need an owner decision first`,
-    );
-  }
-  if (!options.expect) throw new CutoverRefusedError("refusing to execute without the approved dry-run counts (expect)");
-  const actual = expectedFrom(before);
-  if (actual.copy !== options.expect.copy || actual.reconcile !== options.expect.reconcile || actual.totals !== options.expect.totals) {
-    throw new CutoverRefusedError(
-      `refusing to execute: counts changed since the approved dry run — expected ${JSON.stringify(options.expect)}, found ${JSON.stringify(actual)}`,
-    );
+  if (options.mode === "dry-run") {
+    const before = await countAll(db, discovered.ids);
+    return { mode: "dry-run", readOnly: true, role, before };
   }
 
-  const applied = { copied: 0, synced: 0, totalsCleared: 0 };
-  for (const businessId of discovered.ids) {
-    const r = await inTenant(db, businessId, false, async (tx) => {
-      const { obligations, copied } = await loadBusiness(tx, businessId);
-      return applyBusiness(tx, obligations, copied);
-    });
-    applied.copied += r.copied;
-    applied.synced += r.synced;
-    applied.totalsCleared += r.totalsCleared;
+  if (!options.expect) throw new CutoverRefusedError("refusing to execute without the approved dry-run expectation");
+  if (!role.bypassRls) {
+    throw new CutoverRefusedError(`refusing to execute as ${role.user}: execute needs BYPASSRLS to prove its whole-table effect`);
   }
-  const after = await countAll(db, discovered.ids);
-  return { mode: "execute", readOnly: false, role, before, applied, after };
+  const expect = options.expect;
+
+  return db.$transaction(
+    async (tx) => {
+      const enterBusiness = (id: number) => tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(id)}, true)`;
+
+      // 1 · recount inside the write transaction
+      const before = emptyCounts();
+      const loaded: Array<{ id: number; obligations: Obligation[]; copied: Copied[] }> = [];
+      for (const id of discovered.ids) {
+        await enterBusiness(id);
+        const { obligations, copied } = await loadBusiness(tx, id);
+        countInto(before, obligations, copied);
+        loaded.push({ id, obligations, copied });
+      }
+      if (before.invalid.length > 0 || before.ambiguous.length > 0) {
+        throw new CutoverRefusedError(
+          `refusing to execute: ${before.invalid.length} invalid and ${before.ambiguous.length} ambiguous row(s) need an owner decision first`,
+        );
+      }
+      const actual = expectedFrom(before);
+      if (!sameExpectation(actual, expect)) {
+        throw new CutoverRefusedError(
+          `refusing to execute: Production changed since the approved dry run — expected ${JSON.stringify(expect)}, found ${JSON.stringify(actual)}`,
+        );
+      }
+
+      const tablesBefore = await tableCounts(tx);
+      const syncedIds = new Set<number>();
+      const totalsOnly = new Map<number, string>();
+      for (const b of loaded) {
+        const byLegacy = new Map(b.copied.map((c) => [c.legacyObligationId!, c]));
+        for (const o of b.obligations) {
+          const c = byLegacy.get(o.id);
+          if (!c) continue;
+          const d = diffCopied(o, c);
+          if (d.renamed || d.noteChanged || (!d.conflict && (d.metNotSettled || d.releasedNotReleased || d.amountChanged || d.dueAtChanged))) {
+            syncedIds.add(c.id);
+          }
+        }
+        for (const c of b.copied) {
+          if (c.scheduleKind === "RECURRING" && c.totalAmount !== null && !syncedIds.has(c.id)) totalsOnly.set(c.id, "");
+        }
+      }
+      const snapshot = await tx.commitment.findMany({ where: { id: { in: [...totalsOnly.keys()] } } });
+      for (const row of snapshot) totalsOnly.set(row.id, frozen(row as unknown as Record<string, unknown>));
+
+      // 2 · apply from the same snapshot
+      const applied = { copied: 0, synced: 0, totalsCleared: 0 };
+      for (const b of loaded) {
+        await enterBusiness(b.id);
+        const r = await applyBusiness(tx, b.obligations, b.copied);
+        applied.copied += r.copied;
+        applied.synced += r.synced;
+        applied.totalsCleared += r.totalsCleared;
+      }
+
+      // 3 · prove the effect before committing
+      const tablesAfter = await tableCounts(tx);
+      const delta = (k: keyof typeof tablesBefore) => tablesAfter[k] - tablesBefore[k];
+      const violations: string[] = [];
+      if (delta("payments") !== 0) violations.push(`Payment rows changed by ${delta("payments")}`);
+      if (delta("allocations") !== 0) violations.push(`PaymentAllocation rows changed by ${delta("allocations")}`);
+      if (delta("obligations") !== 0) violations.push(`BusinessObligation rows changed by ${delta("obligations")}`);
+      if (delta("commitments") !== expect.plan.commitmentsToCreate) violations.push(`Commitment rows +${delta("commitments")}, planned +${expect.plan.commitmentsToCreate}`);
+      if (delta("installments") !== expect.plan.installmentsToCreate) violations.push(`Installment rows +${delta("installments")}, planned +${expect.plan.installmentsToCreate}`);
+      if (delta("workflows") !== expect.plan.workflowRowsToCreate) violations.push(`InstallmentWorkflow rows +${delta("workflows")}, planned +${expect.plan.workflowRowsToCreate}`);
+      if (delta("audits") !== expect.plan.auditEventsToWrite) violations.push(`audit events +${delta("audits")}, planned +${expect.plan.auditEventsToWrite}`);
+      if (applied.copied !== expect.copy || applied.synced !== expect.reconcile || applied.totalsCleared !== expect.totals) {
+        violations.push(`applied ${JSON.stringify(applied)} ≠ approved copy/reconcile/totals ${expect.copy}/${expect.reconcile}/${expect.totals}`);
+      }
+      const afterRows = await tx.commitment.findMany({ where: { id: { in: [...totalsOnly.keys()] } } });
+      for (const row of afterRows) {
+        if (row.totalAmount !== null) violations.push(`commitment ${row.id}: totalAmount not cleared`);
+        if (frozen(row as unknown as Record<string, unknown>) !== totalsOnly.get(row.id)) {
+          violations.push(`commitment ${row.id}: a field other than totalAmount changed`);
+        }
+      }
+      const after = emptyCounts();
+      for (const b of loaded) {
+        await enterBusiness(b.id);
+        const { obligations, copied } = await loadBusiness(tx, b.id);
+        countInto(after, obligations, copied);
+      }
+      const left = expectedFrom(after);
+      if (left.copy !== 0 || left.reconcile !== 0 || left.totals !== 0) {
+        violations.push(`after-state not clean: ${JSON.stringify({ copy: left.copy, reconcile: left.reconcile, totals: left.totals })}`);
+      }
+      if (violations.length > 0) {
+        throw new CutoverRefusedError(`post-write proof failed — rolled back, nothing written: ${violations.join("; ")}`);
+      }
+      return {
+        mode: "execute" as const,
+        readOnly: false,
+        role,
+        before,
+        applied,
+        after,
+        effect: {
+          payments: delta("payments"),
+          allocations: delta("allocations"),
+          obligations: delta("obligations"),
+          commitmentsCreated: delta("commitments"),
+          installmentsCreated: delta("installments"),
+          workflowRowsCreated: delta("workflows"),
+          auditEvents: delta("audits"),
+          totalsOnlyCommitmentsVerified: afterRows.length,
+        },
+      };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 300_000, maxWait: 30_000 },
+  );
 }

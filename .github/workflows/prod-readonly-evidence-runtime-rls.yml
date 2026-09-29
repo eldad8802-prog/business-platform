@@ -1,0 +1,73 @@
+name: Prod Read-Only Evidence (tenant isolation AS the runtime login)
+
+# Q10 — Production tenant-isolation proof through the APPLICATION'S OWN database
+# identity (app_runtime_prod), authenticated directly. No SET ROLE; the evidence
+# owner login is never granted membership in app_runtime.
+#
+#   OWNER_DATABASE_URL   = secrets.DIRECT_URL            catalog facts, ids, counts
+#   RUNTIME_DATABASE_URL = secrets.RUNTIME_DATABASE_URL  the isolation probe
+#
+# Two identities, two secrets, never one URL for both. Fail closed:
+#   - RUNTIME_DATABASE_URL missing → the job FAILS (never a pass);
+#   - a pooled URL or one outside the verified Production endpoint → refused;
+#   - each session is READ ONLY by Postgres (single connection, SET SESSION
+#     CHARACTERISTICS AS TRANSACTION READ ONLY, verified with SHOW before and
+#     after) or the script refuses;
+#   - the runtime connection must be exactly app_runtime_prod, not superuser,
+#     no BYPASSRLS, member of app_runtime — or the script refuses;
+#   - any cross-tenant or no-context row visible → the job FAILS.
+# Output: counts, booleans and business ids only. Credentials are never printed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-runtime-rls
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Tenant isolation AS app_runtime_prod (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Both connection secrets present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL (owner) is not set in production-db — refusing."; exit 1; fi
+          if [ -z "${RUNTIME_DATABASE_URL:-}" ]; then echo "::error::RUNTIME_DATABASE_URL is not set in production-db — Q10 NOT RUN (this is not a pass)."; exit 1; fi
+          if [ "$DIRECT_URL" = "$RUNTIME_DATABASE_URL" ]; then echo "::error::owner and runtime secrets are the same URL — two identities are required."; exit 1; fi
+          echo "Both connection secrets are present and distinct."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Tenant isolation AS the runtime login (read-only, counts only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: |
+          node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts \
+            --expected-runtime-user app_runtime_prod \
+            --allow-host ep-flat-brook-am4bhq1y
