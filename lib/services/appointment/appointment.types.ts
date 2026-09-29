@@ -32,6 +32,8 @@ export type AppointmentLinks = {
   messageId?: number | null;
   customerId?: number | null;
   leadId?: number | null;
+  /** Catalog service the owner selected. Free-text titles are not matched to this. */
+  businessServiceId?: number | null;
 };
 
 /** Optional schedulable details. MVP keeps all nullable (no NLU parsing). */
@@ -55,6 +57,8 @@ export type CreateFromPendingInput = {
   conversationId: number;
   businessId: number;
   actor: ActorContext;
+  /** Set only when the owner selected a service. The pending hint is not parsed. */
+  businessServiceId?: number | null;
 };
 
 /** Lifecycle / reschedule operation inputs. */
@@ -83,7 +87,8 @@ export type AppointmentErrorReason =
   | "invalid_transition"
   | "forbidden_business"
   | "invalid_input"
-  | "pending_malformed";
+  | "pending_malformed"
+  | "service_not_found";
 
 export type AppointmentResult =
   | { ok: true; appointment: Appointment }
