@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/inventory/sale-source-lines.service";
 import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { secretsEqual } from "@/lib/security/constant-time";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { MAX_LIST, MAX_STRING } from "@/lib/sensors/sensor.contract";
@@ -85,6 +86,21 @@ type NormalizedPosItem = {
 
 export async function POST(request: NextRequest) {
   try {
+    // L-11: the per-address limiter runs BEFORE key authentication, so it also
+    // caps guessing of the key (it used to run only after a key was accepted).
+    const ip = getClientIp(request);
+    const ipLimit = await consumeRateLimit({
+      key: `inventory:pos:sale:ip:${ip}`,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     // 🔐 POS key auth — per-business API key lookup.
     const rawKey = request.headers.get("x-pos-key");
 
@@ -116,7 +132,8 @@ export async function POST(request: NextRequest) {
 
       if (
         !envSecret ||
-        rawKey !== envSecret ||
+        // L-11: constant-time (was `!==`).
+        !secretsEqual(rawKey, envSecret) ||
         !envBusinessId ||
         Number.isNaN(envBusinessId)
       ) {
@@ -125,19 +142,6 @@ export async function POST(request: NextRequest) {
 
       businessId = envBusinessId;
       source = "POS";
-    }
-
-    const ip = getClientIp(request);
-    const ipLimit = await consumeRateLimit({
-      key: `inventory:pos:sale:ip:${ip}`,
-      limit: 120,
-      windowMs: 60_000,
-    });
-    if (!ipLimit.allowed) {
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 }
-      );
     }
 
     const businessLimit = await consumeRateLimit({

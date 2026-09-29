@@ -6,6 +6,7 @@ import { getClientIp } from "@/lib/security/rate-limit";
 import { readDocumentBatchForm } from "@/lib/data-transfer/documents/documents-request";
 import { executeDocumentImport } from "@/lib/data-transfer/documents/documents-execute";
 import { readSessionIdFromRequest } from "@/lib/services/product-usage/record-product-usage-event";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -132,6 +133,7 @@ export async function POST(req: Request) {
       );
     }
 
+    await recordSecurityEvent({ type: "DATA_IMPORT_EXECUTED", outcome: "SUCCESS", reason: "documents_import", businessId: user.businessId, userId: user.id, req });
     return NextResponse.json(result, { status: 200, headers: NO_STORE });
   } catch (error) {
     // Never echo the thrown message: it can carry a filename.

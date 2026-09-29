@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { Prisma } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -73,6 +74,8 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_OCR_IMPORT", user, req);
+  if (costLimited) return costLimited;
   // D2/P7-W4C: the whole import flow runs under the session tenant context.
   // Gmail/OCR/storage network work stays OUTSIDE any tenant transaction; the
   // ctx-aware Gmail services run their DB steps on short tenant txs, and the

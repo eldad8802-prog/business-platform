@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateAIContent } from "@/lib/services/ai-content.service";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_LLM_GENERATION", user, req);
+  if (costLimited) return costLimited;
 
   try {
     const body = await req.json();
