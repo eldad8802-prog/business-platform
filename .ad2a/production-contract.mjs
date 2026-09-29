@@ -225,7 +225,7 @@ export const PRODUCTION_RLS_CONTRACT = [
   // erasure are UPDATEs; Customer / Business deletion cascades.
   {
     table: "IdentityLink",
-    migration: "20260930090000_m4_identity_routing",
+    migration: "20261001090000_m4_identity_routing",
     why: "holds hashed identifiers linked to a Customer; the erasure nulls the hash with an UPDATE",
     policies: [
       { name: "identity_link_tenant_read", command: "SELECT", using: TENANT },
@@ -235,7 +235,7 @@ export const PRODUCTION_RLS_CONTRACT = [
   },
   {
     table: "IdentityProposal",
-    migration: "20260930090000_m4_identity_routing",
+    migration: "20261001090000_m4_identity_routing",
     why: "holds hashed identifiers and evidence categories for owner review; the erasure nulls them with an UPDATE",
     policies: [
       { name: "identity_proposal_tenant_read", command: "SELECT", using: TENANT },
@@ -561,11 +561,11 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   },
   IdentityLink: {
     verbs: SIU,
-    basis: "migration 20260930090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+    basis: "migration 20261001090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
   IdentityProposal: {
     verbs: SIU,
-    basis: "migration 20260930090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+    basis: "migration 20261001090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
   IntakeNormalizedEvent: {
     verbs: SIU,

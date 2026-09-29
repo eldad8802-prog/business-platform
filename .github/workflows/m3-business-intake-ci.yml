@@ -35,7 +35,7 @@ on:
       - "scripts/security/intake-isolation-lab.mjs"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260929090000_m3_canonical_intake/**"
-      - "prisma/migrations/20260930090000_m4_identity_routing/**"
+      - "prisma/migrations/20261001090000_m4_identity_routing/**"
       - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
       - ".m3/**"
       - ".github/workflows/m3-business-intake-ci.yml"

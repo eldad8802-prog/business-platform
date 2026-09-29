@@ -5,7 +5,7 @@
 //
 //   M2  20260927180000_m2_intake_event      → IntakeEvent
 //   M3  20260929090000_m3_canonical_intake  → IntakeNormalizedEvent
-//   M4  20260930090000_m4_identity_routing  → IdentityLink, IdentityProposal
+//   M4  20261001090000_m4_identity_routing  → IdentityLink, IdentityProposal
 //
 // A layout change in either migration throws here instead of silently
 // producing a lab without isolation.
@@ -25,7 +25,7 @@ const SECTIONS = [
   },
   {
     stage: "m4",
-    file: "prisma/migrations/20260930090000_m4_identity_routing/migration.sql",
+    file: "prisma/migrations/20261001090000_m4_identity_routing/migration.sql",
     start: 'ALTER TABLE "IdentityLink" ENABLE ROW LEVEL SECURITY;',
     // Objects Prisma cannot express (so `db push` never creates them): the
     // partial "one active owner per identifier" index and the composite tenant
