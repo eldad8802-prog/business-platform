@@ -198,9 +198,22 @@ export type NormalizeResult =
   | { ok: true; normalized: NormalizedIntake }
   | { ok: false; code: string };
 
+/** M4 — the routing decision the core made before route() runs. */
+export type RouteDecisionInfo = {
+  rule: string;
+  destination: RouteTarget;
+  ownerReviewRequired: boolean;
+};
+
 export type IntakeRouteContext = {
   businessId: number;
   now: Date;
+  /** M4: the deterministic routing decision (always set by the processor). */
+  decision?: RouteDecisionInfo;
+  /** M4: identity state at decision time ('resolved' | 'candidate' | …). */
+  identityState?: string;
+  /** M4: the Customer identity resolution named, when resolved. */
+  identityCustomerId?: number | null;
 };
 
 /**
@@ -232,6 +245,13 @@ export interface IntakeAdapter {
   ): Promise<void>;
   /** Bootstrap reader: businesses that may hold receipts of this source (sweeper). */
   listTenants?(): Promise<number[]>;
+  /**
+   * M4 — destinations this adapter lets the CORE execute with its own
+   * provider-neutral handler (e.g. "lead": identity-resolved Customer + Lead).
+   * Payload-bound destinations (conversation, message status, document) stay
+   * with the adapter's route().
+   */
+  readonly coreDestinations?: readonly RouteTarget[];
 }
 
 /** Thrown by an adapter for a failure retrying cannot fix (dead-letter now). */
