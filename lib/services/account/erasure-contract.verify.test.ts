@@ -54,8 +54,11 @@ import {
   NOT_OWNED_POINTERS,
   OBJECT_SURFACES,
   POINTER_NAME_PATTERN,
+  PREFIX_SURFACES,
 } from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
+import { DEBT_SHAPES, SHAPED_CODES } from "../../../scripts/ci/erasure/erasure-debt-shapes";
+import { createHash } from "node:crypto";
 import {
   delegateName,
   isSystemDerived,
@@ -105,6 +108,24 @@ function main(): number {
   const models = parsePrismaSchema(SCHEMA);
   const byDelegate = new Map([...models.values()].map((m) => [m.delegate, m]));
   const adapter = parseAdapter(ADAPTER);
+
+  /** Every scalar column of a model as `name:Type[?][]`, sorted. The debt shape's input. */
+  const columnSet = (name: string): string[] =>
+    (models.get(name)?.fields ?? [])
+      .filter((f) => f.isScalar)
+      .map((f) => `${f.name}:${f.type}${f.isOptional ? "?" : ""}${f.isList ? "[]" : ""}`)
+      .sort();
+  /** A stable 12-hex digest of the column set. */
+  const shapeOf = (name: string): string =>
+    createHash("sha256").update(columnSet(name).join("\n")).digest("hex").slice(0, 12);
+  const shapedKey = (name: string): string => `${name}@${shapeOf(name)}`;
+
+  if (process.argv.includes("--print-debt-shapes")) {
+    for (const d of ACCEPTED_DEBT) {
+      if (SHAPED_CODES.has(d.code)) console.log(`  ${d.key}: "${shapeOf(d.key)}",`);
+    }
+    return 0;
+  }
 
   console.log(
     `[contract] schema: ${models.size} models | adapter: ${adapter.writes.length} field write(s), ` +
@@ -431,6 +452,78 @@ function main(): number {
     if (n) erasureWrites.add(n);
   }
 
+  // ── C27 — an erasure carried out on ANOTHER plane, checked rather than trusted ──
+  //
+  // AuthSession rows belong to the auth plane; the only client that may touch them is
+  // confined by CI-2a to lib/auth/**, so the adapter cannot write them itself. The
+  // registry therefore names the function that does (`erasedVia`), and this check
+  // holds both halves: the ADAPTER must call it, and that FUNCTION — read with the
+  // same AST rules — must delete or write the model's delegate. Either half missing is
+  // a finding, and the model then also fails C11 as untouched.
+  {
+    const adapterSrc = ts.createSourceFile("adapter.ts", fs.readFileSync(ADAPTER, "utf8"), ts.ScriptTarget.Latest, true);
+    const callsIn = (node: ts.Node, name: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ((ts.isIdentifier(n.expression) && n.expression.text === name) ||
+            (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name))
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(node);
+      return found;
+    };
+    const mutatesDelegate = (node: ts.Node, delegate: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          /^(delete|deleteMany|update|updateMany)$/.test(n.expression.name.text) &&
+          ts.isPropertyAccessExpression(n.expression.expression) &&
+          n.expression.expression.name.text === delegate
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(node);
+      return found;
+    };
+    for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
+      if (!cov.erasedVia) continue;
+      const via = cov.erasedVia;
+      const model = models.get(name);
+      if (!model) continue;
+      const file = path.join(ROOT, via.file);
+      if (!fs.existsSync(file)) {
+        report("C27-EXTERNAL-ERASER-BROKEN", name, `${name} is erased via ${via.file}, which does not exist`);
+        continue;
+      }
+      const src = ts.createSourceFile(via.file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+      const fnNode = src.statements.find(
+        (st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === via.fn
+      );
+      if (!callsIn(adapterSrc, via.adapterCall)) {
+        report("C27-EXTERNAL-ERASER-BROKEN", name, `the adapter never calls ${via.adapterCall}(), which ${name}'s erasure depends on`);
+        continue;
+      }
+      if (!fnNode || !mutatesDelegate(fnNode, model.delegate)) {
+        report(
+          "C27-EXTERNAL-ERASER-BROKEN",
+          name,
+          `${via.file}:${via.fn}() does not delete or write ${model.delegate}, so ${name} is not erased there`
+        );
+        continue;
+      }
+      erasureWrites.add(name);
+    }
+  }
+
   for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
     const touched = erasureWrites.has(name);
     if (cov.disposition === "ERASURE_MANAGED" && !touched) {
@@ -459,14 +552,20 @@ function main(): number {
     // Both of these ARE findings, by design. The registry being complete is not the
     // same as the erasure being complete, and collapsing the two would be the exact
     // comfortable green this whole programme exists to refuse.
+    // SEC-E / M-13 (F-6). C12 and C13 are keyed by the model AND ITS COLUMN SET
+    // (`Model@<shape>`). Keyed by model alone, a debt entry absorbed every column
+    // added to that model afterwards: `nationalId` on an indebted Supplier was
+    // "known" debt the day it arrived. Now the new column changes the key, the
+    // recorded entry stops matching, and --baseline-check fails on a NEW finding
+    // until someone looks at the column and re-accepts the model on purpose.
     if (cov.disposition === "UNMANAGED_PERSONAL_DATA") {
       if (!cov.surface || !cov.target) {
         report("C11-UNMANAGED-WITHOUT-TARGET", name, `${name} is unmanaged personal data with no surface or target named`);
       } else {
         report(
           "C12-UNMANAGED-PERSONAL-DATA",
-          name,
-          `${name} holds personal data the erasure does not touch (${cov.surface}) — ${cov.target}`
+          shapedKey(name),
+          `${name} holds personal data the erasure does not touch (${cov.surface}) — ${cov.target} [columns ${shapeOf(name)}: ${columnSet(name).join(", ")}]`
         );
       }
     }
@@ -474,7 +573,11 @@ function main(): number {
       if (!cov.question) {
         report("C11-DECISION-WITHOUT-QUESTION", name, `${name} needs a decision but no question is stated`);
       } else {
-        report("C13-NEEDS-OWNER-DECISION", name, `${name}: ${cov.question}`);
+        report(
+          "C13-NEEDS-OWNER-DECISION",
+          shapedKey(name),
+          `${name}: ${cov.question} [columns ${shapeOf(name)}: ${columnSet(name).join(", ")}]`
+        );
       }
     }
   }
@@ -563,10 +666,7 @@ function main(): number {
     const METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
     const hasBusinessId = (m: { fields: { name: string; isScalar: boolean }[] }) =>
       m.fields.some((f) => f.name === "businessId" && f.isScalar);
-    /** `{ businessId }` or `{ businessId: businessId }` — exactly that, nothing else. */
-    const isBusinessIdOnly = (e: ts.Expression): boolean => {
-      if (!ts.isObjectLiteralExpression(e) || e.properties.length !== 1) return false;
-      const p = e.properties[0];
+    const isBusinessIdProp = (p: ts.ObjectLiteralElementLike): boolean => {
       if (ts.isShorthandPropertyAssignment(p)) return p.name.text === "businessId";
       return (
         ts.isPropertyAssignment(p) &&
@@ -574,6 +674,33 @@ function main(): number {
         p.name.text === "businessId" &&
         ts.isIdentifier(p.initializer) &&
         p.initializer.text === "businessId"
+      );
+    };
+    /**
+     * `{ businessId }`, or `{ businessId, id }` — the tenant predicate, optionally
+     * narrowed to one row of that tenant.
+     *
+     * The second shape exists because two columns cannot be cleared: `Supplier.name`
+     * and `VendorLearning.vendorName` are NOT NULL, and the second is unique within the
+     * tenant, so both are overwritten with a value derived from the row's own id. That
+     * is a per-row write, and a per-row write needs the row in its `where`. Adding `id`
+     * NARROWS the statement inside the tenant; it cannot widen it past the tenant,
+     * which is the property this guard exists to hold. Anything else — a bare `id`, a
+     * status filter, `{}` — is still refused.
+     */
+    const isBusinessIdOnly = (e: ts.Expression): boolean => {
+      if (!ts.isObjectLiteralExpression(e)) return false;
+      const props = e.properties;
+      if (props.length === 1) return isBusinessIdProp(props[0]);
+      if (props.length !== 2) return false;
+      const tenant = props.filter(isBusinessIdProp);
+      const rest = props.filter((p) => !isBusinessIdProp(p));
+      return (
+        tenant.length === 1 &&
+        rest.length === 1 &&
+        (ts.isShorthandPropertyAssignment(rest[0]) || ts.isPropertyAssignment(rest[0])) &&
+        ts.isIdentifier(rest[0].name) &&
+        rest[0].name.text === "id"
       );
     };
 
@@ -859,6 +986,142 @@ function main(): number {
     }
   }
 
+  // ── C28 — pointer-less object surfaces, erased by tenant prefix ─────────────
+  //
+  // Content uploads have no column, so C19–C22 cannot see them. Two halves:
+  //   (a) an ERASED prefix surface is carried out: the adapter calls erasedBy.fn with
+  //       the surface's domain as a string-literal argument;
+  //   (b) completeness: every putPublicAsset({ domain }) writer in app/ and lib/ writes
+  //       into a domain declared here or backing a declared column surface. A domain
+  //       that is not a literal cannot be checked, and is a finding.
+  {
+    const adapterSrc = ts.createSourceFile("adapter.ts", fs.readFileSync(ADAPTER, "utf8"), ts.ScriptTarget.Latest, true);
+    const callsWithLiteral = (fn: string, literal: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === fn &&
+          n.arguments.some((a) => ts.isStringLiteral(a) && a.text === literal)
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(adapterSrc);
+      return found;
+    };
+    for (const ps of PREFIX_SURFACES) {
+      const key = `prefix:${ps.domain}`;
+      if (!ps.reason) report("C28-PREFIX-SURFACE-INVALID", key, "no reason is stated");
+      if (ps.state === "ERASED") {
+        if (!ps.erasedBy) {
+          report("C28-PREFIX-SURFACE-INVALID", key, "ERASED without naming the function that deletes the objects");
+        } else if (!callsWithLiteral(ps.erasedBy.fn, ps.domain)) {
+          report(
+            "C28-PREFIX-ERASURE-NOT-IMPLEMENTED",
+            key,
+            `${ps.prefix} is declared ERASED, but the adapter never calls ${ps.erasedBy.fn}(…, "${ps.domain}")`
+          );
+        }
+      } else if (!ps.target) {
+        report("C28-PREFIX-SURFACE-INVALID", key, "OPEN without a target increment");
+      } else {
+        report("C19-EXTERNAL-OBJECT-UNERASED", key, `${ps.prefix} survives an account deletion (OPEN) — ${ps.reason} [target ${ps.target}]`);
+      }
+    }
+    const knownDomains = new Set<string>([
+      ...PREFIX_SURFACES.map((x) => x.domain),
+      ...OBJECT_SURFACES.map((x) => x.domain).filter((d): d is string => !!d),
+    ]);
+    const files: string[] = [];
+    const walkDir = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules" && !e.name.startsWith(".")) walkDir(full);
+        } else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          files.push(full);
+        }
+      }
+    };
+    for (const d of ["app", "lib"]) if (fs.existsSync(path.join(ROOT, d))) walkDir(path.join(ROOT, d));
+    // A writer may forward its domain from its own parameter (workstream D's
+    // receivePublicAssetUpload does). Such a FORWARDER is followed one level: every call
+    // to it must pass a literal, declared domain. A forwarder nobody calls with a literal,
+    // or a non-literal domain at either level, is a finding.
+    const domainArg = (call: ts.CallExpression): ts.Expression | undefined => {
+      const arg = call.arguments[0];
+      if (!arg || !ts.isObjectLiteralExpression(arg)) return undefined;
+      const prop = arg.properties.find(
+        (q) => (ts.isPropertyAssignment(q) || ts.isShorthandPropertyAssignment(q)) && ts.isIdentifier(q.name) && q.name.text === "domain"
+      );
+      if (!prop) return undefined;
+      return ts.isPropertyAssignment(prop) ? prop.initializer : prop.name;
+    };
+    const enclosingFunctionName = (n: ts.Node): string | null => {
+      for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
+        if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+      }
+      return null;
+    };
+    // Read every file once; parse only the ones that mention the name being followed.
+    const texts = files.map((file) => ({ file, text: fs.readFileSync(file, "utf8") }));
+    const parsedCache = new Map<string, ts.SourceFile>();
+    const callsTo = (name: string, cb: (rel: string, src: ts.SourceFile, call: ts.CallExpression) => void) => {
+      for (const { file, text } of texts) {
+        if (!text.includes(`${name}(`)) continue;
+        const rel = path.relative(ROOT, file).replace(/\\/g, "/");
+        const src = parsedCache.get(file) ?? ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+        parsedCache.set(file, src);
+        const walk = (n: ts.Node) => {
+          if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name) cb(rel, src, n);
+          ts.forEachChild(n, walk);
+        };
+        walk(src);
+      }
+    };
+    const checkLiteral = (rel: string, src: ts.SourceFile, call: ts.CallExpression, via: string) => {
+      const dom = domainArg(call);
+      const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+      if (!dom || !ts.isStringLiteral(dom)) return false;
+      if (!knownDomains.has(dom.text)) {
+        report(
+          "C28-UNDECLARED-OBJECT-WRITER",
+          `${rel}:${dom.text}`,
+          `${rel}:${line} writes public objects into "${dom.text}"${via}, which no object surface declares`
+        );
+      }
+      return true;
+    };
+    const forwarders = new Map<string, string>();
+    callsTo("putPublicAsset", (rel, src, call) => {
+      if (checkLiteral(rel, src, call, "")) return;
+      const fn = enclosingFunctionName(call);
+      const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+      if (!fn) {
+        report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} writes a public asset whose domain is not a literal the contract can check`);
+        return;
+      }
+      forwarders.set(fn, `${rel}:${line}`);
+    });
+    for (const [fn, site] of forwarders) {
+      let literalCallers = 0;
+      callsTo(fn, (rel, src, call) => {
+        if (checkLiteral(rel, src, call, ` via ${fn}()`)) {
+          literalCallers++;
+          return;
+        }
+        const line = src.getLineAndCharacterOfPosition(call.getStart(src)).line + 1;
+        report("C28-UNDECLARED-OBJECT-WRITER", `${rel}:${line}`, `${rel}:${line} calls ${fn}() with a domain that is not a literal the contract can check`);
+      });
+      if (literalCallers === 0) {
+        report("C28-UNDECLARED-OBJECT-WRITER", site, `${site} forwards a public-asset domain through ${fn}(), and no caller passes a checkable literal`);
+      }
+    }
+  }
+
   // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────
   //
   // Four models were classified UNMANAGED_PERSONAL_DATA on the assumption that a
@@ -965,7 +1228,26 @@ function main(): number {
 
   // ── Result ─────────────────────────────────────────────────────────────────
   const baselineMode = process.argv.includes("--baseline-check");
-  const accepted = new Set(ACCEPTED_DEBT.map((d) => debtKey(d)));
+  // C12/C13 debt is accepted for the column set it was recorded against, and no other.
+  const accepted = new Set(
+    ACCEPTED_DEBT.map((d) =>
+      SHAPED_CODES.has(d.code) ? debtKey({ code: d.code, key: `${d.key}@${DEBT_SHAPES[d.key] ?? "UNRECORDED"}` }) : debtKey(d)
+    )
+  );
+  // C29 — a recorded shape must belong to a model that is still carried as shaped debt.
+  // A stale shape is how an old column set could silently re-arm later.
+  {
+    const shapedDebt = new Set(ACCEPTED_DEBT.filter((d) => SHAPED_CODES.has(d.code)).map((d) => d.key));
+    for (const m of Object.keys(DEBT_SHAPES)) {
+      if (!shapedDebt.has(m)) {
+        const f = { code: "C29-STALE-DEBT-SHAPE", key: m, detail: `a debt shape is recorded for ${m}, which carries no C12/C13 debt any more — remove it` };
+        if (!seenFinding.has(`${f.code}::${f.key}`)) {
+          seenFinding.add(`${f.code}::${f.key}`);
+          findings.push(f);
+        }
+      }
+    }
+  }
   const seen = new Set(findings.map((f) => debtKey(f)));
 
   const fresh = findings.filter((f) => !accepted.has(debtKey(f)));
@@ -999,7 +1281,7 @@ function main(): number {
   console.log(`NEW FINDINGS      = ${fresh.length}`);
   console.log(`ACCEPTED DEBT     = ${accepted.size}`);
   console.log(`DEBT NOW RESOLVED = ${fixed.length}`);
-  for (const f of fresh) console.log(`  NEW    ${f.code}  ${f.detail}`);
+  for (const f of fresh) console.log(`  NEW    ${f.code}  ${f.detail}  [key ${debtKey(f)}]`);
   for (const k of fixed) console.log(`  FIXED  ${k}`);
 
   if (fresh.length > 0) {

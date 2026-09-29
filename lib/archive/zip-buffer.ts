@@ -19,6 +19,7 @@
  */
 
 import archiver from "archiver";
+import { assertSafeZipEntryName } from "./zip-entry-name";
 
 export async function collectArchiveToBuffer(
   build: (archive: archiver.Archiver) => Promise<void>
@@ -37,6 +38,20 @@ export async function collectArchiveToBuffer(
     archive.on("error", reject);
     archive.on("end", resolve);
   });
+
+  // L-6: every entry name is validated at the ONE place entries are added, so
+  // no builder (present or future) can emit a zip-slip path. Only `append` is
+  // offered; filesystem-sourced entry methods are refused outright.
+  const rawAppend = archive.append.bind(archive);
+  archive.append = ((source: Parameters<typeof rawAppend>[0], data?: archiver.EntryData) => {
+    assertSafeZipEntryName(data?.name);
+    return rawAppend(source, data);
+  }) as typeof archive.append;
+  for (const method of ["file", "directory", "glob", "symlink"] as const) {
+    (archive as unknown as Record<string, unknown>)[method] = () => {
+      throw new Error(`collectArchiveToBuffer: archive.${method}() is not allowed`);
+    };
+  }
 
   await build(archive);
   // Awaited together: if the archive errors while finalize() is in flight, the

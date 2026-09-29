@@ -1,10 +1,14 @@
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
+  AccountantExportInputError,
   buildAccountantPackZipBuffer,
+  resolveExportDateRange,
   type AccountantPackBody,
 } from "@/lib/reports/accountant-export-zip";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 // Real months fetch dozens of originals from object storage; the platform
 // default duration is what turned the historic stream deadlock into a 504.
@@ -17,9 +21,23 @@ export async function POST(req: Request) {
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   try {
     const body = (await req.json()) as AccountantPackBody;
+
+    // L-6: the period is validated strictly HERE, before any work, so a
+    // malformed or path-like `month` is a 400 and never reaches entry names.
+    // (The builder re-validates; the archive collector also refuses unsafe names.)
+    try {
+      resolveExportDateRange(body);
+    } catch (e) {
+      if (e instanceof AccountantExportInputError) {
+        return Response.json({ error: "Invalid period", code: e.code }, { status: 400 });
+      }
+      throw e;
+    }
 
     // Fully materialized before responding: a Node stream is not a valid Fetch
     // body, and the previous stream-based version awaited finalize() with no
@@ -31,6 +49,7 @@ export async function POST(req: Request) {
     );
 
     // M5.5 sensor — fail-open, after the pack was built.
+    await recordSecurityEvent({ type: "DATA_EXPORT", outcome: "SUCCESS", reason: "accountant_pack_zip", businessId: user.businessId, userId: user.id, req });
     await recordSensor({
       businessId: user.businessId,
       sensor: "DATA_EXPORTED",

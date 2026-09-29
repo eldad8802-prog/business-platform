@@ -9,9 +9,13 @@
  * SHA-256 hashes and cannot be retrieved again.
  */
 import { NextResponse } from "next/server";
-import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
+import {
+  elevationBindingFor,
+  requirePlatformAdminIdentityOrResponse,
+} from "@/lib/auth/platform-admin";
 import { confirmAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
 import { issueAdminElevation, ADMIN_ELEVATION_TTL_SECONDS } from "@/lib/auth/platform-admin-elevation";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,10 +33,12 @@ export async function POST(req: Request) {
   try {
     const result = await confirmAdminMfaEnrollment(gate.id, code);
     if (!result.ok) {
+      await recordSecurityEvent({ type: "ADMIN_MFA_VERIFY_FAILURE", outcome: "FAILURE", reason: result.reason, userId: gate.id, actor: "PLATFORM_ADMIN", req });
       const status = result.reason === "invalid_code" ? 401 : 409;
       return NextResponse.json({ error: "Could not confirm", code: result.reason }, { status });
     }
 
+    await recordSecurityEvent({ type: "ADMIN_MFA_ENROLLED", outcome: "SUCCESS", reason: "enrollment_confirmed_elevated", userId: gate.id, actor: "PLATFORM_ADMIN", req });
     // Confirming is itself a successful factor proof, so hand back an elevation
     // immediately — the admin should not have to enter a second code to keep
     // working right after enrolling.
@@ -40,7 +46,7 @@ export async function POST(req: Request) {
       {
         enrolled: true,
         recoveryCodes: result.recoveryCodes,
-        elevation: issueAdminElevation(gate.id),
+        elevation: issueAdminElevation(elevationBindingFor(gate)),
         elevationExpiresInSeconds: ADMIN_ELEVATION_TTL_SECONDS,
       },
       { status: 200, headers: { "Cache-Control": "private, no-store" } }

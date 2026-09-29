@@ -25,6 +25,7 @@
  */
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { assertBusinessAcceptsWrites } from "@/lib/tenant/business-lifecycle";
+import { runWithErasureAuthority } from "@/lib/tenant/erasure-authority";
 
 /** Thrown for tenant-job contract violations. Carries no sensitive data. */
 export class TenantJobError extends Error {
@@ -101,6 +102,13 @@ export async function runTenantJob<T>(
     // transaction (assertBusinessAcceptsWritesTx) — a pre-check alone cannot survive
     // a quarantine that commits while the job is running.
     await (options?.checkLifecycle ?? assertBusinessAcceptsWrites)(businessId);
+  }
+  if (policy === "erasure") {
+    // SEC-E / M-12(c). The erasure worker is the one caller that must be able to open
+    // tenant transactions on a QUARANTINED business, because withTenantTransaction now
+    // refuses every other one. The capability is scoped to this businessId and is
+    // granted nowhere else (lib/tenant/erasure-authority.guard.test.ts).
+    return runWithTenantContext({ businessId }, () => runWithErasureAuthority(businessId, fn));
   }
   return runWithTenantContext({ businessId }, fn);
 }

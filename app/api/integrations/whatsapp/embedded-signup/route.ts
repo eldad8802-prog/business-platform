@@ -38,6 +38,7 @@ import {
 } from "@/lib/services/integrations/whatsapp/graph.service";
 import { persistFromEmbeddedSignup } from "@/lib/services/integrations/whatsapp/connection.service";
 import { completeEmbeddedSignup } from "@/lib/services/integrations/whatsapp/embedded-signup-complete";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
 
@@ -67,5 +68,7 @@ export async function POST(req: Request) {
       warn: (event, fields) => console.warn(`[wa-embedded-signup] ${event}`, fields),
     }
   );
+  // sec(F): the connection was persisted (only a 201 means every Graph step and the write succeeded).
+  if (outcome.status === 201) await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "whatsapp", businessId: user.businessId, userId: user.id, req });
   return NextResponse.json(outcome.body, { status: outcome.status });
 }

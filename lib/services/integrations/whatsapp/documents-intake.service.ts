@@ -14,6 +14,12 @@ import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getAccessTokenForBusiness } from "./connection.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
+import {
+  consumeUntrustedMediaQuota,
+  documentSourceForSenderTrust,
+  WHATSAPP_UNVERIFIED_SOURCE,
+  type WhatsAppSenderTrust,
+} from "./sender-trust";
 
 /**
  * D2/P7-W4B: run a single DB step on a short tenant transaction when a tenant
@@ -51,6 +57,11 @@ export type WhatsAppDocumentsIntakeInput = {
   wamid: string;
   mediaType: DocumentsIntakeMediaType;
   mediaId: string;
+  /**
+   * L-16: routing-gate trust origin. Anything but "allowlist" (including
+   * absent) is intake from an UNVERIFIED sender: quota-bounded and labelled.
+   */
+  senderTrust?: WhatsAppSenderTrust;
 };
 
 export type WhatsAppIntakeOutcome =
@@ -94,6 +105,8 @@ export type WhatsAppIntakeDeps = {
    * `fetchMedia`), the per-business token gate is skipped.
    */
   getBusinessAccessToken?: (businessId: number) => Promise<string | null>;
+  /** L-16 quota for unverified senders (default: shared rate limiter). */
+  consumeUntrustedQuota?: typeof consumeUntrustedMediaQuota;
 };
 
 export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
@@ -112,6 +125,7 @@ export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
   putDocument: putDocumentObject,
   deleteDocument: deleteDocumentObjectQuiet,
   buildStoredFileName: buildStoredDocumentFileName,
+  consumeUntrustedQuota: consumeUntrustedMediaQuota,
   getBusinessAccessToken: async (businessId: number) =>
     (await getAccessTokenForBusiness(businessId))?.token ?? null,
 };
@@ -157,6 +171,33 @@ export async function processWhatsAppDocumentsIntake(
   );
   if (!wamidDedup.ok) {
     return { status: "skipped_duplicate", reason: "wamid" };
+  }
+
+  // L-16: an unverified sender spends a bounded quota BEFORE any media
+  // download or OCR, and whatever it sends is labelled unverified.
+  const documentSource = documentSourceForSenderTrust(input.senderTrust);
+  if (documentSource === WHATSAPP_UNVERIFIED_SOURCE) {
+    const quota = await (deps.consumeUntrustedQuota ?? consumeUntrustedMediaQuota)({
+      businessId: input.businessId,
+      sender: input.sender,
+    });
+    if (!quota.allowed) {
+      const failed = await dbStep((tx) =>
+        deps.createFailedImport(
+          {
+            businessId: input.businessId,
+            wamid: input.wamid,
+            mediaId: input.mediaId,
+            phoneNumberId: input.phoneNumberId,
+            fromPhone: input.sender,
+            mediaType: input.mediaType,
+            error: `untrusted_sender_quota:${quota.scope}`,
+          },
+          { tx }
+        )
+      );
+      return { status: "failed", reason: "untrusted_sender_quota", importId: failed.id };
+    }
   }
 
   // Resolve the per-business access token and use it for the media fetch.
@@ -352,7 +393,7 @@ export async function processWhatsAppDocumentsIntake(
     try {
       created = await deps.createDocument({
         businessId: input.businessId,
-        source: "whatsapp",
+        source: documentSource,
         mimeType: mediaResult.mimeType,
         ocrText: rawText,
         // The channel's policy: an inbound copy of a file the business already
@@ -372,7 +413,13 @@ export async function processWhatsAppDocumentsIntake(
               entityId: documentId,
               actor: { type: "INTEGRATION" },
               source: "INTEGRATION",
-              payload: { origin: "WHATSAPP", forcedDuplicate: false },
+              payload: {
+                origin: "WHATSAPP",
+                forcedDuplicate: false,
+                ...(documentSource === WHATSAPP_UNVERIFIED_SOURCE
+                  ? { senderTrust: "UNVERIFIED" }
+                  : {}),
+              },
               idempotencyKey: `document:${documentId}:ingested`,
             },
             { tx }

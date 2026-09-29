@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BillingDocumentType } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { handleError } from "@/lib/handle-error";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -52,6 +53,8 @@ export async function GET(
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const costLimited = await enforceCostLimit("COST_PDF_RENDER", user, req);
+    if (costLimited) return costLimited;
 
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);

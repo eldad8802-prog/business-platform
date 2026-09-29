@@ -276,7 +276,9 @@ export async function createCreatomateRender(
     ? applyRenderBlueprint(rawPayload, input.renderBlueprint)
     : rawPayload;
 
-  console.log("CREATOMATE PAYLOAD:", JSON.stringify(payload, null, 2));
+  // SEC-F / L-19: the payload carries the owner's marketing copy and media
+  // URLs; it is never logged. Shape only.
+  console.log("CREATOMATE RENDER:", JSON.stringify({ payloadBytes: JSON.stringify(payload).length }));
 
   const res = await fetch("https://api.creatomate.com/v2/renders", {
     method: "POST",

@@ -40,6 +40,9 @@ function baseInput(overrides: Partial<WhatsAppDocumentsIntakeInput> = {}): Whats
     wamid: WAMID_A,
     mediaType: "image",
     mediaId: MEDIA_ID,
+    // L-16: the existing cases describe an ALLOWLISTED sender; the unverified
+    // path is proven in lib/security/sec-d/whatsapp-sender-trust.test.ts.
+    senderTrust: "allowlist",
     ...overrides,
   };
 }
@@ -51,7 +54,7 @@ function mockMediaDeps(buffer: Buffer, mimeType: string): MediaFetchDeps {
     fetchGraphMetadata: async () => ({
       ok: true,
       metadata: {
-        url: "https://example.com/bin",
+        url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=bin",
         mimeType,
         fileSize: buffer.length,
         filename: null,

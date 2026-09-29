@@ -1,0 +1,75 @@
+{
+  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3). Classified honestly; each is invoked by the workflow named.",
+  "tests": {
+    "components/whatsapp/connection-view.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#557: settings screen reflects the server's true connection state (UI truthfulness, no auth/tenant decision); run by whatsapp-embedded-signup-ci.yml"
+    },
+    "components/whatsapp/embedded-signup-submit.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "whatsapp-embedded-signup-ci.yml",
+      "reason": "#557: the Embedded Signup authorization code is submitted to Dubiz only, every backend outcome maps to a named state and a hanging request is aborted (bounded signup); run on pull_request by whatsapp-embedded-signup-ci.yml"
+    },
+    "components/whatsapp/facebook-sdk.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#561: Facebook SDK loader never initializes the sdk.js stub (UI reliability, no auth/tenant decision); run by whatsapp-embedded-signup-ci.yml"
+    },
+    "components/whatsapp/popup-observer.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#558: call-scoped window.open observer tells an opened popup from a refused one (UI reliability); run by whatsapp-embedded-signup-ci.yml"
+    },
+    "lib/intake/core/intake-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#570 M3: pure intake-core unit suite (event identity, attribution/PII sanitising, log-field allow-listing, provider-neutral structure); no DB, no tenant or auth decision — the M3 tenant isolation is proven by m3-business-intake-ci.yml's DB lab; run on pull_request by m3-business-intake-ci.yml"
+    },
+    "lib/knowledge/brain/brain.eval.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m0-knowledge-tenant-safety.yml",
+      "reason": "M8 brain safety corpus: prompt-injection, hallucination and ungrounded-claim rejection by the deterministic validator; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/outcomes/outcomes.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#562 M9: pure outcome-learning evaluation corpus (no DB, no model); the M9 tenant/RLS guards are proven as the runtime role by the derive endpoint, not here; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/services/business-cost/business-cost-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure allocation/projection/baseline arithmetic of the daily cost engine; no tenant or auth decision; run by business-cost-ci.yml job core"
+    },
+    "lib/services/business-cost/business-cost.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-cost-ci.yml",
+      "reason": "proves tenant isolation of GET /api/business-cost twice: at the service and under the repo's RLS migrations as a NOSUPERUSER NOBYPASSRLS role (business-cost-ci.yml job db)"
+    },
+    "lib/services/content/content-evidence.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#551 P0: pure content-evidence shaping (no DB); no workflow runs it — product-test debt"
+    },
+    "lib/services/integrations/whatsapp/embedded-signup-complete.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "whatsapp-embedded-signup-ci.yml",
+      "reason": "#557: server-side signup completion writes nothing unless every Graph step succeeded, and no response or log carries the code/token; every Graph call is abort-bounded; run on pull_request by whatsapp-embedded-signup-ci.yml"
+    },
+    "lib/services/inventory/sale-price.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#551 P0: pure sale-price evidence arithmetic (no DB); no workflow runs it — product-test debt"
+    },
+    "lib/services/p0-evidence.db.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "#551 P0: SECURITY-RELEVANT DB invariants (cross-tenant item/run references refused by composite FKs and the content trigger) but needs the P0 migration's trigger DDL applied — the gate's db-push template cannot run it. NOT CI-covered on main: open debt, owned by the P0 evidence RLS follow-up (fresh-lab battery), not closed by this classification"
+    },
+    "lib/services/payables/secretary-ledger.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "secretary-ledger-ci.yml",
+      "reason": "secretary writes the payables ledger; proves the InstallmentWorkflow table under a NOSUPERUSER NOBYPASSRLS role (secretary-ledger-ci.yml job proof, real RLS)"
+    },
+    "lib/services/revenue/offer-semantics.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#551/P1: pure offer semantics (no DB); no workflow runs it — product-test debt"
+    }
+  }
+}

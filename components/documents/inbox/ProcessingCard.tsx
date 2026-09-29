@@ -8,6 +8,7 @@ import { TOKEN } from "@/lib/design/tokens";
 function sourceLabel(source: string): string {
   if (source === "email") return "מייל";
   if (source === "whatsapp") return "WhatsApp";
+  if (source === "whatsapp_unverified") return "WhatsApp · שולח לא מאומת";
   return "העלאה";
 }
 
