@@ -31,6 +31,8 @@ on:
       - "lib/tenant/**"
       - "lib/intake/**"
       - "prisma/migrations/20260927180000_m2_intake_event/**"
+      - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "scripts/security/intake-isolation-lab.mjs"
   workflow_dispatch:
 
 permissions:

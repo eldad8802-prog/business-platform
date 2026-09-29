@@ -487,6 +487,19 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             },
           });
 
+          // Normalized intake (M3): contact hints are personal data (normalized
+          // phone / email / name / provider user id); attribution and the result
+          // pointers would reconnect the record to a person or to the
+          // conversation graph. The non-personal signals and lifecycle remain.
+          await tx.intakeNormalizedEvent.updateMany({
+            where: { businessId },
+            data: {
+              contactHints: Prisma.DbNull,
+              attribution: Prisma.DbNull,
+              resultRefs: Prisma.DbNull,
+            },
+          });
+
           // The conversation row: free-text snapshots that summarise what was
           // said, the two Json blobs that carry pending follow-up and
           // appointment detail, and the participant pointers. `leadId` matters

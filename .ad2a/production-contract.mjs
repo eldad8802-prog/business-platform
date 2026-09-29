@@ -220,6 +220,19 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "intake_event_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // Business Intake M3 — what Dubiz understood from a receipt. Same shape as
+  // IntakeEvent: per command, NO DELETE; the erasure scrubs contact hints,
+  // attribution and result pointers with an UPDATE.
+  {
+    table: "IntakeNormalizedEvent",
+    migration: "20260929090000_m3_canonical_intake",
+    why: "holds normalized contact hints (phone / email / name) until the event completes; the erasure scrubs them with an UPDATE",
+    policies: [
+      { name: "intake_normalized_tenant_read", command: "SELECT", using: TENANT },
+      { name: "intake_normalized_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "intake_normalized_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   {
     table: "MessageAnalysis",
     migration: "20260826150000_d2_p7_w4b_whatsapp_tenant_rls",
@@ -522,6 +535,10 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   IntakeEvent: {
     verbs: SIU,
     basis: "migration 20260927180000_m2_intake_event grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  IntakeNormalizedEvent: {
+    verbs: SIU,
+    basis: "migration 20260929090000_m3_canonical_intake grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
 };
 
