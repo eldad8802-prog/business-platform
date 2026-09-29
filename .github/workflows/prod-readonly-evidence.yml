@@ -39,6 +39,7 @@ on:
           - 'ops/evidence/sec-c-530-preflight.sql'
           - 'ops/evidence/secretary-ledger-cutover-evidence.sql'
           - 'ops/evidence/sec-p1-business-offering-production-evidence.sql'
+          - 'ops/evidence/sec-c-530-production-evidence.sql'
 
 permissions:
   contents: read
