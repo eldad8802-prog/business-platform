@@ -136,6 +136,7 @@ Application-level safety today, from the trace (not database-enforced):
 | `/api/knowledge/derive` accepts any `businessId` with `CRON_SECRET` | owner review |
 | The execution status of `20260908180000`, and the default `AUTH_PLANE_ENABLED` | owner review |
 | The public coupon page reads the issuer's `BusinessProfile` through the global client, so FORCE RLS returns no profile (a **product bug, not a leak**) | fix |
+| `recordInventorySourceSaleLines` swallows a unique violation inside a transaction. Postgres aborts the transaction, so a same-transaction replay fails its later queries (a **product defect in the POS retry path**, found by the closure battery, unrelated to RLS) | fix: savepoint, or `createMany({ skipDuplicates })` |
 
 ## Guard (systemic fix)
 
