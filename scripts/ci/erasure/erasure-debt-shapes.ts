@@ -66,19 +66,34 @@ export const DEBT_SHAPES: Readonly<Record<string, string>> = {
   BusinessBotSetupDraft: "a02c9c3f9d54",
   BusinessInsight: "ff62d3ad02f8",
   CollectionAction: "ec24dcc30a39",
-  ContentEvent: "a99cd5360fd4",
+  // Reviewed on refresh (main 3f3a023d): #551 added idempotencyKey (an opaque retry id, not
+  // personal). Still C13 NEEDS_OWNER_DECISION for the same reason (payload Json).
+  ContentEvent: "604f2e0072a0",
   ContentRender: "033201e8712e",
   ContentRun: "f993a94550ac",
-  ContentVariant: "eeb00d3acfa8",
+  // Reviewed on refresh: #551 added businessId (tenant key, not personal). Still C13.
+  ContentVariant: "25ded197bedf",
   DerivedClaimProjection: "12665419172d",
   EntityLinkProposal: "5a8519237151",
   ExtractionEvidence: "874385426587",
   ExtractionSnapshot: "fffe7b710608",
   ImportRun: "e9eb133bade6",
   LearningEvent: "69101bfa529e",
-  Offer: "44c5f4838a95",
+  // Reviewed on refresh: P1 added benefitType/benefitValue/benefitScope/minPurchaseAmount/
+  // newCustomersOnly (structured offer terms the business sets, no person). Still C13
+  // (title/description/customerBenefitText are owner-written copy); Offer.imageUrl stays C19.
+  Offer: "05b34626d2a9",
   PartyResolutionClaim: "290e6b51769f",
   PaymentWebhookEvent: "f091c2af4e24",
   ReviewEvent: "e6c7de800774",
   SliceDecision: "ff28e081c77a",
+  // M9 (#562/#563): main recorded these five as C13 NEEDS_OWNER_DECISION debt by model name;
+  // their column sets are pinned here as reviewed (ids, states, counts, codes; no free text,
+  // no amounts). OutcomeDecision is the owner's own answer and not rebuildable — the
+  // decision main's entry asks for is unchanged, only made precise.
+  OutcomeRecommendation: "5e923322f9f7",
+  OutcomeDecision: "898000fa4583",
+  OutcomeActionEvent: "e1de4228e91c",
+  OutcomeObservation: "b1bd3cbeb3ec",
+  OutcomeAssessment: "a2d3186c7ccd",
 };
