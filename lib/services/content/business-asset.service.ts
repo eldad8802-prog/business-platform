@@ -1,5 +1,4 @@
 import { Prisma, type BusinessAssetOrigin } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export class BusinessAssetNotFoundError extends Error {
@@ -53,11 +52,14 @@ export async function findBusinessAssetByIdempotency(
   businessId: number,
   idempotencyKey: string
 ): Promise<RecordedBusinessAsset | null> {
-  const existing = await prisma.businessAsset.findUnique({
-    where: {
-      businessId_idempotencyKey: { businessId, idempotencyKey },
-    },
-  });
+  // Tenant-scoped (FORCE RLS): the asset is read inside this business's tenant transaction.
+  const existing = await tenantTx(businessId, (tx) =>
+    tx.businessAsset.findUnique({
+      where: {
+        businessId_idempotencyKey: { businessId, idempotencyKey },
+      },
+    })
+  );
   if (!existing || existing.businessId !== businessId) return null;
   return {
     id: existing.id,
@@ -92,17 +94,19 @@ export async function recordBusinessAsset(
   }
 
   try {
-    const created = await prisma.businessAsset.create({
-      data: {
-        businessId: input.businessId,
-        origin: input.origin,
-        storageKey,
-        assetRef,
-        contentRunId: input.contentRunId ?? null,
-        publicUseApproved: false,
-        idempotencyKey,
-      },
-    });
+    const created = await tenantTx(input.businessId, (tx) =>
+      tx.businessAsset.create({
+        data: {
+          businessId: input.businessId,
+          origin: input.origin,
+          storageKey,
+          assetRef,
+          contentRunId: input.contentRunId ?? null,
+          publicUseApproved: false,
+          idempotencyKey,
+        },
+      })
+    );
     return {
       id: created.id,
       created: true,
@@ -122,7 +126,9 @@ export async function recordBusinessAsset(
 }
 
 export async function getBusinessAsset(businessId: number, assetId: number) {
-  return prisma.businessAsset.findFirst({
-    where: { id: assetId, businessId },
-  });
+  return tenantTx(businessId, (tx) =>
+    tx.businessAsset.findFirst({
+      where: { id: assetId, businessId },
+    })
+  );
 }
