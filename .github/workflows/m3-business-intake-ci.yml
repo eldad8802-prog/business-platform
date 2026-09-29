@@ -180,10 +180,19 @@ jobs:
           npx prisma migrate diff --from-url "$OWNER_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
           rc=$?
           if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
-          if grep -qvE '^\s*(--.*)?$' /tmp/drift.sql; then
-            echo "DRIFT between the M3 migration and schema.prisma:"; cat /tmp/drift.sql; exit 1
+          # sec-C (#530) objects are DB-ONLY by design ("do not accept a future
+          # prisma migrate dev hunk that drops them"): exactly these 13 named
+          # objects are subtracted; ANY other statement is drift and fails.
+          SECC='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"'
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
+          secc_n=$(grep -cE "$SECC" /tmp/drift-stmts.sql || true)
+          grep -vE "$SECC" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
+          echo "sec-C DB-only objects reported by the diff (expected 13): $secc_n"
+          if [ -s /tmp/drift-rest.sql ]; then
+            echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1
           fi
-          echo "no drift"
+          if [ "$secc_n" != "13" ]; then echo "expected exactly the 13 sec-C DB-only objects, got $secc_n"; exit 1; fi
+          echo "no drift (beyond the 13 documented sec-C DB-only objects)"
 
       - name: 5. M3 foundation battery (post-migration, runtime role)
         env:
