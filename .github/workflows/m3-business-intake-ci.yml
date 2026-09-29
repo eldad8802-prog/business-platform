@@ -1,0 +1,202 @@
+# Business Intake M3 — canonical foundation (ephemeral PG17).
+#
+# This repository's migration history is not replayable from empty (see
+# d2-cutover-3a1-ci.yml), so the lab reproduces the database M3 migrates FROM:
+#   1. the PRE-M3 schema — this PR's BASE (main) — via `db push`, with
+#      IntakeEvent's M2 isolation from its real migration file;
+#      plus sec-C's composite tenant FKs from their real migration (Production
+#      applied them before M3, so the lab has them too);
+#   2. receipts written exactly as the M2 code writes them;
+#   3. the REAL M3 migration file, applied with psql as the owner — so the
+#      backfill, the legacy-insert trigger, the CHECK vocabularies, the composite
+#      tenant key, the policies and the grants are the SQL that ships;
+#   4. no drift between the migrated database and prisma/schema.prisma;
+#   5. the battery, as a NOSUPERUSER / NOBYPASSRLS runtime named app_runtime (so
+#      the migration's own GRANT/REVOKE block applies to it).
+#
+# Once M3 itself is on main, a later PR's base already contains it: the lab
+# then `db push`es the current schema, applies BOTH migrations' isolation
+# verbatim, and runs every battery section except the migration mechanics
+# (which were proven when the migration landed).
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m3 — canonical business intake (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/intake/**"
+      - "app/api/integrations/whatsapp/**"
+      - "app/api/intake/**"
+      - "lib/sensors/**"
+      - "lib/services/account/**"
+      - "scripts/security/intake-isolation-lab.mjs"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
+      - ".m3/**"
+      - ".github/workflows/m3-business-intake-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure:
+    name: M3 intake core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Intake core (identity, attribution, contact, registry, lifecycle, neutrality)
+        run: npx tsx lib/intake/core/intake-core.test.ts
+      - name: Sensor contract (the intake signal carries no personal data)
+        run: npx tsx lib/sensors/sensors.test.ts
+      - name: WhatsApp webhook event-class boundary (M2 structure intact)
+        run: npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts
+      - name: Negative proof — a core that branches on a provider must fail
+        run: |
+          set -uo pipefail
+          F=lib/intake/core/processor.ts
+          cp "$F" "$F.bak"
+          printf '\nexport const leak = (s: string) => s === "whatsapp";\n' >> "$F"
+          if npx tsx lib/intake/core/intake-core.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: provider branching in the core passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: provider branching in the core is caught"
+
+  foundation:
+    name: M3 foundation battery (PG17, real M3 migration, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m3_owner
+          POSTGRES_PASSWORD: m3_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m3
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m3_owner -d dubiz_m3"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m3_owner:m3_ci_synthetic_owner_pw@localhost:5432/dubiz_m3
+      RUNTIME_URL: postgresql://app_runtime:m3_ci_synthetic_runtime_pw@localhost:5432/dubiz_m3
+      AUTH_TOKEN_SECRET: m3_ci_secret_synthetic_at_least_32_characters_long
+      M3_RUN_TAG: m3ci
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab schema — the PR base (pre-M3) as the owner
+        id: base
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$(git rev-parse origin/main)}"
+          git show "${base}:prisma/schema.prisma" > /tmp/base.prisma
+          if grep -q 'model IntakeNormalizedEvent' /tmp/base.prisma; then
+            echo "base ${base} already contains M3 → pushed-schema lab (migration mechanics were proven when M3 landed)"
+            echo "mode=pushed" >> "$GITHUB_OUTPUT"
+            npx prisma db push --skip-generate
+          else
+            echo "base ${base} is pre-M3 → the REAL migration will be applied"
+            echo "mode=migration" >> "$GITHUB_OUTPUT"
+            npx prisma db push --schema /tmp/base.prisma --skip-generate
+          fi
+
+      - name: 1a. sec-C composite tenant FKs — the REAL migration (already in Production before M3)
+        env:
+          PGPASSWORD: m3_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -tAc "SELECT count(*) FILTER (WHERE convalidated) || '/' || count(*) FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'"
+
+      - name: 1b. Runtime role app_runtime (NOSUPERUSER, NOBYPASSRLS) + M2 isolation from its migration
+        env:
+          PGPASSWORD: m3_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 'm3_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;"
+          THROUGH=$([ "${{ steps.base.outputs.mode }}" = "migration" ] && echo m2 || echo m3)
+          THROUGH="$THROUGH" node --input-type=module -e '
+            import { intakeIsolationStatements } from "./scripts/security/intake-isolation-lab.mjs";
+            for (const s of intakeIsolationStatements("app_runtime", { through: process.env.THROUGH })) console.log(s + ";");
+          ' > /tmp/m2-isolation.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/m2-isolation.sql
+          psql "$RUNTIME_URL" -tAc "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+
+      - name: 2. Receipts written the way the M2 code writes them
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .m3/intake-foundation-battery.ts --phase=pre
+
+      - name: 3. Apply the REAL M3 migration (owner)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m3_ci_synthetic_owner_pw
+        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260929090000_m3_canonical_intake/migration.sql
+
+      - name: 4. No drift between the migrated database and schema.prisma
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          npx prisma migrate diff --from-url "$OWNER_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
+          # sec-C (#530) objects are DB-ONLY by design ("do not accept a future
+          # prisma migrate dev hunk that drops them"): exactly these 13 named
+          # objects are subtracted; ANY other statement is drift and fails.
+          SECC='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"'
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
+          secc_n=$(grep -cE "$SECC" /tmp/drift-stmts.sql || true)
+          grep -vE "$SECC" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
+          echo "sec-C DB-only objects reported by the diff (expected 13): $secc_n"
+          if [ -s /tmp/drift-rest.sql ]; then
+            echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1
+          fi
+          if [ "$secc_n" != "13" ]; then echo "expected exactly the 13 sec-C DB-only objects, got $secc_n"; exit 1; fi
+          echo "no drift (beyond the 13 documented sec-C DB-only objects)"
+
+      - name: 5. M3 foundation battery (post-migration, runtime role)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+          M3_LAB_MODE: ${{ steps.base.outputs.mode }}
+        run: npx tsx .m3/intake-foundation-battery.ts --phase=post
