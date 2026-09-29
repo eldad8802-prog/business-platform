@@ -6,8 +6,9 @@
  * `withTenantTransaction` only works under an ambient `runWithTenantContext`. A lot
  * of tenant-owned code is not running under one: route handlers derive a trusted
  * `businessId` from the session and then read straight off the global Prisma client.
- * Today that works, because Production connects as an owner role that bypasses RLS.
- * Under the restricted runtime it would NOT fail loudly — a context-less SELECT
+ * That worked only while Production connected as an owner role that bypassed RLS. It now
+ * connects as the restricted runtime (app_runtime_prod: NOSUPERUSER, NOBYPASSRLS, measured on every
+ * knowledge derivation), and under it a context-less access does NOT fail loudly — a context-less SELECT
  * matches zero rows and returns an empty array, so "this tenant has data" silently
  * becomes "this tenant has no data". Writes do raise; reads do not. That asymmetry
  * is why this helper exists and why the fix cannot wait for the cutover.

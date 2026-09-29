@@ -34,7 +34,8 @@ on:
       - "app/api/documents/[id]/approve/**"
       - "app/api/inventory/**"
       - "lib/services/documents/process-document-pipeline.service.ts"
-      - "lib/services/integrations/whatsapp/conversation-intake.service.ts"
+      - "lib/intake/whatsapp/whatsapp-intake.ts"
+      - "lib/services/conversation/inbound-customer-message.service.ts"
       - "lib/services/integrations/whatsapp/documents-intake.service.ts"
       - "lib/services/inventory/**"
       # Everything above is a producer or a surface. These two are the ground

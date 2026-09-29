@@ -721,9 +721,9 @@ function InboxPageContent() {
     const sendToken = newSendToken();
 
     try {
-      const customerId = activeConversation?.customerId ?? null;
-
-      const res = await fetch("/api/message", {
+      // Local development only (M2): /api/message writes business messages
+      // only, and this simulator refuses any production build server-side.
+      const res = await fetch("/api/dev/simulate-inbound", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -731,10 +731,7 @@ function InboxPageContent() {
         },
         body: JSON.stringify({
           conversationId: activeConversationId,
-          ...(customerId ? { customerId } : null),
           contentText: input,
-          direction: "INBOUND",
-          senderType: "CUSTOMER",
           clientRequestId: sendToken,
         }),
       });

@@ -204,3 +204,14 @@ jobs:
 
       - name: M8 brain battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m8-brain-battery.ts
+
+      # M9 — the outcome loop. The pure corpus first (generation from governed knowledge only, memory
+      # and suppression, decision semantics, ledger-read actions, reversal, late and duplicate events,
+      # the sequence-only attribution vocabulary, learning thresholds, feedback into the Brain context,
+      # causal wording rejected), then the real chain as a MEASURED NOBYPASSRLS role with the shipped
+      # M9 constraints, guards, policies and grants replayed.
+      - name: M9 outcome-learning corpus (pure — separation, memory, reversal, causal safety)
+        run: npx tsx lib/knowledge/outcomes/outcomes.test.ts
+
+      - name: M9 outcome battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m9-outcome-battery.ts

@@ -65,10 +65,21 @@ export async function routeInboundWhatsAppMessage(
     return stop("invalid_message");
   }
   const wamid = message.wamid.trim();
+  const typeForReceipt = message.type?.trim().toLowerCase() ?? "";
+  // Past this point the tenant and the provider id are both known, so anything
+  // Dubiz will not materialise is still RECORDED (IGNORED receipt), not dropped.
+  const unsupported = (reason: RoutingStopReason): RoutingDecision => ({
+    kind: "UNSUPPORTED",
+    businessId: business.businessId,
+    phoneNumberId: business.phoneNumberId,
+    wamid,
+    reason,
+    messageType: typeForReceipt,
+  });
 
   const type = message.type?.trim().toLowerCase() ?? "";
   if (!type) {
-    return stop("unsupported_message_type");
+    return unsupported("unsupported_message_type");
   }
 
   // ── Branch 1: DOCUMENTS_INTAKE (image / document) ────────────────────
@@ -80,7 +91,7 @@ export async function routeInboundWhatsAppMessage(
   // by both paths, so absence of `mediaId` always STOPs regardless of trust.
   if (INTAKE_MEDIA_TYPES.has(type as DocumentsIntakeMediaType)) {
     if (!message.mediaId || message.mediaId.trim().length === 0) {
-      return stop("missing_media_id");
+      return unsupported("missing_media_id");
     }
 
     const allowlist = checkSenderAllowlisted({
@@ -106,7 +117,7 @@ export async function routeInboundWhatsAppMessage(
     // usable sender from the webhook payload.
     const senderDigits = normalizePhoneDigits(message.from ?? "");
     if (senderDigits.length < 8) {
-      return stop("missing_sender");
+      return unsupported("missing_sender");
     }
     return {
       kind: "DOCUMENTS_INTAKE",
@@ -124,14 +135,14 @@ export async function routeInboundWhatsAppMessage(
   // Allowlist BYPASSED for text — see file docstring.
   if (type === "text") {
     if (!message.from || message.from.trim().length === 0) {
-      return stop("missing_sender");
+      return unsupported("missing_sender");
     }
     if (!message.textBody) {
-      return stop("missing_text_body");
+      return unsupported("missing_text_body");
     }
     const senderPhone = normalizePhoneDigits(message.from);
     if (senderPhone.length < 8) {
-      return stop("missing_sender");
+      return unsupported("missing_sender");
     }
     return {
       kind: "CONVERSATION_INTAKE",
@@ -143,8 +154,8 @@ export async function routeInboundWhatsAppMessage(
     };
   }
 
-  // ── Branch 3: STOP for anything else (audio/video/sticker/location/etc.)
-  return stop("unsupported_message_type");
+  // ── Branch 3: UNSUPPORTED for anything else (audio/video/sticker/location/etc.)
+  return unsupported("unsupported_message_type");
 }
 
 /** Masks sender for logs — last 4 digits only. */
@@ -177,6 +188,17 @@ export function routingDecisionLogFields(
       senderMasked: maskSenderDigits(decision.senderPhone),
       wamidPrefix: decision.wamid.slice(0, 16),
       textLength: decision.text.length,
+    };
+  }
+
+  if (decision.kind === "UNSUPPORTED") {
+    return {
+      decision: "UNSUPPORTED",
+      businessId: decision.businessId,
+      phoneNumberId: decision.phoneNumberId,
+      reason: decision.reason,
+      messageType: decision.messageType,
+      wamidPrefix: decision.wamid.slice(0, 16),
     };
   }
 

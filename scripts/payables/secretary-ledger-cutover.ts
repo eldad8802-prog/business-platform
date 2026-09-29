@@ -8,7 +8,7 @@
  *   EXECUTE (requires the mode flag, the confirm phrase AND the approved counts):
  *     npx tsx scripts/payables/secretary-ledger-cutover.ts --mode execute \
  *       --confirm-execute SECRETARY_LEDGER_CUTOVER_EXECUTE \
- *       --expect-copy N --expect-reconcile M --expect-totals K
+ *       --expect-copy N --expect-reconcile M --expect-totals K \n *       --expect-conflicts C --expect-plan '<the dry run's plan JSON>'
  *
  * OWNER GATE: executing against Production is a Production data write and
  * needs the owner's explicit approval. The order is
@@ -28,6 +28,7 @@ import {
   expectedFrom,
   runSecretaryLedgerCutover,
   type CutoverCounts,
+  type CutoverPlan,
   type CutoverReport,
 } from "@/lib/services/payables/secretary-ledger-cutover.service";
 
@@ -37,7 +38,7 @@ export type ParsedArgs = {
   mode: "dry-run" | "execute";
   confirmExecute: string | null;
   businessIds: number[];
-  expect: { copy?: number; reconcile?: number; totals?: number };
+  expect: { copy?: number; reconcile?: number; totals?: number; conflicts?: number; plan?: CutoverPlan };
   jsonOut: string | null;
   errors: string[];
 };
@@ -77,6 +78,20 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (flag === "--expect-totals") {
       out.expect.totals = count(flag, value);
       i += 1;
+    } else if (flag === "--expect-conflicts") {
+      out.expect.conflicts = count(flag, value);
+      i += 1;
+    } else if (flag === "--expect-plan") {
+      try {
+        const plan = JSON.parse(value ?? "") as CutoverPlan;
+        const keys = ["commitmentsToCreate", "installmentsToCreate", "commitmentsToUpdate", "installmentsToUpdate", "workflowRowsToCreate", "workflowRowsToUpdate", "auditEventsToWrite", "paymentsToCreate"] as const;
+        if (!keys.every((k) => Number.isInteger(plan[k]) && plan[k] >= 0) || Object.keys(plan).length !== keys.length) throw new Error("shape");
+        if (plan.paymentsToCreate !== 0) throw new Error("payments");
+        out.expect.plan = plan;
+      } catch {
+        out.errors.push("--expect-plan requires the dry run's full plan JSON (8 non-negative integer fields, paymentsToCreate 0)");
+      }
+      i += 1;
     } else if (flag === "--json-out") {
       if (!value) out.errors.push("--json-out requires a path");
       out.jsonOut = value ?? null;
@@ -87,8 +102,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
   if (out.mode === "execute") {
     if (out.confirmExecute !== EXECUTE_CONFIRM_PHRASE) out.errors.push(`execute requires --confirm-execute ${EXECUTE_CONFIRM_PHRASE}`);
-    if (out.expect.copy === undefined || out.expect.reconcile === undefined || out.expect.totals === undefined) {
-      out.errors.push("execute requires --expect-copy, --expect-reconcile and --expect-totals from the approved dry run");
+    const e = out.expect;
+    if (e.copy === undefined || e.reconcile === undefined || e.totals === undefined || e.conflicts === undefined || e.plan === undefined) {
+      out.errors.push("execute requires --expect-copy, --expect-reconcile, --expect-totals, --expect-conflicts and --expect-plan from the approved dry run");
     }
   }
   return out;
@@ -126,13 +142,14 @@ export function summarize(report: CutoverReport): string {
       `plan: workflow rows create/update   ${c.plan.workflowRowsToCreate} / ${c.plan.workflowRowsToUpdate}`,
       `plan: audit events                  ${c.plan.auditEventsToWrite}`,
       `plan: PAYMENTS TO CREATE            ${c.plan.paymentsToCreate}`,
-      `approve with: --expect-copy ${e.copy} --expect-reconcile ${e.reconcile} --expect-totals ${e.totals}`,
+      `approve with: --expect-copy ${e.copy} --expect-reconcile ${e.reconcile} --expect-totals ${e.totals} --expect-conflicts ${e.conflicts} --expect-plan '${JSON.stringify(e.plan)}'`,
     ].join("\n");
   };
   const lines = [
     `mode ${report.mode} · read-only ${report.readOnly} · role ${report.role.user} (superuser ${report.role.superuser}, bypassRls ${report.role.bypassRls}, discovery ${report.role.discovery})`,
     block("before", report.before),
   ];
+  if (report.effect) lines.push(`── proven inside the write transaction  payments ${report.effect.payments} · allocations ${report.effect.allocations} · legacy rows ${report.effect.obligations} · commitments +${report.effect.commitmentsCreated} · installments +${report.effect.installmentsCreated} · workflow +${report.effect.workflowRowsCreated} · audit +${report.effect.auditEvents} · totals-only rows verified ${report.effect.totalsOnlyCommitmentsVerified}`);
   if (report.applied) lines.push(`── applied  copied ${report.applied.copied} · synced ${report.applied.synced} · totals cleared ${report.applied.totalsCleared}`);
   if (report.after) lines.push(block("after", report.after));
   return lines.join("\n");
@@ -152,7 +169,7 @@ async function main(): Promise<void> {
       onlyBusinessIds: args.businessIds.length > 0 ? args.businessIds : undefined,
       expect:
         args.mode === "execute"
-          ? { copy: args.expect.copy!, reconcile: args.expect.reconcile!, totals: args.expect.totals! }
+          ? { copy: args.expect.copy!, reconcile: args.expect.reconcile!, totals: args.expect.totals!, conflicts: args.expect.conflicts!, plan: args.expect.plan! }
           : undefined,
     });
     console.log(summarize(report));

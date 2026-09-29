@@ -190,7 +190,9 @@ function selfTest() {
 /**
  * Workflow tier (ENFORCED): in every job bound to the production-db environment, every
  * psql invocation must either (a) pipe into scripts/ci/evidence-redact.mjs inside a step
- * that sets pipefail, or (b) run a SQL file that passes the SQL tier above. Exempt
+ * that sets pipefail, or (b) run only SQL that passes the SQL tier above: a SQL file
+ * (--file=, --file, -f) and/or a quoted inline command (-c / --command). Every SQL source
+ * on the line must pass, and a source containing a shell expansion never does. Exempt
  * workflows are listed with their reason; the list is exact (a stale entry fails).
  */
 export const WORKFLOW_EXEMPT = new Map([
@@ -213,9 +215,13 @@ export function checkWorkflows(root) {
       for (const line of st.split("\n")) {
         if (!/(^|[\s|(])psql\s+"?\$/.test(line)) continue;
         const redacted = /\|\s*node scripts\/ci\/evidence-redact\.mjs/.test(line);
-        const m = line.match(/--file=("?)([^"\s]+)\1/);
+        const m = line.match(/(?:--file=|--file\s+|\s-f\s+)("?)([^"\s|]+)\1/);
         const sqlFile = m ? m[2] : null;
-        const sqlClean = sqlFile && !sqlFile.includes("$") && fs.existsSync(path.join(root, sqlFile)) && checkSql(fs.readFileSync(path.join(root, sqlFile), "utf8")).length === 0;
+        const c = line.match(/(?:\s-c\s*|--command[=\s]\s*)('([^']*)'|"([^"]*)"|\S+)/);
+        const inline = c ? (c[2] ?? c[3] ?? null) : undefined; // null = unquoted, cannot be judged
+        const fileClean = sqlFile && !sqlFile.includes("$") && fs.existsSync(path.join(root, sqlFile)) && checkSql(fs.readFileSync(path.join(root, sqlFile), "utf8")).length === 0;
+        const inlineClean = typeof inline === "string" && !inline.includes("$") && checkSql(inline).length === 0;
+        const sqlClean = Boolean(sqlFile || c) && (!sqlFile || fileClean) && (!c || inlineClean);
         if (!redacted && !sqlClean) problems.push(`[FAIL] EVIDENCE-UNREDACTED ${f}: ${line.trim().slice(0, 110)}`);
         if (redacted && !/set -[a-z]*o pipefail|set -euo pipefail|set -o pipefail/.test(st)) problems.push(`[FAIL] EVIDENCE-NO-PIPEFAIL ${f}: a redacted psql step without pipefail would hide a failed query`);
       }
@@ -241,6 +247,20 @@ function workflowSelfTest() {
   fs.writeFileSync(path.join(tmp, "ops/x/q.sql"), 'SELECT count(*) AS n FROM "User";');
   wf('          set -euo pipefail\n          psql "$DIRECT_URL" --file=ops/x/q.sql\n');
   const p4 = only(checkWorkflows(tmp)).length === 0;
+  wf(`          psql "$DIRECT_URL" -X -t -A -c 'SELECT count(*) FROM "Payment"' | tee n.txt\n`);
+  const p5 = only(checkWorkflows(tmp)).length === 0;
+  wf(`          psql "$DIRECT_URL" -X -t -A -c 'SELECT email FROM "User"' | tee n.txt\n`);
+  const p6 = only(checkWorkflows(tmp)).some((l) => l.includes("EVIDENCE-UNREDACTED w.yml"));
+  wf(`          RO="$(psql "$DIRECT_URL" --no-psqlrc -At -c 'SHOW default_transaction_read_only')"\n`);
+  const p7 = only(checkWorkflows(tmp)).length === 0;
+  fs.writeFileSync(path.join(tmp, "ops/x/q.sql"), 'SELECT email FROM "User";');
+  wf(`          psql "$DIRECT_URL" -X -f ops/x/q.sql | tee out.txt\n`);
+  const p8 = only(checkWorkflows(tmp)).some((l) => l.includes("EVIDENCE-UNREDACTED w.yml"));
+  wf(`          psql "$DIRECT_URL" -X -c "$Q" | tee out.txt\n`);
+  const p9 = only(checkWorkflows(tmp)).some((l) => l.includes("EVIDENCE-UNREDACTED w.yml"));
+  fs.writeFileSync(path.join(tmp, "ops/x/q.sql"), 'SELECT count(*) AS n FROM "User";');
+  wf(`          psql "$DIRECT_URL" -X -f ops/x/q.sql -c 'SELECT email FROM "User"'\n`);
+  const p10 = only(checkWorkflows(tmp)).some((l) => l.includes("EVIDENCE-UNREDACTED w.yml"));
   fs.rmSync(tmp, { recursive: true, force: true });
   let ok = true;
   for (const [n, p] of [
@@ -248,6 +268,12 @@ function workflowSelfTest() {
     ["redacted psql with pipefail passes", p2],
     ["redacted psql without pipefail is caught", p3],
     ["unredacted psql of an aggregate-only SQL passes", p4],
+    ["unredacted inline -c aggregate passes", p5],
+    ["unredacted inline -c row-data SELECT is caught", p6],
+    ["inline -c SHOW (no row data) passes", p7],
+    ["unredacted -f <row-data file> is caught", p8],
+    ["inline -c with a shell expansion is caught (cannot be judged)", p9],
+    ["a clean file plus a row-data inline command on one line is caught", p10],
   ]) { console.log(`${p ? "PASS" : "FAIL"}  self-test: ${n}`); ok &&= p; }
   return ok;
 }

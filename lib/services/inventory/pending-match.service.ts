@@ -2,6 +2,13 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { recordInventorySale } from "@/lib/services/inventory/sale-evidence.service";
+import { unitPriceForResolvedPending } from "@/lib/services/inventory/sale-price";
+import {
+  linkSourceLinesToSale,
+  recordInventorySourceSaleLines,
+  type SourceSaleLineInput,
+} from "@/lib/services/inventory/sale-source-lines.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { MAX_STRING } from "@/lib/sensors/sensor.contract";
 
@@ -39,6 +46,7 @@ type PendingMatchMetadata = {
     barcode: string | null;
     name: string | null;
     quantity: number;
+    unitPrice?: string | null;
   }[];
 };
 
@@ -46,15 +54,24 @@ type CreatePendingMatchInput = {
   businessId: number;
   externalSaleId: string;
   metadata: PendingMatchMetadata;
+  sourceLines?: SourceSaleLineInput[];
 };
 
 export async function createPendingMatch(
   input: CreatePendingMatchInput,
   options?: TxOptions
 ) {
-  const { businessId, externalSaleId, metadata } = input;
+  const { businessId, externalSaleId, metadata, sourceLines } = input;
 
   const run = async (tx: Tx) => {
+    if (sourceLines && sourceLines.length > 0) {
+      await recordInventorySourceSaleLines(tx, {
+        businessId,
+        externalSaleId,
+        lines: sourceLines,
+      });
+    }
+
     const existing = await tx.inventoryPendingMatch.findUnique({
       where: {
         businessId_externalSaleId: {
@@ -145,28 +162,78 @@ export async function resolvePendingMatchWithExistingItem(
   }
 
   const metadata = pending.metadata as PendingMatchMetadata;
-
-  // 🔥 יצירת movement רק דרך service (על אותו tx כשסופק)
-  const saleMovement = await inventoryService.removeStock(
-    {
-      businessId,
-      itemId,
-      quantityDelta: metadata.quantity,
-      reason: "SALE",
-      createdByUserId: userId,
-    },
-    options
-  );
+  const source = metadata.source?.trim() || "POS";
 
   const run = async (tx: Tx) => {
-    // 🔥 עכשיו האירוע נחשב processed
-    await tx.inventoryExternalSale.create({
-      data: {
-        businessId,
-        externalSaleId: pending.externalSaleId,
-        source: metadata.source || "POS",
+    const alreadyProcessed = await tx.inventoryExternalSale.findUnique({
+      where: {
+        businessId_externalSaleId: {
+          businessId,
+          externalSaleId: pending.externalSaleId,
+        },
       },
     });
+
+    const sourceLines = await tx.inventorySourceSaleLine.findMany({
+      where: { businessId, externalSaleId: pending.externalSaleId },
+      orderBy: { lineKey: "asc" },
+    });
+
+    let movementId: number | undefined;
+
+    if (!alreadyProcessed) {
+      if (sourceLines.length > 1) {
+        // Several upstream lines. Deduct the pending quantity the owner
+        // chose, and do not claim each source line was this one item.
+        const movement = await inventoryService.removeStock(
+          {
+            businessId,
+            itemId,
+            quantityDelta: metadata.quantity,
+            reason: "SALE",
+            createdByUserId: userId,
+          },
+          { tx }
+        );
+        await tx.inventoryExternalSale.create({
+          data: {
+            businessId,
+            externalSaleId: pending.externalSaleId,
+            source,
+          },
+        });
+        movementId = movement.id;
+      } else {
+        const only = sourceLines[0];
+        const unitPrice =
+          only?.unitPrice != null
+            ? only.unitPrice.toFixed(2)
+            : unitPriceForResolvedPending(metadata);
+        const recorded = await recordInventorySale({
+          tx,
+          businessId,
+          source,
+          externalSaleId: pending.externalSaleId,
+          createdByUserId: userId,
+          lines: [
+            {
+              itemId,
+              quantity: metadata.quantity,
+              unitPrice,
+              lineKey: only?.lineKey ?? "0",
+            },
+          ],
+        });
+        movementId = recorded.movements[0]?.id;
+        if (recorded.saleId > 0) {
+          await linkSourceLinesToSale(tx, {
+            businessId,
+            externalSaleId: pending.externalSaleId,
+            saleId: recorded.saleId,
+          });
+        }
+      }
+    }
 
     await tx.inventoryPendingMatch.update({
       where: { id: pending.id },
@@ -175,6 +242,7 @@ export async function resolvePendingMatchWithExistingItem(
         resolvedAt: new Date(),
         resolvedByUserId: userId,
         resolvedItemId: itemId,
+        ...(movementId ? { resolvedMovementId: movementId } : {}),
       },
     });
 
@@ -266,7 +334,7 @@ export async function resolvePendingMatchWithExistingItem(
         payload: {
           mode: resolutionMode,
           externalSaleId: sensorExternalSaleId(pending.externalSaleId),
-          movementIds: [saleMovement.id],
+          movementIds: movementId ? [movementId] : [],
           mappingReplaced,
         },
         idempotencyKey: `pending-match:${pending.id}:resolved`,
@@ -284,7 +352,7 @@ export async function resolvePendingMatchWithExistingItem(
   if (options?.tx) {
     return run(options.tx);
   }
-  return tenantTx(businessId, run);
+  return tenantTx(businessId, run, { timeoutMs: 20_000 });
 }
 
 type ResolveWithNewItemInput = {

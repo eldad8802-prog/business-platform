@@ -36,6 +36,7 @@ type ContentFlow = {
 };
 
 type ContentResult = {
+  contentRunId?: number | null;
   selectedVariant?: {
     script?: {
       scriptText?: string;
@@ -189,6 +190,7 @@ export default function AiAssetsPage() {
           stepTimers.push(timer);
         });
 
+        const contentRunId = result?.contentRunId;
         const res = await fetch("/api/content/ai-assets", {
           method: "POST",
           headers: {
@@ -198,6 +200,9 @@ export default function AiAssetsPage() {
           body: JSON.stringify({
             flow,
             result,
+            ...(typeof contentRunId === "number" && contentRunId > 0
+              ? { contentRunId }
+              : {}),
           }),
         });
 

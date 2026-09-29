@@ -9,6 +9,8 @@ import { brainMode, runBrain } from "@/lib/knowledge/brain/brain.service";
 import { brainModel, openAiBrainProvider, openAiKeyPresent } from "@/lib/knowledge/brain/provider";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
+import { deriveOutcomesForBusiness } from "@/lib/knowledge/outcomes/outcome.service";
+import { probeOutcomeGuards } from "@/lib/knowledge/outcomes/outcome-store";
 
 /**
  * M2–M5 — derive one business's knowledge, inside the runtime.
@@ -53,6 +55,11 @@ const ISOLATION_TABLES = [
   "EntityLinkProposal",
   "CollectionAction",
   "LearningEvent",
+  "OutcomeRecommendation",
+  "OutcomeDecision",
+  "OutcomeActionEvent",
+  "OutcomeObservation",
+  "OutcomeAssessment",
 ];
 
 async function handle(req: NextRequest) {
@@ -100,11 +107,9 @@ async function handle(req: NextRequest) {
     const insights = await generateInsightsForBusiness(businessId);
     // M6 — temporal knowledge AS OF the same instant the measures were derived at.
     const temporal = await deriveTemporalForBusiness(businessId, new Date(derivation.now));
-    // M7 — the Business Knowledge Snapshot, built TWICE at the same instant: the second build must
-    // reproduce the first fingerprint exactly. Only its stats leave this function — never its contents.
     const snapAsOf = new Date(derivation.now);
-    const snap1 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
-    const snap2 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+    // The knowledge the Brain and the M9 generator reason over: built once, at the derivation instant.
+    const snap0 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
 
     // M8 — the Brain, in SHADOW, ONLY when the scheduler asks for it explicitly (?brain=shadow) and
     // BRAIN_MODE is not "off". The server builds the snapshot; nothing comes from the caller but the
@@ -114,9 +119,24 @@ async function handle(req: NextRequest) {
       ? await runBrain(businessId, {
           mode: brainMode(),
           provider: openAiBrainProvider(),
-          buildSnapshot: async (b) => buildBusinessKnowledgeSnapshot(b, { asOf: snapAsOf }),
+          buildSnapshot: async (b) => (b === businessId ? snap0 : buildBusinessKnowledgeSnapshot(b, { asOf: snapAsOf })),
         })
       : null;
+
+    // M9 — the outcome loop: recommendations from governed knowledge (linked to a validated finding
+    // when one cites the same knowledge), actions and observations read from the ledger, assessments.
+    // Backend only: nothing is shown to the owner. Never throws; a failure reports its stage.
+    const outcomes = await deriveOutcomesForBusiness(businessId, { asOf: snapAsOf, snapshot: snap0, brain });
+
+    // M7 — the Business Knowledge Snapshot AFTER the outcome loop (so its learning is in it), built
+    // TWICE at the same instant: the second build must reproduce the first fingerprint exactly. Only
+    // its stats leave this function — never its contents.
+    const snap1 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+    const snap2 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
+
+    // M9 guards, verified AS THIS ROLE: catalog facts, then writes that must be refused — each in a
+    // tenant transaction that is always rolled back. Nothing here persists.
+    const guards = await probeOutcomeGuards(businessId);
 
     // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
     //
@@ -251,11 +271,23 @@ async function handle(req: NextRequest) {
                 inputTokens: brain.meta.inputTokens,
                 outputTokens: brain.meta.outputTokens,
                 failureStage: brain.meta.failureStage,
-                snapshotMatches: brain.meta.snapshotFingerprint === snap1.snapshotFingerprint,
+                snapshotMatches: brain.meta.snapshotFingerprint === snap0.snapshotFingerprint,
               }
             : null,
         },
         insights: insights.length,
+        // M9 — counts, states, codes and versions only. No recommendation text exists; no ids, no values.
+        outcomes: {
+          ...outcomes,
+          guards,
+          guardsHold: guards.holds,
+          feedback: {
+            memory: snap1.knowledge.filter((k) => k.kind === "RECOMMENDATION_MEMORY").length,
+            decisionPatterns: snap1.knowledge.filter((k) => k.kind === "DECISION_PATTERN").length,
+            outcomePatterns: snap1.knowledge.filter((k) => k.kind === "OUTCOME_PATTERN").length,
+            gaps: snap1.knowledgeGaps.filter((g) => g.key.startsWith("outcomes.")).length,
+          },
+        },
       },
       { status: 200 }
     );
