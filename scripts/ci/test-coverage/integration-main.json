@@ -1,5 +1,5 @@
 {
-  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9). Classified honestly; each is invoked by the workflow named.",
+  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3). Classified honestly; each is invoked by the workflow named.",
   "tests": {
     "components/whatsapp/connection-view.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -18,6 +18,10 @@
     "components/whatsapp/popup-observer.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "#558: call-scoped window.open observer tells an opened popup from a refused one (UI reliability); run by whatsapp-embedded-signup-ci.yml"
+    },
+    "lib/intake/core/intake-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "#570 M3: pure intake-core unit suite (event identity, attribution/PII sanitising, log-field allow-listing, provider-neutral structure); no DB, no tenant or auth decision — the M3 tenant isolation is proven by m3-business-intake-ci.yml's DB lab; run on pull_request by m3-business-intake-ci.yml"
     },
     "lib/knowledge/brain/brain.eval.test.ts": {
       "class": "SECURITY_REQUIRED",

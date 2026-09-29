@@ -23,6 +23,7 @@
  */
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { intakeIsolationStatements } from "../scripts/security/intake-isolation-lab.mjs";
 import { PrismaClient } from "@prisma/client";
 import { expectDenied } from "../scripts/ci/lab/denial.mjs";
 
@@ -170,12 +171,7 @@ async function main() {
     // `db push`; its isolation comes from the REAL migration file — the
     // tenant-isolation section, verbatim, with app_runtime renamed to this
     // lab's runtime role — so the battery proves the SQL that ships.
-    const m2 = readFileSync("prisma/migrations/20260927180000_m2_intake_event/migration.sql", "utf8");
-    const rlsStart = m2.indexOf('ALTER TABLE "IntakeEvent" ENABLE ROW LEVEL SECURITY;');
-    const doStart = m2.indexOf("DO $do$");
-    if (rlsStart < 0 || doStart < rlsStart) throw new Error("M2 migration layout changed — update the battery");
-    for (const stmt of splitSql(m2.slice(rlsStart, doStart))) await owner.$executeRawUnsafe(stmt);
-    await owner.$executeRawUnsafe(m2.slice(doStart).trim().replace(/;\s*$/, "").replaceAll("app_runtime", RT_ROLE));
+    for (const stmt of intakeIsolationStatements(RT_ROLE)) await owner.$executeRawUnsafe(stmt);
   }
 
   // ── Phase 3: apply W4B migration + grants ───────────────────────────────
