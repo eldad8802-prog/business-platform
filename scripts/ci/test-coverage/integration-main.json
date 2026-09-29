@@ -1,5 +1,5 @@
 {
-  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3). Classified honestly; each is invoked by the workflow named.",
+  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3, then P1 offering 336e9db2). Classified honestly; each is invoked by the workflow named.",
   "tests": {
     "components/whatsapp/connection-view.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -56,6 +56,26 @@
     "lib/services/inventory/sale-price.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "#551 P0: pure sale-price evidence arithmetic (no DB); no workflow runs it — product-test debt"
+    },
+    "lib/services/offering/offering-strategy.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "P1 336e9db2: pure three-strategy offering-input checks (no DB, no tenant or auth decision); run on pull_request by p1-offering-ci.yml job core"
+    },
+    "lib/services/offering/offering.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p1-offering-ci.yml",
+      "reason": "P1 336e9db2: service-level invariants incl. cross-tenant asset links refused and per-tenant offering projection; run on pull_request by p1-offering-ci.yml job db"
+    },
+    "lib/services/offering/offering.rls.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p1-offering-ci.yml",
+      "reason": "P1 336e9db2: replays the applied P1 migration verbatim and proves tenant isolation of the offering tables as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/create/link refused); run on pull_request by p1-offering-ci.yml job db"
+    },
+    "lib/services/offering/service-price.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "P1 336e9db2: pure service-price semantics (no DB, no tenant or auth decision); run on pull_request by p1-offering-ci.yml job core"
     },
     "lib/services/p0-evidence.db.test.ts": {
       "class": "LOCAL_ONLY",
