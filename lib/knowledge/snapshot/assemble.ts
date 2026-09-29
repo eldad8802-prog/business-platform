@@ -27,6 +27,7 @@ import {
 } from "./snapshot.contract";
 import { CROSS_DOMAIN_FAMILIES, CROSS_DOMAIN_RULES } from "./cross-domain";
 import type { DomainState, StoredKnowledge } from "./snapshot-sources";
+import { learnFromOutcomes } from "../outcomes/learn";
 
 const DAY = 86_400_000;
 
@@ -176,6 +177,13 @@ export function assembleSnapshot(
       provenance: [{ store: "BusinessStatus", id: f.itemId }],
     });
   }
+
+  /* ── 1f. M9 outcome learning (memory, owner-behaviour and outcome patterns; gaps below threshold) ── */
+  const learned = learnFromOutcomes(asOf, (stored.outcomes ?? []).map((r) => ({
+    ...r, assessment: r.assessments[0] ?? null,
+  })));
+  drafts.push(...learned.items);
+  gapsRaw.push(...learned.gaps);
 
   /* ── 2. deduplicate by semantic slot; divergent values become conflicts ── */
   const bySlot = new Map<string, Draft[]>();

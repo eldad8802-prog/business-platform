@@ -1,11 +1,13 @@
 /**
- * Business Intake · WhatsApp — the first source adapter.
+ * Business Intake · WhatsApp — the first source adapter of the canonical core.
  *
- *   webhook (signature verified, tenant resolved by the routing gate)
- *     → buildMessageReceipt / buildStatusReceipt     (pure)
+ *   webhook (signature verified, tenant resolved by the routing gate — the
+ *            adapter's trusted resolver: phone_number_id → WhatsAppConnection)
+ *     → buildMessageReceipt / buildStatusReceipt     (pure; canonical drafts)
  *     → recordReceipts                               (durable; THEN the 200)
- *     → drainWhatsAppIntake → processIntakeEvent     (after the response, and
- *                                                      again by the sweeper)
+ *     → drainIntake(intakeRegistry) → core processor (after the response, and
+ *        → whatsAppIntakeAdapter.normalize / route    again by the sweeper)
+ *          / enrich
  *
  * The adapter never writes Customer / Conversation / Message itself. A customer
  * message goes through `ingestInboundCustomerMessage` (the one canonical path)
@@ -18,22 +20,23 @@
  * payload: it is always the server-resolved one the caller passes in.
  */
 
-import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
+import type {
+  ClaimedIntakeEvent,
+  IntakeAdapter,
+  IntakeReceiptDraft,
+  NormalizedIntake,
+  RouteResult,
+} from "@/lib/intake/core/contract";
+import { deriveEventIdentity, sha256Key } from "@/lib/intake/core/event-identity";
+import { sanitizeAttribution } from "@/lib/intake/core/attribution";
+import { normalizeContactHints } from "@/lib/intake/core/contact";
 import {
-  claimEvent,
-  errorCodeOf,
-  listDueEventIds,
-  markDeferred,
-  markFailed,
-  markIgnored,
-  markPersisted,
-  markProcessed,
-  type ClaimedEvent,
-  type IntakeReceiptInput,
-} from "@/lib/intake/intake-event.store";
+  listBusinessIdsWithWhatsAppConnection,
+  resolveBusinessIdByPhoneNumberId,
+} from "@/lib/services/integrations/whatsapp/connection.service";
 import { ingestInboundCustomerMessage } from "@/lib/services/conversation/inbound-customer-message.service";
 import { runInboundMessagePipeline } from "@/lib/services/conversation/inbound-message-pipeline.service";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
@@ -109,7 +112,9 @@ export function parseProviderTimestamp(raw: string | null | undefined, now = new
  * account erasure nulls) and in the payload until it is purged.
  */
 export function receiptKey(providerIdentity: string): string {
-  return `sha256:${createHash("sha256").update(providerIdentity, "utf8").digest("hex")}`;
+  // Identical to the M2 key (sha256 of the wamid), so a redelivery after the M3
+  // deploy still dedupes against a receipt recorded before it.
+  return sha256Key(providerIdentity);
 }
 
 /** Non-personal facts kept after the payload is purged. */
@@ -128,7 +133,7 @@ function messageMetadata(
 export function buildMessageReceipt(
   decision: Exclude<RoutingDecision, { kind: "STOP" }>,
   message: WhatsAppWebhookMessageSummary
-): IntakeReceiptInput {
+): IntakeReceiptDraft {
   const messageType = message.type?.trim().toLowerCase() ?? "";
   let payload: WhatsAppMessagePayloadV1;
   if (decision.kind === "CONVERSATION_INTAKE") {
@@ -161,10 +166,13 @@ export function buildMessageReceipt(
       messageType: decision.messageType,
     };
   }
+  const identity = deriveEventIdentity({ providerEventId: decision.wamid });
   return {
-    provider: "WHATSAPP",
-    kind: "MESSAGE_RECEIVED",
-    externalEventId: receiptKey(decision.wamid),
+    family: "MESSAGE",
+    eventType: "message.received",
+    externalEventId: identity.externalEventId,
+    dedupeBasis: identity.dedupeBasis,
+    legacy: { provider: "WHATSAPP", kind: "MESSAGE_RECEIVED" },
     providerAccountRef: decision.phoneNumberId,
     occurredAt: parseProviderTimestamp(message.timestamp),
     payload,
@@ -180,7 +188,7 @@ export function buildMessageReceipt(
 export function buildStatusReceipt(
   status: WhatsAppWebhookStatusSummary,
   phoneNumberId: string
-): IntakeReceiptInput | null {
+): IntakeReceiptDraft | null {
   const wamid = status.wamid?.trim();
   const value = status.status?.trim().toLowerCase();
   if (!wamid || !value || !KNOWN_STATUSES.has(value)) return null;
@@ -191,10 +199,13 @@ export function buildStatusReceipt(
     status: value as WhatsAppStatusPayloadV1["status"],
     errorCode: status.errorCode,
   };
+  const identity = deriveEventIdentity({ providerEventId: `${wamid}:${value}` });
   return {
-    provider: "WHATSAPP",
-    kind: "MESSAGE_STATUS",
-    externalEventId: receiptKey(`${wamid}:${value}`),
+    family: "MESSAGE",
+    eventType: "message.status",
+    externalEventId: identity.externalEventId,
+    dedupeBasis: identity.dedupeBasis,
+    legacy: { provider: "WHATSAPP", kind: "MESSAGE_STATUS" },
     providerAccountRef: phoneNumberId,
     occurredAt: parseProviderTimestamp(status.timestamp),
     payload,
@@ -202,60 +213,125 @@ export function buildStatusReceipt(
   };
 }
 
-// ─── processing ────────────────────────────────────────────────────────────
+// ─── the adapter (normalize / route / enrich) ──────────────────────────────
 
-export type IntakeProcessResult =
-  | "not_claimed"
-  | "processed"
-  | "ignored"
-  | "deferred"
-  | "failed";
-
-function readPayload(event: ClaimedEvent): WhatsAppPayload | null {
+function readPayload(event: ClaimedIntakeEvent): WhatsAppPayload | null {
   const p = event.payload as Record<string, unknown> | null;
   if (!p || typeof p !== "object" || p.v !== 1 || typeof p.route !== "string") return null;
   return p as unknown as WhatsAppPayload;
 }
 
+/** Click-to-WhatsApp referral (kept in receipt metadata) → canonical attribution. */
+function attributionFrom(event: ClaimedIntakeEvent): NormalizedIntake["attribution"] {
+  const meta = event.metadata as { referral?: WhatsAppReferralSummary | null } | null;
+  const ref = meta?.referral;
+  if (!ref) return sanitizeAttribution({ channel: "whatsapp", provider: "whatsapp" });
+  return sanitizeAttribution({
+    channel: "whatsapp",
+    provider: "whatsapp",
+    source: ref.sourceType === "ad" ? "meta_ads" : ref.sourceType ?? undefined,
+    referralSourceType: ref.sourceType ?? undefined,
+    adId: ref.sourceType === "ad" ? ref.sourceId ?? undefined : undefined,
+    referralSourceUrl: ref.sourceUrl ?? undefined,
+    headline: ref.headline ?? undefined,
+    clickId: ref.ctwaClid ?? undefined,
+  });
+}
+
+/** What the WhatsApp route produces for the enrich step. */
+type ConversationContext = {
+  conversation: Parameters<typeof runInboundMessagePipeline>[0]["conversation"];
+  message: Parameters<typeof runInboundMessagePipeline>[0]["message"];
+};
+
 /**
- * Process ONE receipt: claim it, materialise it, record the outcome. Never
- * throws for a processing failure — the failure is recorded on the receipt and
- * retried on its backoff. Returns what happened.
+ * The WhatsApp source adapter. Route semantics are exactly M2's:
+ *   CONVERSATION → the one canonical inbound path (ingestInboundCustomerMessage),
+ *                  then the inbound pipeline as enrichment (resume-safe);
+ *   STATUS       → updates only the OUTBOUND message it names;
+ *   DOCUMENTS    → the documents intake (stays authoritative for documents);
+ *   UNSUPPORTED  → understood, deliberately not materialised.
+ * A WhatsApp message is never a Lead.
  */
-export async function processIntakeEvent(
-  businessId: number,
-  eventId: number,
-  now: Date = new Date()
-): Promise<IntakeProcessResult> {
-  const event = await claimEvent(businessId, eventId, now);
-  if (!event) return "not_claimed";
+export const whatsAppIntakeAdapter: IntakeAdapter = {
+  sourceKey: "whatsapp",
+  families: ["MESSAGE"],
+  normalizerVersion: "whatsapp@1",
 
-  let status = event.status;
-  try {
+  resolveTenant: (phoneNumberId) => resolveBusinessIdByPhoneNumberId(phoneNumberId),
+  listTenants: () => listBusinessIdsWithWhatsAppConnection(),
+
+  normalize(event) {
     const payload = readPayload(event);
-    if (!payload) {
-      // Purged or malformed: nothing left to act on, and retrying cannot help.
-      await markIgnored(businessId, event.id, "payload_unavailable");
-      return "ignored";
-    }
-
+    if (!payload) return { ok: false, code: "malformed_payload" };
+    const attribution = payload.route === "STATUS" ? null : attributionFrom(event);
     switch (payload.route) {
-      case "UNSUPPORTED": {
-        await markIgnored(businessId, event.id, `unsupported:${payload.reason}`);
-        return "ignored";
+      case "CONVERSATION": {
+        const contact = normalizeContactHints({ phone: payload.senderPhone, displayName: payload.profileName });
+        return {
+          ok: true,
+          normalized: {
+            occurredAt: event.occurredAt,
+            contactHints: contact.hints,
+            signals: contact.signals,
+            identity: "delegated",
+            attribution,
+            target: "conversation",
+          },
+        };
       }
+      case "DOCUMENTS": {
+        const contact = normalizeContactHints({ phone: payload.sender });
+        return {
+          ok: true,
+          normalized: {
+            occurredAt: event.occurredAt,
+            contactHints: contact.hints,
+            signals: contact.signals,
+            identity: "delegated",
+            attribution,
+            target: "document",
+          },
+        };
+      }
+      case "STATUS":
+        return {
+          ok: true,
+          normalized: {
+            occurredAt: event.occurredAt,
+            contactHints: null,
+            signals: {},
+            identity: "none",
+            attribution: null,
+            target: "message_status",
+          },
+        };
+      case "UNSUPPORTED":
+        return {
+          ok: true,
+          normalized: {
+            occurredAt: event.occurredAt,
+            contactHints: null,
+            signals: {},
+            identity: "none",
+            attribution,
+            target: "none",
+          },
+        };
+    }
+  },
+
+  async route({ businessId, now }, _normalized, event): Promise<RouteResult> {
+    const payload = readPayload(event);
+    if (!payload) return { kind: "ignored", code: "payload_unavailable" };
+    switch (payload.route) {
+      case "UNSUPPORTED":
+        return { kind: "ignored", code: `unsupported:${payload.reason}` };
 
       case "STATUS": {
         const applied = await applyOutboundStatus(businessId, payload, event.occurredAt ?? now);
-        if (applied === null) {
-          await markIgnored(businessId, event.id, "unknown_outbound_message");
-          return "ignored";
-        }
-        await markProcessed(businessId, event.id, {
-          messageId: applied.messageId,
-          conversationId: applied.conversationId,
-        });
-        return "processed";
+        if (applied === null) return { kind: "ignored", code: "unknown_outbound_message" };
+        return { kind: "routed", refs: { messageId: applied.messageId, conversationId: applied.conversationId } };
       }
 
       case "DOCUMENTS": {
@@ -263,8 +339,7 @@ export async function processIntakeEvent(
         if (!gate.allowed) {
           // Deferred, not dropped (M1 W11): the receipt waits and is retried.
           const until = new Date(now.getTime() + Math.max(gate.retryAfterSeconds ?? 60, 30) * 1000);
-          await markDeferred(businessId, event, until, "throttled");
-          return "deferred";
+          return { kind: "deferred", code: "throttled", until };
         }
         const outcome = await processWhatsAppDocumentsIntake({
           businessId,
@@ -277,11 +352,9 @@ export async function processIntakeEvent(
         if (outcome.status === "failed") {
           // The documents subsystem recorded this failure on its own import row;
           // a blind retry would meet its wamid dedup. Kept visible, not retried.
-          await markIgnored(businessId, event.id, `documents_failed:${outcome.reason}`);
-          return "ignored";
+          return { kind: "ignored", code: `documents_failed:${outcome.reason}` };
         }
-        await markProcessed(businessId, event.id);
-        return "processed";
+        return { kind: "routed", refs: {} };
       }
 
       case "CONVERSATION": {
@@ -295,69 +368,37 @@ export async function processIntakeEvent(
           occurredAt: event.occurredAt,
           profileName: payload.profileName,
         });
-        if (ingested.status === "invalid_sender") {
-          await markIgnored(businessId, event.id, "invalid_sender");
-          return "ignored";
-        }
-        const refs = {
-          messageId: ingested.message.id,
-          conversationId: ingested.conversation.id,
-          customerId: ingested.customer.id,
+        if (ingested.status === "invalid_sender") return { kind: "ignored", code: "invalid_sender" };
+        const context: ConversationContext = { conversation: ingested.conversation, message: ingested.message };
+        return {
+          kind: "routed",
+          refs: {
+            messageId: ingested.message.id,
+            conversationId: ingested.conversation.id,
+            customerId: ingested.customer.id,
+          },
+          alreadyExisted: ingested.alreadyExisted,
+          context,
         };
-        await markPersisted(businessId, event.id, refs);
-        status = "PERSISTED";
-
-        // Enrichment. A resumed run (the message was already stored by an
-        // earlier attempt) repeats only what is safe to repeat.
-        await runInboundMessagePipeline({
-          conversation: ingested.conversation,
-          message: ingested.message,
-          businessId,
-          source: "webhook",
-          resume: ingested.alreadyExisted || event.status === "PERSISTED",
-        });
-        await syncInboxWaitingNotifications(businessId, ingested.conversation.id, new Date());
-
-        await markProcessed(businessId, event.id, refs);
-        return "processed";
       }
     }
-  } catch (error) {
-    await markFailed(businessId, { id: event.id, attempts: event.attempts, status }, errorCodeOf(error));
-    console.warn("[intake] event failed", {
-      businessId,
-      eventId: event.id,
-      attempt: event.attempts,
-      code: errorCodeOf(error),
-    });
-    return "failed";
-  }
-}
+  },
 
-/**
- * Process the named receipts, then whatever else of this business is due —
- * oldest first, one at a time (a sender's messages keep their order). Bounded,
- * so a backlog is worked down across calls rather than in one request.
- */
-export async function drainWhatsAppIntake(
-  businessId: number,
-  options: { eventIds?: number[]; limit?: number; now?: Date } = {}
-): Promise<Record<IntakeProcessResult, number>> {
-  const now = options.now ?? new Date();
-  const due = await listDueEventIds(businessId, now, options.limit ?? 25);
-  const ids = [...new Set([...(options.eventIds ?? []), ...due])].sort((a, b) => a - b);
-  const tally: Record<IntakeProcessResult, number> = {
-    not_claimed: 0,
-    processed: 0,
-    ignored: 0,
-    deferred: 0,
-    failed: 0,
-  };
-  for (const id of ids) {
-    tally[await processIntakeEvent(businessId, id, now)] += 1;
-  }
-  return tally;
-}
+  async enrich({ businessId }, routed, _event, resume) {
+    const context = routed.context as ConversationContext | undefined;
+    if (!context) return; // STATUS / DOCUMENTS: nothing to enrich
+    // Enrichment. A resumed run (the message was already stored by an earlier
+    // attempt) repeats only what is safe to repeat.
+    await runInboundMessagePipeline({
+      conversation: context.conversation,
+      message: context.message,
+      businessId,
+      source: "webhook",
+      resume,
+    });
+    await syncInboxWaitingNotifications(businessId, context.conversation.id, new Date());
+  },
+};
 
 // ─── delivery / read / failed receipts ─────────────────────────────────────
 

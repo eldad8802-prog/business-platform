@@ -20,7 +20,8 @@
 import { createHash } from "node:crypto";
 import type { BusinessKnowledgeSnapshot, KnowledgeItem } from "../snapshot/snapshot.contract";
 
-export const CONTEXT_VERSION = "brain-context.v1";
+// v2 (M9): admits RECOMMENDATION_MEMORY, DECISION_PATTERN and OUTCOME_PATTERN, scalar fields only.
+export const CONTEXT_VERSION = "brain-context.v2";
 
 export const CONTEXT_BUDGET = {
   knowledge: 60,
@@ -118,12 +119,26 @@ function factsOf(item: KnowledgeItem): Record<string, Scalar> {
     case "OWNER_DECISION":
       put("decision", v.decision);
       break;
+    // M9 — every field names its own authority; states, counts and days only, never text or money.
+    case "RECOMMENDATION_MEMORY":
+      for (const k of ["recommendationType", "version", "lifecycle", "targets", "daysSinceIssued", "ownerDecision",
+        "ledgerAction", "observedOutcome", "direction", "systemAttribution", "uncertainty"]) put(k, v[k]);
+      break;
+    case "DECISION_PATTERN":
+      for (const k of ["recommendationType", "decided", "accepted", "rejected", "modified", "deferred", "expiredUnanswered",
+        "medianDaysToDecision"]) put(k, v[k]);
+      break;
+    case "OUTCOME_PATTERN":
+      for (const k of ["recommendationType", "windowsClosed", "actionCompleted", "actionPartial", "actionNotStarted",
+        "observedSequence", "noOutcomeObserved", "notAssessable", "medianDaysToFirstAction"]) put(k, v[k]);
+      break;
   }
   return out;
 }
 
 const KIND_RANK: Record<string, number> = {
-  ANOMALY: 0, MATERIAL_CHANGE: 1, TREND: 2, FACT: 3, MEASURE: 5, STABLE_PATTERN: 6, BASELINE: 7, OWNER_DECISION: 8, CLAIM: 9,
+  ANOMALY: 0, MATERIAL_CHANGE: 1, TREND: 2, FACT: 3, MEASURE: 5, STABLE_PATTERN: 6, BASELINE: 7, OWNER_DECISION: 8,
+  RECOMMENDATION_MEMORY: 8, DECISION_PATTERN: 8, OUTCOME_PATTERN: 8, CLAIM: 9,
 };
 function rank(item: KnowledgeItem): number {
   if (item.kind !== "FACT") return KIND_RANK[item.kind] ?? 10;

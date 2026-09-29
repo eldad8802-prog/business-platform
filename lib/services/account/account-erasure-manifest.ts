@@ -176,6 +176,13 @@ export const ANONYMIZE_MODELS = [
       messageId: "null", conversationId: "null", customerId: "null",
     },
   },
+  // M3 — what Dubiz understood from a receipt. Contact hints are personal data;
+  // attribution and the result pointers would reconnect the record to a person
+  // or to the conversation graph. The non-personal signals and lifecycle stay.
+  {
+    model: "intakeNormalizedEvent",
+    fields: { contactHints: "json-null", attribution: "json-null", resultRefs: "json-null" },
+  },
   {
     model: "conversation",
     fields: {
