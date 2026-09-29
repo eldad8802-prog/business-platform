@@ -254,6 +254,10 @@ async function main() {
   // would let a deleteMany "fix" pass here and fail in Production.
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IntakeEvent" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IntakeEvent" FROM ${RT_ROLE}`);
+  // Business Intake M3 — migration 20260929090000_m3_canonical_intake, mirrored
+  // exactly (SELECT, INSERT, UPDATE; DELETE revoked).
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IntakeNormalizedEvent" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IntakeNormalizedEvent" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );

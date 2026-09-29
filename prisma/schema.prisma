@@ -254,6 +254,7 @@ model Business {
   outcomeActionEvents           OutcomeActionEvent[]
   outcomeObservations           OutcomeObservation[]
   outcomeAssessments            OutcomeAssessment[]
+  intakeNormalizedEvents        IntakeNormalizedEvent[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -934,26 +935,26 @@ model CollaborationDeal {
 }
 
 model Offer {
-  id                  Int      @id @default(autoincrement())
+  id                  Int                  @id @default(autoincrement())
   issuingBusinessId   Int
   title               String
   description         String?
   customerBenefitText String
   validUntil          DateTime
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   imageUrl            String?
   /// Structured offer definition. Null on rows published before this column
   /// existed — unknown, not a reconstructed value.
   benefitType         String?
   benefitValue        String?
   benefitScope        String?
-  minPurchaseAmount   Decimal? @db.Decimal(18, 2)
+  minPurchaseAmount   Decimal?             @db.Decimal(18, 2)
   newCustomersOnly    Boolean?
   coupons             Coupon[]
   surfaceEvents       CouponSurfaceEvent[]
-  issuingBusiness     Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  issuingBusiness     Business             @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
 
   @@unique([id, issuingBusinessId])
   @@index([issuingBusinessId])
@@ -962,20 +963,20 @@ model Offer {
 }
 
 model Coupon {
-  id                Int              @id @default(autoincrement())
+  id                Int                  @id @default(autoincrement())
   offerId           Int
   issuingBusinessId Int
-  token             String           @unique
-  qrValue           String           @unique
-  issuedAt          DateTime         @default(now())
+  token             String               @unique
+  qrValue           String               @unique
+  issuedAt          DateTime             @default(now())
   expiresAt         DateTime
-  status            CouponStatus     @default(ACTIVE)
+  status            CouponStatus         @default(ACTIVE)
   redeemedAt        DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  publicId          String           @unique @default(uuid()) @db.Uuid
-  issuingBusiness   Business         @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
-  offer             Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  publicId          String               @unique @default(uuid()) @db.Uuid
+  issuingBusiness   Business             @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  offer             Offer                @relation(fields: [offerId], references: [id], onDelete: Cascade)
   redemptionEvents  RedemptionEvent?
   surfaceEvents     CouponSurfaceEvent[]
 
@@ -1224,12 +1225,12 @@ model RecommendationOutcome {
 }
 
 model LearningEvent {
-  id          Int                 @id @default(autoincrement())
-  businessId  Int
-  eventType   String
-  entityType  String
-  entityId    Int?
-  payload     Json?
+  id             Int                  @id @default(autoincrement())
+  businessId     Int
+  eventType      String
+  entityType     String
+  entityId       Int?
+  payload        Json?
   /// M5 — WHO. Every other audit trail in this codebase records an actor; this one, the only generic
   /// tenant-scoped event bus, did not, and three of its five writers had the user in hand and threw
   /// it away. An event whose actor is unknown is a fact about the business with nobody attached to
@@ -1239,8 +1240,8 @@ model LearningEvent {
   /// NULL on every historical row, and it stays NULL: backfilling an invented actor onto events that
   /// were recorded without one would replace an honest gap with a confident fiction. `actorType`
   /// UNKNOWN says the same thing explicitly for rows written from here on.
-  actorUserId Int?
-  actorType   LearningEventActor?
+  actorUserId    Int?
+  actorType      LearningEventActor?
   /// M5.5 — HOW it arrived (owner UI, import, integration, system), orthogonal to WHO. NULL on rows
   /// written before the sensor fabric; never backfilled.
   source         LearningEventSource?
@@ -1250,8 +1251,8 @@ model LearningEvent {
   sensorVersion  Int?
   /// M5.5 — a stable identity for the action. A retry of the same action writes nothing new.
   idempotencyKey String?
-  createdAt   DateTime            @default(now())
-  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, idempotencyKey])
   @@index([businessId, actorType])
@@ -1909,20 +1910,20 @@ model InventoryItem {
 }
 
 model InventoryMovement {
-  id              Int                     @id @default(autoincrement())
-  businessId      Int
-  itemId          Int
-  movementType    InventoryMovementType
-  reason          InventoryMovementReason
-  quantityDelta   Float
-  quantityBefore  Float
-  quantityAfter   Float
-  note            String?
-  createdByUserId Int?
-  createdAt       DateTime                @default(now())
-  business        Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  item            InventoryItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  saleLine        InventorySaleLine?
+  id                      Int                     @id @default(autoincrement())
+  businessId              Int
+  itemId                  Int
+  movementType            InventoryMovementType
+  reason                  InventoryMovementReason
+  quantityDelta           Float
+  quantityBefore          Float
+  quantityAfter           Float
+  note                    String?
+  createdByUserId         Int?
+  createdAt               DateTime                @default(now())
+  business                Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  item                    InventoryItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  saleLine                InventorySaleLine?
   pendingMatchResolutions InventoryPendingMatch[] @relation("PendingMatchResolvedMovement")
 
   @@unique([id, businessId])
@@ -1976,24 +1977,24 @@ model InventoryDraft {
 }
 
 model InventoryPendingMatch {
-  id               Int                         @id @default(autoincrement())
-  businessId       Int
-  externalSaleId   String
-  status           InventoryPendingMatchStatus @default(PENDING)
-  metadata         Json
-  createdAt        DateTime                    @default(now())
-  resolvedAt       DateTime?
-  resolvedByUserId Int?
-  resolvedItemId   Int?
+  id                 Int                         @id @default(autoincrement())
+  businessId         Int
+  externalSaleId     String
+  status             InventoryPendingMatchStatus @default(PENDING)
+  metadata           Json
+  createdAt          DateTime                    @default(now())
+  resolvedAt         DateTime?
+  resolvedByUserId   Int?
+  resolvedItemId     Int?
   resolvedMovementId Int?
   /// M5 — why the owner refused this match. A rejection already records WHO and WHEN; without the
   /// WHY it is a shrug, and "this product is not ours" and "we stopped stocking it" call for
   /// completely different responses from the system next time the same line arrives.
-  rejectionReason  String?
-  alerts           InventoryAlert[]
-  business         Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  resolvedItem     InventoryItem?              @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id])
-  resolvedMovement InventoryMovement?          @relation("PendingMatchResolvedMovement", fields: [resolvedMovementId, businessId], references: [id, businessId], onDelete: SetNull)
+  rejectionReason    String?
+  alerts             InventoryAlert[]
+  business           Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resolvedItem       InventoryItem?              @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id])
+  resolvedMovement   InventoryMovement?          @relation("PendingMatchResolvedMovement", fields: [resolvedMovementId, businessId], references: [id, businessId], onDelete: SetNull)
 
   @@unique([businessId, externalSaleId])
   @@index([businessId])
@@ -5926,8 +5927,25 @@ enum CollectionActionChannel {
 // Future sources (lead forms, email, calls, orders) add enum values, not tables.
 // ---------------------------------------------------------------------------
 
+/// LEGACY (M2). Provider identity is now `IntakeEvent.sourceKey` — a registry
+/// key, so a new source is code, not DDL. Kept, nullable, for the WhatsApp rows
+/// and the M2 unique index until a contract migration drops it.
 enum IntakeProvider {
   WHATSAPP
+}
+
+/// The stable business meaning of an intake event (M3). The adapter's finer
+/// type lives in `IntakeEvent.eventType`. A family is architecture — adding one
+/// is a deliberate decision; adding a SOURCE is not.
+enum IntakeEventFamily {
+  MESSAGE
+  LEAD
+  FORM_SUBMISSION
+  CALL
+  COMMERCE
+  EMAIL
+  DOCUMENT
+  CUSTOM
 }
 
 /// What the provider says happened. Delivery / read receipts are their own kind
@@ -5953,10 +5971,24 @@ enum IntakeEventStatus {
 }
 
 model IntakeEvent {
-  id                 Int               @id @default(autoincrement())
+  id                 Int                    @id @default(autoincrement())
   businessId         Int
-  provider           IntakeProvider
-  kind               IntakeEventKind
+  /// Registry key of the source adapter ("whatsapp", later "meta.lead_ads", …).
+  /// CHECK-constrained to a dotted lowercase identifier.
+  sourceKey          String
+  /// Stable business meaning (MESSAGE, LEAD, …).
+  family             IntakeEventFamily
+  /// The adapter's own finer type ("message.received", "message.status").
+  eventType          String
+  /// How externalEventId was derived: the provider's event id, or a content
+  /// fingerprint when the provider gives none. Never a random guess.
+  dedupeBasis        String                 @default("provider_event_id")
+  /// How far processing got: received → normalized → routed → completed.
+  lastStage          String?
+  /// LEGACY (M2) — set for WhatsApp rows only; see IntakeProvider.
+  provider           IntakeProvider?
+  /// LEGACY (M2) — set for WhatsApp rows only.
+  kind               IntakeEventKind?
   /// Replay key derived from the provider's own identity for the event — never
   /// a sender-controlled value, and never the raw provider id: a SHA-256
   /// (`sha256:<hex>`). WhatsApp message: of the wamid; status: of
@@ -5968,9 +6000,9 @@ model IntakeEvent {
   /// Business time as the provider reports it. Null when the provider gave none
   /// — never invented.
   occurredAt         DateTime?
-  receivedAt         DateTime          @default(now())
-  status             IntakeEventStatus @default(RECEIVED)
-  attempts           Int               @default(0)
+  receivedAt         DateTime               @default(now())
+  status             IntakeEventStatus      @default(RECEIVED)
+  attempts           Int                    @default(0)
   lastAttemptAt      DateTime?
   /// Earliest time the next attempt may run. Doubles as the processing lease.
   nextAttemptAt      DateTime?
@@ -5990,13 +6022,60 @@ model IntakeEvent {
   messageId          Int?
   conversationId     Int?
   customerId         Int?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  business           Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  business           Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  normalized         IntakeNormalizedEvent?
 
-  /// Replay protection: one receipt per provider event per business. Tenant-
-  /// scoped, so identical provider ids in two businesses never cross-dedup.
+  /// Replay protection (M3): one receipt per (business, source, event identity).
+  /// Tenant- and source-scoped, so identical provider ids never cross-dedup.
+  @@unique([businessId, sourceKey, externalEventId])
+  /// LEGACY (M2) replay index — kept until the contract migration.
   @@unique([businessId, provider, externalEventId])
+  /// Target of IntakeNormalizedEvent's composite tenant key.
+  @@unique([businessId, id])
   @@index([businessId, status, nextAttemptAt])
   @@index([businessId, receivedAt])
+}
+
+/// What Dubiz UNDERSTOOD from one receipt (M3) — separate from the receipt
+/// (what the provider sent) and from the domain records (the operational truth).
+///
+/// PRIVACY: `contactHints` is personal data (normalized phone / email / name /
+/// provider user id). It is purged when the event completes, unless the identity
+/// outcome is 'unresolved' (kept for M4's owner proposal), and by account
+/// erasure. `signals`, `attribution` and `resultRefs` carry no message
+/// content and no contact value.
+model IntakeNormalizedEvent {
+  id                   Int         @id @default(autoincrement())
+  businessId           Int
+  intakeEventId        Int         @unique
+  /// "<adapter>@<n>" — which normalizer produced this record.
+  normalizerVersion    String
+  occurredAt           DateTime?
+  contactHints         Json?
+  contactHintsPurgedAt DateTime?
+  /// Non-personal: which contact signals were present and whether they were
+  /// valid ({ phone: "valid" | "invalid" | "absent", … }).
+  signals              Json        @default("{}")
+  /// 'none' | 'delegated' | 'unresolved' — M3 never merges identities.
+  identityOutcome      String
+  /// Structured, sanitized acquisition evidence (IntakeAttributionV1).
+  attribution          Json?
+  /// 'conversation' | 'message_status' | 'lead' | 'customer' | 'commerce' |
+  /// 'document' | 'attention' | 'none'
+  routeTarget          String?
+  /// 'routed' | 'ignored'
+  routeOutcome         String?
+  /// Domain records this event produced, as { kind: id } — plain ids.
+  resultRefs           Json?
+  routedAt             DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  business             Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  intakeEvent          IntakeEvent @relation(fields: [businessId, intakeEventId], references: [businessId, id], onDelete: Cascade)
+
+  /// The composite key IntakeEvent's relation is defined on (tenant-safe 1:1).
+  @@unique([businessId, intakeEventId])
+  @@index([businessId, createdAt])
 }
