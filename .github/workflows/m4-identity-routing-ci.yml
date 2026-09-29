@@ -177,8 +177,8 @@ jobs:
           # db push keeps no migration ledger; the preflight reads one (Prisma's shape).
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0)'
           psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/pre.out
-          if grep -qE "|s*FAILs*$" /tmp/pre.out; then echo "preflight FAILS on the pre-M4 lab"; exit 1; fi
-          test "$(grep -cE "|s*PASSs*$" /tmp/pre.out)" = "10" || { echo "expected 10 PASS rows"; exit 1; }
+          if grep -qE '[|] *FAIL *$' /tmp/pre.out; then echo "preflight FAILS on the pre-M4 lab"; exit 1; fi
+          test "$(grep -cE '[|] *PASS *$' /tmp/pre.out)" = "10" || { echo "expected 10 PASS rows"; exit 1; }
 
       - name: 2. Apply the REAL M4 migration (owner)
         if: steps.base.outputs.mode == 'migration'
@@ -193,8 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/post.out
-          fails=$(grep -E "|s*FAILs*$" /tmp/post.out | grep -oE "N[1-3] " | sort | tr -d " 
-")
+          fails=$(grep -E '[|] *FAIL *$' /tmp/post.out | grep -oE 'N[1-3] ' | sort | tr -d ' \n')
           test "$fails" = "N1N2N3" || { echo "expected exactly N1-N3 to fail after the migration, got: $fails"; exit 1; }
 
       - name: 2a. The migration's preflight refuses a database without its prerequisites
