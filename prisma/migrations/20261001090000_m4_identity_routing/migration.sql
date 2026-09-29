@@ -137,7 +137,7 @@ CREATE TABLE "IdentityProposal" (
       "state" IN ('proposed', 'confirmed', 'rejected', 'undone', 'stale', 'superseded')
     ),
     CONSTRAINT "IdentityProposal_fingerprint_format" CHECK ("evidenceFingerprint" ~ '^sha256:[0-9a-f]{64}$'),
-    CONSTRAINT "IdentityProposal_policyVersion_format" CHECK ("policyVersion" ~ '^[a-z][a-z0-9_.]*@[0-9]+$'),
+    CONSTRAINT "IdentityProposal_policyVersion_format" CHECK ("policyVersion" ~ '^[a-z][a-z0-9_.-]*@[0-9]+$'),
     CONSTRAINT "IdentityProposal_decision_shape" CHECK (
       ("state" IN ('proposed') AND "decidedAt" IS NULL)
       OR ("state" IN ('confirmed', 'rejected', 'undone', 'stale', 'superseded') AND "decidedAt" IS NOT NULL)
