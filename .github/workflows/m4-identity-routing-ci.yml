@@ -199,20 +199,21 @@ jobs:
           rc=$?
           if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
           # DB-ONLY by design, and ONLY these: sec-C's 13 (composite tenant FKs +
-          # the (businessId,id) keys they reference) and M4's 4 (three composite
-          # tenant FKs + the partial "one active owner per identifier" index,
-          # which Prisma cannot express). ANY other statement is drift.
-          DBONLY='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId|IdentityLink_customerId|IdentityProposal_candidateCustomerId|IdentityProposal_leadId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"|"IdentityLink_active_identifier_key"'
+          # the (businessId,id) keys they reference) and M4's 3 composite tenant
+          # FKs. ANY other statement is drift. (M4's partial "one active owner per
+          # identifier" index is DB-only too, but `migrate diff` does not see
+          # partial indexes at all — like Lead_open_phone_key; the battery asserts it.)
+          DBONLY='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId|IdentityLink_customerId|IdentityProposal_candidateCustomerId|IdentityProposal_leadId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"'
           grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
           n=$(grep -cE "$DBONLY" /tmp/drift-stmts.sql || true)
           grep -vE "$DBONLY" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
-          echo "documented DB-only objects reported by the diff (expected 17): $n"
+          echo "documented DB-only objects reported by the diff (expected 16): $n"
           cat /tmp/drift-stmts.sql
           if [ -s /tmp/drift-rest.sql ]; then
             echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1
           fi
-          if [ "$n" != "17" ]; then echo "expected exactly the 17 documented DB-only objects, got $n"; exit 1; fi
-          echo "no drift (beyond the 17 documented DB-only objects)"
+          if [ "$n" != "16" ]; then echo "expected exactly the 16 documented DB-only objects, got $n"; exit 1; fi
+          echo "no drift (beyond the 16 documented DB-only objects)"
 
       - name: 4. M4 battery (runtime role, real webhook + processor + owner route)
         env:
