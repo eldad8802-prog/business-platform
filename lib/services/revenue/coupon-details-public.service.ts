@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { assertCouponPublicId } from "@/lib/services/revenue/coupon-public-id";
 import { COUPON_PUBLIC_DETAIL_SERVED } from "@/lib/services/revenue/offer-semantics";
 import { NotFoundError } from "@/lib/errors";
@@ -138,14 +139,20 @@ export async function getPublicCouponDetails(
   }
 
   try {
-    await prisma.couponSurfaceEvent.create({
-      data: {
-        issuingBusinessId: coupon.issuingBusiness.id,
-        couponId: coupon.id,
-        offerId: coupon.offer.id,
-        eventType: COUPON_PUBLIC_DETAIL_SERVED,
-      },
-    });
+    // The evidence row belongs to the ISSUING business, resolved from the coupon row itself (never
+    // from the request). It is written inside that business's tenant transaction, so FORCE RLS on
+    // CouponSurfaceEvent admits exactly this business's row and nothing else.
+    const issuingBusinessId = coupon.issuingBusiness.id;
+    await tenantTx(issuingBusinessId, (tx) =>
+      tx.couponSurfaceEvent.create({
+        data: {
+          issuingBusinessId,
+          couponId: coupon.id,
+          offerId: coupon.offer.id,
+          eventType: COUPON_PUBLIC_DETAIL_SERVED,
+        },
+      })
+    );
   } catch (error) {
     console.error("coupon public detail evidence failed:", error);
   }
