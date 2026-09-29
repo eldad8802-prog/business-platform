@@ -8,9 +8,9 @@
 -- It never selects a row of application data. The repository is public, so this
 -- output is designed to be public too.
 --
--- Expected state = the repository's migrations (155 directories):
---   122 tables with RLS ENABLED + FORCED, 25 tables deliberately without RLS,
---   167 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
+-- Expected state = the repository's migrations (157 directories):
+--   130 tables with RLS ENABLED + FORCED, 25 tables deliberately without RLS,
+--   188 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
 -- Role groups checked: app_runtime, app_auth, app_admin, app_ctlplane and every
 -- LOGIN member of them.
 
@@ -46,6 +46,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'BusinessPaymentConnection',
     'BusinessProfile',
     'BusinessService',
+    'BusinessServiceAsset',
     'Cheque',
     'CollaborationDeal',
     'CollectionAction',
@@ -90,6 +91,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'InventoryDraft',
     'InventoryExternalSale',
     'InventoryItem',
+    'InventoryItemAsset',
     'InventoryMovement',
     'InventoryPendingMatch',
     'KnowledgeMeasure',
@@ -102,7 +104,13 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'Notification',
     'NotificationDelivery',
     'OAuthToken',
+    'OfferingDemandSignal',
     'OutboundExecution',
+    'OutcomeActionEvent',
+    'OutcomeAssessment',
+    'OutcomeDecision',
+    'OutcomeObservation',
+    'OutcomeRecommendation',
     'Party',
     'PartyResolutionClaim',
     'PayablesAuditEvent',
@@ -207,6 +215,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'BusinessPaymentConnection.p7w4ea_tenant',
     'BusinessProfile.p7w1_tenant',
     'BusinessService.p7w1_tenant',
+    'BusinessServiceAsset.p1_service_asset_insert',
+    'BusinessServiceAsset.p1_service_asset_select',
+    'BusinessServiceAsset.p1_service_asset_update',
     'Cheque.payables_p3_tenant',
     'CollaborationDeal.p7w1_tenant',
     'CollectionAction.p7w2_tenant',
@@ -270,6 +281,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'InventoryDraft.p7w3_tenant',
     'InventoryExternalSale.p7w3_tenant',
     'InventoryItem.p7w3_tenant',
+    'InventoryItemAsset.p1_item_asset_insert',
+    'InventoryItemAsset.p1_item_asset_select',
+    'InventoryItemAsset.p1_item_asset_update',
     'InventoryMovement.p7w3_tenant',
     'InventoryPendingMatch.p7w3_tenant',
     'KnowledgeMeasure.p7w2_tenant',
@@ -282,7 +296,22 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'Notification.notif_tenant',
     'NotificationDelivery.notif_delivery_tenant',
     'OAuthToken.p7w4c_tenant',
+    'OfferingDemandSignal.p1_offering_demand_insert',
+    'OfferingDemandSignal.p1_offering_demand_select',
+    'OfferingDemandSignal.p1_offering_demand_update',
     'OutboundExecution.payables_p46_tenant',
+    'OutcomeActionEvent.outcome_action_event_tenant_insert',
+    'OutcomeActionEvent.outcome_action_event_tenant_read',
+    'OutcomeAssessment.outcome_assessment_tenant_insert',
+    'OutcomeAssessment.outcome_assessment_tenant_read',
+    'OutcomeAssessment.outcome_assessment_tenant_update',
+    'OutcomeDecision.outcome_decision_tenant_insert',
+    'OutcomeDecision.outcome_decision_tenant_read',
+    'OutcomeObservation.outcome_observation_tenant_insert',
+    'OutcomeObservation.outcome_observation_tenant_read',
+    'OutcomeRecommendation.outcome_recommendation_tenant_insert',
+    'OutcomeRecommendation.outcome_recommendation_tenant_read',
+    'OutcomeRecommendation.outcome_recommendation_tenant_update',
     'Party.p7w2_tenant',
     'PartyResolutionClaim.p7w2_tenant',
     'PayablesAuditEvent.payables_p1a_tenant',
@@ -494,7 +523,9 @@ expected_migrations(m) AS (SELECT unnest(ARRAY[
     '20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events',
     '20260927090000_payables_installment_workflow',
     '20260927120000_p0_asset_provenance_and_source_lines',
-    '20260927180000_m2_intake_event'
+    '20260927180000_m2_intake_event',
+    '20260928090000_m9_outcome_learning',
+    '20260928120000_p1_business_offering'
   ]::text[])),
 expected_fks(c) AS (SELECT unnest(ARRAY[
     'Appointment_customerId_tenant_fkey',

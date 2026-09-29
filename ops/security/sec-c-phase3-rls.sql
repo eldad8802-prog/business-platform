@@ -11,6 +11,16 @@
 --         break WhatsApp sends/webhooks and POS ingest (context-less reads → 0 rows).
 -- Proven in a fresh lab by .secc/sections/phase3.ts (sec-c-tenant-db-ci.yml).
 --
+-- PRECONDITIONS ADDED BY MAIN AFTER THIS FILE WAS WRITTEN (both BLOCK phase 3 until met):
+--   (a) #557/#558 accept inbound for WhatsAppConnection status CONNECTED, REVOKED_BY_META and
+--       ERROR (connectionAcceptsInbound). sec_c_whatsapp_business_by_phone_number_id answers
+--       CONNECTED only, and the code's direct-read re-check sees nothing under FORCE RLS: a
+--       migration must first widen the function to exactly those three statuses.
+--   (b) M2's intake sweeper lists every business with a WhatsAppConnection row
+--       (listBusinessIdsWithWhatsAppConnection) before any tenant exists. Under FORCE RLS that
+--       read returns 0 rows and the sweeper silently does nothing: it needs its own narrow
+--       definer lookup (ids only) first.
+--
 -- DECISIONS (see the sec(C) PR body for the full table):
 --   WhatsAppConnection  tenant-owned, runtime plane. RLS+FORCE, one tenant policy
 --                       (ALL, USING+CHECK on the GUC). Pre-context webhook lookup =
