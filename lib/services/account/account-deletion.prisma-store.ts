@@ -497,21 +497,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
               contactHints: Prisma.DbNull,
               attribution: Prisma.DbNull,
               resultRefs: Prisma.DbNull,
-              identityEvidence: Prisma.DbNull,
-              identityCustomerId: null,
             },
-          });
-
-          // Identity (M4): a link's hash is pseudonymous personal data — nulled,
-          // so an erased link can never match again. Proposals keep their state
-          // but lose the hashes, the evidence and the applied-effect pointers.
-          await tx.identityLink.updateMany({
-            where: { businessId },
-            data: { valueHash: null },
-          });
-          await tx.identityProposal.updateMany({
-            where: { businessId },
-            data: { proposedLinks: Prisma.DbNull, evidence: Prisma.DbNull, appliedEffects: Prisma.DbNull },
           });
 
           // The conversation row: free-text snapshots that summarise what was
