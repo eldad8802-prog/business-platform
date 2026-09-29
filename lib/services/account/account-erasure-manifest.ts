@@ -181,8 +181,15 @@ export const ANONYMIZE_MODELS = [
   // or to the conversation graph. The non-personal signals and lifecycle stay.
   {
     model: "intakeNormalizedEvent",
-    fields: { contactHints: "json-null", attribution: "json-null", resultRefs: "json-null" },
+    fields: {
+      contactHints: "json-null", attribution: "json-null", resultRefs: "json-null",
+      identityEvidence: "json-null", identityCustomerId: "null",
+    },
   },
+  // M4 — identity. A link's hash is pseudonymous personal data: nulled (an erased
+  // link can never match again). Proposals: hashes, evidence and applied effects.
+  { model: "identityLink", fields: { valueHash: "null" } },
+  { model: "identityProposal", fields: { proposedLinks: "json-null", evidence: "json-null", appliedEffects: "json-null" } },
   {
     model: "conversation",
     fields: {

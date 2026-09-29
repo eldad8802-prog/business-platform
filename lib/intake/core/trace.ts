@@ -49,7 +49,18 @@ export type IntakeTrace = {
     routeOutcome: string | null;
     resultRefs: unknown;
     routedAt: string | null;
+    /** M4 — identity + routing, as concluded for this event (categories only). */
+    identity: {
+      state: string | null;
+      policyVersion: string | null;
+      customerId: number | null;
+      evidence: unknown;
+      candidateCount: number | null;
+    };
+    routing: { rule: string | null; destination: string | null; ownerReviewRequired: boolean };
   };
+  /** M4 — owner proposals this event opened (ids, reason, state; no values). */
+  proposals: Array<{ id: number; candidateCustomerId: number; reason: string; state: string }>;
 };
 
 export function deriveIntakeState(
@@ -109,7 +120,19 @@ async function traceWhere(
             routeOutcome: true,
             resultRefs: true,
             routedAt: true,
+            identityState: true,
+            identityPolicyVersion: true,
+            identityCustomerId: true,
+            identityEvidence: true,
+            identityCandidateCount: true,
+            routingRule: true,
+            routingDestination: true,
+            ownerReviewRequired: true,
           },
+        },
+        identityProposals: {
+          select: { id: true, candidateCustomerId: true, reason: true, state: true },
+          orderBy: { id: "asc" },
         },
       },
     });
@@ -145,8 +168,21 @@ async function traceWhere(
             routeOutcome: n.routeOutcome,
             resultRefs: n.resultRefs,
             routedAt: iso(n.routedAt),
+            identity: {
+              state: n.identityState,
+              policyVersion: n.identityPolicyVersion,
+              customerId: n.identityCustomerId,
+              evidence: n.identityEvidence,
+              candidateCount: n.identityCandidateCount,
+            },
+            routing: {
+              rule: n.routingRule,
+              destination: n.routingDestination,
+              ownerReviewRequired: n.ownerReviewRequired,
+            },
           }
         : null,
+      proposals: e.identityProposals,
     };
   });
 }

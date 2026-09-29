@@ -22,6 +22,7 @@ import {
   type IntakeAdapter,
   type IntakeReceiptDraft,
   type RouteResult,
+  type RouteTarget,
 } from "../lib/intake/core/contract";
 import { deriveEventIdentity } from "../lib/intake/core/event-identity";
 import { sanitizeAttribution } from "../lib/intake/core/attribution";
@@ -31,11 +32,12 @@ export const REFERENCE_SOURCE = "reference.lead_form";
 
 /** What the (imaginary) provider delivers. Note `claimedBusinessId`: untrusted. */
 export type ReferenceDelivery = {
-  kind: "lead" | "form";
+  /** "order" (M4 tests): a commerce event — which must never become a Lead. */
+  kind: "lead" | "form" | "order";
   formId: string;
   submissionId: string | null;
   submittedAt: string | null;
-  fields?: { fullName?: string; phone?: string; email?: string; company?: string } | null;
+  fields?: { fullName?: string; phone?: string; email?: string; company?: string; providerUserId?: string } | null;
   tracking?: Record<string, unknown> | null;
   /** A hostile / confused provider payload naming a tenant. Must be ignored. */
   claimedBusinessId?: number;
@@ -65,11 +67,11 @@ export function buildReferenceReceipt(d: ReferenceDelivery): IntakeReceiptDraft 
         fingerprint: [d.formId, d.submittedAt, contact.hints?.email ?? null, contact.hints?.phone ?? null],
         accountScope: d.formId,
       });
-  const family: IntakeEventFamily = d.kind === "lead" ? "LEAD" : "FORM_SUBMISSION";
+  const family: IntakeEventFamily = d.kind === "lead" ? "LEAD" : d.kind === "order" ? "COMMERCE" : "FORM_SUBMISSION";
   const payload: ReferencePayloadV1 = { v: 1, formId: d.formId, fields: d.fields ?? null };
   return {
     family,
-    eventType: d.kind === "lead" ? "lead.submitted" : "form.submitted",
+    eventType: d.kind === "lead" ? "lead.submitted" : d.kind === "order" ? "order.created" : "form.submitted",
     externalEventId: identity.externalEventId,
     dedupeBasis: identity.dedupeBasis,
     providerAccountRef: null, // set by acceptIntake from the trusted account
@@ -123,10 +125,15 @@ export function createReferenceAdapter(opts: {
   sink: LeadSink;
   resolverFails?: () => boolean;
   deferNext?: { count: number };
+  /** M4: let the CORE run these destinations (e.g. ["lead"]). */
+  coreDestinations?: RouteTarget[];
+  /** M4: what an order normalizes to — "commerce" (correct) or "lead" (a buggy adapter). */
+  orderTarget?: RouteTarget;
 }): IntakeAdapter {
   return {
     sourceKey: opts.sourceKey ?? REFERENCE_SOURCE,
-    families: ["LEAD", "FORM_SUBMISSION"],
+    families: ["LEAD", "FORM_SUBMISSION", "COMMERCE"],
+    ...(opts.coreDestinations ? { coreDestinations: opts.coreDestinations } : {}),
     normalizerVersion: `${opts.sourceKey ?? REFERENCE_SOURCE}@1`,
 
     async resolveTenant(accountRef) {
@@ -144,6 +151,7 @@ export function createReferenceAdapter(opts: {
         email: p.fields.email,
         displayName: p.fields.fullName,
         companyName: p.fields.company,
+        providerUserId: p.fields.providerUserId,
       });
       const tracking = (event.metadata ?? {}) as Record<string, unknown>;
       return {
@@ -165,7 +173,12 @@ export function createReferenceAdapter(opts: {
             landingPage: tracking.landingPage,
             utm: tracking.utm as Record<string, unknown> | undefined,
           }),
-          target: event.family === "LEAD" ? "lead" : "attention",
+          target:
+            event.family === "LEAD"
+              ? "lead"
+              : event.family === "COMMERCE"
+                ? (opts.orderTarget ?? "commerce")
+                : "attention",
         },
       };
     },

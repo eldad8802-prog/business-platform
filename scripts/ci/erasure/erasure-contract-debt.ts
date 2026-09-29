@@ -180,16 +180,6 @@ const EXTERNAL_OBJECTS: DebtEntry[] = [
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InboundEmailMessage.rawObjectKey", why: "S5-INBOUND" },
 ];
 
-/** Migration-first window (M4 PR-A → PR-B). The migration ships the two identity
- *  tables BEFORE any code writes them (repository policy: a migration PR carries no
- *  application code). Until PR-B lands they are EMPTY — no writer exists — so nothing
- *  personal can be left behind; PR-B adds the only writer and its erasure together
- *  and must delete this bucket (a resolved entry fails the build). */
-const MIGRATION_FIRST: DebtEntry[] = [
-  { code: "C11-MANAGED-BUT-UNTOUCHED", key: "IdentityLink", why: "M4 PR-B (erasure lands with the first writer)" },
-  { code: "C11-MANAGED-BUT-UNTOUCHED", key: "IdentityProposal", why: "M4 PR-B (erasure lands with the first writer)" },
-];
-
 export const ACCEPTED_DEBT: DebtEntry[] = [
   ...NAMING,
   ...UNKEPT_PROMISE,
@@ -197,7 +187,6 @@ export const ACCEPTED_DEBT: DebtEntry[] = [
   ...LEAD_RESIDUALS,
   ...MODEL_LEVEL,
   ...EXTERNAL_OBJECTS,
-  ...MIGRATION_FIRST,
 ];
 
 /** Findings and debt entries are matched on code + key, never on the prose detail, so

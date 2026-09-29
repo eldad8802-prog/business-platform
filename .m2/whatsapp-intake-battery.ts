@@ -194,7 +194,7 @@ async function main() {
   // Conversation / Message / Lead / Appointment are in this lab too, so every
   // WhatsApp write below is proven under them.
   const [fk] = (await owner.$queryRawUnsafe(
-    `SELECT count(*) FILTER (WHERE convalidated)::int AS v, count(*)::int AS n FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'`
+    `SELECT count(*) FILTER (WHERE convalidated)::int AS v, count(*)::int AS n FROM pg_constraint WHERE conname IN ('Appointment_customerId_tenant_fkey', 'Appointment_leadId_tenant_fkey', 'Appointment_sourceConversationId_tenant_fkey', 'Appointment_sourceMessageId_tenant_fkey', 'Conversation_customerId_tenant_fkey', 'Conversation_leadId_tenant_fkey', 'Lead_customerId_tenant_fkey', 'Message_customerId_tenant_fkey', 'Message_generatedFromSuggestionId_tenant_fkey')`
   )) as Array<{ v: number; n: number }>;
   ok("sec-C: 9/9 composite tenant FKs present and VALID in the lab", fk.n === 9 && fk.v === 9, JSON.stringify(fk));
 
