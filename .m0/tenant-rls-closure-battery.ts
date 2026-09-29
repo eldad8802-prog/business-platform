@@ -190,7 +190,8 @@ async function main(): Promise<void> {
   const burst = await Promise.all(Array.from({ length: 10 }, (_, i) => (i % 2 ? countIn(B.biz, "InventorySale", `WHERE "businessId" <> ${B.biz}`) : countIn(A.biz, "InventorySale", `WHERE "businessId" <> ${A.biz}`))));
   check("interleaved concurrent transactions for A and B never see the other tenant", burst.every((n) => n === 0));
   check("switching tenant inside an established context is refused",
-    await refused(runWithTenantContext({ businessId: A.biz }, () => runWithTenantContext({ businessId: B.biz }, async () => 1)), /refusing to switch tenant/));
+    // The refusal is synchronous (thrown on entry), so it is wrapped to be caught as a rejection.
+    await refused((async () => runWithTenantContext({ businessId: A.biz }, () => runWithTenantContext({ businessId: B.biz }, async () => 1)))(), /refusing to switch tenant/));
 
   section("R7 — background job and replay");
   const jobSeen = await runTenantJob({ businessId: A.biz }, () => tenantTx(A.biz, (tx) => tx.inventorySale.findMany({ select: { businessId: true } })));
