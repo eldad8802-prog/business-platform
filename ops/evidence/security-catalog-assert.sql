@@ -8,9 +8,9 @@
 -- It never selects a row of application data. The repository is public, so this
 -- output is designed to be public too.
 --
--- Expected state = the repository's migrations (157 directories):
---   130 tables with RLS ENABLED + FORCED, 25 tables deliberately without RLS,
---   188 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
+-- Expected state = the repository's migrations (159 directories):
+--   136 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
+--   202 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
 -- Role groups checked: app_runtime, app_auth, app_admin, app_ctlplane and every
 -- LOGIN member of them.
 
@@ -30,6 +30,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'BillingPaymentAllocation',
     'BillingReceiptPayment',
     'BotGoalSelection',
+    'BusinessAsset',
     'BusinessBankAccount',
     'BusinessBot',
     'BusinessBotKnowledge',
@@ -56,6 +57,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'ContentRun',
     'ContentVariant',
     'Conversation',
+    'CouponSurfaceEvent',
     'CrmAttachment',
     'CrmNote',
     'Customer',
@@ -86,6 +88,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'Installment',
     'InstallmentWorkflow',
     'IntakeEvent',
+    'IntakeNormalizedEvent',
     'InventoryAlert',
     'InventoryCategory',
     'InventoryDraft',
@@ -94,6 +97,9 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'InventoryItemAsset',
     'InventoryMovement',
     'InventoryPendingMatch',
+    'InventorySale',
+    'InventorySaleLine',
+    'InventorySourceSaleLine',
     'KnowledgeMeasure',
     'KnowledgeMeasureEvidenceLink',
     'Lead',
@@ -156,15 +162,10 @@ expected_non_rls(t) AS (SELECT unnest(ARRAY[
     'AuthSessionSecret',
     'BillingAuthorityApp',
     'Business',
-    'BusinessAsset',
     'ContentFeedback',
     'Coupon',
-    'CouponSurfaceEvent',
     'DerivationPolicy',
     'DerivationPolicyVersion',
-    'InventorySale',
-    'InventorySaleLine',
-    'InventorySourceSaleLine',
     'Offer',
     'PaymentProviderRouting',
     'PaymentWebhookEvent',
@@ -197,6 +198,8 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'BillingPaymentAllocation.p7w4eb2_tenant',
     'BillingReceiptPayment.p7w4eb2_tenant',
     'BotGoalSelection.p7w2_tenant',
+    'BusinessAsset.business_asset_tenant_insert',
+    'BusinessAsset.business_asset_tenant_select',
     'BusinessBankAccount.payables_p3_tenant',
     'BusinessBot.p7w4eb2_tenant',
     'BusinessBotKnowledge.p7w2_tenant',
@@ -231,6 +234,8 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'Conversation.p7pilot_tenant_insert',
     'Conversation.p7pilot_tenant_read',
     'Conversation.p7pilot_tenant_update',
+    'CouponSurfaceEvent.coupon_surface_event_tenant_insert',
+    'CouponSurfaceEvent.coupon_surface_event_tenant_select',
     'CrmAttachment.p7w1_tenant',
     'CrmNote.p7w1_tenant',
     'Customer.p7pilot_tenant_insert',
@@ -276,6 +281,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'IntakeEvent.intake_event_tenant_insert',
     'IntakeEvent.intake_event_tenant_read',
     'IntakeEvent.intake_event_tenant_update',
+    'IntakeNormalizedEvent.intake_normalized_tenant_insert',
+    'IntakeNormalizedEvent.intake_normalized_tenant_read',
+    'IntakeNormalizedEvent.intake_normalized_tenant_update',
     'InventoryAlert.p7w3_tenant',
     'InventoryCategory.p7w3_tenant',
     'InventoryDraft.p7w3_tenant',
@@ -286,6 +294,13 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'InventoryItemAsset.p1_item_asset_update',
     'InventoryMovement.p7w3_tenant',
     'InventoryPendingMatch.p7w3_tenant',
+    'InventorySale.inventory_sale_tenant_insert',
+    'InventorySale.inventory_sale_tenant_select',
+    'InventorySaleLine.inventory_sale_line_tenant_insert',
+    'InventorySaleLine.inventory_sale_line_tenant_select',
+    'InventorySourceSaleLine.inventory_source_sale_line_tenant_insert',
+    'InventorySourceSaleLine.inventory_source_sale_line_tenant_select',
+    'InventorySourceSaleLine.inventory_source_sale_line_tenant_update',
     'KnowledgeMeasure.p7w2_tenant',
     'KnowledgeMeasureEvidenceLink.p7w2_tenant',
     'Lead.p7w1_tenant',
@@ -525,7 +540,9 @@ expected_migrations(m) AS (SELECT unnest(ARRAY[
     '20260927120000_p0_asset_provenance_and_source_lines',
     '20260927180000_m2_intake_event',
     '20260928090000_m9_outcome_learning',
-    '20260928120000_p1_business_offering'
+    '20260928120000_p1_business_offering',
+    '20260929090000_m3_canonical_intake',
+    '20260929090000_tenant_rls_closure'
   ]::text[])),
 expected_fks(c) AS (SELECT unnest(ARRAY[
     'Appointment_customerId_tenant_fkey',
