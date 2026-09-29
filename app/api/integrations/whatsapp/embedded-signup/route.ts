@@ -2,7 +2,8 @@
  * POST /api/integrations/whatsapp/embedded-signup  (Ticket 4)
  *
  * Receives the Embedded Signup result captured client-side (Ticket 3):
- *   { code, phoneNumberId, wabaId }
+ *   { code, wabaId, phoneNumberId? }  (phoneNumberId is absent for coexistence
+ *   onboarding; the server then resolves the WABA's number)
  *
  * Orchestrates the connect flow ATOMICALLY:
  *   1. exchange `code` → access token   (App Secret, server-side)
@@ -20,6 +21,10 @@
  *
  * The access token / code are never logged and never returned.
  *
+ * The orchestration itself (and every failure outcome, each naming its safe
+ * `stage`/`code`) lives in `completeEmbeddedSignup`, where it is unit-tested;
+ * each Graph call there is bounded by GRAPH_CONNECT_TIMEOUT_MS.
+ *
  * Out of scope (later tickets): outbound, echo events, token refresh, revoke.
  */
 
@@ -28,16 +33,14 @@ import { getCurrentUser } from "@/lib/auth";
 import {
   exchangeCodeForToken,
   fetchPhoneNumberDisplay,
+  fetchWabaPhoneNumber,
   subscribeWabaToApp,
 } from "@/lib/services/integrations/whatsapp/graph.service";
 import { persistFromEmbeddedSignup } from "@/lib/services/integrations/whatsapp/connection.service";
+import { completeEmbeddedSignup } from "@/lib/services/integrations/whatsapp/embedded-signup-complete";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const runtime = "nodejs";
-
-function isUniqueConflict(err: unknown): boolean {
-  return (err as { code?: unknown })?.code === "P2002";
-}
 
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
@@ -52,80 +55,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const code = typeof body.code === "string" ? body.code : "";
-  const phoneNumberId =
-    typeof body.phoneNumberId === "string" ? body.phoneNumberId.trim() : "";
-  const wabaId = typeof body.wabaId === "string" ? body.wabaId.trim() : "";
-
-  if (!code || !phoneNumberId || !wabaId) {
-    return NextResponse.json(
-      { error: "code, phoneNumberId and wabaId are required" },
-      { status: 400 }
-    );
-  }
-
   // businessId comes ONLY from the authenticated session — never the body.
-  const businessId = user.businessId;
-
-  // ── Step 1: token exchange (no DB write) ──────────────────────────────
-  const exchange = await exchangeCodeForToken(code);
-  if (!exchange.ok) {
-    console.warn("[wa-embedded-signup] exchange failed:", exchange.code);
-    return NextResponse.json(
-      { error: "Could not complete WhatsApp connection" },
-      { status: 502 }
-    );
-  }
-
-  // ── Step 2: display phone number (no DB write — keeps it atomic) ───────
-  const display = await fetchPhoneNumberDisplay(phoneNumberId, exchange.accessToken);
-  if (!display.ok) {
-    console.warn("[wa-embedded-signup] display fetch failed:", display.code);
-    return NextResponse.json(
-      { error: "Could not complete WhatsApp connection" },
-      { status: 502 }
-    );
-  }
-
-  // ── Step 2.5: register the WABA on our app's webhooks (no DB write) ────
-  // Must succeed BEFORE we persist — a CONNECTED row without a live webhook
-  // subscription would silently never receive inbound events. If this fails
-  // we stop here: nothing is written, no token is stored.
-  const subscription = await subscribeWabaToApp({
-    wabaId,
-    accessToken: exchange.accessToken,
-  });
-  if (!subscription.ok) {
-    console.warn("[wa-embedded-signup] subscribe failed:", subscription.code);
-    return NextResponse.json(
-      { error: "Could not complete WhatsApp connection" },
-      { status: 502 }
-    );
-  }
-
-  // ── Step 3: persist (ONLY DB write, only after 1+2+2.5 succeeded) ──────
-  try {
-    const connection = await persistFromEmbeddedSignup({
-      businessId,
-      phoneNumberId,
-      displayPhoneNumber: display.displayPhoneNumber,
-      wabaId,
-      accessToken: exchange.accessToken,
-    });
-    await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "whatsapp", businessId, userId: user.id, req });
-    return NextResponse.json({ connection }, { status: 201 });
-  } catch (err) {
-    if (isUniqueConflict(err)) {
-      return NextResponse.json(
-        { error: "This WhatsApp number is already connected to another account" },
-        { status: 409 }
-      );
+  const outcome = await completeEmbeddedSignup(
+    { businessId: user.businessId, body },
+    {
+      exchangeCodeForToken,
+      fetchPhoneNumberDisplay,
+      fetchWabaPhoneNumber,
+      subscribeWabaToApp,
+      persistFromEmbeddedSignup,
+      // Safe fields only (a stage name and a Graph status/error number).
+      warn: (event, fields) => console.warn(`[wa-embedded-signup] ${event}`, fields),
     }
-    // Do not echo err (may hint at encryption-key config).
-    console.error("[wa-embedded-signup] persist failed");
-    return NextResponse.json(
-      { error: "Could not complete WhatsApp connection" },
-      { status: 500 }
-    );
-  }
+  );
+  // sec(F): the connection was persisted (only a 201 means every Graph step and the write succeeded).
+  if (outcome.status === 201) await recordSecurityEvent({ type: "INTEGRATION_CONNECTED", outcome: "SUCCESS", reason: "whatsapp", businessId: user.businessId, userId: user.id, req });
+  return NextResponse.json(outcome.body, { status: outcome.status });
 }

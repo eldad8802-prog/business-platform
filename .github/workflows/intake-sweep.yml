@@ -1,0 +1,52 @@
+# Business Intake M2 — the intake sweeper.
+#
+# The WhatsApp webhook writes a durable IntakeEvent receipt before it answers
+# Meta, then processes it. A receipt that did not finish (a failure on its
+# backoff, a throttled document, a worker that died) is retried by the next
+# webhook for the same business — and by this sweeper, for businesses that go
+# quiet.
+#
+# MANUAL DISPATCH ONLY. Scheduling a job that calls Production is an owner
+# decision taken after the M2 release, not something this change switches on.
+# To schedule it, add:
+#   schedule:
+#     - cron: "*/10 * * * *"
+#
+# The only secret is CRON_SECRET (the same repository secret settlement recovery
+# uses). The endpoint answers counts only.
+
+name: intake sweep (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intake-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # H-3/M-1: CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the
+    # protected `cron` environment (same binding as knowledge-derive.yml; owner action in PR 525).
+    if: github.ref == 'refs/heads/main'
+    environment: cron
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Sweep intake receipts on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SWEEP_URL: https://promaxgroup.co.il/api/intake/sweep
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o sweep.json -w "%{http_code}" -m 90 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$SWEEP_URL")
+          echo "HTTP $code"
+          cat sweep.json; echo
+          [ "$code" = "200" ] || { echo "::error::intake sweep answered $code"; exit 1; }

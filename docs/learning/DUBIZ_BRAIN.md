@@ -37,7 +37,7 @@ validated findings  →  SHADOW telemetry today; owner surface only after an own
   run stops before any model call. An answer is valid only for the exact context it was given: the
   `contextFingerprint` must match.
 
-## Context builder (`brain-context.v1`)
+## Context builder (`brain-context.v2`; v1 at M8 closure, v2 admits the M9 outcome kinds — see OUTCOME_LEARNING.md)
 
 **Deterministic.** The same snapshot always yields the same context and the same fingerprint (tested).
 
@@ -136,7 +136,7 @@ A result whose findings are all rejected is `INVALID_OUTPUT`: nothing is shown.
 |---|---|
 | Provider / API | OpenAI Chat Completions with `response_format: json_schema, strict` (SDK `openai` 6.x), the provider the product already uses |
 | Model | `BRAIN_LLM_MODEL`, default `gpt-4.1-mini` (the bot-drafts model); reported by the route |
-| Prompt | `brain-prompt.v1`, one canonical constant in `prompt.ts` |
+| Prompt | `brain-prompt.v2` (M9 added rule 11: outcome memory is sequence, never effect), one canonical constant in `prompt.ts` |
 | Determinism | temperature 0, fixed seed. Best effort: the provider does not guarantee identical text, and the claim is not made. The input (snapshot, context, prompt, model, validator) is fully reproducible. |
 | Limits | ≤ 1,200 output tokens, 25 s timeout, **one** retry (timeouts and rate limits only), no provider fallback, one call per run, never per UI render |
 | Retention | the Brain sends the provider only the minimized context above. Locally it keeps **no** prompt, response or prose: only metadata. Provider-side retention follows the organization's existing OpenAI API account settings, unchanged by M8. |
@@ -243,3 +243,52 @@ proven by `m0-knowledge-tenant-safety` on the merged tree:
   - accepted refs resolve only inside the caller's snapshot;
   - another tenant's context is rejected by fingerprint;
   - zero table writes on success and on every failure mode.
+
+## Live provider proof (2026-09-28)
+
+The `BLOCKED_CONFIGURATION` result above was true when it was recorded: Production had no
+`OPENAI_API_KEY`. It is kept as history. This section records how it was resolved.
+
+1. **Configuration.** The owner created a dedicated OpenAI key (`dubiz-prod-m8-brain`) and installed
+   it as `OPENAI_API_KEY` in the Vercel project `business-platform`. It is a Secret, scoped to
+   Production only. The value was never shown in chat, logs, the repository or documentation. No
+   `BRAIN_*` variable was added or changed, so the model stays at the default `gpt-4.1-mini` and the
+   mode stays `shadow`.
+2. **Redeploy.** The same Production code, `776a5cf`, was redeployed (`dpl_BM76G9N5F`, Production
+   from 03:01:01Z) so that the runtime received the variable. No code changed for the proof.
+3. **Bounded SHADOW runs.** The runs used the same `knowledge-derive.yml` dispatch with
+   `brain: shadow`, one business per run, as `app_runtime_prod` (NOSUPERUSER, NOBYPASSRLS).
+
+| | business 3 (run 36372277791) | business 9 (run 36457575891) |
+|---|---|---|
+| Production that served the call | `776a5cf` (`dpl_BM76G9N5F`) | `8c4e796` (`dpl_GSPsAxsVm`) |
+| HTTP / proof level / isolation | 200 / `FULL` / holds | 200 / `FULL` / holds |
+| mode / provider / model | shadow / openai / `gpt-4.1-mini` | shadow / openai / `gpt-4.1-mini` |
+| `keyPresent` / `modelCalled` | true / **true** | true / **true** |
+| status | `NO_ACTIONABLE_INSIGHT` | `FINDINGS` |
+| accepted / rejected | 0 / 0 | 5 (4 `ATTENTION`, 1 `KNOWLEDGE_LIMITATION`) / 0 |
+| context | `brain-context.v1`, 9,325 bytes, nothing omitted | `brain-context.v1`, 6,544 bytes, 1 PROPOSED relationship omitted |
+| tokens in / out, latency | 3,342 / 53, 2,295 ms | 2,661 / 635, 6,555 ms |
+| `failureStage` / `snapshotMatches` | none / true | none / true |
+| deterministic insights after the run | unchanged (1) | unchanged (1) |
+
+What these results show:
+
+- **A real provider call was made in both runs.** Each call went through the strict `brain.v1`
+  schema, the context-fingerprint check and the deterministic grounding validator.
+  - `NO_ACTIONABLE_INSIGHT` and `FINDINGS` are only reachable after the output parsed and validated.
+  - Every accepted reference resolved inside that business's own snapshot.
+  - No output was rejected.
+- **Each call was tenant-local.** Each call carried one tenant, and `snapshotMatches` was true.
+  Business 9's PROPOSED relationship never reached the model, so it could not be promoted.
+- **Nothing was persisted or shown.** Validated findings stayed in memory, `BusinessInsight` was
+  unchanged, and nothing was shown to the owner. No business data was created or modified to obtain
+  the result.
+- **The public logs contain metadata only.** They hold statuses, counts, rule codes, versions and one
+  timestamp. They contain no key, prompt, context, model prose, names, amounts or other business
+  values.
+- **Code between the two runs.** `776a5cf..8c4e796` changes no file under `lib/knowledge/**`,
+  `app/api/knowledge/**` or the derive workflow, so both runs executed the same M8 code.
+
+**Live provider path: PROVEN.** M8 is fully live-provider-proven in SHADOW. The Brain remains
+SHADOW-only. Activation and owner visibility remain owner decisions, and M9 has not started.

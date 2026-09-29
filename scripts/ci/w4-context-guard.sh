@@ -109,7 +109,7 @@ run_guard() {
   # would bypass the tenant transaction. The "?? prisma" fallback declaration
   # lines are the sanctioned pattern and are excluded.
   W4B_WRITE_RX="prisma\.(message|messageAnalysis|replySuggestion|businessBotSettings|whatsAppAttachmentImport)\.(create|update|upsert|delete)"
-  W4B_FILES="lib/services/conversation/inbound-message-pipeline.service.ts lib/reply-suggestions/generate-reply-suggestions.ts lib/services/integrations/whatsapp/whatsapp-import-row.service.ts lib/services/integrations/whatsapp/conversation-intake.service.ts lib/learning/update-learning.ts"
+  W4B_FILES="lib/services/conversation/inbound-message-pipeline.service.ts lib/reply-suggestions/generate-reply-suggestions.ts lib/services/integrations/whatsapp/whatsapp-import-row.service.ts lib/intake/whatsapp/whatsapp-intake.ts lib/intake/intake-event.store.ts lib/services/conversation/inbound-customer-message.service.ts lib/learning/update-learning.ts"
   for wf in $W4B_FILES; do
     if [ -f "$wf" ] && grep -nE "$W4B_WRITE_RX" "$wf" >/dev/null; then
       echo "CI-W4B-3 FAIL: $wf writes a W4B table on the global client"; fail=1

@@ -600,6 +600,24 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             },
           });
 
+          // Intake receipts (M2): the payload is the event as received — the
+          // sender's number, the words, the profile name — until processed, and
+          // for a failed event it is kept for retry. Scrubbed here with the
+          // metadata, the business's own routing number, and the three pointers
+          // that would reconnect the receipt to the conversation graph. The
+          // replay key is already a hash, never the raw provider id.
+          await tx.intakeEvent.updateMany({
+            where: { businessId },
+            data: {
+              payload: Prisma.DbNull,
+              metadata: Prisma.DbNull,
+              providerAccountRef: null,
+              messageId: null,
+              conversationId: null,
+              customerId: null,
+            },
+          });
+
           // The conversation row: free-text snapshots that summarise what was
           // said, the two Json blobs that carry pending follow-up and
           // appointment detail, and the participant pointers. `leadId` matters

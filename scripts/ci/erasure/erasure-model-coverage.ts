@@ -130,6 +130,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Lead: { disposition: "ERASURE_MANAGED" },
   Conversation: { disposition: "ERASURE_MANAGED" },
   Message: { disposition: "ERASURE_MANAGED" },
+  // M2 — intake receipts: payload / metadata / pointers scrubbed by the adapter;
+  // the replay key is a hash, never the raw provider id.
+  IntakeEvent: { disposition: "ERASURE_MANAGED" },
   MessageAnalysis: { disposition: "ERASURE_MANAGED" },
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },
@@ -348,6 +351,13 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   InventoryCategory: operational("category names for stock, not people"),
   InventoryPendingMatch: operational("match bookkeeping between POS lines and stock"),
   InventoryExternalSale: operational("external sale counters"),
+  InventorySale: operational("a stock sale header: source and external id, no person"),
+  InventorySaleLine: operational("quantity and the charged unit price for one stock item"),
+  InventorySourceSaleLine: operational(
+    "an upstream POS line: identity, quantity, and unit price when the till sent one"
+  ),
+  CouponSurfaceEvent: operational("that a public coupon detail was served, with no viewer identity"),
+  BusinessAsset: operational("retained visual provenance: origin and a storage pointer, no person"),
   POSProductMapping: operational("maps a POS product code to a stock item"),
   ReceivingLine: operational("quantities received against a purchase-order line"),
   Coupon: operational("coupon definition and its public token; issued to no one until redeemed"),
@@ -530,6 +540,29 @@ const DECIDE: Record<string, ModelCoverage> = {
       "channel. No free text and no message content — but `customerId` makes every row a statement " +
       "about one person's payment history. It cascades with Business; decide whether collection " +
       "history is erased with the account or retained as evidence of the business's own conduct."
+  ),
+  OutcomeRecommendation: decide(
+    "M9. A system recommendation about this business's own records — target ids (documents, " +
+      "installments), snapshot slots and fingerprints. No free text, no names, no amounts. It cascades " +
+      "with Business and is regenerable from retained knowledge; decide whether it is erased with the account."
+  ),
+  OutcomeDecision: decide(
+    "M9. The owner's own answer to a recommendation: an actor user id, a decision, an optional " +
+      "structured reason CODE and a target subset. Deliberately no free text. Like a REJECTED " +
+      "EntityLinkProposal it is NOT rebuildable — it is the owner's authority — so erasing it loses " +
+      "what they already said; decide whether it is erased with the account or retained."
+  ),
+  OutcomeActionEvent: decide(
+    "M9. Which domain record (review event, payment allocation) followed a recommendation, with the " +
+      "acting user id and business time. Ids and times only; rebuildable from the ledger it points at."
+  ),
+  OutcomeObservation: decide(
+    "M9. Days and counts observed after a recommendation, with the evidence row ids. No money, no " +
+      "text; rebuildable from the ledger."
+  ),
+  OutcomeAssessment: decide(
+    "M9. A deterministic reading of decision, action and outcome: states, counts, days and evidence " +
+      "row ids. No text; rebuildable from the rows above."
   ),
   DerivedClaimProjection: decide("subjectNormalizedKey may encode a counterparty name"),
   BusinessInsight: decide(

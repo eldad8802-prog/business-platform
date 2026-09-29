@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { connectionStateFromResponse } from "./connection-view";
 
 /**
  * Read-only client hook for the WhatsApp connection status.
@@ -28,7 +29,10 @@ export type WhatsAppPublicConnection = {
   wabaId: string;
   /** ISO string or null. Rendered as "אומת לאחרונה" on the settings card. */
   lastVerifiedAt: string | null;
+  /** ISO string or null — when the server row last changed. */
+  updatedAt: string | null;
 };
+
 
 export type WhatsAppConnectionState =
   | { phase: "loading" }
@@ -38,8 +42,21 @@ export type WhatsAppConnectionState =
       /** null = never connected; otherwise the last non-CONNECTED status. */
       previousStatus: string | null;
       displayPhoneNumber: string | null;
+      /**
+       * The server's row when one exists (status is anything but CONNECTED):
+       * surfaces that must show the TRUE state (settings) read it; the inbox
+       * keeps using previousStatus only.
+       */
+      connection: WhatsAppPublicConnection | null;
     }
-  | { phase: "error" };
+  | {
+      phase: "error";
+      /** HTTP status of the failed status read; null for a network failure. */
+      httpStatus: number | null;
+    };
+
+/** A status read that has not answered by then is an error, not an endless "טוען…". */
+export const CONNECTION_READ_TIMEOUT_MS = 20_000;
 
 export function useWhatsAppConnection(reloadKey = 0): WhatsAppConnectionState {
   const [state, setState] = useState<WhatsAppConnectionState>({
@@ -55,62 +72,35 @@ export function useWhatsAppConnection(reloadKey = 0): WhatsAppConnectionState {
     if (!rawToken) {
       // No auth in context — the host screen handles login. Treat as
       // "never connected" so the onboarding can appear once authed.
-      setState({ phase: "disconnected", previousStatus: null, displayPhoneNumber: null });
+      setState({ phase: "disconnected", previousStatus: null, displayPhoneNumber: null, connection: null });
       return;
     }
 
     setState({ phase: "loading" });
 
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => abort.abort(), CONNECTION_READ_TIMEOUT_MS);
+
     fetch("/api/integrations/whatsapp/connection", {
       cache: "no-store",
       headers: { Authorization: `Bearer ${rawToken}` },
+      signal: abort.signal,
     })
       .then(async (res) => {
         if (cancelled) return;
-        if (!res.ok) {
-          setState({ phase: "error" });
-          return;
-        }
-        const data = await res.json().catch(() => null);
-        const conn = data?.connection ?? null;
+        const data = res.ok ? await res.json().catch(() => null) : null;
         if (cancelled) return;
-        if (conn && conn.status === "CONNECTED") {
-          setState({
-            phase: "connected",
-            connection: {
-              status: conn.status,
-              displayPhoneNumber:
-                typeof conn.displayPhoneNumber === "string"
-                  ? conn.displayPhoneNumber
-                  : "",
-              phoneNumberId:
-                typeof conn.phoneNumberId === "string" ? conn.phoneNumberId : "",
-              wabaId: typeof conn.wabaId === "string" ? conn.wabaId : "",
-              lastVerifiedAt:
-                typeof conn.lastVerifiedAt === "string"
-                  ? conn.lastVerifiedAt
-                  : null,
-            },
-          });
-        } else if (conn) {
-          setState({
-            phase: "disconnected",
-            previousStatus: typeof conn.status === "string" ? conn.status : null,
-            displayPhoneNumber:
-              typeof conn.displayPhoneNumber === "string"
-                ? conn.displayPhoneNumber
-                : null,
-          });
-        } else {
-          setState({ phase: "disconnected", previousStatus: null, displayPhoneNumber: null });
-        }
+        setState(connectionStateFromResponse(res.status, data));
       })
       .catch(() => {
-        if (!cancelled) setState({ phase: "error" });
-      });
+        if (!cancelled) setState(connectionStateFromResponse(null, null));
+      })
+      .finally(() => window.clearTimeout(timer));
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      abort.abort();
     };
   }, [reloadKey]);
 

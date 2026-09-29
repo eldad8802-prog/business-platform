@@ -68,7 +68,7 @@ jobs:
           echo "HTTP $code"
           # M-1: this log is public. Print ONLY aggregate, assert-style fields — never the body
           # (it carries the business id, role name and per-rule detail).
-          jq -c '{ok, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights}' body.json 2>/dev/null             || echo "(body is not the expected JSON shape — not printed)"
+          jq -c '{ok, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights, m9GuardsHold: .outcomes.guardsHold}' body.json 2>/dev/null             || echo "(body is not the expected JSON shape — not printed)"
           [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }
 
           # The run is only evidence of tenant enforcement if the runtime said it was. A FULL proof
@@ -84,3 +84,11 @@ jobs:
             echo "::error::isolation probe did not hold — see the isolation block above."
             exit 1; }
           echo "isolation probe holds."
+
+          # M9: the outcome-learning guards, verified as the runtime role by writes that must be refused
+          # (each rolled back). Present only once the M9 code is deployed; absent means an older build.
+          # (M-1: the body is not printed; the aggregate line above carries m9GuardsHold.)
+          if grep -q '"outcomes":' body.json; then
+            grep -q '"guardsHold":true' body.json || { echo "::error::M9 guards did not hold (m9GuardsHold above)."; exit 1; }
+            echo "M9 guards hold."
+          fi

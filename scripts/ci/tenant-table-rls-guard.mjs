@@ -30,6 +30,20 @@
 //            app_runtime (a default ACL is not a decision — see the inbound email
 //            foundation migration for why).
 //
+//   R0  (tenant/RLS closure) Every table a MIGRATION creates with a tenant-key column — any column named
+//       businessId or …BusinessId (issuingBusinessId, redeemingBusinessId) — must reach full tenant RLS
+//       in the migrations, or be listed. This is checked from the CREATE TABLE statements themselves,
+//       not from schema.prisma: a migration-only PR (tables shipped before their models) used to pass
+//       R1 with nothing to check. That is how InventorySale & co. reached Production with no RLS.
+//
+//   R3  Every EXEMPT and PENDING_OWNER_DECISION entry must be recorded, by table name, in the canonical
+//       inventory docs/security/TENANT_RLS_INVENTORY.md. An exception that exists only inside this
+//       file is not a reviewed decision.
+//
+// TENANT KEYS. R1 and R0 recognise every column named businessId or ending in BusinessId. Before the
+// closure only `businessId` counted, so Offer / Coupon / RedemptionEvent / CouponSurfaceEvent
+// (issuingBusinessId) were invisible to every guard in the repository.
+//
 // EXIT CODES: 0 = pass, 1 = violation, 2 = could not evaluate (blocks too).
 //
 // Run the mutation proofs: node scripts/ci/tenant-table-rls-guard.mjs --self-test
@@ -52,8 +66,23 @@ export const EXEMPT = {
   POSApiKey: "provider-bootstrap table (docs/security-d2-provider-bootstrap-allowlist-v1.md)",
   PaymentProviderRouting:
     "provider-bootstrap table (docs/security-d2-provider-bootstrap-allowlist-v1.md)",
+};
+
+/**
+ * Tenant-owned tables WITHOUT database-enforced isolation whose design needs an OWNER decision. Not an
+ * exemption and not a pass: named, printed on every run, and counted as open debt in
+ * docs/security/TENANT_RLS_INVENTORY.md until the owner decides. The same ratchet applies — an entry
+ * that gains full RLS, or stops being a tenant table, fails the guard until it is removed.
+ */
+export const PENDING_OWNER_DECISION = {
   ProductUsageEvent:
-    "KNOWN GAP — product analytics with nullable businessId, global writer; recorded in the M1 audit",
+    "platform telemetry with a NULLABLE businessId (pre-auth and registration rows have none); global writer, platform-admin reader — split vs policy is an owner decision",
+  Offer:
+    "issuer-owned, but read by the unauthenticated public marketplace and coupon pages — needs the marketplace public-read design (owner decision)",
+  Coupon:
+    "issuer-owned, but looked up by bearer token by ANOTHER business at redemption and by publicId on public pages — needs a routing/bootstrap design (owner decision)",
+  RedemptionEvent:
+    "inherently two-tenant (issuingBusinessId + redeemingBusinessId); the SELECT/INSERT policy shape is a marketplace policy decision (owner decision)",
 };
 
 /**
@@ -67,6 +96,9 @@ export const R2_GRANDFATHERED = {
     "payables Phase 2 (#538), merged 2026-09-27 before this guard; tenant policy is FOR ALL (includes DELETE) — to be split per command in a payables follow-up",
 };
 
+/** A tenant key: `businessId` or any column ending in `BusinessId`. */
+export const TENANT_KEY = /^([a-z][A-Za-z0-9]*BusinessId|businessId)$/;
+
 // ── pure helpers (exercised by --self-test) ───────────────────────────────────
 
 /** Models → { table, hasBusinessId }. Reads @@map; ignores comments. */
@@ -77,7 +109,7 @@ export function parseModels(schemaSrc) {
     const line = raw.replace(/\/\/.*$/, "").trim();
     const open = line.match(/^model\s+([A-Za-z0-9_]+)\s*\{$/);
     if (open) {
-      cur = { name: open[1], table: open[1], hasBusinessId: false };
+      cur = { name: open[1], table: open[1], hasBusinessId: false, tenantKeys: [] };
       continue;
     }
     if (!cur) continue;
@@ -86,7 +118,8 @@ export function parseModels(schemaSrc) {
       cur = null;
       continue;
     }
-    if (/^businessId\s+Int\b/.test(line)) cur.hasBusinessId = true;
+    const key = line.match(/^([A-Za-z0-9_]+)\s+Int\b/);
+    if (key && TENANT_KEY.test(key[1])) { cur.hasBusinessId = true; cur.tenantKeys.push(key[1]); }
     const map = line.match(/^@@map\("([^"]+)"\)/);
     if (map) cur.table = map[1];
   }
@@ -126,6 +159,25 @@ export function isForAll(policySql) {
   return !m || m[3].toUpperCase() === "ALL";
 }
 
+/** Tables whose CREATE TABLE carries a tenant-key column and were not dropped later → Map(table → keys). */
+export function migrationTenantTables(migrations) {
+  const out = new Map();
+  for (const { sql } of [...migrations].sort((a, b) => a.dir.localeCompare(b.dir))) {
+    const norm = normalizeSql(sql);
+    for (const m of norm.matchAll(/CREATE TABLE (IF NOT EXISTS )?"([A-Za-z0-9_]+)" \((.*?)\);/gi)) {
+      const keys = [...m[3].matchAll(/"([A-Za-z0-9_]+)" INTEGER/gi)].map((k) => k[1]).filter((k) => TENANT_KEY.test(k));
+      if (keys.length > 0) out.set(m[2], keys);
+    }
+    for (const m of norm.matchAll(/ALTER TABLE "([A-Za-z0-9_]+)" RENAME COLUMN "([A-Za-z0-9_]+)" TO "([A-Za-z0-9_]+)"/gi)) {
+      const keys = out.get(m[1]) ?? [];
+      const next = [...keys.filter((k) => k !== m[2]), ...(TENANT_KEY.test(m[3]) ? [m[3]] : [])];
+      if (next.length > 0) out.set(m[1], [...new Set(next)]); else out.delete(m[1]);
+    }
+    for (const m of norm.matchAll(/DROP TABLE (IF EXISTS )?"([A-Za-z0-9_]+)"/gi)) out.delete(m[2]);
+  }
+  return out;
+}
+
 /** Tables created by migrations at/after the cutoff. */
 export function newTables(migrations, cutoff = NEW_TABLE_CUTOFF) {
   const out = new Set();
@@ -148,8 +200,16 @@ export function evaluate({
   exempt = EXEMPT,
   cutoff = NEW_TABLE_CUTOFF,
   grandfathered = R2_GRANDFATHERED,
+  pending = PENDING_OWNER_DECISION,
+  inventoryDoc = null,
 }) {
   const violations = [];
+  // A pending table is named for R1/R0 but it is not complete, and it is never an exemption.
+  const has = (o, t) => Object.prototype.hasOwnProperty.call(o, t);
+  const listed = (t) => has(exempt, t) || has(pending, t);
+  for (const t of Object.keys(pending)) {
+    if (has(exempt, t)) violations.push(`lists: "${t}" is both EXEMPT and PENDING_OWNER_DECISION`);
+  }
   const all = normalizeSql(migrations.map((m) => m.sql).join("\n"));
   const models = parseModels(schemaSrc);
   const tenantTables = new Map(models.filter((m) => m.hasBusinessId).map((m) => [m.table, m]));
@@ -158,9 +218,9 @@ export function evaluate({
   for (const [table, model] of tenantTables) {
     const f = rlsFacts(all, table);
     const complete = f.enabled && f.forced && f.tenantPolicy;
-    if (Object.prototype.hasOwnProperty.call(exempt, table)) {
+    if (listed(table)) {
       if (complete) {
-        violations.push(`R1 stale exemption: "${table}" now has full tenant RLS — remove it from EXEMPT`);
+        violations.push(`R1 stale exemption: "${table}" now has full tenant RLS — remove it from EXEMPT / PENDING_OWNER_DECISION`);
       }
       continue;
     }
@@ -170,12 +230,30 @@ export function evaluate({
         f.forced ? null : "FORCE ROW LEVEL SECURITY",
         f.tenantPolicy ? null : "a CREATE POLICY keyed on app.current_business_id",
       ].filter(Boolean);
-      violations.push(`R1 model ${model.name} (table "${table}") has businessId but no ${missing.join(", ")}`);
+      violations.push(`R1 model ${model.name} (table "${table}") has tenant key ${model.tenantKeys.join("/")} but no ${missing.join(", ")}`);
     }
   }
-  for (const table of Object.keys(exempt)) {
+  for (const table of [...Object.keys(exempt), ...Object.keys(pending)]) {
     if (!tenantTables.has(table)) {
-      violations.push(`R1 stale exemption: "${table}" is not a model with businessId any more — remove it`);
+      violations.push(`R1 stale exemption: "${table}" is not a model with a tenant key any more — remove it`);
+    }
+  }
+
+  // R0 — the migrations themselves, whether or not a model exists yet.
+  for (const [table, keys] of migrationTenantTables(migrations)) {
+    if (tenantTables.has(table) || listed(table)) continue; // R1 already decided it
+    const f = rlsFacts(all, table);
+    if (!(f.enabled && f.forced && f.tenantPolicy)) {
+      violations.push(`R0 migration creates "${table}" with tenant key ${keys.join("/")} but never gives it ENABLE + FORCE RLS and a tenant policy`);
+    }
+  }
+
+  // R3 — every exception is a recorded decision.
+  if (inventoryDoc != null) {
+    for (const table of [...Object.keys(exempt), ...Object.keys(pending)]) {
+      if (!inventoryDoc.includes("`" + table + "`")) {
+        violations.push(`R3 "${table}" is listed in the guard but not recorded in docs/security/TENANT_RLS_INVENTORY.md`);
+      }
     }
   }
 
@@ -219,7 +297,9 @@ function readRepo(root) {
     const f = path.join(dir, d, "migration.sql");
     if (fs.existsSync(f)) migrations.push({ dir: d, sql: fs.readFileSync(f, "utf8") });
   }
-  return { schemaSrc, migrations };
+  const docPath = path.join(root, "docs", "security", "TENANT_RLS_INVENTORY.md");
+  const inventoryDoc = fs.existsSync(docPath) ? fs.readFileSync(docPath, "utf8") : "";
+  return { schemaSrc, migrations, inventoryDoc };
 }
 
 // ── self-test: each rule must be able to fail ─────────────────────────────────
@@ -335,6 +415,51 @@ GRANT SELECT, INSERT ON "${t}" TO app_runtime;`;
       expect: 1,
     },
     {
+      name: "R1 sees an issuingBusinessId tenant key (the closure's blind spot)",
+      input: { schemaSrc: `model Coupon {\n  id Int @id\n  issuingBusinessId Int\n}`, migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Coupon" (id int);` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "R0 catches a migration-only tenant table with no model and no RLS",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")} CREATE TABLE "Ghost" ("id" SERIAL NOT NULL, "businessId" INTEGER NOT NULL);` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "R0 passes a migration-only tenant table that ships its RLS",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")} CREATE TABLE "Ghost" ("id" SERIAL NOT NULL, "businessId" INTEGER NOT NULL);${fullRls("Ghost")}` }], exempt: {} },
+      expect: 0,
+    },
+    {
+      name: "R0 catches an issuingBusinessId migration-only table",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")} CREATE TABLE "Ghost" ("issuingBusinessId" INTEGER NOT NULL);` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "R0 ignores a tenant table that was later dropped",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")} CREATE TABLE "Ghost" ("businessId" INTEGER); DROP TABLE "Ghost";` }], exempt: {} },
+      expect: 0,
+    },
+    {
+      name: "a PENDING_OWNER_DECISION table passes R1 without being complete",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);` }], exempt: {}, pending: { Widget: "decision" } },
+      expect: 0,
+    },
+    {
+      name: "a table both EXEMPT and PENDING fails",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);` }], exempt: {}, exempt: { Widget: "x" }, pending: { Widget: "y" } },
+      expect: 1,
+    },
+    {
+      name: "R3 an exception missing from the inventory doc fails",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);` }], exempt: {}, exempt: { Widget: "bootstrap" }, inventoryDoc: "| \`Other\` | D |" },
+      expect: 1,
+    },
+    {
+      name: "R3 an exception recorded in the inventory doc passes",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260101000000_a", sql: `CREATE TABLE "Widget" (id int);` }], exempt: {}, exempt: { Widget: "bootstrap" }, inventoryDoc: "| \`Widget\` | D |" },
+      expect: 0,
+    },
+    {
       name: "grandfather entry that is not a new table fails",
       input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")}` }], exempt: {}, grandfathered: { Gone: "x" } },
       expect: 1,
@@ -343,7 +468,7 @@ GRANT SELECT, INSERT ON "${t}" TO app_runtime;`;
   let failed = 0;
   for (const c of cases) {
     // Hermetic: a case sees only the lists it names, never the real ones.
-    const v = evaluate({ grandfathered: {}, ...c.input });
+    const v = evaluate({ grandfathered: {}, pending: {}, ...c.input });
     const got = v.length === 0 ? 0 : 1;
     const pass = got === c.expect;
     if (!pass) failed++;
@@ -376,6 +501,10 @@ if (isMain) {
       for (const v of violations) console.error(`  - ${v}`);
       process.exit(1);
     }
-    console.log("tenant-table-rls-guard: PASS — every businessId table is tenant-RLS'd or explicitly exempt");
+    console.log("tenant-table-rls-guard: PASS — every tenant-keyed table is tenant-RLS'd, exempt by a recorded decision, or PENDING an owner decision");
+    const pendingNames = Object.keys(PENDING_OWNER_DECISION);
+    if (pendingNames.length > 0) {
+      console.log(`  PENDING OWNER DECISION — tenant-owned, NO database isolation yet (open debt, not a pass): ${pendingNames.join(", ")}`);
+    }
   }
 }

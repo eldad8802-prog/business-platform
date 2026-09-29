@@ -1,26 +1,58 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { parseWhatsAppWebhookPayload } from "@/lib/services/integrations/whatsapp/webhook-parse.service";
-import {
-  intakeOutcomeLogFields as documentsIntakeLogFields,
-  processWhatsAppDocumentsIntake,
-} from "@/lib/services/integrations/whatsapp/documents-intake.service";
-import {
-  intakeOutcomeLogFields as conversationIntakeLogFields,
-  processWhatsAppConversationIntake,
-} from "@/lib/services/integrations/whatsapp/conversation-intake.service";
 import {
   routeInboundWhatsAppMessage,
   routingDecisionLogFields,
 } from "@/lib/services/integrations/whatsapp/routing-gate.service";
+import { resolveBusinessFromPhoneNumberId } from "@/lib/services/integrations/whatsapp/business-resolve.service";
 import {
   verifySubscribeChallenge,
   verifyWebhookSignature,
 } from "@/lib/services/integrations/whatsapp/webhook-verify.service";
 import { logEvent } from "@/lib/services/integrations/whatsapp/webhook-events";
-import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { runTenantJob } from "@/lib/tenant/job";
+import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
+import { recordReceipts, type IntakeReceiptInput } from "@/lib/intake/intake-event.store";
+import {
+  buildMessageReceipt,
+  buildStatusReceipt,
+  drainWhatsAppIntake,
+} from "@/lib/intake/whatsapp/whatsapp-intake";
 
 export const runtime = "nodejs";
+
+/**
+ * Meta WhatsApp webhook.
+ *
+ * M2 — ACKNOWLEDGEMENT MEANS RESPONSIBILITY.
+ * Before M2 this route answered 200 whatever happened, so a failure while
+ * creating the customer, conversation or message lost the event for good: Meta
+ * does not redeliver a 200. Now:
+ *
+ *   1. verify the signature over the raw body (unchanged);
+ *   2. resolve each message's tenant through the routing gate — the only tenant
+ *      source, keyed on the signed phone_number_id, never a payload field;
+ *   3. write one IntakeEvent receipt per event, per business, in a tenant
+ *      transaction — idempotent on the provider's id;
+ *   4. ONLY THEN answer 200. If any receipt could not be written, answer 500 and
+ *      let Meta redeliver (the receipts that did land dedupe on redelivery);
+ *   5. process the receipts after the response. A processing failure is
+ *      recorded on the receipt and retried — it is no longer a lost message.
+ */
+
+/**
+ * Run `task` after the response — or, outside a request scope (a script or a CI
+ * battery calling the handler directly, where `after()` throws), inline, so the
+ * one code path is what gets exercised everywhere.
+ */
+function afterResponse(task: () => Promise<void>): Promise<void> | null {
+  try {
+    after(task);
+    return null;
+  } catch {
+    return task();
+  }
+}
 
 function safeWebhookLog(summary: {
   object: string | null;
@@ -28,17 +60,10 @@ function safeWebhookLog(summary: {
   changeCount: number;
   unsupportedChangeCount: number;
   messageCount: number;
+  statusCount: number;
   messageTypes: string[];
 }): void {
-  console.info("[whatsapp-webhook]", {
-    object: summary.object,
-    entryCount: summary.entryCount,
-    changeCount: summary.changeCount,
-    // Changes dropped by the event-class boundary (field !== "messages").
-    unsupportedChangeCount: summary.unsupportedChangeCount,
-    messageCount: summary.messageCount,
-    messageTypes: summary.messageTypes,
-  });
+  console.info("[whatsapp-webhook]", summary);
 }
 
 export async function GET(req: NextRequest) {
@@ -91,6 +116,7 @@ export async function POST(req: NextRequest) {
     changeCount: parsed.changeCount,
     unsupportedChangeCount: parsed.unsupportedChangeCount,
     messageCount: parsed.messages.length,
+    statusCount: parsed.statuses.length,
     messageTypes: [
       ...new Set(
         parsed.messages
@@ -100,18 +126,24 @@ export async function POST(req: NextRequest) {
     ],
   });
 
-  for (const message of parsed.messages) {
-    // Per-message try/catch — webhook MUST always return 200 even if a
-    // single message handler explodes, otherwise Meta will retry-storm
-    // the whole batch.
-    try {
+  // ── 1. tenant resolution + receipt building (no tenant writes yet) ─────────
+  // A resolution failure that is a DATABASE error propagates to the catch and
+  // becomes a 500 — never "not found", never a silent drop.
+  const receiptsByBusiness = new Map<number, IntakeReceiptInput[]>();
+  const add = (businessId: number, receipt: IntakeReceiptInput) => {
+    const list = receiptsByBusiness.get(businessId) ?? [];
+    list.push(receipt);
+    receiptsByBusiness.set(businessId, list);
+  };
+
+  try {
+    for (const message of parsed.messages) {
       const decision = await routeInboundWhatsAppMessage(message);
-      console.info(
-        "[whatsapp-webhook-routing]",
-        routingDecisionLogFields(decision)
-      );
+      console.info("[whatsapp-webhook-routing]", routingDecisionLogFields(decision));
 
       if (decision.kind === "STOP") {
+        // No tenant (unknown / disconnected number) or no provider id: there is
+        // nobody to record it against. Not ours to accept — answered 200.
         if (decision.reason === "unknown_phone_number_id") {
           logEvent("UNKNOWN_PHONE_NUMBER_ID", {
             source: "webhook",
@@ -120,79 +152,68 @@ export async function POST(req: NextRequest) {
         }
         continue;
       }
+      add(decision.businessId, buildMessageReceipt(decision, message));
+    }
 
-      if (decision.kind === "DOCUMENTS_INTAKE") {
-        // Per-business abuse/cost throttle. Fail-open (a Redis blip must not drop
-        // legitimate documents). On genuine over-limit we skip processing this
-        // message but still return 200 so Meta does not retry-storm.
-        const intakeGate = await checkRateLimit({
-          bucket: "WHATSAPP_INTAKE",
-          business: decision.businessId,
+    // Delivery / read / failed receipts describe OUTBOUND messages. They are
+    // resolved to the same tenant by the same signed phone_number_id, and they
+    // never enter the customer-message dispatch above.
+    for (const status of parsed.statuses) {
+      const business = await resolveBusinessFromPhoneNumberId(status.phoneNumberId);
+      if (!business.ok) continue;
+      const receipt = buildStatusReceipt(status, business.phoneNumberId);
+      if (receipt) add(business.businessId, receipt);
+    }
+  } catch (resolutionError) {
+    console.warn("[whatsapp-webhook] tenant resolution failed; asking Meta to redeliver", {
+      error: resolutionError instanceof Error ? resolutionError.name : "unknown",
+    });
+    return new NextResponse("Service Unavailable", { status: 500 });
+  }
+
+  // ── 2. durable receipts — the acknowledgement depends on these ─────────────
+  const accepted: Array<{ businessId: number; eventIds: number[] }> = [];
+  for (const [businessId, receipts] of receiptsByBusiness) {
+    try {
+      const recorded = await runTenantJob({ businessId }, () => recordReceipts(businessId, receipts));
+      accepted.push({ businessId, eventIds: recorded.map((r) => r.id) });
+    } catch (error) {
+      if (error instanceof BusinessQuarantinedError) {
+        // The business is being deleted: it accepts no new data. Recording
+        // nothing and answering 200 is the deliberate outcome, not a loss.
+        console.info("[whatsapp-webhook] business quarantined; events not accepted", {
+          businessId,
+          count: receipts.length,
         });
-        if (!intakeGate.allowed) {
-          console.warn("[whatsapp-webhook] intake throttled", {
-            businessId: decision.businessId,
-            retryAfterSeconds: intakeGate.retryAfterSeconds,
-          });
-          continue;
-        }
-
-        // D2/P7-W4A: the trusted, server-resolved businessId (WhatsAppConnection
-        // lookup by phone_number_id — never a payload field) becomes the
-        // explicit tenant context for the whole per-message intake.
-        const outcome = await runTenantJob({ businessId: decision.businessId }, () =>
-          processWhatsAppDocumentsIntake({
-            businessId: decision.businessId,
-            phoneNumberId: decision.phoneNumberId,
-            sender: decision.sender,
-            wamid: decision.wamid,
-            mediaType: decision.mediaType,
-            mediaId: decision.mediaId,
-            senderTrust: decision.senderTrust,
-          })
-        );
-        console.info(
-          "[whatsapp-webhook-intake]",
-          documentsIntakeLogFields(
-            decision.businessId,
-            decision.wamid,
-            outcome
-          )
-        );
         continue;
       }
-
-      if (decision.kind === "CONVERSATION_INTAKE") {
-        // D2/P7-W4A: explicit tenant context from the trusted mapping (see above).
-        const outcome = await runTenantJob({ businessId: decision.businessId }, () =>
-          processWhatsAppConversationIntake({
-            businessId: decision.businessId,
-            phoneNumberId: decision.phoneNumberId,
-            senderPhone: decision.senderPhone,
-            wamid: decision.wamid,
-            text: decision.text,
-          })
-        );
-        console.info(
-          "[whatsapp-webhook-conversation-intake]",
-          conversationIntakeLogFields(
-            decision.businessId,
-            decision.wamid,
-            outcome
-          )
-        );
-        continue;
-      }
-    } catch (perMessageErr) {
-      // Structured log + swallow — webhook integrity (always 200) wins.
-      console.warn(
-        "[whatsapp-webhook] per-message handler failed:",
-        perMessageErr instanceof Error
-          ? perMessageErr.message
-          : String(perMessageErr)
-      );
+      console.warn("[whatsapp-webhook] receipt write failed; asking Meta to redeliver", {
+        businessId,
+        error: error instanceof Error ? error.name : "unknown",
+      });
+      return new NextResponse("Service Unavailable", { status: 500 });
     }
   }
+
+  // ── 3. processing, after the response ──────────────────────────────────────
+  // Each business in its own explicit tenant job. A failure here is recorded on
+  // the receipt and retried (next webhook for the business, or the sweeper).
+  const inline: Promise<void>[] = [];
+  for (const { businessId, eventIds } of accepted) {
+    const pending = afterResponse(() =>
+      runTenantJob({ businessId }, () => drainWhatsAppIntake(businessId, { eventIds })).then(
+        () => undefined,
+        (error: unknown) => {
+          console.warn("[whatsapp-webhook] post-ack processing failed; receipts will be retried", {
+            businessId,
+            error: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      )
+    );
+    if (pending) inline.push(pending);
+  }
+  await Promise.all(inline);
 
   return new NextResponse("OK", { status: 200 });
 }

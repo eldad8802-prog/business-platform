@@ -35,6 +35,23 @@ function appSecret(): string | null {
   return process.env.WHATSAPP_APP_SECRET?.trim() || null;
 }
 
+/**
+ * Upper bound for each Graph call of the connect flow (exchange, phone lookup,
+ * WABA subscription). A hanging Graph request must end in a named failure, not
+ * hold the owner's "מחברים…" screen open; three bounded calls keep the whole
+ * connect well inside the client's own submit timeout.
+ */
+export const GRAPH_CONNECT_TIMEOUT_MS = 15_000;
+
+function connectSignal(): AbortSignal {
+  return AbortSignal.timeout(GRAPH_CONNECT_TIMEOUT_MS);
+}
+
+function isTimeout(err: unknown): boolean {
+  const name = (err as { name?: unknown })?.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
 /** Extracts a short, safe error label from a Graph error body. Never includes secrets. */
 function safeError(data: unknown, fallbackCode: string): { code: string; message: string } {
   const err = (data as { error?: { code?: unknown; message?: unknown; type?: unknown } })?.error;
@@ -69,7 +86,11 @@ export async function exchangeCodeForToken(code: string): Promise<ExchangeResult
 
   try {
     // NOTE: the URL carries the App Secret — never log it.
-    const res = await fetch(url.toString(), { method: "GET", cache: "no-store" });
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      signal: connectSignal(),
+    });
     const data = (await res.json().catch(() => null)) as
       | { access_token?: unknown }
       | null;
@@ -77,7 +98,10 @@ export async function exchangeCodeForToken(code: string): Promise<ExchangeResult
       return { ok: false, ...safeError(data, `exchange_${res.status}`) };
     }
     return { ok: true, accessToken: data.access_token };
-  } catch {
+  } catch (err) {
+    if (isTimeout(err)) {
+      return { ok: false, code: "exchange_timeout", message: "Token exchange timed out" };
+    }
     return { ok: false, code: "exchange_network", message: "Network error during token exchange" };
   }
 }
@@ -116,13 +140,17 @@ export async function subscribeWabaToApp(input: {
       method: "POST",
       cache: "no-store",
       headers: { Authorization: `Bearer ${input.accessToken}` },
+      signal: connectSignal(),
     });
     const data = (await res.json().catch(() => null)) as { success?: unknown } | null;
     if (!res.ok || !data || data.success !== true) {
       return { ok: false, ...safeError(data, `subscribe_${res.status}`) };
     }
     return { ok: true };
-  } catch {
+  } catch (err) {
+    if (isTimeout(err)) {
+      return { ok: false, code: "subscribe_timeout", message: "WABA subscription timed out" };
+    }
     return { ok: false, code: "subscribe_network", message: "Network error subscribing WABA" };
   }
 }
@@ -185,6 +213,7 @@ export async function fetchPhoneNumberDisplay(
       method: "GET",
       cache: "no-store",
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: connectSignal(),
     });
     const data = (await res.json().catch(() => null)) as
       | { display_phone_number?: unknown; verified_name?: unknown }
@@ -197,8 +226,63 @@ export async function fetchPhoneNumberDisplay(
       displayPhoneNumber: data.display_phone_number,
       verifiedName: typeof data.verified_name === "string" ? data.verified_name : null,
     };
-  } catch {
+  } catch (err) {
+    if (isTimeout(err)) {
+      return { ok: false, code: "display_timeout", message: "Phone number lookup timed out" };
+    }
     return { ok: false, code: "display_network", message: "Network error fetching phone number" };
+  }
+}
+
+export type WabaPhoneResult =
+  | { ok: true; phoneNumberId: string; displayPhoneNumber: string }
+  | { ok: false; code: string; message: string };
+
+/**
+ * Resolves the business phone number of a WABA — used for coexistence
+ * onboarding, whose Embedded Signup finish event reports only `waba_id`.
+ *
+ * `GET /{waba-id}/phone_numbers` with the token from the code exchange, so it
+ * can only see numbers of the WABA the owner just authorized. Exactly one
+ * number is required: none or several is a named failure, never a guess.
+ */
+export async function fetchWabaPhoneNumber(
+  wabaId: string,
+  accessToken: string
+): Promise<WabaPhoneResult> {
+  const url = new URL(`${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(wabaId)}/phone_numbers`);
+  url.searchParams.set("fields", "id,display_phone_number");
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: connectSignal(),
+    });
+    const data = (await res.json().catch(() => null)) as { data?: unknown } | null;
+    if (!res.ok || !data || !Array.isArray(data.data)) {
+      return { ok: false, ...safeError(data, `phones_${res.status}`) };
+    }
+    const numbers = (data.data as Array<{ id?: unknown; display_phone_number?: unknown }>).filter(
+      (n) => typeof n?.id === "string" && n.id && typeof n.display_phone_number === "string" && n.display_phone_number
+    );
+    if (numbers.length === 0) {
+      return { ok: false, code: "phones_none", message: "The WhatsApp Business account has no phone number" };
+    }
+    if (numbers.length > 1) {
+      return { ok: false, code: "phones_multiple", message: "The WhatsApp Business account has several phone numbers" };
+    }
+    return {
+      ok: true,
+      phoneNumberId: numbers[0].id as string,
+      displayPhoneNumber: numbers[0].display_phone_number as string,
+    };
+  } catch (err) {
+    if (isTimeout(err)) {
+      return { ok: false, code: "phones_timeout", message: "Phone number lookup timed out" };
+    }
+    return { ok: false, code: "phones_network", message: "Network error listing phone numbers" };
   }
 }
 

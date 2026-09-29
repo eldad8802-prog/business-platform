@@ -25,7 +25,8 @@ export type DocumentsIntakeMediaType = "image" | "document";
  * per-business allowlist (the `sender` field comes from the allowlist
  * match). `CONVERSATION_INTAKE` bypasses the allowlist because real
  * customers cannot be pre-allowlisted; the business gate for text intake
- * is the presence of a `WhatsAppConnection` row in `CONNECTED` status.
+ * is a `WhatsAppConnection` row whose status still accepts inbound
+ * (`connectionAcceptsInbound`).
  */
 export type RoutingDecision =
   | {
@@ -57,6 +58,23 @@ export type RoutingDecision =
       text: string;
     }
   | {
+      /**
+       * M2: the tenant IS known and the provider event is real, but Dubiz does
+       * not materialise this kind of message (audio, sticker, location, a text
+       * with no body, media without an id, a message with no usable sender).
+       * Before M2 this was a STOP and left no trace; it is now recorded as an
+       * IGNORED intake receipt, so what arrived stays visible.
+       */
+      kind: "UNSUPPORTED";
+      businessId: number;
+      phoneNumberId: string;
+      wamid: string;
+      reason: RoutingStopReason;
+      /** Provider message type, lower-cased; empty when Meta sent none. */
+      messageType: string;
+    }
+  | {
+      /** No tenant, or no provider id: nothing can be recorded against anyone. */
       kind: "STOP";
       reason: RoutingStopReason;
       phoneNumberId?: string;

@@ -109,13 +109,17 @@ async function main() {
     assert.equal(convoMedia.senderTrust, "conversation");
   }
 
-  // media WITHOUT mediaId → STOP, regardless of allowlist membership.
+  // media WITHOUT mediaId never enters the document pipeline, regardless of
+  // allowlist membership. Since M2 (#547) a message whose tenant IS known is
+  // RECORDED as UNSUPPORTED (an IGNORED receipt, bound to that tenant) instead of
+  // dropped as STOP; STOP is kept for messages whose tenant is unknown (below).
   const stopNoMedia = await routeInboundWhatsAppMessage(
     baseMessage({ from: "972000000000", mediaId: null })
   );
-  assert.equal(stopNoMedia.kind, "STOP");
-  if (stopNoMedia.kind === "STOP") {
+  assert.equal(stopNoMedia.kind, "UNSUPPORTED");
+  if (stopNoMedia.kind === "UNSUPPORTED") {
     assert.equal(stopNoMedia.reason, "missing_media_id");
+    assert.equal(stopNoMedia.businessId, 1);
   }
 
   // text WITH body — new Bot-MVP-1 behavior: routes to CONVERSATION_INTAKE.
@@ -129,13 +133,14 @@ async function main() {
     assert.equal(text.senderPhone, "972501234567");
   }
 
-  // text WITHOUT body — STOP with the new dedicated reason.
+  // text WITHOUT body — tenant known, so UNSUPPORTED (M2 #547) with the dedicated reason.
   const stopText = await routeInboundWhatsAppMessage(
     baseMessage({ type: "text", mediaId: null, textBody: null })
   );
-  assert.equal(stopText.kind, "STOP");
-  if (stopText.kind === "STOP") {
+  assert.equal(stopText.kind, "UNSUPPORTED");
+  if (stopText.kind === "UNSUPPORTED") {
     assert.equal(stopText.reason, "missing_text_body");
+    assert.equal(stopText.businessId, 1);
   }
 
   // unknown business (phone_number_id)
