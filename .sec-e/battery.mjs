@@ -103,6 +103,9 @@ async function main() {
   await sql(`GRANT SELECT, INSERT ON "HistoricalFiscalDocument" TO ${RT}`);
   await sql(`GRANT SELECT, INSERT, UPDATE ON "Notification","NotificationDelivery" TO ${RT}`);
   await sql(`GRANT SELECT, INSERT, UPDATE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder" TO ${RT}`);
+  // Business Intake M2 (20260927180000) and M3 (20260929090000), mirrored exactly as
+  // .ad2a/battery.mjs does: SELECT, INSERT, UPDATE; no DELETE (the erasure scrubs with UPDATE).
+  await sql(`GRANT SELECT, INSERT, UPDATE ON "IntakeEvent","IntakeNormalizedEvent" TO ${RT}`);
   await sql(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT}`);
   const live = await readLiveState(owner, RT);
   const exact = diffExactSet(live, await expectedState(owner, live.sequences));
