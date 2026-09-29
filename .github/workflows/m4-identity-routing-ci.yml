@@ -181,8 +181,8 @@ jobs:
           set -uo pipefail
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE m4_empty"
           EMPTY_URL="${OWNER_URL%/*}/m4_empty"
-          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql 2>&1)
-          rc=$?
+          rc=0
+          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql 2>&1) || rc=$?
           echo "$out" | tail -3
           if [ $rc -eq 0 ]; then echo "preflight did NOT refuse an empty database"; exit 1; fi
           echo "$out" | grep -q "M4 requires" || { echo "refused for the wrong reason"; exit 1; }
