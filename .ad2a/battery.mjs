@@ -258,6 +258,9 @@ async function main() {
   // exactly (SELECT, INSERT, UPDATE; DELETE revoked).
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IntakeNormalizedEvent" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IntakeNormalizedEvent" FROM ${RT_ROLE}`);
+  // Business Intake M4 — migration 20260930090000_m4_identity_routing, mirrored exactly.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IdentityLink", "IdentityProposal" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IdentityLink", "IdentityProposal" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );

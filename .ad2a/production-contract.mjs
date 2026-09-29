@@ -220,6 +220,29 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "intake_event_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // Business Intake M4 — identity links (current interpretation, hashed) and
+  // identity proposals (owner authority). Per command, NO DELETE: reversal and
+  // erasure are UPDATEs; Customer / Business deletion cascades.
+  {
+    table: "IdentityLink",
+    migration: "20260930090000_m4_identity_routing",
+    why: "holds hashed identifiers linked to a Customer; the erasure nulls the hash with an UPDATE",
+    policies: [
+      { name: "identity_link_tenant_read", command: "SELECT", using: TENANT },
+      { name: "identity_link_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "identity_link_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "IdentityProposal",
+    migration: "20260930090000_m4_identity_routing",
+    why: "holds hashed identifiers and evidence categories for owner review; the erasure nulls them with an UPDATE",
+    policies: [
+      { name: "identity_proposal_tenant_read", command: "SELECT", using: TENANT },
+      { name: "identity_proposal_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "identity_proposal_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   // Business Intake M3 — what Dubiz understood from a receipt. Same shape as
   // IntakeEvent: per command, NO DELETE; the erasure scrubs contact hints,
   // attribution and result pointers with an UPDATE.
@@ -535,6 +558,14 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   IntakeEvent: {
     verbs: SIU,
     basis: "migration 20260927180000_m2_intake_event grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  IdentityLink: {
+    verbs: SIU,
+    basis: "migration 20260930090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  IdentityProposal: {
+    verbs: SIU,
+    basis: "migration 20260930090000_m4_identity_routing grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
   IntakeNormalizedEvent: {
     verbs: SIU,

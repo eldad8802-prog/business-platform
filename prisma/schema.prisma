@@ -258,6 +258,8 @@ model Business {
   outcomeObservations           OutcomeObservation[]
   outcomeAssessments            OutcomeAssessment[]
   intakeNormalizedEvents        IntakeNormalizedEvent[]
+  identityLinks                 IdentityLink[]
+  identityProposals             IdentityProposal[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -841,22 +843,22 @@ model Lead {
 }
 
 model Customer {
-  id               Int                @id @default(autoincrement())
-  businessId       Int
-  name             String
+  id                Int                @id @default(autoincrement())
+  businessId        Int
+  name              String
   /// Canonical-form phone (digits-only, IL-aware E.164-ish). Always written
   /// through `normalizeCustomerPhone()` — never raw input. Null means the
   /// customer has no phone on record (legitimate state). NULLs do not
   /// collide under Postgres unique-constraint semantics.
-  phone            String?
-  email            String?
-  city             String?
+  phone             String?
+  email             String?
+  city              String?
   /// Registered legal name when different from display `name` (billing snapshots).
-  legalName        String?
+  legalName         String?
   /// Counterparty tax identifier (ע.מ. / ח.פ. / ת.ז. etc.).
-  taxId            String?
-  taxIdType        CustomerTaxIdType?
-  notes            String?
+  taxId             String?
+  taxIdType         CustomerTaxIdType?
+  notes             String?
   /// M5 — this customer's own payment terms, in days from the invoice's `issuedAt`.
   ///
   /// NOT a second source of truth. There is exactly one rule for resolving terms, and it is a
@@ -868,17 +870,19 @@ model Customer {
   /// today. No surface writes this yet, so production behaviour is unchanged until one does — the
   /// column closes a representational gap (a business genuinely cannot say "this one customer is
   /// שוטף+60") rather than changing what any invoice currently means.
-  paymentTermsDays Int?
-  isActive         Boolean            @default(true)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  billingDocuments BillingDocument[]
-  conversations    Conversation[]
-  business         Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages         Message[]
-  appointments     Appointment[]
-  paymentRequests  PaymentRequest[]
-  leads            Lead[]
+  paymentTermsDays  Int?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  billingDocuments  BillingDocument[]
+  conversations     Conversation[]
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages          Message[]
+  appointments      Appointment[]
+  paymentRequests   PaymentRequest[]
+  leads             Lead[]
+  identityLinks     IdentityLink[]
+  identityProposals IdentityProposal[]
 
   @@unique([businessId, phone])
   @@index([businessId, isActive])
@@ -6116,6 +6120,7 @@ model IntakeEvent {
   updatedAt          DateTime               @updatedAt
   business           Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   normalized         IntakeNormalizedEvent?
+  identityProposals  IdentityProposal[]
 
   /// Replay protection (M3): one receipt per (business, source, event identity).
   /// Tenant- and source-scoped, so identical provider ids never cross-dedup.
@@ -6137,35 +6142,123 @@ model IntakeEvent {
 /// erasure. `signals`, `attribution` and `resultRefs` carry no message
 /// content and no contact value.
 model IntakeNormalizedEvent {
-  id                   Int         @id @default(autoincrement())
-  businessId           Int
-  intakeEventId        Int         @unique
+  id                     Int         @id @default(autoincrement())
+  businessId             Int
+  intakeEventId          Int         @unique
   /// "<adapter>@<n>" — which normalizer produced this record.
-  normalizerVersion    String
-  occurredAt           DateTime?
-  contactHints         Json?
-  contactHintsPurgedAt DateTime?
+  normalizerVersion      String
+  occurredAt             DateTime?
+  contactHints           Json?
+  contactHintsPurgedAt   DateTime?
   /// Non-personal: which contact signals were present and whether they were
   /// valid ({ phone: "valid" | "invalid" | "absent", … }).
-  signals              Json        @default("{}")
+  signals                Json        @default("{}")
   /// 'none' | 'delegated' | 'unresolved' — M3 never merges identities.
-  identityOutcome      String
+  identityOutcome        String
   /// Structured, sanitized acquisition evidence (IntakeAttributionV1).
-  attribution          Json?
+  attribution            Json?
   /// 'conversation' | 'message_status' | 'lead' | 'customer' | 'commerce' |
   /// 'document' | 'attention' | 'none'
-  routeTarget          String?
+  routeTarget            String?
   /// 'routed' | 'ignored'
-  routeOutcome         String?
+  routeOutcome           String?
   /// Domain records this event produced, as { kind: id } — plain ids.
-  resultRefs           Json?
-  routedAt             DateTime?
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
-  business             Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  intakeEvent          IntakeEvent @relation(fields: [businessId, intakeEventId], references: [businessId, id], onDelete: Cascade)
+  resultRefs             Json?
+  routedAt               DateTime?
+  /// M4 — what identity resolution concluded for THIS event at that time
+  /// (historical evidence; a later reversal never rewrites it):
+  /// 'resolved' | 'candidate' | 'ambiguous' | 'unresolved' | 'conflict' | 'not_applicable'
+  identityState          String?
+  /// "<policy>@<n>" that produced identityState.
+  identityPolicyVersion  String?
+  /// The Customer the event was resolved to (plain id — evidence, not a FK).
+  identityCustomerId     Int?
+  /// Evidence CATEGORIES only (which identifier kinds matched / conflicted);
+  /// never an identifier value.
+  identityEvidence       Json?
+  identityCandidateCount Int?
+  /// The deterministic routing rule that chose the destination (e.g. R4_EXPLICIT_LEAD).
+  routingRule            String?
+  routingDestination     String?
+  ownerReviewRequired    Boolean     @default(false)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  business               Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  intakeEvent            IntakeEvent @relation(fields: [businessId, intakeEventId], references: [businessId, id], onDelete: Cascade)
 
   /// The composite key IntakeEvent's relation is defined on (tenant-safe 1:1).
   @@unique([businessId, intakeEventId])
   @@index([businessId, createdAt])
+}
+
+/// M4 — CURRENT interpretation: an identifier belongs to a Customer.
+///
+/// Only identifiers the Customer row cannot hold authoritatively live here:
+/// email (Customer.email is free text), alternate phones, provider-scoped ids.
+/// Customer.phone stays the authoritative phone. The value is never stored —
+/// `valueHash` is a domain-separated SHA-256 of kind + scope + normalized value.
+/// Reversible: a link is revoked (status), never deleted. At most one ACTIVE
+/// link per (business, kind, scope, value) — enforced by a partial unique index.
+/// A DB-only composite FK (businessId, customerId) → Customer keeps it in-tenant.
+model IdentityLink {
+  id                  Int       @id @default(autoincrement())
+  businessId          Int
+  customerId          Int
+  /// 'phone' | 'email' | 'provider'
+  kind                String
+  /// '' for phone / email; "<sourceKey>:<account>" for a provider id.
+  scope               String    @default("")
+  valueHash           String?
+  /// 'deterministic' | 'owner_confirmed'
+  method              String
+  /// 'active' | 'revoked'
+  status              String    @default("active")
+  sourceIntakeEventId Int?
+  proposalId          Int?
+  revokedAt           DateTime?
+  revokedByUserId     Int?
+  /// 'owner_undo' | 'erasure' | 'superseded'
+  revokeReason        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  business            Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer            Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, customerId])
+}
+
+/// M4 — OWNER AUTHORITY: evidence was not enough to decide who an intake event
+/// is about, so Dubiz proposes a candidate Customer. Confirm / reject / undo,
+/// guarded by an evidence fingerprint (staleness) and a record of the domain
+/// effects a confirmation applied (so undo restores exactly those).
+model IdentityProposal {
+  id                  Int         @id @default(autoincrement())
+  businessId          Int
+  intakeEventId       Int
+  candidateCustomerId Int
+  /// The Lead the event produced without a contact (relinked on confirm).
+  leadId              Int?
+  /// 'candidate' | 'ambiguous' | 'conflict'
+  reason              String
+  /// 'proposed' | 'confirmed' | 'rejected' | 'undone' | 'stale' | 'superseded'
+  state               String      @default("proposed")
+  /// [{ kind, scope, valueHash }] — hashes only.
+  proposedLinks       Json?       @default("[]")
+  /// Evidence CATEGORIES (never identifier values).
+  evidence            Json?       @default("{}")
+  evidenceFingerprint String
+  appliedEffects      Json?
+  policyVersion       String
+  decidedAt           DateTime?
+  decidedByUserId     Int?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  business            Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  intakeEvent         IntakeEvent @relation(fields: [businessId, intakeEventId], references: [businessId, id], onDelete: Cascade)
+  candidateCustomer   Customer    @relation(fields: [candidateCustomerId], references: [id], onDelete: Cascade)
+
+  /// One proposal per (event, candidate): regenerating a proposal is a no-op.
+  @@unique([businessId, intakeEventId, candidateCustomerId], map: "IdentityProposal_event_candidate_key")
+  @@index([businessId, state])
+  @@index([businessId, candidateCustomerId])
 }
