@@ -2,7 +2,7 @@
 
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
-import { WA_COPY } from "./wa-copy";
+import { WA_COPY, waConnectErrorText } from "./wa-copy";
 import { IconLock } from "./wa-icons";
 import { WaAvatar, WaBadge, WaConnecting, WaPrimaryButton } from "./wa-ui";
 
@@ -17,14 +17,24 @@ import { WaAvatar, WaBadge, WaConnecting, WaPrimaryButton } from "./wa-ui";
  *   - error            → generic retry surface
  *
  * All connect logic is delegated to {@link useWhatsAppConnect}. `onConnected`
- * fires once the backend has persisted the connection so the host can refresh.
+ * fires once the backend has persisted the connection so the host can refresh
+ * (and also when the backend outcome is uncertain — a timeout or a dropped
+ * network — so the host re-reads the true state instead of trusting the error).
+ *
+ * `notice` renders above the invitation — used by Settings to say truthfully
+ * that a previous number exists but no longer receives messages.
  */
 export function WhatsAppConnectInvitation({
   onConnected,
+  notice,
 }: {
   onConnected: () => void;
+  notice?: React.ReactNode;
 }) {
-  const { status, detail, start, reset } = useWhatsAppConnect(() => onConnected());
+  const { status, detail, errorCode, start, reset, cancel } = useWhatsAppConnect(
+    () => onConnected(),
+    () => onConnected()
+  );
 
   if (status === "error") {
     return (
@@ -33,7 +43,7 @@ export function WhatsAppConnectInvitation({
           <WaBadge tone="neutral" label={WA_COPY.error.badge} />
           <div style={stackStyle}>
             <h1 style={headingStyle}>{WA_COPY.error.heading}</h1>
-            <p style={bodyStyle}>{WA_COPY.error.body}</p>
+            <p style={bodyStyle}>{waConnectErrorText(errorCode)}</p>
           </div>
         </div>
         <div style={footerStyle}>
@@ -62,6 +72,7 @@ export function WhatsAppConnectInvitation({
 
   return (
     <ConnectSurface>
+      {notice}
       <div style={heroStyle}>
         <WaAvatar size={70} />
         <div style={stackStyle}>
@@ -95,7 +106,16 @@ export function WhatsAppConnectInvitation({
           disabled={launching}
           showGlyph={!launching}
         />
-        <p style={helperStyle}>{c.helper}</p>
+        {launching ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <p style={helperStyle}>{c.popupHint}</p>
+            <button type="button" onClick={cancel} style={linkButtonStyle}>
+              {c.cancelLaunch}
+            </button>
+          </div>
+        ) : (
+          <p style={helperStyle}>{c.helper}</p>
+        )}
       </div>
     </ConnectSurface>
   );
@@ -191,4 +211,16 @@ const helperStyle: React.CSSProperties = {
   color: TOKEN.ink.muted,
   textAlign: "center",
   lineHeight: 1.5,
+};
+
+const linkButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: "4px 8px",
+  fontFamily: "inherit",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  color: TOKEN.ink.primary,
+  textDecoration: "underline",
+  cursor: "pointer",
 };

@@ -102,7 +102,24 @@ export async function loadStoredKnowledge(businessId: number, asOf: Date) {
       select: { id: true, customerId: true, occurredAt: true, channel: true },
     });
 
-    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions };
+    // M9 — outcome learning: recommendations of the last year (or still live), each with the owner's
+    // decisions and its live assessment. Ids, states, counts and dates only; the snapshot reduces them
+    // to memory and patterns (lib/knowledge/outcomes/learn.ts).
+    const outcomes = await tx.outcomeRecommendation.findMany({
+      where: { businessId, OR: [{ status: "ACTIVE" }, { issuedAt: { gte: new Date(asOf.getTime() - 365 * DAY) } }], issuedAt: { lte: asOf } },
+      select: {
+        id: true, recommendationKey: true, version: true, type: true, family: true, subjectType: true, subjectId: true,
+        targetCount: true, status: true, issuedAt: true, closedAt: true,
+        decisions: { where: { decidedAt: { lte: asOf } }, select: { id: true, decision: true, decidedAt: true } },
+        assessments: {
+          where: { status: "ACTIVE" },
+          select: { id: true, decisionState: true, actionState: true, outcomeState: true, direction: true, attribution: true, uncertainty: true, detail: true },
+        },
+      },
+      orderBy: [{ recommendationKey: "asc" }, { version: "asc" }],
+    });
+
+    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes };
   });
 }
 

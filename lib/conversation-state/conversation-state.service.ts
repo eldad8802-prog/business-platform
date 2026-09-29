@@ -11,6 +11,7 @@ import {
   mapAnalysisToConversationStage,
   type AnalysisInput,
 } from "./stage-mapping";
+import { deriveUnansweredInboundCount } from "./conversation-activity";
 
 /**
  * Conversation State Writer — v1.
@@ -43,6 +44,14 @@ import {
  *     missing input; it returns a reason.
  *   - Single write: exactly one tenant-scoped update at the end.
  *   - Feature-flagged: gated by CONVERSATION_STATE_WRITER_ENABLED=true.
+ *
+ * Business Intake M2: the four activity fields above (the three timestamps and
+ * the unanswered count) are ALSO written, for every message and independent of
+ * this flag, by `conversation-activity.ts` — the same derived, monotonic values,
+ * from the same statement, so the two writers can never disagree. What this
+ * flag still decides, exactly as before M2, is `currentStage`,
+ * `temperatureScore`, `closeProbabilitySnapshot`, `lastAnalysisAt`, and the
+ * BECAME_HOT / STAGE_ADVANCED evidence events that depend on them.
  *
  * ── Replay safety (W2.5) ────────────────────────────────────────────────────
  * v1 kept `unansweredInboundCount` as a read-modify-write increment, so the same
@@ -260,22 +269,13 @@ export async function applyMessageEvent(
   //
   //    Parameterized (never interpolated), and it runs on `tx`, so the tenant
   //    GUC and the RLS predicate apply to it exactly as to any other read.
-  const unansweredRows = await db.$queryRaw<Array<{ n: bigint }>>`
-    SELECT count(*)::bigint AS n
-    FROM "Message" m
-    WHERE m."conversationId" = ${conversation.id}
-      AND m."businessId" = ${businessId}
-      AND m."direction" = 'INBOUND'
-      AND m."senderType" = 'CUSTOMER'
-      AND m."createdAt" > COALESCE(
-        (SELECT max(o."createdAt")
-           FROM "Message" o
-          WHERE o."conversationId" = ${conversation.id}
-            AND o."businessId" = ${businessId}
-            AND o."direction" = 'OUTBOUND'),
-        '-infinity'::timestamp
-      )`;
-  const unansweredAfterEvent = Number(unansweredRows[0]?.n ?? 0);
+  //    M2: the statement lives in conversation-activity.ts, shared with the
+  //    always-on activity writer, so there is one definition of "unanswered".
+  const unansweredAfterEvent = await deriveUnansweredInboundCount(
+    db,
+    conversation.id,
+    businessId
+  );
 
   // 3. Stage
   const nextStage = mapAnalysisToConversationStage({

@@ -29,6 +29,8 @@ on:
       - "lib/reply-suggestions/**"
       - "lib/learning/**"
       - "lib/tenant/**"
+      - "lib/intake/**"
+      - "prisma/migrations/20260927180000_m2_intake_event/**"
   workflow_dispatch:
 
 permissions:

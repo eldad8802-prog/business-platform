@@ -98,7 +98,7 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma client
-        run: npx prisma generate
+        run: node_modules/.bin/prisma generate
 
       - name: Run read-only dry-run comparison
         env:
@@ -108,4 +108,4 @@ jobs:
           SKEY: ${{ inputs.subjectNormalizedKey }}
         run: |
           set -euo pipefail
-          npx tsx scripts/business-memory/dry-run-comparison.ts
+          node_modules/.bin/tsx scripts/business-memory/dry-run-comparison.ts

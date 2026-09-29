@@ -34,7 +34,13 @@ export type KnowledgeKind =
   | "TREND"
   | "MATERIAL_CHANGE"
   | "ANOMALY"
-  | "OWNER_DECISION";
+  | "OWNER_DECISION"
+  /** M9 — what happened to one recommendation: the owner's decision, the ledger's action, the observed outcome. */
+  | "RECOMMENDATION_MEMORY"
+  /** M9 — observable owner behaviour per recommendation type (counts and timings, never traits). */
+  | "DECISION_PATTERN"
+  /** M9 — what was observed after recommendations of one type (sequence counts, never effects). */
+  | "OUTCOME_PATTERN";
 
 /**
  * WHO vouches for an item. A reasoning layer must be able to tell "the ledger says" from "Dubiz
@@ -49,6 +55,9 @@ export type KnowledgeKind =
  *   TEMPORAL_DERIVATION         a governed M6 rule over this business's own history
  *   DERIVED_CLAIM               Business Memory's categorical inference (may be contested)
  *   CROSS_DOMAIN_DERIVATION     an M7 rule combining the above — never stronger than its premises
+ *   OUTCOME_ASSESSMENT          M9: a deterministic reading of owner decisions, ledger actions and
+ *                               observations. Its fields name their own authority (ownerDecision,
+ *                               ledgerAction, observedOutcome, systemAttribution); it never asserts a cause
  *   MACHINE_PROPOSAL            a suggestion awaiting a person; never usable as a premise
  */
 export type AuthorityClass =
@@ -59,6 +68,7 @@ export type AuthorityClass =
   | "TEMPORAL_DERIVATION"
   | "DERIVED_CLAIM"
   | "CROSS_DOMAIN_DERIVATION"
+  | "OUTCOME_ASSESSMENT"
   | "MACHINE_PROPOSAL";
 
 /** Where an item lives, so a consumer can walk back from it to its evidence. Row ids, not payloads. */
@@ -73,7 +83,9 @@ export type ProvenanceRef = {
     | "BusinessStatus"
     | "AwaitingPayment"
     | "PayablesExposure"
-    | "CollectionAction";
+    | "CollectionAction"
+    | "OutcomeRecommendation"
+    | "OutcomeAssessment";
   readonly id: number | string;
 };
 

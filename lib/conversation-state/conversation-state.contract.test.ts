@@ -24,6 +24,9 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const SERVICE = path.join(ROOT, "lib/conversation-state/conversation-state.service.ts");
+// Business Intake M2: the unanswered-count derivation moved here, shared by the
+// flag-gated writer and the always-on activity writer (one definition).
+const ACTIVITY = path.join(ROOT, "lib/conversation-state/conversation-activity.ts");
 const SCHEMA = path.join(ROOT, "prisma/schema.prisma");
 
 let failures = 0;
@@ -61,20 +64,37 @@ ok(
   /unansweredInboundCount:\s*unansweredAfterEvent/.test(code),
   "the counter is no longer assigned from the derivation"
 );
+// M2: the derivation statement lives in conversation-activity.ts; the writer
+// must call it rather than carry a copy that could drift.
+const activity = readFileSync(ACTIVITY, "utf8");
+ok(
+  "B1 the writer derives the counter through the shared derivation",
+  /await deriveUnansweredInboundCount\(/.test(code) &&
+    /from "\.\/conversation-activity"/.test(code),
+  "the writer no longer uses deriveUnansweredInboundCount"
+);
 ok(
   "B1 the derivation counts inbound messages after the last outbound",
-  /\$queryRaw/.test(code) &&
-    /FROM "Message"/.test(code) &&
-    /'INBOUND'/.test(code) &&
-    /'OUTBOUND'/.test(code),
+  /export async function deriveUnansweredInboundCount/.test(activity) &&
+    /\$queryRaw/.test(activity) &&
+    /FROM "Message"/.test(activity) &&
+    /'INBOUND'/.test(activity) &&
+    /'OUTBOUND'/.test(activity),
   "the derivation query is gone"
 );
 ok(
   "B1 the derivation is a parameterized tagged template",
   // `$queryRaw` used as a TAG binds every `${...}` as a bound parameter. The
   // unsafe forms are the ones that concatenate: `$queryRawUnsafe`, `Prisma.raw`.
-  /\$queryRaw</.test(code) && !/queryRawUnsafe/.test(code) && !/Prisma\.raw/.test(code),
+  /\$queryRaw</.test(activity) &&
+    !/queryRawUnsafe/.test(activity + code) &&
+    !/Prisma\.raw/.test(activity + code),
   "raw SQL is being built by concatenation instead of bound parameters"
+);
+ok(
+  "B1 the always-on activity writer never increments either",
+  !/increment\s*:/.test(activity),
+  "an `increment:` appeared in conversation-activity.ts — a replay would double-count"
 );
 
 // ── Blocker 2: the write must carry a tenant predicate ──────────────────────

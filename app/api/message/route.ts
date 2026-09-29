@@ -1,139 +1,43 @@
-import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 // Value import (not `import type`): P2002 detection needs the runtime class.
 import { Prisma } from "@prisma/client";
-import { analyzeMessage } from "@/lib/conversation-analysis/analyze-message";
-import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply-suggestions";
-import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
-import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
+import { recordConversationActivity } from "@/lib/conversation-state/conversation-activity";
 import {
   recordConversationEvidence,
   type ConversationEvidenceInput,
 } from "@/lib/services/conversation/conversation-evidence.service";
-import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
-import { evaluateBotGuardrails } from "@/lib/features/conversation/guardrails";
-import {
-  isHumanTakeoverConversation,
-  resolveBotWorkMode,
-  shouldOfferAutoReplySuggestions,
-  shouldOfferStarterBotDrafts,
-} from "@/lib/features/conversation/bot-control";
-import type {
-  BotPolicyAnalysisSnapshot,
-  BotPolicyConversationSnapshot,
-  BotPolicyMessageSnapshot,
-  BotPolicySettingsSnapshot,
-} from "@/lib/features/conversation/bot-policy";
-import {
-  deriveStarterBotNextQuestionIndex,
-  isStarterBotFlowCompletedSent,
-  planStarterBotReply,
-} from "@/lib/features/conversation/starter-bot";
-import type { StarterBotSettingsSnapshot } from "@/lib/features/conversation/starter-bot";
-import {
-  isBotComposeContextEnabled,
-  isBotComposeGoalsApproachEnabled,
-  isBotComposeKnowledgeEnabled,
-  isBotComposeShadowEnabled,
-  isBotVoiceComposeEnabled,
-  loadBotComposeContext,
-} from "@/lib/services/conversation/bot-compose-context.service";
-import {
-  defaultBotLlmDraftRunnerDeps,
-  maybeCreateBotLlmDraft,
-} from "@/lib/services/conversation/bot-llm-draft-runner.service";
 
-type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
+/**
+ * Conversation messages.
+ *
+ * GET  — the conversation's messages and the suggestions for its latest
+ *        customer message.
+ * POST — a message the BUSINESS writes (and, on WhatsApp, sends).
+ *
+ * M2 — TRUST BOUNDARY. This route used to take `direction` and `senderType`
+ * from the request body, defaulting to INBOUND / CUSTOMER. Any signed-in user
+ * could therefore manufacture a "customer" message in their own business, and
+ * the route ran a second, drifted copy of the inbound pipeline for it (analysis,
+ * lead auto-capture, bot drafts, learning outcomes, notifications) — evidence
+ * that no customer ever produced.
+ *
+ * A customer message is now a PROVIDER fact: it enters only through the
+ * Business Intake path (provider-authenticated webhook → IntakeEvent →
+ * ingestInboundCustomerMessage → runInboundMessagePipeline). This route writes
+ * business messages only:
+ *   - direction is always OUTBOUND and senderType always BUSINESS_USER, decided
+ *     here from the session — a body that asserts anything else is refused (400);
+ *   - the channel is the conversation's own, never the body's.
+ */
 
-const stageRank: Record<string, number> = {
-  early: 1,
-  middle: 2,
-  closing: 3,
-};
-
-function getStageRank(stage: StageLabel): number {
-  if (!stage) return 0;
-  return stageRank[stage] ?? 0;
-}
-
-async function updateLatestSentSuggestionOutcome(
-  db: Prisma.TransactionClient | typeof prisma,
-  params: {
-    businessId: number;
-    conversationId: number;
-    currentMessageCreatedAt: Date;
-    previousStage: StageLabel;
-    currentStage: StageLabel;
-  }
-) {
-  const {
-    businessId,
-    conversationId,
-    currentMessageCreatedAt,
-    previousStage,
-    currentStage,
-  } = params;
-
-  const latestSentSuggestion = await db.replySuggestion.findFirst({
-    where: {
-      businessId,
-      conversationId,
-      status: "SENT",
-      sentAt: {
-        not: null,
-        lte: currentMessageCreatedAt,
-      },
-    },
-    orderBy: {
-      sentAt: "desc",
-    },
-  });
-
-  if (!latestSentSuggestion) {
-    return null;
-  }
-
-  const dataToUpdate: {
-    customerResponded?: boolean;
-    customerRespondedAt?: Date;
-    ledToStageAdvance?: boolean;
-  } = {};
-
-  if (!latestSentSuggestion.customerResponded) {
-    dataToUpdate.customerResponded = true;
-    dataToUpdate.customerRespondedAt = currentMessageCreatedAt;
-  }
-
-  const previousStageRank = getStageRank(previousStage);
-  const currentStageRank = getStageRank(currentStage);
-
-  if (
-    !latestSentSuggestion.ledToStageAdvance &&
-    previousStageRank > 0 &&
-    currentStageRank > previousStageRank
-  ) {
-    dataToUpdate.ledToStageAdvance = true;
-  }
-
-  if (Object.keys(dataToUpdate).length === 0) {
-    return latestSentSuggestion;
-  }
-
-  // Atomic tenant-scoped transition — no id-only mutation window.
-  await db.replySuggestion.updateMany({
-    where: { id: latestSentSuggestion.id, businessId },
-    data: dataToUpdate,
-  });
-  return db.replySuggestion.findFirst({
-    where: { id: latestSentSuggestion.id, businessId },
-  });
-}
+const INBOUND_REFUSED =
+  "This route writes business messages only. Customer messages arrive through the provider intake.";
 
 export async function GET(req: Request) {
   try {
@@ -258,11 +162,21 @@ export async function POST(req: Request) {
       );
     }
 
+    // The body may restate what the server decides; it may not contradict it.
+    // Refused before any database work, so a forged "customer" message leaves
+    // no trace and triggers nothing.
+    if (
+      (body.direction !== undefined && body.direction !== "OUTBOUND") ||
+      (body.senderType !== undefined && body.senderType !== "BUSINESS_USER")
+    ) {
+      return NextResponse.json({ error: INBOUND_REFUSED }, { status: 400 });
+    }
+
     // D2/P7-W4B: the whole handler body runs under the session tenant context;
     // every DB group below is a SHORT tenant transaction, and the external
-    // WhatsApp send / LLM work stays outside any transaction.
+    // WhatsApp send stays outside any transaction.
     return await runWithTenantContext({ businessId: user.businessId }, () =>
-      handleAuthedPost(user, body, conversationId)
+      handleBusinessMessage(user, body, conversationId)
     );
   } catch (error: any) {
     console.error("POST /api/message error:", error);
@@ -278,24 +192,18 @@ export async function POST(req: Request) {
 }
 
 /**
- * W3 side effects for a message that was just persisted: record the
+ * W3 evidence for a business message that was just persisted: record the
  * conversation transitions the writer reported (they are snapshots on the row
- * and would otherwise be overwritten unrecorded), then let a genuine inbound
- * inquiry become a lead if auto-capture is enabled.
- *
- * Both are BEST EFFORT: neither may break the message it describes, and neither
- * may change what the writer decided.
+ * and would otherwise be overwritten unrecorded). Best effort: never breaks the
+ * message it describes, and never changes what the writer decided.
  */
-async function recordW3SideEffects(input: {
+async function recordBusinessMessageEvidence(input: {
   businessId: number;
   conversation: { id: number; leadId: number | null; channel: string; businessId: number };
   message: {
     id: number;
-    businessId: number;
-    conversationId: number;
     direction: string;
     senderType: string;
-    contentText: string | null;
     createdAt: Date;
   };
   state: {
@@ -304,17 +212,13 @@ async function recordW3SideEffects(input: {
     temperatureBefore: number | null;
     temperatureAfter: number;
   } | null;
-  /**
-   * M5.5 — who sent a business message. Server-derived (session user) by the
-   * caller; omitted for the customer-inbound path.
-   */
-  attribution?: Pick<ConversationEvidenceInput, "actor" | "source">;
+  attribution: Pick<ConversationEvidenceInput, "actor" | "source">;
 }) {
   try {
     await withTenantTransaction((tx) =>
       recordConversationEvidence(
         {
-          ...(input.attribution ?? {}),
+          ...input.attribution,
           businessId: input.businessId,
           conversationId: input.conversation.id,
           messageId: input.message.id,
@@ -331,769 +235,222 @@ async function recordW3SideEffects(input: {
   } catch (error) {
     console.warn("[api/message] evidence failed:", error);
   }
-
-  try {
-    // No transaction wrapper: auto-capture owns its own boundaries so it can
-    // recover from the unique-index race in a fresh one.
-    await maybeCaptureLeadFromMessage({
-      businessId: input.businessId,
-      conversation: input.conversation as never,
-      message: input.message as never,
-    });
-  } catch (error) {
-    console.warn("[api/message] lead auto-capture failed:", error);
-  }
 }
 
-async function handleAuthedPost(
+async function handleBusinessMessage(
   user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
   body: any,
   conversationId: number
 ) {
-  try {
-    const conversation = await withTenantTransaction((tx) =>
-      tx.conversation.findFirst({
-        where: {
-          id: conversationId,
-          businessId: user.businessId,
-        },
-      })
-    );
-
-    if (!conversation) {
-      return NextResponse.json(
-        { error: "Conversation not found" },
-        { status: 404 }
-      );
-    }
-
-    const direction = body.direction ?? "INBOUND";
-    const senderType = body.senderType ?? "CUSTOMER";
-
-    // W2.5 send idempotency (opt-in).
-    //
-    // The state writer is replay-safe, but it cannot undo a DUPLICATE MESSAGE
-    // ROW: two rows are two real messages, and the derived unanswered count
-    // would then be correct about wrong data. This route had no guard at either
-    // end, so a double-tap or a retry created a second message.
-    //
-    // When the caller supplies a token we let the unique index decide, and a
-    // collision returns the message that already exists rather than a second
-    // one. Callers that send no token behave exactly as before.
-    const clientRequestId =
-      typeof body.clientRequestId === "string" && body.clientRequestId.trim()
-        ? body.clientRequestId.trim().slice(0, 100)
-        : null;
-
-    let createdMessage;
-    try {
-      const bodyCustomerId = body.customerId ?? null;
-      const bodySuggestionId = body.generatedFromSuggestionId ?? null;
-      createdMessage = await withTenantTransaction(async (tx) => {
-        // Tenant integrity: body-supplied ids must belong to THIS business.
-        // One answer for every miss, so this is not an existence oracle.
-        if (
-          bodyCustomerId != null &&
-          !(await tx.customer.findFirst({
-            where: { id: bodyCustomerId, businessId: user.businessId },
-            select: { id: true },
-          }))
-        ) {
-          return null;
-        }
-        if (
-          bodySuggestionId != null &&
-          !(await tx.replySuggestion.findFirst({
-            where: { id: bodySuggestionId, businessId: user.businessId },
-            select: { id: true },
-          }))
-        ) {
-          return null;
-        }
-        return tx.message.create({
-          data: {
-            conversationId,
-            businessId: user.businessId,
-            customerId: bodyCustomerId,
-            channel: body.channel ?? "WHATSAPP",
-            messageType: body.messageType ?? "TEXT",
-            direction,
-            senderType,
-            contentText: body.contentText ?? null,
-            generatedFromSuggestionId: bodySuggestionId,
-            clientRequestId,
-          },
-        });
-      });
-    } catch (error) {
-      const isDuplicateSend =
-        clientRequestId !== null &&
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002";
-      if (!isDuplicateSend) throw error;
-
-      const existing = await runWithTenantContext(
-        { businessId: user.businessId },
-        () =>
-          withTenantTransaction((tx) =>
-            tx.message.findFirst({
-              where: { businessId: user.businessId, clientRequestId },
-            })
-          )
-      );
-      // Nothing further to do: the message exists and its state event already
-      // ran on the first attempt.
-      return NextResponse.json(
-        { message: existing, duplicateSuppressed: true },
-        { status: 200 }
-      );
-    }
-
-    if (!createdMessage) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
-    }
-
-    if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
-      // ── WhatsApp outbound delivery (Stage 1: text only) ─────────────────
-      // Only genuine business replies on the WhatsApp channel are delivered.
-      // Non-WhatsApp / simulated messages keep their existing store-only
-      // behavior. The message row is already persisted above; here we attempt
-      // delivery and record the outcome on it.
-      const channel = body.channel ?? "WHATSAPP";
-      const isWhatsAppOutbound =
-        channel === "WHATSAPP" && direction === "OUTBOUND" && senderType !== "CUSTOMER";
-
-      let messageForResponse = createdMessage;
-      let whatsappSend:
-        | { status: "SENT" }
-        | { status: "FAILED"; reason: string }
-        | undefined;
-
-      if (isWhatsAppOutbound) {
-        let recipientPhone: string | null = null;
-        if (conversation.customerId) {
-          const customer = await withTenantTransaction((tx) =>
-            tx.customer.findFirst({
-              where: { id: conversation.customerId!, businessId: user.businessId },
-              select: { phone: true },
-            })
-          );
-          recipientPhone = customer?.phone ?? null;
-        }
-
-        const outcome = await sendWhatsAppTextForBusiness({
-          businessId: user.businessId,
-          toPhone: recipientPhone,
-          text: body.contentText,
-        });
-
-        const now = new Date();
-        if (outcome.ok) {
-          messageForResponse = await withTenantTransaction(async (tx) => {
-            await tx.message.updateMany({
-              where: { id: createdMessage.id, businessId: user.businessId },
-              data: {
-                sendStatus: "SENT",
-                providerMessageId: outcome.providerMessageId,
-                sentAt: now,
-                sendAttemptedAt: now,
-              },
-            });
-            return tx.message.findFirstOrThrow({
-              where: { id: createdMessage.id, businessId: user.businessId },
-            });
-          });
-          whatsappSend = { status: "SENT" };
-        } else {
-          messageForResponse = await withTenantTransaction(async (tx) => {
-            await tx.message.updateMany({
-              where: { id: createdMessage.id, businessId: user.businessId },
-              data: {
-                sendStatus: "FAILED",
-                sendAttemptedAt: now,
-                sendErrorCode: outcome.code.slice(0, 64),
-                sendErrorMessage: outcome.message.slice(0, 500),
-              },
-            });
-            return tx.message.findFirstOrThrow({
-              where: { id: createdMessage.id, businessId: user.businessId },
-            });
-          });
-          whatsappSend = { status: "FAILED", reason: outcome.reason };
-        }
-      }
-
-      let w3State = null;
-      try {
-        const applied = await withTenantTransaction((tx) =>
-          applyMessageEvent(
-            {
-              message: messageForResponse,
-              conversation,
-              analysis: null,
-            },
-            { tx }
-          )
-        );
-        if (applied.applied) w3State = applied.state;
-      } catch (error) {
-        console.warn(
-          "conversation-state writer (non-customer-inbound) failed:",
-          error
-        );
-      }
-
-      // W3 — record what the writer just did before it is overwritten, and let
-      // a genuine inquiry become a lead on its own (flagged, OFF by default).
-      await recordW3SideEffects({
+  const conversation = await withTenantTransaction((tx) =>
+    tx.conversation.findFirst({
+      where: {
+        id: conversationId,
         businessId: user.businessId,
-        conversation,
-        message: messageForResponse,
-        state: w3State,
-        // Only a message the session user wrote as themselves is theirs. This branch also carries bot
-        // and system notes posted through the same route, and putting the owner's name on a message
-        // the bot sent would be exactly the fake precision the actor model exists to prevent. The
-        // senderType is still client-asserted, so anything else stays UNKNOWN rather than SYSTEM.
-        attribution:
-          messageForResponse.senderType === "BUSINESS_USER"
-            ? { actor: { type: "OWNER_USER", userId: user.id }, source: "OWNER_UI" }
-            : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" },
-      });
-
-      // AFTER the message transaction has committed. This branch is every
-      // message that is NOT an inbound customer message — an owner reply, a
-      // bot reply, a system note — and each of them ends the wait, because
-      // "waiting" is defined as the last message being inbound from a customer.
-      //
-      // The sync reconciles rather than reacting to this particular message, so
-      // one call resolves the conversation just answered without needing to
-      // know which kind of answer it was. The tenant context is the session one
-      // established for the whole handler; the businessId is never read from
-      // the request body.
-      //
-      // It cannot affect the response: the message is durable and the sync
-      // swallows its own errors and returns them as data.
-      await syncInboxWaitingNotifications(user.businessId, conversationId, new Date());
-
-      return NextResponse.json(
-        {
-          message: messageForResponse,
-          analysis: null,
-          mode: null,
-          shouldGenerate: false,
-          suggestions: [],
-          updatedOutcomeSuggestion: null,
-          whatsappSend,
-        },
-        { status: 201 }
-      );
-    }
-
-    const contextMessages = await withTenantTransaction((tx) =>
-      getContextMessages(createdMessage.conversationId, 5, { tx })
-    );
-
-    const previousMessages = contextMessages.filter(
-      (message) => message.id !== createdMessage.id
-    );
-
-    const analysis = analyzeMessage(body.contentText || "", previousMessages);
-
-    const message = await withTenantTransaction(async (tx) => {
-      await tx.messageAnalysis.create({
-        data: {
-          messageId: createdMessage.id,
-          intent: analysis.intent,
-          stage: analysis.stage,
-        },
-      });
-
-      await tx.message.updateMany({
-        where: { id: createdMessage.id, businessId: user.businessId },
-        data: {
-          intentLabel: analysis.intent,
-          stageLabel: analysis.stage,
-        },
-      });
-      return tx.message.findFirstOrThrow({
-        where: { id: createdMessage.id, businessId: user.businessId },
-      });
-    });
-
-    let w3StateInbound = null;
-    try {
-      const applied = await withTenantTransaction((tx) =>
-        applyMessageEvent(
-          {
-            message,
-            conversation,
-            analysis,
-          },
-          { tx }
-        )
-      );
-      if (applied.applied) w3StateInbound = applied.state;
-    } catch (error) {
-      console.warn(
-        "conversation-state writer (customer-inbound) failed:",
-        error
-      );
-    }
-
-    // W3 — durable evidence + optional auto-capture. Same helper as the other
-    // call site, so the two paths cannot drift.
-    await recordW3SideEffects({
-      businessId: user.businessId,
-      conversation,
-      message,
-      state: w3StateInbound,
-    });
-
-    type BotSettingsObserveRow = {
-      enabled: boolean;
-      showDraftSuggestionsInInbox: boolean;
-      mode: string;
-      channel: string;
-      welcomeMessage: string | null;
-      questions: unknown;
-      finalAction: string | null;
-      finalActionPayload: unknown;
-      handoffRules: unknown;
-    };
-
-    const humanTakeover = isHumanTakeoverConversation(conversation.outcomeReason);
-    let botRow: BotSettingsObserveRow | null = null;
-    // Canonical Guardrails handoff flag — lifted to the handler scope so the AUTO
-    // suggestions gate (further down, outside the policy try) reads the SAME
-    // decision the STARTER path uses. Default false → if the policy block never
-    // runs, AUTO behaviour is unchanged.
-    let botRequiresHandoff = false;
-
-    try {
-      try {
-        botRow = await withTenantTransaction((tx) =>
-          tx.businessBotSettings.findUnique({
-            where: { businessId: user.businessId },
-          select: {
-            enabled: true,
-            showDraftSuggestionsInInbox: true,
-            mode: true,
-            channel: true,
-            welcomeMessage: true,
-            questions: true,
-            finalAction: true,
-            finalActionPayload: true,
-            handoffRules: true,
-          },
-          })
-        );
-      } catch (settingsErr) {
-        console.warn("bot-settings observe-only load failed:", settingsErr);
-      }
-
-      const settingsSnapshot: BotPolicySettingsSnapshot = botRow
-        ? {
-            enabled: botRow.enabled,
-            mode: botRow.mode,
-            channel: botRow.channel,
-          }
-        : null;
-
-      const messageSnapshot: BotPolicyMessageSnapshot = {
-        direction: message.direction as BotPolicyMessageSnapshot["direction"],
-        senderType: message.senderType as BotPolicyMessageSnapshot["senderType"],
-        contentText: message.contentText,
-      };
-      const analysisSnapshot: BotPolicyAnalysisSnapshot = {
-        intent: analysis.intent,
-        stage: analysis.stage,
-      };
-      const conversationSnapshot: BotPolicyConversationSnapshot = {
-        status: conversation.status,
-        currentStage: conversation.currentStage,
-      };
-
-      let inboundMessageCount = 0;
-      try {
-        inboundMessageCount = await withTenantTransaction((tx) =>
-          tx.message.count({
-            where: {
-              conversationId: conversation.id,
-              direction: "INBOUND",
-              senderType: "CUSTOMER",
-            },
-          })
-        );
-      } catch (countErr) {
-        console.warn("inbound message count failed:", countErr);
-      }
-
-      const policy = evaluateBotGuardrails({
-        message: messageSnapshot,
-        analysis: analysisSnapshot,
-        conversation: conversationSnapshot,
-        settings: settingsSnapshot,
-        handoffRules: botRow?.handoffRules,
-        inboundMessageCount,
-        humanTakeover,
-        // Context-aware forbidden check: recent messages so a short reply that
-        // continues a forbidden thread ("כן" after a price question) is caught.
-        context: {
-          recentMessages: previousMessages.map((m) => ({
-            direction: m.direction as "INBOUND" | "OUTBOUND",
-            contentText: m.contentText,
-            createdAt: m.createdAt,
-          })),
-        },
-      });
-      botRequiresHandoff = policy.requiresHandoff;
-
-      console.log("[bot-policy observe]", {
-        conversationId: conversation.id,
-        decision: policy.decision,
-        reason: policy.reason,
-        canAutoReply: policy.canAutoReply,
-      });
-
-      if (policy.decision === "HANDOFF_REQUIRED") {
-        console.log("[starter-bot-lifecycle observe]", {
-          conversationId: conversation.id,
-          starterBotPolicyHandoff: true,
-          policyReason: policy.reason,
-          requiresHandoff: policy.requiresHandoff,
-        });
-      }
-
-      if (policy.decision === "STARTER_BOT_ELIGIBLE" && botRow) {
-        let starterBotFlowAlreadyCompleted = false;
-        try {
-          starterBotFlowAlreadyCompleted = await withTenantTransaction((tx) =>
-            isStarterBotFlowCompletedSent(
-              {
-                businessId: user.businessId,
-                conversationId: conversation.id,
-              },
-              { tx }
-            )
-          );
-        } catch (completedCheckErr) {
-          console.warn(
-            "starter-bot flow completion check failed:",
-            completedCheckErr
-          );
-          starterBotFlowAlreadyCompleted = false;
-        }
-
-        if (starterBotFlowAlreadyCompleted) {
-          console.log("[starter-bot-lifecycle observe]", {
-            conversationId: conversation.id,
-            starterBotFlowCompleted: true,
-            skippedStarterBotDraft: true,
-            reason: "terminal_bot_draft_already_sent",
-          });
-        } else {
-          try {
-            let derivedNextQuestionIndex = 0;
-            try {
-              derivedNextQuestionIndex = await withTenantTransaction((tx) =>
-                deriveStarterBotNextQuestionIndex(
-                  {
-                    businessId: user.businessId,
-                    conversationId: conversation.id,
-                  },
-                  { tx }
-                )
-              );
-            } catch (deriveErr) {
-              console.warn("derive starter-bot nextQuestionIndex failed:", deriveErr);
-              derivedNextQuestionIndex = 0;
-            }
-
-            const plannerSettings: StarterBotSettingsSnapshot = {
-              enabled: botRow.enabled,
-              mode: botRow.mode,
-              channel: botRow.channel,
-              welcomeMessage: botRow.welcomeMessage,
-              questions: botRow.questions,
-              finalAction: botRow.finalAction,
-              finalActionPayload: botRow.finalActionPayload,
-              handoffRules: botRow.handoffRules,
-            };
-
-            const plannerInput = {
-              settings: plannerSettings,
-              conversation: {
-                id: conversation.id,
-                currentStage: conversation.currentStage,
-              },
-              analysis: {
-                intent: analysis.intent,
-                stage: analysis.stage,
-              },
-              nextQuestionIndex: derivedNextQuestionIndex,
-            };
-
-            // Stage 9 (flag-gated, default OFF → byte-identical to before):
-            // mirror of the shared inbound pipeline so BOTH inbound paths honour
-            // the Builder compose-context (voice 9B / knowledge 9C / goals 9D)
-            // identically once armed. With all flags OFF the draft is unchanged.
-            // Never touches the draft-only gate, send path, or any settings.
-            let starterDraft = planStarterBotReply(plannerInput);
-            if (isBotComposeContextEnabled()) {
-              try {
-                const voiceArmed = isBotVoiceComposeEnabled();
-                const knowledgeArmed = isBotComposeKnowledgeEnabled();
-                const goalsApproachArmed = isBotComposeGoalsApproachEnabled();
-                const composeContext = await loadBotComposeContext(
-                  user.businessId,
-                  {
-                    includeVoice: voiceArmed,
-                    includeKnowledge: knowledgeArmed,
-                    includeGoalsApproach: goalsApproachArmed,
-                  }
-                );
-                if (
-                  composeContext &&
-                  (voiceArmed || knowledgeArmed || goalsApproachArmed)
-                ) {
-                  const contextForPlanner = {
-                    ...composeContext,
-                    customerMessageText: message.contentText ?? undefined,
-                  };
-                  const newDraft = planStarterBotReply(
-                    plannerInput,
-                    contextForPlanner
-                  );
-                  if (isBotComposeShadowEnabled()) {
-                    // Dev-safe shadow log (no message text / PII) — observe only.
-                    console.info("[message-route] compose-shadow", {
-                      conversationId: conversation.id,
-                      businessId: user.businessId,
-                      changed: newDraft.replyText !== starterDraft.replyText,
-                      oldLength: starterDraft.replyText.length,
-                      newLength: newDraft.replyText.length,
-                    });
-                  } else {
-                    starterDraft = newDraft;
-                  }
-                }
-              } catch (composeErr) {
-                console.warn(
-                  "[message-route] compose-context failed (ignored):",
-                  composeErr
-                );
-              }
-            }
-
-            const starterBotTerminalDraft =
-              starterDraft.replyKind === "COMPLETE" ||
-              starterDraft.replyKind === "HANDOFF";
-
-            console.log("[starter-bot-planner observe]", {
-              conversationId: conversation.id,
-              derivedNextQuestionIndex,
-              replyKind: starterDraft.replyKind,
-              shouldDraftReply: starterDraft.shouldDraftReply,
-              reason: starterDraft.reason,
-              starterBotTerminalDraft,
-            });
-
-            const workMode = resolveBotWorkMode({
-              enabled: botRow.enabled,
-              showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
-              handoffRules: botRow.handoffRules,
-            });
-            const offerStarterDrafts = shouldOfferStarterBotDrafts({
-              workMode,
-              humanTakeover,
-              enabled: botRow.enabled,
-              showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
-            });
-
-            if (
-              offerStarterDrafts &&
-              policy.decision === "STARTER_BOT_ELIGIBLE" &&
-              starterDraft.shouldDraftReply === true &&
-              starterDraft.replyText.trim().length > 0
-            ) {
-              try {
-                await withTenantTransaction(async (tx) => {
-                  const existingBotDraft = await tx.replySuggestion.findFirst({
-                    where: {
-                      businessId: user.businessId,
-                      conversationId: conversation.id,
-                      messageId: message.id,
-                      suggestionType: "STARTER_BOT_DRAFT",
-                    },
-                  });
-
-                  if (!existingBotDraft) {
-                    const variantType =
-                      starterDraft.replyKind &&
-                      starterDraft.replyKind.trim().length > 0
-                        ? starterDraft.replyKind
-                        : "BOT_DRAFT";
-
-                    await tx.replySuggestion.create({
-                      data: {
-                        businessId: user.businessId,
-                        conversationId: conversation.id,
-                        messageId: message.id,
-                        suggestionType: "STARTER_BOT_DRAFT",
-                        strategyType: "STARTER_BOT",
-                        variantType,
-                        variantIndex: 0,
-                        text: starterDraft.replyText.trim(),
-                        toneLabel: "bot",
-                        strategyLabel: "Starter Bot",
-                        status: "GENERATED",
-                      },
-                    });
-                  }
-                });
-              } catch (botDraftSuggestionErr) {
-                console.warn(
-                  "starter-bot ReplySuggestion draft create failed:",
-                  botDraftSuggestionErr
-                );
-              }
-            }
-        } catch (plannerObserveErr) {
-          console.warn(
-            "starter-bot-planner observe-only failed:",
-            plannerObserveErr
-          );
-        }
-        }
-      }
-    } catch (policyObserveErr) {
-      console.warn("bot-policy observe-only failed:", policyObserveErr);
-    }
-
-    const previousMessageWithStage = [...previousMessages]
-      .reverse()
-      .find((message) => message.stageLabel);
-
-    const updatedOutcomeSuggestion = await withTenantTransaction((tx) =>
-      updateLatestSentSuggestionOutcome(tx, {
-        businessId: user.businessId,
-        conversationId: createdMessage.conversationId,
-        currentMessageCreatedAt: createdMessage.createdAt,
-        previousStage: previousMessageWithStage?.stageLabel,
-        currentStage: analysis.stage,
-      })
-    );
-
-    const mode = getSuggestionMode(
-      analysis,
-      message.contentText ?? body.contentText ?? ""
-    );
-
-    const workModeForSuggestions = botRow
-      ? resolveBotWorkMode({
-          enabled: botRow.enabled,
-          showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
-          handoffRules: botRow.handoffRules,
-        })
-      : ("MANUAL" as const);
-
-    // AUTO suggestions must also pass the canonical Guardrails: when the bot must
-    // hand off to the owner, NO engine (STARTER or AUTO) drafts a reply.
-    const offerAutoSuggestions =
-      shouldOfferAutoReplySuggestions({
-        workMode: workModeForSuggestions,
-        humanTakeover,
-      }) && !botRequiresHandoff;
-
-    const generatedSuggestions = offerAutoSuggestions
-      ? await withTenantTransaction((tx) =>
-          generateReplySuggestions(message, analysis, contextMessages, { tx })
-        )
-      : [];
-
-    let suggestions: any[] = [];
-    let shouldGenerate = offerAutoSuggestions;
-
-    if (!offerAutoSuggestions) {
-      suggestions = [];
-      shouldGenerate = false;
-    } else if (mode === "FULL") {
-      suggestions = generatedSuggestions;
-    } else if (mode === "SOFT") {
-      suggestions = generatedSuggestions.slice(0, 1);
-    } else if (mode === "MINIMAL") {
-      suggestions = [];
-      shouldGenerate = false;
-    }
-
-    // Stage 4 (flag-gated, DEFAULT OFF → byte-identical): first LLM reply DRAFT
-    // via the SHARED runner — identical to the WhatsApp webhook pipeline path.
-    // Draft-only, never sent; pre + post Guardrails inside the runner.
-    const llmDraftOutcome = await maybeCreateBotLlmDraft(
-      {
-        businessId: user.businessId,
-        conversationId: conversation.id,
-        messageId: message.id,
-        offerAutoSuggestions,
-        humanTakeover,
-        botRow,
-        message: {
-          direction: message.direction,
-          senderType: message.senderType,
-          contentText: message.contentText,
-        },
-        analysis: { intent: analysis.intent, stage: analysis.stage },
-        conversation: {
-          status: conversation.status,
-          currentStage: conversation.currentStage,
-        },
-        recentMessages: previousMessages.map((m) => ({
-          direction: m.direction as "INBOUND" | "OUTBOUND",
-          contentText: m.contentText,
-          createdAt: m.createdAt,
-        })),
       },
-      defaultBotLlmDraftRunnerDeps()
-    );
-    if (llmDraftOutcome.status !== "skipped") {
-      console.info("[message-route] LLM_DRAFT_OUTCOME", {
-        conversationId: conversation.id,
-        businessId: user.businessId,
-        ...llmDraftOutcome,
-      });
-    }
+    })
+  );
 
-    // AFTER the message transaction has committed, and after the draft work
-    // above, for the same reason the webhook waits for its pipeline: a reply
-    // the bot produces would change whether anyone is still waiting.
-    //
-    // This branch is an inbound customer message, so it OPENS the wait. The
-    // route takes `direction` and `senderType` from the body, which makes it a
-    // second production path that can create inbound customer messages — the
-    // webhook is not the only one, and a producer wired only there would miss
-    // these. The sync reconciles, so the same call serves both directions.
-    await syncInboxWaitingNotifications(user.businessId, conversationId, new Date());
-
+  if (!conversation) {
     return NextResponse.json(
-      {
-        message,
-        analysis,
-        mode,
-        shouldGenerate,
-        suggestions,
-        updatedOutcomeSuggestion,
-      },
-      { status: 201 }
-    );
-  } catch (error: any) {
-    console.error("POST /api/message error:", error);
-
-    return NextResponse.json(
-      {
-        error: "Failed to create message",
-        details: error?.message || String(error),
-      },
-      { status: 500 }
+      { error: "Conversation not found" },
+      { status: 404 }
     );
   }
+
+  // W2.5 send idempotency (opt-in). When the caller supplies a token the unique
+  // index decides, and a collision returns the message that already exists
+  // rather than a second one (two rows would be two real messages).
+  const clientRequestId =
+    typeof body.clientRequestId === "string" && body.clientRequestId.trim()
+      ? body.clientRequestId.trim().slice(0, 100)
+      : null;
+
+  let createdMessage;
+  try {
+    const bodyCustomerId = body.customerId ?? null;
+    const bodySuggestionId = body.generatedFromSuggestionId ?? null;
+    createdMessage = await withTenantTransaction(async (tx) => {
+      // Tenant integrity: body-supplied ids must belong to THIS business.
+      // One answer for every miss, so this is not an existence oracle.
+      if (
+        bodyCustomerId != null &&
+        !(await tx.customer.findFirst({
+          where: { id: bodyCustomerId, businessId: user.businessId },
+          select: { id: true },
+        }))
+      ) {
+        return null;
+      }
+      if (
+        bodySuggestionId != null &&
+        !(await tx.replySuggestion.findFirst({
+          where: { id: bodySuggestionId, businessId: user.businessId },
+          select: { id: true },
+        }))
+      ) {
+        return null;
+      }
+      return tx.message.create({
+        data: {
+          conversationId,
+          businessId: user.businessId,
+          customerId: bodyCustomerId,
+          // The conversation's channel — a WhatsApp send is only ever attempted
+          // for a WhatsApp conversation.
+          channel: conversation.channel,
+          messageType: body.messageType ?? "TEXT",
+          // Decided here, never read from the body (see the file header).
+          direction: "OUTBOUND",
+          senderType: "BUSINESS_USER",
+          contentText: body.contentText ?? null,
+          generatedFromSuggestionId: bodySuggestionId,
+          clientRequestId,
+        },
+      });
+    });
+  } catch (error) {
+    const isDuplicateSend =
+      clientRequestId !== null &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002";
+    if (!isDuplicateSend) throw error;
+
+    const existing = await withTenantTransaction((tx) =>
+      tx.message.findFirst({
+        where: { businessId: user.businessId, clientRequestId },
+      })
+    );
+    // Nothing further to do: the message exists and its effects already ran.
+    return NextResponse.json(
+      { message: existing, duplicateSuppressed: true },
+      { status: 200 }
+    );
+  }
+
+  if (!createdMessage) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  // ── WhatsApp delivery (text only) ─────────────────────────────────────────
+  // The row is already persisted; here we attempt delivery and record the
+  // outcome on it. Delivered / read / failed arrive later as provider receipts
+  // (IntakeEvent MESSAGE_STATUS) and update this same row.
+  let messageForResponse = createdMessage;
+  let whatsappSend:
+    | { status: "SENT" }
+    | { status: "FAILED"; reason: string }
+    | undefined;
+
+  if (conversation.channel === "WHATSAPP") {
+    let recipientPhone: string | null = null;
+    if (conversation.customerId) {
+      const customer = await withTenantTransaction((tx) =>
+        tx.customer.findFirst({
+          where: { id: conversation.customerId!, businessId: user.businessId },
+          select: { phone: true },
+        })
+      );
+      recipientPhone = customer?.phone ?? null;
+    }
+
+    const outcome = await sendWhatsAppTextForBusiness({
+      businessId: user.businessId,
+      toPhone: recipientPhone,
+      text: body.contentText,
+    });
+
+    const now = new Date();
+    if (outcome.ok) {
+      messageForResponse = await withTenantTransaction(async (tx) => {
+        await tx.message.updateMany({
+          where: { id: createdMessage.id, businessId: user.businessId },
+          data: {
+            sendStatus: "SENT",
+            providerMessageId: outcome.providerMessageId,
+            sentAt: now,
+            sendAttemptedAt: now,
+          },
+        });
+        return tx.message.findFirstOrThrow({
+          where: { id: createdMessage.id, businessId: user.businessId },
+        });
+      });
+      whatsappSend = { status: "SENT" };
+    } else {
+      messageForResponse = await withTenantTransaction(async (tx) => {
+        await tx.message.updateMany({
+          where: { id: createdMessage.id, businessId: user.businessId },
+          data: {
+            sendStatus: "FAILED",
+            sendAttemptedAt: now,
+            sendErrorCode: outcome.code.slice(0, 64),
+            sendErrorMessage: outcome.message.slice(0, 500),
+          },
+        });
+        return tx.message.findFirstOrThrow({
+          where: { id: createdMessage.id, businessId: user.businessId },
+        });
+      });
+      whatsappSend = { status: "FAILED", reason: outcome.reason };
+    }
+  }
+
+  // ── Conversation activity: ALWAYS (M2) ──────────────────────────────────
+  // lastMessageAt / businessLastOutboundAt / the unanswered count used to be
+  // written here only when CONVERSATION_STATE_WRITER_ENABLED was on. They are
+  // derived and replay-safe, and now kept for every message.
+  try {
+    await withTenantTransaction((tx) => recordConversationActivity(tx, messageForResponse));
+  } catch (error) {
+    console.warn("[api/message] conversation activity failed:", error);
+  }
+
+  // ── Stage / temperature: behind its flag, unchanged ──────────────────────
+  let w3State = null;
+  try {
+    const applied = await withTenantTransaction((tx) =>
+      applyMessageEvent(
+        {
+          message: messageForResponse,
+          conversation,
+          analysis: null,
+        },
+        { tx }
+      )
+    );
+    if (applied.applied) w3State = applied.state;
+  } catch (error) {
+    console.warn("conversation-state writer (business message) failed:", error);
+  }
+
+  // W3 — record what the writer just did before it is overwritten. The session
+  // user wrote this message as themselves: the sender is no longer client-
+  // asserted, so the owner attribution is exact.
+  await recordBusinessMessageEvidence({
+    businessId: user.businessId,
+    conversation,
+    message: messageForResponse,
+    state: w3State,
+    attribution: { actor: { type: "OWNER_USER", userId: user.id }, source: "OWNER_UI" },
+  });
+
+  // AFTER the message has committed. A business message ends the wait —
+  // "waiting" is defined as the last message being inbound from a customer. The
+  // sync reconciles and swallows its own errors; the tenant is the session one,
+  // never a body field.
+  await syncInboxWaitingNotifications(user.businessId, conversationId, new Date());
+
+  return NextResponse.json(
+    {
+      message: messageForResponse,
+      analysis: null,
+      mode: null,
+      shouldGenerate: false,
+      suggestions: [],
+      updatedOutcomeSuggestion: null,
+      whatsappSend,
+    },
+    { status: 201 }
+  );
 }
