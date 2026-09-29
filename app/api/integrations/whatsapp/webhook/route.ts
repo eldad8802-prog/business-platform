@@ -12,11 +12,14 @@ import {
 import { logEvent } from "@/lib/services/integrations/whatsapp/webhook-events";
 import { runTenantJob } from "@/lib/tenant/job";
 import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
-import { recordReceipts, type IntakeReceiptInput } from "@/lib/intake/intake-event.store";
+import { recordReceipts } from "@/lib/intake/intake-event.store";
+import type { IntakeReceiptDraft } from "@/lib/intake/core/contract";
+import { drainIntake } from "@/lib/intake/core/processor";
+import { intakeRegistry } from "@/lib/intake/sources";
 import {
   buildMessageReceipt,
   buildStatusReceipt,
-  drainWhatsAppIntake,
+  whatsAppIntakeAdapter,
 } from "@/lib/intake/whatsapp/whatsapp-intake";
 
 export const runtime = "nodejs";
@@ -129,8 +132,8 @@ export async function POST(req: NextRequest) {
   // ── 1. tenant resolution + receipt building (no tenant writes yet) ─────────
   // A resolution failure that is a DATABASE error propagates to the catch and
   // becomes a 500 — never "not found", never a silent drop.
-  const receiptsByBusiness = new Map<number, IntakeReceiptInput[]>();
-  const add = (businessId: number, receipt: IntakeReceiptInput) => {
+  const receiptsByBusiness = new Map<number, IntakeReceiptDraft[]>();
+  const add = (businessId: number, receipt: IntakeReceiptDraft) => {
     const list = receiptsByBusiness.get(businessId) ?? [];
     list.push(receipt);
     receiptsByBusiness.set(businessId, list);
@@ -175,7 +178,11 @@ export async function POST(req: NextRequest) {
   const accepted: Array<{ businessId: number; eventIds: number[] }> = [];
   for (const [businessId, receipts] of receiptsByBusiness) {
     try {
-      const recorded = await runTenantJob({ businessId }, () => recordReceipts(businessId, receipts));
+      // The tenant came from the routing gate — the WhatsApp adapter's trusted
+      // resolver (phone_number_id → WhatsAppConnection) — never from the payload.
+      const recorded = await runTenantJob({ businessId }, () =>
+        recordReceipts(businessId, whatsAppIntakeAdapter.sourceKey, receipts)
+      );
       accepted.push({ businessId, eventIds: recorded.map((r) => r.id) });
     } catch (error) {
       if (error instanceof BusinessQuarantinedError) {
@@ -201,7 +208,7 @@ export async function POST(req: NextRequest) {
   const inline: Promise<void>[] = [];
   for (const { businessId, eventIds } of accepted) {
     const pending = afterResponse(() =>
-      runTenantJob({ businessId }, () => drainWhatsAppIntake(businessId, { eventIds })).then(
+      runTenantJob({ businessId }, () => drainIntake(intakeRegistry, businessId, { eventIds })).then(
         () => undefined,
         (error: unknown) => {
           console.warn("[whatsapp-webhook] post-ack processing failed; receipts will be retried", {
