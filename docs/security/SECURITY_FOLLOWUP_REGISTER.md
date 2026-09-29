@@ -55,14 +55,27 @@ server-authoritative second boundary. The consequences:
 
 It is **not** a cross-tenant read or exfiltration path.
 
-**Proposed fixes (not implemented; they need owner approval)**
+**Status: FIX PREPARED — awaiting the migration and secret gate** (derive-authority workstream).
 
-- Gate derive on `assertBusinessAcceptsWrites`. This is a small, clear fix; it could ship immediately.
-- A dedicated `KNOWLEDGE_DERIVE_SECRET`, separate from payment secrets.
-- An invocation audit row per call: business id, caller workflow run id, brain flag.
-- A per-business and global rate limit.
-- Optionally, only accept calls whose GitHub OIDC token proves the `knowledge-derive.yml` workflow on
-  `main`.
+The derive route will accept only a dedicated `KNOWLEDGE_DERIVE_SECRET`. `CRON_SECRET` is refused, and a
+dedicated secret equal to it counts as not configured. Before any write or provider call, the gate
+requires the target business to be:
+- **ACTIVE**, by the canonical account-deletion lifecycle;
+- **ENROLLED**, through feature `knowledge_derivation`: default off, platform-admin governed, with an
+  emergency kill.
+
+It also enforces three bounds:
+- no concurrent RUNNING run for the business (a database partial unique index);
+- a cooldown between runs;
+- a separate Brain cooldown.
+
+Lifecycle is re-checked before the Brain call and before M9 writes.
+
+Every attempt produces one append-only `SecurityEvent`, and every run produces one
+`KnowledgeDerivationRun` row carrying the GitHub run id as correlation.
+
+Proven by `.m0/derive-authority-battery.ts`, run in-process against the real handler as a
+NOBYPASSRLS role, with a counting fake provider.
 
 ### H2. The public marketplace exposes issuer contact data and a precise caller-derived distance
 
@@ -94,7 +107,7 @@ would carry only the approved fields.
 
 | # | Finding | Status |
 |---|---|---|
-| O1 | POS key erasure runs `DELETE`, but the hand grant script gives `POSApiKey` SELECT and UPDATE only | **Production preflight:** `app_runtime_prod` **does** hold DELETE (default privileges), so erasure works today. The script and the effective state disagree. Record the grant in a migration. |
+| O1 | POS key erasure runs `DELETE`; the hand-applied grant script (`scripts/security/d2-p7-wave3-grants.sql`) gives `POSApiKey` SELECT and UPDATE only | **Real Production state** (preflight 36508953537): `app_runtime_prod` **holds DELETE** on `POSApiKey` (default privileges), so erasure works. **The script is stale and incorrect:** it describes a grant set that is not the effective one. Fix: record the real, intended grant in a migration and retire the script's claim. |
 | O2 | The legacy POS env-secret fallback compares with `!==`, which is not constant-time (`app/api/inventory/pos/sale/route.ts:114-127`) | remove the fallback, or use `timingSafeEqual` |
 
 ## PRODUCT DEFECTS (found by the audit, not security)
