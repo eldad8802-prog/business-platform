@@ -156,6 +156,24 @@ The closure battery (`.tcx/context-closure-battery.mjs`) is unchanged. Its rule 
 deliberate uncovered `businessId` tables. After the closure, exactly those remain: `User`,
 `WhatsAppConnection`, `POSApiKey`, `PaymentProviderRouting` and `ProductUsageEvent`.
 
+## Related records
+
+- Security follow-up register: [SECURITY_FOLLOWUP_REGISTER.md](SECURITY_FOLLOWUP_REGISTER.md). It includes the high-priority `/api/knowledge/derive` authority finding.
+- Architecture proposal for the five pending tables: [PENDING_TENANT_TABLES_ARCHITECTURE.md](PENDING_TENANT_TABLES_ARCHITECTURE.md).
+
+## Production preflight (run 36508953537, 2026-09-29, read-only)
+
+**Runtime:** `app_runtime_prod`, NOSUPERUSER, NOBYPASSRLS, a member of `app_runtime`.
+
+**The five tables hold 0 rows in Production.** So:
+- there are 0 NULL or orphan tenant keys;
+- every child/parent tenant-agreement count is 0;
+- the runtime currently holds SELECT, INSERT, UPDATE and DELETE on all five, with RLS off. That is the gap the migration closes.
+
+**ContentVariant:** RLS + FORCE confirmed live, 45 rows across 3 businesses, 0 parent mismatches.
+
+**Pending `Coupon → Offer` issuer mismatches:** 0.
+
 ## Proof
 
 - Lab battery: `.m0/tenant-rls-closure-battery.ts`, as a measured NOSUPERUSER + NOBYPASSRLS role on
