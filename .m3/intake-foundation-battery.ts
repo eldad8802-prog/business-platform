@@ -308,7 +308,8 @@ async function post() {
   const bcNe = await o.intakeNormalizedEvent.findUnique({ where: { intakeEventId: bcId } });
   ok("malformed timestamp → occurredAt null (never invented)", bcEv?.occurredAt === null);
   ok("malformed contact hints → dropped, marked invalid, event still processed",
-    bcEv?.status === "PROCESSED" && JSON.stringify(bcNe?.signals) === JSON.stringify({ phone: "invalid", email: "invalid" }) &&
+    bcEv?.status === "PROCESSED" && (bcNe?.signals as Record<string, string>)?.phone === "invalid" &&
+      (bcNe?.signals as Record<string, string>)?.email === "invalid" && Object.keys(bcNe?.signals ?? {}).length === 2 &&
       bcNe?.contactHints === null && bcNe?.identityOutcome === "none");
 
   // ── 6. failure matrix ───────────────────────────────────────────────────────

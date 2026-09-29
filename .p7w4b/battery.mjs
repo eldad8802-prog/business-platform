@@ -11,8 +11,7 @@
  *    unknown + DISCONNECTED mapping denied, replay + concurrent duplicates,
  *    cross-tenant wamid independence, bad signature 401
  *  - DB-failure (revoked bootstrap grant) → loud, no env fallback
- *  - media path with injected external deps: attachment import { intakeIsolationStatements } from "../scripts/security/intake-isolation-lab.mjs";
-import + document
+ *  - media path with injected external deps: attachment import + document
  *    linkage stay tenant-bound; foreign import id not a mutation handle
  *  - bot/reply path: settings/suggestions/analysis never drift cross-tenant
  *  - MessageAnalysis parent-join composes with the RLS'd Message parent
@@ -24,6 +23,7 @@ import + document
  */
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { intakeIsolationStatements } from "../scripts/security/intake-isolation-lab.mjs";
 import { PrismaClient } from "@prisma/client";
 
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
