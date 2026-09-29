@@ -8,9 +8,9 @@
 -- It never selects a row of application data. The repository is public, so this
 -- output is designed to be public too.
 --
--- Expected state = the repository's migrations (159 directories):
---   136 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
---   202 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
+-- Expected state = the repository's migrations (160 directories):
+--   137 tables with RLS ENABLED + FORCED, 20 tables deliberately without RLS,
+--   205 statically-declared policies, 9 composite tenant FKs, 2 definer lookups.
 -- Role groups checked: app_runtime, app_auth, app_admin, app_ctlplane and every
 -- LOGIN member of them.
 
@@ -100,6 +100,7 @@ expected_rls(t) AS (SELECT unnest(ARRAY[
     'InventorySale',
     'InventorySaleLine',
     'InventorySourceSaleLine',
+    'KnowledgeDerivationRun',
     'KnowledgeMeasure',
     'KnowledgeMeasureEvidenceLink',
     'Lead',
@@ -301,6 +302,9 @@ expected_policies(tp) AS (SELECT unnest(ARRAY[
     'InventorySourceSaleLine.inventory_source_sale_line_tenant_insert',
     'InventorySourceSaleLine.inventory_source_sale_line_tenant_select',
     'InventorySourceSaleLine.inventory_source_sale_line_tenant_update',
+    'KnowledgeDerivationRun.knowledge_derivation_run_tenant_insert',
+    'KnowledgeDerivationRun.knowledge_derivation_run_tenant_select',
+    'KnowledgeDerivationRun.knowledge_derivation_run_tenant_update',
     'KnowledgeMeasure.p7w2_tenant',
     'KnowledgeMeasureEvidenceLink.p7w2_tenant',
     'Lead.p7w1_tenant',
@@ -542,7 +546,8 @@ expected_migrations(m) AS (SELECT unnest(ARRAY[
     '20260928090000_m9_outcome_learning',
     '20260928120000_p1_business_offering',
     '20260929090000_m3_canonical_intake',
-    '20260929090000_tenant_rls_closure'
+    '20260929090000_tenant_rls_closure',
+    '20260930090000_knowledge_derive_authority'
   ]::text[])),
 expected_fks(c) AS (SELECT unnest(ARRAY[
     'Appointment_customerId_tenant_fkey',
