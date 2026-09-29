@@ -54,6 +54,14 @@ export const EXEMPT = {
     "provider-bootstrap table (docs/security-d2-provider-bootstrap-allowlist-v1.md)",
   ProductUsageEvent:
     "KNOWN GAP — product analytics with nullable businessId, global writer; recorded in the M1 audit",
+  InventorySale:
+    "P0 sale evidence applied in Production by 20260926120000 before this guard; the application release adds no migration",
+  InventorySaleLine:
+    "P0 sale evidence applied in Production by 20260926120000 before this guard; the application release adds no migration",
+  InventorySourceSaleLine:
+    "P0 source-line evidence applied in Production by 20260927120000 before this guard; the application release adds no migration",
+  BusinessAsset:
+    "P0 asset provenance applied in Production by 20260927120000 before this guard; the application release adds no migration",
 };
 
 /**
@@ -65,6 +73,10 @@ export const EXEMPT = {
 export const R2_GRANDFATHERED = {
   InstallmentWorkflow:
     "payables Phase 2 (#538), merged 2026-09-27 before this guard; tenant policy is FOR ALL (includes DELETE) — to be split per command in a payables follow-up",
+  InventorySourceSaleLine:
+    "P0 source-line table (20260927120000) merged in #544 before this guard, with no app_runtime GRANT in that migration",
+  BusinessAsset:
+    "P0 asset table (20260927120000) merged in #544 before this guard, with no app_runtime GRANT in that migration",
 };
 
 // ── pure helpers (exercised by --self-test) ───────────────────────────────────

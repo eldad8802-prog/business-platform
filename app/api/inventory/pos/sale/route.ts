@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { InventoryMovementReason } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
+import { recordInventorySale } from "@/lib/services/inventory/sale-evidence.service";
+import {
+  linkSourceLinesToSale,
+  recordInventorySourceSaleLines,
+} from "@/lib/services/inventory/sale-source-lines.service";
+import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { secretsEqual } from "@/lib/security/constant-time";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
@@ -69,6 +73,15 @@ type POSSaleItem = {
   barcode?: string | null;
   name?: string | null;
   quantity: number;
+  unitPrice?: unknown;
+};
+
+type NormalizedPosItem = {
+  sku: string | null;
+  barcode: string | null;
+  name: string | null;
+  quantity: number;
+  unitPrice: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -155,14 +168,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const validItems: POSSaleItem[] = items
-      .map((item: POSSaleItem) => ({
-        sku: item.sku ?? null,
-        barcode: item.barcode ?? null,
-        name: item.name ?? null,
-        quantity: Number(item.quantity),
-      }))
-      .filter((item: POSSaleItem) => item.quantity > 0);
+    const validItems: NormalizedPosItem[] = [];
+    for (const item of items as POSSaleItem[]) {
+      const quantity = Number(item?.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      const observedPrice = observeUnitPrice(item?.unitPrice);
+      if (observedPrice.kind === "invalid") {
+        return NextResponse.json({ error: "Invalid unit price" }, { status: 400 });
+      }
+      validItems.push({
+        sku: item?.sku ?? null,
+        barcode: item?.barcode ?? null,
+        name: item?.name ?? null,
+        quantity,
+        unitPrice: observedPrice.kind === "present" ? observedPrice.amount : null,
+      });
+    }
 
     if (validItems.length === 0) {
       return NextResponse.json(
@@ -198,16 +219,15 @@ export async function POST(request: NextRequest) {
       sku: string | null;
       barcode: string | null;
       name: string | null;
+      unitPrice: string | null;
+      lineKey: string;
     }[] = [];
 
-    const unmatchedItems: {
-      sku: string | null;
-      barcode: string | null;
-      name: string | null;
-      quantity: number;
-    }[] = [];
+    const unmatchedItems: NormalizedPosItem[] = [];
 
-    for (const item of validItems) {
+    for (let index = 0; index < validItems.length; index++) {
+      const item = validItems[index];
+      const lineKey = String(index);
       // Step 1: POSProductMapping — human-verified mapping takes priority.
       // Single OR query avoids separate sku/barcode round-trips.
       if (item.sku || item.barcode) {
@@ -227,6 +247,8 @@ export async function POST(request: NextRequest) {
             sku: item.sku ?? null,
             barcode: item.barcode ?? null,
             name: item.name ?? null,
+            unitPrice: item.unitPrice,
+            lineKey,
           });
           continue;
         }
@@ -248,12 +270,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (!inventoryItem) {
-        unmatchedItems.push({
-          sku: item.sku ?? null,
-          barcode: item.barcode ?? null,
-          name: item.name ?? null,
-          quantity: item.quantity,
-        });
+        unmatchedItems.push(item);
 
         continue;
       }
@@ -264,8 +281,24 @@ export async function POST(request: NextRequest) {
         sku: item.sku ?? null,
         barcode: item.barcode ?? null,
         name: item.name ?? null,
+        unitPrice: item.unitPrice,
+        lineKey,
       });
     }
+
+    const sourceLines = validItems.map((item, index) => {
+      const lineKey = String(index);
+      const matched = matchedItems.find((row) => row.lineKey === lineKey);
+      return {
+        lineKey,
+        sku: item.sku ?? null,
+        barcode: item.barcode ?? null,
+        name: item.name ?? null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        recognizedItemId: matched?.itemId ?? null,
+      };
+    });
 
     // ❗ אם יש אפילו פריט אחד לא מזוהה → הכל עובר ל-PENDING
     if (unmatchedItems.length > 0) {
@@ -275,6 +308,7 @@ export async function POST(request: NextRequest) {
         {
           businessId,
           externalSaleId,
+          sourceLines,
           metadata: {
             externalSaleId,
             sku: firstUnmatched.sku,
@@ -291,6 +325,7 @@ export async function POST(request: NextRequest) {
               barcode: item.barcode ?? null,
               name: item.name ?? null,
               quantity: item.quantity,
+              unitPrice: item.unitPrice,
             })),
           },
         },
@@ -310,43 +345,52 @@ export async function POST(request: NextRequest) {
       return { kind: "pending" as const, pendingMatch };
     }
 
-    // 📦 אם הכל תואם → מבצעים movement רגיל
-    const movements = [];
-
-    for (const matchedItem of matchedItems) {
-      const movement = await inventoryService.removeStock(
-        {
-          businessId,
-          itemId: matchedItem.itemId,
-          quantityDelta: matchedItem.quantity,
-          reason: InventoryMovementReason.SALE,
-        },
-        { tx }
-      );
-
-      movements.push(movement);
-    }
-
-    // 💾 רק אחרי עיבוד מלא — אטומי עם התנועות
-    const externalSale = await tx.inventoryExternalSale.create({
-      data: {
+    const recorded = await recordInventorySale({
+      tx,
+      businessId,
+      source,
+      externalSaleId,
+      lines: matchedItems.map((matchedItem) => ({
+        itemId: matchedItem.itemId,
+        quantity: matchedItem.quantity,
+        unitPrice: matchedItem.unitPrice,
+        lineKey: matchedItem.lineKey,
+      })),
+    });
+    await recordInventorySourceSaleLines(tx, {
+      businessId,
+      externalSaleId,
+      lines: sourceLines,
+    });
+    if (recorded.saleId > 0) {
+      await linkSourceLinesToSale(tx, {
         businessId,
         externalSaleId,
-        source,
+        saleId: recorded.saleId,
+      });
+    }
+
+    if (!recorded.created) {
+      return { kind: "skipped" as const };
+    }
+
+    const externalSale = await tx.inventoryExternalSale.findUnique({
+      where: {
+        businessId_externalSaleId: { businessId, externalSaleId },
       },
     });
 
     await recordPosSaleSensor(tx, {
       businessId,
-      entityId: externalSale.id,
+      entityId: externalSale?.id ?? null,
       externalSaleId,
       posSource: source,
-      movementIds: movements.map((m) => m.id),
+      movementIds: recorded.movements.map((m) => m.id),
       lineCount: validItems.length,
       outcome: "APPLIED",
     });
 
-    return { kind: "processed" as const, movements };
+    return { kind: "processed" as const, movements: recorded.movements };
         },
         { timeoutMs: 20_000 }
       )

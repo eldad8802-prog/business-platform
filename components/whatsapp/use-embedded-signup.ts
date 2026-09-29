@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadFacebookSdk } from "./facebook-sdk";
+import { getLiveFacebookSdk, loadFacebookSdk } from "./facebook-sdk";
 import { getEmbeddedSignupConfig } from "./embedded-signup-config";
+import { observeWindowOpen } from "./popup-observer";
 import {
   createEmbeddedSignupController,
   type EmbeddedSignupController,
@@ -11,6 +12,7 @@ import {
 } from "./embedded-signup-controller";
 
 export type {
+  EmbeddedSignupErrorCode,
   EmbeddedSignupPhase,
   EmbeddedSignupResult,
 } from "./embedded-signup-controller";
@@ -22,7 +24,7 @@ export type {
  * On mount it preloads the Facebook SDK so the connect button can call
  * `FB.login` synchronously inside the click (never after an async wait, which
  * previously broke the user gesture and could block the popup). All the flow
- * logic — launch, timeout recovery, listener/timer cleanup — lives in the
+ * logic — launch, bounded waits, listener/timer cleanup — lives in the
  * controller and is unit-tested there.
  *
  * On success it captures `code` + identifiers IN MEMORY only; nothing is sent
@@ -31,20 +33,30 @@ export type {
  */
 
 /**
- * Recovery ceiling for a "launching" popup that never returns a callback or
- * event. Chosen at 60s: long enough that a user actively completing Meta's
- * popup is not cut off (and any Embedded Signup progress message resets the
- * timer), short enough that a blocked/abandoned popup returns to a clear,
- * retryable error instead of an infinite spinner.
+ * ABSOLUTE ceiling for one Embedded Signup attempt. Meta sends no progress
+ * events while the owner is inside its popup (login, business portfolio, WABA,
+ * phone number, OTP), so this cannot be an inactivity timer: a real owner can
+ * legitimately take several minutes. It is armed once at launch and nothing
+ * Meta sends can extend it. A blocked or hidden popup does not have to wait
+ * for it — the owner can cancel at any time from the launching state.
  */
-const LAUNCH_TIMEOUT_MS = 60_000;
+export const LAUNCH_DEADLINE_MS = 10 * 60_000;
+
+function browserUserActivation(): { isActive: boolean; hasBeenActive: boolean } | null {
+  try {
+    const ua = (navigator as Navigator & { userActivation?: { isActive: boolean; hasBeenActive: boolean } })
+      .userActivation;
+    return ua ? { isActive: !!ua.isActive, hasBeenActive: !!ua.hasBeenActive } : null;
+  } catch {
+    return null;
+  }
+}
 
 function browserEnv(): EmbeddedSignupEnv {
   return {
     getConfig: getEmbeddedSignupConfig,
     loadSdk: loadFacebookSdk,
-    getReadyFb: () =>
-      typeof window !== "undefined" ? window.FB ?? null : null,
+    getReadyFb: () => getLiveFacebookSdk(),
     // A "message" MessageEvent structurally satisfies MessageEventLike; the
     // double-cast keeps the SAME function reference so add/remove still match.
     addMessageListener: (fn) =>
@@ -53,7 +65,9 @@ function browserEnv(): EmbeddedSignupEnv {
       window.removeEventListener("message", fn as unknown as EventListener),
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (id) => window.clearTimeout(id),
-    timeoutMs: LAUNCH_TIMEOUT_MS,
+    timeoutMs: LAUNCH_DEADLINE_MS,
+    observePopup: observeWindowOpen,
+    getUserActivation: browserUserActivation,
   };
 }
 
@@ -61,6 +75,7 @@ export function useEmbeddedSignup() {
   const [state, setState] = useState<EmbeddedSignupState>({
     phase: "idle",
     result: null,
+    error: null,
   });
   const ctrlRef = useRef<EmbeddedSignupController | null>(null);
 
@@ -86,5 +101,5 @@ export function useEmbeddedSignup() {
     ctrlRef.current?.reset();
   }, []);
 
-  return { phase: state.phase, result: state.result, launch, reset };
+  return { phase: state.phase, result: state.result, error: state.error, launch, reset };
 }

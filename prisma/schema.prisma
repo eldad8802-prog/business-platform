@@ -48,7 +48,9 @@ model ContentRun {
 
   variants ContentVariant[]
   events   ContentEvent[]
+  assets   BusinessAsset[]
 
+  @@unique([id, businessId])
   @@index([businessId, createdAt])
 }
 
@@ -59,6 +61,7 @@ model ContentRun {
 model ContentVariant {
   id           Int                  @id @default(autoincrement())
   contentRunId Int
+  businessId   Int
   variantKey   String
   status       ContentVariantStatus @default(PENDING)
 
@@ -77,10 +80,13 @@ model ContentVariant {
   updatedAt DateTime @updatedAt
 
   contentRun ContentRun      @relation(fields: [contentRunId], references: [id], onDelete: Cascade)
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   renders    ContentRender[]
   events     ContentEvent[]
 
   @@unique([contentRunId, variantKey])
+  @@unique([id, businessId])
+  @@index([businessId])
 }
 
 /// ContentRender
@@ -127,6 +133,9 @@ model ContentEvent {
   /// Intentionally String (aligned with LearningEvent.eventType).
   eventType String
 
+  /// Retry identity for a single owner decision. Null on legacy rows.
+  idempotencyKey String?
+
   /// JSON governance: must include { schemaVersion, generatedAt, source, data } when present.
   payload  Json?
   metadata Json?
@@ -138,6 +147,7 @@ model ContentEvent {
   contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: Cascade)
   actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@index([contentRunId, createdAt])
   @@index([contentVariantId, createdAt])
@@ -187,7 +197,12 @@ model Business {
   inventoryCategories           InventoryCategory[]
   inventoryDrafts               InventoryDraft[]
   inventoryExternalSales        InventoryExternalSale[]
+  inventorySales                InventorySale[]
+  inventorySourceSaleLines      InventorySourceSaleLine[]
   inventoryItems                InventoryItem[]
+  contentVariants               ContentVariant[]
+  couponSurfaceEvents           CouponSurfaceEvent[]
+  businessAssets                BusinessAsset[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -233,6 +248,12 @@ model Business {
   knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
   businessInsights              BusinessInsight[]
   entityLinkProposals           EntityLinkProposal[]
+  intakeEvents                  IntakeEvent[]
+  outcomeRecommendations        OutcomeRecommendation[]
+  outcomeDecisions              OutcomeDecision[]
+  outcomeActionEvents           OutcomeActionEvent[]
+  outcomeObservations           OutcomeObservation[]
+  outcomeAssessments            OutcomeAssessment[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -899,9 +920,18 @@ model Offer {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   imageUrl            String?
+  /// Structured offer definition. Null on rows published before this column
+  /// existed — unknown, not a reconstructed value.
+  benefitType         String?
+  benefitValue        String?
+  benefitScope        String?
+  minPurchaseAmount   Decimal? @db.Decimal(18, 2)
+  newCustomersOnly    Boolean?
   coupons             Coupon[]
+  surfaceEvents       CouponSurfaceEvent[]
   issuingBusiness     Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
 
+  @@unique([id, issuingBusinessId])
   @@index([issuingBusinessId])
   @@index([validUntil])
   @@index([isActive])
@@ -923,7 +953,9 @@ model Coupon {
   issuingBusiness   Business         @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
   offer             Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
   redemptionEvents  RedemptionEvent?
+  surfaceEvents     CouponSurfaceEvent[]
 
+  @@unique([id, issuingBusinessId])
   @@index([offerId])
   @@index([issuingBusinessId])
   @@index([status])
@@ -944,6 +976,24 @@ model RedemptionEvent {
   @@index([issuingBusinessId])
   @@index([redeemingBusinessId])
   @@index([redeemedAt])
+}
+
+/// Observed attention on a coupon surface that Dubiz actually serves.
+/// Not a performance conclusion. No viewer identity is stored.
+model CouponSurfaceEvent {
+  id                Int      @id @default(autoincrement())
+  issuingBusinessId Int
+  couponId          Int
+  offerId           Int
+  eventType         String
+  createdAt         DateTime @default(now())
+
+  business Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  coupon   Coupon   @relation(fields: [couponId, issuingBusinessId], references: [id, issuingBusinessId], onDelete: Cascade)
+  offer    Offer    @relation(fields: [offerId, issuingBusinessId], references: [id, issuingBusinessId], onDelete: Cascade)
+
+  @@index([issuingBusinessId, couponId, createdAt])
+  @@index([issuingBusinessId, eventType, createdAt])
 }
 
 model Conversation {
@@ -1824,7 +1874,10 @@ model InventoryItem {
   supplierPurchaseDraftLines SupplierPurchaseDraftLine[]
   purchaseOrderLines         PurchaseOrderLine[]
   receivingLines             ReceivingLine[]
+  saleLines                  InventorySaleLine[]
+  recognizedSourceLines      InventorySourceSaleLine[]
 
+  @@unique([id, businessId])
   @@index([businessId])
   @@index([sku])
   @@index([barcode])
@@ -1845,7 +1898,10 @@ model InventoryMovement {
   createdAt       DateTime                @default(now())
   business        Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
   item            InventoryItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  saleLine        InventorySaleLine?
+  pendingMatchResolutions InventoryPendingMatch[] @relation("PendingMatchResolvedMovement")
 
+  @@unique([id, businessId])
   @@index([businessId])
   @@index([itemId])
   @@index([businessId, createdAt])
@@ -1905,6 +1961,7 @@ model InventoryPendingMatch {
   resolvedAt       DateTime?
   resolvedByUserId Int?
   resolvedItemId   Int?
+  resolvedMovementId Int?
   /// M5 — why the owner refused this match. A rejection already records WHO and WHEN; without the
   /// WHY it is a shrug, and "this product is not ours" and "we stopped stocking it" call for
   /// completely different responses from the system next time the same line arrives.
@@ -1912,6 +1969,7 @@ model InventoryPendingMatch {
   alerts           InventoryAlert[]
   business         Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   resolvedItem     InventoryItem?              @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id])
+  resolvedMovement InventoryMovement?          @relation("PendingMatchResolvedMovement", fields: [resolvedMovementId, businessId], references: [id, businessId], onDelete: SetNull)
 
   @@unique([businessId, externalSaleId])
   @@index([businessId])
@@ -1929,6 +1987,93 @@ model InventoryExternalSale {
 
   @@unique([businessId, externalSaleId])
   @@index([businessId])
+}
+
+/// One observed sale. Live stock stays on InventoryItem / InventoryMovement.
+model InventorySale {
+  id             Int      @id @default(autoincrement())
+  businessId     Int
+  source         String
+  externalSaleId String?
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  business Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines    InventorySaleLine[]
+
+  @@unique([id, businessId])
+  @@unique([businessId, externalSaleId])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, createdAt])
+}
+
+/// One sale line that produced exactly one inventory movement.
+/// unitPrice is null when the caller did not provide a price.
+model InventorySaleLine {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  saleId     Int
+  itemId     Int
+  movementId Int
+  lineKey    String
+  quantity   Float
+  unitPrice  Decimal? @db.Decimal(18, 2)
+  createdAt  DateTime @default(now())
+
+  sale     InventorySale     @relation(fields: [saleId, businessId], references: [id, businessId], onDelete: Cascade)
+  item     InventoryItem     @relation(fields: [itemId, businessId], references: [id, businessId], onDelete: Cascade)
+  movement InventoryMovement @relation(fields: [movementId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  sourceLines InventorySourceSaleLine[]
+
+  @@unique([id, businessId])
+  @@unique([saleId, lineKey])
+  @@unique([movementId, businessId])
+  @@index([businessId, createdAt])
+}
+
+/// Upstream POS line as received. A sale-line link exists only when this
+/// exact line produced a movement. Unmatched lines stay unlinked.
+model InventorySourceSaleLine {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  externalSaleId   String
+  lineKey          String
+  sku              String?
+  barcode          String?
+  name             String?
+  quantity         Float
+  unitPrice        Decimal? @db.Decimal(18, 2)
+  recognizedItemId Int?
+  saleLineId       Int?
+  createdAt        DateTime @default(now())
+
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recognizedItem InventoryItem?     @relation(fields: [recognizedItemId, businessId], references: [id, businessId], onDelete: Cascade)
+  saleLine       InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([businessId, externalSaleId, lineKey])
+  @@index([businessId, createdAt])
+}
+
+/// Retained business visual. Public bucket storage is not publication permission.
+model BusinessAsset {
+  id                Int                 @id @default(autoincrement())
+  businessId        Int
+  origin            BusinessAssetOrigin
+  storageKey        String?
+  assetRef          String?
+  contentRunId      Int?
+  publicUseApproved Boolean             @default(false)
+  idempotencyKey    String?
+  createdAt         DateTime            @default(now())
+
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRun ContentRun? @relation(fields: [contentRunId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, storageKey])
+  @@index([businessId, createdAt])
 }
 
 model POSApiKey {
@@ -2558,6 +2703,11 @@ enum ContentVariantStatus {
   PENDING
   READY
   FAILED
+}
+
+enum BusinessAssetOrigin {
+  OWNER_UPLOAD
+  GENERATED
 }
 
 enum ContentRenderStatus {
@@ -5465,6 +5615,188 @@ enum InsightStatus {
   DISMISSED
 }
 
+/// M9 · A system-issued recommendation, VERSIONED. Content is immutable (database trigger); only the
+/// lifecycle moves, and only away from ACTIVE. At most one ACTIVE version per recommendationKey
+/// (partial unique index, migration 20260928090000_m9_outcome_learning). Not owner-visible.
+model OutcomeRecommendation {
+  id                   Int                         @id @default(autoincrement())
+  businessId           Int
+  recommendationKey    String
+  version              Int
+  type                 String
+  family               String
+  subjectType          String
+  subjectId            Int
+  targets              Json
+  targetCount          Int
+  supportingSlots      Json
+  severity             String?
+  evidenceFingerprint  String
+  sourceKind           String
+  sourceFindingKey     String?
+  brainContractVersion String?
+  brainPromptVersion   String?
+  brainContextVersion  String?
+  brainModel           String?
+  snapshotFingerprint  String
+  contextFingerprint   String?
+  generatorVersion     String
+  issuedAt             DateTime
+  validUntil           DateTime
+  outcomeWindowEnd     DateTime
+  status               OutcomeRecommendationStatus @default(ACTIVE)
+  closedAt             DateTime?
+  closedReason         String?
+  supersededById       Int?
+  createdAt            DateTime                    @default(now())
+
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  decisions    OutcomeDecision[]
+  actionEvents OutcomeActionEvent[]
+  observations OutcomeObservation[]
+  assessments  OutcomeAssessment[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, recommendationKey, version])
+  @@index([businessId, status])
+  @@index([businessId, issuedAt])
+}
+
+enum OutcomeRecommendationStatus {
+  ACTIVE
+  SUPERSEDED
+  RESOLVED
+  EXPIRED
+}
+
+/// M9 · What the OWNER decided about one recommendation version. APPEND-ONLY (privileges + trigger):
+/// a change of mind is a new row naming the one it supersedes. Never inferred from silence.
+model OutcomeDecision {
+  id                    Int                 @id @default(autoincrement())
+  businessId            Int
+  recommendationId      Int
+  recommendationVersion Int
+  decision              OutcomeDecisionKind
+  modification          Json?
+  reasonCode            String?
+  deferUntil            DateTime?
+  actorUserId           Int
+  source                String
+  decidedAt             DateTime
+  idempotencyKey        String
+  supersedesDecisionId  Int?
+  createdAt             DateTime            @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeDecision_recommendation_fkey")
+  supersedes     OutcomeDecision?      @relation("OutcomeDecisionSupersedes", fields: [businessId, supersedesDecisionId], references: [businessId, id], onDelete: Cascade, map: "OutcomeDecision_supersedes_fkey")
+  supersededBy   OutcomeDecision[]     @relation("OutcomeDecisionSupersedes")
+  actionEvents   OutcomeActionEvent[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+enum OutcomeDecisionKind {
+  ACCEPT
+  REJECT
+  MODIFY
+  NOT_NOW
+}
+
+/// M9 · What the domain ledger shows actually happened to a recommendation target — performed,
+/// reversed or withdrawn — linked to the real domain record. APPEND-ONLY.
+model OutcomeActionEvent {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  recommendationId Int
+  decisionId       Int?
+  actionKind       String
+  eventType        String
+  targetType       String
+  targetId         Int
+  domainStore      String
+  domainRecordId   Int
+  actorUserId      Int?
+  occurredAt       DateTime
+  observedAt       DateTime
+  idempotencyKey   String
+  createdAt        DateTime @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeActionEvent_recommendation_fkey")
+  decision       OutcomeDecision?      @relation(fields: [businessId, decisionId], references: [businessId, id], onDelete: Cascade, map: "OutcomeActionEvent_decision_fkey")
+  observations   OutcomeObservation[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+/// M9 · What was OBSERVED after a recommendation — never an effect of it. APPEND-ONLY; a reversal is a
+/// new observation naming the one it reverses. Days and counts only; no money, no text.
+model OutcomeObservation {
+  id                    Int      @id @default(autoincrement())
+  businessId            Int
+  recommendationId      Int
+  actionEventId         Int?
+  kind                  String
+  targetType            String?
+  targetId              Int?
+  valueInt              Int?
+  unit                  String?
+  evidenceStore         String
+  evidenceIds           Json
+  observedAt            DateTime
+  reversesObservationId Int?
+  idempotencyKey        String
+  createdAt             DateTime @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_recommendation_fkey")
+  actionEvent    OutcomeActionEvent?   @relation(fields: [businessId, actionEventId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_action_fkey")
+  reverses       OutcomeObservation?   @relation("OutcomeObservationReverses", fields: [businessId, reversesObservationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeObservation_reverses_fkey")
+  reversedBy     OutcomeObservation[]  @relation("OutcomeObservationReverses")
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, recommendationId])
+}
+
+/// M9 · The deterministic reading of one recommendation's decision, action and outcome. APPEND +
+/// SUPERSEDE. attribution is CHECK-constrained to NOT_ASSESSABLE | NO_OUTCOME_OBSERVED |
+/// OBSERVED_SEQUENCE: no causal value is storable.
+model OutcomeAssessment {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  recommendationId Int
+  assessorVersion  String
+  decisionState    String
+  actionState      String
+  outcomeState     String
+  direction        String
+  attribution      String
+  uncertainty      String
+  windowStart      DateTime
+  windowEnd        DateTime
+  observationCount Int
+  evidenceRefs     Json
+  detail           Json
+  semanticHash     String
+  status           String    @default("ACTIVE")
+  assessedAt       DateTime
+  confirmedAt      DateTime
+  supersededAt     DateTime?
+  createdAt        DateTime  @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeAssessment_recommendation_fkey")
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+}
+
 /// M5 · The reminder Dubiz actually knows about.
 ///
 /// WHAT WAS MISSING. Collection lets an owner share or copy a payment reminder. Both are pure browser
@@ -5529,4 +5861,99 @@ enum CollectionActionChannel {
   SYSTEM_SHARE
   CLIPBOARD
   UNKNOWN
+}
+
+// ---------------------------------------------------------------------------
+// Business Intake — M2 · the canonical receipt ledger
+//
+// One row per event an external source delivered to this business: the proof
+// that Dubiz accepted responsibility for it. The webhook answers the provider
+// ONLY after this row is durable, and everything downstream (Customer,
+// Conversation, Message, documents, delivery receipts) is derived from it by a
+// processor that can fail and retry without losing the event.
+//
+// It is a RECEIPT, not a domain record and not a learning event:
+//   - the operational truth stays in Message / Conversation / Customer;
+//   - LearningEvent stays evidence, and never holds the payload;
+//   - `payload` is the minimal normalized envelope needed to (re)process, and is
+//     purged the moment the event is processed. What survives is identity,
+//     lifecycle and non-personal `metadata` (message type, ad referral ids).
+//
+// Provider-neutral by construction: WhatsApp is only the first `provider`.
+// Future sources (lead forms, email, calls, orders) add enum values, not tables.
+// ---------------------------------------------------------------------------
+
+enum IntakeProvider {
+  WHATSAPP
+}
+
+/// What the provider says happened. Delivery / read receipts are their own kind
+/// — they describe an OUTBOUND message and must never become customer messages.
+enum IntakeEventKind {
+  MESSAGE_RECEIVED
+  MESSAGE_STATUS
+}
+
+/// RECEIVED  — durable, not yet processed (or waiting for its next attempt)
+/// PERSISTED — the domain records are committed; enrichment is still pending
+/// PROCESSED — done; payload purged
+/// FAILED    — the last attempt failed; `nextAttemptAt` says when to retry
+///             (null once attempts are exhausted — kept, never deleted)
+/// IGNORED   — deliberately not materialised (unsupported type, unknown
+///             outbound message for a receipt); the reason is in lastErrorCode
+enum IntakeEventStatus {
+  RECEIVED
+  PERSISTED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+model IntakeEvent {
+  id                 Int               @id @default(autoincrement())
+  businessId         Int
+  provider           IntakeProvider
+  kind               IntakeEventKind
+  /// Replay key derived from the provider's own identity for the event — never
+  /// a sender-controlled value, and never the raw provider id: a SHA-256
+  /// (`sha256:<hex>`). WhatsApp message: of the wamid; status: of
+  /// `<wamid>:<status>`. The raw wamid lives on Message.providerMessageId.
+  externalEventId    String
+  /// The business's own provider account the event arrived on (WhatsApp:
+  /// phone_number_id). Routing evidence, not a person.
+  providerAccountRef String?
+  /// Business time as the provider reports it. Null when the provider gave none
+  /// — never invented.
+  occurredAt         DateTime?
+  receivedAt         DateTime          @default(now())
+  status             IntakeEventStatus @default(RECEIVED)
+  attempts           Int               @default(0)
+  lastAttemptAt      DateTime?
+  /// Earliest time the next attempt may run. Doubles as the processing lease.
+  nextAttemptAt      DateTime?
+  /// A bounded, non-personal failure code (error class / provider code). Never
+  /// a free-text message that could echo payload content.
+  lastErrorCode      String?
+  processedAt        DateTime?
+  /// Minimal normalized envelope needed to process the event. PERSONAL DATA
+  /// until processed; nulled on PROCESSED and by account erasure.
+  payload            Json?
+  payloadPurgedAt    DateTime?
+  /// Non-personal normalized facts kept after the payload is purged (message
+  /// type, click-to-WhatsApp referral ids).
+  metadata           Json?
+  /// What the event became. Plain ids: the receipt is evidence about them and
+  /// must not cascade with them.
+  messageId          Int?
+  conversationId     Int?
+  customerId         Int?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  business           Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  /// Replay protection: one receipt per provider event per business. Tenant-
+  /// scoped, so identical provider ids in two businesses never cross-dedup.
+  @@unique([businessId, provider, externalEventId])
+  @@index([businessId, status, nextAttemptAt])
+  @@index([businessId, receivedAt])
 }

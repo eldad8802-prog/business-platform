@@ -88,16 +88,43 @@ export async function findPublicByBusinessId(
 }
 
 /**
- * Used by the inbound webhook router. Returns the `businessId` ONLY when
- * status is `CONNECTED`. Unknown / non-active connections behave as
- * "not connected" — the webhook should log + return 200 without writing.
+ * Connection states under which INBOUND events are still accepted.
  *
- * DB errors (e.g. table not yet migrated, connection blip) are swallowed
- * and treated as "not found" so the caller (`business-resolve.service`)
- * can fall back to the env-map when `WHATSAPP_ALLOW_ENV_FALLBACK=1`. This
- * is what keeps the existing PR2/PR3 routing tests green during the
- * migration window — they hit a non-migrated DB but expect env-map
- * routing to work.
+ * M2 (W8): before this, inbound required `CONNECTED`. But an outbound send
+ * that Graph refused with 401/403/190 flips the row to `REVOKED_BY_META`
+ * (`markRevokedByMeta`), and every customer message after that was dropped
+ * with a 200 — a failed reply silently cut the business off from its own
+ * customers. An outbound auth error proves the business's SEND token stopped
+ * working; it proves nothing about inbound. A webhook that arrives here is
+ * signed with the app secret and names this phone_number_id, which is Meta's
+ * own evidence that it is still delivering this number's traffic to us.
+ *
+ *   CONNECTED        accepted
+ *   REVOKED_BY_META  accepted — outbound token failure only
+ *   ERROR            accepted — a recorded transient error, not a disconnect
+ *   DISCONNECTED     refused  — the owner disconnected on purpose
+ *   REVOKED          refused  — an explicit revocation
+ *
+ * Tenant binding is unchanged: phoneNumberId is unique and 1:1 with a business.
+ */
+const INBOUND_ACCEPTING_STATUSES: readonly WhatsAppConnectionStatus[] = [
+  "CONNECTED",
+  "REVOKED_BY_META",
+  "ERROR",
+];
+
+export function connectionAcceptsInbound(status: string): boolean {
+  return (INBOUND_ACCEPTING_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Used by the inbound webhook router. Returns the `businessId` when the number
+ * is bound to a business whose connection still accepts inbound (see
+ * `connectionAcceptsInbound`). An unknown number, or one the owner disconnected,
+ * yields null — the webhook records nothing for it and answers 200.
+ *
+ * A database error PROPAGATES (never "not found"), so the webhook refuses to
+ * acknowledge and the provider redelivers.
  */
 export async function resolveBusinessIdByPhoneNumberId(
   phoneNumberId: string
@@ -108,27 +135,51 @@ export async function resolveBusinessIdByPhoneNumberId(
   // D2/P7-W4A: a DB failure must PROPAGATE, never read as "not found" —
   // the old swallow-and-return-null pattern let a transient DB error hit the
   // env fallback map, silently rerouting tenant resolution. Now only a true
-  // miss / non-CONNECTED row yields null.
-  let rows: { b: number | null }[];
+  // miss / owner-stopped row yields null.
+  let viaFunction: number | null = null;
   try {
-    rows = await prisma.$queryRaw<{ b: number | null }[]>`
+    const rows = await prisma.$queryRaw<{ b: number | null }[]>`
       SELECT public.sec_c_whatsapp_business_by_phone_number_id(${phoneNumberId}) AS b`;
+    viaFunction = rows[0]?.b ?? null;
   } catch (error) {
     // ONLY "function does not exist" (42883) — a database the sec(C) migration has
-    // not reached yet (schema-push labs, or the window before release-migrate).
-    // There the table still has no RLS and the direct lookup is exactly today's
-    // behaviour; once RLS is on (phase 3, which requires the function) the direct
-    // path can no longer see another tenant's row. Every other error propagates.
+    // not reached (schema-push labs). There the table has no RLS and the direct
+    // lookup below is exactly main's behaviour. Every other error propagates.
     if (!isUndefinedFunction(error)) throw error;
     console.error("[whatsapp] bootstrap lookup function missing — using direct lookup");
-    const row = await prisma.whatsAppConnection.findUnique({
-      where: { phoneNumberId },
-      select: { businessId: true, status: true },
-    });
-    rows = [{ b: row && row.status === "CONNECTED" ? row.businessId : null }];
   }
-  const businessId = rows[0]?.b ?? null;
-  return typeof businessId === "number" && businessId > 0 ? businessId : null;
+  if (typeof viaFunction === "number" && viaFunction > 0) return viaFunction;
+
+  // The definer function (migration 20260926110100) answers CONNECTED rows only. Main
+  // (#557/#558) also accepts inbound for REVOKED_BY_META and ERROR, so a miss is
+  // re-checked with the direct read — the same read main performs, possible only
+  // while WhatsAppConnection has no RLS. Phase 3 (ops/security/sec-c-phase3-rls.sql)
+  // must NOT ship until a migration widens the function to connectionAcceptsInbound's
+  // statuses; under FORCE RLS this re-check sees nothing and those numbers would be
+  // dropped again.
+  const row = await prisma.whatsAppConnection.findUnique({
+    where: { phoneNumberId },
+    select: { businessId: true, status: true },
+  });
+  if (!row) return null;
+  if (!connectionAcceptsInbound(row.status)) return null;
+  return row.businessId;
+}
+
+/**
+ * Every business that has a WhatsApp connection row, in any status. Read by the
+ * intake sweeper to find tenants that may hold unprocessed receipts — including
+ * one that disconnected after its receipts were recorded (a receipt Dubiz
+ * accepted is finished whatever the connection does next). WhatsAppConnection
+ * is the allowlisted bootstrap table, readable without a tenant; this file
+ * remains its sole reader. Returns ids only.
+ */
+export async function listBusinessIdsWithWhatsAppConnection(): Promise<number[]> {
+  const rows = await prisma.whatsAppConnection.findMany({
+    select: { businessId: true },
+    orderBy: { businessId: "asc" },
+  });
+  return rows.map((r) => r.businessId);
 }
 
 /**
