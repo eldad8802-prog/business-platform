@@ -156,25 +156,78 @@ function main() {
       })
     );
     ok("statuses: no messages contributed", parsed.messages.length === 0);
+    ok("statuses: no receipts contributed under an unsupported field", parsed.statuses.length === 0);
     ok("statuses: counted as unsupported", parsed.unsupportedChangeCount === 1);
   }
 
-  // Even under the SUPPORTED field, a statuses-only value contributes nothing —
-  // delivery/read receipts are still not a supported feature.
+  // Under the SUPPORTED field (M2): delivery / read receipts are captured — but
+  // ONLY into `statuses`. A receipt describes an outbound message and must
+  // never become a customer message.
   {
     const parsed = parseWhatsAppWebhookPayload(
       envelope("messages", {
         metadata: { phone_number_id: "123456789" },
-        statuses: [{ id: "wamid.text.1", status: "read" }],
+        statuses: [
+          { id: "wamid.text.1", status: "read", recipient_id: "972500000000", timestamp: "1710000000" },
+        ],
       })
     );
     ok(
-      "statuses under the supported field still contribute nothing",
+      "statuses under the supported field contribute NO messages",
       parsed.messages.length === 0
+    );
+    ok(
+      "statuses under the supported field are captured as receipts",
+      parsed.statuses.length === 1 &&
+        parsed.statuses[0].wamid === "wamid.text.1" &&
+        parsed.statuses[0].status === "read" &&
+        parsed.statuses[0].phoneNumberId === "123456789"
+    );
+    ok(
+      "a receipt does not carry the recipient's number",
+      !JSON.stringify(parsed.statuses).includes("972500000000")
     );
     ok(
       "statuses under the supported field are not 'unsupported class'",
       parsed.unsupportedChangeCount === 0
+    );
+  }
+
+  // Profile name and click-to-WhatsApp referral (M2): captured from the same
+  // envelope, matched on wa_id — never by position.
+  {
+    const parsed = parseWhatsAppWebhookPayload(
+      envelope("messages", {
+        metadata: { phone_number_id: "123456789" },
+        contacts: [
+          { wa_id: "972500000001", profile: { name: "Other Person" } },
+          { wa_id: "972501234567", profile: { name: "Roi" } },
+        ],
+        messages: [
+          {
+            ...TEXT_MSG,
+            from: "972501234567",
+            referral: {
+              source_type: "ad",
+              source_id: "120200000000",
+              source_url: "https://fb.me/x",
+              headline: "Installation quote",
+              body: "ad body text is dropped",
+              ctwa_clid: "clid-1",
+            },
+          },
+        ],
+      })
+    );
+    ok("profile name matched on wa_id", parsed.messages[0]?.profileName === "Roi");
+    ok(
+      "referral keeps the ad identifiers",
+      parsed.messages[0]?.referral?.sourceId === "120200000000" &&
+        parsed.messages[0]?.referral?.ctwaClid === "clid-1"
+    );
+    ok(
+      "referral drops the ad body",
+      !JSON.stringify(parsed.messages[0]?.referral ?? {}).includes("ad body text")
     );
   }
 
@@ -265,6 +318,20 @@ function main() {
     ok(
       "route has exactly one dispatch loop",
       (route.match(/routeInboundWhatsAppMessage\(/g) ?? []).length === 1
+    );
+    // M2: receipts (statuses) have their own loop, which only builds a status
+    // receipt — it never reaches the customer-message dispatch.
+    const statusLoop = route.slice(route.indexOf("for (const status of parsed.statuses)"));
+    ok(
+      "status loop exists and only builds status receipts",
+      route.includes("for (const status of parsed.statuses)") &&
+        statusLoop.includes("buildStatusReceipt(") &&
+        !statusLoop.slice(0, statusLoop.indexOf("} catch")).includes("buildMessageReceipt(")
+    );
+    ok(
+      "the route answers the provider only after receipts are recorded",
+      route.indexOf("recordReceipts(") > 0 &&
+        route.indexOf("recordReceipts(") < route.lastIndexOf('new NextResponse("OK", { status: 200 })')
     );
     const parser = fs.readFileSync(
       "lib/services/integrations/whatsapp/webhook-parse.service.ts",

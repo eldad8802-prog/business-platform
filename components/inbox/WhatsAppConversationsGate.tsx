@@ -30,7 +30,10 @@ export function WhatsAppReconnectBanner({
 }: {
   onConnected: () => void;
 }) {
-  const { status, start, reset } = useWhatsAppConnect(() => onConnected());
+  const { status, detail, start, reset, cancel } = useWhatsAppConnect(
+    () => onConnected(),
+    () => onConnected()
+  );
   const connecting = status === "connecting";
   const failed = status === "error";
   const c = WA_COPY.banner;
@@ -114,6 +117,25 @@ export function WhatsAppReconnectBanner({
           {connecting ? c.connecting : failed ? c.retry : c.button}
         </button>
       </div>
+      {detail === "launching" && (
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 6 }}>
+          <button
+            type="button"
+            onClick={cancel}
+            style={{
+              border: "none",
+              background: "transparent",
+              fontFamily: "inherit",
+              fontSize: TOKEN.font.meta,
+              color: TOKEN.ink.muted,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            {WA_COPY.invitation.cancelLaunch}
+          </button>
+        </div>
+      )}
       <div
         style={{
           fontSize: TOKEN.font.caption,

@@ -75,12 +75,17 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      # A pinned test runner, installed once, outside the project tree (no lockfile change).
-      - name: Install tsx (pinned)
+      # The test runner comes from the lockfile (#567 pins tsx as an exact devDependency with an
+      # integrity hash) — nothing is fetched from the registry at execution time. Fail closed if the
+      # installed runner is not exactly the pinned version.
+      - name: Use the lockfile-pinned tsx
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/tsx" --no-audit --no-fund --no-save tsx@4.23.15 >/dev/null
-          echo "TSX_CLI=$RUNNER_TEMP/tsx/node_modules/tsx/dist/cli.mjs" >> "$GITHUB_ENV"
+          PINNED="$(node -p "require('./package.json').devDependencies.tsx")"
+          CLI="$GITHUB_WORKSPACE/node_modules/tsx/dist/cli.mjs"
+          ACTUAL="$(node "$CLI" --version | grep -oE 'tsx v[0-9.]+' | sed 's/tsx v//')"
+          [ -n "$PINNED" ] && [ "$ACTUAL" = "$PINNED" ] || { echo "::error::tsx $ACTUAL is not the pinned $PINNED"; exit 1; }
+          echo "TSX_CLI=$CLI" >> "$GITHUB_ENV"
 
       # ── 1. every guard proves it can fail ──────────────────────────────────
       - name: Guard self-tests (each must be able to fail)

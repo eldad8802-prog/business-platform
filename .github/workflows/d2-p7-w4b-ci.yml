@@ -29,6 +29,8 @@ on:
       - "lib/reply-suggestions/**"
       - "lib/learning/**"
       - "lib/tenant/**"
+      - "lib/intake/**"
+      - "prisma/migrations/20260927180000_m2_intake_event/**"
       - ".github/workflows/d2-p7-w4b-ci.yml"
   workflow_dispatch:
 

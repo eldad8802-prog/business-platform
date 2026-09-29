@@ -1,8 +1,15 @@
 import { getCurrentUser } from "@/lib/auth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import {
+  BusinessAssetNotFoundError,
+  findBusinessAssetByIdempotency,
+  recordBusinessAsset,
+  requireOwnedContentRun,
+} from "@/lib/services/content/business-asset.service";
+import {
   extensionFromMime,
   putPublicAsset,
+  requirePublicAssetUrl,
 } from "@/lib/services/storage/public-asset-storage.service";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
@@ -46,6 +53,15 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    const idempotencyKey =
+      typeof formData.get("idempotencyKey") === "string"
+        ? String(formData.get("idempotencyKey")).trim()
+        : "";
+    const contentRunRaw = formData.get("contentRunId");
+    const contentRunId =
+      typeof contentRunRaw === "string" && /^\d+$/.test(contentRunRaw)
+        ? Number(contentRunRaw)
+        : null;
 
     if (!file) {
       return Response.json({ error: "No file" }, { status: 400 });
@@ -66,6 +82,24 @@ export async function POST(req: Request) {
       return Response.json({ error: "Unsupported file type" }, { status: 400 });
     }
 
+    if (contentRunId) {
+      await requireOwnedContentRun(user.businessId, contentRunId);
+    }
+
+    if (idempotencyKey) {
+      const existing = await findBusinessAssetByIdempotency(
+        user.businessId,
+        idempotencyKey
+      );
+      if (existing?.storageKey) {
+        return Response.json({
+          url: requirePublicAssetUrl(existing.storageKey),
+          assetId: existing.id,
+          origin: existing.origin,
+        });
+      }
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
 
     const stored = await putPublicAsset({
@@ -76,8 +110,24 @@ export async function POST(req: Request) {
       custom: { source: "content_upload" },
     });
 
-    return Response.json({ url: stored.publicUrl });
+    const asset = await recordBusinessAsset({
+      businessId: user.businessId,
+      origin: "OWNER_UPLOAD",
+      storageKey: stored.key,
+      assetRef: stored.publicUrl,
+      contentRunId,
+      idempotencyKey: idempotencyKey || null,
+    });
+
+    return Response.json({
+      url: stored.publicUrl,
+      assetId: asset.id,
+      origin: asset.origin,
+    });
   } catch (err) {
+    if (err instanceof BusinessAssetNotFoundError) {
+      return Response.json({ error: "Content run not found" }, { status: 404 });
+    }
     if (err instanceof StorageConfigError) {
       return Response.json({ error: err.message }, { status: 503 });
     }

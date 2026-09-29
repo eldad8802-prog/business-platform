@@ -58,10 +58,11 @@ check("environment: production-db (approval gate)", /environment:\s*production-d
 check("host allowlist ep-flat-brook-am4bhq1y", /ep-flat-brook-am4bhq1y/.test(wf));
 check("static NO-WRITE guard step present", /Static NO-WRITE guard/.test(wf) && /createMany\|updateMany\|deleteMany/.test(wf));
 check("businessId validated as positive integer", /\*\[!0-9\]\*\) echo "::error::businessId must be a positive integer/.test(wf));
-check("fixed harness script path (no arbitrary path input)", /npx tsx scripts\/business-memory\/dry-run-comparison\.ts/.test(wf));
+// #567 pinned tsx (node_modules/.bin/tsx instead of npx): either runner, but always this fixed script.
+check("fixed harness script path (no arbitrary path input)", /(npx tsx|node_modules\/\.bin\/tsx) scripts\/business-memory\/dry-run-comparison\.ts/.test(wf));
 check("inputs passed via env (BID/SKEY), not interpolated into the run command",
   /BID: \$\{\{ inputs\.businessId \}\}/.test(wf) && /SKEY: \$\{\{ inputs\.subjectNormalizedKey \}\}/.test(wf) &&
-  !wf.split("\n").some((l) => /npx tsx/.test(l) && /\$\{\{\s*inputs\./.test(l)));
+  !wf.split("\n").some((l) => /(npx tsx|node_modules\/\.bin\/tsx)/.test(l) && /\$\{\{\s*inputs\./.test(l)));
 check("permissions contents: read", /permissions:\s*\n\s*contents:\s*read/.test(wf));
 
 section("Not a product / HTTP surface");
