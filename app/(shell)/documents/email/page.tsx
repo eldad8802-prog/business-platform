@@ -343,11 +343,13 @@ export default function EmailDocumentsPage() {
     <div dir="rtl" style={pageStyle}>
       <PageContainer
         intent="focused"
-        className={connected ? "dz-doc-wide" : undefined}
+        className={connected ? "dz-doc-wide" : "dz-email-off"}
         style={{ paddingBlock: "14px 40px" }}
       >
         <Header onBack={() => router.push("/documents")} />
 
+        <div className={connected ? "dz-email-desk" : "dz-email-connect"}>
+        <div className="dz-email-side">
         <section
           style={{
             ...bandStyle,
@@ -456,10 +458,30 @@ export default function EmailDocumentsPage() {
             חבר Gmail
           </button>
         ) : null}
+        </div>
+        <div className="dz-email-main">
+        {!connected ? (
+          <section className="dz-email-explain" style={accountsCardStyle}>
+            <div style={accountsTitleStyle}>מה החיבור עושה</div>
+            <p style={{ margin: 0, color: TOKEN.ink.muted, lineHeight: 1.6 }}>
+              סריקה מאתרת קבצים מצורפים. ייבוא מריץ OCR ומעביר את המסמך לתור האימות — בלי לאשר אותו אוטומטית.
+            </p>
+          </section>
+        ) : null}
 
         {connected ? (<>
 
-        <div style={subStyle}>קבצים מצורפים שזוהו · ייבוא יריץ OCR ויעביר לתור האימות</div>
+        <div style={{ ...subStyle, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+          <span>קבצים מצורפים שזוהו · ייבוא יריץ OCR ויעביר לתור האימות</span>
+          <button
+            type="button"
+            className="dz-email-import"
+            disabled={importing || importable.length === 0}
+            onClick={() => void importSelected()}
+          >
+            {importing ? "מייבא..." : `ייבא הכל (${importable.length.toLocaleString("he-IL")})`}
+          </button>
+        </div>
 
         {loading ? <div style={emptyStyle}>סורק מיילים...</div> : null}
 
@@ -520,9 +542,62 @@ export default function EmailDocumentsPage() {
             );
           })}
         </section> : null}
+        {connected ? (
+          <section className="dz-email-table" aria-label="קבצים מצורפים">
+            <table>
+              <thead>
+                <tr>
+                  <th>קובץ</th>
+                  <th>מאת</th>
+                  <th>תאריך</th>
+                  <th>פעולה</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((attachment) => {
+                  const status = statusByKey[attachment.key] || "pending";
+                  const canImport = attachment.bucket === "recommended" && status === "pending";
+                  return (
+                    <tr key={attachment.key}>
+                      <td>{attachment.filename || "קובץ ללא שם"}</td>
+                      <td>{attachment.fromEmail || "לא צוין"}</td>
+                      <td>{attachment.sentAt ? formatSentAt(attachment.sentAt) : "—"}</td>
+                      <td>
+                        {canImport ? (
+                          <button
+                            type="button"
+                            disabled={importing}
+                            onClick={() => void importOne(attachment)}
+                            style={smallButtonStyle}
+                          >
+                            קלוט
+                          </button>
+                        ) : (
+                          <span style={pillStyleFor(status, attachment.bucket)}>
+                            {status === "imported"
+                              ? "נקלט · בתור"
+                              : status === "duplicate"
+                                ? "כבר נקלט"
+                                : status === "importing"
+                                  ? "קולט..."
+                                  : status === "failed"
+                                    ? "נכשל"
+                                    : "לא מסמך"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        ) : null}
+        </div>
+        </div>
       </PageContainer>
 
-      {connected ? <div style={bottomBarStyle}>
+      {connected ? <div className="dz-email-bottom" style={bottomBarStyle}>
         <button
           type="button"
           disabled={importing || importable.length === 0}

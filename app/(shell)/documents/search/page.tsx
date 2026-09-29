@@ -67,6 +67,7 @@ export default function DocumentsSearchPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -132,7 +133,7 @@ export default function DocumentsSearchPage() {
   if (!mounted || !authHeader) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>          <Header onBack={() => router.push("/documents")} />
+        <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>          <Header onBack={() => router.push("/documents")} />
           <div style={emptyStyle}>טוען...</div>
         </PageContainer>
       </div>
@@ -141,7 +142,7 @@ export default function DocumentsSearchPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>        <Header onBack={() => router.push("/documents")} />
+      <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>        <Header onBack={() => router.push("/documents")} />
 
         <label style={searchStyle}>
           <SearchIcon />
@@ -176,6 +177,8 @@ export default function DocumentsSearchPage() {
 
         {error ? <div style={errorStyle}>{error}</div> : null}
 
+        <div className="dz-search-desk">
+        <div>
         {!loading && !error && results.length === 0 ? (
           <section style={emptyStyle}>לא נמצאו מסמכים מאושרים לתצוגה.</section>
         ) : null}
@@ -208,11 +211,13 @@ export default function DocumentsSearchPage() {
             <tbody>
               {results.map((item) => {
                 const category = CATEGORY_MAP[item.category] || item.category || "כללי";
-                const open = Number.isFinite(item.documentId)
-                  ? () => router.push(`/documents/review/${item.documentId}`)
-                  : undefined;
                 return (
-                  <tr key={item.id} onClick={open} style={{ cursor: open ? "pointer" : "default" }}>
+                  <tr
+                    key={item.id}
+                    className={item.id === selectedId ? "is-selected" : undefined}
+                    onClick={() => setSelectedId(item.id)}
+                    style={{ cursor: "pointer" }}
+                  >
                     <td>{item.vendorName || "ללא ספק"}</td>
                     <td>{formatDate(item.date)}</td>
                     <td>{category}</td>
@@ -224,7 +229,57 @@ export default function DocumentsSearchPage() {
             </tbody>
           </table>
         </section>
+        </div>
+        <aside className="dz-search-inspector" aria-label="המסמך שנבחר">
+          <SearchInspector
+            item={results.find((item) => item.id === selectedId) ?? null}
+            onOpen={
+              results.some((item) => item.id === selectedId && Number.isFinite(item.documentId))
+                ? () => {
+                    const item = results.find((row) => row.id === selectedId);
+                    if (item) router.push(`/documents/review/${item.documentId}`);
+                  }
+                : undefined
+            }
+          />
+        </aside>
+        </div>
       </PageContainer>    </div>
+  );
+}
+
+function SearchInspector({
+  item,
+  onOpen,
+}: {
+  item: SearchResult | null;
+  onOpen?: () => void;
+}) {
+  if (!item) {
+    return <p>בחרו שורה כדי להשוות ספק, תאריך, קטגוריה וסכום בלי לצאת מהרשימה.</p>;
+  }
+  const category = CATEGORY_MAP[item.category] || item.category || "כללי";
+  return (
+    <>
+      <h2>{item.vendorName || "ללא ספק"}</h2>
+      <dl>
+        <dt>תאריך</dt>
+        <dd>{formatDate(item.date) || "—"}</dd>
+        <dt>קטגוריה</dt>
+        <dd>{category}</dd>
+        <dt>סכום</dt>
+        <dd>{formatAmount(item.amount, item.direction)}</dd>
+        <dt>כיוון</dt>
+        <dd>{item.direction === "income" ? "הכנסה" : item.direction === "expense" ? "הוצאה" : item.direction || "—"}</dd>
+        <dt>סטטוס</dt>
+        <dd>אומת</dd>
+      </dl>
+      {onOpen ? (
+        <button type="button" onClick={onOpen}>
+          פתח מסמך
+        </button>
+      ) : null}
+    </>
   );
 }
 

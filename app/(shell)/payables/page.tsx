@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import {
   CADENCE_LABEL,
   SCHEDULE_LABEL,
@@ -50,6 +52,8 @@ export default function PayablesPage() {
   const [scope, setScope] = useState<"open" | "all">("open");
   // Arriving from "+" opens the form the label promised.
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const desk = useMediaQuery("(min-width: 1200px)");
 
   // Bumped to ask for a reload; the effect below owns every setState, so a
   // response for a scope the owner has already switched away from is discarded
@@ -118,15 +122,22 @@ export default function PayablesPage() {
         </div>
       </header>
 
-      {showForm && (
-        <CommitmentForm
-          onCreated={(id) => {
-            setShowForm(false);
-            router.push(`/payables/${id}`);
-          }}
-        />
-      )}
-
+      <div className={styles.desk}>
+        {showForm ? (
+          <div className={styles.side}>
+            <CommitmentForm
+              onCreated={(id) => {
+                setShowForm(false);
+                router.push(`/payables/${id}`);
+              }}
+            />
+          </div>
+        ) : (
+          <aside className={`${styles.side} ${styles.inspectOnly}`} aria-label="ההתחייבות שנבחרה">
+            <PayableInspector row={rows?.find((row) => row.id === selectedId) ?? rows?.[0] ?? null} />
+          </aside>
+        )}
+        <div className={styles.queue}>
       {error && (
         <div className={styles.error}>
           {error}
@@ -156,8 +167,9 @@ export default function PayablesPage() {
             <button
               key={row.id}
               type="button"
-              className={styles.card}
-              onClick={() => router.push(`/payables/${row.id}`)}
+              className={`${styles.card} ${(selectedId ?? rows[0]?.id) === row.id ? styles.cardSelected : ""}`}
+              onClick={() => (desk ? setSelectedId(row.id) : router.push(`/payables/${row.id}`))}
+              aria-pressed={desk ? (selectedId ?? rows[0]?.id) === row.id : undefined}
             >
               <div className={styles.cardTop}>
                 <span className={styles.cardTitle}>{row.title}</span>
@@ -211,6 +223,43 @@ export default function PayablesPage() {
           ))}
         </div>
       )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PayableInspector({ row }: { row: CommitmentListApi | null }) {
+  if (!row) {
+    return <p className={styles.subtitle}>אין שורה להצגה. התור עצמו נשאר ריק עד שיש התחייבות אמיתית.</p>;
+  }
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardTop}>
+        <span className={styles.cardTitle}>{row.title}</span>
+        <Badge state={row.attention} />
+      </div>
+      <span className={styles.payee}>{row.payeeNameSnapshot}</span>
+      <div className={styles.figures}>
+        <span className={styles.figure}>
+          <span className={styles.figureLabel}>שולם</span>
+          <span className={styles.figureValue}>{formatMoney(row.paid, row.currency)}</span>
+        </span>
+        <span className={styles.figure}>
+          <span className={styles.figureLabel}>נותר</span>
+          <span className={styles.figureValue}>{row.remaining === null ? "—" : formatMoney(row.remaining, row.currency)}</span>
+        </span>
+      </div>
+      <span className={styles.nextLine}>
+        {SCHEDULE_LABEL[row.scheduleKind]}
+        {row.scheduleKind === "INSTALLMENT_PLAN" ? ` · ${row.installmentCount} תשלומים` : ""}
+        {row.next ? ` · הבא ${formatDate(row.next.dueAt)}` : ""}
+      </span>
+      {row.isLegacy ? <p className={styles.subtitle}>הועבר מהמזכירה. זה אינו תשלום שנרשם.</p> : null}
+      <p className={styles.subtitle}>המסמך שמוכיח חיוב נשאר ב<Link href="/billing">חשבוניות</Link>. כאן מנהלים את מהלך התשלום.</p>
+      <div className={styles.formActions}>
+        <Link className={styles.buttonPrimary} href={`/payables/${row.id}`}>פתח את מהלך התשלום</Link>
+      </div>
     </div>
   );
 }

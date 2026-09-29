@@ -11,12 +11,14 @@ import {
   WhatsAppReconnectBanner,
 } from "@/components/inbox/WhatsAppConversationsGate";
 import { InboxConnectedEmptyState } from "@/components/inbox/InboxConnectedEmptyState";
+import { InboxContextPane, InboxStartPane } from "@/components/inbox/InboxDesktopPanels";
 import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import {
   assignInboxWorkCategory,
   countOpenItemsByWorkCategory,
+  INBOX_SIDEBAR_CATEGORY_OPTIONS,
   INBOX_SIDEBAR_LEGACY_OPEN,
   matchesInboxWorkCategory,
   pickDefaultInboxSelection,
@@ -219,6 +221,8 @@ function InboxPageContent() {
     useState<InboxListPhase>("categories");
 
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
+  /** The last conversations load failed, so an empty list is not "no conversations". */
+  const [conversationsLoadFailed, setConversationsLoadFailed] = useState(false);
   /** Full list from GET /api/conversations; undefined = API without `items` (legacy fallback). */
   const [allConversationItems, setAllConversationItems] = useState<
     InboxItemViewModel[] | undefined
@@ -379,6 +383,7 @@ function InboxPageContent() {
         data = await res.json();
       } catch (e) {
         console.error("Invalid conversations JSON response", e);
+        setConversationsLoadFailed(true);
         setAllConversations([]);
         setAllConversationItems(undefined);
         return;
@@ -386,11 +391,13 @@ function InboxPageContent() {
 
       if (!res.ok) {
         console.error("Failed to load conversations", data);
+        setConversationsLoadFailed(true);
         setAllConversations([]);
         setAllConversationItems(undefined);
         return;
       }
 
+      setConversationsLoadFailed(false);
       const all = data.conversations || [];
       setAllConversations(all);
 
@@ -428,6 +435,7 @@ function InboxPageContent() {
       }
     } catch (error) {
       console.error("loadConversations error", error);
+      setConversationsLoadFailed(true);
       setAllConversations([]);
       setAllConversationItems(undefined);
     }
@@ -1039,6 +1047,18 @@ function InboxPageContent() {
     ];
   }, [allConversationItems, dailyContext, sidebarCounts]);
 
+  /** The desktop start pane opens the most pressing open conversation. */
+  const nextConversationItem = useMemo(
+    () =>
+      (allConversationItems ?? [])
+        .filter((item) => item.status === "OPEN")
+        .reduce<InboxItemViewModel | null>(
+          (best, item) => (!best || item.priorityScore > best.priorityScore ? item : best),
+          null
+        ),
+    [allConversationItems]
+  );
+
   const baseActionStyle: React.CSSProperties = {
     minWidth: 0,
     minHeight: 48,
@@ -1110,7 +1130,11 @@ function InboxPageContent() {
   // Connected but no conversations yet → the Inbox's own connected empty state
   // (moment 3) instead of a blank list.
   if (waConnection.phase === "connected" && allConversations.length === 0) {
-    return <InboxConnectedEmptyState />;
+    return (
+      <InboxConnectedEmptyState
+        onRetry={conversationsLoadFailed ? () => void loadConversations() : undefined}
+      />
+    );
   }
 
   const reconnectBanner = waBroken ? (
@@ -1144,6 +1168,8 @@ function InboxPageContent() {
 [data-inbox="${inboxScope}"] .list-frame > .list-desktop { display: none; }
 [data-inbox="${inboxScope}"] .list-frame > .list-mobile { display: block; height: 100%; }
 [data-inbox="${inboxScope}"] .cv-frame { height: 100%; box-sizing: border-box; min-width: 0; }
+[data-inbox="${inboxScope}"] .cv-main { height: 100%; min-width: 0; }
+[data-inbox="${inboxScope}"] .inbox-context { display: none; }
 @media (min-width: ${INBOX_TWO_PANE_STEP}px) {
   [data-inbox="${inboxScope}"] > .inbox-frame { max-width: 1280px; margin: 0 auto; padding: 16px 20px; }
   [data-inbox="${inboxScope}"] .list-frame > .list-desktop {
@@ -1156,6 +1182,58 @@ function InboxPageContent() {
     margin-inline-start: 14px;
     background: var(--dz-surface); border: 1px solid rgba(52, 60, 50, 0.08); border-radius: 22px;
     box-shadow: 0 8px 24px rgba(52, 60, 50, 0.05); overflow: hidden;
+  }
+}
+/* Desktop workspace. The shell does not bound its content height on desktop,
+   so the Inbox takes the viewport itself and each pane scrolls on its own. */
+@media (min-width: 1200px) {
+  /* Minus the shell's 32px bottom padding, so the window itself never scrolls
+     (a thread scrolling to its last message used to pull the page up). */
+  [data-inbox="${inboxScope}"] { height: calc(100dvh - 32px); }
+}
+/* The start pane shows wherever the thread pane does (two-pane and up); the
+   summary cards wrap when that pane is narrow. */
+@media (min-width: ${INBOX_TWO_PANE_STEP}px) {
+  [data-inbox="${inboxScope}"] .inbox-start { padding: 24px; }
+  [data-inbox="${inboxScope}"] .inbox-start h2 { margin: 0; font-size: 20px; font-weight: 850; color: var(--dz-text-primary); }
+  [data-inbox="${inboxScope}"] .inbox-start > p { margin: 6px 0 20px; font-size: 14px; line-height: 1.55; color: var(--dz-text-muted); }
+  [data-inbox="${inboxScope}"] .inbox-start-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  [data-inbox="${inboxScope}"] .inbox-start-card {
+    display: flex; flex-direction: column; gap: 6px; padding: 14px 15px; border-radius: 18px;
+    border: 1px solid var(--dz-border); background: var(--dz-surface-muted); min-width: 0;
+  }
+  [data-inbox="${inboxScope}"] .inbox-start-card b { font-size: 26px; line-height: 1; color: var(--dz-text-primary); }
+  [data-inbox="${inboxScope}"] .inbox-start-label { font-size: 12.5px; font-weight: 800; color: var(--dz-text-secondary); }
+  [data-inbox="${inboxScope}"] .inbox-start-helper { font-size: 12px; line-height: 1.4; color: var(--dz-text-muted); }
+  [data-inbox="${inboxScope}"] .inbox-start-open {
+    margin-top: 16px; width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; border-radius: 16px; border: 1px solid var(--dz-brand); background: var(--dz-brand-soft);
+    color: var(--dz-brand); font: inherit; font-size: 14px; text-align: right; cursor: pointer;
+  }
+  [data-inbox="${inboxScope}"] .inbox-start-open b { color: var(--dz-text-primary); }
+}
+/* Wide: the conversation context stays in view beside the thread. */
+@media (min-width: 1600px) {
+  [data-inbox="${inboxScope}"] > .inbox-frame { max-width: 1560px; }
+  [data-inbox="${inboxScope}"] .cv-frame:has(.inbox-context) { display: grid; grid-template-columns: minmax(0, 1fr) 280px; }
+  [data-inbox="${inboxScope}"] .inbox-context {
+    display: block; overflow: auto; padding: 20px 18px; border-inline-start: 1px solid rgba(52, 60, 50, 0.08);
+    background: var(--dz-surface-muted);
+  }
+  [data-inbox="${inboxScope}"] .inbox-context h2 { margin: 0 0 12px; font-size: 16px; font-weight: 850; color: var(--dz-text-primary); overflow-wrap: anywhere; }
+  [data-inbox="${inboxScope}"] .inbox-context dl { margin: 0; }
+  [data-inbox="${inboxScope}"] .inbox-context dl > div { padding: 9px 0; border-top: 1px solid var(--dz-border-subtle); }
+  [data-inbox="${inboxScope}"] .inbox-context dt { font-size: 12px; color: var(--dz-text-muted); }
+  [data-inbox="${inboxScope}"] .inbox-context dd { margin: 2px 0 0; font-size: 14px; font-weight: 700; color: var(--dz-text-primary); }
+  [data-inbox="${inboxScope}"] .inbox-context-next {
+    margin-top: 14px; padding: 12px; border-radius: 14px; background: var(--dz-surface); border: 1px solid var(--dz-border);
+    display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dz-text-muted);
+  }
+  [data-inbox="${inboxScope}"] .inbox-context-next b { font-size: 14px; color: var(--dz-brand); }
+  [data-inbox="${inboxScope}"] .inbox-context-next p { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; }
+  [data-inbox="${inboxScope}"] .inbox-context-link {
+    display: inline-flex; min-height: 44px; align-items: center; margin-top: 10px;
+    font-size: 14px; font-weight: 700; color: var(--dz-brand); text-decoration: none;
   }
 }
 `;
@@ -1241,7 +1319,15 @@ function InboxPageContent() {
             }
             end={
               <div className="cv-frame">
+                <div className="cv-main">
                 <ConversationView
+                  emptyState={
+                    <InboxStartPane
+                      cards={desktopSummaryCards}
+                      next={nextConversationItem}
+                      onOpen={handleSelectConversation}
+                    />
+                  }
                   breakpointStep={INBOX_TWO_PANE_STEP}
                   viewMode={detailViewMode}
                   activeConversationId={activeConversationId}
@@ -1271,6 +1357,10 @@ function InboxPageContent() {
                     dangerButtonStyle,
                   }}
                 />
+                </div>
+                {activeConversationId != null ? (
+                  <InboxContextPane item={activeItem} customerId={activeConversation?.customerId} />
+                ) : null}
               </div>
             }
           />
@@ -1370,12 +1460,17 @@ function DesktopFocusTabs({
     return fallbackCounts.byId[id as InboxWorkCategoryId] ?? 0;
   };
 
+  // Labels come from the canonical category list the phone triage uses, so a
+  // tab never reads differently on desktop (two tabs used to both say
+  // "טיוטות" for different categories).
+  const categoryLabel = (id: InboxWorkCategoryId) =>
+    INBOX_SIDEBAR_CATEGORY_OPTIONS.find((option) => option.id === id)?.label ?? id;
   const focusRows: Array<{ id: InboxSidebarSelection; label: string }> = [
     { id: INBOX_SIDEBAR_LEGACY_OPEN, label: "הכל" },
-    { id: "needs_action", label: "דחוף" },
-    { id: "drafts_ready", label: "טיוטות" },
-    { id: "bot_in_progress", label: "טיוטות" },
-    { id: "hot_leads", label: "חם" },
+    { id: "needs_action", label: categoryLabel("needs_action") },
+    { id: "drafts_ready", label: categoryLabel("drafts_ready") },
+    { id: "bot_in_progress", label: categoryLabel("bot_in_progress") },
+    { id: "hot_leads", label: categoryLabel("hot_leads") },
   ];
 
   return (

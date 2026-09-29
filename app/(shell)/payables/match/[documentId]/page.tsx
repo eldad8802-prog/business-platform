@@ -104,6 +104,8 @@ export default function MatchDocumentPage({
         </div>
       </header>
 
+      <div className={styles.work}>
+      <section>
       <div className={styles.figures}>
         <span className={styles.figure}>
           <span className={styles.figureLabel}>סכום במסמך</span>
@@ -154,6 +156,8 @@ export default function MatchDocumentPage({
           התאמה בשם הספק או בתאריך.
         </div>
       )}
+      </section>
+      <section>
 
       <div className={styles.timeline}>
         {data.candidates.map((c) => (
@@ -189,6 +193,8 @@ export default function MatchDocumentPage({
             }
           />
         ))}
+      </div>
+      </section>
       </div>
     </div>
   );

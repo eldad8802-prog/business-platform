@@ -3,7 +3,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import { InventoryStatePanel, SaveBar } from "@/components/inventory/inventory-design";
+import { SaveBar } from "@/components/inventory/inventory-design";
 
 type ImportCsvResponse = {
   success?: boolean;
@@ -88,6 +88,7 @@ export default function SupplierCsvImportPage() {
 
   return (
     <InventorySubPage intent="standard" title="יבוא וזיהוי" backHref="/inventory/supplier-purchases" bottomNav="orders">
+      <div className="inv-desk-workspace inv-import-desk">
       <div className="inv-fwrap">
         <p className="inv-field__help" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
           העלו קובץ CSV מספק כדי ליצור טיוטות הזמנה לבדיקה לפני קליטת מלאי.
@@ -195,6 +196,11 @@ export default function SupplierCsvImportPage() {
             </button>
           </div>
         ) : null}
+      </div>
+      <aside className="inv-ops__side">
+        <h2>לפני שהמלאי משתנה</h2>
+        <p>הקובץ יוצר טיוטות הזמנה. קליטת הסחורה היא הפעולה שמעדכנת מלאי, אחרי בדיקה.</p>
+      </aside>
       </div>
 
       {!result ? (

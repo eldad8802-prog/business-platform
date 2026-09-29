@@ -53,7 +53,7 @@ PILOT_MODELS="conversation customer appointment billingDocument paymentRequest"
 # WITHOUT being listed. That omission is the original defect's exact shape repeating: the tables were
 # FORCE RLS from their first migration and nothing checked that the code reached them through a tenant
 # transaction. They did, as it happens. Nothing was proving it.
-KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent knowledgeMeasure knowledgeMeasureEvidenceLink temporalKnowledge businessInsight entityLinkProposal collectionAction party partyResolutionClaim outcomeRecommendation outcomeDecision outcomeActionEvent outcomeObservation outcomeAssessment"
+KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent knowledgeMeasure knowledgeMeasureEvidenceLink temporalKnowledge businessInsight entityLinkProposal collectionAction party partyResolutionClaim outcomeRecommendation outcomeDecision outcomeActionEvent outcomeObservation outcomeAssessment knowledgeDerivationRun"
 
 # Runtime trees that must never touch a pilot model through the global client.
 TENANT_TREES="app lib features components"

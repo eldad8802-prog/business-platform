@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
-import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
@@ -203,7 +202,6 @@ export default function ContentFormatPage() {
             <div style={topBarSpacerStyle} />
           </div>
 
-          <Header title="סוג תוכן ופלטפורמה" />
           <ProgressBar progress={62} />
 
           <div style={loadingWrapStyle}>
@@ -228,7 +226,6 @@ export default function ContentFormatPage() {
           <div style={topBarSpacerStyle} />
         </div>
 
-        <Header title="סוג תוכן ופלטפורמה" />
         <ProgressBar progress={62} />
 
         <div style={contentAreaStyle}>

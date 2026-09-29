@@ -13,8 +13,10 @@ import {
   IconScan,
   IconTruck,
 } from "@/components/inventory/home/home-icons";
+import { getStockTone } from "@/components/inventory/inventory-design";
 import {
   deriveHomeSummary,
+  getAttentionReadout,
   getGreeting,
   selectAttentionItems,
 } from "@/components/inventory/home/home-logic";
@@ -37,6 +39,7 @@ export default function InventoryHomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   async function loadItems() {
     try {
@@ -109,37 +112,43 @@ export default function InventoryHomePage() {
           <HomeError onRetry={() => void loadItems()} />
         ) : (
           <>
-            <InventoryHero stockValue={summary.stockValue} activeCount={summary.activeCount} empty={isEmpty} />
-
             {isEmpty ? (
               <>
-                <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
-                  <h2>פעולות מהירות</h2>
+              <InventoryHero stockValue={summary.stockValue} activeCount={summary.activeCount} empty />
+              <div className="inv-hm-empty-desk">
+                <div>
+                  <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
+                    <h2>פעולות מהירות</h2>
+                  </div>
+                  <QuickActionsGrid actions={quickActions} />
                 </div>
-                <QuickActionsGrid actions={quickActions} />
-
-                <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.22s" }}>
-                  <h2>המלאי שלך</h2>
+                <div>
+                  <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.22s" }}>
+                    <h2>המלאי שלך</h2>
+                  </div>
+                  <HomeEmpty onCreate={() => router.push("/inventory/items/create")} />
                 </div>
-                <HomeEmpty onCreate={() => router.push("/inventory/items/create")} />
+              </div>
               </>
             ) : (
               <>
-                <StockHealthCard
-                  okCount={summary.okCount}
-                  lowCount={summary.lowCount}
-                  criticalCount={summary.criticalCount}
-                  total={summary.activeCount}
-                  onOk={() => router.push("/inventory/items")}
-                  onLow={() => router.push("/inventory/alerts")}
-                  onCritical={() => router.push("/inventory/alerts")}
-                />
-
-                <div className="inv-hm-actions">
-                <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
-                  <h2>פעולות מהירות</h2>
-                </div>
-                <QuickActionsGrid actions={quickActions} />
+                <div className="inv-hm-side">
+                  <InventoryHero stockValue={summary.stockValue} activeCount={summary.activeCount} empty={false} />
+                  <StockHealthCard
+                    okCount={summary.okCount}
+                    lowCount={summary.lowCount}
+                    criticalCount={summary.criticalCount}
+                    total={summary.activeCount}
+                    onOk={() => router.push("/inventory/items")}
+                    onLow={() => router.push("/inventory/alerts")}
+                    onCritical={() => router.push("/inventory/alerts")}
+                  />
+                  <div className="inv-hm-actions">
+                    <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
+                      <h2>פעולות מהירות</h2>
+                    </div>
+                    <QuickActionsGrid actions={quickActions} />
+                  </div>
                 </div>
 
                 <div className="inv-hm-attn">
@@ -157,7 +166,15 @@ export default function InventoryHomePage() {
                     הכול תקין · אין פריטים שדורשים טיפול
                   </div>
                 ) : (
-                  <AttentionList items={visibleAttention} onSelect={(id) => router.push(`/inventory/items/${id}`)} />
+                  <>
+                    <AttentionList items={visibleAttention} onSelect={(id) => router.push(`/inventory/items/${id}`)} />
+                    <HomeAttentionDesk
+                      items={attentionItems}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      onOpen={(id) => router.push(`/inventory/items/${id}`)}
+                    />
+                  </>
                 )}
                 </div>
               </>
@@ -165,6 +182,71 @@ export default function InventoryHomePage() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function HomeAttentionDesk({
+  items,
+  selectedId,
+  onSelect,
+  onOpen,
+}: {
+  items: InventoryItemDTO[];
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+  onOpen: (id: number) => void;
+}) {
+  const selected = items.find((item) => item.id === selectedId) ?? null;
+  const readout = selected ? getAttentionReadout(selected) : null;
+  const tone = selected ? getStockTone(selected) : null;
+  return (
+    <div className="inv-hm-attn-desk">
+      <div className="inv-hm-attn-table">
+        <table>
+          <thead>
+            <tr>
+              <th>פריט</th>
+              <th>מצב</th>
+              <th>כמות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const itemTone = getStockTone(item);
+              const row = getAttentionReadout(item);
+              return (
+                <tr
+                  key={item.id}
+                  className={item.id === selectedId ? "is-selected" : undefined}
+                  onClick={() => onSelect(item.id)}
+                >
+                  <td>{item.name}</td>
+                  <td>{itemTone === "critical" ? "קריטי" : "נמוך"}</td>
+                  <td><bdi>{row.current} / {row.target}</bdi></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <aside className="inv-hm-attn-side">
+        {selected && readout ? (
+          <>
+            <strong>{selected.name}</strong>
+            <p style={{ margin: 0, color: "var(--inv-text-muted)", fontSize: 13 }}>
+              {tone === "critical" ? "מלאי קריטי" : "מלאי נמוך"} · <bdi>{readout.current} מתוך {readout.target}</bdi>
+            </p>
+            <button type="button" className="inv-btn-primary" onClick={() => onOpen(selected.id)}>
+              פתיחת הפריט
+            </button>
+          </>
+        ) : (
+          <p style={{ margin: 0, color: "var(--inv-text-muted)", fontSize: 13 }}>
+            בחרו פריט כדי לראות כמה חסר ומה אפשר לעשות.
+          </p>
+        )}
+      </aside>
     </div>
   );
 }

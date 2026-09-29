@@ -116,13 +116,15 @@ export default function AccountantPackPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="standard" style={{ paddingBlock: "14px 40px" }}>
-        <header style={headStyle}>
+      <PageContainer intent="standard" className="dz-pack" style={{ paddingBlock: "14px 40px" }}>
+        <div className="dz-pack-desk">
+        <header className="dz-pack-span" style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>חבילת רו״ח</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
+        <div>
         <section>
           <div style={labelStyle}>תקופה</div>
           <div style={segStyle}>
@@ -180,8 +182,9 @@ export default function AccountantPackPage() {
             ))}
           </div>
         </section>
-
-        <section style={{ marginTop: 18 }}>
+        </div>
+        <aside className="dz-pack-side">
+        <section>
           <div style={labelStyle}>מה ייכלל בחבילה</div>
           <div style={summaryCardStyle}>
             <div style={summaryRowStyle}>
@@ -208,9 +211,20 @@ export default function AccountantPackPage() {
         ) : null}
 
         {error ? <div style={errorStyle}>{error}</div> : null}
+        <button
+          type="button"
+          className="dz-pack-download"
+          disabled={loading}
+          onClick={() => void handleDownload()}
+          style={{ ...downloadButtonStyle, display: "none", opacity: loading ? 0.7 : 1 }}
+        >
+          {loading ? "מכין חבילה..." : "הורד חבילה (ZIP)"}
+        </button>
+        </aside>
+        </div>
       </PageContainer>
 
-      <div style={bottomBarStyle}>
+      <div className="dz-pack-bottom" style={bottomBarStyle}>
         <button
           type="button"
           disabled={loading}

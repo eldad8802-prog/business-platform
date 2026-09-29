@@ -277,6 +277,8 @@ export default function Dashboard() {
           </p>
         </section>
 
+        <div className="dz-report-layout">
+        <div className="dz-report-side">
         {/* Period selector */}
         <div style={card}>
           <div style={cardHeaderRow}>
@@ -315,15 +317,16 @@ export default function Dashboard() {
 
           <div style={{ ...cardSubText, marginTop: 10 }}>{periodLabel}</div>
         </div>
+        </div>
+        <div className="dz-report-main">
 
         {/* Loading / error states (kept inline so the period card stays visible) */}
         {loading ? <DocumentsDashboardSkeleton /> : null}
         {error ? <div style={alertError}>{error}</div> : null}
 
-        <div className="dz-report-grid">
         {/* Summary metrics */}
         {!loading && !error && data ? (
-          <div className="dz-report-span" style={card}>
+          <div style={card}>
             <div style={cardHeaderRow}>
               <div style={iconWrap} aria-hidden>
                 📊
@@ -472,6 +475,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : null}
+        </div>
         </div>
 
         {/* Accountant CTA — surface the existing wizard prominently from the

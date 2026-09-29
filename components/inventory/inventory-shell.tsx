@@ -685,6 +685,9 @@ export const inventoryShellCss = `
     .inv-header-logo { justify-self: center !important; }
     .inv-hamburger { display: inline-flex !important; }
   }
+  @media (min-width: 1200px) {
+    .inv-header-inner { max-width: none !important; padding-inline: 32px !important; }
+  }
 
   .inv-greeting--default {
     display: flex;

@@ -136,19 +136,28 @@ export function CollectionCreateScreen() {
       : "";
 
   return (
-    <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto", display: "grid", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div dir="rtl" className="col-create" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
+      <style>{`
+        .col-create { max-width: 560px; margin: 0 auto; display: grid; gap: 16px; }
+        .col-create__aside { display: none; }
+        @media (min-width: 1200px) {
+          .col-create { max-width: none; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 400px); align-items: start; column-gap: 28px; padding: 28px 32px 48px; }
+          .col-create__head, .col-create__span { grid-column: 1 / -1; }
+          .col-create__aside { display: grid; gap: 8px; align-content: start; position: sticky; top: 16px; background: #fff; border: 1px solid rgba(52,60,50,0.08); border-radius: 16px; padding: 16px; }
+        }
+      `}</style>
+        <div className="col-create__head" style={{ display: "grid", gap: 8 }}>
           <Link href="/collection" style={{ color: W.muted, textDecoration: "none", fontSize: 14 }}>→ גבייה</Link>
+          <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>
+            {created ? "הבקשה מוכנה — איך לשלוח?" : thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
+          </h1>
         </div>
-        <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>
-          {created ? "הבקשה מוכנה — איך לשלוח?" : thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
-        </h1>
 
-        {error ? <WarmCard><p role="alert" style={{ margin: 0, color: W.clay }}>{error}</p></WarmCard> : null}
+        {error ? <div className="col-create__span"><WarmCard><p role="alert" style={{ margin: 0, color: W.clay }}>{error}</p></WarmCard></div> : null}
 
         {readiness && !readiness.ready ? (
-          readiness.blockers.map((b) => {
+          <div className="col-create__span" style={{ display: "grid", gap: 16 }}>
+          {readiness.blockers.map((b) => {
             const t = BLOCKER_TEXT[b as BlockerCode];
             return (
               <WarmCard key={b}>
@@ -157,10 +166,12 @@ export function CollectionCreateScreen() {
                 <WarmButton onClick={() => router.push(t.href)}>{t.cta}</WarmButton>
               </WarmCard>
             );
-          })
+          })}
+          </div>
         ) : !readiness ? (
-          <p style={{ color: W.muted }}>בודק…</p>
+          <p className="col-create__span" style={{ color: W.muted }}>בודק…</p>
         ) : created ? (
+          <>
           <WarmCard>
             <p style={{ margin: 0, color: W.ink, fontSize: 16 }}>
               בקשת תשלום של <strong>{money(created.amount, created.currency)}</strong> מ{thread?.customer.name} נוצרה.
@@ -216,11 +227,29 @@ export function CollectionCreateScreen() {
               <WarmButton variant="text" onClick={() => router.push(`/collection/c/${thread?.customer.id}?request=${created.id}`)}>סיום — לתיק הלקוח</WarmButton>
             </div>
           </WarmCard>
+          <aside className="col-create__aside">
+            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>לפני השליחה</h2>
+            <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>
+              {thread?.customer.name} · {money(created.amount, created.currency)}
+              {invoice?.number ? ` · חשבונית ${invoice.number}` : " · בלי חשבונית"}
+            </p>
+            <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>
+              השליחה לא מסמנת את התשלום כשולם. Dubiz רואה תשלום רק אחרי אימות ספק הסליקה.
+            </p>
+          </aside>
+          </>
         ) : !thread ? (
+          <>
           <WarmCard>
             <CustomerPicker onPick={(c) => setCustomerId(c.id)} />
           </WarmCard>
+          <aside className="col-create__aside">
+            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>מה רואים לפני יצירה</h2>
+            <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>הלקוח, החשבוניות הפתוחות, והסכום. הבקשה נוצרת רק אחרי לחיצה מפורשת.</p>
+          </aside>
+          </>
         ) : (
+          <>
           <WarmCard>
             <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
               <legend style={{ fontWeight: 700, color: W.ink, marginBottom: 6 }}>על מה?</legend>
@@ -244,7 +273,13 @@ export function CollectionCreateScreen() {
                 <span>תשלום שלא קשור לחשבונית</span>
               </label>
             </fieldset>
-
+            {thread.totals ? (
+              <p style={{ margin: "12px 0 0", color: W.muted, fontSize: 13 }}>
+                יתרה פתוחה {money(thread.totals.outstanding, thread.totals.currency ?? "ILS")}
+              </p>
+            ) : null}
+          </WarmCard>
+          <WarmCard>
             {target ? (
               <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
                 <label htmlFor="amount" style={{ fontWeight: 700, color: W.ink }}>כמה לגבות? ({currencySymbol(currency)})</label>
@@ -270,8 +305,8 @@ export function CollectionCreateScreen() {
               <WarmButton variant="text" onClick={() => { setCustomerId(null); setTarget(null); setAmount(""); }}>לקוח אחר</WarmButton>
             </div>
           </WarmCard>
+          </>
         )}
-      </div>
     </div>
   );
 }

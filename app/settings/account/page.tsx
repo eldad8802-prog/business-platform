@@ -1,9 +1,10 @@
 import BackButton from "@/components/ui/back-button";
 import { DeleteAccountSection } from "@/components/settings/DeleteAccountSection";
+import styles from "../settings-desk.module.css";
 
 export default function AccountPrivacySettingsPage() {
   return (
-    <>
+    <div className={styles.focused}>
       <header className="mb-5 rounded-3xl dz-mist px-4 py-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <BackButton href="/settings" label="חזרה להגדרות" />
@@ -13,8 +14,7 @@ export default function AccountPrivacySettingsPage() {
           <div className="h-11 min-w-[44px]" aria-hidden />
         </div>
       </header>
-
       <DeleteAccountSection />
-    </>
+    </div>
   );
 }

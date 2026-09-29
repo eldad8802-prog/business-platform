@@ -2,10 +2,11 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { AccountSummaryCard } from "@/components/settings/AccountSummaryCard";
 import { LogoutButton } from "@/components/settings/LogoutButton";
+import styles from "../settings-desk.module.css";
 
 export default function SettingsAccountPage() {
   return (
-    <>
+    <div className={styles.focused}>
       <SettingsSubPageHeader title="החשבון שלי" />
       <div className="mb-4">
         <AccountSummaryCard />
@@ -16,6 +17,6 @@ export default function SettingsAccountPage() {
           <LogoutButton />
         </div>
       </SettingsSection>
-    </>
+    </div>
   );
 }

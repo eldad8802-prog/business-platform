@@ -33,6 +33,9 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
   const group = TOOL_GROUPS.find((g) => g.key === groupKey)!;
   const tools = toolsInGroup(groupKey);
   const [status, setStatus] = useState<GroupStatus | null>(null);
+  // Desktop keeps what is waiting in this category beside its tools. Null
+  // until the same business-status read that sets the chip has answered.
+  const [waiting, setWaiting] = useState<BusinessStatusItem[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +53,13 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((json: { items?: BusinessStatusItem[] } | null) => {
-        if (!cancelled && json?.items) setStatus(groupStatus(json.items, group.domains));
+        if (cancelled || !json?.items) return;
+        setStatus(groupStatus(json.items, group.domains));
+        setWaiting(
+          json.items
+            .filter((item) => (group.domains as string[]).includes(item.domain))
+            .sort((a, b) => b.priorityScore - a.priorityScore)
+        );
       })
       .catch(() => {
         /* the chip stays a skeleton */
@@ -95,6 +104,8 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
           </div>
         </header>
 
+        <div className="cbody">
+        <div className="cmain">
         <h2 className="clabel" id="cat-tools">הכלים בתחום</h2>
         <ul className="clist" aria-labelledby="cat-tools">
           {tools.map((tool) => (
@@ -114,6 +125,29 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
             </li>
           ))}
         </ul>
+        </div>
+
+        {/* Desktop only: the items behind the status chip, each opening its own screen. */}
+        {waiting ? (
+          <aside className="cwait" aria-labelledby="cat-waiting">
+            <h2 className="clabel" id="cat-waiting">מחכה עכשיו</h2>
+            {waiting.length > 0 ? (
+              <ul>
+                {waiting.slice(0, 6).map((item) => (
+                  <li key={item.itemId}>
+                    <Link href={item.primaryAction.href} className="cwait-row">
+                      <span>{item.title}</span>
+                      <span aria-hidden>←</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="cwait-clear">אין כרגע משהו שמחכה בתחום הזה.</p>
+            )}
+          </aside>
+        ) : null}
+        </div>
       </div>
     </main>
   );
@@ -187,5 +221,23 @@ const CATEGORY_CSS = `
 @media (min-width:1024px){
   .dzcat{padding:calc(12px + var(--dz-safe-top,0px)) 32px 32px}
   .dzcat .cwrap{max-width:960px}
+}
+
+/* Desktop: the tools beside what is waiting in the category, so the owner
+   sees why the chip says what it says without leaving the screen. */
+.dzcat .cwait{display:none}
+@media (min-width:1200px){
+  .dzcat .cwrap{max-width:1180px}
+  .dzcat .cbody{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;align-items:start}
+  .dzcat .cmain{min-width:0}
+  .dzcat .cwait{display:block;position:sticky;top:16px}
+  .dzcat .cwait ul{list-style:none;margin:0;padding:6px;display:grid;gap:4px;border-radius:20px;
+    background:var(--dz-surface);border:1px solid var(--dz-border);box-shadow:var(--dz-shadow-card)}
+  .dzcat .cwait-row{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:48px;
+    padding:10px 12px;border-radius:14px;font-size:14px;font-weight:600;color:var(--dz-text-primary)}
+  .dzcat .cwait-row:hover{background:var(--dz-control-hover)}
+  .dzcat .cwait-row:focus-visible{outline:3px solid var(--ct-a);outline-offset:-3px}
+  .dzcat .cwait-clear{margin:0;padding:16px;border-radius:20px;background:var(--dz-surface);border:1px solid var(--dz-border);
+    font-size:14px;line-height:1.5;color:var(--dz-text-secondary)}
 }
 `;

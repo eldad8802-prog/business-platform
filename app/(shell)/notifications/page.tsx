@@ -17,7 +17,7 @@ import { NotificationCenter } from "@/components/notifications/notification-cent
  */
 export default function NotificationsPage() {
   return (
-    <PageContainer intent="focused">
+    <PageContainer intent="focused" className="notif-page">
       <NotificationCenter />
     </PageContainer>
   );

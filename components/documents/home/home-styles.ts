@@ -183,7 +183,7 @@ export function homeCss(): string {
 
   /* Desktop workspace — hidden until the shell has room for a real composition.
      Mobile DOM order (pulse → capture → stations) is unchanged. */
-  .dz-docs-deskhead,.dz-docs-kpis,.dz-docs-table{display:none;}
+  .dz-docs-deskhead,.dz-docs-kpis,.dz-docs-table,.dz-docs-work{display:none;}
   .dz-docs-main{display:contents;}
 
   @media (min-width:1200px){
@@ -255,11 +255,44 @@ export function homeCss(): string {
     }
     .dz-pulse{display:none;}
     .dz-docs-main{grid-area:main;display:flex;flex-direction:column;gap:12px;min-width:0;}
-    .dz-hero{grid-area:aside;margin-top:0;position:sticky;top:16px;}
+    .dz-docs-home__content > .dz-hero{
+      grid-area:aside;
+      grid-column:2;
+      grid-row:3;
+      margin-top:0;
+      position:sticky;
+      top:16px;
+    }
+    .dz-docs-work,.dz-docs-work > *{min-width:0;}
     .dz-hero__title{font-size:22px;}
     .dz-cta-row,.dz-hero__imports{grid-template-columns:1fr;}
     .dz-docs-main .dz-sec-title{margin-top:0;}
     .dz-docs-main .dz-stations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
+    .dz-docs-main .dz-station{padding:10px 12px;}
+    .dz-docs-main .dz-station__ico{width:32px;height:32px;}
+    .dz-docs-work{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(260px,320px);
+      gap:12px;
+      align-items:start;
+    }
+    .dz-docs-inspector{
+      position:sticky;top:16px;
+      background:${T.surface.card};
+      border:1px solid ${T.border.DEFAULT};
+      border-radius:${T.radius.card}px;
+      padding:16px;
+      box-shadow:${T.shadow.elevated};
+    }
+    .dz-docs-inspector h2{margin:0 0 8px;font-size:18px;color:${T.ink.primary};}
+    .dz-docs-inspector p{margin:0;color:${T.ink.muted};font-size:${T.font.body}px;line-height:1.5;}
+    .dz-docs-inspector dl{margin:12px 0 0;display:grid;grid-template-columns:auto 1fr;gap:8px 12px;font-size:${T.font.body}px;}
+    .dz-docs-inspector dt{color:${T.ink.meta};}
+    .dz-docs-inspector button{
+      margin-top:14px;width:100%;height:44px;border:none;border-radius:${T.radius.button}px;
+      background:${T.brand.gradient};color:${T.ink.inverse};font:inherit;font-weight:${T.weight.semibold};cursor:pointer;
+    }
+    .dz-docs-table tr.is-selected td{background:${T.surface.inset};}
     .dz-docs-table{
       display:block;
       background:${T.surface.card};
@@ -293,6 +326,10 @@ export function homeCss(): string {
   }
   @media (min-width:1440px){
     .dz-docs-home__content{grid-template-columns:minmax(0,1fr) 320px;padding-inline:40px !important;}
+  }
+  @media (min-width:1600px){
+    .dz-docs-home__content{grid-template-columns:minmax(0,1fr) 340px;}
+    .dz-docs-work{grid-template-columns:minmax(0,1fr) minmax(300px,380px);}
   }
   `;
 }

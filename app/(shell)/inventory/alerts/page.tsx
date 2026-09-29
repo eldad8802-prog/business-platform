@@ -79,6 +79,37 @@ function detailFor(alert: Alert): string {
   return "";
 }
 
+function AlertInspector({
+  alert,
+  busy,
+  onResolve,
+}: {
+  alert: Alert | null;
+  busy: boolean;
+  onResolve: (id: number) => void;
+}) {
+  if (!alert) {
+    return (
+      <aside className="inv-ops__side">
+        <h2>התראה</h2>
+        <p>בחרו התראה כדי לראות את הפריט ולסמן שטופל.</p>
+      </aside>
+    );
+  }
+  const m = metaForType(alert.type);
+  return (
+    <aside className="inv-ops__side">
+      <h2>{m.title}</h2>
+      <p>{alert.item?.name || "ללא פריט משויך"}</p>
+      <p>{detailFor(alert) || m.badge}</p>
+      <p>{relativeTime(alert.createdAt) || "זמן לא ידוע"}</p>
+      <button type="button" className="inv-btn-primary" disabled={busy} onClick={() => onResolve(alert.id)}>
+        {busy ? "סוגר…" : "טופל"}
+      </button>
+    </aside>
+  );
+}
+
 function ResolveButton({ onClick, busy }: { onClick: () => void; busy: boolean }) {
   return (
     <button
@@ -105,6 +136,7 @@ export default function InventoryAlertsPage() {
   const [error, setError] = useState<string | null>(null);
   const [cat, setCat] = useState<Category>("all");
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   async function load() {
     try {
@@ -186,6 +218,7 @@ export default function InventoryAlertsPage() {
         </div>
       ) : (
         <>
+        <div className="inv-ops">
         <div className="inv-desk-table" aria-label="התראות">
           <table>
             <thead>
@@ -194,28 +227,32 @@ export default function InventoryAlertsPage() {
                 <th>פריט</th>
                 <th>מתי</th>
                 <th>סטטוס</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {visible.map((alert) => {
                 const m = metaForType(alert.type);
                 return (
-                  <tr key={alert.id}>
+                  <tr
+                    key={alert.id}
+                    className={alert.id === selectedId ? "is-selected" : undefined}
+                    onClick={() => setSelectedId(alert.id)}
+                  >
                     <td>{m.title}</td>
                     <td>{alert.item?.name || detailFor(alert) || "—"}</td>
                     <td>{relativeTime(alert.createdAt) || "—"}</td>
                     <td>{m.badge}</td>
-                    <td>
-                      <button type="button" disabled={busyId === alert.id} onClick={() => void resolve(alert.id)}>
-                        {busyId === alert.id ? "סוגר…" : "טופל"}
-                      </button>
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+        <AlertInspector
+          alert={visible.find((alert) => alert.id === selectedId) ?? null}
+          busy={busyId === selectedId}
+          onResolve={(id) => void resolve(id)}
+        />
         </div>
         <div className="inv-rows inv-cards">
           {visible.map((alert) => {

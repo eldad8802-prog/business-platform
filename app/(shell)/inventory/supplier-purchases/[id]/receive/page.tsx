@@ -158,6 +158,7 @@ export default function ReceivingPage() {
         </div>
       ) : (
         <>
+          <div className="inv-desk-workspace inv-receive-desk">
           <div className="inv-olines">
             {lines.map((line) => {
               const rec = received[line.id] ?? 0;
@@ -204,7 +205,16 @@ export default function ReceivingPage() {
             })}
           </div>
 
-          <div className="inv-fwrap">
+          <aside className="inv-ops__side">
+            <h2>קליטה</h2>
+            <p>{stats.full} פריטים מלאים · {stats.partial} חלקי</p>
+            <p>{stats.totalReceived} ייכנסו למלאי. האישור נשאר חלון נפרד כי הקליטה מעדכנת מלאי.</p>
+            <input className="inv-input" placeholder="הערת קבלה (אופציונלי)" value={note} onChange={(e) => setNote(e.target.value)} />
+            {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
+          </aside>
+          </div>
+
+          <div className="inv-fwrap inv-receive-note">
             <input className="inv-input" placeholder="הערת קבלה (אופציונלי)" value={note} onChange={(e) => setNote(e.target.value)} />
             {error ? <div className="inv-alert inv-alert--error" style={{ marginTop: 12 }}>{error}</div> : null}
           </div>

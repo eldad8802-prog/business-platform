@@ -346,4 +346,9 @@ export const orderWizardCss = `
     grid-template-columns: 42px minmax(0, 1fr) 60px 70px 90px;
   }
 }
+@media (min-width: 1200px) {
+  [data-inventory-subpage]:has([data-order-wizard]) .inv-subpage-main {
+    max-width: none;
+  }
+}
 `;

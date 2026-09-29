@@ -121,6 +121,16 @@
      occlusion at 700px height, per the safety-first rule). */
 }
 
+@media (min-width: 1600px) {
+  .reviewMain {
+    max-width: none;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(420px, 520px) minmax(520px, 1fr);
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Preview surface sizing. The soft outer panel + inner card frame the
  * live blob exactly as before; only heights change across tiers. Below

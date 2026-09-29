@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
+import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
 import { getCurrentYearMonthJerusalem } from "@/lib/utils/jerusalem-month-range";
@@ -30,9 +32,40 @@ import MonthSection from "./MonthSection";
 const responsiveCss = `
 .docs-inbox-desktop { display: none; }
 .docs-inbox-mobile { display: flex; flex-direction: column; gap: 8px; }
+.docs-inbox-inspector { display: none; }
 @media (min-width: 1024px) {
   .docs-inbox-desktop { display: block; }
   .docs-inbox-mobile { display: none; }
+}
+@media (min-width: 1200px) {
+  .docs-inbox-page { max-width: none !important; }
+  .docs-inbox-desk {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    gap: 16px;
+    align-items: start;
+  }
+  .docs-inbox-inspector {
+    display: block;
+    position: sticky;
+    top: 16px;
+    background: #fff;
+    border: 1px solid rgba(120, 98, 64, 0.16);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .docs-inbox-inspector h2 { margin: 0 0 8px; font-size: 18px; }
+  .docs-inbox-inspector p { margin: 0; color: #6f685c; line-height: 1.5; }
+  .docs-inbox-inspector dl { margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; }
+  .docs-inbox-inspector dt { color: #8a8478; }
+  .docs-inbox-inspector a {
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 16px; height: 44px; border-radius: 12px;
+    background: #246966; color: #fff; text-decoration: none; font-weight: 600;
+  }
+}
+@media (min-width: 1600px) {
+  .docs-inbox-desk { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
 }
 `;
 
@@ -86,6 +119,8 @@ export default function DocumentsInboxScreen({
     () => items.filter((item) => item.status === "needs_review"),
     [items]
   );
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = pendingItems.find((item) => item.documentId === selectedId) ?? null;
   const monthKeys = useMemo(
     () => groupByMonthDescending(pendingItems),
     [pendingItems]
@@ -126,7 +161,7 @@ export default function DocumentsInboxScreen({
       <style>{responsiveCss}</style>
       {/* Pilot: data intent (Spec v1 §20) — the desktop DataTable finally gets
           the width it was built for instead of a 760px column. */}
-      <PageContainer intent="data" as="main" style={{ paddingBlock: "14px 40px" }}>
+      <PageContainer intent="data" as="main" className="docs-inbox-page" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <BackButton href="/documents" />
           <div style={{ minWidth: 0, textAlign: "center" }}>
@@ -151,7 +186,8 @@ export default function DocumentsInboxScreen({
         {loading && items.length === 0 ? <InboxSkeleton /> : null}
 
         {!loading && !error ? (
-          <>
+          <div className="docs-inbox-desk">
+          <div>
             {monthOptions.length > 1 ? (
               <div style={selectorRowStyle}>
                 <label htmlFor="inbox-month" style={selectorLabelStyle}>
@@ -207,6 +243,8 @@ export default function DocumentsInboxScreen({
                         <DocumentsInboxTable
                           items={monthItems}
                           ariaLabel={`מסמכים לאימות — ${monthKey}`}
+                          selectedId={selectedId}
+                          onRowActivate={(item) => setSelectedId(item.documentId)}
                         />
                       </div>
                       <div className="docs-inbox-mobile">
@@ -234,10 +272,55 @@ export default function DocumentsInboxScreen({
                 {loadingMore ? "טוען..." : "טען עוד"}
               </button>
             ) : null}
-          </>
+          </div>
+          <aside className="docs-inbox-inspector" aria-label="המסמך שנבחר בתור">
+            {selected ? (
+              <InboxInspector item={selected} />
+            ) : (
+              <p>
+                {pendingItems.length === 0
+                  ? `אין מסמכים ממתינים ב${viewedMonthName}.`
+                  : `${monthPending.toLocaleString("he-IL")} ממתינים. בחרו שורה כדי לראות את החילוץ, ואז פתחו לאימות — האישור נשאר במסך הבדיקה.`}
+              </p>
+            )}
+          </aside>
+          </div>
         ) : null}
       </PageContainer>
     </div>
+  );
+}
+
+function InboxInspector({ item }: { item: InboxListItem }) {
+  const vendor = item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
+  const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
+  const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
+  const categoryRaw = item.financial?.category ?? item.extracted?.category ?? "";
+  const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
+  const date = dateIso
+    ? new Date(dateIso).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "—";
+  return (
+    <>
+      <h2>{vendor}</h2>
+      <dl>
+        <dt>תאריך</dt>
+        <dd>{date}</dd>
+        <dt>קטגוריה</dt>
+        <dd>{category}</dd>
+        <dt>סכום</dt>
+        <dd>
+          {amountRaw != null && Number.isFinite(amountRaw)
+            ? `₪${amountRaw.toLocaleString("he-IL")}`
+            : "—"}
+        </dd>
+        <dt>מקור</dt>
+        <dd>{item.source || "—"}</dd>
+        <dt>אישור מהיר</dt>
+        <dd>{item.quickApproveEligible ? "זמין אחרי בדיקה" : "דורש בדיקה"}</dd>
+      </dl>
+      <Link href={`/documents/review/${item.documentId}`}>פתח לאימות</Link>
+    </>
   );
 }
 
