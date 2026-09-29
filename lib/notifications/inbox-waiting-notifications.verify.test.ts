@@ -28,6 +28,8 @@ const CONSUMER = read("lib", "notifications", "inbox-waiting-notifications.ts");
 // M2: the WhatsApp intake processor (the only producer of inbound customer
 // messages besides the dev-only simulator).
 const INTAKE = read("lib", "intake", "whatsapp", "whatsapp-intake.ts");
+// M3: the provider-neutral processor sequences route → enrich → markProcessed.
+const PROCESSOR = read("lib", "intake", "core", "processor.ts");
 const MESSAGE_ROUTE = read("app", "api", "message", "route.ts");
 const CLOSE_A = read("app", "api", "conversation", "[id]", "route.ts");
 const CLOSE_B = read("app", "api", "conversation", "[id]", "close", "route.ts");
@@ -116,15 +118,25 @@ console.log("\nOpening producer sits after the commit");
   // catch below and must not sync: nothing settled, and the receipt is retried.
   check("there is exactly one sync call in the intake",
     (code.match(/syncInboxWaitingNotifications\(/g) ?? []).length === 1);
+  // M3: the sync lives in the WhatsApp adapter's enrich(); the processor calls
+  // enrich() inside its try, after PERSISTED and before PROCESSED. A failure in
+  // enrich() lands in the processor's catch, which never calls enrich again.
+  const proc = stripComments(PROCESSOR);
+  const enrichDef = code.indexOf("async enrich(");
+  const enrichCall = proc.indexOf("await adapter.enrich(");
+  const procCatch = proc.indexOf("} catch (error)");
   check("it is on the success path, not in the failure catch",
-    syncAt > 0 && syncAt < code.indexOf("} catch (error)"),
-    `sync@${syncAt} catch@${code.indexOf("} catch (error)")}`);
+    syncAt > 0 && enrichDef > 0 && syncAt > enrichDef && enrichCall > 0 && enrichCall < procCatch &&
+      (proc.match(/adapter\.enrich\(/g) ?? []).length === 1,
+    `sync@${syncAt} enrich@${enrichDef} call@${enrichCall} catch@${procCatch}`);
   check("it runs before the receipt is marked processed",
-    syncAt < code.indexOf("await markProcessed(businessId, event.id, refs)"));
+    enrichCall > proc.indexOf("await markPersisted(") &&
+      enrichCall < proc.indexOf("await markProcessed(businessId, event.id, legacyRefs(routed.refs))"));
   check("the businessId is the server-resolved argument, never a payload field",
     code.includes("syncInboxWaitingNotifications(businessId,") && !/payload\.businessId/.test(code));
   check("and it names the conversation it just wrote to",
-    code.includes("syncInboxWaitingNotifications(businessId, ingested.conversation.id"));
+    code.includes("syncInboxWaitingNotifications(businessId, context.conversation.id") &&
+      code.includes("conversation: ingested.conversation"));
 }
 
 console.log("\nMessage route syncs the business reply");
