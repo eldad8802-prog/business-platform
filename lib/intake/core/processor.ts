@@ -50,7 +50,18 @@ import {
   type ResultRefs,
 } from "./contract";
 import type { IntakeRegistry } from "./registry";
-import { purgeContactHintsIfResolved, recordRouteOutcome, saveNormalized } from "./normalized-store";
+import {
+  finalizeIdentityFromRefs,
+  purgeContactHintsIfResolved,
+  readIdentityDecision,
+  recordIdentityDecision,
+  recordRouteOutcome,
+  saveNormalized,
+} from "./normalized-store";
+import { identifiersFromHints } from "@/lib/intake/identity/identifiers";
+import { preResolveIdentity } from "@/lib/intake/identity/pre-resolve";
+import { decideRoute } from "@/lib/intake/routing/rules";
+import { CORE_DESTINATION_HANDLERS } from "@/lib/intake/routing/core-destinations";
 import { logIntake } from "./observability";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 
@@ -137,6 +148,31 @@ export async function acceptIntake(input: {
   return { status: "accepted", businessId, recorded };
 }
 
+/** M4 learning signal: identity CATEGORIES and the routing rule — never values. */
+async function emitIdentityResolved(event: ClaimedEvent, now: Date): Promise<void> {
+  const d = await readIdentityDecision(event.businessId, event.id);
+  if (!d || !d.identityState) return;
+  const ev = (d.identityEvidence ?? {}) as { identifierKinds?: string[]; strongBases?: string[] };
+  await recordSensor({
+    businessId: event.businessId,
+    sensor: "INTAKE_IDENTITY_RESOLVED",
+    entityId: event.id,
+    actor: { type: "INTEGRATION" },
+    source: "INTEGRATION",
+    occurredAt: now,
+    idempotencyKey: `intake:${event.id}:identity`,
+    payload: {
+      state: d.identityState,
+      identifierKinds: ev.identifierKinds ?? [],
+      strongBases: ev.strongBases ?? [],
+      candidateCount: d.identityCandidateCount ?? 0,
+      policyVersion: d.identityPolicyVersion ?? null,
+      routingRule: d.routingRule ?? null,
+      destination: d.routingDestination ?? null,
+    },
+  });
+}
+
 // ─── process one receipt ────────────────────────────────────────────────────
 
 function legacyRefs(refs: ResultRefs | undefined): IntakeOutcomeRefs {
@@ -212,7 +248,41 @@ export async function processIntakeEvent(
       await markStage(businessId, event.id, "normalized");
     }
 
-    const routed = await adapter.route(ctx, normalized.normalized, event);
+    // ── M4: identity (who is this about?) → deterministic routing decision ──
+    const n = normalized.normalized;
+    const identifiers = identifiersFromHints(n.contactHints, {
+      sourceKey: event.sourceKey,
+      accountRef: event.providerAccountRef,
+    });
+    const identity = await preResolveIdentity(businessId, identifiers);
+    const decision = decideRoute({
+      family: event.family,
+      eventType: event.eventType,
+      target: n.target,
+      identityState: identity.state,
+      coreDestinations: adapter.coreDestinations ?? [],
+    });
+    await recordIdentityDecision(businessId, event.id, identity, decision);
+    if (decision.executor === "forbidden" || decision.executor === "unavailable") {
+      const code =
+        decision.executor === "forbidden"
+          ? `routing:forbidden:${decision.rule}`
+          : `routing:destination_unavailable:${decision.destination}`;
+      await markDeadLetter(businessId, event.id, code);
+      logIntake("dead_letter", { ...base, stage: "route", code, routeTarget: decision.destination });
+      await emitSettled(event, "dead_letter", { routeTarget: decision.destination, identityOutcome: identity.state }, now);
+      return "failed";
+    }
+    const routeCtx = {
+      ...ctx,
+      decision,
+      identityState: identity.state,
+      identityCustomerId: identity.customerId,
+    };
+    const coreHandler = decision.executor === "core" ? CORE_DESTINATION_HANDLERS[decision.destination] : undefined;
+    const routed = coreHandler
+      ? await coreHandler(routeCtx, n, event)
+      : await adapter.route(routeCtx, n, event);
     if (routed.kind === "deferred") {
       await markDeferred(businessId, event, routed.until, routed.code);
       logIntake("deferred", { ...base, code: routed.code });
@@ -220,6 +290,7 @@ export async function processIntakeEvent(
     }
     if (routed.kind === "ignored") {
       await recordRouteOutcome(businessId, event.id, "ignored", routed.refs, now);
+      await emitIdentityResolved(event, now);
       await markIgnored(businessId, event.id, routed.code, legacyRefs(routed.refs));
       await purgeContactHintsIfResolved(businessId, event.id, now);
       logIntake("ignored", {
@@ -233,6 +304,10 @@ export async function processIntakeEvent(
     }
 
     await recordRouteOutcome(businessId, event.id, "routed", routed.refs, now);
+    // A core destination already wrote the authoritative identity (resolved
+    // again under the identity locks); only an adapter's result is folded in.
+    if (!coreHandler) await finalizeIdentityFromRefs(businessId, event.id, identity, routed.refs);
+    await emitIdentityResolved(event, now);
     await markPersisted(businessId, event.id, legacyRefs(routed.refs));
     status = "PERSISTED";
 
@@ -241,7 +316,7 @@ export async function processIntakeEvent(
     }
 
     await markProcessed(businessId, event.id, legacyRefs(routed.refs));
-    await purgeContactHintsIfResolved(businessId, event.id, now);
+    await purgeContactHintsIfResolved(businessId, event.id, now, { identityDecided: !!coreHandler });
     logIntake("processed", {
       ...base,
       routeTarget: stored.routeTarget,

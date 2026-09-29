@@ -119,6 +119,8 @@ export async function POST(request: NextRequest) {
               sku: typeof body.sku === "string" ? body.sku : undefined,
               barcode: typeof body.barcode === "string" ? body.barcode : undefined,
               imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : undefined,
+              description: typeof body.description === "string" ? body.description : undefined,
+              featuredByOwner: body.featuredByOwner === true,
               createdByUserId: user.id,
               categoryId,
             },

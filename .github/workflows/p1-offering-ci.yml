@@ -1,0 +1,87 @@
+name: p1 business offering
+
+# P1 business offering foundation — application proofs against the schema that is
+# already in Production (migration 20260928120000_p1_business_offering).
+#
+#   core     price semantics and the offering projection. No database.
+#
+#   db       ephemeral PG17. `prisma db push` builds the lab; the RLS proof then
+#            drops the three P1 tables and replays the APPLIED P1 migration file
+#            verbatim (CHECKs, policies, app_runtime grants), and runs the real
+#            P1 code as a NOSUPERUSER NOBYPASSRLS app_runtime. After that, the
+#            database the migration built must equal schema.prisma — a non-empty
+#            diff means the application schema drifted from Production and would
+#            need a second migration. Then the invariant suite runs on top.
+#
+# Synthetic CI-only credentials. No secrets, no Neon, no Production.
+
+on:
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260928120000_p1_business_offering/**"
+      - "lib/services/offering/**"
+      - "lib/services/appointment/**"
+      - "lib/services/inventory/sale-evidence.service.ts"
+      - "app/api/business/services/**"
+      - ".github/workflows/p1-offering-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: p1 offering core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Price semantics
+        run: npx tsx lib/services/offering/service-price.verify.test.ts
+      - name: Three-strategy offering inputs
+        run: npx tsx lib/services/offering/offering-strategy.verify.test.ts
+
+  db:
+    name: p1 offering (PG17, real RLS)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p1_offering_owner
+          POSTGRES_PASSWORD: p1_offering_ci_synthetic_pw
+          POSTGRES_DB: dubiz_p1_offering
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p1_offering_owner -d dubiz_p1_offering"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://p1_offering_owner:p1_offering_ci_synthetic_pw@localhost:5432/dubiz_p1_offering
+      DIRECT_URL: postgresql://p1_offering_owner:p1_offering_ci_synthetic_pw@localhost:5432/dubiz_p1_offering
+      TEST_DATABASE_URL: postgresql://p1_offering_owner:p1_offering_ci_synthetic_pw@localhost:5432/dubiz_p1_offering
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the lab schema
+        run: npx prisma db push --skip-generate
+      - name: Generate the client
+        run: npx prisma generate
+      - name: Replay the applied P1 migration; tenant isolation as app_runtime
+        run: npx tsx lib/services/offering/offering.rls.db.test.ts
+      - name: No drift between the applied migration and schema.prisma
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Price, demand idempotency, transactions, assets, projection
+        run: npx tsx lib/services/offering/offering.db.test.ts

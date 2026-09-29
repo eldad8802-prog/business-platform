@@ -125,6 +125,15 @@ export type CreateLeadInput = LeadActorContext & {
   email?: string | null;
   intentSnapshot?: string | null;
   sourceChannel?: string | null;
+  /**
+   * Business Intake M4 — the contact was ALREADY decided by identity resolution:
+   * a Customer id (verified in-business inside this transaction), or null for a
+   * deliberately contact-less lead (uncertain identity awaiting the owner).
+   * When given, the phone lookup / create below is skipped — M4 never lets
+   * createLead re-decide an identity it already resolved or refused to guess.
+   * Omitted = the existing behaviour, unchanged.
+   */
+  contact?: { customerId: number | null };
 };
 
 export type UpdateLeadInput = LeadActorContext & {
@@ -374,12 +383,25 @@ export const leadService = {
         if (clash) throw openLeadConflict(clash.id);
       }
 
-      const resolvedCustomer = await resolveCustomerForLead(tx, {
-        businessId: input.businessId,
-        name,
-        phone,
-        email,
-      });
+      let resolvedCustomer: { id: number | null; created: boolean };
+      if (input.contact !== undefined) {
+        const decided = input.contact.customerId;
+        if (decided !== null) {
+          const owned = await tx.customer.findFirst({
+            where: { id: decided, businessId: input.businessId },
+            select: { id: true },
+          });
+          if (!owned) throw new ValidationError("contact.customerId is not a customer of this business");
+        }
+        resolvedCustomer = { id: decided, created: false };
+      } else {
+        resolvedCustomer = await resolveCustomerForLead(tx, {
+          businessId: input.businessId,
+          name,
+          phone,
+          email,
+        });
+      }
       const customerId = resolvedCustomer.id;
 
       const now = new Date();
