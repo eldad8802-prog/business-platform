@@ -29,6 +29,9 @@ GRANT SELECT, INSERT ON "InventorySale" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "InventorySale_id_seq" TO :ROLE;
 GRANT SELECT, INSERT ON "InventorySaleLine" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "InventorySaleLine_id_seq" TO :ROLE;
+-- Purchase demand is written in the same transaction as the sale line.
+GRANT SELECT, INSERT, UPDATE ON "OfferingDemandSignal" TO :ROLE;
+GRANT USAGE, SELECT ON SEQUENCE "OfferingDemandSignal_id_seq" TO :ROLE;
 GRANT SELECT, INSERT, UPDATE ON "InventorySourceSaleLine" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "InventorySourceSaleLine_id_seq" TO :ROLE;
 GRANT SELECT, INSERT, UPDATE ON "POSProductMapping" TO :ROLE;

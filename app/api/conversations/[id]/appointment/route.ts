@@ -34,9 +34,23 @@ export async function POST(
       );
     }
 
+    let businessServiceId: number | null = null;
+    const rawBody = await req.text();
+    if (rawBody.trim()) {
+      const body = JSON.parse(rawBody) as { businessServiceId?: unknown };
+      if (body.businessServiceId !== undefined && body.businessServiceId !== null) {
+        const parsed = Number(body.businessServiceId);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          return NextResponse.json({ error: "Invalid service id" }, { status: 400 });
+        }
+        businessServiceId = parsed;
+      }
+    }
+
     const result = await createFromPending({
       conversationId,
       businessId: user.businessId,
+      businessServiceId,
       actor: { actor: "OWNER", userId: user.id, sourceChannel: "INBOX_WEB" },
     });
 
@@ -46,8 +60,9 @@ export async function POST(
 
     switch (result.reason) {
       case "conversation_not_found":
+      case "service_not_found":
         return NextResponse.json(
-          { error: "Conversation not found" },
+          { error: result.reason },
           { status: 404 }
         );
       case "already_converted":
@@ -62,6 +77,9 @@ export async function POST(
         return NextResponse.json({ error: "invalid_input" }, { status: 400 });
     }
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     console.error("POST /api/conversations/[id]/appointment error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

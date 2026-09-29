@@ -210,6 +210,9 @@ async function main() {
 
   const cleanup = async () => {
     const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
+    // Demand evidence references the sale line with RESTRICT, so it must go
+    // before movements (which cascade into sale lines).
+    await owner.$executeRawUnsafe(`DELETE FROM "OfferingDemandSignal" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "ReceivingLine" WHERE "receivingSessionId" IN (SELECT id FROM "ReceivingSession" WHERE "businessId" IN (${bids}))`);
     for (const t of ["ReceivingSession"]) await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "PurchaseOrderLine" WHERE "purchaseOrderId" IN (SELECT id FROM "PurchaseOrder" WHERE "businessId" IN (${bids}))`);

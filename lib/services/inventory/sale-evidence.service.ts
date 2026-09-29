@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { InventoryValidationError } from "@/lib/services/inventory/inventory.errors";
+import { recordOfferingDemand } from "@/lib/services/offering/offering-demand";
 
 type Tx = Prisma.TransactionClient;
 
@@ -183,7 +184,7 @@ async function recordInTransaction(
       { tx }
     );
 
-    await tx.inventorySaleLine.create({
+    const saleLine = await tx.inventorySaleLine.create({
       data: {
         businessId,
         saleId: sale.id,
@@ -195,6 +196,19 @@ async function recordInTransaction(
           line.unitPrice === null ? null : new Prisma.Decimal(line.unitPrice),
       },
     });
+
+    const demand = await recordOfferingDemand(tx, {
+      businessId,
+      kind: "PRODUCT",
+      offeringId: line.itemId,
+      signalType: "PURCHASE",
+      source: "SALE",
+      saleLineId: saleLine.id,
+      idempotencyKey: `purchase:sale-line:${saleLine.id}`,
+    });
+    if (!demand) {
+      throw new InventoryValidationError("Sale item is not in this business");
+    }
 
     movements.push({
       id: movement.id,

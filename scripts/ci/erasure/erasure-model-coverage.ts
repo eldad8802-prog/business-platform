@@ -334,6 +334,15 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ),
   CouponSurfaceEvent: operational("that a public coupon detail was served, with no viewer identity"),
   BusinessAsset: operational("retained visual provenance: origin and a storage pointer, no person"),
+  BusinessServiceAsset: operational(
+    "a same-tenant link from a service to a retained asset; linking does not approve public use"
+  ),
+  InventoryItemAsset: operational(
+    "a same-tenant link from a product to a retained asset; linking does not approve public use"
+  ),
+  OfferingDemandSignal: operational(
+    "a known offering received a known signal type; no customer name, phone, or message"
+  ),
   POSProductMapping: operational("maps a POS product code to a stock item"),
   ReceivingLine: operational("quantities received against a purchase-order line"),
   Coupon: operational("coupon definition and its public token; issued to no one until redeemed"),
@@ -370,8 +379,12 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // An empty writeSites list is what says so, and what fails if one appears.
   BusinessService: {
     disposition: "NON_PERSONAL_OPERATIONAL",
-    reason: "the product has no writer for it: a service catalogue nothing in the app fills",
-    evidence: { textualSurface: ["name", "description"], writeSites: [] },
+    reason:
+      "the service the business provides: its name, description and category are about the offering, not a customer",
+    evidence: {
+      textualSurface: ["name", "description", "categoryLabel"],
+      writeSites: ["lib/services/offering/business-service.service.ts"],
+    },
   },
 
   // Every content field comes from a fixed rule table in the matching engine —
