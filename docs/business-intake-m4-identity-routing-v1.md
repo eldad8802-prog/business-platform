@@ -239,7 +239,7 @@ Both stay untouched. M4's tables are minimal and Customer-centric.
 
 ## 12. Migration
 
-`20260930090000_m4_identity_routing` is **expand-only**:
+`20261001090000_m4_identity_routing` is **expand-only**:
 - two new tables;
 - eight nullable or defaulted columns on `IntakeNormalizedEvent`;
 - indexes, CHECKs, FKs, RLS, policies and grants.

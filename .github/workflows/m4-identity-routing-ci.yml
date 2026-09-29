@@ -36,7 +36,7 @@ on:
       - "lib/tenant/**"
       - "scripts/security/intake-isolation-lab.mjs"
       - "prisma/schema.prisma"
-      - "prisma/migrations/20260930090000_m4_identity_routing/**"
+      - "prisma/migrations/20261001090000_m4_identity_routing/**"
       - "prisma/migrations/20260929090000_m3_canonical_intake/**"
       - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
       - ".m3/reference-lead-adapter.ts"
@@ -171,7 +171,7 @@ jobs:
         if: steps.base.outputs.mode == 'migration'
         env:
           PGPASSWORD: m4_ci_synthetic_owner_pw
-        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260930090000_m4_identity_routing/migration.sql
+        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql
 
       - name: 2a. The migration's preflight refuses a database without its prerequisites
         if: steps.base.outputs.mode == 'migration'
@@ -181,7 +181,7 @@ jobs:
           set -uo pipefail
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE m4_empty"
           EMPTY_URL="${OWNER_URL%/*}/m4_empty"
-          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260930090000_m4_identity_routing/migration.sql 2>&1)
+          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql 2>&1)
           rc=$?
           echo "$out" | tail -3
           if [ $rc -eq 0 ]; then echo "preflight did NOT refuse an empty database"; exit 1; fi
