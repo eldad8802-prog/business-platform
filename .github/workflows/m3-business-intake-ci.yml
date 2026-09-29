@@ -4,6 +4,8 @@
 # d2-cutover-3a1-ci.yml), so the lab reproduces the database M3 migrates FROM:
 #   1. the PRE-M3 schema — this PR's BASE (main) — via `db push`, with
 #      IntakeEvent's M2 isolation from its real migration file;
+#      plus sec-C's composite tenant FKs from their real migration (Production
+#      applied them before M3, so the lab has them too);
 #   2. receipts written exactly as the M2 code writes them;
 #   3. the REAL M3 migration file, applied with psql as the owner — so the
 #      backfill, the legacy-insert trigger, the CHECK vocabularies, the composite
@@ -33,6 +35,7 @@ on:
       - "scripts/security/intake-isolation-lab.mjs"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
       - ".m3/**"
       - ".github/workflows/m3-business-intake-ci.yml"
   workflow_dispatch:
@@ -126,6 +129,15 @@ jobs:
             echo "mode=migration" >> "$GITHUB_OUTPUT"
             npx prisma db push --schema /tmp/base.prisma --skip-generate
           fi
+
+      - name: 1a. sec-C composite tenant FKs — the REAL migration (already in Production before M3)
+        env:
+          PGPASSWORD: m3_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -tAc "SELECT count(*) FILTER (WHERE convalidated) || '/' || count(*) FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'"
 
       - name: 1b. Runtime role app_runtime (NOSUPERUSER, NOBYPASSRLS) + M2 isolation from its migration
         env:

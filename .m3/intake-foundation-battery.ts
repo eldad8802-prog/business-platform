@@ -201,6 +201,10 @@ async function post() {
     `SELECT relrowsecurity r, relforcerowsecurity f FROM pg_class WHERE relname='IntakeNormalizedEvent'`
   )) as Array<{ r: boolean; f: boolean }>;
   ok("IntakeNormalizedEvent: ENABLE + FORCE row level security", rls.r && rls.f);
+  const [secc] = (await o.$queryRawUnsafe(
+    `SELECT count(*) FILTER (WHERE convalidated)::int AS v, count(*)::int AS n FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'`
+  )) as Array<{ v: number; n: number }>;
+  ok("sec-C: 9/9 composite tenant FKs present and VALID (the combined sec-C + M3 database)", secc.n === 9 && secc.v === 9, JSON.stringify(secc));
   const pols = (await o.$queryRawUnsafe(
     `SELECT cmd FROM pg_policies WHERE tablename='IntakeNormalizedEvent' ORDER BY cmd`
   )) as Array<{ cmd: string }>;

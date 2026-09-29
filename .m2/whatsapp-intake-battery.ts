@@ -190,6 +190,14 @@ async function main() {
   ok("runtime may INSERT and UPDATE receipts", priv.i && priv.u, JSON.stringify(priv));
   ok("runtime may NOT DELETE receipts (REVOKE beats the default ACL)", priv.d === false);
 
+  // sec-C (#530) is in Production before M3: its nine composite tenant FKs on
+  // Conversation / Message / Lead / Appointment are in this lab too, so every
+  // WhatsApp write below is proven under them.
+  const [fk] = (await owner.$queryRawUnsafe(
+    `SELECT count(*) FILTER (WHERE convalidated)::int AS v, count(*)::int AS n FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'`
+  )) as Array<{ v: number; n: number }>;
+  ok("sec-C: 9/9 composite tenant FKs present and VALID in the lab", fk.n === 9 && fk.v === 9, JSON.stringify(fk));
+
   // ── 2. first message, profile name, referral, payload purge ────────────────
   console.log("\n-- first message --");
   const ROI = "972501111111";
