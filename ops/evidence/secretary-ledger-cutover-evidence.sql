@@ -5,7 +5,8 @@
 --   * the QA tenant ONLY: business 38 (COLLECTION_QA_BUSINESS_ID), and only
 --     commitments whose title starts with the marker QA-P2
 --   * catalog facts that make retries safe
---   * a row-level-security probe run AS the application role, counts only
+--   (the tenant-isolation probe is a separate workflow, run AS the application
+--    runtime login itself: prod-readonly-evidence-runtime-rls)
 -- No name, note or amount of any other business is selected.
 --
 -- Run it before the owner flips SECRETARY_LEDGER_STORE and again after the QA
@@ -85,32 +86,26 @@ SELECT
   (SELECT count(*) FROM "Installment" i JOIN "Commitment" c ON c."id" = i."commitmentId"
      WHERE i."businessId" <> c."businessId")                                            AS installment_business_mismatch;
 
-\echo '== Q9 catalog: what makes retries safe, and RLS on the authority tables'
-SELECT
-  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'Payment' AND indexdef ILIKE '%UNIQUE%' AND indexdef LIKE '%"businessId"%' AND indexdef LIKE '%"idempotencyKey"%') AS payment_idempotency_unique,
-  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'Installment' AND indexdef ILIKE '%UNIQUE%' AND indexdef LIKE '%"commitmentId"%' AND indexdef LIKE '%"sequence"%')     AS installment_sequence_unique,
-  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'PaymentAllocation' AND indexdef ILIKE '%UNIQUE%' AND indexdef LIKE '%"reversedAt" IS NULL%')                        AS active_allocation_unique,
-  (SELECT count(*) FROM pg_class WHERE relname IN ('Commitment','Installment','InstallmentWorkflow','Payment','PaymentAllocation','BusinessObligation')
-     AND relrowsecurity AND relforcerowsecurity)                                                                                                                      AS tables_with_forced_rls_of_6;
+\echo '== Q9 catalog: what makes retries safe (by index IDENTITY), and RLS on the authority tables'
+SELECT c.relname AS index_name,
+       i.indisunique AS is_unique,
+       t.relname AS on_table,
+       array_agg(a.attname::text ORDER BY k.ord) AS key_columns,
+       pg_get_expr(i.indpred, i.indrelid) AS partial_predicate
+FROM pg_class c
+JOIN pg_index i ON i.indexrelid = c.oid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+WHERE c.relkind = 'i'
+  AND c.relname IN ('Payment_businessId_idempotencyKey_key',
+                    'Installment_commitmentId_sequence_key',
+                    'PaymentAllocation_active_payment_installment_key')
+GROUP BY c.relname, i.indisunique, t.relname, i.indpred, i.indrelid
+ORDER BY c.relname;
 
-\echo '== Q10 RLS probe AS the application role (counts only; errors here are reported, not fatal)'
-SELECT set_config('app.cutover_probe_other', (SELECT min("id")::text FROM "Business" WHERE "id" <> 38), false) AS other_business_probe_id;
-SET ROLE app_runtime;
-SELECT current_user AS probing_as,
-       (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS role_bypasses_rls;
-SELECT set_config('app.current_business_id', '38', false) AS context;
-SELECT (SELECT count(*) FROM "Commitment" WHERE "title" LIKE 'QA-P2%')  AS qa_commitments_visible_to_38,
-       (SELECT count(*) FROM "Commitment" WHERE "businessId" <> 38)    AS other_business_commitments_visible_to_38,
-       (SELECT count(*) FROM "Installment" WHERE "businessId" <> 38)   AS other_business_installments_visible_to_38,
-       (SELECT count(*) FROM "Payment" WHERE "businessId" <> 38)       AS other_business_payments_visible_to_38,
-       (SELECT count(*) FROM "InstallmentWorkflow" WHERE "businessId" <> 38) AS other_business_workflow_visible_to_38;
-SELECT set_config('app.current_business_id', current_setting('app.cutover_probe_other'), false) AS context;
-SELECT (SELECT count(*) FROM "Commitment" WHERE "businessId" = 38)            AS qa_commitments_visible_to_other,
-       (SELECT count(*) FROM "Installment" WHERE "businessId" = 38)           AS qa_installments_visible_to_other,
-       (SELECT count(*) FROM "InstallmentWorkflow" WHERE "businessId" = 38)   AS qa_workflow_visible_to_other,
-       (SELECT count(*) FROM "Payment" WHERE "businessId" = 38)               AS qa_payments_visible_to_other,
-       (SELECT count(*) FROM "PaymentAllocation" WHERE "businessId" = 38)     AS qa_allocations_visible_to_other;
-SELECT set_config('app.current_business_id', '', false) AS context;
-SELECT (SELECT count(*) FROM "Commitment") AS commitments_visible_without_context,
-       (SELECT count(*) FROM "Payment")    AS payments_visible_without_context;
-RESET ROLE;
+SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('Commitment','Installment','InstallmentWorkflow','Payment','PaymentAllocation','BusinessObligation')
+          AND relrowsecurity AND relforcerowsecurity) AS tables_with_forced_rls_of_6;
+
+\echo '== Q10 is NOT in this file: the tenant-isolation probe runs through the application runtime login'
+\echo '==     (workflow prod-readonly-evidence-runtime-rls, scripts/ops/runtime-rls-evidence.ts)'

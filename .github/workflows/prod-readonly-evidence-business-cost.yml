@@ -70,11 +70,11 @@ jobs:
         run: npm ci
 
       - name: Generate the Prisma client
-        run: npx prisma generate
+        run: node_modules/.bin/prisma generate
 
       - name: Daily Business Cost for the QA tenant (READ ONLY session)
         env:
           DATABASE_URL: ${{ secrets.DIRECT_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           DATES: ${{ inputs.dates }}
-        run: npx tsx scripts/payables/business-cost-evidence.ts --dates "$DATES"
+        run: node_modules/.bin/tsx scripts/payables/business-cost-evidence.ts --dates "$DATES"

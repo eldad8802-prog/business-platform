@@ -1,0 +1,79 @@
+name: prod workflow supply-chain guard
+
+# A workflow that holds Production database credentials must never fetch code
+# from a registry at execution time (`npx tsx …` downloads a missing package
+# with the credentials already in the job's environment). This proves:
+#   - the static guard (and its self-test) over every credential-bearing workflow;
+#   - tsx comes from the lockfile at the pinned version after `npm ci`;
+#   - a Production script runs through that local binary, in the exact command
+#     form the Production workflows use;
+#   - with the local binary gone, the same invocation FAILS — there is no
+#     download fallback — and no npx download cache appears.
+# No secrets, no database: nothing here can reach Production.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/ci/prod-workflow-supply-chain-guard.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/ci/prod-workflow-supply-chain-guard.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: no install-on-demand in credential-bearing workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Guard self-test
+        run: node scripts/ci/prod-workflow-supply-chain-guard.mjs --self-test
+      - name: Guard over the repository
+        run: node scripts/ci/prod-workflow-supply-chain-guard.mjs
+      - name: Install from the lockfile only
+        run: npm ci
+      - name: The local tsx IS the pinned version
+        run: |
+          set -euo pipefail
+          PINNED="$(node -p "require('./package.json').devDependencies.tsx")"
+          ACTUAL="$(node_modules/.bin/tsx --version | grep -oE 'tsx v[0-9.]+' | sed 's/tsx v//')"
+          echo "pinned=$PINNED local=$ACTUAL"
+          [ "$PINNED" = "$ACTUAL" ]
+      - name: A Production script runs through the local binary (Production command form)
+        run: |
+          set -uo pipefail
+          # No URLs are provided, so the script must REFUSE (exit 3) — proving it
+          # was loaded and executed by the local tsx, with no database involved.
+          # (steps run under `bash -e`; capture the expected non-zero exit explicitly)
+          code=0
+          node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts --expected-runtime-user app_runtime_prod > out.txt 2>&1 || code=$?
+          cat out.txt
+          [ "$code" -eq 3 ] && grep -q "REFUSED" out.txt
+      - name: Without the local binary the same invocation FAILS (no download fallback)
+        run: |
+          set -uo pipefail
+          NPX_CACHE="$(npm config get cache)/_npx"
+          before="$( (ls "$NPX_CACHE" 2>/dev/null || true) | wc -l)"
+          rm -f node_modules/.bin/tsx
+          if node_modules/.bin/tsx scripts/ops/runtime-rls-evidence.ts --expected-runtime-user app_runtime_prod; then
+            echo "::error::the invocation succeeded without a local tsx"; exit 1
+          fi
+          after="$( (ls "$NPX_CACHE" 2>/dev/null || true) | wc -l)"
+          echo "npx cache entries before=$before after=$after"
+          [ "$before" = "$after" ] || { echo "::error::something was downloaded"; exit 1; }
+          echo "OK: missing local tsx → the step fails; nothing is downloaded"

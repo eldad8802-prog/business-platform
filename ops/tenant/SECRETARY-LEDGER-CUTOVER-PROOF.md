@@ -15,7 +15,8 @@ engine reads the new rows; nothing crosses tenants.
 
 | Tool | What it shows |
 |---|---|
-| *Prod Read-Only Evidence* → `ops/evidence/secretary-ledger-cutover-evidence.sql` | Q1 whole-table baselines (legacy rows, Payments, allocations…); Q2 the QA tenant's legacy rows; Q3–Q7 QA-P2 commitments, installments, workflow rows, payments, allocations; Q8 duplicates (all 0); Q9 the uniqueness constraints that make retries safe + FORCE RLS; Q10 an RLS probe **as `app_runtime`**, counts only |
+| *Prod Read-Only Evidence* → `ops/evidence/secretary-ledger-cutover-evidence.sql` | Q1 whole-table baselines (legacy rows, Payments, allocations…); Q2 the QA tenant's legacy rows; Q3–Q7 QA-P2 commitments, installments, workflow rows, payments, allocations; Q8 duplicates (all 0); Q9 the uniqueness constraints that make retries safe, proven by index identity (pg_index: unique flag, table, ordered key columns) + FORCE RLS |
+| *Prod Read-Only Evidence (tenant isolation AS the runtime login)* — needs the `production-db` secret **`RUNTIME_DATABASE_URL`** (direct URL of the application login `app_runtime_prod`; added by the owner, never by the operator) | Q10: connected directly as `app_runtime_prod` (no `SET ROLE`), read-only by Postgres, identity verified (exact user, not superuser, no BYPASSRLS, member of `app_runtime`); tenant 38 ↔ another business ↔ no context, counts only; positive counter-check on tenant 38's own rows. Refuses when the secret is missing, pooled, or wrong. |
 | *Prod Read-Only Evidence (Daily Business Cost, QA tenant)* | the real engine for business 38 on chosen dates: QA-P2 lines, totals, cash out — session READ ONLY, verified before and after |
 | *secretary-ledger-cutover-dry-run* | cutover state must stay copy 0 / reconcile 0 / totals 0 / conflicts 0 / invalid 0 / ambiguous 0 |
 
@@ -36,7 +37,7 @@ engine reads the new rows; nothing crosses tenants.
 | 10 | Operator | Evidence SQL + business-cost evidence | Q6 exactly 1 Payment (key `secretary:<installment>:<date>:50`), Q7 exactly 1 allocation to installment #1; Q4 sequence 2 exactly once; cash out today 50 ₪ on the QA-P2 ביטוח payment; allocated cost unchanged by the payment |
 | 11 | Owner | Repeat the same "כן" answer on the same item if the UI still offers it (a replay) | — |
 | 12 | Operator | Evidence SQL | Q6 still 1 Payment; Q8 duplicate_payment_keys 0, duplicate_live_occurrences 0 |
-| 13 | Operator | Evidence SQL Q10 (already in every run) | as `app_runtime`, bypassrls false: other-business rows visible to 38 = 0; QA rows visible to another business = 0; nothing visible without context |
+| 13 | Operator | Runtime-login isolation evidence (Q10) — before the switch and after the scenarios | connected as `app_runtime_prod`, bypassrls false, member of app_runtime; other-business rows visible to 38 = 0; tenant 38 rows visible to another business = 0; nothing visible without context; QA-P2 rows visible to 38 (once they exist) |
 | 14 | Operator | Cutover dry run (**after**) | still all 0; legacy_obligations still 9 with the same max id and last change |
 
 ## Idempotency boundaries (where retries are defined safe)
