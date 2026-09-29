@@ -70,11 +70,7 @@ still needs a first-principles desktop composition, then visual QA.
 
 | Domain | Surfaces still open |
 | --- | --- |
-| Settings | settings hub, WhatsApp |
 | Inbox | `/inbox` conversations |
-| Opportunities / offers | offer creation and related routes |
-| Business / bot | `/business`, `/business/bot-settings` |
-| Content studio | the phone-shell wizard routes; desktop may become configuration beside preview without collapsing confirmation steps |
 | Tools | tools entry if it is only a launcher into billing |
 
 ## Slice 3 — inventory operations, collection create, payments
@@ -238,6 +234,78 @@ Horizontal overflow in the captured set: none.
 
 Conflict closure with main kept `RecurringChanges` in the full-width recurrence context, directly under the single recurring notice and above the payment desk. Targeted payable-detail shots: `recurring-changes` at 390, 1024, 1440, 1920; `recurring-ended` at 390 and 1440; `recurring-installment` at 1440; `recurring-approved` at 390 and 1440. The recurring notice appears once. Overflow in that set: none.
 
+## Slice 6 — settings, business, offers, content studio
+
+Settings is a control center: a grouped rail beside the active area, and a hub that shows what is set up rather than repeating the links. Business is an identity desk. Offers (coupons) are a work queue plus the selected coupon, and creation keeps the live coupon beside every step. The content studio keeps one decision per step, because it branches between camera and AI, and places the choices already made in a brief beside the step. Mobile and tablet keep the existing stacks. No schema, integration, offering engine or AI provider was added.
+
+| Domain | Surface | Route | State | Desktop composition | Status |
+| --- | --- | --- | --- | --- | --- |
+| Settings | Hub | `/settings` | connected / disconnected | grouped rail beside account, business and connection status, read from the same cards the sub-pages use | DESKTOP-ADAPTED |
+| Settings | Connections | `/settings/connections` | connected | payment, tax authority, WhatsApp and Gmail as a 2×2 grid beside the rail | DESKTOP-ADAPTED |
+| Settings | Connections | `/settings/connections` | disconnected | the same grid with each disconnected state | DESKTOP-ADAPTED |
+| Settings | WhatsApp | `/settings/whatsapp` | connected | linked number and actions beside what Dubiz stores from Meta | DESKTOP-ADAPTED |
+| Settings | WhatsApp | `/settings/whatsapp` | disconnected | invitation beside the privacy section | DESKTOP-ADAPTED |
+| Settings | WhatsApp | `/settings/whatsapp` | load error | retry beside the privacy section. It never offers connect | DESKTOP-ADAPTED |
+| Settings | Historical records | `/settings/import-export/historical/records` | populated | five filters in one row above a full-width table (type, number, date, amount, customer, source) | DESKTOP-ADAPTED |
+| Settings | Account | `/settings/team` | signed in | name, email, business and logout at a reading measure beside the rail. No team or permissions model exists | INTENTIONALLY-FOCUSED |
+| Settings | Business pointer | `/settings/business` | summary | a summary that links to the canonical editor at `/business` | INTENTIONALLY-FOCUSED |
+| Settings | Locale | `/settings/workspace` | read-only | four fixed system facts | INTENTIONALLY-FOCUSED |
+| Settings | Devices | `/settings/security` | populated | a short list whose one action ends a session, kept next to each device | INTENTIONALLY-FOCUSED |
+| Settings | Account deletion | `/settings/account` | destructive | one irreversible confirmation | INTENTIONALLY-FOCUSED |
+| Settings | Import/export hub | `/settings/import-export` | directions | five destinations, in or out | INTENTIONALLY-FOCUSED |
+| Settings | Import | `/settings/import-export/import` | pick domain | check a file before any write | INTENTIONALLY-FOCUSED |
+| Settings | Templates | `/settings/import-export/templates` | download | a sample file per domain | INTENTIONALLY-FOCUSED |
+| Settings | Document import | `/settings/import-export/documents` | check | file check before any write | INTENTIONALLY-FOCUSED |
+| Settings | Historical import | `/settings/import-export/historical` | check | review before write | INTENTIONALLY-FOCUSED |
+| Settings | Historical record | `/settings/import-export/historical/records/[id]` | detail | one read-only external document. Covered by the import/export layout; not captured separately | INTENTIONALLY-FOCUSED |
+| Settings | Export | `/settings/import-export/export` | configure | what leaves the business; the fixed download bar aligns to the content column | INTENTIONALLY-FOCUSED |
+| Business | Identity | `/business` | populated | legal identity as a two-column form beside optional document details and links to the bot, coupons and connections | DESKTOP-ADAPTED |
+| Business | Identity | `/business` | sparse | the same desk with the existing missing-invoice-details warning. No new completeness score | DESKTOP-ADAPTED |
+| Business | Identity | `/business` | save error | the alert spans the desk | DESKTOP-ADAPTED |
+| Business | Bot hub | `/business/bot` | categories | category grid; activation stays draft-only | DESKTOP-ADAPTED |
+| Business | Bot editor | `/business/bot-settings` | preview | settings beside the simulated customer chat; the app sidebar now stays on desktop | DESKTOP-ADAPTED |
+| Business | Bot category sheet | `/business/bot` | one category | a modal sheet over the hub | INTENTIONALLY-FOCUSED |
+| Business | Bot area | `/business/bot-settings/[area]` | one area | one chip choice and one save | INTENTIONALLY-FOCUSED |
+| Business | Activation outcome | `/business/bot/setup/success` | outcome / no activation | what was applied, then leave. Still a phone-shaped column; a one-time screen | INTENTIONALLY-FOCUSED |
+| Offers | My coupons | `/revenue` | empty | toolbar actions beside the empty-collection copy | DESKTOP-ADAPTED |
+| Offers | My coupons | `/revenue` | populated / selected | counts per state, the queue as aligned rows grouped live and ended, the existing card as inspector; arrow keys move the selection | DESKTOP-ADAPTED |
+| Offers | My coupons | `/revenue` | disabled / expired / long benefit | the same queue; the row truncates, the inspector shows the full benefit and the real state action | DESKTOP-ADAPTED |
+| Offers | Create | `/revenue?view=create` | goal / direction | the step beside the coupon being built | DESKTOP-ADAPTED |
+| Offers | Create | `/revenue?view=create` | builder | fields beside the live customer view, which stays in sight while editing | DESKTOP-ADAPTED |
+| Offers | Create | `/revenue?view=create` | published | one column: the step already shows the public coupon. Not reached in QA — publishing is not executed | INTENTIONALLY-FOCUSED |
+| Offers | Legacy list | `/offers` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
+| Offers | Legacy create | `/offers/create` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
+| Offers | Legacy issue | `/revenue/issue` | redirect | to `/revenue` | INTENTIONALLY-FOCUSED |
+| Offers | Marketplace | `/revenue?view=browse` | consumer | a consumer surface, deliberately phone-shaped | INTENTIONALLY-FOCUSED |
+| Offers | Public coupon | `/revenue/coupons/[id]` | customer view | the coupon the customer receives | INTENTIONALLY-FOCUSED |
+| Offers | Redeem | `/revenue/redeem` | scan | a camera and one input | INTENTIONALLY-FOCUSED |
+| Content | Home | `/content` | first visit | vibe tiles at a landscape ratio beside "how it works" | DESKTOP-ADAPTED |
+| Content | Home | `/content` | vibe chosen | the camera question under the tiles, the brief beside | DESKTOP-ADAPTED |
+| Content | Goal | `/content/goal` | unselected / selected | the step beside the brief of earlier choices | DESKTOP-ADAPTED |
+| Content | Direction | `/content/archetype` | recommendation | same | DESKTOP-ADAPTED |
+| Content | Setup | `/content/setup` | context | same | DESKTOP-ADAPTED |
+| Content | Creator plan | `/content/creator-plan` | preparing | same | DESKTOP-ADAPTED |
+| Content | Shot direction | `/content/shot-direction` | loading | same | DESKTOP-ADAPTED |
+| Content | Asset upload | `/content/assets-upload` | no plan yet | same | DESKTOP-ADAPTED |
+| Content | AI assets | `/content/ai-assets` | preparing | same | DESKTOP-ADAPTED |
+| Content | Render | `/content/render` | working | same | DESKTOP-ADAPTED |
+| Content | Result | `/content/result` | ready | video and publish copy beside what the video was built from | DESKTOP-ADAPTED |
+| Content | Result | `/content/result` | nothing rendered | the page's own empty state beside the brief | DESKTOP-ADAPTED |
+| Content | Create (action sheet) | `/content/create` | building | same frame | DESKTOP-ADAPTED |
+| Content | Assets | `/content/assets` | no flow | same frame | DESKTOP-ADAPTED |
+| Content | Generate | `/content/generate` | working | same frame | DESKTOP-ADAPTED |
+| Content | Format | `/content/format` | working | same frame | DESKTOP-ADAPTED |
+| Content | Direction (legacy) | `/content/direction` | choose | same frame | DESKTOP-ADAPTED |
+| Content | AI brief | `/content/ai-brief` | describe | same frame | DESKTOP-ADAPTED |
+
+No settings, business, offers, or content-studio surface in this slice is NOT-YET-DONE.
+
+Not surfaces: `/content/flow`, `/content/mode`, `/content/intent`, `/content/value`, `/content/style`, `/content/context` and `/content/summary` link only to each other and are linked from nowhere in the product. They inherit the studio frame but were not designed or counted; if opened by URL, their full-viewport fixed buttons run under the brief. `/settings/inbound-email` renders only when `INBOUND_EMAIL_ENABLED=true` and is not listed in Settings.
+
+## Slice 6 runtime QA
+
+`qa-evidence/desktop-ux-phase-2/shoot-slice6.mjs` against local `next dev`, every `/api` call mocked. No provider was connected, no message sent, no coupon published, no content generated. The Next dev badge is hidden in the captures. Evidence: `settings/`, `business/`, `offers/`, `content-studio/`; per-shot overflow in `slice6-metrics.json`. Horizontal overflow: none.
+
 ## Counts
 
 Slice 1 (CRM, collection inbox, accountant pack, secretary home, billing hub, inventory items): 13 surfaces, 12 DESKTOP-ADAPTED, 1 INTENTIONALLY-FOCUSED.
@@ -263,4 +331,18 @@ Slice 5 (billing document detail, secretary beyond home, payables), counted as r
 - Secretary beyond home: 9 rows. 4 DESKTOP-ADAPTED. 5 INTENTIONALLY-FOCUSED (capture, edit, remind, loop result, notification settings). 0 NOT-YET-DONE.
 - Payables: 9 rows. 8 DESKTOP-ADAPTED. 1 INTENTIONALLY-FOCUSED (load error). 0 NOT-YET-DONE.
 
-Still open: Settings, Inbox, Offers, Business, Content studio, Tools. Production merge: not requested.
+Slice 6 (settings, business, offers, content studio), counted as rows in the slice 6 table:
+
+- Settings: 19 rows. 7 DESKTOP-ADAPTED. 12 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+- Business: 8 rows. 5 DESKTOP-ADAPTED. 3 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+- Offers: 12 rows. 5 DESKTOP-ADAPTED. 7 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+- Content studio: 18 rows. 18 DESKTOP-ADAPTED. 0 INTENTIONALLY-FOCUSED. 0 NOT-YET-DONE.
+
+Still open: Inbox, Tools. Production merge: not requested.
+
+Product limitations found in slice 6, left as they are:
+
+- Settings has no team, permissions, or notification-preferences model. Account is the signed-in person plus logout; locale is read-only.
+- Offers in the product are coupons. There is no line-item commercial offer and no sent/open/accepted/rejected lifecycle; coupon states are ACTIVE, DISABLED, EXPIRED and REDEEMED. `/offers`, `/offers/create` and `/revenue/issue` redirect to `/revenue`. Redemption counts beyond 0/1 are deliberately not modelled, so the queue shows no redemption totals.
+- The Business Offering migration on main (`BusinessServiceAsset`, `InventoryItemAsset`, `OfferingDemandSignal`) has no model in `schema.prisma` and no code reading it. There is no offering editor to design, and none was added.
+- The content studio's intermediate steps call generation APIs that were mocked empty in QA, so their loading and empty states are what was captured.

@@ -1,0 +1,28 @@
+.shell {
+  max-width: 560px;
+}
+
+.cats {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 1200px) {
+  .shell {
+    max-width: 1180px !important;
+    margin-inline: auto;
+    padding-inline: 12px;
+  }
+
+  .cats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding-inline: 18px;
+  }
+
+  .cats > button {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+}

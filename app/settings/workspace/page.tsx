@@ -1,5 +1,6 @@
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import styles from "../settings-desk.module.css";
 
 const SYSTEM_VALUES: { label: string; value: string }[] = [
   { label: "שפה", value: "עברית" },
@@ -10,7 +11,7 @@ const SYSTEM_VALUES: { label: string; value: string }[] = [
 
 export default function SettingsWorkspacePage() {
   return (
-    <>
+    <div className={styles.focused}>
       <SettingsSubPageHeader title="שפה ואזור" />
       <SettingsSection title="הגדרות אזור">
         <p className="text-sm leading-6 text-[var(--dz-text-muted)]">
@@ -32,6 +33,6 @@ export default function SettingsWorkspacePage() {
           ))}
         </div>
       </SettingsSection>
-    </>
+    </div>
   );
 }

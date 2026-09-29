@@ -11,6 +11,7 @@ import {
   type InvoiceProfileFormState,
 } from "@/components/billing/BusinessIdentitySetupForm";
 import { BillingSignatureField } from "@/components/billing/BillingSignatureField";
+import desk from "./business-desk.module.css";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -181,15 +182,8 @@ export default function BusinessProfilePage() {
         backLabel="חזרה"
         showBack
       />
-      <main
-        style={{
-          maxWidth: 560,
-          margin: "0 auto",
-          padding: "16px 16px 80px",
-          boxSizing: "border-box",
-        }}
-      >
-        <p style={{ fontSize: 14, color: "var(--dz-text-muted)", marginTop: 0 }}>
+      <main className={desk.main}>
+        <p className={desk.lead} style={{ fontSize: 14, color: "var(--dz-text-muted)", marginTop: 0 }}>
           כאן מגדירים את <strong>זהות העסק</strong> שמופיעה במסמכים (חשבוניות,
           הצעות מחיר וכו׳). עריכה כאן לא דרך מסמך בודד.
         </p>
@@ -213,7 +207,7 @@ export default function BusinessProfilePage() {
         {loading ? (
           <div style={{ marginTop: 24, color: "var(--dz-text-muted)" }}>טוען…</div>
         ) : (
-          <div style={{ display: "grid", gap: 20, marginTop: 20 }}>
+          <div className={desk.stack}>
             <section
               style={{
                 background: "var(--dz-surface)",
@@ -244,20 +238,23 @@ export default function BusinessProfilePage() {
                   חסרים פרטים להפקת חשבונית מס — השלימו את השדות למטה.
                 </p>
               ) : null}
-              <BusinessIdentitySetupForm
-                form={identitySlice}
-                onChange={(next) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    ...next,
-                  }))
-                }
-              />
+              <div className={desk.identity}>
+                <BusinessIdentitySetupForm
+                  form={identitySlice}
+                  onChange={(next) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      ...next,
+                    }))
+                  }
+                />
+              </div>
               <div style={{ marginTop: 16 }}>
                 <BillingSignatureField />
               </div>
             </section>
 
+            <div className={desk.side}>
             <section
               style={{
                 background: "var(--dz-surface)",
@@ -304,8 +301,20 @@ export default function BusinessProfilePage() {
               </div>
             </section>
 
+            {/* Desktop only: the other places the owner shapes this business,
+                each at its canonical screen. Nothing is edited from here. */}
+            <nav className={`${desk.manage} ${desk.desktopOnly}`} aria-label="עוד בעסק שלך">
+              <h2>עוד בעסק שלך</h2>
+              <p>כל אחד מנוהל במסך משלו.</p>
+              <Link href="/business/bot">הבוט שלי <span>איך הוא עונה ללקוחות</span></Link>
+              <Link href="/revenue">הקופונים שלי <span>ההטבות שהעסק מוציא</span></Link>
+              <Link href="/settings/connections">חיבורים <span>סליקה, וואטסאפ ו-Gmail</span></Link>
+            </nav>
+            </div>
+
             {error ? (
               <div
+                className={desk.span}
                 role="alert"
                 style={{
                   background: "var(--dz-danger-bg-soft)",
@@ -319,7 +328,7 @@ export default function BusinessProfilePage() {
               </div>
             ) : null}
 
-            <div style={{ display: "grid", gap: 10 }}>
+            <div className={desk.span} style={{ display: "grid", gap: 10, maxWidth: 420 }}>
               <button
                 type="button"
                 onClick={() => void handleSave()}
@@ -363,6 +372,7 @@ export default function BusinessProfilePage() {
             </div>
 
             <Link
+              className={desk.span}
               href="/billing"
               style={{
                 fontSize: 14,

@@ -34,6 +34,8 @@ import { PageContainer } from "@/components/ui/page-container";
 const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
 /** The workspace tier — where the coupon collection earns the data measure. */
 const WORKSPACE_MIN = `(min-width: ${LAYOUT.bp.wide}px)`;
+/** Desktop UX phase 2 tier — where coupon creation gains its summary column. */
+const DESK_MIN = "(min-width: 1200px)";
 
 /**
  * `/revenue` hosts three surfaces of two different kinds, so the page cannot
@@ -60,6 +62,7 @@ const SURFACE_INTENT: PageSurfaceIntent = "full";
 function ManagementSurface({
   intent,
   collection = false,
+  desk = false,
   children,
 }: {
   intent: Extract<PageIntent, "content" | "focused">;
@@ -70,6 +73,8 @@ function ManagementSurface({
    * which container it applies to.
    */
   collection?: boolean;
+  /** Widens to the data measure from 1200, where the page supplies its own columns. */
+  desk?: boolean;
   children: ReactNode;
 }) {
   /**
@@ -81,7 +86,8 @@ function ManagementSurface({
    * and no effect re-runs. Proven by request parity, not assumed.
    */
   const wide = useMediaQuery(WORKSPACE_MIN);
-  const resolved = collection && wide ? "data" : intent;
+  const desktop = useMediaQuery(DESK_MIN);
+  const resolved = (collection && wide) || (desk && desktop) ? "data" : intent;
   return (
     <ScreenModeProvider mode="app">
       {/* PageContainer, not a hand-rolled max-width: the cap has to come from the
@@ -174,7 +180,7 @@ function CouponFeature() {
 
   if (view === "create") {
     return (
-      <ManagementSurface intent="focused">
+      <ManagementSurface intent="focused" desk>
       <CouponCreationFlow
         startAtBeat={false}
         publish={publishDraft}

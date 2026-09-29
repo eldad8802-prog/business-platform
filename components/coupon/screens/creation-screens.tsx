@@ -55,6 +55,101 @@ import { fetchMyBusiness, type PublishOutcome, type PublishedCoupon } from "@/li
 
 const W = TOKEN.warm;
 
+/**
+ * Desktop composition for coupon creation.
+ *
+ * Below 1200 each step is the phone flow, and the builder carries the live
+ * coupon at its top. From 1200 the step sits beside a sticky column holding
+ * that same live coupon and the choices made so far, so the owner sees what
+ * the customer will receive at every step instead of scrolling back to it.
+ * The builder's inline copy hides there (`offer-inline-preview`). The steps,
+ * their order, validation and publishing are unchanged; the published step
+ * already shows the public coupon, so it keeps one column.
+ */
+const COMPOSER_CSS = `
+.offer-summary { display: none; }
+@media (min-width: 1200px) {
+  .offer-inline-preview { display: none; }
+  .offer-composer {
+    display: grid;
+    grid-template-columns: minmax(0, 660px) 360px;
+    justify-content: center;
+    gap: 32px;
+    align-items: start;
+  }
+  .offer-composer-single {
+    max-width: 660px;
+    margin-inline: auto;
+  }
+  .offer-summary {
+    display: block;
+    position: sticky;
+    top: 20px;
+    margin-top: 20px;
+    padding: 18px;
+    border-radius: ${W.radius.card}px;
+    border: 1px solid ${W.line};
+    background: ${W.surface};
+  }
+  .offer-summary dl { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid ${W.line}; }
+  .offer-summary dt { font-size: 12px; color: ${W.muted2}; }
+  .offer-summary dd { margin: 2px 0 12px; font-size: 14px; font-weight: 600; color: ${W.ink}; }
+  .offer-summary-empty {
+    padding: 22px 16px; border-radius: ${W.radius.control}px; border: 1px dashed ${W.line};
+    font-size: 13px; line-height: 1.55; color: ${W.muted}; text-align: center;
+  }
+  .offer-summary-note { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: ${W.muted2}; }
+}
+`;
+
+function DraftSummary({ draft, step, identityStatus }: { draft: CouponDraft; step: Step; identityStatus: "loading" | "ready" | "error" }) {
+  const goal = GOALS.find((item) => item.key === draft.goal)?.label ?? "עדיין לא נבחרה";
+  const direction = draft.direction ? DIRECTION_LABEL[draft.direction] : "עדיין לא נבחרה";
+  const until = step === "terms" ? draft.validUntilDate : "נקבע בשלב התנאים";
+  return (
+    <aside className="offer-summary" aria-label="הקופון שנבנה">
+      {draft.direction ? (
+        <LiveCouponDisplay
+          label="כך הלקוח יראה · מתעדכן חי"
+          stripText={draft.business?.name ?? ""}
+          stripLoading={identityStatus === "loading"}
+          sentence={benefitSentence(draft)}
+          sub={draftToView(draft).valid}
+        />
+      ) : (
+        <div className="offer-summary-empty">
+          הקופון יופיע כאן, בדיוק כפי שהלקוח יראה אותו, מהרגע שתבחר דרך.
+        </div>
+      )}
+      <dl>
+        <dt>המטרה</dt>
+        <dd>{goal}</dd>
+        <dt>הדרך</dt>
+        <dd>{direction}</dd>
+        <dt>בתוקף עד</dt>
+        <dd>{until}</dd>
+      </dl>
+      <p className="offer-summary-note">שום דבר לא יוצא ללקוחות עד שהקופון מתפרסם בשלב האחרון.</p>
+    </aside>
+  );
+}
+
+function Composer({ draft, step, identityStatus, children }: { draft: CouponDraft; step: Step; identityStatus: "loading" | "ready" | "error"; children: ReactNode }) {
+  return (
+    <>
+      <style>{COMPOSER_CSS}</style>
+      {step === "published" ? (
+        <div className="offer-composer-single">{children}</div>
+      ) : (
+        <div className="offer-composer">
+          <div style={{ minWidth: 0 }}>{children}</div>
+          <DraftSummary draft={draft} step={step} identityStatus={identityStatus} />
+        </div>
+      )}
+    </>
+  );
+}
+
 const GOAL_ICON: Record<string, ReactNode> = {
   new: <><circle cx="10" cy="8" r="3.4" /><path d="M4 20a6 6 0 0112 0" /><path d="M19 7v6M16 10h6" /></>,
   return: <><path d="M9 14l-4-4 4-4" /><path d="M5 10h9a5 5 0 015 5v1" /></>,
@@ -178,6 +273,7 @@ export function CouponCreationFlow({
 
   if (step === "goal")
     return (
+      <Composer draft={draft} step={step} identityStatus={identityStatus}>
       <PhoneFrame>
         {header(null, false)}
         <ScreenBody>
@@ -195,6 +291,7 @@ export function CouponCreationFlow({
           </div>
         </ScreenBody>
       </PhoneFrame>
+      </Composer>
     );
 
   if (step === "direction") {
@@ -209,6 +306,7 @@ export function CouponCreationFlow({
     const mains = DIRECTIONS_6.filter((d) => !d.extra);
     const extras = DIRECTIONS_6.filter((d) => d.extra);
     return (
+      <Composer draft={draft} step={step} identityStatus={identityStatus}>
       <PhoneFrame>
         {header("goal")}
         <ScreenBody>
@@ -234,11 +332,13 @@ export function CouponCreationFlow({
           ) : null}
         </ScreenBody>
       </PhoneFrame>
+      </Composer>
     );
   }
 
   if (step === "builder")
     return (
+      <Composer draft={draft} step={step} identityStatus={identityStatus}>
       <BuilderStep
         draft={draft}
         patch={patch}
@@ -248,10 +348,12 @@ export function CouponCreationFlow({
         identityStatus={identityStatus}
         onRetryIdentity={retryIdentity}
       />
+      </Composer>
     );
 
   if (step === "terms")
     return (
+      <Composer draft={draft} step={step} identityStatus={identityStatus}>
       <TermsStep
         draft={draft}
         patch={patch}
@@ -261,15 +363,18 @@ export function CouponCreationFlow({
         error={error}
         onBackToBuilder={() => setStep("builder")}
       />
+      </Composer>
     );
 
   return (
+    <Composer draft={draft} step={step} identityStatus={identityStatus}>
     <PublishedStep
       draft={draft}
       published={published}
       header={header(null, true)}
       onDone={() => onExit?.(draft)}
     />
+    </Composer>
   );
 }
 
@@ -400,14 +505,16 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
     <PhoneFrame>
       {header}
       <ScreenBody>
-        <LiveCouponDisplay
-          label="כך הלקוח יראה · מתעדכן חי"
-          stripText={draft.business?.name ?? ""}
-          stripLoading={identityStatus === "loading"}
-          sentence={benefitSentence(draft)}
-          sub={draftToView(draft).valid}
-          style={{ margin: "6px 0 24px" }}
-        />
+        <div className="offer-inline-preview">
+          <LiveCouponDisplay
+            label="כך הלקוח יראה · מתעדכן חי"
+            stripText={draft.business?.name ?? ""}
+            stripLoading={identityStatus === "loading"}
+            sentence={benefitSentence(draft)}
+            sub={draftToView(draft).valid}
+            style={{ margin: "6px 0 24px" }}
+          />
+        </div>
 
         {/*
           F-1: a failed identity fetch is now stated, not silent. Publishing is

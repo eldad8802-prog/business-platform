@@ -240,8 +240,11 @@ export function HistoricalRecordsScreen({
     applied.from !== "" ||
     applied.to !== "";
 
+  // From 1200 the settings stylesheet lays these regions out by their data
+  // attributes: filters in a sticky column beside the list, the list as a table.
   return (
-    <>
+    <div data-records-desk>
+      <div data-records-intro>
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
           {EXTERNAL_ORIGIN_BADGE}
@@ -253,11 +256,12 @@ export function HistoricalRecordsScreen({
           המסמכים כאן נשמרים לצפייה בלבד ואי אפשר לערוך אותם.
         </p>
       </SettingsSection>
+      </div>
 
       {/* Filters */}
-      <div className="mt-4">
+      <div className="mt-4" data-records-filters>
         <SettingsSection title="סינון">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-records-filter-grid>
             <label className="block">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
                 סוג מסמך
@@ -342,7 +346,7 @@ export function HistoricalRecordsScreen({
               type="button"
               onClick={apply}
               disabled={loading}
-              className="min-h-[44px] flex-1 rounded-2xl bg-[var(--dz-accent)] px-4 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-[44px] flex-1 rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               סננו
             </button>
@@ -361,7 +365,7 @@ export function HistoricalRecordsScreen({
       </div>
 
       {/* The list */}
-      <div className="mt-4">
+      <div className="mt-4" data-records-list>
         <SettingsSection
           title="המסמכים ההיסטוריים"
           description={
@@ -402,7 +406,7 @@ export function HistoricalRecordsScreen({
               </p>
               <Link
                 href={importHref}
-                className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl bg-[var(--dz-accent)] px-4 text-sm font-bold text-white transition"
+                className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition"
               >
                 להעלאת מסמכים מהמערכת הקודמת
               </Link>
@@ -421,7 +425,38 @@ export function HistoricalRecordsScreen({
               </button>
             </div>
           ) : (
-            <ul className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
+            <>
+            {/* Desktop: the same rows as a table, so dates, amounts and
+                customers line up for comparison. Each row opens the record. */}
+            <table data-records-table>
+              <thead>
+                <tr>
+                  <th scope="col">סוג</th>
+                  <th scope="col">מספר מקורי</th>
+                  <th scope="col">תאריך</th>
+                  <th scope="col">סכום</th>
+                  <th scope="col">לקוח</th>
+                  <th scope="col">מערכת מקור</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.items ?? []).map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <Link href={`${recordsBase}/${item.id}`} className="inline-flex min-h-[44px] items-center">
+                        {documentTypeLabel(item.documentTypeCode)}
+                      </Link>
+                    </td>
+                    <td>{item.originalDocumentNumber ?? "—"}</td>
+                    <td>{formatDay(item.originalIssueDate) ?? "—"}</td>
+                    <td>{formatMoney(item.totalAmount, item.currency) ?? "—"}</td>
+                    <td>{item.customerNameSnapshot ?? "—"}</td>
+                    <td>{item.sourceSystemNameRaw || item.sourceSystemCode}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <ul data-records-cards className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
               {(data?.items ?? []).map((item) => {
                 const money = formatMoney(item.totalAmount, item.currency);
                 const day = formatDay(item.originalIssueDate);
@@ -465,6 +500,7 @@ export function HistoricalRecordsScreen({
                 );
               })}
             </ul>
+            </>
           )}
 
           {data && !loading && !error && data.totalPages > 1 ? (
@@ -496,6 +532,6 @@ export function HistoricalRecordsScreen({
           ) : null}
         </SettingsSection>
       </div>
-    </>
+    </div>
   );
 }

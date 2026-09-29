@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
-import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
@@ -462,7 +461,6 @@ export default function ResultPage() {
           <div style={topBarSpacerStyle} />
         </div>
 
-        <Header title="הסרטון מוכן" />
         <ProgressBar progress={100} />
 
         <div style={contentAreaStyle}>

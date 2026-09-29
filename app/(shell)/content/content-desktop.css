@@ -1,0 +1,94 @@
+/*
+ * Content studio on desktop (1200 and up).
+ *
+ * The steps are one decision each and they branch (camera or AI), so desktop
+ * does not merge them into one screen. What width buys is context: the step
+ * works at its own 720px measure (760 minus the page's 20px padding) and the
+ * choices already made stay in view beside it. Below 1200 none of this
+ * applies and the brief is not shown.
+ */
+
+.studio-brief {
+  display: none;
+}
+
+@media (min-width: 1200px) {
+  .studio-frame {
+    display: grid;
+    grid-template-columns: minmax(0, 760px) 300px;
+    justify-content: center;
+    gap: 28px;
+    padding-inline: 24px;
+    min-height: 100vh;
+    background: linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 42%, var(--dz-surface-muted) 100%);
+  }
+
+  .studio-work {
+    min-width: 0;
+  }
+
+  .studio-brief {
+    display: block;
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    margin-top: 76px;
+    padding: 20px;
+    border-radius: 20px;
+    border: 1px solid var(--dz-border);
+    background: var(--dz-surface);
+    color: var(--dz-text-primary);
+  }
+
+  .studio-brief h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .studio-brief p {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--dz-text-muted);
+  }
+
+  .studio-brief dl {
+    margin: 16px 0 0;
+  }
+
+  .studio-brief dl > div {
+    padding: 10px 0;
+    border-top: 1px solid var(--dz-border-subtle);
+  }
+
+  .studio-brief dt {
+    font-size: 12px;
+    color: var(--dz-text-muted);
+  }
+
+  .studio-brief dd {
+    margin: 2px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .studio-brief ol {
+    margin: 16px 0 0;
+    padding-inline-start: 20px;
+    list-style: decimal;
+    display: grid;
+    gap: 10px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--dz-text-secondary);
+  }
+
+  /* The vibe tiles are portrait on a phone; at a 720px measure that makes two
+     rows of ~470px slabs. Landscape keeps all four in one view. */
+  .vibe-tile {
+    aspect-ratio: 4 / 3 !important;
+  }
+}
