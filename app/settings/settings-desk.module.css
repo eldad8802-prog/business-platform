@@ -1,0 +1,245 @@
+/*
+ * Settings on desktop is a control center: a grouped rail of areas beside the
+ * active configuration. Below 1200 nothing here applies and Settings keeps its
+ * existing single column with the hub list.
+ */
+
+.frame {
+  min-width: 0;
+}
+
+.aside,
+.overview {
+  display: none;
+}
+
+.cardGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.focused {
+  min-width: 0;
+}
+
+/* Historical records (HistoricalRecordsScreen): cards below 1200. */
+.container :global([data-records-table]) {
+  display: none;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.railGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.railHeading {
+  margin: 0;
+  padding: 0 12px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dz-text-muted);
+}
+
+.railLink,
+.railOn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dz-text-primary);
+}
+
+.railLink:hover {
+  background: var(--dz-surface-muted);
+}
+
+.railOn {
+  background: var(--dz-brand-soft);
+  color: var(--dz-brand);
+  font-weight: 750;
+}
+
+.railIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--dz-surface);
+  font-size: 15px;
+}
+
+.overviewHead {
+  grid-column: 1 / -1;
+}
+
+.overviewHead h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+}
+
+.overviewHead p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dz-text-muted);
+}
+
+.connections {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.connectionsMore {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface);
+  font-size: 13px;
+  color: var(--dz-text-muted);
+}
+
+.connectionsMore a {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--dz-brand);
+  text-decoration: none;
+}
+
+@media (min-width: 1200px) {
+  .container {
+    max-width: 1240px !important;
+    padding-inline: 32px !important;
+  }
+
+  .frame {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+
+  .aside {
+    display: block;
+    position: sticky;
+    top: 24px;
+    padding-top: 8px;
+  }
+
+  .hubList {
+    display: none;
+  }
+
+  .overview {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+
+  .cardGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .focused {
+    max-width: 720px;
+  }
+
+  /*
+   * Export keeps its action in a fixed bar so it stays above the fold (see
+   * ExportScreen). A fixed element ignores this layout, so from 1200 its inner
+   * column mirrors the frame instead: same cap and gutters, the rail's 240px
+   * plus the 32px gap reserved at the start, and the focused measure.
+   */
+  .container :global([data-export-action-bar]) > div {
+    max-width: 1240px;
+    padding-inline: 304px 32px;
+  }
+
+  .container :global([data-export-action-bar]) > div > * {
+    max-width: 720px;
+  }
+
+  /*
+   * Historical records are browsed, not filled in: the one import/export
+   * screen that leaves the focused measure. The five filters sit in one row
+   * above the list, and the list becomes a table across the full column.
+   */
+  .focused:has(:global([data-records-desk])) {
+    max-width: none;
+  }
+
+  .container :global([data-records-filter-grid]) {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .container :global([data-records-filter-grid]) > * {
+    grid-column: auto !important;
+  }
+
+  .container :global([data-records-cards]) {
+    display: none;
+  }
+
+  .container :global([data-records-table]) {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .container :global([data-records-table]) th {
+    padding: 8px 10px;
+    text-align: start;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dz-text-muted);
+    border-bottom: 1px solid var(--dz-border-subtle);
+  }
+
+  .container :global([data-records-table]) td {
+    padding: 2px 10px;
+    color: var(--dz-text-secondary);
+    border-bottom: 1px solid var(--dz-border-subtle);
+    overflow-wrap: anywhere;
+  }
+
+  .container :global([data-records-table]) tbody tr:hover {
+    background: var(--dz-surface-muted);
+  }
+
+  .container :global([data-records-table]) td a {
+    font-weight: 700;
+    color: var(--dz-text-primary);
+    text-decoration: none;
+  }
+}

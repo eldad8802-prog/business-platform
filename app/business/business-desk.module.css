@@ -1,0 +1,99 @@
+/*
+ * /business below 1200 is the existing single column. From 1200 it is the
+ * business identity desk: the legal identity as a two-column form (the form
+ * already marks which fields span), with the optional document details and
+ * the rest of what the owner manages for the business beside it.
+ */
+
+.main {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px 16px 80px;
+  box-sizing: border-box;
+}
+
+.stack,
+.side {
+  display: grid;
+  gap: 20px;
+}
+
+.stack {
+  margin-top: 20px;
+}
+
+.desktopOnly {
+  display: none;
+}
+
+.manage {
+  background: var(--dz-surface);
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.manage h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+}
+
+.manage p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dz-text-muted);
+}
+
+.manage a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  border-top: 1px solid var(--dz-border-subtle);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dz-text-primary);
+  text-decoration: none;
+}
+
+.manage a span {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--dz-text-muted);
+}
+
+@media (min-width: 1200px) {
+  .main {
+    max-width: 1180px;
+    padding-inline: 28px;
+  }
+
+  .lead {
+    max-width: 72ch;
+  }
+
+  .stack {
+    grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+    align-items: start;
+  }
+
+  .identity > div:first-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .side {
+    position: sticky;
+    top: 16px;
+  }
+
+  .desktopOnly {
+    display: block;
+  }
+
+  .span {
+    grid-column: 1 / -1;
+  }
+}

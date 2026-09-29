@@ -102,7 +102,47 @@ export default function NewSupplierPurchaseSelectPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-ops">
+          <div className="inv-desk-table" aria-label="מוצרים להזמנה">
+            <table>
+              <thead>
+                <tr>
+                  <th>מוצר</th>
+                  <th>קטגוריה</th>
+                  <th>במלאי</th>
+                  <th>בעגלה</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {browsableItems.map((item) => {
+                  const inCart = order[item.id] ?? 0;
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td>{getCategoryName(item)}</td>
+                      <td className="num">{item.currentQuantity}</td>
+                      <td className="num">{inCart || "—"}</td>
+                      <td>
+                        <button type="button" onClick={() => quickAddItem(item)}>הוסף</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <aside className="inv-ops__side">
+            <h2>בעגלה</h2>
+            <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות</p>
+            <p>יצירת ההזמנה עדיין לא משנה מלאי. הכמויות נסגרות בעגלה ובאישור.</p>
+            <button type="button" className="inv-btn-primary" disabled={!canContinue} onClick={() => router.push("/inventory/supplier-purchases/new/cart")}>
+              המשך לעגלה
+            </button>
+          </aside>
+        </div>
+        <div className="inv-rows inv-cards">
           {browsableItems.map((item) => {
             const inCart = order[item.id] ?? 0;
             return (
@@ -132,6 +172,7 @@ export default function NewSupplierPurchaseSelectPage() {
             );
           })}
         </div>
+        </>
       )}
     </OrderWizardShell>
   );

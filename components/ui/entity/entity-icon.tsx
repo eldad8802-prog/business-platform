@@ -124,6 +124,13 @@ const DRAW: Record<string, (t: EntityTone) => ReactNode> = {
       <path d="M16.5 13.5h6M16.5 18h4" {...S} />
     </>
   ),
+  // content studio — a video frame with a play mark (the studio makes videos)
+  content: (t) => (
+    <>
+      <rect x="4" y="7" width="24" height="18" rx="3.5" fill={t.solid} {...S} />
+      <path d="M13.5 12.2v7.6l6.5-3.8z" fill={PAPER} {...S} />
+    </>
+  ),
   // operations — Sage
   inventory: (t) => (
     <>

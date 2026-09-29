@@ -1005,6 +1005,15 @@ export const inventoryPrimitivesCss = `
   }
 
   [data-inventory-module] .inv-desk-table { display: none; }
+  [data-inventory-module] .inv-wide { display: none; }
+  [data-inventory-module] .inv-ops__side { display: none; }
+  [data-inventory-module] .inv-count-desk { display: none; }
+  [data-inventory-module] .inv-count-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 clamp(16px, 3.5vw, 28px);
+  }
 
   @media (min-width: 1200px) {
     [data-inventory-module] .inv-hd,
@@ -1041,6 +1050,9 @@ export const inventoryPrimitivesCss = `
       color: var(--inv-text-muted);
       background: var(--inv-surface-2);
       white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     [data-inventory-module] .inv-desk-table td { font-size: 14px; color: var(--inv-text); }
     [data-inventory-module] .inv-desk-table tbody tr { cursor: pointer; }
@@ -1061,5 +1073,65 @@ export const inventoryPrimitivesCss = `
       align-items: start;
       max-width: none;
       padding-inline: 28px;
-    }  }
+    }
+    [data-inventory-module] .inv-ops {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 16px;
+      align-items: start;
+      margin: 12px 28px 28px;
+    }
+    [data-inventory-module] .inv-ops > .inv-desk-table { margin: 0; min-width: 0; }
+    [data-inventory-module] .inv-ops__side {
+      display: grid;
+      gap: 8px;
+      position: sticky;
+      top: 16px;
+      background: var(--inv-card-bg);
+      border: 1px solid var(--inv-border);
+      border-radius: 16px;
+      padding: 16px;
+      align-content: start;
+    }
+    [data-inventory-module] .inv-ops__side h2 { margin: 0; font-size: 16px; font-weight: 700; }
+    [data-inventory-module] .inv-ops__side p { margin: 0; color: var(--inv-text-muted); font-size: 13px; line-height: 1.5; }
+    [data-inventory-module] .inv-ops tr.is-selected td { background: var(--inv-surface-2); }
+    [data-inventory-module] .inv-decision-mobile { display: none !important; }
+    [data-inventory-module] .inv-count-cards { display: none !important; }
+    [data-inventory-module] .inv-count-save { display: none !important; }
+    [data-inventory-module] .inv-receive-note { display: none !important; }
+    [data-inventory-module] .inv-count-desk { display: block; margin: 0; }
+    [data-inventory-module] .inv-count-sheet > :not(.inv-ops__side) { grid-column: 1; }
+    [data-inventory-module] .inv-count-sheet > .inv-ops__side { grid-column: 2; grid-row: 1 / span 12; }
+    [data-inventory-module] .inv-count-sheet,
+    [data-inventory-module] .inv-sale-desk,
+    [data-inventory-module] .inv-create-grid,
+    [data-inventory-module] .inv-send-desk,
+    [data-inventory-module] .inv-receive-desk,
+    [data-inventory-module] .inv-import-desk {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 16px;
+      align-items: start;
+      padding: 0 28px 28px;
+    }
+    [data-inventory-module] .inv-create-grid { grid-template-columns: minmax(0, 1.4fr) minmax(260px, 320px); }
+    [data-inventory-module] .inv-create-grid .inv-fwrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 16px;
+      align-items: start;
+    }
+    [data-inventory-module] .inv-create-grid .inv-imgpick,
+    [data-inventory-module] .inv-create-grid .inv-field:has(.inv-seg),
+    [data-inventory-module] .inv-create-grid .inv-two { grid-column: 1 / -1; }
+    /* Name pairs with its description. The featured flag and the category
+       each take their own row, so neither sits beside an unrelated field. */
+    [data-inventory-module] .inv-create-grid .inv-field:has(input[type="checkbox"]),
+    [data-inventory-module] .inv-create-grid .inv-field:has(datalist) { grid-column: 1 / -1; }
+    [data-inventory-module] .inv-create-grid .inv-field:has(input[type="checkbox"]) { min-height: 44px; }
+  }
+  @media (min-width: 1600px) {
+    [data-inventory-module] .inv-wide { display: table-cell; }
+  }
 `;

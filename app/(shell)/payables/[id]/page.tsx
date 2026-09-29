@@ -201,6 +201,13 @@ export default function CommitmentDetailPage({
         <RecurringChanges commitmentId={detail.id} endAt={detail.endAt} run={run} />
       )}
 
+      {!providersLive ? (
+        <p className={styles.subtitle}>
+          אין ספק לתשלומים יוצאים. הכנה, אישור ורישום נשמרים כאן ואינם מעבירים כסף.
+          מסמך החיוב נשאר בחשבוניות.
+        </p>
+      ) : null}
+
       {/* The legacy assertion, stated as an assertion. It must not read as a
           payment: nothing was ever observed, and no amount was recorded. */}
       {detail.legacy && (
@@ -228,6 +235,8 @@ export default function CommitmentDetailPage({
         </div>
       )}
 
+      <div className={styles.payDesk}>
+      <div>
       <div className={styles.header}>
         <h2 className={styles.sectionTitle}>הכן תשלום</h2>
         {detail.status === "ACTIVE" && (
@@ -282,6 +291,8 @@ export default function CommitmentDetailPage({
           reload();
         }}
       />
+      </div>
+      <div>
 
       <div className={styles.header}>
         <h2 className={styles.sectionTitle}>צ׳קים</h2>
@@ -424,6 +435,8 @@ export default function CommitmentDetailPage({
           </div>
         </>
       )}
+      </div>
+      </div>
     </div>
   );
 }

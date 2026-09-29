@@ -1,7 +1,7 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
@@ -28,6 +28,40 @@ export default function DocumentsUploadPage() {
     file: File;
     info: DuplicateInfo;
   } | null>(null);
+  const [queue, setQueue] = useState<{
+    pending: number | null;
+    recent: { id: number; vendor: string; status: string }[];
+  }>({ pending: null, recent: [] });
+
+  useEffect(() => {
+    const token = window.localStorage.getItem("token");
+    if (!token) return;
+    let cancelled = false;
+    void fetch("/api/documents/inbox", { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.json())
+      .then((data) => {
+        if (cancelled || !data || data.success !== true) return;
+        const pending = data.financialPulse?.inboxDocumentCounts?.totalPendingReview;
+        const items = Array.isArray(data.items) ? data.items : [];
+        setQueue({
+          pending: typeof pending === "number" ? pending : null,
+          recent: items.slice(0, 6).map((item: {
+            documentId?: number;
+            status?: string;
+            financial?: { vendorName?: string };
+            extracted?: { vendorName?: string | null };
+          }) => ({
+            id: Number(item.documentId),
+            vendor: item.financial?.vendorName || item.extracted?.vendorName || "לא צוין",
+            status: item.status === "needs_review" ? "ממתין" : item.status === "approved" ? "אושר" : item.status || "—",
+          })),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function upload(
     file: File | null | undefined,
@@ -87,13 +121,15 @@ export default function DocumentsUploadPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
-        <header style={headStyle}>
+      <PageContainer intent="focused" className="dz-upload" style={{ paddingBlock: "14px 40px" }}>
+        <div className="dz-upload-desk">
+        <header className="dz-upload-span" style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>העלאת קובץ</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
+        <div>
         <button
           type="button"
           style={dropzoneStyle}
@@ -192,6 +228,47 @@ export default function DocumentsUploadPage() {
             </div>
           </div>
         ) : null}
+        </div>
+
+        <aside className="dz-upload-side" aria-label="מסמכים שנכנסו">
+          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>בתור עכשיו</h2>
+          {queue.pending == null ? (
+            <p style={{ margin: 0, color: TOKEN.ink.muted }}>טוען את התור…</p>
+          ) : (
+            <p style={{ margin: 0, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
+              {queue.pending.toLocaleString("he-IL")} מסמכים ממתינים לאימות.
+            </p>
+          )}
+          {queue.recent.length > 0 ? (
+            <ul style={{ listStyle: "none", margin: "14px 0 0", padding: 0, display: "grid", gap: 8 }}>
+              {queue.recent.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/documents/review/${item.id}`)}
+                    style={{
+                      width: "100%",
+                      textAlign: "start",
+                      background: TOKEN.surface.card,
+                      border: `1px solid ${TOKEN.border.DEFAULT}`,
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      font: "inherit",
+                      color: TOKEN.ink.primary,
+                    }}
+                  >
+                    <strong style={{ display: "block" }}>{item.vendor}</strong>
+                    <span style={{ color: TOKEN.ink.muted, fontSize: 13 }}>{item.status}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : queue.pending === 0 ? (
+            <p style={{ margin: "12px 0 0", color: TOKEN.ink.muted }}>אין מסמכים ממתינים כרגע.</p>
+          ) : null}
+        </aside>
+        </div>
       </PageContainer>
     </div>
   );

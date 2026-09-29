@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
-import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
@@ -261,7 +260,6 @@ useEffect(() => {
             <div style={topBarSpacerStyle} />
           </div>
 
-          <Header title="יוצרים עבורך תוכן" />
           <ProgressBar progress={92} />
 
           <div style={loadingWrapStyle}>
@@ -284,7 +282,6 @@ useEffect(() => {
           <div style={topBarSpacerStyle} />
         </div>
 
-        <Header title="יוצרים עבורך תוכן" />
         <ProgressBar progress={92} />
 
         <div style={contentAreaStyle}>

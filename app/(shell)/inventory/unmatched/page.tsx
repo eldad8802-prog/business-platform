@@ -65,6 +65,53 @@ function formatWhen(value?: string) {
   return d.toLocaleString("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function UnmatchedInspector({
+  pending,
+  items,
+  busy,
+  onLinkSuggested,
+  onSearch,
+  onCreate,
+  onReject,
+}: {
+  pending: InventoryPendingMatchDTO | null;
+  items: InventoryItemDTO[];
+  busy: boolean;
+  onLinkSuggested: (pending: InventoryPendingMatchDTO, itemId: number) => void;
+  onSearch: (pending: InventoryPendingMatchDTO) => void;
+  onCreate: (pending: InventoryPendingMatchDTO) => void;
+  onReject: (pending: InventoryPendingMatchDTO) => void;
+}) {
+  if (!pending) {
+    return (
+      <aside className="inv-ops__side">
+        <h2>מכירה</h2>
+        <p>בחרו מכירה. הקישור למוצר נשאר פעולה מפורשת.</p>
+      </aside>
+    );
+  }
+  const match = bestMatch(pending, items);
+  const name = pending.metadata.name || pending.metadata.sku || pending.externalSaleId;
+  return (
+    <aside className="inv-ops__side">
+      <h2>{name}</h2>
+      <p>{pending.metadata.source || "POS"} · נמכרו {pending.metadata.quantity}</p>
+      <p>{match.item ? `התאמה מוצעת: ${match.item.name}` : "לא נמצא מוצר דומה במלאי"}</p>
+      <p>{match.label}</p>
+      <button
+        type="button"
+        className="inv-btn-primary"
+        disabled={busy}
+        onClick={() => (match.item ? onLinkSuggested(pending, match.item.id) : onSearch(pending))}
+      >
+        קשר לקיים
+      </button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onCreate(pending)}>מוצר חדש</button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onReject(pending)}>דחה</button>
+    </aside>
+  );
+}
+
 export default function InventoryUnmatchedPage() {
   const [pendingMatches, setPendingMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
@@ -73,6 +120,7 @@ export default function InventoryUnmatchedPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [linkFor, setLinkFor] = useState<InventoryPendingMatchDTO | null>(null);
   const [linkQuery, setLinkQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   async function loadData() {
     try {
@@ -197,7 +245,48 @@ export default function InventoryUnmatchedPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-ops">
+          <div className="inv-desk-table" aria-label="מכירות שלא זוהו">
+            <table>
+              <thead>
+                <tr>
+                  <th>מכירה</th>
+                  <th>מקור</th>
+                  <th>כמות</th>
+                  <th>התאמה</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingMatches.map((pending) => {
+                  const match = bestMatch(pending, activeItems);
+                  return (
+                    <tr
+                      key={pending.id}
+                      className={pending.id === selectedId ? "is-selected" : undefined}
+                      onClick={() => setSelectedId(pending.id)}
+                    >
+                      <td>{pending.metadata.name || pending.metadata.sku || pending.externalSaleId}</td>
+                      <td>{pending.metadata.source || "POS"}</td>
+                      <td className="num">{pending.metadata.quantity}</td>
+                      <td>{match.item ? match.item.name : match.label}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <UnmatchedInspector
+            pending={pendingMatches.find((pending) => pending.id === selectedId) ?? null}
+            items={activeItems}
+            busy={busyId === selectedId}
+            onLinkSuggested={(pending, itemId) => void linkExisting(pending, itemId)}
+            onSearch={setLinkFor}
+            onCreate={(pending) => void createNew(pending)}
+            onReject={(pending) => void reject(pending)}
+          />
+        </div>
+        <div className="inv-rows inv-decision-mobile">
           {pendingMatches.map((pending) => {
             const meta = pending.metadata;
             const match = bestMatch(pending, activeItems);
@@ -253,6 +342,7 @@ export default function InventoryUnmatchedPage() {
             );
           })}
         </div>
+        </>
       )}
 
       {linkFor ? (

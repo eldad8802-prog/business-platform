@@ -438,6 +438,11 @@ export function ConversationView(props: {
   onTakeOverConversation?: () => void;
   takeOverBusy?: boolean;
   productLinkPrefill?: { intro: string | null; url: string } | null;
+  /**
+   * Desktop pane shown before a conversation is chosen (the host decides what
+   * helps there). Falls back to the plain "בחר שיחה" card.
+   */
+  emptyState?: React.ReactNode;
   styles: {
     softButtonStyle: React.CSSProperties;
     accentButtonStyle: React.CSSProperties;
@@ -565,7 +570,12 @@ export function ConversationView(props: {
       }}
     >
       <style>{cvCss}</style>
-      {!activeConversationId && (
+      {!activeConversationId && props.emptyState ? (
+        <div className="cv-desktop-only" style={{ height: "100%", overflow: "auto" }}>
+          {props.emptyState}
+        </div>
+      ) : null}
+      {!activeConversationId && !props.emptyState && (
         <div
           className="cv-desktop-only"
           style={{

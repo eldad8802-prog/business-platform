@@ -5,6 +5,12 @@ import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { TOKEN } from "@/lib/design/bot-theme";
+import { LAYOUT } from "@/lib/design/tokens";
+import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import desk from "./bot-desk.module.css";
+
+/** The shell's desktop tier — where its navigation becomes a sidebar. */
+const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
 import { isValidProductLinkUrl } from "@/lib/inbox-view/product-link-capability";
 import {
   BOT_BOUNDARY_OPTIONS,
@@ -79,8 +85,11 @@ function normalizeFinalAction(value: string | null): FinalActionValue {
 
 export default function BusinessBotSettingsPage() {
   // Focused bot builder with its own sticky action bars — hide the app's fixed
-  // bottom nav so it never overlaps the save controls.
-  useHideShellChrome(true);
+  // bottom nav so it never overlaps the save controls. From the shell's desktop
+  // tier the navigation is a sidebar, which cannot overlap them, so it stays —
+  // the same rule the bot hub uses.
+  const isDesktop = useMediaQuery(SHELL_DESKTOP_MIN);
+  useHideShellChrome(!isDesktop);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -380,14 +389,7 @@ export default function BusinessBotSettingsPage() {
         backLabel="חזרה לבוט"
         showBack
       />
-      <main
-        style={{
-          maxWidth: 560,
-          margin: "0 auto",
-          padding: "18px 16px 100px",
-          boxSizing: "border-box",
-        }}
-      >
+      <main className={desk.main}>
         <p style={{ fontSize: TOKEN.font.body, color: TOKEN.ink.secondary, marginTop: 0, lineHeight: 1.55 }}>
           כאן מגדירים איך הבוט מכין טיוטות באינבוקס. אתה תמיד לוחץ שלח — הלקוח לא מקבל
           כלום מהבוט לבד. אפשר לעצור בכל שיחה עם &quot;אני מטפל מכאן&quot;.
@@ -396,7 +398,7 @@ export default function BusinessBotSettingsPage() {
         {loading ? (
           <div style={{ marginTop: 28, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען…</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 22 }}>
+          <div className={desk.stack}>
             <section style={cardStyle}>
               <h2 style={sectionTitle}>איך הבוט עובד אצלך</h2>
               <p style={sectionHint}>
@@ -584,7 +586,7 @@ export default function BusinessBotSettingsPage() {
               </label>
             </section>
 
-            <section style={{ ...cardStyle, background: TOKEN.semantic.success.bgSoft, borderColor: TOKEN.semantic.success.border }}>
+            <section className={desk.preview} style={{ ...cardStyle, background: TOKEN.semantic.success.bgSoft, borderColor: TOKEN.semantic.success.border }}>
               <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>כך יראה הלקוח שלך את הבוט</h2>
               <p style={{ ...sectionHint, marginBottom: 14 }}>
                 תצוגה של תחילת השיחה — לא צ׳אט חי, רק הדגמה ויזואלית.

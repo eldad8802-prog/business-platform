@@ -42,6 +42,9 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // Inventory leaves the bar and stays reachable through ניהול העסק and "+";
   // it is a place you visit when you are doing stock, not all day.
   { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, primary: true },
+  // Not a primary tab: search is a desktop/tablet way to find a financial
+  // record. The only search API is vendor/category on financial records.
+  { key: "search", label: "חיפוש", href: "/search", icon: IconSearch },
   { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory },
   { key: "leads", label: "לידים", href: "/leads", icon: IconLeads },
   { key: "customers", label: "לקוחות", href: "/customers", icon: IconCustomers },
@@ -162,6 +165,16 @@ function IconBell({ active }: { active: boolean }) {
         strokeLinejoin="round"
       />
       <path d="M13.7 19.6a2 2 0 0 1-3.4 0" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSearch({ active }: { active: boolean }) {
+  const w = active ? 2.05 : 1.8;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="6.2" stroke="currentColor" strokeWidth={w} />
+      <path d="M16 16.5 20.5 21" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
     </svg>
   );
 }

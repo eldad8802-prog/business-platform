@@ -161,8 +161,9 @@ export function IntegrationStatusCards() {
     };
   }, []);
 
+  // `contents` from 1200 lets each card take its own cell in the parent grid.
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 min-[1200px]:contents">
       <IntegrationCard
         title="וואטסאפ"
         description="חיבור חשבון WhatsApp Business לקבלת הודעות ופעולות בוט."

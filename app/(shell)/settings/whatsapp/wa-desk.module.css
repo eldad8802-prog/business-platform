@@ -1,0 +1,18 @@
+/* Below 1200 the connection and the privacy section stack 16px apart. */
+.desk {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 1200px) {
+  /* PageContainer sets its cap inline, so only !important widens it. */
+  .page {
+    max-width: 1080px !important;
+  }
+
+  .desk {
+    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.85fr);
+    gap: 20px;
+    align-items: start;
+  }
+}

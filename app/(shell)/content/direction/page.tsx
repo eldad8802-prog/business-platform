@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
-import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
@@ -93,7 +92,6 @@ export default function DirectionPage() {
           <div style={topBarSpacerStyle} />
         </div>
 
-        <Header title="איך לספר את זה" />
         <ProgressBar progress={40} />
 
         <div style={contentAreaStyle}>

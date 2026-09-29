@@ -119,9 +119,12 @@ function getAuthToken(): string {
  *    the chrome hook is a React signal);
  *  - the workspace tier is where the contextual rail earns its width (CSS —
  *    see RAIL_CSS and WorkspaceLayout's own breakpointStep).
- * Both come from LAYOUT; this file introduces no breakpoint of its own.
+ * The shell chrome still follows LAYOUT. The document workspace opens at the
+ * product desktop tier (1200): that is where a summary rail earns its place,
+ * earlier than LAYOUT.bp.wide (1280).
  */
 const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
+const DOCUMENT_DESK_MIN = 1200;
 /**
  * The rail carries identity, totals and the next action. 340 is wide enough
  * for a currency figure and a full-width primary button without wrapping, and
@@ -136,14 +139,25 @@ const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
 const RAIL_CSS = `
 [data-billing-column] { max-width: ${LAYOUT.width.content}px; }
 [data-billing-stage] [data-billing-flow] { display: contents; }
-/* Below the workspace tier the document is one reading column, so the content
- * cap is the right measure. At and above it the column is no longer the
- * composition — it holds a rail plus a stage region, and capping the pair at
- * content would squeeze the stage to roughly 600. The data cap is the canonical
- * one for a two-region surface, and what the CRM workspaces resolve to. */
-@media (min-width: ${LAYOUT.bp.wide}px) {
+[data-billing-lines] { display: none; }
+/* Below 1200 the document is one reading column and lines stay inside
+ * "פרטים נוספים". From 1200 the rail holds identity, money, and the next
+ * action, and issued lines stay visible in the stage. There is no inline PDF:
+ * view, download, and share stay the issued actions. At 1600 the stage's own
+ * sections sit side by side, and the lines span both. */
+@media (min-width: ${DOCUMENT_DESK_MIN}px) {
   [data-billing-stage] [data-billing-flow] { display: none; }
-  [data-billing-column] { max-width: ${LAYOUT.width.data}px; }
+  [data-billing-column] { max-width: none; }
+  [data-billing-lines] { display: grid; gap: 12px; }
+  [data-billing-more] { display: none; }
+}
+@media (min-width: 1600px) {
+  [data-billing-stage] {
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    align-items: start;
+  }
+  [data-billing-stage] > :first-child,
+  [data-billing-lines] { grid-column: 1 / -1; }
 }
 `;
 const RAIL_WIDTH = 340;
@@ -1626,8 +1640,12 @@ function DocumentBody({
           {shouldShowCollections(doc.documentType, doc.status) ? (
             <CollectionsSection doc={doc} />
           ) : null}
+          <div data-billing-lines>
+            <LinesSection lines={doc.lines} currency={doc.currency} />
+            <TotalsCard doc={doc} />
+          </div>
           <div data-billing-flow>{contextSummary}</div>
-          {detailsContext}
+          <div data-billing-more>{detailsContext}</div>
         </>
       ) : null}
 
@@ -1675,7 +1693,7 @@ function DocumentBody({
       }
       end={stageContent}
       startWidth={RAIL_WIDTH}
-      breakpointStep={LAYOUT.bp.wide}
+      breakpointStep={DOCUMENT_DESK_MIN}
       responsive={{ mode: "switch", visible: "end" }}
       startLabel="הקשר המסמך"
       endLabel="תוכן השלב"

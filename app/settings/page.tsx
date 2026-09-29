@@ -1,5 +1,7 @@
 import { SettingsNav } from "@/components/settings/SettingsNav";
+import { SettingsOverview } from "@/components/settings/SettingsOverview";
 import BackButton from "@/components/ui/back-button";
+import styles from "./settings-desk.module.css";
 
 export default function SettingsHubPage() {
   return (
@@ -16,7 +18,12 @@ export default function SettingsHubPage() {
         </div>
       </header>
 
-      <SettingsNav />
+      {/* Below 1200 the hub is the category list. From 1200 the rail carries
+          the categories and the hub shows what is set up. */}
+      <div className={styles.hubList}>
+        <SettingsNav />
+      </div>
+      <SettingsOverview />
     </>
   );
 }

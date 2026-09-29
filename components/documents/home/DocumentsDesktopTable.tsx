@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
+import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { formatMoney } from "./home-format";
 
 function formatShortDate(iso: string | null | undefined) {
@@ -43,8 +45,11 @@ export default function DocumentsDesktopTable({
   onRetry: () => void;
 }) {
   const router = useRouter();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = items.find((item) => item.documentId === selectedId) ?? null;
 
   return (
+    <div className="dz-docs-work">
     <section className="dz-docs-table" aria-label="רשימת מסמכים">
       {loading ? <p className="dz-docs-empty">טוען מסמכים…</p> : null}
       {!loading && error ? (
@@ -80,11 +85,12 @@ export default function DocumentsDesktopTable({
               return (
                 <tr
                   key={item.documentId}
-                  onClick={() => router.push(`/documents/review/${item.documentId}`)}
+                  className={item.documentId === selectedId ? "is-selected" : undefined}
+                  onClick={() => setSelectedId(item.documentId)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      router.push(`/documents/review/${item.documentId}`);
+                      setSelectedId(item.documentId);
                     }
                   }}
                   tabIndex={0}
@@ -108,5 +114,46 @@ export default function DocumentsDesktopTable({
         </table>
       ) : null}
     </section>
+    <aside className="dz-docs-inspector" aria-label="המסמך שנבחר">
+      {selected ? (
+        <HubInspector item={selected} onOpen={() => router.push(`/documents/review/${selected.documentId}`)} />
+      ) : (
+        <p>
+          {items.length === 0
+            ? "כשייכנסו מסמכים הם יופיעו ברשימה, ואפשר לבחור אחד בלי לצאת מהמרכז."
+            : "בחרו מסמך מהרשימה כדי לראות ספק, סכום וסטטוס, ואז לפתוח אותו לאימות."}
+        </p>
+      )}
+    </aside>
+    </div>
+  );
+}
+
+function HubInspector({ item, onOpen }: { item: InboxListItem; onOpen: () => void }) {
+  const vendor = item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
+  const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
+  const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
+  const categoryRaw = item.financial?.category ?? item.extracted?.category ?? "";
+  const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
+  const status = statusLabel(item.status);
+  return (
+    <>
+      <h2>{vendor}</h2>
+      <dl>
+        <dt>תאריך</dt>
+        <dd>{formatShortDate(dateIso)}</dd>
+        <dt>קטגוריה</dt>
+        <dd>{category}</dd>
+        <dt>סכום</dt>
+        <dd>{amountRaw != null && Number.isFinite(amountRaw) ? formatMoney(amountRaw) : "—"}</dd>
+        <dt>סטטוס</dt>
+        <dd>{status.text}</dd>
+        <dt>מקור</dt>
+        <dd>{item.source || "—"}</dd>
+      </dl>
+      <button type="button" onClick={onOpen}>
+        פתח לאימות
+      </button>
+    </>
   );
 }

@@ -292,6 +292,8 @@ export default function SupplierPurchaseSendPage() {
             </DecisionCard>
           </div>
 
+          <div className="inv-desk-workspace inv-send-desk">
+          <div>
           <div className="inv-seclabel">פריטים בהזמנה</div>
           <div className="inv-olines">
             {draft.lines.map((line) => (
@@ -304,6 +306,7 @@ export default function SupplierPurchaseSendPage() {
                 </span>
               </div>
             ))}
+          </div>
           </div>
 
           <div className="inv-fwrap" style={{ marginTop: 14 }}>
@@ -327,6 +330,7 @@ export default function SupplierPurchaseSendPage() {
                 מעבר לקליטה
               </button>
             </div>
+          </div>
           </div>
 
           {shareMenuOpen ? (

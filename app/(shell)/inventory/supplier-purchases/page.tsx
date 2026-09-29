@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
@@ -81,6 +82,45 @@ function formatDate(value: string | null): string {
   return d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric" });
 }
 
+function PurchaseInspector({
+  order,
+  onReceive,
+  onSupplier,
+}: {
+  order: PurchaseOrder | null;
+  onReceive: (id: number) => void;
+  onSupplier: (id: number) => void;
+}) {
+  if (!order) {
+    return (
+      <aside className="inv-ops__side">
+        <h2>הזמנה</h2>
+        <p>בחרו הזמנה כדי לראות ספק, שורות ופעולה.</p>
+      </aside>
+    );
+  }
+  const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
+  const total = orderTotal(order);
+  return (
+    <aside className="inv-ops__side">
+      <h2>{order.supplierName || "הזמנה ללא ספק"}</h2>
+      <p>{badge.label} · {order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`}</p>
+      <p>{order.lines.length} שורות{total > 0 ? ` · ₪${total.toLocaleString("he-IL")}` : ""}</p>
+      {order.lines.slice(0, 6).map((line) => (
+        <p key={line.id}>כמות {line.orderedQty}{line.openQty != null ? ` · פתוח ${line.openQty}` : ""}</p>
+      ))}
+      {order.supplierId != null ? (
+        <button type="button" className="inv-btn-secondary" onClick={() => onSupplier(order.supplierId!)}>כרטיס ספק</button>
+      ) : null}
+      {hasOpenQuantity(order) ? (
+        <button type="button" className="inv-btn-primary" onClick={() => onReceive(order.id)}>קבל סחורה</button>
+      ) : (
+        <p>אין כמות פתוחה לקליטה.</p>
+      )}
+    </aside>
+  );
+}
+
 function orderTotal(order: PurchaseOrder): number {
   return order.lines.reduce((sum, line) => sum + line.orderedQty * (line.unitCost ?? 0), 0);
 }
@@ -91,6 +131,7 @@ export default function SupplierPurchasesHubPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("pending");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -155,9 +196,9 @@ export default function SupplierPurchasesHubPage() {
         className="inv-page-content"
         style={{ padding: "0 clamp(16px,3.5vw,28px)", marginBottom: 4 }}
       >
-        <a className="inv-btn-link" href="/suppliers">
+        <Link className="inv-btn-link" href="/suppliers">
           כרטיסי הספקים ›
-        </a>
+        </Link>
       </div>
 
       <FilterChipRow<Tab | "import">
@@ -210,6 +251,7 @@ export default function SupplierPurchasesHubPage() {
         </div>
       ) : (
         <>
+        <div className="inv-ops">
         <div className="inv-desk-table" aria-label="הזמנות ספק">
           <table>
             <thead>
@@ -220,34 +262,35 @@ export default function SupplierPurchasesHubPage() {
                 <th>סכום</th>
                 <th>תאריך</th>
                 <th>סטטוס</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {visibleOrders.map((order) => {
                 const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
                 const total = orderTotal(order);
-                const canReceive = order.status === "AWAITING_DELIVERY";
                 return (
-                  <tr key={order.id}>
+                  <tr
+                    key={order.id}
+                    className={order.id === selectedId ? "is-selected" : undefined}
+                    onClick={() => setSelectedId(order.id)}
+                  >
                     <td>{order.supplierName || "הזמנה ללא ספק"}</td>
                     <td className="num">{order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`}</td>
                     <td className="num">{order.lines.length}</td>
                     <td className="num">{total > 0 ? `₪${total.toLocaleString("he-IL")}` : "—"}</td>
                     <td className="num">{formatDate(order.orderDate ?? order.createdAt) || "—"}</td>
                     <td>{badge.label}</td>
-                    <td>
-                      {canReceive ? (
-                        <button type="button" onClick={() => router.push(`/inventory/supplier-purchases/${order.id}/receive`)}>
-                          קבל סחורה
-                        </button>
-                      ) : null}
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+        <PurchaseInspector
+          order={visibleOrders.find((order) => order.id === selectedId) ?? null}
+          onReceive={(id) => router.push(`/inventory/supplier-purchases/${id}/receive`)}
+          onSupplier={(id) => router.push(`/suppliers/${id}`)}
+        />
         </div>
         <div className="inv-rows inv-cards">
           {visibleOrders.map((order) => {

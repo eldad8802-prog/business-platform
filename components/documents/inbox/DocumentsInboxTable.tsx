@@ -49,9 +49,14 @@ const COLUMNS: DataTableColumn<InboxListItem>[] = [
 export default function DocumentsInboxTable({
   items,
   ariaLabel,
+  onRowActivate,
+  selectedId,
 }: {
   items: InboxListItem[];
   ariaLabel?: string;
+  /** Desktop queue: select in place. When omitted, the row opens review. */
+  onRowActivate?: (item: InboxListItem) => void;
+  selectedId?: number | null;
 }) {
   const router = useRouter();
   return (
@@ -59,7 +64,10 @@ export default function DocumentsInboxTable({
       columns={COLUMNS}
       rows={items}
       getRowId={(i) => String(i.documentId)}
-      onRowOpen={(i) => router.push(`/documents/review/${i.documentId}`)}
+      selectedRowId={selectedId != null ? String(selectedId) : undefined}
+      onRowOpen={(i) =>
+        onRowActivate ? onRowActivate(i) : router.push(`/documents/review/${i.documentId}`)
+      }
       ariaLabel={ariaLabel}
     />
   );

@@ -141,6 +141,8 @@ export default function AttentionPage() {
     null
   );
   const [busyItem, setBusyItem] = useState<number | null>(null);
+  const [domainFilter, setDomainFilter] = useState<BusinessStatusItem["domain"] | "all">("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Extracted from the mount effect so a quick action can re-read the snapshot
   // afterwards: the list must show the consequence of what the owner just did,
@@ -257,6 +259,10 @@ export default function AttentionPage() {
   }, []);
 
   const items = snapshot?.items ?? [];
+  const domains = Array.from(new Set(items.map((item) => item.domain)));
+  const visible =
+    domainFilter === "all" ? items : items.filter((item) => item.domain === domainFilter);
+  const selected = visible.find((item) => item.itemId === selectedId) ?? null;
   const isEmpty = !loading && !error && items.length === 0;
   const snapshotLabel = snapshot?.generatedAt
     ? formatSnapshotTime(snapshot.generatedAt)
@@ -281,13 +287,58 @@ export default function AttentionPage() {
       }}
     >
 <style>{`
+        .attn-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+        .attn-filters button {
+          min-height: 36px; border-radius: 999px; border: 1px solid rgba(52,60,50,0.12);
+          background: transparent; color: var(--dz-text-secondary); font: inherit; font-size: 13px;
+          font-weight: 600; padding: 6px 14px; cursor: pointer;
+        }
+        .attn-filters button[aria-pressed="true"] {
+          background: var(--dz-surface); color: var(--dz-text-primary); border-color: rgba(31,111,107,0.35);
+        }
+        .attn-desk { display: none; }
         @media (min-width: 1200px) {
-          .attn-list {
+          .attn-page { max-width: none !important; }
+          .attn-list { display: none !important; }
+          .attn-desk {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+            gap: 16px;
             align-items: start;
           }
+          .attn-table {
+            background: var(--dz-surface);
+            border: 1px solid rgba(52,60,50,0.08);
+            border-radius: 16px;
+            overflow: auto;
+          }
+          .attn-table table { width: 100%; border-collapse: collapse; }
+          .attn-table th, .attn-table td {
+            text-align: start; padding: 12px 14px; border-bottom: 1px solid rgba(52,60,50,0.08);
+            font-size: 14px; vertical-align: middle;
+          }
+          .attn-table th {
+            position: sticky; top: 0; background: var(--dz-surface-muted);
+            font-size: 12px; color: var(--dz-text-muted); font-weight: 600;
+          }
+          .attn-table tbody tr { cursor: pointer; }
+          .attn-table tbody tr:hover td { background: var(--dz-surface-muted); }
+          .attn-table tr.is-selected td { background: var(--dz-surface-muted); }
+          .attn-side {
+            position: sticky; top: 16px; display: grid; gap: 8px; align-content: start;
+            background: var(--dz-surface); border: 1px solid rgba(52,60,50,0.08);
+            border-radius: 16px; padding: 16px;
+          }
+          .attn-side h2 { margin: 0; font-size: 18px; font-weight: 700; }
+          .attn-side p { margin: 0; color: var(--dz-text-muted); font-size: 14px; line-height: 1.5; }
+          .attn-open {
+            margin-top: 8px; min-height: 40px; border: 0; border-radius: 12px;
+            background: #1f6f6b; color: #fffdf8; font: inherit; font-weight: 700;
+            padding: 8px 14px; cursor: pointer;
+          }
+        }
+        @media (min-width: 1600px) {
+          .attn-desk { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
         }
       `}</style>
       {/*
@@ -295,7 +346,7 @@ export default function AttentionPage() {
         The outer div keeps the surface background and the overflow guard;
         PageContainer owns the width and the responsive gutters.
       */}
-      <PageContainer intent="data" as="div" style={{ paddingBlock: "8px 12px" }}>
+      <PageContainer className="attn-page" intent="data" as="div" style={{ paddingBlock: "8px 12px" }}>
         <header style={{ marginBottom: 24, paddingTop: 6 }}>
           <h1
             style={{
@@ -391,7 +442,64 @@ export default function AttentionPage() {
           </div>
         )}
 
-        {!loading && !error && !isEmpty && (
+        {!loading && !error && domains.length > 1 ? (
+          <div className="attn-filters" role="group" aria-label="סינון לפי תחום">
+            <button type="button" aria-pressed={domainFilter === "all"} onClick={() => { setDomainFilter("all"); setSelectedId(null); }}>
+              הכל
+            </button>
+            {domains.map((domain) => (
+              <button
+                key={domain}
+                type="button"
+                aria-pressed={domainFilter === domain}
+                onClick={() => { setDomainFilter(domain); setSelectedId(null); }}
+              >
+                {domainLabel(domain)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {!loading && !error && !isEmpty && visible.length === 0 ? (
+          <p style={{ color: "var(--dz-text-muted)", fontSize: 14 }}>אין פריטים בתחום הזה.</p>
+        ) : null}
+
+        {!loading && !error && visible.length > 0 ? (
+          <div className="attn-desk">
+            <div className="attn-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>תחום</th>
+                    <th>מה דורש טיפול</th>
+                    <th>דחיפות</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((item) => (
+                    <tr
+                      key={item.itemId}
+                      className={item.itemId === selected?.itemId ? "is-selected" : undefined}
+                      onClick={() => setSelectedId(item.itemId)}
+                    >
+                      <td>{domainLabel(item.domain)}</td>
+                      <td>{item.title}</td>
+                      <td>{severityBadge(item.severity).label}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <AttentionInspector
+              item={selected}
+              busyItem={busyItem}
+              onOpen={() => { if (selected) navigateTo(selected.primaryAction.href); }}
+              onQuick={(action) => void runQuickAction(action)}
+            />
+          </div>
+        ) : null}
+
+        {!loading && !error && visible.length > 0 ? (
           <ul
             className="attn-list"
             style={{
@@ -400,7 +508,7 @@ export default function AttentionPage() {
               padding: 0,
             }}
           >
-            {items.map((item) => (
+            {visible.map((item) => (
               <li key={item.itemId} style={{ marginBottom: 12 }}>
                 <StatusCard
                   item={item}
@@ -446,7 +554,7 @@ export default function AttentionPage() {
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </PageContainer>
     </div>
   );
@@ -531,6 +639,55 @@ function PaperworkObservation({
         {insight.ctaLabel}
       </button>
     </section>
+  );
+}
+
+function AttentionInspector({
+  item,
+  busyItem,
+  onOpen,
+  onQuick,
+}: {
+  item: BusinessStatusItem | null;
+  busyItem: number | null;
+  onOpen: () => void;
+  onQuick: (action: QuickAction) => void;
+}) {
+  if (!item) {
+    return (
+      <aside className="attn-side">
+        <h2>פריט לטיפול</h2>
+        <p>בחרו שורה כדי לראות את ההקשר ואת הפעולה. הטיפול עצמו נשאר במסך של התחום.</p>
+      </aside>
+    );
+  }
+  const badge = severityBadge(item.severity);
+  return (
+    <aside className="attn-side">
+      <h2>{item.title}</h2>
+      <p>{domainLabel(item.domain)} · {badge.label}</p>
+      {item.summary ? <p>{item.summary}</p> : null}
+      <p>{formatCreated(item.createdAt)}</p>
+      <button type="button" className="attn-open" onClick={onOpen}>
+        {item.primaryAction.label || "פתיחה"}
+      </button>
+      {item.quickActions && item.quickActions.length > 0 ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {item.quickActions.map((action) => (
+            <button
+              key={action.kind}
+              type="button"
+              className="attn-open"
+              style={{ background: "transparent", color: "var(--dz-text-primary)", border: "1px solid rgba(52,60,50,0.12)" }}
+              disabled={busyItem === action.leadId}
+              onClick={() => onQuick(action)}
+            >
+              {busyItem === action.leadId ? "מעדכן…" : action.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </aside>
   );
 }
 
