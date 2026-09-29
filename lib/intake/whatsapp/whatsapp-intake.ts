@@ -273,6 +273,9 @@ export async function processIntakeEvent(
           wamid: payload.wamid,
           mediaType: payload.mediaType,
           mediaId: payload.mediaId,
+          // L-16 (sec D): the routing gate's trust travels in the receipt; absent,
+          // documentSourceForSenderTrust fails toward "unverified".
+          senderTrust: payload.senderTrust,
         });
         if (outcome.status === "failed") {
           // The documents subsystem recorded this failure on its own import row;

@@ -70,6 +70,14 @@ export async function receivePublicAssetUpload(input: {
   source: string;
   /** Test seam only; production uses the shared limiter. */
   rateLimiter?: RateLimiter;
+  /**
+   * Runs after the rate limits, the size prechecks and the multipart parse, and
+   * BEFORE any bytes are buffered, verified or stored — for route-specific form
+   * fields that must refuse or short-circuit an upload (e.g. content-run
+   * ownership, an idempotent replay). It ends the upload by throwing; the route
+   * catches its own error. Nothing is stored when it throws.
+   */
+  beforeStore?: (form: FormData) => Promise<void>;
 }): Promise<PublicUploadResult> {
   const { req, user, domain } = input;
   const limiter = input.rateLimiter ?? consumeRateLimit;
@@ -108,8 +116,9 @@ export async function receivePublicAssetUpload(input: {
   }
 
   let file: FormDataEntryValue | null;
+  let formData: FormData;
   try {
-    const formData = await req.formData();
+    formData = await req.formData();
     file = formData.get("file");
   } catch {
     return { ok: false, status: 400, code: "BAD_MULTIPART", error: "Invalid upload" };
@@ -127,6 +136,8 @@ export async function receivePublicAssetUpload(input: {
       error: `File too large (max ${Math.round(maxBytes / 1024 / 1024)}MB)`,
     };
   }
+
+  if (input.beforeStore) await input.beforeStore(formData);
 
   const body = Buffer.from(await file.arrayBuffer());
 
