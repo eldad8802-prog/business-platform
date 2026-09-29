@@ -1,5 +1,6 @@
 import {
   validateWhatsAppMediaContent,
+  WHATSAPP_MEDIA_MAX_BYTES,
 } from "./media-validation.service";
 import type {
   FetchAndValidateParams,
@@ -106,33 +107,140 @@ async function defaultFetchGraphMetadata(
   return { ok: true, metadata };
 }
 
-async function defaultFetchBinary(
-  url: string,
-  token: string
-): Promise<
-  | { ok: true; buffer: Buffer }
-  | { ok: false; reason: "download_failed" }
-> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    return { ok: false, reason: "download_failed" };
-  }
+/**
+ * L-15 — where the Meta access token may be sent.
+ *
+ * Graph's `GET /{media-id}` returns a download URL that must be fetched WITH
+ * the bearer token. Per Meta's Cloud API "Download Media" docs that URL is on
+ * `lookaside.fbsbx.com` (…/whatsapp_business/attachments/?mid=…). The token is
+ * a tenant's WhatsApp Business credential, so it is sent ONLY there, over
+ * https on the default port. Anything else Graph (or a compromised/spoofed
+ * response) names is refused before a request is made.
+ *
+ * Redirects are followed manually: a hop to Meta's CDN (`*.fbcdn.net`,
+ * `*.fbsbx.com`, https only) is allowed but WITHOUT the Authorization header
+ * (CDN URLs are pre-signed); a hop anywhere else aborts.
+ */
+export const META_MEDIA_TOKEN_HOSTS: ReadonlySet<string> = new Set([
+  "lookaside.fbsbx.com",
+]);
+const META_MEDIA_REDIRECT_HOST_SUFFIXES = [".fbcdn.net", ".fbsbx.com"] as const;
+const MAX_MEDIA_REDIRECTS = 3;
 
-  if (!res.ok) {
-    return { ok: false, reason: "download_failed" };
-  }
-
+function parseHttpsUrl(raw: string): URL | null {
+  let u: URL;
   try {
-    const arrayBuffer = await res.arrayBuffer();
-    return { ok: true, buffer: Buffer.from(arrayBuffer) };
+    u = new URL(raw);
   } catch {
-    return { ok: false, reason: "download_failed" };
+    return null;
   }
+  if (u.protocol !== "https:") return null;
+  if (u.port !== "" && u.port !== "443") return null;
+  if (u.username || u.password) return null;
+  return u;
 }
+
+/** May the bearer token be attached to a request for this URL? */
+export function isMetaMediaTokenUrl(raw: string): boolean {
+  const u = parseHttpsUrl(raw);
+  return u !== null && META_MEDIA_TOKEN_HOSTS.has(u.hostname.toLowerCase());
+}
+
+/** May a redirect (without the token) go here? */
+export function isMetaMediaRedirectUrl(raw: string): boolean {
+  const u = parseHttpsUrl(raw);
+  if (!u) return false;
+  const host = u.hostname.toLowerCase();
+  return (
+    META_MEDIA_TOKEN_HOSTS.has(host) ||
+    META_MEDIA_REDIRECT_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))
+  );
+}
+
+type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
+
+async function readCapped(res: Response, maxBytes: number): Promise<Buffer | null> {
+  const declared = Number(res.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      // Stop pulling bytes the moment the cap is crossed.
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Build the binary downloader over an injectable fetch (tests pass a fake and
+ * assert which hosts ever saw the Authorization header).
+ */
+export function createMetaMediaBinaryFetcher(
+  fetchImpl: FetchImpl,
+  maxBytes: number = WHATSAPP_MEDIA_MAX_BYTES
+): MediaFetchDeps["fetchBinary"] {
+  return async (url, token) => {
+    if (!isMetaMediaTokenUrl(url)) {
+      return { ok: false, reason: "untrusted_media_host" };
+    }
+    let current = url;
+    let sendToken = true;
+    for (let hop = 0; hop <= MAX_MEDIA_REDIRECTS; hop++) {
+      let res: Response;
+      try {
+        res = await fetchImpl(current, {
+          redirect: "manual",
+          headers: sendToken ? { Authorization: `Bearer ${token}` } : {},
+        });
+      } catch {
+        return { ok: false, reason: "download_failed" };
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) return { ok: false, reason: "download_failed" };
+        let next: string;
+        try {
+          next = new URL(location, current).toString();
+        } catch {
+          return { ok: false, reason: "untrusted_media_host" };
+        }
+        if (!isMetaMediaRedirectUrl(next)) {
+          return { ok: false, reason: "untrusted_media_host" };
+        }
+        // The token follows only to the token host itself.
+        sendToken = sendToken && isMetaMediaTokenUrl(next);
+        current = next;
+        continue;
+      }
+
+      if (!res.ok) {
+        return { ok: false, reason: "download_failed" };
+      }
+
+      try {
+        const buffer = await readCapped(res, maxBytes);
+        if (buffer === null) return { ok: false, reason: "file_too_large" };
+        return { ok: true, buffer };
+      } catch {
+        return { ok: false, reason: "download_failed" };
+      }
+    }
+    return { ok: false, reason: "download_failed" };
+  };
+}
+
+const defaultFetchBinary: MediaFetchDeps["fetchBinary"] = (url, token) =>
+  createMetaMediaBinaryFetcher((input, init) => fetch(input, init))(url, token);
 
 function defaultDeps(): MediaFetchDeps {
   return {
@@ -174,6 +282,16 @@ export async function fetchAndValidateWhatsAppMedia(
   }
 
   const { metadata } = metaResult;
+
+  // L-15: never hand the token to a URL outside Meta's media host, whatever
+  // fetchBinary implementation is in use; and refuse a declared oversize
+  // before any byte is downloaded.
+  if (!isMetaMediaTokenUrl(metadata.url)) {
+    return fail(mediaId, "untrusted_media_host");
+  }
+  if (metadata.fileSize !== null && metadata.fileSize > WHATSAPP_MEDIA_MAX_BYTES) {
+    return fail(mediaId, "file_too_large");
+  }
 
   const download = await deps.fetchBinary(metadata.url, token);
   if (!download.ok) {

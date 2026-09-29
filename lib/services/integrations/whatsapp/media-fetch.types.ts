@@ -8,7 +8,9 @@ export type MediaFetchFailureReason =
   | "unsupported_mime"
   | "file_too_large"
   /** Recognised bytes that contradict the provider's declared type. */
-  | "content_mismatch";
+  | "content_mismatch"
+  /** L-15: Graph named a download URL (or redirect) outside Meta's media hosts. */
+  | "untrusted_media_host";
 
 export type MediaFetchSuccess = {
   ok: true;
@@ -48,7 +50,7 @@ export type MediaFetchDeps = {
   >;
   fetchBinary: (url: string, token: string) => Promise<
     | { ok: true; buffer: Buffer }
-    | { ok: false; reason: "download_failed" }
+    | { ok: false; reason: "download_failed" | "untrusted_media_host" | "file_too_large" }
   >;
 };
 

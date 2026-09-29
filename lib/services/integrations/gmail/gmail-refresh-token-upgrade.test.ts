@@ -1,14 +1,13 @@
 /**
- * Regression test for Slice B — opportunistic, fail-safe upgrade of a legacy
- * plaintext (`enc_v0:`) Gmail refresh token to strong `gcm_v1` encryption during
- * a successful token refresh.
+ * Gmail token crypto at rest (L-17, supersedes Slice B's enc_v0 upgrade).
  *
- * Proves the invariant the user asked for:
- *   - a refresh with an `enc_v0` refresh token succeeds,
- *   - the SAME refresh token is preserved (logically identical),
- *   - the at-rest format becomes `gcm_v1`,
- *   - a subsequent refresh still works (no regression),
- *   - an already-strong (`gcm_v1`) refresh token is left untouched (no-op),
+ * Proves against a real database, through getGmailAccessTokenForBusiness:
+ *   - an `enc_v0` (plaintext) row is QUARANTINED: reconnect required, the
+ *     plaintext is never sent to Google;
+ *   - an existing `gcm_v1` row keeps working and is re-encrypted to row-bound
+ *     `gcm_v2` on refresh (same token);
+ *   - a subsequent refresh works and leaves the v2 blob untouched;
+ *   - a v2 blob copied onto another connection row does not decrypt;
  *   - the upgrade is fail-safe (missing key => no upgrade, never throws).
  *
  * DB-backed integration test (pattern: crm-notes / billing-issue guards), gated
@@ -77,143 +76,149 @@ async function main(): Promise<void> {
   const { getGmailAccessTokenForBusiness } = await import(
     "@/lib/services/integrations/gmail/gmail-auth.service"
   );
-  const { decryptToken, legacyRefreshTokenUpgrade } = await import(
+  const { decryptToken, refreshTokenUpgrade } = await import(
     "@/lib/services/integrations/gmail/token-crypto.placeholder"
   );
+  const { GmailReauthRequiredError } = await import(
+    "@/lib/services/integrations/gmail/gmail-errors"
+  );
+  const { createCipheriv, randomBytes } = await import("node:crypto");
+
+  // A gcm_v1 blob exactly as the pre-L-17 code wrote it (no AAD, key "k0").
+  const V1_KEY_HEX = process.env.GMAIL_TOKEN_ENCRYPTION_KEY!;
+  const gcmV1 = (plain: string) => {
+    const key = Buffer.from(V1_KEY_HEX, "hex");
+    const iv = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", key, iv);
+    const ct = Buffer.concat([c.update(plain, "utf8"), c.final()]);
+    return `gcm_v1:${iv.toString("base64")}.${c.getAuthTag().toString("base64")}.${ct.toString("base64")}`;
+  };
 
   // ===================== Helper unit assertions (hermetic) =====================
   const rt = `refresh-plain-${runId}`;
-  const up = legacyRefreshTokenUpgrade(enc0(rt), rt);
-  assert.ok(
-    up.refreshTokenEncrypted?.startsWith("gcm_v1:"),
-    "enc_v0 -> gcm_v1 upgrade is produced"
-  );
-  assert.equal(
-    decryptToken(up.refreshTokenEncrypted),
-    rt,
-    "upgraded blob round-trips to the SAME token"
-  );
   assert.deepEqual(
-    legacyRefreshTokenUpgrade("gcm_v1:already-strong", rt),
+    refreshTokenUpgrade(enc0(rt), rt, { businessId: 1, connectionId: 1 }),
     {},
-    "already gcm_v1 -> no upgrade"
+    "enc_v0 is quarantined: never re-armed as a credential"
   );
-  assert.deepEqual(legacyRefreshTokenUpgrade(null, rt), {}, "null -> no upgrade");
-  // Fail-safe: missing key -> {} and NEVER throws.
+  const up = refreshTokenUpgrade(gcmV1(rt), rt, { businessId: 1, connectionId: 1 });
+  assert.ok(up.refreshTokenEncrypted?.startsWith("gcm_v2:k0:"), "gcm_v1 -> gcm_v2 upgrade is produced");
+  assert.equal(
+    decryptToken(up.refreshTokenEncrypted, { businessId: 1, connectionId: 1, field: "refresh" }),
+    rt,
+    "upgraded blob round-trips to the SAME token under its own row"
+  );
   const savedKey = process.env.GMAIL_TOKEN_ENCRYPTION_KEY;
   delete process.env.GMAIL_TOKEN_ENCRYPTION_KEY;
   assert.deepEqual(
-    legacyRefreshTokenUpgrade(enc0(rt), rt),
+    refreshTokenUpgrade(gcmV1("x"), "x", { businessId: 1, connectionId: 1 }),
     {},
     "missing key -> fail-safe no-op (no throw)"
   );
   process.env.GMAIL_TOKEN_ENCRYPTION_KEY = savedKey;
-  console.log("OK helper: enc_v0->gcm_v1 round-trip, no-op on strong, fail-safe on missing key.");
+  console.log("OK helper: enc_v0 quarantined, gcm_v1->gcm_v2 round-trip, fail-safe on missing key.");
 
   const businessIds: number[] = [];
   try {
-    // ============ Behavioral: enc_v0 refresh token upgraded on refresh ============
     const b = await prisma.business.create({ data: { name: `GmailIso ${runId}` } });
     businessIds.push(b.id);
-    const conn = await prisma.emailConnection.create({
-      data: {
-        businessId: b.id,
-        provider: "gmail",
-        status: "connected",
-        emailAddress: `iso-${runId}@example.test`,
-        providerAccountId: `acct-${runId}`,
-        scopes: "https://www.googleapis.com/auth/gmail.readonly",
-      },
-    });
+    const mkConn = (suffix: string) =>
+      prisma.emailConnection.create({
+        data: {
+          businessId: b.id,
+          provider: "gmail",
+          status: "connected",
+          emailAddress: `iso-${suffix}-${runId}@example.test`,
+          providerAccountId: `acct-${suffix}-${runId}`,
+          scopes: "https://www.googleapis.com/auth/gmail.readonly",
+        },
+      });
+
+    // ============ enc_v0 (plaintext at rest) => reconnect required ============
+    const conn0 = await mkConn("v0");
     await prisma.oAuthToken.create({
       data: {
-        connectionId: conn.id,
+        connectionId: conn0.id,
         accessTokenEncrypted: enc0("old-access"),
-        refreshTokenEncrypted: enc0(rt), // legacy plaintext refresh token
-        expiresAt: new Date(Date.now() - 60_000), // expired -> needsRefresh
+        refreshTokenEncrypted: enc0(rt),
+        expiresAt: new Date(Date.now() - 60_000),
         tokenType: "Bearer",
         encryptionKeyId: "enc_v0",
       },
     });
-
-    const res1 = await getGmailAccessTokenForBusiness({
-      businessId: b.id,
-      connectionId: conn.id,
-    });
-    assert.equal(res1.accessToken, `new-access-${runId}`, "refresh returned the new access token");
-    assert.equal(
-      lastRefreshTokenSent,
-      rt,
-      "service decrypted the enc_v0 refresh token and used it for the Google call"
-    );
-
-    const row1 = await prisma.oAuthToken.findUniqueOrThrow({
-      where: { connectionId: conn.id },
-    });
+    lastRefreshTokenSent = null;
+    let reauth: unknown = null;
+    try {
+      await getGmailAccessTokenForBusiness({ businessId: b.id, connectionId: conn0.id });
+    } catch (e) {
+      reauth = e;
+    }
     assert.ok(
-      row1.refreshTokenEncrypted?.startsWith("gcm_v1:"),
-      "refresh token upgraded to gcm_v1 at rest"
+      reauth instanceof GmailReauthRequiredError && reauth.reason === "token_undecryptable",
+      "enc_v0 row => GmailReauthRequiredError(token_undecryptable)"
     );
-    assert.equal(
-      decryptToken(row1.refreshTokenEncrypted),
-      rt,
-      "upgraded refresh token decrypts to the SAME token (logically identical)"
-    );
-    assert.ok(
-      row1.accessTokenEncrypted.startsWith("gcm_v1:"),
-      "new access token stored as gcm_v1"
-    );
-    console.log("OK behavioral: enc_v0 refresh token -> gcm_v1, same token, refresh succeeded.");
+    assert.equal(lastRefreshTokenSent, null, "the plaintext token was never sent to Google");
+    console.log("OK quarantine: enc_v0 connection requires reconnect; no Google call.");
 
-    // ================= No regression: subsequent refresh still works =================
-    await prisma.oAuthToken.update({
-      where: { connectionId: conn.id },
-      data: { expiresAt: new Date(Date.now() - 60_000) },
-    });
-    const res2 = await getGmailAccessTokenForBusiness({
-      businessId: b.id,
-      connectionId: conn.id,
-    });
-    assert.equal(res2.accessToken, `new-access-${runId}`, "second refresh still succeeds");
-    assert.equal(lastRefreshTokenSent, rt, "second refresh used the same (now gcm_v1) refresh token");
-    console.log("OK no-regression: subsequent refresh works with the upgraded token.");
-
-    // ==================== No-op: a gcm_v1 refresh token is untouched ====================
-    const conn2 = await prisma.emailConnection.create({
-      data: {
-        businessId: b.id,
-        provider: "gmail",
-        status: "connected",
-        emailAddress: `iso2-${runId}@example.test`,
-        providerAccountId: `acct2-${runId}`,
-        scopes: "https://www.googleapis.com/auth/gmail.readonly",
-      },
-    });
-    const rt2 = `refresh2-${runId}`;
-    const gcmRefresh = legacyRefreshTokenUpgrade(enc0(rt2), rt2).refreshTokenEncrypted!;
-    assert.ok(gcmRefresh.startsWith("gcm_v1:"), "prepared a gcm_v1 refresh token");
+    // ============ gcm_v1 (existing ciphertext) keeps working, upgraded to v2 ============
+    const conn1 = await mkConn("v1");
     await prisma.oAuthToken.create({
       data: {
-        connectionId: conn2.id,
-        accessTokenEncrypted: enc0("old2"),
-        refreshTokenEncrypted: gcmRefresh,
+        connectionId: conn1.id,
+        accessTokenEncrypted: gcmV1("old-access"),
+        refreshTokenEncrypted: gcmV1(rt),
         expiresAt: new Date(Date.now() - 60_000),
         tokenType: "Bearer",
         encryptionKeyId: "gcm_v1",
       },
     });
-    await getGmailAccessTokenForBusiness({ businessId: b.id, connectionId: conn2.id });
-    const row2 = await prisma.oAuthToken.findUniqueOrThrow({
-      where: { connectionId: conn2.id },
-    });
-    assert.equal(
-      row2.refreshTokenEncrypted,
-      gcmRefresh,
-      "already-gcm_v1 refresh token left byte-for-byte unchanged (no-op)"
-    );
-    console.log("OK no-op: already-strong refresh token untouched.");
+    const res1 = await getGmailAccessTokenForBusiness({ businessId: b.id, connectionId: conn1.id });
+    assert.equal(res1.accessToken, `new-access-${runId}`, "refresh returned the new access token");
+    assert.equal(lastRefreshTokenSent, rt, "gcm_v1 refresh token decrypted and used");
+    const row1 = await prisma.oAuthToken.findUniqueOrThrow({ where: { connectionId: conn1.id } });
+    const ctx1 = { businessId: b.id, connectionId: conn1.id };
+    assert.ok(row1.refreshTokenEncrypted?.startsWith("gcm_v2:k0:"), "refresh token re-encrypted to gcm_v2");
+    assert.equal(decryptToken(row1.refreshTokenEncrypted, { ...ctx1, field: "refresh" }), rt, "same token");
+    assert.ok(row1.accessTokenEncrypted.startsWith("gcm_v2:k0:"), "new access token stored as gcm_v2");
+    assert.equal(row1.encryptionKeyId, "gcm_v2:k0", "encryptionKeyId records format + key id");
+    console.log("OK behavioral: gcm_v1 -> gcm_v2 on refresh, same token.");
 
-    console.log("PASS — gmail refresh-token opportunistic upgrade (enc_v0 -> gcm_v1), fail-safe.");
+    // ============ subsequent refresh: works, v2 refresh blob untouched ============
+    await prisma.oAuthToken.update({
+      where: { connectionId: conn1.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+    const res2 = await getGmailAccessTokenForBusiness({ businessId: b.id, connectionId: conn1.id });
+    assert.equal(res2.accessToken, `new-access-${runId}`, "second refresh still succeeds");
+    const row2 = await prisma.oAuthToken.findUniqueOrThrow({ where: { connectionId: conn1.id } });
+    assert.equal(row2.refreshTokenEncrypted, row1.refreshTokenEncrypted, "v2 refresh blob left unchanged (no-op)");
+    console.log("OK no-regression: subsequent refresh works; v2 untouched.");
+
+    // ============ a v2 blob copied onto another row is useless ============
+    const conn2 = await mkConn("copy");
+    await prisma.oAuthToken.create({
+      data: {
+        connectionId: conn2.id,
+        accessTokenEncrypted: row2.accessTokenEncrypted,
+        refreshTokenEncrypted: row2.refreshTokenEncrypted,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        tokenType: "Bearer",
+        encryptionKeyId: row2.encryptionKeyId,
+      },
+    });
+    let copied: unknown = null;
+    try {
+      await getGmailAccessTokenForBusiness({ businessId: b.id, connectionId: conn2.id });
+    } catch (e) {
+      copied = e;
+    }
+    assert.ok(
+      copied instanceof GmailReauthRequiredError && copied.reason === "token_undecryptable",
+      "v2 blobs copied to another connection row do not decrypt (AAD binding)"
+    );
+    console.log("OK binding: copied v2 ciphertext refused on another row.");
+
+    console.log("PASS — gmail token crypto: v1 readable+upgraded, v2 row-bound, enc_v0 quarantined.");
   } finally {
     if (businessIds.length > 0) {
       const where = { businessId: { in: businessIds } };

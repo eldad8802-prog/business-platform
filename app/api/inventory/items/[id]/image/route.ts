@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { saveInventoryImage } from "@/lib/services/inventory/inventory-image.service";
+import { receivePublicAssetUpload } from "@/lib/services/storage/public-asset-upload";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
 function getItemId(request: NextRequest) {
@@ -45,20 +45,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const formData = await request.formData();
-    const file = formData.get("file") as File;
-
-    if (!file) {
+    // M-2: rate limit + byte-verified raster acceptance + safe serving metadata.
+    const upload = await receivePublicAssetUpload({
+      req: request,
+      user,
+      domain: "inventory",
+      source: "inventory_item_image",
+    });
+    if (!upload.ok) {
       return NextResponse.json(
-        { error: "File is required" },
-        { status: 400 }
+        { error: upload.error },
+        { status: upload.status }
       );
     }
-
-    const imageUrl = await saveInventoryImage({
-      businessId: user.businessId,
-      file,
-    });
+    const imageUrl = upload.stored.publicUrl;
 
     // Tenant-scoped write inside a tenant transaction (no id-only window).
     const updated = await runWithTenantContext(

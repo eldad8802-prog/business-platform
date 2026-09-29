@@ -18,7 +18,7 @@ async function dbStep<T>(
 import {
   decryptToken,
   encryptToken,
-  legacyRefreshTokenUpgrade,
+  refreshTokenUpgrade,
 } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
 import { GmailReauthRequiredError } from "./gmail-errors";
@@ -51,8 +51,11 @@ export async function getGmailAccessTokenForBusiness(params: {
   }
   const tokenRow = connection.token;
 
-  const accessToken = decryptToken(tokenRow.accessTokenEncrypted);
-  const refreshToken = decryptToken(tokenRow.refreshTokenEncrypted);
+  // L-17: v2 blobs are bound to (business, connection, field); enc_v0 is
+  // quarantined and decrypts to null → reconnect required.
+  const tokenCtx = { businessId: connection.businessId, connectionId: connection.id };
+  const accessToken = decryptToken(tokenRow.accessTokenEncrypted, { ...tokenCtx, field: "access" });
+  const refreshToken = decryptToken(tokenRow.refreshTokenEncrypted, { ...tokenCtx, field: "refresh" });
   if (!accessToken) {
     throw new GmailReauthRequiredError(
       "token_undecryptable",
@@ -80,7 +83,7 @@ export async function getGmailAccessTokenForBusiness(params: {
     refreshToken,
   });
 
-  const enc = encryptToken(refreshed.access_token);
+  const enc = encryptToken(refreshed.access_token, { ...tokenCtx, field: "access" });
   if (!enc) throw new Error("Failed to encrypt refreshed access token");
 
   const newExpiresAt = new Date(Date.now() + Math.max(0, refreshed.expires_in) * 1000);
@@ -94,11 +97,12 @@ export async function getGmailAccessTokenForBusiness(params: {
       expiresAt: newExpiresAt,
       tokenType: refreshed.token_type ?? tokenRow.tokenType,
       encryptionKeyId: enc.keyId,
-      // Best-effort, fail-safe: upgrade a legacy plaintext (enc_v0) refresh token
-      // to gcm_v1 in-place. Absent field => no upgrade; never blocks the refresh.
-      ...legacyRefreshTokenUpgrade(
+      // Best-effort, fail-safe: re-encrypt a gcm_v1 (unbound) refresh token to
+      // row-bound gcm_v2. Absent field => no upgrade; never blocks the refresh.
+      ...refreshTokenUpgrade(
         tokenRow.refreshTokenEncrypted,
-        refreshToken
+        refreshToken,
+        tokenCtx
       ),
     },
   }));

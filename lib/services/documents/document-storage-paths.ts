@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import path from "path";
 
 /**
@@ -20,10 +21,15 @@ export function safeExtFromMime(mimeType: string): string {
 
 /**
  * Safe stored filename derived ONLY from validated MIME (never user filename).
+ *
+ * H-4: the random part is 128 bits from the OS CSPRNG (was 32 bits of
+ * Math.random). The shape still matches STORED_DOCUMENT_FILENAME_REGEX, so every
+ * reader of existing names is unchanged. Unguessability is defence in depth —
+ * the private bucket, not the name, is the access control.
  */
 export function buildStoredDocumentFileName(mimeType: string): string {
   const ext = safeExtFromMime(mimeType).replace(/^\./, "") || "bin";
-  const random = Math.random().toString(16).slice(2, 10);
+  const random = randomBytes(16).toString("hex");
   return `doc-${Date.now()}-${random}.${ext}`;
 }
 
