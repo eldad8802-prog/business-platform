@@ -6,8 +6,9 @@
 # correct for migrations, useless for a tenant-enforcement proof. So this does not touch the database
 # at all: it asks the running application to do the work.
 #
-# AUTHORITY: a DEDICATED credential, KNOWLEDGE_DERIVE_SECRET (repository secret identical to the one in
-# the Vercel Production environment), sent as a bearer header, never echoed. The general CRON_SECRET is
+# AUTHORITY: a DEDICATED credential, KNOWLEDGE_DERIVE_SECRET (identical to the one in the Vercel Production
+# environment), held ONLY in the protected `knowledge-derive` GitHub environment — not `cron`, whose
+# secrets every scheduled payment job can read — and sent as a bearer header, never echoed. The general CRON_SECRET is
 # NOT accepted by the derive route. The business must also be ACTIVE and ENROLLED (feature
 # knowledge_derivation), and outside its run cooldown — the route refuses otherwise (403 / 409 / 429).
 # The GitHub run id is sent as the caller correlation reference for the audit trail. The endpoint answers statuses, counts and rule versions — no vendor, no payee,
@@ -42,6 +43,10 @@ concurrency:
 
 jobs:
   derive:
+    # H-3/M-1: KNOWLEDGE_DERIVE_SECRET authenticates to PRODUCTION. Read only from main, inside the
+    # dedicated `knowledge-derive` environment (owner action in PR 525; enforced by workflow-policy WP-6).
+    if: github.ref == 'refs/heads/main'
+    environment: knowledge-derive
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -65,7 +70,10 @@ jobs:
           code=$(curl -sS -o body.json -w "%{http_code}" -m 120 \
             -X POST -H "Authorization: Bearer ${KNOWLEDGE_DERIVE_SECRET}" -H "X-Derive-Caller-Run: ${CALLER_RUN}" "${DERIVE_URL}?businessId=${BID}$([ "${BRAIN:-none}" = "shadow" ] && echo '&brain=shadow')")
           echo "HTTP $code"
-          cat body.json; echo
+          # M-1: this log is public. Print ONLY aggregate, assert-style fields — never the body
+          # (it carries the business id, role name, run id and per-rule detail).
+          jq -c '{ok, error, stage, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights, m9GuardsHold: .outcomes.guardsHold}' body.json 2>/dev/null \
+            || echo "(body is not the expected JSON shape — not printed)"
           [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }
 
           # The run is only evidence of tenant enforcement if the runtime said it was. A FULL proof
@@ -84,7 +92,8 @@ jobs:
 
           # M9: the outcome-learning guards, verified as the runtime role by writes that must be refused
           # (each rolled back). Present only once the M9 code is deployed; absent means an older build.
+          # (M-1: the body is not printed; the aggregate line above carries m9GuardsHold.)
           if grep -q '"outcomes":' body.json; then
-            grep -q '"guardsHold":true' body.json || { echo "::error::M9 guards did not hold — see outcomes.guards above."; exit 1; }
+            grep -q '"guardsHold":true' body.json || { echo "::error::M9 guards did not hold (m9GuardsHold above)."; exit 1; }
             echo "M9 guards hold."
           fi

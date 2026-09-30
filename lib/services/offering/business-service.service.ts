@@ -1,5 +1,4 @@
 import { Prisma, type ServiceFulfillment } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { normalizeServicePrice, type ServicePriceInput } from "./service-price";
 import { projectProduct, projectService, type OfferingView } from "./offering-projection";
 
@@ -59,7 +58,7 @@ function cleanFulfillment(value: ServiceFulfillment | undefined): ServiceFulfill
   return value;
 }
 
-export async function createBusinessService(input: CreateBusinessServiceInput, tx: Tx = prisma) {
+export async function createBusinessService(input: CreateBusinessServiceInput, tx: Tx) {
   if (!Number.isInteger(input.businessId) || input.businessId <= 0) {
     throw new OfferingInputError("Invalid business");
   }
@@ -84,7 +83,7 @@ export async function createBusinessService(input: CreateBusinessServiceInput, t
   });
 }
 
-export async function listBusinessServices(businessId: number, tx: Tx = prisma) {
+export async function listBusinessServices(businessId: number, tx: Tx) {
   return tx.businessService.findMany({
     where: { businessId },
     orderBy: [{ featuredByOwner: "desc" }, { name: "asc" }],
@@ -98,7 +97,7 @@ export async function listBusinessServices(businessId: number, tx: Tx = prisma) 
  */
 export async function linkServiceAsset(
   input: { businessId: number; businessServiceId: number; businessAssetId: number },
-  tx: Tx = prisma
+  tx: Tx
 ) {
   const service = await tx.businessService.findFirst({
     where: { id: input.businessServiceId, businessId: input.businessId },
@@ -133,7 +132,7 @@ export async function linkServiceAsset(
 
 export async function linkProductAsset(
   input: { businessId: number; inventoryItemId: number; businessAssetId: number },
-  tx: Tx = prisma
+  tx: Tx
 ) {
   const item = await tx.inventoryItem.findFirst({
     where: { id: input.inventoryItemId, businessId: input.businessId },
@@ -166,7 +165,7 @@ export async function linkProductAsset(
   return { link, publicUseApproved: asset.publicUseApproved };
 }
 
-export async function listOfferings(businessId: number, tx: Tx = prisma): Promise<OfferingView[]> {
+export async function listOfferings(businessId: number, tx: Tx): Promise<OfferingView[]> {
   const [services, products] = await Promise.all([
     tx.businessService.findMany({
       where: { businessId },
