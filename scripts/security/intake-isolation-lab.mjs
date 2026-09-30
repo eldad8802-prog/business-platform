@@ -6,6 +6,7 @@
 //   M2  20260927180000_m2_intake_event      → IntakeEvent
 //   M3  20260929090000_m3_canonical_intake  → IntakeNormalizedEvent
 //   M4  20261001090000_m4_identity_routing  → IdentityLink, IdentityProposal
+//   M5  20261002090000_crm_lead_lifecycle   → LeadLifecycleEvent (append-only)
 //
 // A layout change in either migration throws here instead of silently
 // producing a lab without isolation.
@@ -34,8 +35,16 @@ const SECTIONS = [
     dbOnly: /"(IdentityLink_active_identifier_key|(IdentityLink_customerId|IdentityProposal_candidateCustomerId|IdentityProposal_leadId)_tenant_fkey)"/,
     dbOnlyCount: 4,
   },
+  {
+    stage: "m5",
+    file: "prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql",
+    start: 'ALTER TABLE "LeadLifecycleEvent" ENABLE ROW LEVEL SECURITY;',
+    // The composite (businessId, leadId) → Lead(businessId, id) tenant FK.
+    dbOnly: /"LeadLifecycleEvent_leadId_tenant_fkey"/,
+    dbOnlyCount: 1,
+  },
 ];
-const ORDER = ["m2", "m3", "m4"];
+const ORDER = ["m2", "m3", "m4", "m5"];
 
 function splitStatements(sql) {
   return sql
@@ -50,6 +59,7 @@ function splitStatements(sql) {
  * also emits each stage's DB-only structural objects, verbatim.
  */
 export function intakeIsolationStatements(runtimeRole, { through = "m4", dbOnly = false } = {}) {
+  // Default stays "m4" so every existing caller keeps its exact meaning; M5 labs ask for "m5".
   if (!/^[a-z_][a-z0-9_]*$/.test(runtimeRole)) throw new Error("intake isolation: bad role name");
   const out = [];
   for (const section of SECTIONS) {

@@ -180,7 +180,20 @@ const EXTERNAL_OBJECTS: DebtEntry[] = [
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InboundEmailMessage.rawObjectKey", why: "S5-INBOUND" },
 ];
 
+/** Migration-first window (M5 PR-A → PR-B). The migration adds three Lead lifecycle
+ *  columns BEFORE any code writes them (repository policy: a migration PR carries no
+ *  application code, and the disposition manifest is application code). Until PR-B lands
+ *  they hold only a counter the backfill sets and NULLs — nothing personal. PR-B adds
+ *  their dispositions (all STRUCTURAL) and must delete this bucket (a resolved entry
+ *  fails the build). */
+const MIGRATION_FIRST: DebtEntry[] = [
+  { code: "C6-NO-DISPOSITION", key: "Lead.lifecycleVersion", why: "M5 PR-B (disposition lands with the first writer)" },
+  { code: "C6-NO-DISPOSITION", key: "Lead.nextActionKind", why: "M5 PR-B (disposition lands with the first writer)" },
+  { code: "C6-NO-DISPOSITION", key: "Lead.firstHandledAt", why: "M5 PR-B (disposition lands with the first writer)" },
+];
+
 export const ACCEPTED_DEBT: DebtEntry[] = [
+  ...MIGRATION_FIRST,
   ...NAMING,
   ...UNKEPT_PROMISE,
   ...UNDECLARED,
