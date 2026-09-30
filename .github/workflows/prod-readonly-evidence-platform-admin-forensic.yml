@@ -1,0 +1,55 @@
+name: Prod Read-Only Evidence (platform-admin forensic)
+
+# Owner-requested forensic of the platform-admin mechanism: who holds PLATFORM_ADMIN today, the state of
+# the documented admin (user 9), its MFA enrollment timeline, platform-admin audit actions by actor, and
+# which accounts signed in recently. scripts/ops/platform-admin-forensic-evidence.ts.
+# ONE owner session (DIRECT_URL, verified host), READ ONLY by Postgres (verified before and after).
+# Output: ids, roles, booleans, timestamps, counts — never an address, name, hash, seed or token.
+# Changes nothing: no role, user, MFA, allowlist, business or feature write.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-platform-admin-forensic
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Platform-admin forensic (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secret present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db — NOT RUN."; exit 1; fi
+          echo "Connection secret present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Platform-admin forensic (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+        run: node_modules/.bin/tsx scripts/ops/platform-admin-forensic-evidence.ts --allow-host ep-flat-brook-am4bhq1y --user 9 --recent-hours 72
