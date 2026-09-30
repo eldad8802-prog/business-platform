@@ -57,28 +57,49 @@ export const EXEMPT = {
 /**
  * OPEN SECURITY DEBT — NOT compliant behaviour. Temporary, violation-exact (see the header).
  *
- * #582 prod-derive-preenrollment-proof.yml is an already-reviewed Production proof harness for the
- * #575 derive authority that has NOT yet executed. It is preserved byte-for-byte until its intended
- * proof has run, rather than edited under that proof's feet.
+ * Two derive-authority Production proof harnesses (#575), each reviewed, each preserved
+ * byte-for-byte rather than edited under its proof's feet:
  *
- * REMOVE after #582's intended Production proof — by retiring the workflow, or by a separately
- * reviewed hardened version (actions pinned; DB evidence in production-db, the derive call in
- * `knowledge-derive`, the CRON_SECRET refusal probe in `cron`, one job per environment).
- * MUST be resolved BEFORE the repo-level CRON_SECRET or KNOWLEDGE_DERIVE_SECRET is removed: once
- * they live only in their environments, a production-db job can no longer read them at all.
+ *   #582 prod-derive-preenrollment-proof.yml — its Production proof SUCCEEDED (run 36662067636,
+ *        2026-09-30T02:55Z). Its debt is DUE FOR REMOVAL.
+ *   #584 prod-derive-enrollment-proof.yml    — its Production proof has NOT yet run.
+ *
+ * CLOSED SET. These are the LAST proof-preservation exceptions of this kind: DEBT_FILES is closed,
+ * and a debt entry for any other file fails (DEBT-NOT-ALLOWED) — widening it is itself a reviewed
+ * change to this guard.
+ *
+ * NEXT SECURITY CLEANUP (after #584's proof), BOTH workflows together: retire them, or harden them in
+ * a separately reviewed change — every action pinned to a commit SHA; no job outside the right
+ * environment reads either credential class (DB evidence in production-db, the derive call in
+ * `knowledge-derive`, the CRON_SECRET refusal probe in `cron`, one job per environment) — then
+ * delete all eight entries and prove zero debt. MUST happen BEFORE the repo-level CRON_SECRET or
+ * KNOWLEDGE_DERIVE_SECRET is removed: once they live only in their environments, a production-db
+ * job can no longer read them at all.
  */
+const REMOVE_WHEN = "in the joint #582/#584 cleanup (retire, or reviewed hardening); BEFORE repo-level CRON_SECRET / KNOWLEDGE_DERIVE_SECRET is removed";
 const DEBT_582 = {
   file: "prod-derive-preenrollment-proof.yml",
   sha256: "dd77fd887b264f162e3f48c034ddecd2396d1d68905db6e1a0248dc82ad71b9a",
-  reason: "#582 reviewed Production proof harness, not yet executed — preserved unchanged until its proof has run",
-  removeWhen: "after #582's Production proof (retire it, or review a hardened version); BEFORE repo-level CRON_SECRET / KNOWLEDGE_DERIVE_SECRET is removed",
+  status: "DUE FOR REMOVAL",
+  reason: "#582 reviewed Production proof harness — its proof SUCCEEDED (run 36662067636); preserved unchanged only until the joint cleanup",
+  removeWhen: REMOVE_WHEN,
 };
-export const DEBT = [
-  { ...DEBT_582, rule: "WP-2", message: "unpinned action actions/checkout@v4", count: 1 },
-  { ...DEBT_582, rule: "WP-2", message: "unpinned action actions/setup-node@v4", count: 1 },
-  { ...DEBT_582, rule: "WP-6", message: "job proof references KNOWLEDGE_DERIVE_SECRET in environment production-db (bound to knowledge-derive)", count: 1 },
-  { ...DEBT_582, rule: "WP-6", message: "job proof references CRON_SECRET in environment production-db (bound to cron)", count: 1 },
+const DEBT_584 = {
+  file: "prod-derive-enrollment-proof.yml",
+  sha256: "5d114b8a72c464a12f96df5c6d974c9e5bd9a8d1e641e38691a260eb59414dcf",
+  status: "proof-preservation",
+  reason: "#584 reviewed Production proof harness, NOT yet executed — preserved unchanged until its proof has run",
+  removeWhen: REMOVE_WHEN,
+};
+/** The closed set of files that may carry OPEN SECURITY DEBT. */
+export const DEBT_FILES = new Set([DEBT_582.file, DEBT_584.file]);
+const derivedProofViolations = (base) => [
+  { ...base, rule: "WP-2", message: "unpinned action actions/checkout@v4", count: 1 },
+  { ...base, rule: "WP-2", message: "unpinned action actions/setup-node@v4", count: 1 },
+  { ...base, rule: "WP-6", message: "job proof references KNOWLEDGE_DERIVE_SECRET in environment production-db (bound to knowledge-derive)", count: 1 },
+  { ...base, rule: "WP-6", message: "job proof references CRON_SECRET in environment production-db (bound to cron)", count: 1 },
 ];
+export const DEBT = [...derivedProofViolations(DEBT_582), ...derivedProofViolations(DEBT_584)];
 
 export const sha256Lf = (raw) => crypto.createHash("sha256").update(raw.replace(/\r\n/g, "\n")).digest("hex");
 
@@ -97,6 +118,8 @@ export function applyDebt(found, hashes, debt = DEBT) {
     const k = key(d.file, d.rule, d.message);
     const got = seen.get(k) ?? 0;
     const hash = hashes.get(d.file);
+    if (!DEBT_FILES.has(d.file)) { failures.push(`[FAIL] DEBT-NOT-ALLOWED ${d.rule} ${d.file}: OPEN SECURITY DEBT is closed to the #582/#584 proof harnesses — fix the workflow instead`); continue; }
+    if (granted.has(k)) { failures.push(`[FAIL] DEBT-DUPLICATE ${d.rule} ${d.file}: "${d.message}" recorded twice`); continue; }
     if (hash === undefined) { failures.push(`[FAIL] DEBT-STALE ${d.rule} ${d.file}: file no longer exists — remove the debt entry`); continue; }
     if (hash !== d.sha256) { failures.push(`[FAIL] DEBT-STALE ${d.rule} ${d.file}: file changed since the debt was recorded (sha256 ${hash.slice(0, 12)} ≠ ${d.sha256.slice(0, 12)}) — re-review and remove or re-record`); continue; }
     if (got !== d.count) { failures.push(`[FAIL] DEBT-STALE ${d.rule} ${d.file}: "${d.message}" found ${got}, debt records ${d.count} — remove/adjust the entry`); continue; }
@@ -104,7 +127,7 @@ export function applyDebt(found, hashes, debt = DEBT) {
   }
   for (const v of found) {
     const d = granted.get(key(v.file, v.rule, v.msg));
-    if (d) recorded.push(`OPEN SECURITY DEBT ${v.rule} ${v.file}: ${v.msg} — ${d.reason}; remove ${d.removeWhen}`);
+    if (d) recorded.push(`OPEN SECURITY DEBT [${d.status}] ${v.rule} ${v.file}: ${v.msg} — ${d.reason}; remove ${d.removeWhen}`);
     else failures.push(`[FAIL] ${v.rule} ${v.file}: ${v.msg}`);
   }
   return { failures, debt: recorded };
@@ -193,7 +216,8 @@ export function check(root, { log = console.log } = {}) {
   for (const d of debt) log(`  ${d}`);
   for (const p of problems) log(p);
   log(`workflow-policy-guard: ${files.length} workflows`);
-  const debtNote = debt.length ? ` — ${debt.length} OPEN SECURITY DEBT item(s), see above` : "";
+  const byStatus = [...new Set(DEBT.map((d) => d.status))].map((s) => `${debt.filter((d) => d.includes(`[${s}]`)).length} ${s}`).join(", ");
+  const debtNote = debt.length ? ` — ${debt.length} OPEN SECURITY DEBT item(s) (${byStatus}), see above` : "";
   log(problems.length ? `WORKFLOW-POLICY-GUARD: FAIL (${problems.length})${debtNote}` : `WORKFLOW-POLICY-GUARD: PASS${debtNote}`);
   return problems.length === 0;
 }
@@ -226,25 +250,41 @@ function selfTest() {
     console.log(`${pass ? "PASS" : "FAIL"}  self-test: ${name}${pass ? "" : ` -> ${JSON.stringify(got)}`}`);
   }
 
-  // OPEN SECURITY DEBT is violation-exact: it never becomes a pass for anything else.
-  const DF = DEBT_582.file;
+  // OPEN SECURITY DEBT is violation-exact: it never becomes a pass for anything else. Each case runs a
+  // small "tree": both recorded harnesses (debtShape, at their recorded hashes) plus the file under test.
   const debtShape = `on:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  proof:\n    runs-on: ubuntu-latest\n    environment: production-db\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n      - env:\n          D: \${{ secrets.DIRECT_URL }}\n          K: \${{ secrets.KNOWLEDGE_DERIVE_SECRET }}\n          C: \${{ secrets.CRON_SECRET }}\n        run: echo\n`;
-  const run = (file, text, hashOverride) => {
-    const found = checkWorkflowText(file, text).map(([rule, msg]) => ({ file, rule, msg }));
-    const hashes = new Map([[DF, hashOverride ?? DEBT_582.sha256]]);
-    if (file !== DF) hashes.set(file, sha256Lf(text));
-    return applyDebt(found, hashes);
+  const RECORDED = new Map([[DEBT_582.file, DEBT_582.sha256], [DEBT_584.file, DEBT_584.sha256]]);
+  const run = (file, text, { hash, debt } = {}) => {
+    const tree = new Map([...RECORDED.keys()].map((f) => [f, debtShape]));
+    tree.set(file, text);
+    const found = [];
+    const hashes = new Map();
+    for (const [f, t] of tree) {
+      for (const [rule, msg] of checkWorkflowText(f, t)) found.push({ file: f, rule, msg });
+      hashes.set(f, f === file && hash ? hash : RECORDED.get(f) ?? sha256Lf(t));
+    }
+    return applyDebt(found, hashes, debt);
   };
-  const debtCases = [
-    ["the recorded debt is reported as OPEN SECURITY DEBT, not passed silently", () => { const r = run(DF, debtShape); return r.failures.length === 0 && r.debt.length === 4 && r.debt.every((d) => d.startsWith("OPEN SECURITY DEBT")); }],
-    ["another workflow with the SAME violations still fails (WP-2 and WP-6)", () => { const r = run("other-proof.yml", debtShape); return r.debt.length === 0 && ["WP-2", "WP-6"].every((w) => r.failures.some((f) => f.includes(` ${w} other-proof.yml:`))); }],
-    ["a NEW unpinned action in the debt file still fails", () => run(DF, debtShape.replace("      - env:", "      - uses: actions/cache@v4\n      - env:")).failures.some((f) => f.includes("WP-2") && f.includes("actions/cache@v4"))],
-    ["a SECOND occurrence of a recorded unpinned action fails (count is exact)", () => run(DF, debtShape.replace("      - env:", "      - uses: actions/checkout@v4\n      - env:")).failures.some((f) => f.includes("DEBT-STALE") && f.includes("checkout"))],
-    ["the same secrets in a NEW production-db job of the debt file fail", () => run(DF, debtShape.replace("jobs:\n", "jobs:\n  extra:\n    runs-on: ubuntu-latest\n    environment: production-db\n    steps:\n      - env:\n          C: ${{ secrets.CRON_SECRET }}\n        run: echo\n")).failures.some((f) => f.includes("WP-6") && f.includes("job extra"))],
-    ["a violation of a rule the debt does not cover fails (WP-5 push trigger)", () => run(DF, debtShape.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n")).failures.some((f) => f.includes("WP-5"))],
-    ["a debt whose violation is gone fails as stale", () => run(DF, debtShape.replace("actions/setup-node@v4", `actions/setup-node@${SHA}`)).failures.some((f) => f.includes("DEBT-STALE") && f.includes("setup-node"))],
-    ["a debt whose file changed at all fails as stale", () => run(DF, debtShape, "0".repeat(64)).failures.filter((f) => f.includes("DEBT-STALE")).length === 4],
-  ];
+  const mentions = (r, s) => r.failures.some((f) => s.every((x) => f.includes(x)));
+  const debtCases = [];
+  for (const [pr, DF] of [["#582", DEBT_582.file], ["#584", DEBT_584.file]]) {
+    debtCases.push(
+      [`${pr}: its four items are reported as OPEN SECURITY DEBT, not passed silently`, () => { const r = run(DF, debtShape); return r.failures.length === 0 && r.debt.filter((d) => d.includes(` ${DF}:`)).length === 4 && r.debt.every((d) => d.startsWith("OPEN SECURITY DEBT [")); }],
+      [`${pr}: a NEW unpinned action in its file still fails`, () => mentions(run(DF, debtShape.replace("      - env:", "      - uses: actions/cache@v4\n      - env:")), ["WP-2", DF, "actions/cache@v4"])],
+      [`${pr}: a SECOND occurrence of a recorded action fails (count is exact)`, () => mentions(run(DF, debtShape.replace("      - env:", "      - uses: actions/checkout@v4\n      - env:")), ["DEBT-STALE", DF, "checkout"])],
+      [`${pr}: the same secrets in a NEW production-db job fail`, () => mentions(run(DF, debtShape.replace("jobs:\n", "jobs:\n  extra:\n    runs-on: ubuntu-latest\n    environment: production-db\n    steps:\n      - env:\n          C: ${{ secrets.CRON_SECRET }}\n        run: echo\n")), ["WP-6", DF, "job extra"])],
+      [`${pr}: a violation of a rule its debt does not cover fails (WP-5)`, () => mentions(run(DF, debtShape.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n")), ["WP-5", DF])],
+      [`${pr}: a recorded violation that disappears fails as stale`, () => mentions(run(DF, debtShape.replace("actions/setup-node@v4", `actions/setup-node@${SHA}`)), ["DEBT-STALE", DF, "setup-node"])],
+      [`${pr}: any change to its file fails all four items as stale`, () => run(DF, debtShape, { hash: "0".repeat(64) }).failures.filter((f) => f.includes("DEBT-STALE") && f.includes(DF)).length === 4],
+    );
+  }
+  debtCases.push(
+    ["another workflow with the SAME violations still fails (WP-2 and WP-6)", () => { const r = run("other-proof.yml", debtShape); return r.debt.every((d) => !d.includes("other-proof.yml")) && ["WP-2", "WP-6"].every((w) => mentions(r, [` ${w} other-proof.yml:`])); }],
+    ["#582's debt does not cover #584's file (a mis-recorded entry is refused)", () => mentions(run(DEBT_584.file, debtShape, { debt: DEBT.map((d) => (d.file === DEBT_584.file ? { ...d, sha256: DEBT_582.sha256 } : d)) }), ["DEBT-STALE", DEBT_584.file])],
+    ["CLOSED SET: a debt entry for any third file is refused", () => mentions(run("third-proof.yml", debtShape, { debt: [...DEBT, { ...DEBT[0], file: "third-proof.yml", sha256: sha256Lf(debtShape) }] }), ["DEBT-NOT-ALLOWED", "third-proof.yml"])],
+    ["a duplicated debt entry is refused", () => mentions(run(DEBT_584.file, debtShape, { debt: [...DEBT, DEBT[DEBT.length - 1]] }), ["DEBT-DUPLICATE", DEBT_584.file])],
+    ["statuses are exact: #582 DUE FOR REMOVAL, #584 proof-preservation", () => { const r = run(DEBT_584.file, debtShape); return r.debt.filter((d) => d.includes("[DUE FOR REMOVAL]") && d.includes(DEBT_582.file)).length === 4 && r.debt.filter((d) => d.includes("[proof-preservation]") && d.includes(DEBT_584.file)).length === 4 && r.debt.length === 8; }],
+  );
   for (const [name, fn] of debtCases) {
     const pass = fn();
     ok &&= pass;

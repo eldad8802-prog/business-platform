@@ -200,6 +200,24 @@ jobs:
             --expect '[FAIL] DEBT-STALE WP-2 prod-derive-preenrollment-proof.yml: file changed since the debt was recorded' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
+      - name: Gate self-proof G11 — the #584 debt is bound to its artifact the same way (DEBT-STALE)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G11-debt-584-bound-to-artifact --file .github/workflows/prod-derive-enrollment-proof.yml \
+            --anchor 'uses: actions/checkout@v4' \
+            --replace 'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0' \
+            --expect '[FAIL] DEBT-STALE WP-6 prod-derive-enrollment-proof.yml: file changed since the debt was recorded' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
+      # The replacement is spelled "production""-db" (one shell word) so this gate file never contains the
+      # literal binding text and is not itself mistaken for a production-db job by evidence-output-guard.
+      - name: Gate self-proof G12 — #584's exact violations in ANY other workflow still fail (debt does not travel)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G12-debt-does-not-travel --file .github/workflows/knowledge-derive.yml \
+            --anchor '    environment: knowledge-derive' \
+            --replace "    environment: production""-db" \
+            --expect '[FAIL] WP-6 knowledge-derive.yml: job derive references KNOWLEDGE_DERIVE_SECRET in environment production-db (bound to knowledge-derive)' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}
