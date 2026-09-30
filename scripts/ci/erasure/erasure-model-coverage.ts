@@ -394,6 +394,32 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
     },
   },
 
+  // Business Intake M5 — a lead's lifecycle history. Every text column is a
+  // closed vocabulary (kind, statuses, next-action kind, actor/source/evidence
+  // kinds), a scalar reference (an intake event / conversation / proposal id or
+  // a versioned rule id, CHECK-limited to [A-Za-z0-9_:.@-]{1,100}) or a
+  // server-built idempotency key. Names, phones, emails, notes and reasons stay
+  // on Lead, where the erasure reaches them. The write sites pin that down.
+  LeadLifecycleEvent: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason:
+      "append-only lifecycle steps of a lead: closed vocabularies, times, amounts and scalar ids; no person, no text",
+    evidence: {
+      textualSurface: [
+        "kind",
+        "nextActionKind",
+        "amountKind",
+        "actorType",
+        "source",
+        "evidenceKind",
+        "evidenceRef",
+        "idempotencyKey",
+      ],
+      // PR-A (migration only): no writer exists yet — PR-B names its only write site.
+      writeSites: [],
+    },
+  },
+
   // Every content field comes from a fixed rule table in the matching engine —
   // `title: "שיתוף פעולה עם קוסמטיקאית"`, `partnerType: "Cosmetician"` — and the
   // one route that writes the model writes `status`, an enum. `partnerType` is a

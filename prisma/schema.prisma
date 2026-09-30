@@ -261,6 +261,7 @@ model Business {
   intakeNormalizedEvents        IntakeNormalizedEvent[]
   identityLinks                 IdentityLink[]
   identityProposals             IdentityProposal[]
+  leadLifecycleEvents           LeadLifecycleEvent[]
   collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
@@ -795,43 +796,57 @@ model BusinessService {
 /// Secretary already proves with `BusinessObligation.dueAt`. There is no
 /// scheduler, worker or queue behind this column.
 model Lead {
-  id             Int            @id @default(autoincrement())
-  businessId     Int
-  customerName   String?
-  phone          String?
-  sourceChannel  String?
-  status         LeadStatus     @default(NEW)
-  temperature    Float?
-  currentStage   String?
-  valueEstimate  Float?
-  quotedPrice    Float?
-  finalPrice     Float?
-  currency       String?        @default("ILS")
+  id               Int                  @id @default(autoincrement())
+  businessId       Int
+  customerName     String?
+  phone            String?
+  sourceChannel    String?
+  status           LeadStatus           @default(NEW)
+  /// DEPRECATED (M5): never written. Conversation.temperatureScore is the evidence source.
+  temperature      Float?
+  /// DEPRECATED (M5): never written. `status` is the canonical lifecycle stage.
+  currentStage     String?
+  /// M5 — the owner's ESTIMATED opportunity value (not a quote, not revenue).
+  valueEstimate    Decimal?             @db.Decimal(18, 2)
+  /// DEPRECATED (M5): never written. Quote truth is the billing QUOTE document.
+  quotedPrice      Float?
+  /// M5 — the amount AGREED when the lead was won (owner-entered; not collected revenue).
+  finalPrice       Decimal?             @db.Decimal(18, 2)
+  /// M5 — ISO-4217 currency of valueEstimate / finalPrice (CHECK Lead_currency_iso).
+  currency         String?              @default("ILS")
   /// Identity link. Null for a manually created lead whose contact is not a
   /// Customer yet; set whenever the contact is (or becomes) known.
-  customerId     Int?
+  customerId       Int?
   /// Second contact channel. `customerName` / `phone` already exist above.
-  email          String?
+  email            String?
   /// What the lead actually asked for, in their words or the owner's.
-  intentSnapshot String?
+  intentSnapshot   String?
   /// The single open follow-up moment. Overwritten on reschedule, nulled on
   /// complete. Due / overdue are DERIVED from this — never stored.
-  nextFollowUpAt DateTime?
+  nextFollowUpAt   DateTime?
   /// What to come back to them about.
-  followUpNote   String?
+  followUpNote     String?
   /// Last meaningful event on this lead — drives list ordering and staleness.
-  lastActivityAt DateTime?
+  lastActivityAt   DateTime?
   /// When the lead reached a terminal status (WON / LOST / DROPPED).
-  closedAt       DateTime?
+  closedAt         DateTime?
   /// Free text, only meaningful for LOST. Deliberately not an enum in W1.
-  lostReason     String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  conversations  Conversation[]
-  deals          Deal[]
-  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  appointments   Appointment[]
+  lostReason       String?
+  /// M5 — optimistic-concurrency counter; the seq of the latest LeadLifecycleEvent.
+  lifecycleVersion Int                  @default(0)
+  /// M5 — WHAT the open follow-up is: 'call' | 'send_quote' | 'check_quote' | 'follow_up' |
+  /// 'schedule_meeting' | 'collect_info' | 'wait_for_customer' | 'other'. Requires nextFollowUpAt.
+  nextActionKind   String?
+  /// M5 — the first owner lifecycle action on this lead (time-to-first-handling).
+  firstHandledAt   DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  conversations    Conversation[]
+  deals            Deal[]
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer         Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  appointments     Appointment[]
+  lifecycleEvents  LeadLifecycleEvent[]
 
   /// DUPLICATE PROTECTION lives in raw SQL, not here: Prisma cannot express a
   /// PARTIAL unique index. `Lead_open_phone_key` (migration 20260831090000)
@@ -1424,9 +1439,9 @@ model BusinessObligationOrientation {
 /// Source links (conversation/message/customer/lead) are nullable to allow
 /// future creation paths that do not originate from a conversation.
 model Appointment {
-  id                   Int               @id @default(autoincrement())
+  id                   Int                    @id @default(autoincrement())
   businessId           Int
-  status               AppointmentStatus @default(PROPOSED)
+  status               AppointmentStatus      @default(PROPOSED)
   startsAt             DateTime?
   durationMinutes      Int?
   title                String?
@@ -1440,15 +1455,15 @@ model Appointment {
   leadId               Int?
   /// Set only when the owner selected a catalog service. Never inferred from title text.
   businessServiceId    Int?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  business             Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  createdByUser        User              @relation(fields: [createdByUserId], references: [id])
-  sourceConversation   Conversation?     @relation(fields: [sourceConversationId], references: [id])
-  sourceMessage        Message?          @relation(fields: [sourceMessageId], references: [id])
-  customer             Customer?         @relation(fields: [customerId], references: [id])
-  lead                 Lead?             @relation(fields: [leadId], references: [id])
-  businessService      BusinessService?  @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  business             Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdByUser        User                   @relation(fields: [createdByUserId], references: [id])
+  sourceConversation   Conversation?          @relation(fields: [sourceConversationId], references: [id])
+  sourceMessage        Message?               @relation(fields: [sourceMessageId], references: [id])
+  customer             Customer?              @relation(fields: [customerId], references: [id])
+  lead                 Lead?                  @relation(fields: [leadId], references: [id])
+  businessService      BusinessService?       @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
   demandSignals        OfferingDemandSignal[]
 
   @@unique([id, businessId])
@@ -2159,7 +2174,7 @@ model InventoryItemAsset {
 /// BOOKING key: booking:appointment:{appointmentId}
 /// PURCHASE key: purchase:sale-line:{saleLineId}
 model OfferingDemandSignal {
-  id                Int                       @id @default(autoincrement())
+  id                Int                      @id @default(autoincrement())
   businessId        Int
   offeringKind      OfferingKind
   businessServiceId Int?
@@ -2169,12 +2184,12 @@ model OfferingDemandSignal {
   signalType        OfferingDemandSignalType
   source            OfferingDemandSource
   idempotencyKey    String
-  createdAt         DateTime                  @default(now())
+  createdAt         DateTime                 @default(now())
 
-  business        Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessService BusinessService?  @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
-  inventoryItem   InventoryItem?    @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Restrict)
-  appointment     Appointment?      @relation(fields: [appointmentId, businessId], references: [id, businessId], onDelete: Restrict)
+  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessService BusinessService?   @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
+  inventoryItem   InventoryItem?     @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Restrict)
+  appointment     Appointment?       @relation(fields: [appointmentId, businessId], references: [id, businessId], onDelete: Restrict)
   saleLine        InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Restrict)
 
   @@unique([businessId, idempotencyKey])
@@ -6287,4 +6302,48 @@ model IdentityProposal {
   @@unique([businessId, intakeEventId, candidateCustomerId], map: "IdentityProposal_event_candidate_key")
   @@index([businessId, state])
   @@index([businessId, candidateCustomerId])
+}
+
+/// Business Intake M5 — the durable, APPEND-ONLY lifecycle history of a Lead.
+/// One row per lifecycle change. No personal data: no name, phone, email, note
+/// or free text (those stay on Lead, where the erasure reaches them).
+/// seq = the Lead's lifecycleVersion after the change; unique per lead, so
+/// two concurrent writers can never both record the same step. The composite
+/// (businessId, leadId) → Lead(businessId, id) FK is DB-only (like sec-C's).
+model LeadLifecycleEvent {
+  id             Int         @id @default(autoincrement())
+  businessId     Int
+  leadId         Int
+  seq            Int
+  /// 'created' | 'intake_attached' | 'status_changed' | 'next_action_set' |
+  /// 'next_action_rescheduled' | 'next_action_completed' | 'next_action_cleared' |
+  /// 'value_updated' | 'suggestion_dismissed' | 'contact_attached' |
+  /// 'contact_detached' | 'conversation_linked'
+  kind           String
+  fromStatus     LeadStatus?
+  toStatus       LeadStatus?
+  nextActionKind String?
+  dueAt          DateTime?
+  previousDueAt  DateTime?
+  /// 'estimate' | 'agreed' (value_updated only)
+  amountKind     String?
+  amount         Decimal?    @db.Decimal(18, 2)
+  /// 'OWNER_USER' | 'SYSTEM' | 'INTEGRATION' | 'UNKNOWN'
+  actorType      String
+  actorUserId    Int?
+  /// 'OWNER_UI' | 'IMPORT' | 'INTEGRATION' | 'SYSTEM' | 'API' | 'UNKNOWN' | 'BACKFILL'
+  source         String
+  /// 'intake_event' | 'conversation' | 'identity_proposal' | 'suggestion' | 'backfill'
+  evidenceKind   String?
+  /// A scalar reference (an id or a rule id) — never content.
+  evidenceRef    String?
+  idempotencyKey String
+  occurredAt     DateTime    @default(now())
+  createdAt      DateTime    @default(now())
+  business       Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lead           Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, leadId, seq])
+  @@index([businessId, kind, occurredAt])
 }
