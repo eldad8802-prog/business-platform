@@ -540,8 +540,7 @@ jobs:
         run: |
           node scripts/ci/negative-proof.mjs --id I-8B.3-record --file lib/data-transfer/historical/historical-duplicates.ts \
             --anchor '  const records: ExistingRecord[] = [];' \
-            --replace '  if (identities.length < 0) await tx.historicalFiscalDocument.create({ data: {} as never });
-  const records: ExistingRecord[] = [];' \
+            --replace $'  if (identities.length < 0) await tx.historicalFiscalDocument.create({ data: {} as never });\n  const records: ExistingRecord[] = [];' \
             --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
             -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
@@ -552,8 +551,7 @@ jobs:
         run: |
           node scripts/ci/negative-proof.mjs --id I-8B.3-importrun --file lib/data-transfer/historical/historical-duplicates.ts \
             --anchor '  const records: ExistingRecord[] = [];' \
-            --replace '  if (identities.length < 0) await (tx as any)["importRun"]["create"]({ data: {} });
-  const records: ExistingRecord[] = [];' \
+            --replace $'  if (identities.length < 0) await (tx as any)["importRun"]["create"]({ data: {} });\n  const records: ExistingRecord[] = [];' \
             --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
             -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
@@ -564,8 +562,7 @@ jobs:
         run: |
           node scripts/ci/negative-proof.mjs --id I-8B.3-reversal-write --file lib/data-transfer/historical/historical-duplicates.ts \
             --anchor '  const records: ExistingRecord[] = [];' \
-            --replace '  if (identities.length < 0) await tx.historicalFiscalDocument.update({ where: { id: 1 }, data: { reversesHistoricalDocumentId: 1 } as never });
-  const records: ExistingRecord[] = [];' \
+            --replace $'  if (identities.length < 0) await tx.historicalFiscalDocument.update({ where: { id: 1 }, data: { reversesHistoricalDocumentId: 1 } as never });\n  const records: ExistingRecord[] = [];' \
             --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
             -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
@@ -576,8 +573,7 @@ jobs:
         run: |
           node scripts/ci/negative-proof.mjs --id I-8B.3-billing-fallback --file lib/data-transfer/historical/historical-duplicates.ts \
             --anchor '  const records: ExistingRecord[] = [];' \
-            --replace '  if (identities.length < 0) await tx.billingDocument.findFirst({ where: { businessId } });
-  const records: ExistingRecord[] = [];' \
+            --replace $'  if (identities.length < 0) await tx.billingDocument.findFirst({ where: { businessId } });\n  const records: ExistingRecord[] = [];' \
             --expect 'FAIL  AST: the duplicate analysis reaches the database only through historicalFiscalDocument reads' \
             -- bash -c 'npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts'
 
