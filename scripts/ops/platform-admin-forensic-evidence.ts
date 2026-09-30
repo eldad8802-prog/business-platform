@@ -32,17 +32,30 @@ async function main(): Promise<void> {
   try {
     db = new PrismaClient({ datasourceUrl: assertSafeUrl("OWNER_DATABASE_URL", process.env.OWNER_DATABASE_URL, allowHost) });
     await enforceReadOnly(db, "owner");
-    const q = <T>(sql: string, ...p: unknown[]) => db!.$queryRawUnsafe<T[]>(sql, ...p);
+    // Each section fails on its own and reports the Postgres code + message (identifiers only, never row data).
+    const sectionErrors: Record<string, string> = {};
+    let section = "init";
+    const q = async <T>(sql: string, ...p: unknown[]): Promise<T[]> => {
+      try { return await db!.$queryRawUnsafe<T[]>(sql, ...p); }
+      catch (e) {
+        const meta = (e as { meta?: { code?: string; message?: string } }).meta;
+        sectionErrors[section] = `${meta?.code ?? (e as { code?: string }).code ?? "unknown"} ${(meta?.message ?? "").slice(0, 200)}`;
+        return [];
+      }
+    };
 
+    section = "system";
     const system = await q<{ id: number }>(`SELECT id FROM "Business" WHERE name = $1 ORDER BY id`, SYSTEM_BUSINESS);
     const systemIds = system.map((s) => s.id);
 
     // Who holds the role today.
+    section = "admins";
     const admins = await q<Record<string, unknown>>(
       `SELECT u.id, u."businessId", (b.name = $1) AS "businessIsSystem", u."createdAt", u."updatedAt", u."lastLoginAt", u."loginCount"
          FROM "User" u JOIN "Business" b ON b.id = u."businessId" WHERE u.role::text = 'PLATFORM_ADMIN' ORDER BY u.id`, SYSTEM_BUSINESS);
 
     // The documented admin, as it is now.
+    section = "documentedAdmin";
     const [target] = await q<Record<string, unknown>>(
       `SELECT u.id, u.role::text AS role, u."businessId", (b.name = $2) AS "businessIsSystem",
               (b."deletionRequestedAt" IS NULL AND b."deletedAt" IS NULL) AS "businessActive",
@@ -51,27 +64,32 @@ async function main(): Promise<void> {
               u."createdAt", u."updatedAt", u."lastLoginAt", u."loginCount", u."tokenVersion"
          FROM "User" u JOIN "Business" b ON b.id = u."businessId" WHERE u.id = $1`, userId, SYSTEM_BUSINESS);
 
+    section = "mfa";
     const mfa = await q<Record<string, unknown>>(
       `SELECT "userId", "enrolledAt", "lastVerifiedAt", cardinality("recoveryCodeHashes") AS "recoveryCodesRemaining",
               "recoveryCodesGeneratedAt", "createdAt", "updatedAt" FROM "PlatformAdminMfa" ORDER BY "userId"`);
 
+    section = "audit";
     const audit = await q<Record<string, unknown>>(
       `SELECT "actorUserId", action, count(*)::int AS n, min("createdAt") AS first, max("createdAt") AS last
          FROM "PlatformAuditEvent" GROUP BY 1, 2 ORDER BY 1, 2`);
 
+    section = "sessions";
     const sessions = await q<Record<string, unknown>>(
       `SELECT count(*)::int AS total, min("createdAt") AS first, max("createdAt") AS "lastIssued", max("lastUsedAt") AS "lastUsed",
               count(*) FILTER (WHERE "revokedAt" IS NULL AND "absoluteExpiresAt" > now())::int AS active
          FROM "AuthSession" WHERE "userId" = $1`, userId);
 
     // Which accounts signed in recently — ids only — to identify the account in use now.
+    section = "recent";
     const recent = await q<Record<string, unknown>>(
       `SELECT s."userId", u.role::text AS role, u."businessId", (b.name = $2) AS "businessIsSystem",
               count(*)::int AS sessions, max(s."createdAt") AS "lastIssued", max(s."lastUsedAt") AS "lastUsed"
          FROM "AuthSession" s JOIN "User" u ON u.id = s."userId" JOIN "Business" b ON b.id = u."businessId"
-        WHERE s."createdAt" > now() - make_interval(hours => $1) GROUP BY 1, 2, 3, 4 ORDER BY 1`, recentHours, SYSTEM_BUSINESS);
+        WHERE s."createdAt" > now() - ($1::int * interval '1 hour') GROUP BY 1, 2, 3, 4 ORDER BY 1`, recentHours, SYSTEM_BUSINESS);
 
     // Accounts attached to the two businesses in question (ids and roles only).
+    section = "members";
     const members = await q<Record<string, unknown>>(
       `SELECT u."businessId", u.id, u.role::text AS role, u."lastLoginAt" FROM "User" u WHERE u."businessId" IN (3, 9) ORDER BY 1, 2`);
 
@@ -85,6 +103,7 @@ async function main(): Promise<void> {
       documentedAdminSessions: sessions[0],
       recentSignIns: { hours: recentHours, accounts: recent },
       membersOfBusinesses3and9: members,
+      sectionErrors,
     };
     console.log(JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? Number(v) : v), 1));
   } catch (e) {
