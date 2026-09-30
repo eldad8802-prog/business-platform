@@ -38,6 +38,8 @@ export type DataTableProps<Row> = {
   getRowId: (row: Row) => string;
   /** Pointer + keyboard open handler. When set, rows become interactive. */
   onRowOpen?: (row: Row) => void;
+  /** Highlights one row. Presentation only — the consumer owns selection. */
+  selectedRowId?: string;
   /** Accessible name for the table. */
   ariaLabel?: string;
 };
@@ -47,6 +49,7 @@ export function DataTable<Row>({
   rows,
   getRowId,
   onRowOpen,
+  selectedRowId,
   ariaLabel,
 }: DataTableProps<Row>) {
   const scope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -66,6 +69,7 @@ export function DataTable<Row>({
 }
 [data-dt="${scope}"] tbody tr.dt-openable { cursor: pointer; }
 [data-dt="${scope}"] tbody tr.dt-openable:hover { background: rgba(36,105,102,0.045); }
+[data-dt="${scope}"] tbody tr.dt-selected { background: rgba(36,105,102,0.1); }
 [data-dt="${scope}"] .dt-open {
   appearance: none; background: none; border: 0; padding: 0; margin: 0;
   font: inherit; color: inherit; text-align: inherit; cursor: pointer;
@@ -97,7 +101,7 @@ export function DataTable<Row>({
           return (
             <tr
               key={id}
-              className={openable ? "dt-openable" : undefined}
+              className={[openable ? "dt-openable" : "", selectedRowId === id ? "dt-selected" : ""].filter(Boolean).join(" ") || undefined}
               onClick={openable ? () => onRowOpen!(row) : undefined}
             >
               {columns.map((c, ci) => {

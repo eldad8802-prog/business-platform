@@ -4,10 +4,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import BackButton from "@/components/ui/back-button";
+import { EntityIcon } from "@/components/ui/entity/entity-icon";
 import {
   HOME_ROUTES,
   TOOL_GROUPS,
   toolsInGroup,
+  type Tool,
   type ToolGroupKey,
 } from "@/lib/navigation/home-routes";
 import { TOOL_TINT_CSS } from "@/features/home/lib/tool-tints";
@@ -115,9 +117,10 @@ const TOOL_ICON: Record<string, () => ReactNode> = {
   ),
 };
 
-function ToolGlyph({ toolKey }: { toolKey: string }) {
-  const Icon = TOOL_ICON[toolKey];
-  return Icon ? <Icon /> : null;
+/** A tool without a hand-drawn tile glyph falls back to its Dubiz entity. */
+function ToolGlyph({ tool }: { tool: Tool }) {
+  const Icon = TOOL_ICON[tool.key];
+  return Icon ? <Icon /> : <EntityIcon entity={tool.entity} size={24} />;
 }
 
 export default function ToolsPage() {
@@ -190,6 +193,66 @@ export default function ToolsPage() {
           <span className="thead-spacer" aria-hidden />
         </header>
 
+        {/*
+          Desktop (1200+): the three families side by side, each with what is
+          waiting in it (the same business-status items that set its status
+          line, each opening its own screen) and its tools as rows with the
+          line that says what each one is for. Below 1200 the launcher groups
+          that follow are the composition.
+        */}
+        <div className="tdesk">
+          {TOOL_GROUPS.map((group) => {
+            const status: GroupStatus | null = items ? groupStatus(items, group.domains) : null;
+            const Icon = GROUP_ICON[group.key];
+            const waiting = (items ?? [])
+              .filter((item) => (group.domains as string[]).includes(item.domain))
+              .sort((a, b) => b.priorityScore - a.priorityScore)
+              .slice(0, 3);
+            return (
+              <section key={group.key} className="tcol" aria-labelledby={`tcol-${group.key}`}>
+                <div className="tgroup-head">
+                  <span className={`tgroup-icon dz-tint ${GROUP_TINT[group.key]}`}>
+                    <Icon />
+                  </span>
+                  <div className="tgroup-tx">
+                    <h2 id={`tcol-${group.key}`}>{group.label}</h2>
+                    {status ? (
+                      <span className={`tgroup-stat tgroup-stat-${status.tone}`}>{status.label}</span>
+                    ) : (
+                      <span className="tgroup-stat tgroup-stat-loading">&nbsp;</span>
+                    )}
+                  </div>
+                </div>
+                {waiting.length > 0 ? (
+                  <ul className="twait" aria-label={`מחכה ב${group.label}`}>
+                    {waiting.map((item) => (
+                      <li key={item.itemId}>
+                        <Link href={item.primaryAction.href}>
+                          <span>{item.title}</span>
+                          <span aria-hidden>←</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <nav className="trows" aria-label={group.label}>
+                  {toolsInGroup(group.key).map((tool) => (
+                    <Link key={tool.key} href={tool.href} className="trow">
+                      <span className={`trow-icon dz-tint c-${tool.color}`}>
+                        <ToolGlyph tool={tool} />
+                      </span>
+                      <span className="trow-tx">
+                        <b>{tool.label}</b>
+                        <span>{tool.description}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </nav>
+              </section>
+            );
+          })}
+        </div>
+
         {TOOL_GROUPS.map((group) => {
           const status: GroupStatus | null = items
             ? groupStatus(items, group.domains)
@@ -219,7 +282,7 @@ export default function ToolsPage() {
                 {tools.map((tool) => (
                   <Link key={tool.key} href={tool.href} className="tcell">
                     <span className={`tcell-icon dz-tint c-${tool.color}`}>
-                      <ToolGlyph toolKey={tool.key} />
+                      <ToolGlyph tool={tool} />
                     </span>
                     <span className="tcell-label">{tool.label}</span>
                   </Link>
@@ -294,5 +357,31 @@ const TOOLS_CSS = `
 }
 @media (min-width:1024px){
   .dztools .tgrid{grid-template-columns:repeat(8,minmax(0,1fr))}
+}
+
+.dztools .tdesk{display:none}
+@media (min-width:1200px){
+  .dztools{max-width:1320px}
+  .dztools .tgroup{display:none}
+  .dztools .tdesk{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+  .dztools .tcol{
+    padding:18px 16px 10px;border-radius:24px;background:var(--dz-surface);
+    border:1px solid var(--dz-border);box-shadow:var(--dz-shadow-card);min-width:0;
+  }
+  .dztools .twait{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:6px}
+  .dztools .twait a{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;
+    padding:8px 12px;border-radius:14px;background:var(--dz-surface-muted);
+    font-size:13px;font-weight:600;color:var(--dz-text-primary);
+  }
+  .dztools .twait a:hover{background:var(--dz-control-hover)}
+  .dztools .trows{display:flex;flex-direction:column;border-top:1px solid var(--dz-border-subtle);padding-top:6px}
+  .dztools .trow{display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 8px;border-radius:14px}
+  .dztools .trow:hover{background:var(--dz-control-hover)}
+  .dztools .trow-icon{width:40px;height:40px;min-width:40px;border-radius:50%}
+  .dztools .trow-icon svg{width:20px;height:20px}
+  .dztools .trow-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .dztools .trow-tx b{font-size:14px;font-weight:700;color:var(--dz-text-primary)}
+  .dztools .trow-tx span{font-size:12.5px;line-height:1.4;color:var(--dz-text-muted)}
 }
 `;

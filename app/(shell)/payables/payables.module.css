@@ -532,3 +532,86 @@
   color: var(--pay-ink);
   overflow-wrap: anywhere;
 }
+
+.cardSelected {
+  box-shadow: inset 0 0 0 2px var(--pay-accent);
+}
+
+.formActions a.buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.desk,
+.payDesk,
+.work {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.inspectOnly {
+  display: none;
+}
+
+@media (min-width: 1200px) {
+  .page {
+    max-width: none;
+    padding-inline: 28px;
+  }
+
+  .desk,
+  .payDesk,
+  .work {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .queue {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .side {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    position: sticky;
+    top: 16px;
+  }
+
+  .inspectOnly {
+    display: block;
+  }
+
+  .queue .card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.8fr) minmax(140px, 0.7fr);
+    align-items: center;
+    gap: 4px 16px;
+  }
+
+  .queue .cardTop,
+  .queue .payee {
+    grid-column: 1;
+  }
+
+  .queue .payee,
+  .queue .figures,
+  .queue .nextLine {
+    margin-top: 0;
+  }
+
+  .queue .figures {
+    grid-column: 2;
+  }
+
+  .queue .nextLine {
+    grid-column: 3;
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3, then P1 offering 336e9db2). Classified honestly; each is invoked by the workflow named.",
+  "note": "sec/INT: tests that reached main after #525 was cut (#531 daily business cost, #540 M8 brain, #538 secretary Phase 2, then #551 P0, #557/#558/#561 WhatsApp signup, #562 M9, #570 M3, then P1 offering 336e9db2, #579 M4 identity). Classified honestly; each is invoked by the workflow named.",
   "tests": {
     "components/whatsapp/connection-view.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -22,6 +22,12 @@
     "lib/intake/core/intake-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "#570 M3: pure intake-core unit suite (event identity, attribution/PII sanitising, log-field allow-listing, provider-neutral structure); no DB, no tenant or auth decision — the M3 tenant isolation is proven by m3-business-intake-ci.yml's DB lab; run on pull_request by m3-business-intake-ci.yml"
+    },
+    "lib/intake/identity/identity-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m4-identity-routing-ci.yml",
+      "reason": "#579 M4: identifier hashes are kind- and scope-separated and never carry the value, placeholder emails/names never become identifiers, provider ids exist only inside their scope (cross-scope identity confusion refused); run on pull_request by m4-identity-routing-ci.yml, which also proves the suite can fail"
     },
     "lib/knowledge/brain/brain.eval.test.ts": {
       "class": "SECURITY_REQUIRED",

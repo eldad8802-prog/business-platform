@@ -290,7 +290,7 @@ export function DocumentsImportScreen() {
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={busy}
-              className="w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? "בודק את הקבצים…" : "בחרו קבצים"}
             </button>
@@ -372,7 +372,7 @@ export function DocumentsImportScreen() {
               type="button"
               onClick={() => void onContinue()}
               disabled={busy || willCreate === 0}
-              className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? "רגע…" : "המשיכו לאישור"}
             </button>
@@ -415,7 +415,7 @@ export function DocumentsImportScreen() {
               type="button"
               onClick={() => void onExecute()}
               disabled={busy}
-              className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? "קולט את הקבצים…" : "אשרו וקלטו"}
             </button>

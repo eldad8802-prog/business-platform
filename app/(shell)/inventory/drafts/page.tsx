@@ -65,6 +65,45 @@ function buildHeaders() {
   return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
+function DraftInspector({
+  draft,
+  busy,
+  onApprove,
+  onMerge,
+  onReject,
+}: {
+  draft: Draft | null;
+  busy: boolean;
+  onApprove: (draft: Draft) => void;
+  onMerge: (draft: Draft) => void;
+  onReject: (id: number) => void;
+}) {
+  if (!draft) {
+    return (
+      <aside className="inv-ops__side">
+        <h2>טיוטה</h2>
+        <p>בחרו טיוטה. האישור נשאר במסך נפרד כדי שלא ייכנס מוצר בטעות.</p>
+      </aside>
+    );
+  }
+  const conf = confLevel(draft.confidenceScore);
+  return (
+    <aside className="inv-ops__side">
+      <h2>{draft.detectedName || "פריט לא מזוהה"}</h2>
+      <p>{conf.label}{draft.detectedCategory ? ` · ${draft.detectedCategory}` : ""}</p>
+      <p>{draft.detectedBarcode ? `ברקוד ${draft.detectedBarcode}` : "לא זוהה ברקוד"} · {draft.detectedUnitType || "יחידה"}</p>
+      {draft.matches && draft.matches.length > 0 ? (
+        <p>התאמה אפשרית: {draft.matches[0].itemName}</p>
+      ) : (
+        <p>אין התאמה למוצר קיים.</p>
+      )}
+      <button type="button" className="inv-btn-primary" disabled={busy} onClick={() => onApprove(draft)}>אשר מוצר</button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onMerge(draft)}>מזג לקיים</button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onReject(draft.id)}>דחה</button>
+    </aside>
+  );
+}
+
 function emptyForm(draft: Draft): ApproveForm {
   return {
     name: draft.detectedName || "",
@@ -84,6 +123,7 @@ export default function InventoryDraftsPage() {
   const [approveFor, setApproveFor] = useState<Draft | null>(null);
   const [form, setForm] = useState<ApproveForm | null>(null);
   const [mergeFor, setMergeFor] = useState<Draft | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   async function loadDrafts() {
     try {
@@ -218,7 +258,49 @@ export default function InventoryDraftsPage() {
           <InventoryStatePanel title="אין טיוטות לאישור">כל הפריטים שזוהו אושרו או נדחו.</InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-rows">
+        <>
+        <div className="inv-ops">
+          <div className="inv-desk-table" aria-label="טיוטות">
+            <table>
+              <thead>
+                <tr>
+                  <th>זוהה</th>
+                  <th>קטגוריה</th>
+                  <th>ברקוד</th>
+                  <th>ודאות</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((draft) => {
+                  const conf = confLevel(draft.confidenceScore);
+                  return (
+                    <tr
+                      key={draft.id}
+                      className={draft.id === selectedId ? "is-selected" : undefined}
+                      onClick={() => setSelectedId(draft.id)}
+                    >
+                      <td>{draft.detectedName || "פריט לא מזוהה"}</td>
+                      <td>{draft.detectedCategory || "—"}</td>
+                      <td>{draft.detectedBarcode || "—"}</td>
+                      <td>{conf.label}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <DraftInspector
+            draft={pending.find((draft) => draft.id === selectedId) ?? null}
+            busy={busyId === selectedId}
+            onApprove={(draft) => {
+              setForm(emptyForm(draft));
+              setApproveFor(draft);
+            }}
+            onMerge={setMergeFor}
+            onReject={(id) => void reject(id)}
+          />
+        </div>
+        <div className="inv-rows inv-decision-mobile">
           {pending.map((draft) => {
             const conf = confLevel(draft.confidenceScore);
             const busy = busyId === draft.id;
@@ -272,6 +354,7 @@ export default function InventoryDraftsPage() {
             );
           })}
         </div>
+        </>
       )}
 
       {approveFor && form ? (

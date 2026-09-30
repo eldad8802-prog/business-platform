@@ -222,3 +222,10 @@ jobs:
       # cross-tenant writes and parent links, no stale context, jobs, and the product flows under FORCE.
       - name: Tenant/RLS closure battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/tenant-rls-closure-battery.ts
+
+      # Knowledge-derive authority — the REAL /api/knowledge/derive handler as a MEASURED NOBYPASSRLS role:
+      # dedicated authority only (CRON_SECRET refused), enrollment + canonical lifecycle before anything,
+      # zero mutations and zero provider calls on every refusal (provider replaced by a local counting
+      # server), cooldown / concurrency / Brain-cooldown bounds, append-only run ledger, SecurityEvent audit.
+      - name: Knowledge-derive authority battery (real DB, NOBYPASSRLS role, counting fake provider)
+        run: npx tsx .m0/derive-authority-battery.ts

@@ -420,7 +420,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                       setDomainId(d.id);
                       resetFrom("domain");
                     }}
-                    className="mt-1.5 h-5 w-5 shrink-0 accent-[var(--dz-accent)]"
+                    className="mt-1.5 h-5 w-5 shrink-0 accent-[var(--dz-brand)]"
                   />
                   <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-lg">
                     {d.icon}
@@ -494,7 +494,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                       }}
                       className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                         sheet === name
-                          ? "border-[var(--dz-accent)] text-[var(--dz-accent)]"
+                          ? "border-[var(--dz-brand)] text-[var(--dz-brand)]"
                           : "border-[var(--dz-border-subtle)] text-[var(--dz-text-primary)] hover:bg-[var(--dz-surface-muted)]"
                       }`}
                     >
@@ -571,7 +571,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               type="button"
               onClick={runPreview}
               disabled={!canPreview || busy !== null}
-              className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "previewing" ? "בודק את הקובץ…" : "בדקו את הקובץ"}
             </button>
@@ -766,7 +766,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               type="button"
               onClick={runImport}
               disabled={busy !== null || createCount === 0}
-              className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "importing"
                 ? "מייבא…"

@@ -12,9 +12,18 @@ import { WaBadge } from "@/components/whatsapp/wa-ui";
  * This is NOT a separate "success" screen: it keeps the Inbox chrome (title +
  * search) so the owner feels they've landed exactly where they'll work. Shown
  * by the Inbox when connected and there are zero conversations.
+ *
+ * With `onRetry`, the list did not load at all: the same chrome says so and
+ * offers a retry, instead of claiming that no customer has written.
  */
-export function InboxConnectedEmptyState() {
-  const c = WA_COPY.inboxConnected;
+export function InboxConnectedEmptyState({ onRetry }: { onRetry?: () => void } = {}) {
+  const c = onRetry
+    ? {
+        badge: WA_COPY.inboxConnected.badge,
+        heading: "לא הצלחנו לטעון את השיחות",
+        body: "ייתכן שיש שיחות שלא מוצגות כרגע. אפשר לנסות שוב.",
+      }
+    : WA_COPY.inboxConnected;
   return (
     <div
       dir="rtl"
@@ -89,13 +98,15 @@ export function InboxConnectedEmptyState() {
               width: 60,
               height: 60,
               borderRadius: TOKEN.radius.modal,
-              background: TOKEN.semantic.success.bg,
-              color: TOKEN.semantic.success.ink,
+              background: onRetry ? TOKEN.semantic.attention.bg : TOKEN.semantic.success.bg,
+              color: onRetry ? TOKEN.semantic.attention.ink : TOKEN.semantic.success.ink,
               display: "grid",
               placeItems: "center",
+              fontSize: 28,
+              fontWeight: TOKEN.weight.bold,
             }}
           >
-            <IconCheck size={30} />
+            {onRetry ? "!" : <IconCheck size={30} />}
           </span>
           <h2
             style={{
@@ -120,6 +131,26 @@ export function InboxConnectedEmptyState() {
           >
             {c.body}
           </p>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              style={{
+                minHeight: 48,
+                padding: `0 ${TOKEN.space.xl}px`,
+                borderRadius: TOKEN.radius.button,
+                border: "none",
+                background: TOKEN.brand.mid,
+                color: "#fff",
+                font: "inherit",
+                fontSize: TOKEN.font.body,
+                fontWeight: TOKEN.weight.bold,
+                cursor: "pointer",
+              }}
+            >
+              נסה שוב
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -6,9 +6,12 @@
 # correct for migrations, useless for a tenant-enforcement proof. So this does not touch the database
 # at all: it asks the running application to do the work.
 #
-# This is the same shape as `payment-settlement-recovery.yml`, and for the same reason: CRON_SECRET is
-# a repository secret identical to the one in the Vercel Production environment, sent as a bearer
-# header, never echoed. The endpoint answers statuses, counts and rule versions — no vendor, no payee,
+# AUTHORITY: a DEDICATED credential, KNOWLEDGE_DERIVE_SECRET (identical to the one in the Vercel Production
+# environment), held ONLY in the protected `knowledge-derive` GitHub environment — not `cron`, whose
+# secrets every scheduled payment job can read — and sent as a bearer header, never echoed. The general CRON_SECRET is
+# NOT accepted by the derive route. The business must also be ACTIVE and ENROLLED (feature
+# knowledge_derivation), and outside its run cooldown — the route refuses otherwise (403 / 409 / 429).
+# The GitHub run id is sent as the caller correlation reference for the audit trail. The endpoint answers statuses, counts and rule versions — no vendor, no payee,
 # no fact text.
 #
 # NO SCHEDULE. One tenant per run, dispatched deliberately. A cadence is an M4 decision about cost.
@@ -40,23 +43,24 @@ concurrency:
 
 jobs:
   derive:
-    # H-3/M-1: CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the
-    # protected `cron` environment (owner moves the secret there; see the owner-actions section of PR 525).
+    # H-3/M-1: KNOWLEDGE_DERIVE_SECRET authenticates to PRODUCTION. Read only from main, inside the
+    # dedicated `knowledge-derive` environment (owner action in PR 525; enforced by workflow-policy WP-6).
     if: github.ref == 'refs/heads/main'
-    environment: cron
+    environment: knowledge-derive
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Derive knowledge on Production
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          KNOWLEDGE_DERIVE_SECRET: ${{ secrets.KNOWLEDGE_DERIVE_SECRET }}
+          CALLER_RUN: ${{ github.run_id }}
           BID: ${{ inputs.business_id }}
           BRAIN: ${{ inputs.brain }}
           DERIVE_URL: https://promaxgroup.co.il/api/knowledge/derive
         run: |
           set -euo pipefail
-          if [ -z "${CRON_SECRET:-}" ]; then
-            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          if [ -z "${KNOWLEDGE_DERIVE_SECRET:-}" ]; then
+            echo "::error::KNOWLEDGE_DERIVE_SECRET is not configured for this repository."; exit 1
           fi
           case "${BID}" in
             ''|*[!0-9]*) echo "::error::business_id must be a positive integer"; exit 1;;
@@ -64,11 +68,12 @@ jobs:
           [ "${BID}" -gt 0 ] || { echo "::error::business_id must be > 0"; exit 1; }
 
           code=$(curl -sS -o body.json -w "%{http_code}" -m 120 \
-            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${DERIVE_URL}?businessId=${BID}$([ "${BRAIN:-none}" = "shadow" ] && echo '&brain=shadow')")
+            -X POST -H "Authorization: Bearer ${KNOWLEDGE_DERIVE_SECRET}" -H "X-Derive-Caller-Run: ${CALLER_RUN}" "${DERIVE_URL}?businessId=${BID}$([ "${BRAIN:-none}" = "shadow" ] && echo '&brain=shadow')")
           echo "HTTP $code"
           # M-1: this log is public. Print ONLY aggregate, assert-style fields — never the body
-          # (it carries the business id, role name and per-rule detail).
-          jq -c '{ok, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights, m9GuardsHold: .outcomes.guardsHold}' body.json 2>/dev/null             || echo "(body is not the expected JSON shape — not printed)"
+          # (it carries the business id, role name, run id and per-rule detail).
+          jq -c '{ok, error, stage, proofLevel, holds: .isolation.holds, rulesRun: .knowledge.rulesRun, rulesOk: .knowledge.rulesOk, rulesFailed: .knowledge.rulesFailed, insights, m9GuardsHold: .outcomes.guardsHold}' body.json 2>/dev/null \
+            || echo "(body is not the expected JSON shape — not printed)"
           [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }
 
           # The run is only evidence of tenant enforcement if the runtime said it was. A FULL proof

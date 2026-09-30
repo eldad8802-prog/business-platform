@@ -15,6 +15,7 @@ export const PLATFORM_FEATURE_KEYS = {
   WHATSAPP: "whatsapp",
   STARTER_BOT: "starter_bot",
   REPORTS: "reports",
+  KNOWLEDGE_DERIVATION: "knowledge_derivation",
 } as const;
 
 export type PlatformFeatureKey =
@@ -30,7 +31,8 @@ export type PlatformFeatureCategory =
   | "revenue"
   | "integrations"
   | "bot"
-  | "reports";
+  | "reports"
+  | "intelligence";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -129,6 +131,16 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       category: "reports",
       description: "ייצוא וסיכומי דוחות",
       defaultEnabled: true,
+      mutable: true,
+    },
+    {
+      // Authority for /api/knowledge/derive. OFF by default: a business is derivable only after a
+      // platform admin enables it for that business. Not a product surface.
+      key: PLATFORM_FEATURE_KEYS.KNOWLEDGE_DERIVATION,
+      displayName: "גזירת ידע עסקי",
+      category: "intelligence",
+      description: "הרשאת הפעלת גזירת ידע (למידה) עבור העסק — כבויה כברירת מחדל",
+      defaultEnabled: false,
       mutable: true,
     },
   ];

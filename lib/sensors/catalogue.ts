@@ -333,6 +333,24 @@ export const SENSORS = {
       "A business-intake receipt reached a terminal outcome (processed, ignored or dead-lettered): its source, family, route, attempts and latency.",
     consumer: "planned: intake health + per-source volume/latency (M8 attribution joins on the receipt, not on this)",
   }),
+  INTAKE_IDENTITY_RESOLVED: S({
+    eventType: "INTAKE_IDENTITY_RESOLVED",
+    domain: "intake",
+    entityType: "INTAKE_EVENT",
+    version: 1,
+    payloadKeys: ["state", "identifierKinds", "strongBases", "candidateCount", "policyVersion", "routingRule", "destination"],
+    describes: "M4 resolved who an intake event is about (resolved, candidate, ambiguous, conflict, unresolved) and chose its route.",
+    consumer: "planned: identity quality + routing mix per source (categories only, never identifier values)",
+  }),
+  IDENTITY_PROPOSAL_DECIDED: S({
+    eventType: "IDENTITY_PROPOSAL_DECIDED",
+    domain: "intake",
+    entityType: "IDENTITY_PROPOSAL",
+    version: 1,
+    payloadKeys: ["action", "outcome"],
+    describes: "The owner confirmed, rejected or undid an identity proposal, or it was found stale.",
+    consumer: "planned: proposal precision (how often owners confirm vs reject)",
+  }),
 } as const;
 
 export type SensorKey = keyof typeof SENSORS;

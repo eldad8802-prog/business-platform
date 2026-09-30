@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
+import {
+  admitDerivation,
+  callerRefOf,
+  decideDeriveAuth,
+  finishDerivationRun,
+  recordDeriveSecurityEvent,
+  stillActive,
+} from "@/lib/services/knowledge-derive/derive-gate";
 import { deriveKnowledgeForBusiness } from "@/lib/knowledge/derive.service";
 import { resolveIdentitiesForBusiness } from "@/lib/identity/entity-identity.service";
 import { generateInsightsForBusiness } from "@/lib/knowledge/insight.service";
@@ -26,9 +33,14 @@ import { probeOutcomeGuards } from "@/lib/knowledge/outcomes/outcome-store";
  * place a derivation can prove BOTH that the rules are right and that the tenant context reaches the
  * database is inside the runtime itself. That is this route.
  *
- * AUTHENTICATION is the scheduler's, not a user's: the same CRON_SECRET bearer contract the settlement
- * recovery route uses, fail-closed on a missing or placeholder secret. There is no session, no UI and
- * no navigation entry — a business owner cannot reach this, and neither can a logged-in user.
+ * AUTHORITY (derive-authority hardening). A DEDICATED machine credential, KNOWLEDGE_DERIVE_SECRET —
+ * never the general CRON_SECRET, which settlement recovery, reconciliation and the intake sweep share.
+ * The request's businessId only SELECTS a target; before anything is written or sent to a provider the
+ * gate (lib/services/knowledge-derive/derive-gate.ts) requires that business to be ACTIVE (the canonical
+ * account-deletion lifecycle), ENROLLED (feature `knowledge_derivation`, platform-admin governed, default
+ * off), and not already RUNNING or inside its cooldown — and the Brain inside its own, longer cooldown.
+ * Every refused and every executed attempt is one append-only SecurityEvent (codes and counts only).
+ * There is no session, no UI and no navigation entry — a business owner cannot reach this.
  *
  * THE TENANT IS EXPLICIT. One businessId, derived for exactly that one. A sweep across tenants is a
  * decision about cadence and cost that nobody has the numbers to make yet; the per-source timings in
@@ -60,25 +72,36 @@ const ISOLATION_TABLES = [
   "OutcomeActionEvent",
   "OutcomeObservation",
   "OutcomeAssessment",
+  "KnowledgeDerivationRun",
 ];
 
 async function handle(req: NextRequest) {
-  const decision = decideRecoveryAuth(
-    req.headers.get("authorization"),
-    process.env.CRON_SECRET
-  );
+  const callerRef = callerRefOf(req.headers.get("x-derive-caller-run"));
+  const decision = decideDeriveAuth(req.headers.get("authorization"));
   if (decision === "NOT_CONFIGURED") {
+    await recordDeriveSecurityEvent({ outcome: "DENIED", reasonClass: "not_configured", businessId: null, metadata: { callerRef } });
     return NextResponse.json({ error: "derive_not_configured" }, { status: 503 });
   }
   if (decision !== "AUTHORIZED") {
+    // The requested businessId is attacker-controlled here: it is neither trusted nor recorded.
+    await recordDeriveSecurityEvent({ outcome: "DENIED", reasonClass: "unauthorized", businessId: null, metadata: { callerRef } });
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const raw = new URL(req.url).searchParams.get("businessId");
-  const businessId = Number(raw);
-  if (!Number.isInteger(businessId) || businessId <= 0) {
-    return NextResponse.json({ error: "businessId must be a positive integer" }, { status: 400 });
+  const url = new URL(req.url);
+  const brainRequested = url.searchParams.get("brain") === "shadow";
+  const gate = await admitDerivation({ requestedBusinessId: url.searchParams.get("businessId"), brainRequested, callerRef });
+  if (!gate.ok) {
+    const target = Number(url.searchParams.get("businessId"));
+    await recordDeriveSecurityEvent({
+      outcome: "DENIED", reasonClass: gate.reason, businessId: null,
+      metadata: { callerRef, targetBusinessId: Number.isInteger(target) && target > 0 ? target : null, brainRequested },
+    });
+    return NextResponse.json({ error: gate.reason }, { status: gate.status });
   }
+  const businessId = gate.businessId;
+  const runId = gate.runId;
+  let brainInvoked = false;
 
   try {
     // Posture is reported, not assumed. If this ever runs as a role that can bypass RLS, the response
@@ -111,11 +134,13 @@ async function handle(req: NextRequest) {
     // The knowledge the Brain and the M9 generator reason over: built once, at the derivation instant.
     const snap0 = await buildBusinessKnowledgeSnapshot(businessId, { asOf: snapAsOf });
 
-    // M8 — the Brain, in SHADOW, ONLY when the scheduler asks for it explicitly (?brain=shadow) and
-    // BRAIN_MODE is not "off". The server builds the snapshot; nothing comes from the caller but the
-    // businessId. Nothing is persisted and nothing reaches an owner: only operational metadata leaves.
-    const brainRequested = new URL(req.url).searchParams.get("brain") === "shadow";
-    const brain = brainRequested
+    // M8 — the Brain, in SHADOW, ONLY when the scheduler asks for it explicitly (?brain=shadow), the gate
+    // allowed it (its own cooldown), BRAIN_MODE is not "off", and the business is STILL active. The server
+    // builds the snapshot; nothing comes from the caller but the businessId. Nothing is persisted and
+    // nothing reaches an owner: only operational metadata leaves.
+    const brainGo = gate.brainAllowed && (await stillActive(businessId));
+    brainInvoked = brainGo;
+    const brain = brainGo
       ? await runBrain(businessId, {
           mode: brainMode(),
           provider: openAiBrainProvider(),
@@ -126,6 +151,8 @@ async function handle(req: NextRequest) {
     // M9 — the outcome loop: recommendations from governed knowledge (linked to a validated finding
     // when one cites the same knowledge), actions and observations read from the ledger, assessments.
     // Backend only: nothing is shown to the owner. Never throws; a failure reports its stage.
+    // Re-checked: a deletion requested DURING the run stops the loop before any recommendation is written.
+    if (!(await stillActive(businessId))) throw Object.assign(new Error("lifecycle"), { name: "BusinessNoLongerActive" });
     const outcomes = await deriveOutcomesForBusiness(businessId, { asOf: snapAsOf, snapshot: snap0, brain });
 
     // M7 — the Business Knowledge Snapshot AFTER the outcome loop (so its learning is in it), built
@@ -173,10 +200,28 @@ async function handle(req: NextRequest) {
       foreignRows[t] = scoped[0]?.n ?? -1;
     }
 
+    // The run's outcome — counts, codes and versions only — closes the lease and is the audit record.
+    const runCounts = {
+      facts: snapshot.items.length, rulesOk: derivation.rulesOk, rulesFailed: derivation.rulesFailed,
+      measuresActive: derivation.measuresActive, temporalRulesOk: temporal.rulesOk, insights: insights.length,
+      snapshotKnowledge: snap1.knowledge.length, recommendationsIssued: outcomes.recommendations?.issued ?? 0,
+      brainAccepted: brain ? brain.findings.length : 0,
+    };
+    const runVersions = { outcomes: outcomes.versions.contract, brainPrompt: brain?.meta.promptVersion ?? "none", snapshot: snap1.contractVersion };
+    await finishDerivationRun(businessId, runId, { status: "SUCCEEDED", failureStage: null, brainInvoked, counts: runCounts, versions: runVersions });
+    await recordDeriveSecurityEvent({
+      outcome: "SUCCESS", reasonClass: null, businessId,
+      metadata: {
+        runId, callerRef, brainRequested, brainAllowed: gate.brainAllowed, brainInvoked,
+        brainSkipped: gate.brainSkippedReason, counts: runCounts,
+      },
+    });
+
     return NextResponse.json(
       {
         ok: true,
         businessId,
+        run: { runId, brain: { requested: brainRequested, allowed: gate.brainAllowed, invoked: brainInvoked, skipped: gate.brainSkippedReason } },
         role: { name: role?.u, superuser: role?.s, bypassrls: role?.b },
         proofLevel: role?.b === false && role?.s === false ? "FULL" : "DERIVATION-ONLY",
         facts: { total: snapshot.items.length, byDomain, snapshotTenant: snapshot.businessId },
@@ -292,10 +337,17 @@ async function handle(req: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    const stage = error instanceof Error && error.name === "BusinessNoLongerActive" ? "lifecycle" : "derivation";
     console.error("[knowledge/derive] run failed", {
       error: error instanceof Error ? error.name : "unknown",
     });
-    return NextResponse.json({ ok: false, error: "derive_failed" }, { status: 500 });
+    try {
+      await finishDerivationRun(businessId, runId, { status: "FAILED", failureStage: stage, brainInvoked, counts: {}, versions: {} });
+    } catch {
+      // The lease expires on its own; a failed close is not a second failure to report.
+    }
+    await recordDeriveSecurityEvent({ outcome: "FAILURE", reasonClass: stage, businessId: stage === "lifecycle" ? null : businessId, metadata: { runId, callerRef, brainInvoked } });
+    return NextResponse.json({ ok: false, error: "derive_failed", stage }, { status: stage === "lifecycle" ? 409 : 500 });
   }
 }
 

@@ -169,7 +169,7 @@ export function DocumentsExportPanel() {
           type="button"
           onClick={() => void runExport()}
           disabled={working}
-          className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
         >
           {working ? "מכין את הקבצים…" : "ייצאו מסמכים"}
         </button>

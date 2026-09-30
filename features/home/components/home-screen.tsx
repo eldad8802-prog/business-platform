@@ -104,8 +104,22 @@ export function HomeScreen({
           <span className="gear ghost" aria-hidden />
         </header>
 
-        <Collection view={view} />
-        <Receipts view={view} />
+        <div className="desk">
+          <div className="desk-money">
+            <Collection view={view} />
+          </div>
+          <div className="desk-now">
+            <div className="desk-label">
+              <h2>מה מחכה</h2>
+              {view.objects && view.objects.length > 0 ? (
+                <Link href={HOME_ROUTES.attention}>כל הרשימה</Link>
+              ) : (
+                <span />
+              )}
+            </div>
+            <Receipts view={view} />
+          </div>
+        </div>
 
         <section className="dz" aria-labelledby="dz-h">
           <h2 id="dz-h">בדוביז</h2>
@@ -494,20 +508,44 @@ function Receipts({ view }: { view: HomeView }) {
   }
 
   return (
-    <div className="rc">
-      <div className="rc-rail" ref={rail}>
-        {shown.map((object, index) => (
-          <Receipt key={object.key} object={object} focused={index === focused} />
-        ))}
-      </div>
-      {shown.length > 1 ? (
-        <div className="rc-dots" aria-hidden>
+    <>
+      <div className="rc">
+        <div className="rc-rail" ref={rail}>
           {shown.map((object, index) => (
-            <span key={object.key} className={index === focused ? "on" : undefined} />
+            <Receipt key={object.key} object={object} focused={index === focused} />
           ))}
         </div>
-      ) : null}
-    </div>
+        {shown.length > 1 ? (
+          <div className="rc-dots" aria-hidden>
+            {shown.map((object, index) => (
+              <span key={object.key} className={index === focused ? "on" : undefined} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="rc-desk" aria-label="מה מחכה">
+        {shown.map((object) => {
+          const urgent = Boolean(object.chip?.urgent);
+          const cta = object.kind === "document" ? "לבדיקה" : "לטיפול";
+          return (
+            <Link key={object.key} href={object.href} className="rc-row">
+              <span className="rc-row-kind">{KIND_LABEL[object.kind] ?? KIND_LABEL.other}</span>
+              <span className="rc-row-body">
+                <span className="rc-row-title">{object.title}</span>
+                {object.meta ? <span className="rc-row-meta">{object.meta}</span> : null}
+              </span>
+              <span className="rc-row-end">
+                {object.chip ? (
+                  <span className={`rc-chip${urgent ? " urgent" : ""}`}>{object.chip.label}</span>
+                ) : null}
+                {object.amount ? <span className="rc-row-amt">{object.amount}</span> : null}
+                <span className="rc-cta">{cta}</span>
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -855,7 +893,39 @@ const HOME_CSS = `
   .dzhome .fam{padding:8px 8px 8px}
   .dzhome .fam-t{font-size:12.5px}
 }
+.dzhome .desk{display:contents}
+.dzhome .desk-money,.dzhome .desk-now{display:contents}
+.dzhome .desk-label{display:none}
+.dzhome .rc-desk{display:none}
 @media (min-width:768px){
   .dzhome .w{max-width:620px}
+}
+@media (min-width:1024px){
+  .dzhome .w{max-width:880px}
+}
+@media (min-width:1200px){
+  .dzhome .w{max-width:none;padding:22px 32px 48px}
+  .dzhome .desk{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,420px);gap:8px 28px;align-items:start;margin-top:8px}
+  .dzhome .desk-now{grid-column:1;grid-row:1;display:grid;gap:10px;align-content:start}
+  .dzhome .desk-money{grid-column:2;grid-row:1;display:block}
+  .dzhome .desk-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .dzhome .desk-label h2{margin:0;font-size:18px;font-weight:800}
+  .dzhome .desk-label a{font-size:14px;font-weight:700;color:#1f6f6b}
+  .dzhome .rc{display:none}
+  .dzhome .rc-desk{display:grid;gap:8px}
+  .dzhome .rc-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;
+    padding:12px 14px;background:#fffdf8;border:1px solid var(--hair);border-radius:16px}
+  .dzhome .rc-row-kind{grid-column:1;font-size:12px;font-weight:800;color:var(--ink2)}
+  .dzhome .rc-row-body{grid-column:1;display:grid;gap:2px;min-width:0}
+  .dzhome .rc-row-title{font-size:16px;font-weight:800;line-height:1.3}
+  .dzhome .rc-row-meta{font-size:12.5px;font-weight:600;color:var(--ink2);line-height:1.4}
+  .dzhome .rc-row-end{grid-column:2;grid-row:1 / span 2;display:flex;align-items:center;gap:10px}
+  .dzhome .rc-row-amt{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+  .dzhome .col{margin-top:0;padding:14px 16px;background:#fffdf8;border:1px solid var(--hair);border-radius:16px}
+  .dzhome .dz{margin-top:22px}
+  .dzhome .fams{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (min-width:1600px){
+  .dzhome .desk{grid-template-columns:minmax(0,1.6fr) minmax(340px,460px)}
 }
 `;

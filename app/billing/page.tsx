@@ -836,12 +836,32 @@ export default function BillingHubPage() {
         }
 
         @media (min-width: 1200px) {
+          .billing-hub-main {
+            max-width: none !important;
+            width: 100%;
+            padding-inline: 32px;
+            display: grid !important;
+            grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+            align-items: start;
+            column-gap: 28px;
+            row-gap: 16px;
+          }
+          .billing-hub-main > * { grid-column: 2; min-width: 0; }
+          .billing-actions-section {
+            grid-column: 1 !important;
+            position: sticky;
+            top: 16px;
+            align-self: start;
+            border-bottom: 0 !important;
+            padding-bottom: 0 !important;
+          }
           .billing-action-buttons {
             display: grid !important;
-            grid-template-columns: repeat(2, minmax(220px, 320px));
-            justify-content: start;
-            gap: 12px;
+            grid-template-columns: minmax(0, 1fr);
+            justify-content: stretch;
+            gap: 10px;
           }
+          .billing-action-button { width: 100%; }
         }
       `}</style>
 

@@ -15,7 +15,7 @@
  * put fiction back on the owner's dashboard.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LAYOUT, TOKEN } from "@/lib/design/tokens";
 import {
   PhoneFrame,
@@ -172,30 +172,89 @@ function CouponCard({
 /**
  * Desktop composition for the owner's coupon collection.
  *
- * This surface is not a master–detail workspace, and a detail pane was
- * deliberately not built: `MyCoupon` carries benefit, description, issued,
- * expires, redemption and state, and the card already shows every one of them.
- * A second region would either be empty or repeat the card, and inventing
- * something to fill it would add capability this wave is not allowed to add.
+ * Below 1200 the cards flow into one column, then two from the tablet tier.
  *
- * What the width genuinely buys is *how many coupons the owner can compare at
- * once*, so the same cards flow into a grid. One column stays the mobile
- * composition; two from the shell's tablet tier; three from the workspace tier,
- * where the container itself widens to the data measure (see ManagementSurface).
+ * From 1200 the collection is a work queue: a toolbar with the owner's three
+ * actions and a count per state, the coupons as aligned rows (benefit, issued,
+ * valid until, state) grouped into live and ended, and the selected coupon
+ * beside them. The inspector IS the existing card, with the same stop/resume
+ * and the same notices, so desktop adds comparison, not capability. Nothing
+ * new is read, stored or sent.
  *
- * Pure CSS: the card, its props, its actions and the kill switch are identical
- * at every width, so nothing remounts and no effect re-runs when the viewport
- * crosses a tier — the lesson recorded in the Billing production closure §9.
+ * Both compositions stay mounted and CSS picks one, so no effect re-runs when
+ * the viewport crosses a tier — the lesson recorded in the Billing production
+ * closure §9.
  */
 const COLLECTION_CSS = `
 .rv-coupon-collection { display: grid; grid-template-columns: 1fr; align-items: start; }
+.offer-desk, .offer-toolbar { display: none; }
 @media (min-width: ${LAYOUT.bp.medium}px) {
   .rv-coupon-collection { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (min-width: ${LAYOUT.bp.wide}px) {
-  .rv-coupon-collection { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 1200px) {
+  .offer-mobile { display: none !important; }
+  .offer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .offer-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .offer-count {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: 7px 12px; border-radius: 999px;
+    background: ${W.surface}; border: 1px solid ${W.line};
+    font-size: 13px; color: ${W.muted};
+  }
+  .offer-count b { font-size: 15px; color: ${W.ink}; font-variant-numeric: tabular-nums; }
+  .offer-actions { display: flex; gap: 10px; align-items: center; }
+  .offer-secondary {
+    height: 44px; padding: 0 16px; display: inline-flex; align-items: center;
+    border-radius: ${W.radius.control}px; border: 1px solid ${W.line}; background: ${W.surface};
+    font: inherit; font-size: 14px; font-weight: 600; color: ${W.ink}; text-decoration: none; cursor: pointer;
+  }
+  .offer-desk {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .offer-queue {
+    background: ${W.surface}; border: 1px solid ${W.line}; border-radius: ${W.radius.card}px;
+    padding: 6px; min-width: 0;
+  }
+  .offer-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 88px 88px 96px;
+    gap: 12px;
+    align-items: center;
+  }
+  .offer-head { padding: 10px 12px 8px; font-size: 12px; font-weight: 600; color: ${W.muted2}; }
+  .offer-group { padding: 12px 12px 6px; font-size: 12.5px; font-weight: 700; color: ${W.muted}; }
+  .offer-row {
+    width: 100%; padding: 11px 12px; border: 0; border-radius: 12px;
+    background: transparent; color: inherit; font: inherit; text-align: right; cursor: pointer;
+    font-size: 13px; color: ${W.muted}; font-variant-numeric: tabular-nums;
+  }
+  .offer-row:hover { background: ${W.surface2}; }
+  .offer-row[aria-selected="true"] { background: var(--dz-brand-soft); box-shadow: inset 0 0 0 1.5px var(--dz-brand); }
+  .offer-row:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 1px; }
+  .offer-benefit {
+    font-size: 14px; font-weight: 600; color: ${W.ink};
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .offer-inspect { position: sticky; top: 16px; min-width: 0; }
+  .offer-inspect-label { font-size: 12.5px; font-weight: 700; color: ${W.muted}; margin: 4px 2px 10px; }
 }
 `;
+
+const DESK_COUNTS: Array<{ state: CouponLifecycleState; label: string }> = [
+  { state: "ACTIVE", label: "פעילים" },
+  { state: "DISABLED", label: "מושבתים" },
+  { state: "EXPIRED", label: "פג תוקף" },
+  { state: "REDEEMED", label: "מומשו" },
+];
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -223,6 +282,7 @@ export function MyCouponsScreen({
    * losing the explanation at the exact moment the status changes.
    */
   const [notices, setNotices] = useState<Record<string, string | null>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const setNotice = useCallback((publicId: string, message: string | null) => {
     setNotices((prev) => ({ ...prev, [publicId]: message }));
@@ -244,6 +304,36 @@ export function MyCouponsScreen({
 
   const live = (coupons ?? []).filter((c) => c.state === "ACTIVE" || c.state === "DISABLED");
   const past = (coupons ?? []).filter((c) => c.state === "EXPIRED" || c.state === "REDEEMED");
+  const ordered = [...live, ...past];
+  const current = ordered.find((c) => c.publicId === selectedId) ?? ordered[0] ?? null;
+
+  /** Up/down moves the selection inside the desktop queue, like any list. */
+  const onQueueKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!current || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+    event.preventDefault();
+    const index = ordered.indexOf(current);
+    const next = ordered[index + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    setSelectedId(next.publicId);
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-coupon="${next.publicId}"]`)?.focus();
+  };
+
+  const queueRow = (c: MyCoupon) => (
+    <button
+      key={c.publicId}
+      type="button"
+      role="option"
+      data-coupon={c.publicId}
+      aria-selected={current?.publicId === c.publicId}
+      className="offer-row offer-cols"
+      onClick={() => setSelectedId(c.publicId)}
+    >
+      <span className="offer-benefit" title={c.benefit}>{c.benefit}</span>
+      <span>{shortDate(c.issuedAt)}</span>
+      <span>{shortDate(c.expiresAt)}</span>
+      <span><StatePill state={c.state} /></span>
+    </button>
+  );
 
   return (
     <PhoneFrame>
@@ -254,9 +344,31 @@ export function MyCouponsScreen({
           כאן חיות ההטבות שאתה מוציא ללקוחות שלך.
         </div>
 
-        <PrimaryButton onClick={onCreate} style={{ marginBottom: 20 }}>
-          צור קופון חדש
-        </PrimaryButton>
+        <div className="offer-toolbar">
+          <div className="offer-counts" aria-label="הקופונים לפי מצב">
+            {coupons && coupons.length > 0
+              ? DESK_COUNTS.map(({ state, label }) => {
+                  const count = coupons.filter((c) => c.state === state).length;
+                  return count > 0 ? (
+                    <span key={state} className="offer-count"><b>{count}</b>{label}</span>
+                  ) : null;
+                })
+              : null}
+          </div>
+          <div className="offer-actions">
+            <a href="/revenue/redeem" className="offer-secondary">סרוק ומַמֵּש קופון</a>
+            <button type="button" className="offer-secondary" onClick={onBrowse}>מה עסקים אחרים מציעים</button>
+            <PrimaryButton onClick={onCreate} style={{ width: "auto", height: 44, paddingInline: 22 }}>
+              צור קופון חדש
+            </PrimaryButton>
+          </div>
+        </div>
+
+        <div className="offer-mobile">
+          <PrimaryButton onClick={onCreate} style={{ marginBottom: 20 }}>
+            צור קופון חדש
+          </PrimaryButton>
+        </div>
 
         {coupons === null ? (
           <Centered>טוען את הקופונים שלך…</Centered>
@@ -276,6 +388,27 @@ export function MyCouponsScreen({
           </Centered>
         ) : (
           <>
+            <div className="offer-desk">
+              <div className="offer-queue" role="listbox" aria-label="הקופונים שלי" onKeyDown={onQueueKey}>
+                <div className="offer-head offer-cols" aria-hidden>
+                  <span>הטבה</span>
+                  <span>פורסם</span>
+                  <span>בתוקף עד</span>
+                  <span>מצב</span>
+                </div>
+                {live.length > 0 ? <div className="offer-group">פעיל · {live.length}</div> : null}
+                {live.map(queueRow)}
+                {past.length > 0 ? <div className="offer-group">הסתיים · {past.length}</div> : null}
+                {past.map(queueRow)}
+              </div>
+              <aside className="offer-inspect" aria-label="הקופון שנבחר">
+                <div className="offer-inspect-label">הקופון שנבחר</div>
+                {current ? (
+                  <CouponCard coupon={current} onChanged={load} notice={notices[current.publicId] ?? null} onNotice={setNotice} />
+                ) : null}
+              </aside>
+            </div>
+            <div className="offer-mobile">
             {live.length > 0 ? (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>פעיל</div>
@@ -293,6 +426,7 @@ export function MyCouponsScreen({
                 </div>
               </>
             ) : null}
+            </div>
           </>
         )}
 
@@ -300,9 +434,10 @@ export function MyCouponsScreen({
           Redemption entry point (COUPON-03). The redeem flow already existed and
           worked, but was only reachable by scanning a QR — there was no way into
           it from the product. Redemption is business-to-business: you scan a
-          coupon another business issued.
+          coupon another business issued. From 1200 the same two entries sit in
+          the toolbar.
         */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${W.line}`, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="offer-mobile" style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${W.line}`, display: "flex", flexDirection: "column", gap: 10 }}>
           <a href="/revenue/redeem"
             style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: W.radius.control, border: `1px solid ${W.line}`, background: W.surface, fontSize: 14, fontWeight: 600, color: W.ink, textDecoration: "none" }}>
             סרוק ומַמֵּש קופון

@@ -11,6 +11,7 @@ import { WhatsAppMetaDataPrivacySection } from "@/components/whatsapp/WhatsAppMe
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import { WaBadge, WaPrimaryButton } from "@/components/whatsapp/wa-ui";
 import { settingsViewFor } from "@/components/whatsapp/connection-view";
+import desk from "./wa-desk.module.css";
 
 /**
  * Dedicated WhatsApp settings screen.
@@ -38,32 +39,35 @@ export default function WhatsAppSettingsPage() {
     <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader title="WhatsApp Business" backHref="/tools" backLabel="חזרה" showBack />
 
-      {/* Pilot: focused intent (Spec v1 §6) — settings stay deliberately
-          narrow, and that decision now lives in the DS, not a literal. */}
-      <PageContainer intent="focused" style={{ paddingBlock: "16px 96px" }}>
-        {view.kind === "loading" ? (
-          <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
-            טוען…
-          </div>
-        ) : view.kind === "load_error" ? (
-          <ConnectionLoadError onRetry={refresh} />
-        ) : view.kind === "connected" || view.kind === "attention" ? (
-          <WhatsAppConnectedCard connection={view.connection} onChanged={refresh} />
-        ) : view.kind === "disconnected" ? (
-          <WhatsAppConnectInvitation
-            onConnected={refresh}
-            notice={
-              <PreviousConnectionNotice
-                status={view.connection.status}
-                displayPhoneNumber={view.connection.displayPhoneNumber}
+      {/* Pilot: focused intent (Spec v1 §6) — the connection is a focused
+          setting, and that decision lives in the DS, not a literal. From 1200
+          the page widens (wa-desk.module.css) so the connection and what Dubiz
+          stores from Meta sit side by side instead of stacked. */}
+      <PageContainer intent="focused" className={desk.page} style={{ paddingBlock: "16px 96px" }}>
+        <div className={desk.desk}>
+          <div>
+            {view.kind === "loading" ? (
+              <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
+                טוען…
+              </div>
+            ) : view.kind === "load_error" ? (
+              <ConnectionLoadError onRetry={refresh} />
+            ) : view.kind === "connected" || view.kind === "attention" ? (
+              <WhatsAppConnectedCard connection={view.connection} onChanged={refresh} />
+            ) : view.kind === "disconnected" ? (
+              <WhatsAppConnectInvitation
+                onConnected={refresh}
+                notice={
+                  <PreviousConnectionNotice
+                    status={view.connection.status}
+                    displayPhoneNumber={view.connection.displayPhoneNumber}
+                  />
+                }
               />
-            }
-          />
-        ) : (
-          <WhatsAppConnectInvitation onConnected={refresh} />
-        )}
-
-        <div style={{ marginTop: 16 }}>
+            ) : (
+              <WhatsAppConnectInvitation onConnected={refresh} />
+            )}
+          </div>
           <WhatsAppMetaDataPrivacySection onChanged={refresh} />
         </div>
       </PageContainer>

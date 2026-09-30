@@ -504,6 +504,7 @@ function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
       allHref: "/secretary?screen=all",
       addHref: "/secretary?screen=bank",
       today: { label: "בוא נתחיל", body: "מסור לי את ההתחייבות הראשונה" },
+      queue: [],
     };
   }
 
@@ -526,6 +527,14 @@ function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
         amount: allAmount,
         suffix: "להוצאה",
       },
+      queue: openItems.map((item) => ({
+        id: item.id,
+        name: displayObligeeName(item.obligeeName),
+        amount: formatHomeAmount(item.amount, item.currency),
+        reason: briefing.attention.find((row) => row.obligation.id === item.id)
+          ? dueBadge(briefing.attention.find((row) => row.obligation.id === item.id)!.reason)
+          : "במעקב",
+      })),
     };
   }
 
@@ -542,6 +551,12 @@ function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
       amount: allAmount,
       suffix: "להוצאה",
     },
+    queue: openItems.map((item) => ({
+      id: item.id,
+      name: displayObligeeName(item.obligeeName),
+      amount: formatHomeAmount(item.amount, item.currency),
+      reason: "במעקב",
+    })),
   };
 }
 

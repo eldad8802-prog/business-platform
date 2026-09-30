@@ -101,10 +101,12 @@ ok("collection: the record is append-only — the service never updates one",
   !/collectionAction\.(update|updateMany|delete|deleteMany)/.test(collection));
 
 /* ── The derivation surface stays the scheduler's ──────────────────────────────────── */
-ok("derive: still authenticated by the scheduler secret, not a session",
-  /decideRecoveryAuth/.test(derive) && !/getCurrentUser/.test(derive));
-ok("derive: fail-closed when the secret is absent", /NOT_CONFIGURED[\s\S]{0,80}503/.test(derive));
-ok("derive: one explicit tenant per call", /businessId must be a positive integer/.test(derive));
+// Derive-authority hardening: a DEDICATED machine authority (never the general CRON_SECRET), not a session.
+ok("derive: authenticated by the dedicated derive authority, not a session and not CRON_SECRET",
+  /decideDeriveAuth/.test(derive) && !/getCurrentUser/.test(derive) && !/process\.env\.CRON_SECRET/.test(derive));
+ok("derive: fail-closed when the secret is absent", /NOT_CONFIGURED[\s\S]{0,300}503/.test(derive));
+ok("derive: one explicit tenant per call, admitted by the gate before anything runs",
+  /admitDerivation\(\{ requestedBusinessId: url\.searchParams\.get\("businessId"\)/.test(derive) && /const businessId = gate\.businessId;/.test(derive));
 // The body is printed into a workflow log, and the repository is public. What a rule LEARNED must
 // never appear in it — only that it ran, how it ended, and how much evidence it had.
 ok("derive: the response carries no learned value, entity id, trend or error text",

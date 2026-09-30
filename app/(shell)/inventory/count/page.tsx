@@ -194,7 +194,7 @@ export default function InventoryCountPage() {
 
   return (
     <InventorySubPage intent="standard" title="ספירת מלאי" backHref="/inventory" backText="חזרה">
-      <div style={{ padding: "0 clamp(16px,3.5vw,28px)", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="inv-desk-workspace inv-count-sheet">
         <button
           type="button"
           onClick={() => { setScanStatus(null); setScannerOpen(true); }}
@@ -242,7 +242,7 @@ export default function InventoryCountPage() {
             עדיין לא נספרו מוצרים · התחילו בסריקה
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="inv-count-cards" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {countedRows.map(({ item, counted }) => {
               const diff = counted - item.currentQuantity;
               const unit = UNIT_SHORT[item.unitType] ?? "";
@@ -320,10 +320,56 @@ export default function InventoryCountPage() {
             })}
           </div>
         )}
+        {countedRows.length > 0 ? (
+          <div className="inv-desk-table inv-count-desk" aria-label="גיליון ספירה">
+            <table>
+              <thead>
+                <tr>
+                  <th>מוצר</th>
+                  <th>במערכת</th>
+                  <th>נספר</th>
+                  <th>הפרש</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {countedRows.map(({ item, counted }) => {
+                  const diff = counted - item.currentQuantity;
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td className="num">{item.currentQuantity}</td>
+                      <td className="num">{counted}</td>
+                      <td className="num">{diff > 0 ? `+${diff}` : diff}</td>
+                      <td>
+                        <button type="button" onClick={() => adjustCount(item.id, -1)} aria-label="הפחתה">−</button>
+                        {" "}
+                        <button type="button" onClick={() => adjustCount(item.id, 1)} aria-label="הוספה">+</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        <aside className="inv-ops__side">
+          <h2>הספירה</h2>
+          <p>{countedRows.length} מוצרים נספרו · {changedCount} עם הפרש</p>
+          <p>מוצרים שלא נסרקו לא ישתנו. השמירה מעדכנת רק את מה שנספר.</p>
+          {countedRows.length > 0 ? (
+            <button type="button" className="inv-btn-primary" disabled={saving} onClick={() => void handleFinish()}>
+              {saving ? "שומר…" : changedCount > 0 ? `סיום ושמירה · ${changedCount}` : "סיום ושמירה"}
+            </button>
+          ) : (
+            <p>התחילו בסריקה. המצלמה נשארת על הפעולה עצמה.</p>
+          )}
+        </aside>
       </div>
 
       {countedRows.length > 0 ? (
         <div
+          className="inv-count-save"
           style={{
             position: "sticky",
             bottom: 0,

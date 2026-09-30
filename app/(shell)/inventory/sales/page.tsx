@@ -17,6 +17,7 @@ export default function InventorySalesPage() {
   const router = useRouter();
   const [matches, setMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -73,6 +74,7 @@ export default function InventorySalesPage() {
         </div>
       ) : (
         <>
+        <div className="inv-ops">
         <div className="inv-desk-table" aria-label="מכירות שלא זוהו">
           <table>
             <thead>
@@ -84,7 +86,11 @@ export default function InventorySalesPage() {
             </thead>
             <tbody>
               {matches.slice(0, 8).map((match) => (
-                <tr key={match.id} onClick={() => router.push("/inventory/unmatched")}>
+                <tr
+                  key={match.id}
+                  className={match.id === selectedId ? "is-selected" : undefined}
+                  onClick={() => setSelectedId(match.id)}
+                >
                   <td>{match.metadata.name || match.externalSaleId}</td>
                   <td className="num">{match.metadata.quantity}</td>
                   <td>ממתין לשיוך</td>
@@ -92,6 +98,22 @@ export default function InventorySalesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+        <aside className="inv-ops__side">
+          {(() => {
+            const selected = matches.find((match) => match.id === selectedId);
+            if (!selected) return <><h2>מכירה</h2><p>בחרו שורה כדי לראות את המכירה ולעבור לשיוך.</p></>;
+            return (
+              <>
+                <h2>{selected.metadata.name || selected.externalSaleId}</h2>
+                <p>{selected.metadata.source || "POS"} · כמות {selected.metadata.quantity}</p>
+                <button type="button" className="inv-btn-primary" onClick={() => router.push("/inventory/unmatched")}>
+                  שיוך במסך ההחלטה
+                </button>
+              </>
+            );
+          })()}
+        </aside>
         </div>
         <div className="inv-rows inv-cards">
           {matches.slice(0, 8).map((match) => (

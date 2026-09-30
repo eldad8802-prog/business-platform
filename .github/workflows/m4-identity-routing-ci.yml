@@ -1,0 +1,255 @@
+# Business Intake M4 — identity resolution + routing (ephemeral PG17).
+#
+# The lab reproduces the database M4 migrates FROM, then applies the REAL M4
+# migration file:
+#   1. the PRE-M4 schema — this PR's BASE (main, which contains M3) — via
+#      `db push`; sec-C's composite tenant FKs from their real migration;
+#      M2 + M3 isolation from their real migrations (the isolation helper);
+#   2. the REAL M4 migration, applied with psql as the owner — so the preflight,
+#      the CHECK vocabularies, the partial unique index, the DB-only composite
+#      tenant FKs, the policies and the grants are exactly the SQL that ships;
+#   3. no drift between the migrated database and prisma/schema.prisma beyond
+#      the documented DB-only objects (sec-C's 13 + M4's 4);
+#   4. the battery, as a NOSUPERUSER / NOBYPASSRLS runtime named app_runtime (so
+#      the migration's own GRANT/REVOKE block applies to it), through the real
+#      WhatsApp webhook, the real canonical processor and the real owner route.
+#
+# Once M4 is on main, a later PR's base already contains it: the lab then
+# `db push`es the current schema, applies the isolation through m4 from the
+# helper, and runs the same battery (migration mechanics were proven here).
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m4 — identity resolution + routing (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/intake/**"
+      - "app/api/intake/**"
+      - "app/api/integrations/whatsapp/**"
+      - "lib/services/crm/**"
+      - "lib/services/conversation/**"
+      - "lib/sensors/**"
+      - "lib/services/account/**"
+      - "lib/tenant/**"
+      - "scripts/security/intake-isolation-lab.mjs"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261001090000_m4_identity_routing/**"
+      - "prisma/migrations/20260929090000_m3_canonical_intake/**"
+      - "prisma/migrations/20260926110000_sec_c_tenant_composite_fk/**"
+      - ".m3/reference-lead-adapter.ts"
+      - ".m4/**"
+      - "ops/evidence/m4-identity-routing-preflight.sql"
+      - ".github/workflows/m4-identity-routing-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure:
+    name: M4 identity + routing (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Identity + routing core (frozen rules, hashing, locks, fingerprints, no AI)
+        run: npx tsx lib/intake/identity/identity-core.test.ts
+      - name: Intake core (M3 contract intact)
+        run: npx tsx lib/intake/core/intake-core.test.ts
+      - name: Sensor contract (identity signals carry no personal data)
+        run: npx tsx lib/sensors/sensors.test.ts
+      - name: Negative proof — a rule letting an order become a Lead must fail
+        run: |
+          set -uo pipefail
+          F=lib/intake/routing/rules.ts
+          cp "$F" "$F.bak"
+          sed -i 's/if (target === "lead" \&\& family !== "LEAD")/if (target === "lead" \&\& family !== "LEAD" \&\& family !== "COMMERCE")/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAIL: mutation did not apply"; exit 1; fi
+          if npx tsx lib/intake/identity/identity-core.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: order→lead passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an order routed to Lead is caught"
+
+  battery:
+    name: M4 battery (PG17, real M4 migration, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m4_owner
+          POSTGRES_PASSWORD: m4_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m4
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m4_owner -d dubiz_m4"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m4_owner:m4_ci_synthetic_owner_pw@localhost:5432/dubiz_m4
+      RUNTIME_URL: postgresql://app_runtime:m4_ci_synthetic_runtime_pw@localhost:5432/dubiz_m4
+      AUTH_TOKEN_SECRET: m4_ci_secret_synthetic_at_least_32_characters_long
+      WHATSAPP_APP_SECRET: m4_ci_synthetic_whatsapp_app_secret
+      M4_RUN_TAG: m4ci
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab schema — the PR base (pre-M4) as the owner
+        id: base
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$(git rev-parse origin/main)}"
+          git show "${base}:prisma/schema.prisma" > /tmp/base.prisma
+          if ! grep -q 'model IntakeNormalizedEvent' /tmp/base.prisma; then
+            echo "base ${base} predates M3 — M4 cannot be applied on it"; exit 1
+          fi
+          if grep -q 'model IdentityLink' /tmp/base.prisma; then
+            echo "base ${base} already contains M4 → pushed-schema lab"
+            echo "mode=pushed" >> "$GITHUB_OUTPUT"
+            npx prisma db push --skip-generate
+          else
+            echo "base ${base} is pre-M4 → the REAL migration will be applied"
+            echo "mode=migration" >> "$GITHUB_OUTPUT"
+            npx prisma db push --schema /tmp/base.prisma --skip-generate
+          fi
+
+      - name: 1a. sec-C composite tenant FKs — the REAL migration (in Production)
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -tAc "SELECT count(*) FILTER (WHERE convalidated) || '/' || count(*) FROM pg_constraint WHERE conname LIKE '%_tenant_fkey'"
+
+      - name: 1b. Runtime role app_runtime (NOSUPERUSER, NOBYPASSRLS) + M2/M3 isolation
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 'm4_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;"
+          THROUGH=$([ "${{ steps.base.outputs.mode }}" = "migration" ] && echo m3 || echo m4)
+          THROUGH="$THROUGH" node --input-type=module -e '
+            import { intakeIsolationStatements } from "./scripts/security/intake-isolation-lab.mjs";
+            // pushed mode: M4 is in the base, so its DB-only objects come from the helper too
+            const dbOnly = process.env.THROUGH === "m4";
+            for (const s of intakeIsolationStatements("app_runtime", { through: process.env.THROUGH, dbOnly })) console.log(s + ";");
+          ' > /tmp/isolation.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/isolation.sql
+          psql "$RUNTIME_URL" -tAc "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+
+      - name: 1c. The Production preflight file passes on the pre-M4 lab
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          # db push keeps no migration ledger; the preflight reads one (Prisma's shape).
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0)'
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/pre.out
+          if grep -qE '[|] *FAIL *$' /tmp/pre.out; then echo "preflight FAILS on the pre-M4 lab"; exit 1; fi
+          test "$(grep -cE '[|] *PASS *$' /tmp/pre.out)" = "10" || { echo "expected 10 PASS rows"; exit 1; }
+
+      - name: 2. Apply the REAL M4 migration (owner)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql
+
+      - name: 2b. …and after the migration it reports the names as taken (N1-N3 FAIL, the rest PASS)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f ops/evidence/m4-identity-routing-preflight.sql | tee /tmp/post.out
+          fails=$(grep -E '[|] *FAIL *$' /tmp/post.out | grep -oE 'N[1-3] ' | sort | tr -d ' \n')
+          test "$fails" = "N1N2N3" || { echo "expected exactly N1-N3 to fail after the migration, got: $fails"; exit 1; }
+
+      - name: 2a. The migration's preflight refuses a database without its prerequisites
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m4_ci_synthetic_owner_pw
+        run: |
+          set -uo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE m4_empty"
+          EMPTY_URL="${OWNER_URL%/*}/m4_empty"
+          rc=0
+          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261001090000_m4_identity_routing/migration.sql 2>&1) || rc=$?
+          echo "$out" | tail -3
+          if [ $rc -eq 0 ]; then echo "preflight did NOT refuse an empty database"; exit 1; fi
+          echo "$out" | grep -q "M4 requires" || { echo "refused for the wrong reason"; exit 1; }
+          echo "preflight refuses a database missing sec-C / M3"
+
+      - name: 3. No drift between the migrated database and schema.prisma
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          npx prisma migrate diff --from-url "$OWNER_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
+          # DB-ONLY by design, and ONLY these: sec-C's 13 (composite tenant FKs +
+          # the (businessId,id) keys they reference) and M4's 3 composite tenant
+          # FKs. ANY other statement is drift. (M4's partial "one active owner per
+          # identifier" index is DB-only too, but `migrate diff` does not see
+          # partial indexes at all — like Lead_open_phone_key; the battery asserts it.)
+          DBONLY='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId|IdentityLink_customerId|IdentityProposal_candidateCustomerId|IdentityProposal_leadId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"'
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
+          n=$(grep -cE "$DBONLY" /tmp/drift-stmts.sql || true)
+          grep -vE "$DBONLY" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
+          echo "documented DB-only objects reported by the diff (expected 16): $n"
+          cat /tmp/drift-stmts.sql
+          if [ -s /tmp/drift-rest.sql ]; then
+            echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1
+          fi
+          if [ "$n" != "16" ]; then echo "expected exactly the 16 documented DB-only objects, got $n"; exit 1; fi
+          echo "no drift (beyond the 16 documented DB-only objects)"
+
+      - name: 4. M4 battery (runtime role, real webhook + processor + owner route)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .m4/identity-routing-battery.ts
+
+      - name: 5. M3 foundation battery still green on the M4 database
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+          M3_LAB_MODE: pushed
+          M3_RUN_TAG: m3-under-m4
+        run: npx tsx .m3/intake-foundation-battery.ts --phase=post

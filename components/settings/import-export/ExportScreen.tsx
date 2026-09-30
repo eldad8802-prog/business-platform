@@ -158,7 +158,7 @@ export function ExportScreen({ domains }: Props) {
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggle(domain.id)}
-                    className="mt-1.5 h-5 w-5 shrink-0 accent-[var(--dz-accent)]"
+                    className="mt-1.5 h-5 w-5 shrink-0 accent-[var(--dz-brand)]"
                   />
                   <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-lg">
                     {domain.icon}
@@ -193,7 +193,7 @@ export function ExportScreen({ domains }: Props) {
                   value={option.value}
                   checked={format === option.value}
                   onChange={() => setFormat(option.value)}
-                  className="mt-1 h-5 w-5 shrink-0 accent-[var(--dz-accent)]"
+                  className="mt-1 h-5 w-5 shrink-0 accent-[var(--dz-brand)]"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-bold text-[var(--dz-text-primary)]">

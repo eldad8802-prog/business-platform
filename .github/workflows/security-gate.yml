@@ -182,6 +182,14 @@ jobs:
             --expect '[FAIL] WP-2 release-migrate.yml: unpinned action actions/setup-node@v4' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
+      - name: Gate self-proof G9 — a derive credential moved into the shared cron environment is caught (WP-6)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G9-secret-env-binding --file .github/workflows/knowledge-derive.yml \
+            --anchor '    environment: knowledge-derive' \
+            --replace '    environment: cron' \
+            --expect '[FAIL] WP-6 knowledge-derive.yml: job derive references KNOWLEDGE_DERIVE_SECRET in environment cron (bound to knowledge-derive)' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}

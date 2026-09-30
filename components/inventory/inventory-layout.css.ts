@@ -287,10 +287,27 @@ export const inventoryLayoutCss = `
       --inv-content-max: 960px;
     }
   }
+  @media (min-width: 1200px) {
+    [data-inventory-subpage][data-page-intent="data"],
+    [data-inventory-subpage]:has(.inv-desk-workspace),
+    [data-inventory-subpage]:has([data-order-wizard]) {
+      --inv-max-width: none;
+      --inv-content-max: none;
+    }
+    [data-inventory-subpage]:has([data-order-wizard]) .inv-subpage-main {
+      max-width: none;
+    }
+  }
   @media (min-width: 1280px) {
     [data-inventory-subpage][data-page-intent="data"] {
-      --inv-max-width: 1280px;
-      --inv-content-max: 1280px;
+      --inv-max-width: none;
+      --inv-content-max: none;
+    }
+  }
+  @media (min-width: 1600px) {
+    [data-inventory-subpage][data-page-intent="data"] {
+      --inv-max-width: none;
+      --inv-content-max: none;
     }
   }
 `;

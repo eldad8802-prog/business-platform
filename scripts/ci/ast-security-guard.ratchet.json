@@ -1,5 +1,10 @@
 {
-  "sanctioned": {},
+  "sanctioned": {
+    "lib/services/knowledge-derive/derive-gate.ts::recordDeriveSecurityEvent::arg": {
+      "count": 1,
+      "reason": "#575 derive authority: a REFUSED derive attempt (unauthorized / not configured / invalid business) names no tenant by definition, so its SecurityEvent is written by the bare client with businessId NULL; secf_security_event_insert admits a tenant-less insert ONLY when businessId IS NULL (app_runtime holds INSERT only, no SELECT), and every business-attributed event goes through tenantTx. Same class as F pre-auth SecurityEvent (#529)."
+    }
+  },
   "note": "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, removed sites fail until their entry is removed. Regenerate only as a reviewed decision: node scripts/ci/ast-security-guard.mjs --write-ratchet",
   "sites": {
     "app/api/knowledge/derive/route.ts::handle::escape:dynamic-load": 1,

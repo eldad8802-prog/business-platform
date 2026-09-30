@@ -41,12 +41,14 @@ export default function NewSupplierPurchaseCartPage() {
       showProgress={true}
       footer={
         hasItems ? (
-          <BottomActionBar
-            label={`סה״כ הזמנה (${summary.totalUnits} יחידות)`}
-            value={total > 0 ? <>₪{total.toLocaleString("he-IL")}</> : "—"}
-            cta="המשך לאישור"
-            onCta={() => router.push("/inventory/supplier-purchases/new/confirm")}
-          />
+          <div className="inv-decision-mobile">
+            <BottomActionBar
+              label={`סה״כ הזמנה (${summary.totalUnits} יחידות)`}
+              value={total > 0 ? <>₪{total.toLocaleString("he-IL")}</> : "—"}
+              cta="המשך לאישור"
+              onCta={() => router.push("/inventory/supplier-purchases/new/confirm")}
+            />
+          </div>
         ) : null
       }
     >
@@ -64,7 +66,49 @@ export default function NewSupplierPurchaseCartPage() {
           </InventoryStatePanel>
         </div>
       ) : (
-        <div className="inv-olines">
+        <div className="inv-ops">
+        <div className="inv-desk-table" aria-label="שורות ההזמנה">
+          <table>
+            <thead>
+              <tr>
+                <th>מוצר</th>
+                <th>כמות</th>
+                <th>עלות ליחידה</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedItems.map((item) => {
+                const qty = order[item.id] ?? 0;
+                return (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>
+                      <button type="button" onClick={() => decrementItem(item.id)} aria-label="הפחתה">−</button>
+                      {" "}{qty}{" "}
+                      <button type="button" onClick={() => incrementItem(item.id)} aria-label="הוספה">+</button>
+                    </td>
+                    <td>
+                      <input
+                        className="inv-input"
+                        style={{ minHeight: 36 }}
+                        inputMode="decimal"
+                        placeholder="לא חובה"
+                        value={unitCosts[item.id] ?? ""}
+                        onChange={(e) => setUnitCost(item.id, e.target.value)}
+                        aria-label={`עלות ליחידה עבור ${item.name}`}
+                      />
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => removeItem(item.id)} aria-label={`הסר ${item.name}`}>הסר</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="inv-olines inv-decision-mobile">
           {selectedItems.map((item) => {
             const qty = order[item.id] ?? 0;
             return (
@@ -103,6 +147,17 @@ export default function NewSupplierPurchaseCartPage() {
           <button type="button" className="inv-btn-link" style={{ marginInlineStart: "auto" }} onClick={clearOrder}>
             נקה עגלה
           </button>
+        </div>
+        <aside className="inv-ops__side">
+          <h2>העגלה</h2>
+          <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות</p>
+          <p>{total > 0 ? <>סה״כ <bdi>₪{total.toLocaleString("he-IL")}</bdi></> : "עדיין אין עלות. אפשר להמשיך בלי מחיר."}</p>
+          <p>הכמויות נסגרות כאן. יצירת ההזמנה עדיין לא משנה מלאי.</p>
+          <button type="button" className="inv-btn-primary" style={{ width: "100%" }} onClick={() => router.push("/inventory/supplier-purchases/new/confirm")}>
+            המשך לאישור
+          </button>
+          <button type="button" className="inv-btn-link" onClick={clearOrder}>נקה עגלה</button>
+        </aside>
         </div>
       )}
     </OrderWizardShell>

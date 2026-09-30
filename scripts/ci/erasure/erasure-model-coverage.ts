@@ -128,6 +128,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // M3 — normalized intake: contact hints, attribution and result pointers
   // scrubbed by the adapter; signals and lifecycle are non-personal.
   IntakeNormalizedEvent: { disposition: "ERASURE_MANAGED" },
+  // M4 — identity links (hash nulled) and proposals (hashes / evidence / effects nulled).
+  IdentityLink: { disposition: "ERASURE_MANAGED" },
+  IdentityProposal: { disposition: "ERASURE_MANAGED" },
   MessageAnalysis: { disposition: "ERASURE_MANAGED" },
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },
@@ -358,6 +361,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
     "a number, an observation count and a window describing the OWNER's own behaviour — " +
       "today only paperwork lag, which is business-level and names nobody. It cascades with " +
       "Business. See the DECIDE entry if a future measure ever carries entityType/entityId."
+  ),
+  KnowledgeDerivationRun: operational(
+    "derive-authority run ledger: run id, status, caller class and CI run id, brain flags, counts and " +
+      "version codes — no person, no business value. It cascades with Business."
   ),
   KnowledgeMeasureEvidenceLink: operational(
     "identity bookkeeping only: which evidence rows a measure was computed from. No payload, by contract."

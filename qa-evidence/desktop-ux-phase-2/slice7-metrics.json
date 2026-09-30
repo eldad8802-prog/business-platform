@@ -1,0 +1,650 @@
+{
+  "count": 92,
+  "overflow": 0,
+  "shots": [
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 390,
+      "file": "inbox/list-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 768,
+      "file": "inbox/list-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 1024,
+      "file": "inbox/list-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 1280,
+      "file": "inbox/list-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 1440,
+      "file": "inbox/list-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 1600,
+      "file": "inbox/list-1600.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "list",
+      "width": 1920,
+      "file": "inbox/list-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 390,
+      "file": "inbox/selected-long-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 768,
+      "file": "inbox/selected-long-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 1024,
+      "file": "inbox/selected-long-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 1280,
+      "file": "inbox/selected-long-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 1440,
+      "file": "inbox/selected-long-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-long",
+      "width": 1920,
+      "file": "inbox/selected-long-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-short",
+      "width": 1440,
+      "file": "inbox/selected-short-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-closed",
+      "width": 1440,
+      "file": "inbox/selected-closed-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "selected-closed",
+      "width": 1920,
+      "file": "inbox/selected-closed-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "whatsapp-onboarding",
+      "width": 390,
+      "file": "inbox/whatsapp-onboarding-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "whatsapp-onboarding",
+      "width": 1440,
+      "file": "inbox/whatsapp-onboarding-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "whatsapp-onboarding",
+      "width": 1920,
+      "file": "inbox/whatsapp-onboarding-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "reconnect-banner",
+      "width": 1440,
+      "file": "inbox/reconnect-banner-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "empty",
+      "width": 390,
+      "file": "inbox/empty-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "empty",
+      "width": 1440,
+      "file": "inbox/empty-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "empty",
+      "width": 1920,
+      "file": "inbox/empty-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "inbox",
+      "label": "error",
+      "width": 1440,
+      "file": "inbox/error-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 390,
+      "file": "tools/home-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 768,
+      "file": "tools/home-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 1024,
+      "file": "tools/home-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 1280,
+      "file": "tools/home-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 1440,
+      "file": "tools/home-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 1600,
+      "file": "tools/home-1600.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home",
+      "width": 1920,
+      "file": "tools/home-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "home-clear",
+      "width": 1440,
+      "file": "tools/home-clear-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 390,
+      "file": "tools/category-money-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 768,
+      "file": "tools/category-money-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 1024,
+      "file": "tools/category-money-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 1280,
+      "file": "tools/category-money-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 1440,
+      "file": "tools/category-money-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 1600,
+      "file": "tools/category-money-1600.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money",
+      "width": 1920,
+      "file": "tools/category-money-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-customers",
+      "width": 390,
+      "file": "tools/category-customers-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-customers",
+      "width": 1440,
+      "file": "tools/category-customers-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-customers",
+      "width": 1920,
+      "file": "tools/category-customers-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-operations",
+      "width": 390,
+      "file": "tools/category-operations-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-operations",
+      "width": 1440,
+      "file": "tools/category-operations-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-operations",
+      "width": 1920,
+      "file": "tools/category-operations-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "plan-variants",
+      "width": 390,
+      "file": "content-studio/plan-variants-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "plan-variants",
+      "width": 1280,
+      "file": "content-studio/plan-variants-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "plan-variants",
+      "width": 1440,
+      "file": "content-studio/plan-variants-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "plan-variants",
+      "width": 1920,
+      "file": "content-studio/plan-variants-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "plan-error",
+      "width": 1440,
+      "file": "content-studio/plan-error-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "shots-populated",
+      "width": 390,
+      "file": "content-studio/shots-populated-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "shots-populated",
+      "width": 1440,
+      "file": "content-studio/shots-populated-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "shots-populated",
+      "width": 1920,
+      "file": "content-studio/shots-populated-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "render-working",
+      "width": 390,
+      "file": "content-studio/render-working-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "content-studio",
+      "label": "render-working",
+      "width": 1440,
+      "file": "content-studio/render-working-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-terms",
+      "width": 1440,
+      "file": "offers/create-terms-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-published",
+      "width": 390,
+      "file": "offers/create-published-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-published",
+      "width": 1024,
+      "file": "offers/create-published-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-published",
+      "width": 1280,
+      "file": "offers/create-published-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-published",
+      "width": 1440,
+      "file": "offers/create-published-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "offers",
+      "label": "create-published",
+      "width": 1920,
+      "file": "offers/create-published-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-records-rowlink",
+      "width": 1440,
+      "file": "settings/historical-records-rowlink-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record",
+      "width": 390,
+      "file": "settings/historical-record-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record",
+      "width": 768,
+      "file": "settings/historical-record-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record",
+      "width": 1280,
+      "file": "settings/historical-record-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record",
+      "width": 1440,
+      "file": "settings/historical-record-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record",
+      "width": 1920,
+      "file": "settings/historical-record-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record-credit",
+      "width": 1440,
+      "file": "settings/historical-record-credit-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "historical-record-missing",
+      "width": 1440,
+      "file": "settings/historical-record-missing-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import",
+      "width": 390,
+      "file": "settings/regression-import-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import",
+      "width": 768,
+      "file": "settings/regression-import-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import",
+      "width": 1024,
+      "file": "settings/regression-import-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-documents",
+      "width": 390,
+      "file": "settings/regression-import-documents-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-documents",
+      "width": 768,
+      "file": "settings/regression-import-documents-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-documents",
+      "width": 1024,
+      "file": "settings/regression-import-documents-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export",
+      "width": 390,
+      "file": "settings/regression-export-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export",
+      "width": 768,
+      "file": "settings/regression-export-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export",
+      "width": 1024,
+      "file": "settings/regression-export-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export-enabled",
+      "width": 390,
+      "file": "settings/regression-export-enabled-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export-enabled",
+      "width": 768,
+      "file": "settings/regression-export-enabled-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-export-enabled",
+      "width": 1024,
+      "file": "settings/regression-export-enabled-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-picked",
+      "width": 390,
+      "file": "settings/regression-import-picked-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-picked",
+      "width": 768,
+      "file": "settings/regression-import-picked-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-picked",
+      "width": 1024,
+      "file": "settings/regression-import-picked-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-check",
+      "width": 390,
+      "file": "settings/regression-import-check-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-check",
+      "width": 768,
+      "file": "settings/regression-import-check-768.png",
+      "overflow": false
+    },
+    {
+      "domain": "settings",
+      "label": "regression-import-check",
+      "width": 1024,
+      "file": "settings/regression-import-check-1024.png",
+      "overflow": false
+    },
+    {
+      "domain": "inventory",
+      "label": "create-item-offering",
+      "width": 390,
+      "file": "inventory/create-item-offering-390.png",
+      "overflow": false
+    },
+    {
+      "domain": "inventory",
+      "label": "create-item-offering",
+      "width": 1280,
+      "file": "inventory/create-item-offering-1280.png",
+      "overflow": false
+    },
+    {
+      "domain": "inventory",
+      "label": "create-item-offering",
+      "width": 1440,
+      "file": "inventory/create-item-offering-1440.png",
+      "overflow": false
+    },
+    {
+      "domain": "inventory",
+      "label": "create-item-offering",
+      "width": 1920,
+      "file": "inventory/create-item-offering-1920.png",
+      "overflow": false
+    },
+    {
+      "domain": "tools",
+      "label": "category-money-clear",
+      "width": 1440,
+      "file": "tools/category-money-clear-1440.png",
+      "overflow": false
+    }
+  ]
+}

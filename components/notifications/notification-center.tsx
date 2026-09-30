@@ -158,6 +158,7 @@ export function NotificationCenter() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadingMore, setLoadingMore] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   /**
    * One fetch path for both the first page and "load more" — `append` is the
@@ -195,14 +196,16 @@ export function NotificationCenter() {
   // what push is for, later.
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
-    load({ append: false, cursor: null, filter })
-      .then(() => {
-        if (!cancelled) setStatus("ready");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
-      });
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      load({ append: false, cursor: null, filter })
+        .then(() => {
+          if (!cancelled) setStatus("ready");
+        })
+        .catch(() => {
+          if (!cancelled) setStatus("error");
+        });
+    });
     return () => {
       cancelled = true;
     };
@@ -285,8 +288,40 @@ export function NotificationCenter() {
     }
   }, [cursor, filter, load, loadingMore]);
 
+  const selected = items.find((n) => n.id === selectedId) ?? null;
+
   return (
     <div dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <style>{`
+        .notif-role { margin: 0; color: var(--dz-text-muted); font-size: 14px; line-height: 1.6; }
+        .notif-role a { color: #1f6f6b; font-weight: 700; }
+        .notif-desk { display: none; }
+        @media (min-width: 1200px) {
+          .notif-page { max-width: none !important; }
+          .notif-cards { display: none !important; }
+          .notif-desk {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+            gap: 16px;
+            align-items: start;
+          }
+          .notif-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+          .notif-row {
+            width: 100%; text-align: start; border-radius: 14px; border: 1px solid rgba(52,60,50,0.1);
+            background: var(--dz-surface, #fff); padding: 12px 14px; min-height: 44px; cursor: pointer;
+            display: grid; gap: 4px; font: inherit; color: inherit;
+          }
+          .notif-row.is-selected { background: var(--dz-surface-muted); }
+          .notif-row b { font-size: 15px; }
+          .notif-side {
+            position: sticky; top: 16px; display: grid; gap: 8px; align-content: start;
+            background: var(--dz-surface, #fff); border: 1px solid rgba(52,60,50,0.08);
+            border-radius: 16px; padding: 16px;
+          }
+          .notif-side h2 { margin: 0; font-size: 18px; }
+          .notif-side p { margin: 0; color: var(--dz-text-secondary); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+        }
+      `}</style>
       <header style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--dz-text-primary)", margin: 0 }}>
           התראות
@@ -313,7 +348,10 @@ export function NotificationCenter() {
               <button
                 key={f}
                 type="button"
-                onClick={() => setFilter(f)}
+                onClick={() => {
+                  setStatus("loading");
+                  setFilter(f);
+                }}
                 aria-pressed={filter === f}
                 style={{
                   border: "1px solid var(--dz-border-subtle, rgba(52,60,50,0.12))",
@@ -353,6 +391,9 @@ export function NotificationCenter() {
           ) : null}
         </div>
       </header>
+      <p className="notif-role">
+        כאן רואים מה קרה. מה שדורש טיפול נמצא ב<Link href="/attention">דורש תשומת לב</Link>.
+      </p>
 
       {status === "loading" ? (
         <p role="status" style={{ color: "var(--dz-text-muted)", fontSize: 14 }}>
@@ -411,7 +452,75 @@ export function NotificationCenter() {
       ) : null}
 
       {status === "ready" && items.length > 0 ? (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="notif-desk">
+          <ul className="notif-rows">
+            {items.map((n) => {
+              const unread = n.readAt === null;
+              return (
+                <li key={n.id}>
+                  <button
+                    type="button"
+                    className={`notif-row${n.id === selected?.id ? " is-selected" : ""}`}
+                    aria-pressed={n.id === selected?.id}
+                    onClick={() => setSelectedId(n.id)}
+                  >
+                    <b style={{ fontWeight: unread ? 700 : 500 }}>{n.title}</b>
+                    <span style={{ fontSize: 12, color: "var(--dz-text-muted)" }}>
+                      {unread ? "לא נקראה" : "נקראה"} · {n.resolvedAt ? "נפתר" : "פעיל"} · {relativeTime(n.lastSurfacedAt, now)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <aside className="notif-side">
+            {selected ? (
+              <>
+                <h2>{selected.title}</h2>
+                <p>{selected.readAt === null ? "לא נקראה" : "נקראה"} · {selected.resolvedAt ? "נפתר" : "פעיל"}</p>
+                {selected.summary ? <p>{selected.summary}</p> : <p>אין פירוט נוסף.</p>}
+                <p>{relativeTime(selected.lastSurfacedAt, now)}</p>
+                {isSafeInternalHref(selected.href) ? (
+                  <Link
+                    href={selected.href}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      void activateNotification({
+                        isUnread: selected.readAt === null,
+                        markRead: () => markRead(selected.id, selected.readAt === null),
+                        navigate: () => router.push(selected.href),
+                      });
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      minHeight: 40,
+                      marginTop: 8,
+                      padding: "8px 14px",
+                      borderRadius: 12,
+                      background: "#1f6f6b",
+                      color: "#fffdf8",
+                      fontWeight: 700,
+                      textDecoration: "none",
+                    }}
+                  >
+                    פתיחה
+                  </Link>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <h2>התראה</h2>
+                <p>בחרו שורה כדי לקרוא מה קרה. הפתיחה מובילה למסך של אותו דבר.</p>
+              </>
+            )}
+          </aside>
+        </div>
+      ) : null}
+
+      {status === "ready" && items.length > 0 ? (
+        <ul className="notif-cards" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map((n) => {
             const sev = severityStyle(n.severity);
             const unread = n.readAt === null;

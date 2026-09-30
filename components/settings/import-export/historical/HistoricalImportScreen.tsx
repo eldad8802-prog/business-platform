@@ -747,7 +747,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                     }}
                     className={`min-h-[44px] rounded-full border px-4 text-xs font-semibold transition disabled:opacity-60 ${
                       sheet === name
-                        ? "border-[var(--dz-accent)] text-[var(--dz-accent)]"
+                        ? "border-[var(--dz-brand)] text-[var(--dz-brand)]"
                         : "border-[var(--dz-border-subtle)] text-[var(--dz-text-primary)] hover:bg-[var(--dz-surface-muted)]"
                     }`}
                   >
@@ -794,7 +794,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                   }}
                   className={`min-h-[44px] flex-1 rounded-2xl border px-4 py-2 text-right text-xs font-semibold transition disabled:opacity-60 ${
                     dateFormat === value
-                      ? "border-[var(--dz-accent)] text-[var(--dz-accent)]"
+                      ? "border-[var(--dz-brand)] text-[var(--dz-brand)]"
                       : "border-[var(--dz-border-subtle)] text-[var(--dz-text-primary)] hover:bg-[var(--dz-surface-muted)]"
                   }`}
                 >
@@ -977,7 +977,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
               type="button"
               onClick={() => void runPreview(null)}
               disabled={busy !== null || blockers.length > 0}
-              className="mt-4 min-h-[44px] w-full rounded-2xl bg-[var(--dz-accent)] px-4 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 min-h-[44px] w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "previewing" ? "מכין תצוגה מקדימה…" : "המשיכו לתצוגה מקדימה"}
             </button>
@@ -1115,7 +1115,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                                 }}
                                 className={`min-h-[44px] rounded-full border px-4 text-xs font-semibold transition disabled:opacity-60 ${
                                   chosen === action
-                                    ? "border-[var(--dz-accent)] text-[var(--dz-accent)]"
+                                    ? "border-[var(--dz-brand)] text-[var(--dz-brand)]"
                                     : "border-[var(--dz-border-subtle)] text-[var(--dz-text-primary)] hover:bg-[var(--dz-surface-muted)]"
                                 }`}
                               >
@@ -1162,7 +1162,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                   void runPreview({ ...preview.decisions, ...overrides })
                 }
                 disabled={busy !== null}
-                className="mt-4 min-h-[44px] w-full rounded-2xl border border-[var(--dz-accent)] px-4 text-sm font-bold text-[var(--dz-accent)] transition disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-4 min-h-[44px] w-full rounded-2xl border border-[var(--dz-brand)] px-4 text-sm font-bold text-[var(--dz-brand)] transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === "previewing"
                   ? "מעדכן תצוגה מקדימה…"
@@ -1179,7 +1179,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                 !preview.readyForExecute ||
                 willCreate === 0
               }
-              className="mt-3 min-h-[44px] w-full rounded-2xl bg-[var(--dz-accent)] px-4 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 min-h-[44px] w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "importing"
                 ? "קולט…"
@@ -1262,7 +1262,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
 
             <Link
               href={recordsHref}
-              className="mt-4 flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--dz-accent)] px-4 text-sm font-bold text-white transition"
+              className="mt-4 flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition"
             >
               לצפייה במסמכים ההיסטוריים
             </Link>

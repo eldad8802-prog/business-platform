@@ -294,6 +294,10 @@ function InventoryItemsListPageContent() {
               <tr>
                 <th>מוצר</th>
                 <th>פרטים</th>
+                <th className="inv-wide">מינימום</th>
+                <th className="inv-wide">הזמנה</th>
+                <th className="inv-wide">עלות</th>
+                <th className="inv-wide">מחיר</th>
                 <th>כמות</th>
                 <th>סטטוס</th>
               </tr>
@@ -307,6 +311,10 @@ function InventoryItemsListPageContent() {
                       <Link href={`/inventory/items/${item.id}`}>{item.name}</Link>
                     </td>
                     <td>{itemMeta(item) || "—"}</td>
+                    <td className="num inv-wide">{item.minimumQuantity}</td>
+                    <td className="num inv-wide">{item.reorderPoint ?? "—"}</td>
+                    <td className="num inv-wide">{item.costPerUnit != null ? `₪${item.costPerUnit}` : "—"}</td>
+                    <td className="num inv-wide">{item.sellPricePerUnit != null ? `₪${item.sellPricePerUnit}` : "—"}</td>
                     <td className="num">
                       {item.currentQuantity}
                       {UNIT_SHORT[item.unitType] ? ` ${UNIT_SHORT[item.unitType]}` : ""}
