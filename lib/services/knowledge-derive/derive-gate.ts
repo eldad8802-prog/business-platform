@@ -5,7 +5,8 @@
  * refusal leaves ZERO business mutations and ZERO provider calls:
  *
  *   1. AUTHORITY    a DEDICATED machine credential, KNOWLEDGE_DERIVE_SECRET — never the general
- *                   CRON_SECRET (a configuration where they are equal is treated as not configured).
+ *                   CRON_SECRET, nor its rotation value CRON_SECRET_NEXT (a configuration where the
+ *                   derive secret equals either is treated as not configured).
  *                   Constant-time, fail-closed (the settlement-recovery comparison, reused).
  *   2. TARGET       the request's businessId only SELECTS a target. It must be a positive integer.
  *   3. LIFECYCLE    the canonical account-deletion gate: only an ACTIVE business (no deletion request,
@@ -51,11 +52,11 @@ export function deriveBounds() {
 
 export type DeriveAuthDecision = "AUTHORIZED" | "UNAUTHORIZED" | "NOT_CONFIGURED";
 
-/** The dedicated authority. The general CRON_SECRET can never be it. */
+/** The dedicated authority. Neither the general CRON_SECRET nor its rotation value can ever be it. */
 export function decideDeriveAuth(authorizationHeader: string | null | undefined): DeriveAuthDecision {
   const dedicated = (process.env.KNOWLEDGE_DERIVE_SECRET ?? "").trim();
-  const general = (process.env.CRON_SECRET ?? "").trim();
-  if (dedicated.length > 0 && general.length > 0 && dedicated === general) return "NOT_CONFIGURED";
+  const general = [process.env.CRON_SECRET, process.env.CRON_SECRET_NEXT].map((v) => (v ?? "").trim());
+  if (dedicated.length > 0 && general.some((g) => g.length > 0 && g === dedicated)) return "NOT_CONFIGURED";
   return decideRecoveryAuth(authorizationHeader, dedicated);
 }
 
