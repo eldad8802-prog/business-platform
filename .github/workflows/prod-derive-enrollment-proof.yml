@@ -1,0 +1,200 @@
+name: Prod derive authority — enrollment proof (businesses 3 and 9)
+
+# Final derive-authority proof, AFTER the owner enrolled businesses 3 and 9 through the audited
+# platform-admin path. Nothing here enrolls, flips a flag or writes business data; every derivation is a
+# real, legitimate run over the business's real evidence. Order (each gate fails closed):
+#
+#   precheck    read-only: enrollment is EXACTLY {3, 9}, feature otherwise OFF, platform-admin audit rows
+#               present, both businesses ACTIVE. Otherwise no request is sent.
+#   sentinel    dedicated secret, businessId=0 → 400 invalid_business (the #575 route + secret are live).
+#               Anything else stops before CRON_SECRET is sent.
+#   cron        CRON_SECRET, businessId=0 → 401 (enrollment does not revive the old authority)
+#   b3          dedicated secret → 200, FULL proof level, isolation holds, M9 guards hold
+#   b3 retry    immediately → 429 rate_limited (10-minute cooldown; no second run, no provider call)
+#   b9 pair     two SIMULTANEOUS requests → exactly one 200; the other 409 concurrent (live race observed)
+#               or 429 rate_limited (the first finished before the second was admitted)
+#   b9 retry    → 429 rate_limited
+#   brain cooldown (only when brain=shadow and brain_cooldown_check=true): wait 11 minutes, derive b3 again
+#               with brain=shadow → 200 with the Brain NOT allowed (skipped=cooldown, invoked=false)
+#   verify      read-only: ledger, audit, mutation accounting, runtime tenant isolation, live catalog,
+#               feature state — scripts/ops/derive-enrollment-evidence.ts
+#
+# Secrets are sent as headers, never echoed. Responses are printed as SAFE SUMMARIES (codes, counts,
+# versions, flags) — never the raw body. Database sessions are READ ONLY by Postgres.
+
+on:
+  workflow_dispatch:
+    inputs:
+      brain:
+        description: "Brain in SHADOW on the derivations (never owner-visible; at most one bounded provider call per business)"
+        required: true
+        type: choice
+        default: "none"
+        options: ["none", "shadow"]
+      brain_cooldown_check:
+        description: "With brain=shadow: wait 11 minutes and prove the 6-hour Brain cooldown on business 3"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-derive-enrollment-proof
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    name: Derive enrollment proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production-db
+    env:
+      DERIVE_URL: https://promaxgroup.co.il/api/knowledge/derive
+      EVIDENCE_ARGS: --expected-runtime-user app_runtime_prod --allow-host ep-flat-brook-am4bhq1y --businesses 3,9
+      BRAIN: ${{ inputs.brain }}
+    steps:
+      - name: Secrets present and distinct (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+          KNOWLEDGE_DERIVE_SECRET: ${{ secrets.KNOWLEDGE_DERIVE_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          for v in DIRECT_URL RUNTIME_DATABASE_URL KNOWLEDGE_DERIVE_SECRET CRON_SECRET; do
+            if [ -z "${!v:-}" ]; then echo "::error::$v is not configured — NOT RUN (this is not a pass)."; exit 1; fi
+          done
+          if [ "$DIRECT_URL" = "$RUNTIME_DATABASE_URL" ]; then echo "::error::owner and runtime URLs are identical — two identities are required."; exit 1; fi
+          if [ "$KNOWLEDGE_DERIVE_SECRET" = "$CRON_SECRET" ]; then echo "::error::KNOWLEDGE_DERIVE_SECRET equals CRON_SECRET — refusing."; exit 1; fi
+          echo "All four secrets present and distinct."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: PRECHECK — exactly the approved enrollment (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/derive-enrollment-evidence.ts $EVIDENCE_ARGS --phase precheck
+
+      - name: BEFORE — fingerprint (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/derive-enrollment-evidence.ts $EVIDENCE_ARGS --phase snapshot --out before.json
+
+      - name: Calls against the live route
+        id: calls
+        env:
+          KNOWLEDGE_DERIVE_SECRET: ${{ secrets.KNOWLEDGE_DERIVE_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CALLER_RUN: ${{ github.run_id }}
+          COOLDOWN_CHECK: ${{ inputs.brain_cooldown_check }}
+        run: |
+          set -uo pipefail
+          : > calls.jsonl
+          # $1 label  $2 derive|cron  $3 businessId  $4 brain(none|shadow)  $5 body file
+          send() {
+            local tok; if [ "$2" = derive ]; then tok="$KNOWLEDGE_DERIVE_SECRET"; else tok="$CRON_SECRET"; fi
+            local q="businessId=$3"; [ "$4" = shadow ] && q="$q&brain=shadow"
+            curl -sS -o "$5" -w "%{http_code}" -m 150 -X POST \
+              -H "Authorization: Bearer ${tok}" -H "X-Derive-Caller-Run: ${CALLER_RUN}" "${DERIVE_URL}?${q}"
+          }
+          # Record one SAFE line per call (codes, ids, flags) and print a safe summary (never the raw body).
+          record() { # $1 label $2 business $3 code $4 body file
+            if ! jq -c --arg l "$1" --argjson b "$2" --argjson c "$3" '(.run.brain // {}) as $x |
+                {label:$l, business:$b, code:$c, error:(.error // null), runId:(.run.runId // null), bodyBusinessId:(.businessId // null),
+                 brainRequested:$x.requested, brainAllowed:$x.allowed, brainInvoked:$x.invoked, brainSkipped:$x.skipped}' "$4" >> calls.jsonl 2>/dev/null; then
+              jq -nc --arg l "$1" --argjson b "$2" --argjson c "$3" '{label:$l, business:$b, code:$c, error:"non-json", runId:null, bodyBusinessId:null,
+                 brainRequested:null, brainAllowed:null, brainInvoked:null, brainSkipped:null}' >> calls.jsonl
+            fi
+            echo "$1: HTTP $3"
+            jq -c '{error, businessId, run, proofLevel, isolationHolds: .isolation.holds, guardsHold: .knowledge.guardsHold,
+                    rules: {ok: .knowledge.rulesOk, failed: .knowledge.rulesFailed},
+                    brain: (if .brain then {mode: .brain.mode, model: .brain.model, shadowRun: (if .brain.shadowRun then (.brain.shadowRun |
+                      {status, modelCalled, accepted, acceptedByType, rejectedCodes, latencyMs, inputTokens, outputTokens, failureStage, snapshotMatches}) else null end)} else null end)}' "$4" 2>/dev/null || echo "  (non-JSON body, not printed)"
+          }
+          expect() { # $1 label $2 code $3 expected code $4 expected error ("-" = none) $5 body
+            local err; err=$(jq -r '.error // "-"' "$5" 2>/dev/null || echo non-json)
+            [ "$2" = "$3" ] && [ "$err" = "$4" ] || { echo "::error::$1 answered $2/$err, expected $3/$4"; return 1; }
+          }
+          good200() { # $1 label $2 body $3 business
+            jq -e --argjson b "$3" '.ok == true and .businessId == $b and .proofLevel == "FULL" and .isolation.holds == true
+                                    and .knowledge.guardsHold == true and (.run.runId | type) == "string"' "$2" >/dev/null \
+              || { echo "::error::$1: 200 but not a FULL, isolated, guarded run for business $3"; return 1; }
+          }
+          ok=1
+
+          c=$(send sentinel derive 0 none s.json); record sentinel 0 "$c" s.json
+          if ! expect sentinel "$c" 400 invalid_business s.json; then
+            echo "::error::sentinel failed — 401 means the #575 code is NOT live; 503 means the secret is NOT loaded. Stopping before any other call."
+            exit 1
+          fi
+
+          c=$(send cron_secret cron 0 none c.json); record cron_secret 0 "$c" c.json; expect cron_secret "$c" 401 unauthorized c.json || ok=0
+
+          c=$(send business_3 derive 3 "$BRAIN" b3.json); record business_3 3 "$c" b3.json
+          { expect business_3 "$c" 200 - b3.json && good200 business_3 b3.json 3; } || ok=0
+          c=$(send business_3_retry derive 3 "$BRAIN" b3r.json); record business_3_retry 3 "$c" b3r.json
+          expect business_3_retry "$c" 429 rate_limited b3r.json || ok=0
+
+          # Two simultaneous, legitimate requests for business 9: exactly one may run.
+          send business_9_a derive 9 "$BRAIN" b9a.json > b9a.code & pa=$!
+          send business_9_b derive 9 "$BRAIN" b9b.json > b9b.code & pb=$!
+          wait $pa; wait $pb
+          ca=$(cat b9a.code); cb=$(cat b9b.code)
+          record business_9_a 9 "$ca" b9a.json; record business_9_b 9 "$cb" b9b.json
+          winners=0; loser=""
+          for x in a b; do
+            code=$(cat b9$x.code)
+            if [ "$code" = 200 ]; then winners=$((winners+1)); good200 business_9_$x b9$x.json 9 || ok=0
+            else loser="$code:$(jq -r '.error // "-"' b9$x.json 2>/dev/null)"; fi
+          done
+          if [ "$winners" != 1 ]; then echo "::error::simultaneous pair produced $winners successful runs (expected exactly 1)"; ok=0; fi
+          case "$loser" in
+            "409:concurrent") echo "concurrency: LIVE SIMULTANEOUS REQUEST refused by the one-running lease (409)";;
+            "429:rate_limited") echo "concurrency: the first run finished before the second was admitted (429) — live race not observed";;
+            *) echo "::error::simultaneous pair loser answered $loser"; ok=0;;
+          esac
+          c=$(send business_9_retry derive 9 "$BRAIN" b9r.json); record business_9_retry 9 "$c" b9r.json
+          expect business_9_retry "$c" 429 rate_limited b9r.json || ok=0
+
+          if [ "$BRAIN" = shadow ] && [ "$COOLDOWN_CHECK" = true ]; then
+            if [ "$ok" = 1 ] && jq -e '.run.brain.invoked == true' b3.json >/dev/null; then
+              echo "waiting 11 minutes for the derivation cooldown (Brain cooldown is 6 hours)…"; sleep 660
+              c=$(send business_3_brain_cooldown derive 3 shadow b3c.json); record business_3_brain_cooldown 3 "$c" b3c.json
+              { expect business_3_brain_cooldown "$c" 200 - b3c.json && good200 business_3_brain_cooldown b3c.json 3 &&
+                jq -e '.run.brain.requested == true and .run.brain.allowed == false and .run.brain.invoked == false and .run.brain.skipped == "cooldown"' b3c.json >/dev/null; } \
+                || { echo "::error::Brain cooldown did not hold"; ok=0; }
+            else
+              echo "Brain cooldown check NOT EXERCISED — the first business 3 run did not invoke the Brain (or an earlier check failed)."
+            fi
+          fi
+          rm -f s.json c.json b3.json b3r.json b3c.json b9a.json b9b.json b9r.json b9a.code b9b.code   # before.json stays for verify
+          [ "$ok" = 1 ] || { echo "::error::at least one call did not answer as expected"; exit 1; }
+          echo "All calls answered as expected."
+
+      - name: AFTER — verify ledger, audit, mutations, tenant, schema, feature (read-only)
+        if: always() && steps.calls.outcome != 'skipped'
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+          KNOWLEDGE_DERIVE_SECRET: ${{ secrets.KNOWLEDGE_DERIVE_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: node_modules/.bin/tsx scripts/ops/derive-enrollment-evidence.ts $EVIDENCE_ARGS --phase verify --before before.json --calls calls.jsonl --caller-run ${{ github.run_id }}
