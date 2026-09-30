@@ -404,10 +404,16 @@
   font-weight: var(--crm-w-semibold);
   margin-bottom: 4px;
 }
+/*
+  `pre-wrap` keeps the owner's line breaks; `overflow-wrap: anywhere` (the same
+  choice as `.crm-id__value`) breaks a single unbroken run — a pasted link, a
+  held key — inside the card instead of letting it run out of it.
+*/
 .crm-note__body {
   font-size: 14px;
   color: var(--crm-ink);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.5;
 }
 

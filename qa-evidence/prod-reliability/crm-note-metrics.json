@@ -1,0 +1,606 @@
+{
+  "checks": 30,
+  "failed": 0,
+  "results": [
+    {
+      "surface": "customer",
+      "variant": "unbroken",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 324,
+        "cardWidth": 358,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "unbroken",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 604,
+        "cardWidth": 638,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "unbroken",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 626,
+        "cardWidth": 664,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "unbroken",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 295,
+        "cardWidth": 332,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "unbroken",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 345,
+        "cardWidth": 386,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "linebreaks",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 358,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "linebreaks",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 638,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "linebreaks",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 664,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "linebreaks",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 332,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "linebreaks",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 386,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "normal",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 302,
+        "cardWidth": 358,
+        "lines": 3,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 302
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "normal",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 591,
+        "cardWidth": 638,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 591
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "normal",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 591,
+        "cardWidth": 664,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 591
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "normal",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 289,
+        "cardWidth": 332,
+        "lines": 3,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 289
+      }
+    },
+    {
+      "surface": "customer",
+      "variant": "normal",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 336,
+        "cardWidth": 386,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 336
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "unbroken",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 324,
+        "cardWidth": 358,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "unbroken",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 604,
+        "cardWidth": 638,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "unbroken",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 626,
+        "cardWidth": 664,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "unbroken",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 640,
+        "cardWidth": 676,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "unbroken",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 748,
+        "cardWidth": 784,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": false,
+        "textWidth": 1151
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "linebreaks",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 358,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "linebreaks",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 638,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "linebreaks",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 664,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "linebreaks",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 676,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "linebreaks",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 227,
+        "cardWidth": 784,
+        "lines": 4,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 227
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "normal",
+      "width": 390,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 302,
+        "cardWidth": 358,
+        "lines": 3,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 302
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "normal",
+      "width": 768,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 591,
+        "cardWidth": 638,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 591
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "normal",
+      "width": 1024,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 591,
+        "cardWidth": 664,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 591
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "normal",
+      "width": 1440,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 591,
+        "cardWidth": 676,
+        "lines": 2,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 591
+      }
+    },
+    {
+      "surface": "supplier",
+      "variant": "normal",
+      "width": 1920,
+      "ok": true,
+      "after": {
+        "present": true,
+        "fits": true,
+        "textWidth": 649,
+        "cardWidth": 784,
+        "lines": 1,
+        "pageOverflow": false,
+        "overflowWrap": "anywhere",
+        "whiteSpace": "pre-wrap"
+      },
+      "withoutFix": {
+        "fits": true,
+        "textWidth": 649
+      }
+    }
+  ]
+}
