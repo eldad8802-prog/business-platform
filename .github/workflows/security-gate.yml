@@ -190,6 +190,16 @@ jobs:
             --expect '[FAIL] WP-6 knowledge-derive.yml: job derive references KNOWLEDGE_DERIVE_SECRET in environment cron (bound to knowledge-derive)' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
+      # OPEN SECURITY DEBT (#582) is bound to the reviewed artifact: ANY edit to that file — even a
+      # fix — must turn the debt stale and fail, so the exception cannot outlive the proof it preserves.
+      - name: Gate self-proof G10 — OPEN SECURITY DEBT expires the moment its artifact changes (DEBT-STALE)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G10-debt-bound-to-artifact --file .github/workflows/prod-derive-preenrollment-proof.yml \
+            --anchor 'uses: actions/setup-node@v4' \
+            --replace 'uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0' \
+            --expect '[FAIL] DEBT-STALE WP-2 prod-derive-preenrollment-proof.yml: file changed since the debt was recorded' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}
