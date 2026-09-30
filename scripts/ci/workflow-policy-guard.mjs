@@ -2,6 +2,10 @@
 /**
  * workflow-policy-guard.mjs — enforce the delivery-pipeline invariants (H-3, I-3, L-21).
  *
+ *   WP-0  every workflow PARSES as YAML and has `on:` and `jobs:`. A workflow GitHub cannot parse
+ *         never starts, creates no check run, and so cannot fail a PR: it is invisible, not red.
+ *         (Two #525 workflows were silently dead this way.) Parsed with the lockfile-pinned js-yaml;
+ *         a missing parser crashes the guard, i.e. fails closed.
  *   WP-1  every workflow declares top-level `permissions:` (no repository-default token scope).
  *   WP-2  every `uses:` is pinned to a full 40-hex commit SHA (local `./` actions excepted).
  *   WP-3  a production-capable secret is referenced only inside a job bound to a protected
@@ -33,6 +37,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+
+const yaml = createRequire(import.meta.url)("js-yaml");
 
 export const PROD_SECRETS = /secrets\.(NEON_API_KEY|CRON_SECRET|KNOWLEDGE_DERIVE_SECRET|DIRECT_URL|DATABASE_URL|W1_RUNTIME_URL|W1_RUNTIME_PW|W2G_ADMIN_PW|PW2_CTL_PW|PREVIEW_RUNTIME_PW|COLLECTION_QA_PASSWORD_HASH|PROD_[A-Z_]+|BILLING_AUTHORITY_[A-Z_]+)\b/g;
 const PROTECTED_ENVS = new Set(["production-db", "neon-preview", "cron", "knowledge-derive"]);
@@ -166,6 +173,13 @@ function triggers(text) {
 }
 
 export function checkWorkflowText(file, raw) {
+  let doc;
+  try {
+    doc = yaml.load(raw);
+  } catch (e) {
+    return [["WP-0", `does not parse as YAML — GitHub will not run it (${String(e.reason ?? e.message).split("\n")[0]} at line ${(e.mark?.line ?? -1) + 1})`]];
+  }
+  if (!doc || typeof doc !== "object" || !doc.jobs || !("on" in doc)) return [["WP-0", "parses, but has no `on:` / `jobs:` — not a runnable workflow"]];
   const text = raw.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
   const out = [];
   const ex = (rule) => EXEMPT[rule]?.has(file);
@@ -228,6 +242,9 @@ function selfTest() {
   const derive = good.replace("environment: neon-preview", "environment: knowledge-derive").replace("secrets.NEON_API_KEY", "secrets.KNOWLEDGE_DERIVE_SECRET");
   const cases = [
     ["compliant secret-bearing workflow", good, null],
+    ["a run: | block ended early by a column-2 continuation line (the ci-1 defect)", good.replace("        run: echo\n", "        run: |\n          node x.mjs --replace 'a\n  b' \\\n            --expect c\n"), "WP-0"],
+    ["a duplicated top-level key (the i8b6 defect: two copies concatenated)", good + good, "WP-0"],
+    ["valid YAML that is not a workflow (no jobs)", "on:\n  workflow_dispatch:\npermissions:\n  contents: read\n", "WP-0"],
     ["missing permissions", good.replace("permissions:\n  contents: read\n", ""), "WP-1"],
     ["tag-pinned action", good.replace(`@${SHA}`, "@v4"), "WP-2"],
     ["secret outside a protected environment", good.replace("    environment: neon-preview\n", ""), "WP-3"],

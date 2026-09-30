@@ -218,6 +218,17 @@ jobs:
             --expect '[FAIL] WP-6 knowledge-derive.yml: job derive references KNOWLEDGE_DERIVE_SECRET in environment production-db (bound to knowledge-derive)' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
+      # A workflow GitHub cannot parse never starts and creates no check run — it is invisible, not red
+      # (ci-1 and i8b6 were silently dead this way). The multi-line replacement is written as $'…\n…'
+      # on ONE line: a literal newline here would end this very `run: |` block, the ci-1 defect.
+      - name: Gate self-proof G13 — an unparseable workflow is caught (WP-0)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G13-unparseable-workflow --file .github/workflows/intake-sweep.yml \
+            --anchor 'name: intake sweep (manual)' \
+            --replace $'name: intake sweep (manual)\nname: a second top-level name key' \
+            --expect '[FAIL] WP-0 intake-sweep.yml: does not parse as YAML' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}
