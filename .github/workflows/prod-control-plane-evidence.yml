@@ -1,0 +1,75 @@
+name: Prod control plane — evidence (verify / proof)
+
+# scripts/ops/control-plane-evidence.ts.
+#   verify  BEFORE the Vercel flag: catalog (owner, READ ONLY); the control-plane identity running the
+#           service's exact calls against the QA sandbox tenant (38) inside a transaction that is ALWAYS
+#           rolled back; negative attempts as app_ctlplane_prod and app_runtime_prod (each rolled back);
+#           runtime read/audit regression; proof that nothing persisted.
+#   proof   AFTER the owner's two UI changes on business 38 (knowledge_derivation DISABLED, then INHERIT):
+#           owner READ ONLY — exactly one override row, exactly two audit transitions, 3/9 untouched,
+#           policy unchanged, runtime tenant visibility.
+# Output: codes, counts, booleans, timestamps. No URL, password, name or free text.
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "verify (identity + boundaries, rolled back) or proof (after the UI mutation on 38)"
+        required: true
+        type: choice
+        options: ["verify", "proof"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-control-plane-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Control-plane evidence (${{ inputs.phase }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Secrets present and distinct (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+          CONTROL_PLANE_DATABASE_URL: ${{ secrets.CONTROL_PLANE_DATABASE_URL }}
+          PHASE: ${{ inputs.phase }}
+        run: |
+          set -euo pipefail
+          for v in DIRECT_URL RUNTIME_DATABASE_URL; do
+            if [ -z "${!v:-}" ]; then echo "::error::$v is not set in production-db — NOT RUN."; exit 1; fi
+          done
+          if [ "$PHASE" = verify ] && [ -z "${CONTROL_PLANE_DATABASE_URL:-}" ]; then
+            echo "::error::CONTROL_PLANE_DATABASE_URL is not set in production-db — NOT RUN."; exit 1; fi
+          if [ "$DIRECT_URL" = "$RUNTIME_DATABASE_URL" ] || [ "${CONTROL_PLANE_DATABASE_URL:-x}" = "$DIRECT_URL" ] || [ "${CONTROL_PLANE_DATABASE_URL:-x}" = "$RUNTIME_DATABASE_URL" ]; then
+            echo "::error::two connection secrets are identical — three identities are required."; exit 1; fi
+          echo "Connection secrets present and distinct."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Control-plane evidence
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+          CONTROL_PLANE_DATABASE_URL: ${{ secrets.CONTROL_PLANE_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/control-plane-evidence.ts --phase ${{ inputs.phase }} --allow-host ep-flat-brook-am4bhq1y

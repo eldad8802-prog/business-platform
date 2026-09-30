@@ -1,0 +1,75 @@
+name: Prod control plane — LOGIN role (OWNER GATE: writes roles)
+
+# Provisions or disables the ONE Production login that joins the NOLOGIN group app_ctlplane.
+# scripts/ops/control-plane-login.ts. This WRITES to Production roles — it runs only on manual dispatch,
+# in the production-db environment (owner approval), and only after migration
+# 20261003090000_control_plane_production_privileges is applied.
+#
+#   provision  create-once / rotate-password app_ctlplane_prod (LOGIN, INHERIT, NOSUPERUSER, NOBYPASSRLS,
+#              NOCREATEDB, NOCREATEROLE, NOREPLICATION, CONNECTION LIMIT 5), member of app_ctlplane only.
+#              Password = the one inside the production-db secret CONTROL_PLANE_DATABASE_URL (the same value
+#              the owner stores in Vercel Production); hashed to a SCRAM-SHA-256 verifier on the runner.
+#              Preconditions, write and post-assertions are one transaction.
+#   disable    containment: NOLOGIN + revoke the group membership + terminate sessions. Immediate; no
+#              deploy needed. The role is never dropped.
+# Output: booleans only. No URL, password or verifier is ever printed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "provision (create/rotate the login) or disable (containment)"
+        required: true
+        type: choice
+        options: ["provision", "disable"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-control-plane-login
+  cancel-in-progress: false
+
+jobs:
+  login:
+    name: Control-plane login (${{ inputs.action }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Secrets present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          CONTROL_PLANE_DATABASE_URL: ${{ secrets.CONTROL_PLANE_DATABASE_URL }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db."; exit 1; fi
+          if [ "$ACTION" = provision ] && [ -z "${CONTROL_PLANE_DATABASE_URL:-}" ]; then
+            echo "::error::CONTROL_PLANE_DATABASE_URL is not set in production-db — NOT RUN."; exit 1; fi
+          if [ -n "${CONTROL_PLANE_DATABASE_URL:-}" ] && [ "$DIRECT_URL" = "$CONTROL_PLANE_DATABASE_URL" ]; then
+            echo "::error::the control-plane URL equals the owner URL — refusing."; exit 1; fi
+          echo "Secrets present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Control-plane login
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          CONTROL_PLANE_DATABASE_URL: ${{ secrets.CONTROL_PLANE_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/control-plane-login.ts --action ${{ inputs.action }} --allow-host ep-flat-brook-am4bhq1y
