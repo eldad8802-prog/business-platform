@@ -9,14 +9,18 @@
  *
  *   OWNER   (OWNER_DATABASE_URL — the evidence owner login)
  *           catalog facts only: which OTHER business to probe (an id, nothing
- *           more), how many rows tenant 38 owns (for the positive counter-check),
+ *           more), how many QA-P2-linked rows tenant 38 owns in each of the five
+ *           protected tables (the owner truth for the positive counter-check),
  *           the runtime role's catalog facts, and the Installment sequence
  *           uniqueness proven from pg_index by index identity.
  *
  *   RUNTIME (RUNTIME_DATABASE_URL — authenticated DIRECTLY as the runtime login,
  *           e.g. app_runtime_prod; no SET ROLE anywhere)
- *           the isolation probe: tenant 38's context, another business's
- *           context, and no context — counts only.
+ *           the isolation probe over all five protected tables (Commitment,
+ *           Installment, InstallmentWorkflow, Payment, PaymentAllocation):
+ *           tenant 38's context (own QA-P2 rows visible = owner truth, other
+ *           tenants' rows = 0), another business's context (tenant 38's rows =
+ *           0), and no context (every row = 0) — counts only.
  *
  * Fail closed, in this order, before any tenant probe:
  *   1. the runtime URL is missing, pooled, or not the allow-listed host → REFUSED
@@ -25,7 +29,9 @@
  *      on a single connection) → REFUSED
  *   3. the connected user is not exactly the expected runtime login, is a
  *      superuser, has BYPASSRLS, or is not a member of app_runtime → REFUSED
- * Then any cross-tenant or no-context visibility > 0 → FAIL.
+ * Then any cross-tenant or no-context visibility > 0 → FAIL; and any own-tenant
+ * QA-P2 count that differs from the owner truth, or has no owner rows to prove
+ * visibility with (0 = 0 is not a proof), → FAIL.
  *
  * Exit codes: 0 PASS · 1 FAIL (isolation) · 3 REFUSED (precondition) · 2 usage.
  * Output: counts, booleans and business ids only. Credentials are never printed.
@@ -93,10 +99,43 @@ export async function verifyRuntimeIdentity(db: Db, expectedUser: string): Promi
   return id;
 }
 
+/** The five protected ledger tables, in the order every check reports them. */
+export const PROTECTED = ["commitments", "installments", "workflow", "payments", "allocations"] as const;
+export type Protected = (typeof PROTECTED)[number];
+export type TableCounts = Record<Protected, number>;
+
+/**
+ * Tenant 38's QA-P2 rows in each protected table, linked through the QA-P2
+ * commitments. The SAME statement runs on both connections: under the owner it
+ * is the truth, under the runtime login (tenant 38 context) it is what RLS lets
+ * the application see. Payment is counted from "Payment" itself so its own
+ * policy is exercised, not inferred from the allocation.
+ */
+const QA_LINKED_SQL = `
+  WITH qc AS (SELECT "id" FROM "Commitment" WHERE "businessId" = ${QA_BUSINESS_ID} AND "title" LIKE '${QA_MARKER}%'),
+       qi AS (SELECT i."id" FROM "Installment" i JOIN qc ON qc."id" = i."commitmentId")
+  SELECT (SELECT count(*) FROM qc)                                                            AS commitments,
+         (SELECT count(*) FROM qi)                                                            AS installments,
+         (SELECT count(*) FROM "InstallmentWorkflow" w JOIN qi ON qi."id" = w."installmentId") AS workflow,
+         (SELECT count(*) FROM "Payment" p
+           WHERE p."id" IN (SELECT a."paymentId" FROM "PaymentAllocation" a JOIN qi ON qi."id" = a."installmentId")) AS payments,
+         (SELECT count(*) FROM "PaymentAllocation" a JOIN qi ON qi."id" = a."installmentId")  AS allocations`;
+
+async function qaLinkedCounts(db: Db): Promise<TableCounts> {
+  const [r] = await db.$queryRawUnsafe<Array<Record<Protected, bigint>>>(QA_LINKED_SQL);
+  return tableCounts(r);
+}
+
+function tableCounts(r: Record<Protected, bigint | number>): TableCounts {
+  return Object.fromEntries(PROTECTED.map((k) => [k, Number(r[k])])) as TableCounts;
+}
+
 export type OwnerFacts = {
   probeOtherBusinessId: number;
   own38Commitments: number;
   own38QaP2Commitments: number;
+  /** Owner truth: tenant 38's QA-P2-linked rows per protected table. */
+  own38QaP2: TableCounts;
   runtimeRoleCatalog: { exists: boolean; canLogin: boolean; bypassRls: boolean; memberOfAppRuntime: boolean };
   installmentSequenceUnique: { index: string; exists: boolean; unique: boolean; table: string | null; columns: string[] };
 };
@@ -132,10 +171,12 @@ export async function ownerFacts(db: Db, runtimeUser: string): Promise<OwnerFact
       WHERE c.relname = 'Installment_commitmentId_sequence_key' AND c.relkind = 'i'
       GROUP BY i.indisunique, t.relname`,
   );
+  const own38QaP2 = await qaLinkedCounts(db);
   return {
     probeOtherBusinessId: b.id,
     own38Commitments: Number(own.all),
     own38QaP2Commitments: Number(own.qa),
+    own38QaP2,
     runtimeRoleCatalog: { exists: role.ex, canLogin: !!role.login, bypassRls: !!role.byp, memberOfAppRuntime: !!role.member },
     installmentSequenceUnique: {
       index: "Installment_commitmentId_sequence_key",
@@ -149,12 +190,28 @@ export async function ownerFacts(db: Db, runtimeUser: string): Promise<OwnerFact
 
 export type ProbeResult = {
   identity: RuntimeIdentity;
-  in38: { qaP2Visible: number; ownCommitmentsVisible: number; otherCommitments: number; otherInstallments: number; otherPayments: number; otherWorkflow: number };
-  inOther: { commitments38: number; installments38: number; workflow38: number; payments38: number; allocations38: number };
-  noContext: { commitments: number; payments: number };
+  /** Under tenant 38's context: its own QA-P2 rows, and every other tenant's rows. */
+  in38: { ownCommitmentsVisible: number; qaP2: TableCounts; other: TableCounts };
+  /** Under another business's context: tenant 38's rows. */
+  inOther: TableCounts;
+  /** With no tenant context: every row. */
+  noContext: TableCounts;
 };
 
-const n = (v: bigint | number) => Number(v);
+const TABLE: Record<Protected, string> = {
+  commitments: `"Commitment"`,
+  installments: `"Installment"`,
+  workflow: `"InstallmentWorkflow"`,
+  payments: `"Payment"`,
+  allocations: `"PaymentAllocation"`,
+};
+
+/** One count per protected table, all under the same `where`. */
+async function countEach(db: Db, where: string): Promise<TableCounts> {
+  const cols = PROTECTED.map((k) => `(SELECT count(*) FROM ${TABLE[k]} WHERE ${where}) AS ${k}`).join(",\n           ");
+  const [r] = await db.$queryRawUnsafe<Array<Record<Protected, bigint>>>(`SELECT ${cols}`);
+  return tableCounts(r);
+}
 
 /** Runtime side: the isolation probe. Counts only; session-level tenant GUC. */
 export async function runtimeProbe(db: Db, expectedUser: string, probeOtherBusinessId: number): Promise<ProbeResult> {
@@ -162,66 +219,54 @@ export async function runtimeProbe(db: Db, expectedUser: string, probeOtherBusin
   const context = (id: string) => db.$queryRawUnsafe(`SELECT set_config('app.current_business_id', $1, false)`, id);
 
   await context(String(QA_BUSINESS_ID));
-  const [a] = await db.$queryRawUnsafe<Array<Record<string, bigint>>>(`
-    SELECT (SELECT count(*) FROM "Commitment" WHERE "title" LIKE '${QA_MARKER}%')           AS qa,
-           (SELECT count(*) FROM "Commitment")                                            AS own,
-           (SELECT count(*) FROM "Commitment" WHERE "businessId" <> ${QA_BUSINESS_ID})          AS c,
-           (SELECT count(*) FROM "Installment" WHERE "businessId" <> ${QA_BUSINESS_ID})         AS i,
-           (SELECT count(*) FROM "Payment" WHERE "businessId" <> ${QA_BUSINESS_ID})             AS p,
-           (SELECT count(*) FROM "InstallmentWorkflow" WHERE "businessId" <> ${QA_BUSINESS_ID}) AS w`);
+  const [own] = await db.$queryRawUnsafe<Array<{ own: bigint }>>(`SELECT count(*) AS own FROM "Commitment"`);
+  const qaP2 = await qaLinkedCounts(db);
+  const other = await countEach(db, `"businessId" <> ${QA_BUSINESS_ID}`);
 
   await context(String(probeOtherBusinessId));
-  const [o] = await db.$queryRawUnsafe<Array<Record<string, bigint>>>(`
-    SELECT (SELECT count(*) FROM "Commitment" WHERE "businessId" = ${QA_BUSINESS_ID})          AS c,
-           (SELECT count(*) FROM "Installment" WHERE "businessId" = ${QA_BUSINESS_ID})         AS i,
-           (SELECT count(*) FROM "InstallmentWorkflow" WHERE "businessId" = ${QA_BUSINESS_ID}) AS w,
-           (SELECT count(*) FROM "Payment" WHERE "businessId" = ${QA_BUSINESS_ID})             AS p,
-           (SELECT count(*) FROM "PaymentAllocation" WHERE "businessId" = ${QA_BUSINESS_ID})   AS a`);
+  const inOther = await countEach(db, `"businessId" = ${QA_BUSINESS_ID}`);
 
   await context("");
-  const [z] = await db.$queryRawUnsafe<Array<Record<string, bigint>>>(`
-    SELECT (SELECT count(*) FROM "Commitment") AS c, (SELECT count(*) FROM "Payment") AS p`);
+  const noContext = await countEach(db, "true");
 
   await verifyReadOnly(db, "runtime");
-  return {
-    identity,
-    in38: { qaP2Visible: n(a.qa), ownCommitmentsVisible: n(a.own), otherCommitments: n(a.c), otherInstallments: n(a.i), otherPayments: n(a.p), otherWorkflow: n(a.w) },
-    inOther: { commitments38: n(o.c), installments38: n(o.i), workflow38: n(o.w), payments38: n(o.p), allocations38: n(o.a) },
-    noContext: { commitments: n(z.c), payments: n(z.p) },
-  };
+  return { identity, in38: { ownCommitmentsVisible: Number(own.own), qaP2, other }, inOther, noContext };
 }
 
+export type Coverage = { ownPositive: Protected[]; toOther: Protected[]; fromOther: Protected[]; noContext: Protected[] };
+
 /** Verdict from owner facts + runtime probe. Pure. */
-export function verdict(owner: OwnerFacts, probe: ProbeResult): { pass: boolean; failures: string[]; positiveCheck: string } {
+export function verdict(owner: OwnerFacts, probe: ProbeResult): { pass: boolean; failures: string[]; positiveCheck: string; coverage: Coverage } {
   const failures: string[] = [];
+  const coverage: Coverage = { ownPositive: [], toOther: [], fromOther: [], noContext: [] };
+  // A missing count is NaN, never 0 — so a table dropped from the probe fails here.
   const zero = (label: string, v: number) => v !== 0 && failures.push(`${label} = ${v}`);
-  zero("38→other commitments", probe.in38.otherCommitments);
-  zero("38→other installments", probe.in38.otherInstallments);
-  zero("38→other payments", probe.in38.otherPayments);
-  zero("38→other workflow", probe.in38.otherWorkflow);
-  zero("other→38 commitments", probe.inOther.commitments38);
-  zero("other→38 installments", probe.inOther.installments38);
-  zero("other→38 workflow", probe.inOther.workflow38);
-  zero("other→38 payments", probe.inOther.payments38);
-  zero("other→38 allocations", probe.inOther.allocations38);
-  zero("no-context commitments", probe.noContext.commitments);
-  zero("no-context payments", probe.noContext.payments);
-  let positiveCheck: string;
-  if (owner.own38QaP2Commitments > 0) {
-    positiveCheck = `QA-P2 rows visible to 38: ${probe.in38.qaP2Visible} of ${owner.own38QaP2Commitments}`;
-    if (probe.in38.qaP2Visible !== owner.own38QaP2Commitments) failures.push(positiveCheck);
-  } else if (owner.own38Commitments > 0) {
-    positiveCheck = `QA-P2 counter-check NOT YET AVAILABLE; business 38's own commitments visible to 38: ${probe.in38.ownCommitmentsVisible} of ${owner.own38Commitments}`;
-    if (probe.in38.ownCommitmentsVisible !== owner.own38Commitments) failures.push(positiveCheck);
-  } else {
-    positiveCheck = "POSITIVE COUNTER-CHECK NOT YET AVAILABLE (business 38 owns no commitment rows)";
+  for (const k of PROTECTED) {
+    zero(`38→other ${k}`, probe.in38.other?.[k]);
+    coverage.toOther.push(k);
+    zero(`other→38 ${k}`, probe.inOther?.[k]);
+    coverage.fromOther.push(k);
+    zero(`no-context ${k}`, probe.noContext?.[k]);
+    coverage.noContext.push(k);
   }
+  // Own-tenant positive: runtime visibility must equal the owner truth, and there
+  // must BE owner rows — 0 visible of 0 owned proves nothing about visibility.
+  const seen: string[] = [];
+  for (const k of PROTECTED) {
+    const truth = owner.own38QaP2?.[k];
+    const visible = probe.in38.qaP2?.[k];
+    seen.push(`${k} ${visible} of ${truth}`);
+    if (!(truth > 0)) failures.push(`own-positive ${k}: no QA-P2 owner rows (${truth}) — visibility NOT PROVEN`);
+    else if (visible !== truth) failures.push(`own-positive ${k}: runtime sees ${visible}, owner truth ${truth}`);
+    coverage.ownPositive.push(k);
+  }
+  const positiveCheck = `QA-P2 rows visible to 38 (runtime of owner truth): ${seen.join(", ")}`;
   if (!owner.installmentSequenceUnique.exists || !owner.installmentSequenceUnique.unique ||
       owner.installmentSequenceUnique.table !== "Installment" ||
       JSON.stringify(owner.installmentSequenceUnique.columns) !== JSON.stringify(["commitmentId", "sequence"])) {
     failures.push(`Installment sequence uniqueness not established: ${JSON.stringify(owner.installmentSequenceUnique)}`);
   }
-  return { pass: failures.length === 0, failures, positiveCheck };
+  return { pass: failures.length === 0, failures, positiveCheck, coverage };
 }
 
 function arg(argv: string[], flag: string): string | null {
@@ -255,7 +300,8 @@ async function main(): Promise<void> {
     // 3 · identity, then the probe
     const probe = await runtimeProbe(runtime, expected, facts.probeOtherBusinessId);
     const v = verdict(facts, probe);
-    console.log(JSON.stringify({ runtimeProbe: probe, positiveCheck: v.positiveCheck, verdict: v.pass ? "PASS" : "FAIL", failures: v.failures }, null, 2));
+    const coverage = Object.fromEntries(Object.entries(v.coverage).map(([d, ks]) => [d, `${ks.length}/${PROTECTED.length}`]));
+    console.log(JSON.stringify({ runtimeProbe: probe, positiveCheck: v.positiveCheck, coverage, verdict: v.pass ? "PASS" : "FAIL", failures: v.failures }, null, 2));
     process.exitCode = v.pass ? 0 : 1;
   } catch (e) {
     if (e instanceof RefusedError) {

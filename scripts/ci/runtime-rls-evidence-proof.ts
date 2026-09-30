@@ -154,10 +154,13 @@ async function main(): Promise<void> {
   const p = ok.probe?.runtimeProbe;
   eq("connected user is the runtime login itself (no SET ROLE)", p?.identity.user, "app_runtime_ci");
   eq("runtime: not superuser, BYPASSRLS false, member of app_runtime", [p?.identity.superuser, p?.identity.bypassRls, p?.identity.memberOfAppRuntime], [false, false, true]);
-  eq("own-tenant POSITIVE counter-check: QA-P2 row visible to 38", p?.in38.qaP2Visible, 1);
-  eq("38 → other business: 0 commitments / installments / payments / workflow", [p?.in38.otherCommitments, p?.in38.otherInstallments, p?.in38.otherPayments, p?.in38.otherWorkflow], [0, 0, 0, 0]);
-  eq("other business → 38: 0 commitments / installments / workflow / payments / allocations", [p?.inOther.commitments38, p?.inOther.installments38, p?.inOther.workflow38, p?.inOther.payments38, p?.inOther.allocations38], [0, 0, 0, 0, 0]);
-  eq("no tenant context: 0 commitments / payments", [p?.noContext.commitments, p?.noContext.payments], [0, 0]);
+  const five = (v: number) => ({ commitments: v, installments: v, workflow: v, payments: v, allocations: v });
+  eq("owner truth: tenant 38's QA-P2-linked rows in all five tables", ok.owner?.own38QaP2, five(1));
+  eq("own-tenant POSITIVE: runtime under 38 sees its QA-P2 rows in all five tables", p?.in38.qaP2, five(1));
+  eq("38 → other business: 0 in all five tables", p?.in38.other, five(0));
+  eq("other business → 38: 0 in all five tables", p?.inOther, five(0));
+  eq("no tenant context: 0 in all five tables", p?.noContext, five(0));
+  eq("coverage reported 5/5 in every direction", ok.probe?.coverage, { ownPositive: "5/5", toOther: "5/5", fromOther: "5/5", noContext: "5/5" });
   eq("the probed other business came from the OWNER side (an id only)", ok.owner?.probeOtherBusinessId, other.id);
   eq("Installment sequence uniqueness by index identity: unique, on Installment, (commitmentId, sequence)", [ok.owner?.installmentSequenceUnique.exists, ok.owner?.installmentSequenceUnique.unique, ok.owner?.installmentSequenceUnique.table, ok.owner?.installmentSequenceUnique.columns], [true, true, "Installment", ["commitmentId", "sequence"]]);
   check("no credential printed", !ok.out.includes(PW));
@@ -189,10 +192,48 @@ async function main(): Promise<void> {
   check("cross-tenant rows visible → FAIL (exit 1), never a pass", leak.status === 1 && leak.probe?.verdict === "FAIL" && leak.probe.failures.some((f: string) => /payments/.test(f)), JSON.stringify(leak.probe?.failures ?? leak.out.slice(-300)));
   await owner.$executeRawUnsafe(`ALTER TABLE "Payment" ENABLE ROW LEVEL SECURITY`);
   await owner.$executeRawUnsafe(`ALTER TABLE "Payment" FORCE ROW LEVEL SECURITY`);
+  // Same for PaymentAllocation: it must be caught from tenant 38 AND with no context.
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAllocation" NO FORCE ROW LEVEL SECURITY`);
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAllocation" DISABLE ROW LEVEL SECURITY`);
+  const leakA = runEvidence({ RUNTIME_DATABASE_URL: urlAs("app_runtime_ci") }, "app_runtime_ci");
+  const leakAFailures: string[] = leakA.probe?.failures ?? [];
+  check(
+    "PaymentAllocation visible across tenants → FAIL in 38→other, other→38 and no-context",
+    leakA.status === 1 && ["38→other allocations", "other→38 allocations", "no-context allocations"].every((l) => leakAFailures.some((f) => f.startsWith(l))),
+    JSON.stringify(leakAFailures),
+  );
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAllocation" ENABLE ROW LEVEL SECURITY`);
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAllocation" FORCE ROW LEVEL SECURITY`);
+
   const facts = { ...ok.owner, installmentSequenceUnique: { ...ok.owner.installmentSequenceUnique, unique: false } };
   check("a non-unique Installment index → FAIL", !mod.verdict(facts, ok.probe.runtimeProbe).pass);
-  const empty = { ...ok.owner, own38QaP2Commitments: 0, own38Commitments: 0 };
-  check("empty QA tenant → the positive check says NOT YET AVAILABLE (no invented pass)", /NOT YET AVAILABLE/.test(mod.verdict(empty, ok.probe.runtimeProbe).positiveCheck));
+
+  // Pure regressions on the verdict: every table, every direction, is load-bearing.
+  const base = ok.probe.runtimeProbe;
+  check("the clean probe itself passes the verdict", mod.verdict(ok.owner, base).pass);
+  const clone = () => JSON.parse(JSON.stringify(base));
+  for (const k of mod.PROTECTED) {
+    const to = clone(); to.in38.other[k] = 1;
+    const from = clone(); from.inOther[k] = 1;
+    const none = clone(); none.noContext[k] = 1;
+    const gone = clone(); delete gone.noContext[k]; delete gone.inOther[k]; delete gone.in38.other[k];
+    check(`${k}: visible 38→other → FAIL`, !mod.verdict(ok.owner, to).pass);
+    check(`${k}: visible other→38 → FAIL`, !mod.verdict(ok.owner, from).pass);
+    check(`${k}: visible with no context → FAIL`, !mod.verdict(ok.owner, none).pass);
+    check(`${k}: dropped from the probe → FAIL (a missing count is never 0)`, mod.verdict(ok.owner, gone).failures.length === 3);
+    const fewer = clone(); fewer.in38.qaP2[k] = ok.owner.own38QaP2[k] - 1;
+    check(`${k}: runtime sees less than owner truth → FAIL`, !mod.verdict(ok.owner, fewer).pass);
+    const missing = clone(); delete missing.in38.qaP2[k];
+    check(`${k}: dropped from own-positive → FAIL`, !mod.verdict(ok.owner, missing).pass);
+    const noTruth = { ...ok.owner, own38QaP2: { ...ok.owner.own38QaP2, [k]: 0 } };
+    const noRows = clone(); noRows.in38.qaP2[k] = 0;
+    check(`${k}: 0 visible of 0 owned → FAIL (NOT PROVEN, no invented pass)`, mod.verdict(noTruth, noRows).failures.some((f: string) => f.includes(`own-positive ${k}`) && /NOT PROVEN/.test(f)));
+  }
+  eq("coverage lists all five tables in every direction", mod.verdict(ok.owner, base).coverage, {
+    ownPositive: [...mod.PROTECTED], toOther: [...mod.PROTECTED], fromOther: [...mod.PROTECTED], noContext: [...mod.PROTECTED],
+  });
+  const empty = { ...ok.owner, own38QaP2: five(0) };
+  check("empty QA tenant → FAIL, never an invented pass", !mod.verdict(empty, { ...base, in38: { ...base.in38, qaP2: five(0) } }).pass);
 
   console.log("\n3 · negative: writes through the runtime evidence configuration are refused by Postgres");
   const fingerprint = async () =>
