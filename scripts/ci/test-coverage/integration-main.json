@@ -96,6 +96,10 @@
     "lib/services/revenue/offer-semantics.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "#551/P1: pure offer semantics (no DB); no workflow runs it — product-test debt"
+    },
+    "lib/services/crm/lead-lifecycle.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "M5 lead lifecycle contract (next-action vocabulary = migration CHECKs, suggestions + dismissal, fact/inference classes, attention bands, Secretary briefing, no AI client in the lifecycle path); run by m5-crm-lifecycle-ci.yml, which also proves the suite can fail"
     }
   }
 }

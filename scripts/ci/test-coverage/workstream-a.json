@@ -928,8 +928,8 @@
       "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
     },
     "lib/services/crm/lead-collision-recovery.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/crm/lead-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -940,24 +940,24 @@
       "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
     },
     "lib/services/crm/lead-priority-order.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/crm/lead-w2.service.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/crm/lead-w3-closure.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/crm/lead-w3.service.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/crm/lead.service.test.ts": {
-      "class": "LOCAL_ONLY",
-      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Leads domain on real PostgreSQL (M5 schema + partial one-open-lead index); run by m5-crm-lifecycle-ci.yml (lead-domain job)"
     },
     "lib/services/documents/document-ingestion.verify.test.ts": {
       "class": "SECURITY_REQUIRED",

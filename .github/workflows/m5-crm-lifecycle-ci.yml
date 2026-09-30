@@ -300,6 +300,9 @@ jobs:
       - name: Leads W1–W3 + collision recovery + priority order (real PostgreSQL)
         run: |
           set -euo pipefail
-          for t in lead.service lead-w2.service lead-w3.service lead-w3-closure lead-collision-recovery lead-priority-order; do
-            echo "== $t"; npx tsx "lib/services/crm/$t.test.ts"
-          done
+          npx tsx lib/services/crm/lead.service.test.ts
+          npx tsx lib/services/crm/lead-w2.service.test.ts
+          npx tsx lib/services/crm/lead-w3.service.test.ts
+          npx tsx lib/services/crm/lead-w3-closure.test.ts
+          npx tsx lib/services/crm/lead-collision-recovery.test.ts
+          npx tsx lib/services/crm/lead-priority-order.test.ts

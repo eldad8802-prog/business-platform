@@ -139,6 +139,12 @@ async function main() {
       .catch(() => {});
   }
 
+  // M5 — creating a Lead also appends its `created` lifecycle step in the SAME
+  // transaction. Production's grant on the history is SELECT + INSERT only
+  // (append-only; migration 20261002090000_crm_lead_lifecycle), mirrored exactly.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON "LeadLifecycleEvent" TO ${RT_ROLE}`).catch(() => {});
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "LeadLifecycleEvent_id_seq" TO ${RT_ROLE}`).catch(() => {});
+
   // The shipped RLS, applied from the migration file itself so this battery can
   // never drift from what actually ships. `prisma db push` creates the tables
   // but does not run migration SQL, so the policy section is replayed here.
