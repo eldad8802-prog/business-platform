@@ -573,11 +573,16 @@ async function main() {
       assert.equal(statusEvents.length, 3, `expected 3 status events, got ${statusEvents.length}`);
     });
 
-    const bEvents = await prisma.learningEvent.count({
+    const bEvents = await prisma.learningEvent.groupBy({
+      by: ["eventType"],
       where: { businessId: b.businessId, entityType: "LEAD" },
+      _count: { _all: true },
     });
     check("business B only logged its own lead creation", () => {
-      assert.equal(bEvents, 1);
+      // M5: a creation is the legacy LEAD_CREATED audit event plus the
+      // LEAD_LIFECYCLE_STARTED sensor — each exactly once, nothing else.
+      const byType = Object.fromEntries(bEvents.map((e) => [e.eventType, e._count._all]));
+      assert.deepEqual(byType, { [LEAD_EVENTS.CREATED]: 1, LEAD_LIFECYCLE_STARTED: 1 });
     });
 
     console.log(`\nLEAD SERVICE VERIFY PASS — ${passed} checks green.`);

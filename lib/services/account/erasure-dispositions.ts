@@ -242,6 +242,10 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     lastActivityAt: { disposition: "STRUCTURAL" },
     closedAt: { disposition: "STRUCTURAL" },
     lostReason: { disposition: "ERASE" },
+    // M5 — lifecycle bookkeeping: a counter, a closed vocabulary and a timestamp.
+    lifecycleVersion: { disposition: "STRUCTURAL" },
+    nextActionKind: { disposition: "STRUCTURAL" },
+    firstHandledAt: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

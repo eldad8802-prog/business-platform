@@ -22,7 +22,25 @@ import {
   type LeadFollowUpState,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
-import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
+import {
+  evaluateLeadAttention,
+  leadAttentionReasonLabel,
+  leadAttentionSummary,
+  type LeadEvidenceClass,
+} from "@/lib/services/crm/lead-attention";
+import {
+  LEAD_NEXT_ACTION_LABELS,
+  isLeadNextActionKind,
+  suggestionDueAt,
+  type LeadSuggestion,
+} from "@/lib/services/crm/lead-lifecycle-core";
+import {
+  dismissedSuggestionRules,
+  getLeadLifecycleHistory,
+  lastCustomerInboundByLead,
+  openIdentityProposalCounts,
+  type LeadLifecycleHistoryItem,
+} from "@/lib/services/crm/lead-lifecycle.service";
 import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
 import {
   deriveLeadConversationIntelligence,
@@ -50,6 +68,31 @@ export type LeadCardLead = {
   lostReason: string | null;
   createdAt: string;
   updatedAt: string;
+  /** M5 — send back as `expectedVersion` on a lifecycle write (stale protection). */
+  lifecycleVersion: number;
+  /** M5 — what the open next action is (null for a pre-M5 follow-up or none). */
+  nextActionKind: string | null;
+  nextActionLabel: string | null;
+  firstHandledAt: string | null;
+  /** M5 — the owner's estimate / the amount agreed at WON (fixed-point strings). */
+  valueEstimate: string | null;
+  finalPrice: string | null;
+  currency: string | null;
+};
+
+/** M5 — the lifecycle section of the card. */
+export type LeadCardLifecycle = {
+  /** Why the lead wants the owner, and how much that claim rests on. */
+  attention: {
+    reason: string | null;
+    label: string | null;
+    summary: string | null;
+    evidenceClass: LeadEvidenceClass | null;
+  };
+  /** Dubiz's proposal — shown as a proposal, applied only if the owner accepts it. */
+  suggestion: (LeadSuggestion & { dueAt: string }) | null;
+  /** Newest first. Durable history (LeadLifecycleEvent); no personal data. */
+  history: LeadLifecycleHistoryItem[];
 };
 
 export type LeadCardCustomer = {
@@ -92,6 +135,8 @@ export type LeadCard = {
   intelligence: LeadConversationIntelligence | null;
   /** W3 — why this lead sits where it does in the queue. */
   priority: LeadPriority;
+  /** M5 — lifecycle attention, suggestion and history. */
+  lifecycle: LeadCardLifecycle;
 };
 
 export type GetLeadCardInput = {
@@ -200,11 +245,23 @@ export async function getLeadCard(
   // uses. Nothing here writes, and nothing here touches `lead.status` — the
   // stage a conversation reports is evidence, the status is the owner's call.
   const intelligence = deriveLeadConversationIntelligence({ conversations, now });
+  // M5 — the same lifecycle facts the attention loader reads, for this one lead.
+  const tx = db as CardTx;
+  const [dismissed, proposals, inbound, history] = await Promise.all([
+    dismissedSuggestionRules(tx, input.businessId, [lead.id]),
+    openIdentityProposalCounts(tx, input.businessId, [lead.id]),
+    lastCustomerInboundByLead(tx, input.businessId, [lead.id]),
+    getLeadLifecycleHistory(tx, input.businessId, lead.id, 30),
+  ]);
   const attention = evaluateLeadAttention(
     {
       status,
       nextFollowUpAt: lead.nextFollowUpAt,
       createdAt: lead.createdAt,
+      lastActivityAt: lead.lastActivityAt,
+      lastCustomerInboundAt: inbound.get(lead.id) ?? null,
+      openIdentityProposals: proposals.get(lead.id) ?? 0,
+      dismissedRuleIds: dismissed.get(lead.id) ?? [],
     },
     now
   );
@@ -226,6 +283,15 @@ export async function getLeadCard(
       lostReason: lead.lostReason,
       createdAt: lead.createdAt.toISOString(),
       updatedAt: lead.updatedAt.toISOString(),
+      lifecycleVersion: lead.lifecycleVersion,
+      nextActionKind: lead.nextActionKind,
+      nextActionLabel: isLeadNextActionKind(lead.nextActionKind)
+        ? LEAD_NEXT_ACTION_LABELS[lead.nextActionKind]
+        : null,
+      firstHandledAt: iso(lead.firstHandledAt),
+      valueEstimate: lead.valueEstimate === null ? null : lead.valueEstimate.toFixed(2),
+      finalPrice: lead.finalPrice === null ? null : lead.finalPrice.toFixed(2),
+      currency: lead.currency,
     },
     followUp: evaluateLeadFollowUp(lead.nextFollowUpAt, now),
     needsAttention: leadNeedsAttention(
@@ -254,5 +320,17 @@ export async function getLeadCard(
     },
     intelligence,
     priority,
+    lifecycle: {
+      attention: {
+        reason: attention.reason,
+        label: attention.reason ? leadAttentionReasonLabel(attention.reason) : null,
+        summary: attention.reason ? leadAttentionSummary(attention, lead.nextFollowUpAt, now) || null : null,
+        evidenceClass: attention.evidenceClass ?? null,
+      },
+      suggestion: attention.suggestion
+        ? { ...attention.suggestion, dueAt: suggestionDueAt(attention.suggestion, now).toISOString() }
+        : null,
+      history,
+    },
   };
 }

@@ -1,0 +1,305 @@
+# Business Intake M5 — CRM lead lifecycle + Secretary (ephemeral PG17).
+#
+# The lab reproduces the database M5 migrates FROM, then applies the REAL M5
+# migration file:
+#   1. the PRE-M5 schema — this PR's BASE (main) — via `db push`; sec-C's
+#      composite keys from their real migration; Lead's partial one-open-lead
+#      index; Lead's Production posture (FORCE RLS policy p7w1_tenant, runtime
+#      S/I/U without DELETE); M2–M4 isolation from their real migrations;
+#   2. PRE-EXISTING leads seeded before the migration, so the backfill runs on
+#      real rows (NEW / WON with a float value / QUOTED);
+#   3. the REAL M5 migration, applied with psql as the owner;
+#   4. no drift between the migrated database and prisma/schema.prisma beyond
+#      the documented DB-only objects (sec-C 13 + M4 3 + M5 1 = 17);
+#   5. the M5 battery as a NOSUPERUSER / NOBYPASSRLS runtime named app_runtime,
+#      through the real intake processor, lead service and HTTP routes;
+#   6. regression on the SAME migrated database: the M4 and M3 batteries.
+# A second job runs the existing Leads domain suites on real PostgreSQL.
+#
+# Once M5 is on main, a later PR's base already contains it: the lab then
+# `db push`es the current schema and applies isolation through m5 from the
+# helper (migration mechanics were proven here).
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network; no LLM key.
+
+name: m5 — CRM lead lifecycle + Secretary (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/crm/**"
+      - "lib/business-status/**"
+      - "lib/intake/**"
+      - "lib/sensors/**"
+      - "lib/api/leads.ts"
+      - "app/api/leads/**"
+      - "app/api/intake/**"
+      - "app/(shell)/secretary/**"
+      - "components/leads/**"
+      - "lib/services/account/**"
+      - "scripts/security/intake-isolation-lab.mjs"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261002090000_crm_lead_lifecycle/**"
+      - ".m5/**"
+      - ".m4/**"
+      - ".github/workflows/m5-crm-lifecycle-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure:
+    name: M5 lead lifecycle (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Lifecycle core, attention, suggestions, briefing, AI boundary
+        run: npx tsx lib/services/crm/lead-lifecycle.test.ts
+      - name: Leads core + intelligence (W1–W3 contracts intact)
+        run: |
+          npx tsx lib/services/crm/lead-core.test.ts
+          npx tsx lib/services/crm/lead-intelligence.test.ts
+      - name: Sensor contract (lead lifecycle sensors carry no personal data)
+        run: npx tsx lib/sensors/sensors.test.ts
+      - name: Export contract (activated vs deprecated Lead fields)
+        run: npx tsx lib/data-transfer/export/export.verify.test.ts
+      - name: Negative proof — an inference relabelled as a fact must fail
+        run: |
+          set -uo pipefail
+          F=lib/services/crm/lead-attention.ts
+          cp "$F" "$F.bak"
+          sed -i 's/  STALLED: "inference",/  STALLED: "fact",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAIL: mutation did not apply"; exit 1; fi
+          if npx tsx lib/services/crm/lead-lifecycle.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an inference passed as a fact"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: evidence classes are enforced"
+
+  battery:
+    name: M5 battery (PG17, real M5 migration, NOBYPASSRLS runtime) + M4/M3 regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m5_owner
+          POSTGRES_PASSWORD: m5_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m5
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m5_owner -d dubiz_m5"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m5_owner:m5_ci_synthetic_owner_pw@localhost:5432/dubiz_m5
+      RUNTIME_URL: postgresql://app_runtime:m5_ci_synthetic_runtime_pw@localhost:5432/dubiz_m5
+      AUTH_TOKEN_SECRET: m5_ci_secret_synthetic_at_least_32_characters_long
+      WHATSAPP_APP_SECRET: m5_ci_synthetic_whatsapp_app_secret
+      M5_RUN_TAG: m5ci
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab schema — the PR base (pre-M5) as the owner
+        id: base
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$(git rev-parse origin/main)}"
+          git show "${base}:prisma/schema.prisma" > /tmp/base.prisma
+          if ! grep -q 'model IdentityProposal' /tmp/base.prisma; then
+            echo "base ${base} predates M4 — M5 cannot be applied on it"; exit 1
+          fi
+          if grep -q 'model LeadLifecycleEvent' /tmp/base.prisma; then
+            echo "base ${base} already contains M5 → pushed-schema lab"
+            echo "mode=pushed" >> "$GITHUB_OUTPUT"
+            npx prisma db push --skip-generate
+          else
+            echo "base ${base} is pre-M5 → the REAL migration will be applied"
+            echo "mode=migration" >> "$GITHUB_OUTPUT"
+            npx prisma db push --schema /tmp/base.prisma --skip-generate
+          fi
+
+      - name: 1a. sec-C composite keys (real migration) + Lead's partial one-open-lead index
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE UNIQUE INDEX \"Lead_open_phone_key\" ON \"Lead\" (\"businessId\", \"phone\") WHERE \"phone\" IS NOT NULL AND \"status\" NOT IN ('WON','LOST','DROPPED')"
+
+      - name: 1b. Pre-existing leads (the backfill runs on real rows)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
+          INSERT INTO "Business" (name, "updatedAt") VALUES ('m5-backfill-lab', now());
+          INSERT INTO "Lead" ("businessId","customerName","phone","status","createdAt","updatedAt","lastActivityAt","closedAt","valueEstimate","currency")
+          SELECT b.id, v.n, v.p, v.s::"LeadStatus", now() - v.c * interval '1 day', now(), now() - v.a * interval '1 day',
+                 CASE WHEN v.s IN ('WON','LOST','DROPPED') THEN now() - v.a * interval '1 day' END, v.val, v.cur
+          FROM "Business" b, (VALUES ('bf-new','972500000001','NEW',5,5,NULL::float8,'ILS'),
+                                     ('bf-won','972500000002','WON',9,1,1234.567::float8,'ILS'),
+                                     ('bf-quoted','972500000003','QUOTED',8,4,NULL::float8,NULL)) AS v(n,p,s,c,a,val,cur)
+          WHERE b.name = 'm5-backfill-lab';
+          SQL
+
+      - name: 1c. Runtime role app_runtime (NOSUPERUSER, NOBYPASSRLS) + Lead's Production posture + M2–M4 isolation
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 'm5_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;" \
+            -c "REVOKE DELETE, TRUNCATE ON \"Lead\" FROM app_runtime;"
+          # Lead's policy, verbatim from 20260824210000_d2_p7_wave1_tenant_rls.
+          awk '/^-- Lead \(sole runtime consumer/{p=1} p&&/^-- Deal/{exit} p' \
+            prisma/migrations/20260824210000_d2_p7_wave1_tenant_rls/migration.sql > /tmp/lead-rls.sql
+          grep -q 'CREATE POLICY p7w1_tenant ON "Lead"' /tmp/lead-rls.sql || { echo "Lead RLS block not found"; exit 1; }
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/lead-rls.sql
+          THROUGH=$([ "${{ steps.base.outputs.mode }}" = "migration" ] && echo m4 || echo m5)
+          THROUGH="$THROUGH" node --input-type=module -e '
+            import { intakeIsolationStatements } from "./scripts/security/intake-isolation-lab.mjs";
+            for (const s of intakeIsolationStatements("app_runtime", { through: process.env.THROUGH, dbOnly: true })) console.log(s + ";");
+          ' > /tmp/isolation.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/isolation.sql
+          psql "$RUNTIME_URL" -tAc "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+
+      - name: 2. Apply the REAL M5 migration (owner)
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql
+
+      - name: 2a. The migration's preflight refuses a database without its prerequisites
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -uo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE m5_empty"
+          EMPTY_URL="${OWNER_URL%/*}/m5_empty"
+          psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE TABLE "Lead" (id int)'
+          rc=0
+          out=$(psql "$EMPTY_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql 2>&1) || rc=$?
+          echo "$out" | tail -3
+          if [ $rc -eq 0 ]; then echo "preflight did NOT refuse"; exit 1; fi
+          echo "$out" | grep -q "M5 requires" || { echo "refused for the wrong reason"; exit 1; }
+
+      - name: 3. No drift between the migrated database and schema.prisma
+        if: steps.base.outputs.mode == 'migration'
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          npx prisma migrate diff --from-url "$OWNER_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
+          # DB-ONLY by design, and ONLY these: sec-C's 13, M4's 3 composite tenant FKs, M5's 1.
+          DBONLY='"(Appointment_customerId|Appointment_leadId|Appointment_sourceConversationId|Appointment_sourceMessageId|Conversation_customerId|Conversation_leadId|Lead_customerId|Message_customerId|Message_generatedFromSuggestionId|IdentityLink_customerId|IdentityProposal_candidateCustomerId|IdentityProposal_leadId|LeadLifecycleEvent_leadId)_tenant_fkey"|"(Customer|Lead|Message|ReplySuggestion)_businessId_id_key"'
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
+          n=$(grep -cE "$DBONLY" /tmp/drift-stmts.sql || true)
+          grep -vE "$DBONLY" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
+          echo "documented DB-only objects reported by the diff (expected 17): $n"
+          if [ -s /tmp/drift-rest.sql ]; then
+            echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1
+          fi
+          if [ "$n" != "17" ]; then echo "expected exactly the 17 documented DB-only objects, got $n"; exit 1; fi
+
+      - name: 4. M5 battery (runtime role, real intake + lead service + routes)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .m5/crm-lifecycle-battery.ts
+
+      - name: 5. M4 identity + routing battery still green on the M5 database
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+          M4_RUN_TAG: m4-under-m5
+        run: npx tsx .m4/identity-routing-battery.ts
+
+      - name: 6. M3 foundation battery still green on the M5 database
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+          M3_LAB_MODE: pushed
+          M3_RUN_TAG: m3-under-m5
+        run: npx tsx .m3/intake-foundation-battery.ts --phase=post
+
+  lead-domain:
+    name: Leads domain suites (PG17, the M5 schema)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m5_owner
+          POSTGRES_PASSWORD: m5_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_leads
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m5_owner -d dubiz_leads"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://m5_owner:m5_ci_synthetic_owner_pw@localhost:5432/dubiz_leads
+      DIRECT_URL: postgresql://m5_owner:m5_ci_synthetic_owner_pw@localhost:5432/dubiz_leads
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Schema + Lead's partial one-open-lead index
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          npx prisma db push --skip-generate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE UNIQUE INDEX \"Lead_open_phone_key\" ON \"Lead\" (\"businessId\", \"phone\") WHERE \"phone\" IS NOT NULL AND \"status\" NOT IN ('WON','LOST','DROPPED')"
+      - name: Leads W1–W3 + collision recovery + priority order (real PostgreSQL)
+        run: |
+          set -euo pipefail
+          for t in lead.service lead-w2.service lead-w3.service lead-w3-closure lead-collision-recovery lead-priority-order; do
+            echo "== $t"; npx tsx "lib/services/crm/$t.test.ts"
+          done

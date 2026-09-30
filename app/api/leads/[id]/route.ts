@@ -58,6 +58,14 @@ export async function GET(
  *   - FOLLOW-UP request  → `{ followUpAt: string, followUpNote? }` to set or
  *                          reschedule, or `{ followUpAt: null }` to mark done
  *   - BASICS request     → name / phone / email / intentSnapshot / sourceChannel
+ *   - VALUE request      → `{ value: { amountKind: "estimate" | "agreed", amount, currency? } }` (M5)
+ *   - DISMISS request    → `{ dismissSuggestion: "<ruleId>" }` — "not now" to a Dubiz suggestion (M5)
+ *
+ * M5 — STATUS and FOLLOW-UP requests may carry `expectedVersion` (the card's
+ * lifecycleVersion): if the lead changed since, the write is refused with 409
+ * LEAD_LIFECYCLE_STALE rather than overwriting a newer decision. A FOLLOW-UP
+ * request may carry `nextActionKind` and, when it accepts a Dubiz suggestion,
+ * `fromSuggestionRuleId` — an acceptance is an owner decision like any other.
  *
  * Mixing two contracts in one request is rejected: they are three different
  * business actions with three different audit events, and a partial multi-service
@@ -91,17 +99,28 @@ export async function PATCH(
       if (has(key)) basics[key] = body[key];
     }
     const hasBasics = Object.keys(basics).length > 0;
+    const hasValue = has("value");
+    const hasDismiss = has("dismissSuggestion");
 
-    const contracts = [hasStatus, hasFollowUp, hasBasics].filter(Boolean).length;
+    const contracts = [hasStatus, hasFollowUp, hasBasics, hasValue, hasDismiss].filter(Boolean).length;
     if (contracts === 0) {
       throw new ValidationError(
-        "Provide one of: status, followUpAt, or basic lead fields"
+        "Provide one of: status, followUpAt, value, dismissSuggestion, or basic lead fields"
       );
     }
     if (contracts > 1) {
       throw new ValidationError(
-        "status, followUpAt and basic fields cannot be updated in the same request"
+        "status, followUpAt, value, dismissSuggestion and basic fields cannot be updated in the same request"
       );
+    }
+
+    let expectedVersion: number | null = null;
+    if (has("expectedVersion") && body.expectedVersion !== null) {
+      const v = body.expectedVersion;
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
+        throw new ValidationError("expectedVersion must be a non-negative integer");
+      }
+      expectedVersion = v;
     }
 
     const businessId = user.businessId;
@@ -127,6 +146,7 @@ export async function PATCH(
                 status: body.status as string,
                 lostReason:
                   (body.lostReason as string | null | undefined) ?? null,
+                expectedVersion,
                 ...who,
               },
               { tx }
@@ -137,7 +157,7 @@ export async function PATCH(
             // signal — completion IS clearing the timestamp, so there is no
             // separate reminder row that could fire twice.
             return body.followUpAt === null
-              ? leadService.clearFollowUp({ businessId, leadId, ...who }, { tx })
+              ? leadService.clearFollowUp({ businessId, leadId, expectedVersion, ...who }, { tx })
               : leadService.setFollowUp(
                   {
                     businessId,
@@ -145,10 +165,39 @@ export async function PATCH(
                     followUpAt: body.followUpAt as string,
                     note:
                       (body.followUpNote as string | null | undefined) ?? null,
+                    ...(has("nextActionKind")
+                      ? { nextActionKind: (body.nextActionKind as string | null) ?? null }
+                      : {}),
+                    fromSuggestionRuleId:
+                      (body.fromSuggestionRuleId as string | null | undefined) ?? null,
+                    expectedVersion,
                     ...who,
                   },
                   { tx }
                 );
+          }
+          if (hasValue) {
+            const v = (body.value ?? {}) as Record<string, unknown>;
+            return leadService.setLeadValue(
+              {
+                businessId,
+                leadId,
+                amountKind: v.amountKind as "estimate" | "agreed",
+                amount: (v.amount as number | string | null | undefined) ?? null,
+                currency: (v.currency as string | null | undefined) ?? null,
+                expectedVersion,
+                ...who,
+              },
+              { tx }
+            );
+          }
+          if (hasDismiss) {
+            return leadService
+              .dismissLeadSuggestion(
+                { businessId, leadId, ruleId: String(body.dismissSuggestion ?? ""), expectedVersion, ...who },
+                { tx }
+              )
+              .then(() => ({ id: leadId }));
           }
           return leadService.updateLead({ businessId, leadId, ...basics, ...who }, { tx });
         };

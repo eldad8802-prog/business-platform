@@ -138,7 +138,7 @@ check("no internal field name reaches a column header", () => {
 
 /* ================================ 2. Leads dormant fields (re-derived) === */
 
-check("leads-dormant-fields: the six omitted columns still have NO writer", () => {
+check("leads-dormant-fields: the three omitted columns still have NO writer", () => {
   // This is the guard that keeps the omission honest. It re-derives the
   // evidence rather than trusting the decision made at design time: if a real
   // product flow starts writing one of these, THIS FAILS, and the export must

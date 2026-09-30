@@ -1,20 +1,19 @@
 /**
  * Leads export descriptor.
  *
- * # Six columns are deliberately NOT exported, and this is why
+ * # Three columns are deliberately NOT exported, and this is why
  *
- * `Lead` carries `temperature`, `currentStage`, `valueEstimate`, `quotedPrice`,
- * `finalPrice` and `currency` from an earlier design. NO code path in the Leads
- * domain writes any of them — `lead.service.ts` creates rows with
- * customerName / phone / email / intentSnapshot / sourceChannel / customerId /
- * status / lastActivityAt, and its updates touch status, closedAt, lostReason,
- * nextFollowUpAt, followUpNote and lastActivityAt. The money lives on `Deal`.
- * (The `currentStage` / `temperatureScore` that ARE written belong to
+ * `Lead` carries `temperature`, `currentStage` and `quotedPrice` from an
+ * earlier design. NO code path writes any of them, and Business Intake M5
+ * DEPRECATED all three: `status` is the canonical lifecycle stage, quote truth
+ * is the billing QUOTE document, and a temperature is a derived score. (The
+ * `currentStage` / `temperatureScore` that ARE written belong to
  * `Conversation`, a different table.)
  *
- * Exporting them would hand the owner six permanently empty columns and imply
- * Dubiz holds a pipeline value it does not have. `temperature` is additionally
- * a derived score, which the approved scope excludes outright.
+ * M5 ACTIVATED three former dormant fields, and they are exported: the owner's
+ * `valueEstimate` (estimated opportunity value), `finalPrice` (the amount
+ * agreed when the lead was won — not collected revenue) and their `currency`,
+ * plus the kind of the open next action.
  *
  * Also excluded: `id`, `businessId`, `customerId` (internal keys) and
  * `updatedAt` (technical timestamp).
@@ -31,7 +30,8 @@ import type {
   ExportDomainDescriptor,
   ExportPage,
 } from "@/lib/data-transfer/export/export-domain.types";
-import { date, label, text } from "@/lib/data-transfer/export/export-values";
+import { date, label, num, text } from "@/lib/data-transfer/export/export-values";
+import { LEAD_NEXT_ACTION_LABELS } from "@/lib/services/crm/lead-lifecycle-core";
 
 /**
  * `Lead` columns that EXIST in the schema but have no active writer today.
@@ -51,10 +51,7 @@ import { date, label, text } from "@/lib/data-transfer/export/export-values";
 export const LEAD_DORMANT_FIELDS = [
   "temperature",
   "currentStage",
-  "valueEstimate",
   "quotedPrice",
-  "finalPrice",
-  "currency",
 ] as const;
 
 /**
@@ -95,6 +92,11 @@ const COLUMNS = [
   { header: "נסגר בתאריך", type: "date", width: 14, exportable: true, importable: false },
   { header: "סיבת אי-סגירה", type: "text", width: 32, exportable: true, importable: false },
   { header: "נוצר בתאריך", type: "date", width: 14, exportable: true, importable: false },
+  // M5 — appended (positional order of the shipped columns above is unchanged).
+  { header: "הפעולה הבאה", type: "text", width: 22, exportable: true, importable: false },
+  { header: "הערכת שווי", type: "number", width: 14, exportable: true, importable: false },
+  { header: "סכום שסוכם", type: "number", width: 14, exportable: true, importable: false },
+  { header: "מטבע", type: "text", width: 8, exportable: true, importable: false },
 ] as const;
 
 export const leadsExportDescriptor: ExportDomainDescriptor = {
@@ -127,6 +129,10 @@ export const leadsExportDescriptor: ExportDomainDescriptor = {
         closedAt: true,
         lostReason: true,
         createdAt: true,
+        nextActionKind: true,
+        valueEstimate: true,
+        finalPrice: true,
+        currency: true,
       },
     });
 
@@ -144,6 +150,10 @@ export const leadsExportDescriptor: ExportDomainDescriptor = {
         date(r.closedAt),
         text(r.lostReason),
         date(r.createdAt),
+        label(r.nextActionKind, LEAD_NEXT_ACTION_LABELS as Record<string, string>),
+        num(r.valueEstimate === null ? null : Number(r.valueEstimate)),
+        num(r.finalPrice === null ? null : Number(r.finalPrice)),
+        text(r.valueEstimate !== null || r.finalPrice !== null ? r.currency : null),
       ]),
       lastId: rows.length > 0 ? rows[rows.length - 1].id : null,
     };

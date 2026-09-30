@@ -25,6 +25,7 @@
  * makes two concurrent decisions on one proposal serialise.
  */
 
+import { appendLeadLifecycleEvent, lockLeadForLifecycle } from "@/lib/services/crm/lead-lifecycle.service";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
@@ -141,6 +142,26 @@ async function staleness(tx: TenantTx, businessId: number, p: LockedProposal): P
   return null;
 }
 
+/** M5 — record an owner-decided contact relink on the lead's lifecycle history. */
+async function recordContactStep(
+  tx: Prisma.TransactionClient,
+  businessId: number,
+  leadId: number,
+  kind: "contact_attached" | "contact_detached",
+  proposalId: number,
+  userId: number | null
+): Promise<void> {
+  const locked = await lockLeadForLifecycle(tx, businessId, leadId);
+  if (!locked) return;
+  await appendLeadLifecycleEvent(tx, locked, {
+    kind,
+    idempotencyKey: `identity-proposal:${proposalId}:${kind}`,
+    actor: userId !== null ? { type: "OWNER_USER", userId } : { type: "SYSTEM" },
+    source: userId !== null ? "OWNER_UI" : "SYSTEM",
+    evidence: { kind: "identity_proposal", ref: String(proposalId) },
+  });
+}
+
 export async function decideProposal(args: {
   businessId: number;
   proposalId: number;
@@ -160,10 +181,14 @@ export async function decideProposal(args: {
       const effects = (p.appliedEffects ?? {}) as { lead?: { id: number; previousCustomerId: number | null } };
       if (effects.lead) {
         // Revert only what this confirmation did, and only if nobody changed it since.
-        await tx.lead.updateMany({
+        const reverted = await tx.lead.updateMany({
           where: { id: effects.lead.id, businessId: args.businessId, customerId: p.candidateCustomerId },
           data: { customerId: effects.lead.previousCustomerId },
         });
+        if (reverted.count === 1) {
+          // M5 — the reversal is part of the lead's lifecycle history (once per proposal).
+          await recordContactStep(tx, args.businessId, effects.lead.id, "contact_detached", p.id, args.userId);
+        }
       }
       await tx.identityProposal.updateMany({
         where: { id: p.id, businessId: args.businessId },
@@ -209,7 +234,10 @@ export async function decideProposal(args: {
         where: { id: p.leadId, businessId: args.businessId, customerId: null },
         data: { customerId: p.candidateCustomerId },
       });
-      if (attached.count === 1) effects.lead = { id: p.leadId, previousCustomerId: null };
+      if (attached.count === 1) {
+        effects.lead = { id: p.leadId, previousCustomerId: null };
+        await recordContactStep(tx, args.businessId, p.leadId, "contact_attached", p.id, args.userId);
+      }
     }
     await tx.identityProposal.updateMany({
       where: { businessId: args.businessId, intakeEventId: p.intakeEventId, state: "proposed", id: { not: p.id } },

@@ -19,6 +19,7 @@ import {
 } from "@/lib/services/crm/lead-core";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
+import { LeadLifecycleSection } from "@/components/leads/LeadLifecycleSection";
 import {
   followUpTone,
   formatDate,
@@ -171,7 +172,8 @@ export function LeadCard() {
           actionError={actionError}
           onStatus={(status, lostReason) =>
             void mutate(
-              () => updateLeadStatus(id, status, lostReason),
+              // M5 — the version this screen shows: a newer change elsewhere is refused, not overwritten.
+              () => updateLeadStatus(id, status, lostReason, state.card.lead.lifecycleVersion),
               "לא הצלחנו לעדכן את הסטטוס"
             )
           }
@@ -184,6 +186,7 @@ export function LeadCard() {
           onFollowUpDone={() =>
             void mutate(() => clearLeadFollowUp(id), "לא הצלחנו לסגור את המעקב")
           }
+          onMutate={(fn, fallback) => void mutate(fn, fallback)}
         />
       )}
     </div>
@@ -197,6 +200,7 @@ function LeadCardBody({
   onStatus,
   onFollowUp,
   onFollowUpDone,
+  onMutate,
 }: {
   card: LeadCardDTO;
   busy: boolean;
@@ -204,6 +208,7 @@ function LeadCardBody({
   onStatus: (status: LeadStatusValue, lostReason?: string | null) => void;
   onFollowUp: (iso: string, note: string | null) => void;
   onFollowUpDone: () => void;
+  onMutate: (fn: () => Promise<LeadCardDTO>, fallback: string) => void;
 }) {
   const { lead, customer, followUp, conversations, needsAttention, intelligence } = card;
   const closed = isClosed(lead.status);
@@ -317,6 +322,8 @@ function LeadCardBody({
       ) : null}
 
       <NowSection intelligence={intelligence} status={lead.status} />
+
+      <LeadLifecycleSection card={card} busy={busy} onMutate={onMutate} />
 
       <FollowUpSection
         lead={lead}
