@@ -1,4 +1,4 @@
-name: Prod control plane — LOGIN role (OWNER GATE: writes roles)
+name: "Prod control plane — LOGIN role (OWNER GATE, writes roles)"
 
 # Provisions or disables the ONE Production login that joins the NOLOGIN group app_ctlplane.
 # scripts/ops/control-plane-login.ts. This WRITES to Production roles — it runs only on manual dispatch,
