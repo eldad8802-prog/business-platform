@@ -32,17 +32,30 @@ ok("the Brain is gated by the lease AND a fresh lifecycle check", /gate\.brainAl
 ok("M9 outcomes are gated by a fresh lifecycle check", /stillActive\(businessId\)[\s\S]{0,200}deriveOutcomesForBusiness/.test(src));
 ok("every refusal and every run leaves a security event", (src.match(/recordDeriveSecurityEvent\(/g) ?? []).length >= 5);
 {
-  const saved = { d: process.env.KNOWLEDGE_DERIVE_SECRET, c: process.env.CRON_SECRET };
+  const saved = { d: process.env.KNOWLEDGE_DERIVE_SECRET, c: process.env.CRON_SECRET, n: process.env.CRON_SECRET_NEXT };
   process.env.CRON_SECRET = "c".repeat(40);
   process.env.KNOWLEDGE_DERIVE_SECRET = "d".repeat(40);
   ok("the general CRON_SECRET is refused by the derive authority", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "UNAUTHORIZED");
   ok("the dedicated secret is accepted", decideDeriveAuth(`Bearer ${"d".repeat(40)}`) === "AUTHORIZED");
+  // Zero-gap CRON rotation: the transitional CRON_SECRET_NEXT gains no derive authority either.
+  process.env.CRON_SECRET_NEXT = "n".repeat(40);
+  ok("the rotation value CRON_SECRET_NEXT is refused by the derive authority", decideDeriveAuth(`Bearer ${"n".repeat(40)}`) === "UNAUTHORIZED");
+  ok("the dedicated secret is still accepted while CRON_SECRET_NEXT is set", decideDeriveAuth(`Bearer ${"d".repeat(40)}`) === "AUTHORIZED");
+  process.env.KNOWLEDGE_DERIVE_SECRET = "n".repeat(40);
+  ok("a dedicated secret EQUAL to CRON_SECRET_NEXT is treated as not configured", decideDeriveAuth(`Bearer ${"n".repeat(40)}`) === "NOT_CONFIGURED");
   process.env.KNOWLEDGE_DERIVE_SECRET = "c".repeat(40);
   ok("a dedicated secret EQUAL to CRON_SECRET is treated as not configured", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "NOT_CONFIGURED");
+  delete process.env.CRON_SECRET_NEXT;
+  ok("…with or without CRON_SECRET_NEXT", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "NOT_CONFIGURED");
+  process.env.KNOWLEDGE_DERIVE_SECRET = "d".repeat(40);
+  process.env.CRON_SECRET_NEXT = "   ";
+  ok("a blank CRON_SECRET_NEXT does not disable the derive authority", decideDeriveAuth(`Bearer ${"d".repeat(40)}`) === "AUTHORIZED");
+  delete process.env.CRON_SECRET_NEXT;
   delete process.env.KNOWLEDGE_DERIVE_SECRET;
   ok("no dedicated secret → not configured (fail closed)", decideDeriveAuth(`Bearer ${"c".repeat(40)}`) === "NOT_CONFIGURED");
   if (saved.d === undefined) delete process.env.KNOWLEDGE_DERIVE_SECRET; else process.env.KNOWLEDGE_DERIVE_SECRET = saved.d;
   if (saved.c === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved.c;
+  if (saved.n === undefined) delete process.env.CRON_SECRET_NEXT; else process.env.CRON_SECRET_NEXT = saved.n;
 }
 ok("a missing secret answers 503, never 'open'", /NOT_CONFIGURED[\s\S]{0,300}503/.test(src));
 ok("anything not AUTHORIZED is 401", /!==\s*"AUTHORIZED"[\s\S]{0,400}401/.test(src));

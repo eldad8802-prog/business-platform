@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
+import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
 import { runIntakeSweep } from "@/lib/intake/intake-sweeper";
 
 /**
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 async function handle(req: NextRequest) {
-  const decision = decideRecoveryAuth(req.headers.get("authorization"), process.env.CRON_SECRET);
+  const decision = decideCronAuth(req.headers.get("authorization"));
   if (decision === "NOT_CONFIGURED") {
     return NextResponse.json({ error: "sweep_not_configured" }, { status: 503 });
   }
