@@ -42,6 +42,8 @@ on:
           - 'ops/evidence/sec-c-530-production-evidence.sql'
           - 'ops/evidence/m4-identity-routing-preflight.sql'
           - 'ops/evidence/m4-identity-routing-production-evidence.sql'
+          - 'ops/evidence/m5-crm-lead-lifecycle-preflight.sql'
+          - 'ops/evidence/m5-crm-lead-lifecycle-production-evidence.sql'
 
 permissions:
   contents: read

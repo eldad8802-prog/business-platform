@@ -1,0 +1,157 @@
+# M5 Production evidence — both read-only files proven in a lab before they
+# read Production.
+#
+#   ops/evidence/m5-crm-lead-lifecycle-preflight.sql            (before the apply)
+#   ops/evidence/m5-crm-lead-lifecycle-production-evidence.sql  (after the apply)
+#
+# On an ephemeral PG17 with Production's role shape (NOLOGIN group app_runtime,
+# NOSUPERUSER / NOBYPASSRLS login app_runtime_prod inheriting it, and a default
+# ACL that would hand the group UPDATE and DELETE on every new table):
+#   1. the pre-M5 schema (main) + sec-C keys + existing leads;
+#   2. PREFLIGHT: all 10 assertions PASS;
+#   3. the REAL M5 migration, and its ledger row with the file's sha256;
+#   4. PREFLIGHT again: exactly N1–N3 and L1 FAIL (the names are now taken);
+#   5. PROOF: all 14 assertions PASS;
+#   6. four deliberate faults (ledger checksum, FORCE RLS, an UPDATE privilege
+#      for the runtime login, a Lead whose version disagrees with its history):
+#      exactly Q0, Q6, Q8 and Q13 FAIL.
+#
+# Steps 3–6 need the migration file: they run once PR-A (the migration) is in
+# the tree; before that (the ops PR) the preflight is proven on its own.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m5 — Production evidence lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/evidence/m5-crm-lead-lifecycle-*.sql"
+      - "prisma/migrations/20261002090000_crm_lead_lifecycle/**"
+      - ".github/workflows/m5-production-evidence-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: M5 Production evidence (PG17, real M5 migration, Production role shape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m5_owner
+          POSTGRES_PASSWORD: m5_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m5_ev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m5_owner -d dubiz_m5_ev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://m5_owner:m5_ci_synthetic_owner_pw@localhost:5432/dubiz_m5_ev
+      PGPASSWORD: m5_ci_synthetic_owner_pw
+      PREFLIGHT: ops/evidence/m5-crm-lead-lifecycle-preflight.sql
+      EVIDENCE: ops/evidence/m5-crm-lead-lifecycle-production-evidence.sql
+      MIGRATION: prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable in prod-readonly-evidence.yml"; exit 1; }
+          done
+
+      - name: 1. Pre-M5 schema (main) + sec-C keys + Production role shape + existing leads
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base HEAD origin/main)"
+          git show "${base}:prisma/schema.prisma" > /tmp/pre-m5.prisma
+          if grep -q 'model LeadLifecycleEvent' /tmp/pre-m5.prisma; then echo "base already has M5"; exit 1; fi
+          npx prisma db push --schema /tmp/pre-m5.prisma --skip-generate
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20260926110000_sec_c_tenant_composite_fk/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_runtime_prod LOGIN PASSWORD 'm5_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS IN ROLE app_runtime;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime;" \
+            -c "ALTER DEFAULT PRIVILEGES FOR ROLE m5_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime;" \
+            -c "ALTER DEFAULT PRIVILEGES FOR ROLE m5_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_runtime;" \
+            -c 'CREATE TABLE "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0)'
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
+          INSERT INTO "Business" (name, "updatedAt") VALUES ('ev-lab', now());
+          INSERT INTO "Lead" ("businessId","customerName","status","createdAt","updatedAt","lastActivityAt","closedAt","currency")
+          SELECT b.id, v.n, v.s::"LeadStatus", now(), now(), now(), CASE WHEN v.s = 'WON' THEN now() END, 'ILS'
+          FROM "Business" b, (VALUES ('a','NEW'),('b','WON'),('c','QUOTED')) v(n,s) WHERE b.name = 'ev-lab';
+          SQL
+
+      - name: 2. PREFLIGHT on the pre-M5 lab — every assertion PASS
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '[|] *FAIL *$' /tmp/pre.out; then echo "preflight FAILS on the pre-M5 lab"; exit 1; fi
+          test "$(grep -cE '[|] *PASS *$' /tmp/pre.out)" = "10" || { echo "expected 10 PASS rows"; exit 1; }
+
+      - name: 3. The REAL M5 migration + its ledger row (sha256 of the file, as migrate deploy records)
+        if: hashFiles('prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql') != ''
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          echo "migration sha256: $sum"
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the evidence file pins a different checksum"; exit 1; }
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '20261002090000_crm_lead_lifecycle', 1)"
+
+      - name: 4. PREFLIGHT after the migration — exactly N1, N2, N3 and L1 FAIL
+        if: hashFiles('prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql') != ''
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | tee /tmp/post.out
+          fails=$(grep -E '[|] *FAIL *$' /tmp/post.out | grep -oE '[|] (N[1-3]|L1|[A-Z][0-9]+) ' | tr -d '| ' | sort | tr '\n' ' ')
+          test "$fails" = "L1 N1 N2 N3 " || { echo "expected exactly L1 N1 N2 N3 to fail, got: $fails"; exit 1; }
+
+      - name: 5. PROOF on the migrated lab — every assertion PASS
+        if: hashFiles('prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql') != ''
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/pass.out
+          if grep -qE '[|] *FAIL *[|]' /tmp/pass.out; then echo "proof FAILS on a correctly migrated database"; exit 1; fi
+          test "$(grep -cE '[|] *PASS *[|]' /tmp/pass.out)" = "14" || { echo "expected 14 PASS rows"; exit 1; }
+
+      - name: 6. Four deliberate faults — exactly Q0, Q6, Q8, Q13 FAIL
+        if: hashFiles('prisma/migrations/20261002090000_crm_lead_lifecycle/migration.sql') != ''
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "UPDATE \"_prisma_migrations\" SET checksum = repeat('0', 64) WHERE migration_name = '20261002090000_crm_lead_lifecycle'" \
+            -c 'ALTER TABLE "LeadLifecycleEvent" NO FORCE ROW LEVEL SECURITY' \
+            -c 'GRANT UPDATE ON "LeadLifecycleEvent" TO app_runtime_prod' \
+            -c 'UPDATE "Lead" SET "lifecycleVersion" = "lifecycleVersion" + 5 WHERE id = (SELECT min(id) FROM "Lead")'
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/fail.out
+          fails=$(grep -E '[|] *FAIL *[|]' /tmp/fail.out | grep -oE '[|] Q[0-9]+ ' | tr -d '| ' | sort -V | tr '\n' ' ')
+          test "$fails" = "Q0 Q6 Q8 Q13 " || { echo "expected exactly Q0 Q6 Q8 Q13 to fail, got: $fails"; exit 1; }
+          grep -E 'Q8 .*FAIL' /tmp/fail.out | grep -q 'app_runtime_prod:LeadLifecycleEvent=arw' || { echo "Q8 detail does not name the runtime login's w"; exit 1; }
