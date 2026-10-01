@@ -38,6 +38,15 @@ import {
   type InstallmentFacts,
   type RecurrenceCadenceValue,
 } from "@/lib/services/payables/payables-core";
+import {
+  conflictMessage,
+  identityMismatches,
+  legacyMismatches,
+  normalizeIdempotencyKey,
+  paymentRequestFingerprint,
+  paymentRequestIdentity,
+  type PaymentRequestIdentity,
+} from "@/lib/services/payables/payment-request-identity";
 
 type Tx = Prisma.TransactionClient;
 
@@ -586,7 +595,78 @@ export async function recordManualPayment(input: RecordManualPaymentInput) {
   // Validated before a transaction is opened, so a malformed amount costs no
   // round trip. `recordPaymentInTx` validates again for its other callers.
   assertPositiveAmount(toMinorUnits(input.amount), "payment amount");
-  return withTenantTransaction((tx) => recordPaymentInTx(tx, input));
+  try {
+    return await withTenantTransaction((tx) => recordPaymentInTx(tx, input));
+  } catch (error) {
+    // Two first requests with the same key raced: both missed the replay lookup
+    // and the loser's insert hit Payment_businessId_idempotencyKey_key. Its
+    // transaction is aborted (Postgres 25P02), so the winner is resolved in a
+    // FRESH one — as a replay of the same request, or as a conflict — never a 500.
+    const key = normalizeIdempotencyKey(input.idempotencyKey);
+    if (!key || !isUniqueViolation(error)) throw error;
+    const resolved = await withTenantTransaction(async (tx) => {
+      const existing = await tx.payment.findFirst({ where: { businessId: input.businessId, idempotencyKey: key } });
+      return existing ? resolveIdempotentReplay(tx, input, existing) : null;
+    });
+    if (!resolved) throw error;
+    return resolved;
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/**
+ * A payment already exists under this key. It is the answer only if the new
+ * request is the same economic event (see payment-request-identity.ts);
+ * otherwise the key is being reused for something else — a deterministic
+ * conflict that writes nothing.
+ */
+async function resolveIdempotentReplay(
+  tx: Tx,
+  input: RecordManualPaymentInput,
+  existing: Prisma.PaymentGetPayload<object>,
+) {
+  const requested = paymentRequestIdentity(input);
+  const recordedEvent = await tx.payablesAuditEvent.findFirst({
+    where: { businessId: input.businessId, paymentId: existing.id, eventType: "PAYMENT_RECORDED" },
+    orderBy: { id: "asc" },
+    select: { commitmentId: true, metadata: true },
+  });
+  const allocations = await tx.paymentAllocation.findMany({
+    where: { businessId: input.businessId, paymentId: existing.id },
+    include: { installment: { select: { commitmentId: true } } },
+    orderBy: { id: "asc" },
+  });
+  const active = allocations.filter((a) => a.reversedAt === null);
+  const stored = (recordedEvent?.metadata as { request?: PaymentRequestIdentity; requestFingerprint?: string } | null) ?? null;
+
+  let mismatches: string[];
+  if (stored?.requestFingerprint && stored.request) {
+    const same = stored.requestFingerprint === paymentRequestFingerprint(requested);
+    mismatches = same ? [] : identityMismatches(stored.request, requested);
+    // Fingerprints differ yet no field does: the stored identity cannot be
+    // trusted as a match — refuse rather than guess.
+    if (!same && mismatches.length === 0) mismatches = ["request fingerprint"];
+  } else {
+    // Recorded before request fingerprints existed: compare what was stored.
+    mismatches = legacyMismatches(requested, {
+      commitmentId: recordedEvent?.commitmentId ?? allocations[0]?.installment.commitmentId ?? null,
+      amountMinor: toMinorUnits(existing.amount.toString()),
+      paidAt: existing.paidAt,
+      method: existing.method,
+      externalReference: existing.externalReference,
+      activeAllocationInstallmentIds: active.map((a) => a.installmentId),
+    });
+  }
+  if (mismatches.length > 0) throw new PayablesConflictError(conflictMessage(mismatches));
+  return {
+    payment: existing,
+    allocations: active.map(({ installment: _installment, ...row }) => row),
+    unallocated: null,
+    replayed: true,
+  };
 }
 
 /** Runs `fn` on a transaction the CALLER already opened (no nesting). */
@@ -619,20 +699,20 @@ export async function recordPaymentInTx(
   const amountMinor = toMinorUnits(input.amount);
   assertPositiveAmount(amountMinor, "payment amount");
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  const requestIdentity = paymentRequestIdentity(input);
+
   return runInCallerTx(outerTx, async (tx) => {
-    // Idempotency first: a retry returns the original economic event rather
-    // than creating a second one. Checked inside the transaction so two
-    // simultaneous retries cannot both pass it.
-    if (input.idempotencyKey) {
+    // Idempotency first: a retry of the SAME request returns the original
+    // economic event; the same key carrying a different request is a conflict.
+    // Two simultaneous first requests can both miss this lookup (READ
+    // COMMITTED); the unique index then refuses the loser's insert, and
+    // `recordManualPayment` resolves it in a fresh transaction.
+    if (idempotencyKey) {
       const existing = await tx.payment.findFirst({
-        where: { businessId: input.businessId, idempotencyKey: input.idempotencyKey },
+        where: { businessId: input.businessId, idempotencyKey },
       });
-      if (existing) {
-        const allocations = await tx.paymentAllocation.findMany({
-          where: { businessId: input.businessId, paymentId: existing.id },
-        });
-        return { payment: existing, allocations, unallocated: null, replayed: true };
-      }
+      if (existing) return resolveIdempotentReplay(tx, input, existing);
     }
 
     const commitment = await tx.commitment.findFirst({
@@ -705,7 +785,7 @@ export async function recordPaymentInTx(
         paidAt: input.paidAt,
         method: input.method as never,
         externalReference: input.externalReference?.trim() || null,
-        idempotencyKey: input.idempotencyKey?.trim() || null,
+        idempotencyKey,
         createdByUserId: input.actorUserId ?? null,
       },
     });
@@ -800,6 +880,9 @@ export async function recordPaymentInTx(
         amount: fromMinorUnits(amountMinor),
         unallocated: fromMinorUnits(unallocatedMinor),
         method: input.method,
+        // What the idempotency key promised: a replay is compared against this.
+        request: requestIdentity,
+        requestFingerprint: paymentRequestFingerprint(requestIdentity),
       },
     });
 
