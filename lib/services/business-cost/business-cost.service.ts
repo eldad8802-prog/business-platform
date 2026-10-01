@@ -40,6 +40,7 @@ import {
   explainLineHe,
   toDayNumber,
   type BusinessCostDay,
+  type BusinessCostInput,
   type CostCommitment,
   type CostLine,
   type CostPayment,
@@ -55,17 +56,39 @@ export async function deriveBusinessCost(input: {
   date?: string | null;
   now?: Date;
 }): Promise<BusinessCostDay> {
-  // There is no per-business time zone column; every Dubiz business today is
-  // in Israel. When one is added it is read here and nowhere else.
   const timeZone = DEFAULT_BUSINESS_TIME_ZONE;
   const date = input.date ?? civilDateInZone(input.now ?? new Date(), timeZone);
   const day = toDayNumber(date); // validates before any query runs
+  const inputs = await loadBusinessCostInputs({ businessId: input.businessId, paidFromDay: day, paidToDay: day });
+  return deriveBusinessCostForDate({ ...inputs, date });
+}
 
-  // Any instant whose local date is `date` lies within ±1 day of its UTC
+/** Everything the core needs except the date: one load serves any number of dates. */
+export type BusinessCostInputs = Omit<BusinessCostInput, "date">;
+
+/**
+ * Load one business's authoritative cost rows, once.
+ *
+ * Payments are loaded for the civil days [paidFromDay, paidToDay] (day numbers);
+ * commitments, installments and legacy obligations are loaded whole, as the
+ * engine needs every occurrence to derive coverage. Installments carry the
+ * active allocations of RECORDED payments (`paidMinor`) for callers that need
+ * what is still to pay; the daily engine ignores it.
+ */
+export async function loadBusinessCostInputs(input: {
+  businessId: number;
+  paidFromDay: number;
+  paidToDay: number;
+}): Promise<BusinessCostInputs> {
+  // There is no per-business time zone column; every Dubiz business today is
+  // in Israel. When one is added it is read here and nowhere else.
+  const timeZone = DEFAULT_BUSINESS_TIME_ZONE;
+
+  // Any instant whose local date is a given day lies within ±1 day of its UTC
   // midnight (Israel is UTC+2/+3). Two days either side is a safe superset;
   // the core then selects by exact local date.
-  const paidFrom = new Date((day - 2) * MS_PER_DAY);
-  const paidTo = new Date((day + 3) * MS_PER_DAY);
+  const paidFrom = new Date((input.paidFromDay - 2) * MS_PER_DAY);
+  const paidTo = new Date((input.paidToDay + 3) * MS_PER_DAY);
 
   const { businessId } = input;
 
@@ -83,6 +106,7 @@ export async function deriveBusinessCost(input: {
         status: true,
         legacyObligationId: true,
         endAt: true,
+        category: true,
         payee: { select: { kind: true } },
         installments: {
           where: { businessId },
@@ -93,6 +117,10 @@ export async function deriveBusinessCost(input: {
             scheduledAmount: true,
             currency: true,
             status: true,
+            allocations: {
+              where: { businessId, reversedAt: null, payment: { status: "RECORDED" } },
+              select: { allocatedAmount: true },
+            },
           },
           orderBy: { sequence: "asc" },
         },
@@ -164,6 +192,7 @@ export async function deriveBusinessCost(input: {
     status: c.status,
     isLegacy: c.legacyObligationId !== null,
     endDate: c.endAt ? civilDateInZone(c.endAt, timeZone) : null,
+    category: c.category?.trim() || null,
     installments: c.installments.map((i) => ({
       id: i.id,
       sequence: i.sequence,
@@ -171,6 +200,7 @@ export async function deriveBusinessCost(input: {
       amountMinor: toMinorUnits(i.scheduledAmount.toString()),
       currency: i.currency,
       status: i.status,
+      paidMinor: i.allocations.reduce((sum, a) => sum + toMinorUnits(a.allocatedAmount.toString()), 0),
     })),
   }));
 
@@ -217,14 +247,13 @@ export async function deriveBusinessCost(input: {
     })),
   }));
 
-  return deriveBusinessCostForDate({
-    date,
+  return {
     timeZone,
     baseCurrency: BASE_CURRENCY,
     commitments: [...fromLedger, ...fromSecretary],
     payments,
     ownerAffirmedBackboneCaptured: facts.orientation ? facts.orientation.oriented : null,
-  });
+  };
 }
 
 /* ──────────────────────────────── serialisation ──────────────────────────── */

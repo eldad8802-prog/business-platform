@@ -49,6 +49,16 @@
       "workflow": "business-cost-ci.yml",
       "reason": "proves tenant isolation of GET /api/business-cost twice: at the service and under the repo's RLS migrations as a NOSUPERUSER NOBYPASSRLS role (business-cost-ci.yml job db)"
     },
+    "lib/services/business-cost/business-cost-intelligence.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-cost-ci.yml",
+      "reason": "business cost intelligence: GET /api/business-cost/summary answers for the session's business only; A's summary unmoved by B; under the repo's RLS migrations as a NOSUPERUSER NOBYPASSRLS role the summary is byte-identical and no-context reads see nothing (business-cost-ci.yml job db)"
+    },
+    "lib/services/business-cost/business-cost-intelligence.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure business cost intelligence: cash out vs allocated over periods, normalized baseline, upcoming schedule, authoritative structure, recorded changes, history-relative signals and deterministic insights (business-cost-ci.yml job core)"
+    },
     "lib/services/content/content-evidence.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "#551 P0: pure content-evidence shaping (no DB); no workflow runs it — product-test debt"

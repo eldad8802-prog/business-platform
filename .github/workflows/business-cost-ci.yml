@@ -42,6 +42,8 @@ jobs:
       - run: npm ci
       - name: Allocation rules
         run: npx tsx lib/services/business-cost/business-cost-core.test.ts
+      - name: Intelligence — periods, baseline views, upcoming, structure, changes, signals, insights
+        run: node_modules/.bin/tsx lib/services/business-cost/business-cost-intelligence.test.ts
 
   db:
     name: business cost (PG17, real RLS)
@@ -77,3 +79,5 @@ jobs:
         run: npx prisma generate
       - name: Figures, legacy bridge, isolation and RLS
         run: npx tsx lib/services/business-cost/business-cost.db.test.ts
+      - name: Intelligence through the DB — snooze/handled/payment semantics, API scoping, real RLS
+        run: node_modules/.bin/tsx lib/services/business-cost/business-cost-intelligence.db.test.ts
