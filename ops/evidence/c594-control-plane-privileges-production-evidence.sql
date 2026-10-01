@@ -30,7 +30,7 @@
 \echo ' 9 R1 runtime (group + every inheriting login): BusinessFeatureAccess / PlatformFeaturePolicy / PlatformFeatureDefinition = SELECT only'
 \echo '10 R2 runtime: PlatformAuditEvent = SELECT + INS only (no UPD, no DEL, no TRUNC)'
 \echo '11 R3 runtime: no USAGE / UPD on BusinessFeatureAccess_id_seq; PlatformAuditEvent_id_seq still usable'
-\echo '12 R4 runtime logins hold no DIRECT entry on the 7 objects, and no column-level privilege remains for runtime'
+\echo '12 R4 on the 4 feature/audit tables + 2 sequences (594 scope; Business excluded): no DIRECT runtime-login entry, no runtime column privilege'
 \echo '13 R5 runtime group and logins: NOSUPERUSER NOBYPASSRLS'
 \echo '14 X1 PUBLIC holds nothing on the 7 objects (table or column level)'
 \echo '15 X2 no pass-on option held by app_runtime / app_ctlplane on the 7 objects'
@@ -131,10 +131,14 @@ checks(n, ok, observed_count) AS (
              AND NOT EXISTS (SELECT 1 FROM rt_all a WHERE NOT has_sequence_privilege(a.rolname, 'public."PlatformAuditEvent_id_seq"', 'USAGE')),
              (SELECT count(*) FROM rt_all a WHERE has_sequence_privilege(a.rolname, 'public."BusinessFeatureAccess_id_seq"', 'USAGE'))
   UNION ALL
-  SELECT 12, (SELECT count(*) FROM acl WHERE grantee IN (SELECT oid FROM rt_logins))
-             + (SELECT count(*) FROM colacl WHERE grantee IN (SELECT oid FROM rt_logins UNION SELECT oid FROM rt_group)) = 0,
-             (SELECT count(*) FROM acl WHERE grantee IN (SELECT oid FROM rt_logins))
-             + (SELECT count(*) FROM colacl WHERE grantee IN (SELECT oid FROM rt_logins UNION SELECT oid FROM rt_group))
+  -- Scope = what #594 is responsible for: the four feature / audit tables and
+  -- their two sequences. Business is excluded on purpose: #594 changes no
+  -- runtime privilege on it, and its pre-existing runtime column grants are a
+  -- separate workstream (they must not fail this proof).
+  SELECT 12, (SELECT count(*) FROM acl WHERE grantee IN (SELECT oid FROM rt_logins) AND relname <> 'Business')
+             + (SELECT count(*) FROM colacl WHERE grantee IN (SELECT oid FROM rt_logins UNION SELECT oid FROM rt_group) AND relname <> 'Business') = 0,
+             (SELECT count(*) FROM acl WHERE grantee IN (SELECT oid FROM rt_logins) AND relname <> 'Business')
+             + (SELECT count(*) FROM colacl WHERE grantee IN (SELECT oid FROM rt_logins UNION SELECT oid FROM rt_group) AND relname <> 'Business')
   UNION ALL
   SELECT 13, NOT EXISTS (SELECT 1 FROM pg_roles r JOIN rt_all a ON a.rolname = r.rolname WHERE r.rolsuper OR r.rolbypassrls)
              AND (SELECT count(*) FROM rt_logins) >= 1,

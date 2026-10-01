@@ -16,7 +16,8 @@
 #      the runtime keeps what it uses and loses what it never used.
 #   4. Atomicity: a copy of #594 that fails on its last statement leaves NO
 #      privilege change behind (Prisma runs the file as one implicit transaction).
-#   5. Eight deliberate privilege faults, each detected by the post-apply proof.
+#   5. Eight deliberate privilege faults, each detected by the post-apply proof —
+#      and two grants outside #594's scope (runtime on Business) NOT flagged.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
 
@@ -127,7 +128,7 @@ jobs:
           echo "ctl table grants=$ctl ctl column grants=$col runtime still has UPDATE=$rt unfinished ledger rows=$led"
           test "$ctl" = "0" && test "$col" = "0" && test "$rt" = "t" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
 
-      - name: 5. Eight deliberate privilege faults — each detected by the post-apply proof
+      - name: 5. Eight deliberate privilege faults detected; two out-of-scope Business grants NOT flagged
         run: |
           set -euo pipefail
           # lab.sh connects as the superuser (job-level PGPASSWORD); only these calls use the lab password.
@@ -147,3 +148,6 @@ jobs:
           check 'GRANT SELECT ON "BusinessFeatureAccess" TO app_ctlplane WITH GRANT OPTION' '15 '
           check 'ALTER TABLE "BusinessFeatureAccess" NO FORCE ROW LEVEL SECURITY' '16 '
           check "UPDATE \"_prisma_migrations\" SET checksum = repeat('0',64) WHERE migration_name LIKE '20261003%'" '1 '
+          # Out of #594's scope — must NOT fail the proof (Production has exactly this pre-existing grant):
+          check 'GRANT SELECT ("id", "name", "createdAt", "deletionRequestedAt", "deletedAt") ON "Business" TO app_runtime' ''
+          check 'GRANT SELECT ON "Business" TO app_runtime_prod' ''
