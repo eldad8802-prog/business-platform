@@ -44,6 +44,8 @@ on:
           - 'ops/evidence/m4-identity-routing-production-evidence.sql'
           - 'ops/evidence/m5-crm-lead-lifecycle-preflight.sql'
           - 'ops/evidence/m5-crm-lead-lifecycle-production-evidence.sql'
+          - 'ops/evidence/c594-control-plane-privileges-preflight.sql'
+          - 'ops/evidence/c594-control-plane-privileges-production-evidence.sql'
 
 permissions:
   contents: read
