@@ -1,0 +1,87 @@
+# Business runtime-columns forensic — proof on PostgreSQL (ephemeral PG17).
+#
+# Read-only investigation of the tenant runtime's privileges on "Business"
+# (column SELECT id/name/createdAt/deletionRequestedAt/deletedAt and column UPD
+# on the lifecycle columns, from 20260908180000 — Business has NO RLS). NOTHING
+# here changes a migration, a grant or application code.
+#
+#   1. .bizcols/lab.sh — Production topology (.c594/lab.sh) + the REAL D2 E4
+#      narrowing migration.
+#   2. The read-only Production preflight (ops/evidence/business-runtime-columns-
+#      preflight.sql) on the lab: 35/35 PASS, observed counts as Production should show.
+#   3. .bizcols/battery.ts — exposure (cross-tenant reads AND the cross-tenant
+#      lifecycle write, with and without a tenant GUC; the real lifecycle reader)
+#      and four options, each tried in a ROLLED-BACK transaction.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: bizcols — Business runtime-columns forensic lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/evidence/business-runtime-columns-preflight.sql"
+      - ".bizcols/**"
+      - ".github/workflows/bizcols-forensic-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: Business runtime columns (PG17, Production role topology, real D2 E4 migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bizcols_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bizcols_ci_synthetic_super_pw
+      LAB_PASSWORD: bizcols_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/business-runtime-columns-preflight.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. The preflight passes the Production workflow's SELECT-only guard and is selectable there
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$PREFLIGHT"; then echo "write keyword in $PREFLIGHT"; exit 1; fi
+          grep -q "'$PREFLIGHT'" .github/workflows/prod-readonly-evidence.yml || { echo "not selectable"; exit 1; }
+
+      - name: 1. Lab + the read-only preflight — 35/35 PASS
+        run: |
+          set -euo pipefail
+          bash .bizcols/lab.sh biz_lab
+          out=$(PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d biz_lab -v ON_ERROR_STOP=1 -f "$PREFLIGHT")
+          printf '%s\n' "$out"
+          test "$(printf '%s\n' "$out" | grep -cE '^ +[0-9]+ \| PASS')" = "35" || { echo "expected 35 PASS rows"; exit 1; }
+
+      - name: 2. Exposure + options battery (options rolled back)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/biz_lab" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/biz_lab" \
+            npx tsx .bizcols/battery.ts
