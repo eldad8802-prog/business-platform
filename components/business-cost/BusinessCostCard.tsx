@@ -6,8 +6,12 @@ import { fetchBusinessCostSummary, type BusinessCostSummaryApi } from "@/lib/bus
 
 const DS = TOKEN.dsv1;
 
-const ils = (decimal: string) =>
-  `₪${Number(decimal).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+/** The Secretary's own style: "3,050 ₪", agorot only when there are any. */
+const ils = (decimal: string) => {
+  const n = Number(decimal);
+  const frac = Number.isInteger(n) ? 0 : 2;
+  return `${n.toLocaleString("he-IL", { minimumFractionDigits: frac, maximumFractionDigits: frac })} ₪`;
+};
 
 /**
  * The Secretary's cost line: what the business costs, what actually left, what
@@ -53,8 +57,9 @@ export function BusinessCostCard() {
       dir="rtl"
       aria-label="כמה העסק עולה"
       style={{
-        margin: "16px auto",
-        width: "min(100% - 32px, 720px)",
+        // Rendered inside the Secretary home shell, in its column.
+        marginTop: 16,
+        width: "100%",
         boxSizing: "border-box",
         background: DS.card,
         border: `1px solid ${DS.line}`,

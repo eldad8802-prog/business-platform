@@ -37,7 +37,12 @@ export type CostInsight = {
   why: string;
 };
 
-const ils = (minor: number) => `₪${Number(fromMinorUnits(Math.abs(minor))).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+/** "3,050 ₪" — the Secretary's style; agorot only when there are any. */
+const ils = (minor: number) => {
+  const abs = Math.abs(minor);
+  const frac = abs % 100 === 0 ? 0 : 2;
+  return `${(abs / 100).toLocaleString("he-IL", { minimumFractionDigits: frac, maximumFractionDigits: frac })} ₪`;
+};
 const he = (date: string) => {
   const [y, m, d] = date.split("-");
   return `${Number(d)}/${Number(m)}/${y}`;

@@ -402,9 +402,10 @@ function SecretaryPageInner() {
 
     return (
       <SecretaryErrorBoundary>
-        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing)} />
-        {/* Phase 3 — what the business costs, from the one business-cost engine. */}
-        <BusinessCostCard />
+        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing)}>
+          {/* Phase 3 — what the business costs, from the one business-cost engine. */}
+          <BusinessCostCard />
+        </SecretaryHomeScreen>
         {/* M5 — the sales side of the Secretary: leads that need the owner today. */}
         <LeadsBriefingCard />
         {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}

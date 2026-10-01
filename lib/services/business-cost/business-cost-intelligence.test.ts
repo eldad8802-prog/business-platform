@@ -239,8 +239,8 @@ section("8 · insights: only from DETECTED signals, every number from evidence")
   const young = commitment({ title: "שכירות", installments: monthlyInstallments("2026-08", 2, 300000) });
   const [ins] = composeCostInsights(summarizeBusinessCost(input("2026-09-30", [raised])));
   eq("rent raised → one baseline insight", ins?.kind, "BASELINE_RECURRING_COST_CHANGED");
-  check("its text states the recorded change from the evidence", (ins?.body ?? "").includes("מ־₪3,000 ל־₪3,300 החל מ־1/8/2026"), ins?.body);
-  check("…and the normalized daily cost before → after", ins?.body.includes("₪98.56") && ins?.body.includes("₪108.42"), ins?.body);
+  check("its text states the recorded change from the evidence", (ins?.body ?? "").includes("מ־3,000 ₪ ל־3,300 ₪ החל מ־1/8/2026"), ins?.body);
+  check("…and the normalized daily cost before → after", ins?.body.includes("98.56 ₪") && ins?.body.includes("108.42 ₪"), ins?.body);
   check("every number in the text is one of its facts", ["3000.00", "3300.00", "98.56", "108.42"].every((v) => ins.facts.some((f) => f.value === v || f.value.includes(v))));
   check("facts carry their source (signal or ledger row)", ins.facts.every((f) => /^(signal:|commitment:)/.test(f.sourceRef)));
   eq("it states what was compared", ins.comparedPeriod, { from: "2026-07-02", to: "2026-09-30" });
