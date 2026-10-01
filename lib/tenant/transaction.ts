@@ -47,17 +47,37 @@ export async function withTenantTransaction<T>(
      * Defaults to Prisma's standard interactive-transaction timeout.
      */
     timeoutMs?: number;
+    /**
+     * Observability only: told when the callback begins and around `set_config`.
+     * It cannot change the transaction — it receives no client, its return
+     * value is ignored, and anything it throws is swallowed.
+     */
+    onPhase?: (phase: TenantTxPhase) => void;
   },
 ): Promise<T> {
   // Read the trusted, server-derived tenant BEFORE opening a transaction.
   const { businessId } = getTenantContextOrThrow();
+  const observe = (phase: TenantTxPhase) => {
+    if (!options?.onPhase) return;
+    try {
+      options.onPhase(phase);
+    } catch {
+      // An observer never affects the transaction.
+    }
+  };
 
   return prisma.$transaction(
     async (tx) => {
+      observe("callback");
+      observe("set-config-start");
       // Transaction-local (is_local = true). Parameterized — never string-interpolated.
       await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+      observe("set-config-resolved");
       return fn(tx);
     },
     options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
   );
 }
+
+/** Phases `onPhase` is told about, in order. */
+export type TenantTxPhase = "callback" | "set-config-start" | "set-config-resolved";

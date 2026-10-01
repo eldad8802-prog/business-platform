@@ -3,6 +3,10 @@ import type { NextResponse } from "next/server";
 
 import { AppError } from "@/lib/errors";
 import { handleError } from "@/lib/handle-error";
+import {
+  runWithHomeCollectionTimeline,
+  type HomeCollectionTimelineSummary,
+} from "@/lib/services/home/home-collection-timeline";
 
 /**
  * DIAGNOSTICS for GET /api/home/collection — observability only.
@@ -52,6 +56,12 @@ export type HomeCollectionFailureEvent = {
   /** Vercel's request id, for matching this line to the platform request log. */
   requestId: string | null;
   region: string | null;
+  /**
+   * Where the time went: phase marks, the event loop's active/idle share per
+   * interval, the longest loop delay, and cold-start evidence. Numbers and
+   * validated build identifiers only. Null when it could not be measured.
+   */
+  timeline: HomeCollectionTimelineSummary | null;
 };
 
 const PRISMA_CODE = /^P\d{4}$/;
@@ -125,7 +135,13 @@ export function classifyHomeCollectionError(error: unknown): {
 
 export function buildHomeCollectionFailureEvent(
   error: unknown,
-  ctx: { url: string; requestId: string | null; region: string | null; durationMs: number }
+  ctx: {
+    url: string;
+    requestId: string | null;
+    region: string | null;
+    durationMs: number;
+    timeline?: HomeCollectionTimelineSummary | null;
+  }
 ): HomeCollectionFailureEvent {
   return {
     event: HOME_COLLECTION_FAILED_EVENT,
@@ -135,6 +151,7 @@ export function buildHomeCollectionFailureEvent(
     ...classifyHomeCollectionError(error),
     requestId: safe(ctx.requestId, SAFE_REQUEST_ID),
     region: safe(ctx.region, SAFE_REGION),
+    timeline: ctx.timeline ?? null,
   };
 }
 
@@ -155,8 +172,12 @@ export async function withHomeCollectionDiagnostics(
   emit: Emit = emitToLog
 ): Promise<NextResponse> {
   const startedAt = Date.now();
+  let timeline: HomeCollectionTimelineSummary | null = null;
   try {
-    return await work();
+    // The timeline only watches: the work's result and error pass through it.
+    return await runWithHomeCollectionTimeline(work, (summary) => {
+      timeline = summary;
+    });
   } catch (error) {
     try {
       const event = buildHomeCollectionFailureEvent(error, {
@@ -164,6 +185,7 @@ export async function withHomeCollectionDiagnostics(
         requestId: req.headers.get("x-vercel-id"),
         region: process.env.VERCEL_REGION ?? null,
         durationMs: Date.now() - startedAt,
+        timeline,
       });
       if (event.httpStatus >= 500) emit(JSON.stringify(event));
     } catch {
