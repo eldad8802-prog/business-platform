@@ -22,6 +22,7 @@
 import { Prisma } from "@prisma/client";
 
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { homeCollectionTxObserver, markHomeCollection } from "@/lib/services/home/home-collection-timeline";
 import {
   addCalendarDays,
   ISRAEL_TIME_ZONE,
@@ -164,7 +165,10 @@ export async function loadHomeCollection(
     input.period === "yesterday" || input.period === "week" ? input.period : "today";
   const w = resolveWindows(period, now);
 
-  return tenantTx(businessId, async (tx) => {
+  // Observability marks (see home-collection-timeline.ts): they record time and
+  // nothing else, and are silent when no timeline is in scope.
+  markHomeCollection("T1");
+  const model = await tenantTx(businessId, async (tx) => {
     const paidWhere = (from: Date, toExclusive: Date): Prisma.PaymentTransactionWhereInput => ({
       status: "PAID",
       amount: { gt: 0 },
@@ -181,6 +185,7 @@ export async function loadHomeCollection(
       m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`
     );
 
+    markHomeCollection("T5");
     const [currentRows, previousRows, monthAgg, prevMonthAgg] = await Promise.all([
       tx.paymentTransaction.findMany({
         where: paidWhere(w.currentStart, w.currentEnd),
@@ -201,6 +206,7 @@ export async function loadHomeCollection(
         _count: { _all: true },
       }),
     ]);
+    markHomeCollection("T6");
 
     const bucketOf =
       w.granularity === "hour"
@@ -252,7 +258,9 @@ export async function loadHomeCollection(
         changePct: changeAgainst(monthAmount, prevMonthAmount),
       },
     };
-  });
+  }, { onPhase: homeCollectionTxObserver });
+  markHomeCollection("T7");
+  return model;
 }
 
 /** Whole calendar days between two Israeli day keys. */

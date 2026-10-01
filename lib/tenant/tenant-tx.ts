@@ -22,7 +22,7 @@
  */
 import type { Prisma } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { withTenantTransaction, type TenantTxPhase } from "@/lib/tenant/transaction";
 
 export type TenantTxClient = Prisma.TransactionClient;
 
@@ -45,6 +45,8 @@ export function tenantTx<T>(
      * contextualised. Passing it through means adding the GUC costs them nothing.
      */
     timeoutMs?: number;
+    /** Observability only — see `withTenantTransaction`. */
+    onPhase?: (phase: TenantTxPhase) => void;
   }
 ): Promise<T> {
   if (!Number.isInteger(businessId) || businessId <= 0) {

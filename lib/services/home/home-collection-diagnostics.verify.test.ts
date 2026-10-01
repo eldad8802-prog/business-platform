@@ -77,6 +77,8 @@ function assertClean(label: string, line: string) {
   const parsed = JSON.parse(line) as Record<string, unknown>;
   eq(`${label}: only allowlisted keys`, Object.keys(parsed).sort(), [
     "category", "durationMs", "errorClass", "errorCode", "event", "httpStatus", "period", "region", "requestId", "route",
+    // Numbers-only phase timeline; its own keys are pinned in home-collection-timeline.verify.test.ts.
+    "timeline",
   ]);
 }
 
