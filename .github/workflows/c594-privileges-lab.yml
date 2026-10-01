@@ -1,0 +1,149 @@
+# PR #594 / migration 20261003090000_control_plane_production_privileges —
+# proof on PostgreSQL BEFORE it reaches Production (ephemeral PG17).
+#
+# .c594/lab.sh builds the database the way Production is: a NON-superuser owner
+# with CREATEROLE + BYPASSRLS (Neon's neondb_owner shape), the runtime as a
+# NOLOGIN group with a LOGIN member, the owner's default ACL that gave the
+# runtime its write privileges, the real PW-2 migration, a baselined ledger
+# (every migration before #594 applied, real checksums) — and then
+# `prisma migrate deploy`, the release-migrate mechanism, applies ONLY #594.
+#
+#   1. PREFLIGHT on the pre-#594 lab: 23/23 PASS.
+#   2. #594 applied by migrate deploy; POST-APPLY PROOF: 18/18 PASS — and on the
+#      pre-#594 lab exactly the nine checks #594 changes FAIL.
+#   3. Functional battery (.c594/battery.ts): the real control-plane service
+#      succeeds with exactly #594's grants; every refused authority is refused;
+#      the runtime keeps what it uses and loses what it never used.
+#   4. Atomicity: a copy of #594 that fails on its last statement leaves NO
+#      privilege change behind (Prisma runs the file as one implicit transaction).
+#   5. Eight deliberate privilege faults, each detected by the post-apply proof.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: c594 — control-plane privileges lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261003090000_control_plane_production_privileges/**"
+      - "ops/evidence/c594-control-plane-privileges-*.sql"
+      - ".c594/**"
+      - ".github/workflows/c594-privileges-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: c594 privileges (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: c594_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: c594_ci_synthetic_super_pw
+      LAB_PASSWORD: c594_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/c594-control-plane-privileges-preflight.sql
+      EVIDENCE: ops/evidence/c594-control-plane-privileges-production-evidence.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+
+      - name: 1. Pre-#594 lab (= Production today) — PREFLIGHT 23/23 PASS
+        run: |
+          set -euo pipefail
+          bash .c594/lab.sh c594_pre --without-594
+          export PGPASSWORD="$LAB_PASSWORD"
+          psql -X -U lab_owner -d c594_pre -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the pre-#594 lab"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "23" || { echo "expected 23 PASS rows"; exit 1; }
+
+      - name: 2. #594 by prisma migrate deploy — POST-APPLY PROOF 18/18; the pre lab fails exactly what #594 changes
+        run: |
+          set -euo pipefail
+          bash .c594/lab.sh c594_post
+          export PGPASSWORD="$LAB_PASSWORD"
+          psql -X -U lab_owner -d c594_post -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/post.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "18" || { echo "expected 18 PASS rows"; exit 1; }
+          sum=$(sha256sum prisma/migrations/20261003090000_control_plane_production_privileges/migration.sql | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          fails=$(psql -X -U lab_owner -d c594_pre -v ON_ERROR_STOP=1 -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| FAIL' | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "1 3 4 5 6 7 9 10 11 " || { echo "pre-#594 lab: expected exactly 1 3 4 5 6 7 9 10 11 to fail, got: $fails"; exit 1; }
+
+      - name: 3. Functional battery — the real control-plane service, the runtime, refused authority
+        run: |
+          set -euo pipefail
+          psql -X -U "$SUPER" -d postgres -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_ctlplane_lab LOGIN PASSWORD '$LAB_PASSWORD' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE IN ROLE app_ctlplane"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/c594_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/c594_post" \
+          CTL_URL="postgresql://app_ctlplane_lab:$LAB_PASSWORD@localhost:5432/c594_post" \
+            npx tsx .c594/battery.ts
+
+      - name: 4. Atomicity — #594 failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .c594/lab.sh c594_broken --broken-594
+          export PGPASSWORD="$LAB_PASSWORD"
+          ctl=$(psql -X -U lab_owner -d c594_broken -Atc "SELECT count(*) FROM pg_class c, aclexplode(c.relacl) x WHERE x.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'app_ctlplane') AND c.relname IN ('BusinessFeatureAccess','PlatformAuditEvent','PlatformFeaturePolicy','Business')")
+          col=$(psql -X -U lab_owner -d c594_broken -Atc "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid, aclexplode(a.attacl) x WHERE x.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'app_ctlplane') AND c.relname IN ('BusinessFeatureAccess','Business')")
+          rt=$(psql -X -U lab_owner -d c594_broken -Atc "SELECT has_table_privilege('app_runtime','\"PlatformFeaturePolicy\"','UPDATE')")
+          led=$(psql -X -U lab_owner -d c594_broken -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name LIKE '20261003%' AND finished_at IS NULL")
+          echo "ctl table grants=$ctl ctl column grants=$col runtime still has UPDATE=$rt unfinished ledger rows=$led"
+          test "$ctl" = "0" && test "$col" = "0" && test "$rt" = "t" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Eight deliberate privilege faults — each detected by the post-apply proof
+        run: |
+          set -euo pipefail
+          # lab.sh connects as the superuser (job-level PGPASSWORD); only these calls use the lab password.
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d c594_fault -v ON_ERROR_STOP=1 "$@"; }
+          check() {
+            bash .c594/lab.sh c594_fault >/dev/null
+            lab -q -c "$1"
+            got=$(lab -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| FAIL' | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+            test "$got" = "$2" || { echo "fault [$1]: expected FAIL '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          check 'GRANT UPDATE ON "PlatformFeaturePolicy" TO app_runtime_prod' '9 12 '
+          check 'GRANT UPDATE ("businessId") ON "BusinessFeatureAccess" TO app_ctlplane' '3 '
+          check 'GRANT DELETE ON "BusinessFeatureAccess" TO app_ctlplane' '3 '
+          check 'GRANT SELECT ON "PlatformAuditEvent" TO PUBLIC' '4 14 '
+          check 'GRANT UPDATE ("action") ON "PlatformAuditEvent" TO app_runtime' '12 '
+          check 'GRANT SELECT ON "BusinessFeatureAccess" TO app_ctlplane WITH GRANT OPTION' '15 '
+          check 'ALTER TABLE "BusinessFeatureAccess" NO FORCE ROW LEVEL SECURITY' '16 '
+          check "UPDATE \"_prisma_migrations\" SET checksum = repeat('0',64) WHERE migration_name LIKE '20261003%'" '1 '
