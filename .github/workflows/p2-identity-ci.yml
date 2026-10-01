@@ -1,0 +1,99 @@
+name: p2 business identity
+
+# P2 business identity + positioning foundation — application proofs for
+# migration 20261002090000_p2_business_identity.
+#
+#   core     identity vocabulary, derived signals, the six-vertical three-strategy
+#            data-readiness matrix, and the M7 snapshot (identity items carry
+#            codes and flags, never text). No database.
+#
+#   db       ephemeral PG17. `prisma db push` builds the lab; the RLS proof then
+#            creates app_runtime, drops what db push made for P2 and replays the
+#            P2 migration file verbatim (CHECKs, partial unique indexes, policies,
+#            its own guarded app_runtime grants), replays the base-table RLS the
+#            identity read model depends on, and runs the real P2 code as a
+#            NOSUPERUSER NOBYPASSRLS app_runtime. After that, the database the
+#            migration built must equal schema.prisma — a non-empty diff means a
+#            second migration would be needed. Then the invariant suite runs.
+#
+# Synthetic CI-only credentials. No secrets, no Neon, no Production.
+
+on:
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261004090000_p2_business_identity/**"
+      - "lib/services/identity/**"
+      - "lib/knowledge/snapshot/**"
+      - "lib/features/content/choice-provenance.ts"
+      - "lib/services/content-plan-persistence-v1.service.ts"
+      - "app/(shell)/content/**"
+      - "app/api/video/plan/**"
+      - "app/api/business/identity/**"
+      - ".github/workflows/p2-identity-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: p2 identity core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Vocabulary and derived signals
+        run: npx tsx lib/services/identity/identity.verify.test.ts
+      - name: Three-strategy identity + offering inputs
+        run: npx tsx lib/services/identity/identity-strategy.verify.test.ts
+      - name: M7 snapshot incl. owner identity items
+        run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
+
+  db:
+    name: p2 identity (PG17, real RLS)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p2_identity_owner
+          POSTGRES_PASSWORD: p2_identity_ci_synthetic_pw
+          POSTGRES_DB: dubiz_p2_identity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p2_identity_owner -d dubiz_p2_identity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://p2_identity_owner:p2_identity_ci_synthetic_pw@localhost:5432/dubiz_p2_identity
+      DIRECT_URL: postgresql://p2_identity_owner:p2_identity_ci_synthetic_pw@localhost:5432/dubiz_p2_identity
+      TEST_DATABASE_URL: postgresql://p2_identity_owner:p2_identity_ci_synthetic_pw@localhost:5432/dubiz_p2_identity
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the lab schema
+        run: npx prisma db push --skip-generate
+      - name: Generate the client
+        run: npx prisma generate
+      - name: Replay the P2 migration; tenant isolation as app_runtime
+        run: npx tsx lib/services/identity/identity.rls.db.test.ts
+      - name: No drift between the P2 migration and schema.prisma
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Constraints, history, public-use authority, adoption, concurrency
+        run: npx tsx lib/services/identity/identity.db.test.ts
+      - name: P1 offering regression on the P2 schema
+        run: |
+          npx tsx lib/services/offering/offering.rls.db.test.ts
+          npx tsx lib/services/offering/offering.db.test.ts

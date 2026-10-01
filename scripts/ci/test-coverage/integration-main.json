@@ -97,6 +97,26 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "P1 336e9db2: pure service-price semantics (no DB, no tenant or auth decision); run on pull_request by p1-offering-ci.yml job core"
     },
+    "lib/services/identity/identity.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "P2: pure identity vocabulary + derived-signal rules (no DB, no tenant or auth decision): unknown stays unknown, no price/demand/person-trait inference; run on pull_request by p2-identity-ci.yml job core"
+    },
+    "lib/services/identity/identity-strategy.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "P2: pure six-vertical three-strategy data-readiness matrix over P1 offering + P2 identity inputs (no DB); run on pull_request by p2-identity-ci.yml job core"
+    },
+    "lib/services/identity/identity.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P2: migration CHECKs + partial unique indexes, retire-not-delete history, public-use authority limited to claim-like text, adoption only of server-recomputed signals; run on pull_request by p2-identity-ci.yml job db"
+    },
+    "lib/services/identity/identity.rls.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P2: replays the P2 migration verbatim and proves tenant isolation of BusinessIdentityStatement as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE); run on pull_request by p2-identity-ci.yml job db"
+    },
     "lib/services/p0-evidence.db.test.ts": {
       "class": "LOCAL_ONLY",
       "reason": "#551 P0: SECURITY-RELEVANT DB invariants (cross-tenant item/run references refused by composite FKs and the content trigger) but needs the P0 migration's trigger DDL applied — the gate's db-push template cannot run it. NOT CI-covered on main: open debt, owned by the P0 evidence RLS follow-up (fresh-lab battery), not closed by this classification"

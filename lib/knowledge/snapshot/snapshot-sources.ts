@@ -11,6 +11,7 @@
  * Seven queries in one transaction for the stored knowledge, plus the two existing authoritative
  * engines (L0 facts, awaiting-payment) — a fixed number, independent of how much history exists.
  */
+import type { Prisma } from "@prisma/client";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
@@ -119,8 +120,48 @@ export async function loadStoredKnowledge(businessId: number, asOf: Date) {
       orderBy: [{ recommendationKey: "asc" }, { version: "asc" }],
     });
 
-    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes };
+    const { identityStatements, identityFacts } = await loadIdentityKnowledge(tx, businessId, asOf);
+
+    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes, identityStatements, identityFacts };
   });
+}
+
+/**
+ * P2 — the owner's ACTIVE identity statements and identity-fact authorities, inside the caller's
+ * tenant transaction. References and flags only:
+ *   - statements: `text` is not selected, so an owner's free-text description cannot reach the snapshot
+ *   - facts: the canonical value is compared with the approved hash INSIDE the database; only the
+ *     boolean comes back, so no name, city, phone or email enters the snapshot
+ */
+export async function loadIdentityKnowledge(tx: Prisma.TransactionClient, businessId: number, asOf: Date) {
+  const identityStatements = await tx.businessIdentityStatement.findMany({
+    where: { businessId, status: "ACTIVE", createdAt: { lte: asOf } },
+    select: {
+      id: true, dimension: true, code: true, source: true, sourceRef: true, status: true,
+      confirmedByUserId: true, publicUseApproved: true, createdAt: true,
+    },
+    orderBy: [{ dimension: "asc" }, { id: "asc" }],
+  });
+  const identityFacts = await tx.$queryRaw<Array<{
+    id: number; fact: string; sourceField: string; publicUseApproved: boolean;
+    confirmedByUserId: number | null; confirmedAt: Date; valueCurrent: boolean;
+  }>>`
+    SELECT a."id", a."fact"::text AS "fact", a."sourceField", a."publicUseApproved", a."confirmedByUserId", a."confirmedAt",
+           coalesce(a."valueHash" = encode(sha256(convert_to(
+             CASE a."fact"::text
+               WHEN 'BUSINESS_NAME'  THEN b."name"
+               WHEN 'CITY'           THEN p."city"
+               WHEN 'OPENING_HOURS'  THEN p."openingHours"
+               WHEN 'PUBLIC_PHONE'   THEN p."billingPhone"
+               WHEN 'PUBLIC_EMAIL'   THEN p."billingEmail"
+               WHEN 'PUBLIC_ADDRESS' THEN p."billingAddress"
+             END, 'UTF8')), 'hex'), false) AS "valueCurrent"
+      FROM "BusinessIdentityFactAuthority" a
+      JOIN "Business" b ON b."id" = a."businessId"
+      LEFT JOIN "BusinessProfile" p ON p."businessId" = a."businessId"
+     WHERE a."businessId" = ${businessId} AND a."status" = 'ACTIVE' AND a."createdAt" <= ${asOf}
+     ORDER BY a."fact", a."id"`;
+  return { identityStatements, identityFacts };
 }
 
 /**

@@ -7,6 +7,7 @@ import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { mapContentArchetypeToGoalAngle } from "@/lib/content/content-archetype-map";
+import { toneProvenanceFor, type ChoiceProvenance } from "@/lib/features/content/choice-provenance";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,9 +26,12 @@ type ContentFlow = {
   contentAngle?: string;
   primaryGoal?: GoalId;
   vibe?: VibeId;
+  vibeSource?: string;
   directionType?: string;
   creatorContext?: string;
   audienceTypes?: AudienceType[];
+  /** P2 — whether selectedDirection.tone / audienceTypes were chosen or filled in. */
+  choiceProvenance?: ChoiceProvenance;
   contentGoalPrompt?: string;
   contentInsightAnswers?: unknown[];
   // preserved passthrough fields
@@ -238,6 +242,12 @@ export default function ContextInjectionPage() {
         creatorContext: contextText.trim() || null,
         contentGoalPrompt,
         audienceTypes: defaultAudienceTypes(goal),
+        // The tone falls back to "warm" when no vibe was picked, and the audience is always
+        // computed from the goal: record that, so neither is ever read as an owner choice.
+        choiceProvenance: {
+          tone: toneProvenanceFor(existing.vibe, existing.vibeSource),
+          audience: "DERIVED",
+        } satisfies ChoiceProvenance,
         contentInsightAnswers: Array.isArray(existing.contentInsightAnswers)
           ? existing.contentInsightAnswers
           : [],

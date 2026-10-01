@@ -106,12 +106,18 @@ export function BusinessSummaryCard() {
         </div>
       ) : null}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href="/business"
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
           עריכת פרטי העסק
+        </Link>
+        <Link
+          href="/business/identity"
+          className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
+        >
+          איך העסק מוצג
         </Link>
       </div>
     </section>

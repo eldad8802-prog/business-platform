@@ -54,6 +54,8 @@ type ContentFlow = {
   };
   selectedFormat?: SelectedFormat;
   selectedPlatform?: SelectedPlatform;
+  /** P2 — set by the setup step; the server sanitizes it. Absent on older saved flows. */
+  choiceProvenance?: unknown;
 };
 
 type Shot = {
@@ -297,6 +299,7 @@ export default function CreatorPlanPage() {
             selectedDirection: merged.selectedDirection,
             selectedFormat: merged.selectedFormat,
             selectedPlatform: merged.selectedPlatform,
+            choiceProvenance: merged.choiceProvenance,
           }),
         });
 

@@ -13,8 +13,8 @@ import { assembleSnapshot, stable } from "./assemble";
 import type { BusinessKnowledgeSnapshot } from "./snapshot.contract";
 import { loadDomainState, loadStoredKnowledge } from "./snapshot-sources";
 
-/** Stored-knowledge queries (10 in one tenant transaction, incl. M9 outcomes) + the two domain engines. Fixed, not per row. */
-const QUERY_BUDGET = 10;
+/** Stored-knowledge queries (12 in one tenant transaction, incl. M9 outcomes and P2 identity statements + fact authorities) + the two domain engines. Fixed, not per row. */
+const QUERY_BUDGET = 12;
 
 export async function buildBusinessKnowledgeSnapshot(
   businessId: number,
