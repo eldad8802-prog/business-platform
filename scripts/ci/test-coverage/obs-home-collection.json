@@ -1,0 +1,9 @@
+{
+  "note": "obs/home-collection-p2028-timeline: the P2028 timeline test. Observability only, so it is a product-behaviour test, not a security control.",
+  "tests": {
+    "lib/services/home/home-collection-timeline.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (prisma.$transaction stubbed, no DB/network): the /api/home/collection failure line's timeline, its privacy allowlist and that measurement never changes the response, transaction or tenant context; run by npm run verify:home-collection-timeline (needs --expose-gc); not yet wired into CI (product-test debt, like its siblings)"
+    }
+  }
+}
