@@ -86,6 +86,7 @@ async function main(): Promise<void> {
       svc.createCommitment({
         businessId: A,
         title,
+        payeeNameSnapshot: title,
         scheduleKind: "RECURRING",
         recurrence: "MONTHLY",
         recurringAmount: amount,
