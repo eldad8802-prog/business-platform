@@ -87,6 +87,16 @@
       "class": "LOCAL_ONLY",
       "reason": "#551 P0: SECURITY-RELEVANT DB invariants (cross-tenant item/run references refused by composite FKs and the content trigger) but needs the P0 migration's trigger DDL applied — the gate's db-push template cannot run it. NOT CI-covered on main: open debt, owned by the P0 evidence RLS follow-up (fresh-lab battery), not closed by this classification"
     },
+    "lib/services/payables/payment-idempotency.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "payables-phase-1a-ci.yml",
+      "reason": "financial authority: an idempotency key replays only the same payment request; a different request is a 409 that writes nothing; concurrent first requests resolve to one Payment without a 500; payment vs secretary 'handled' materialises exactly one next occurrence (payables-phase-1a-ci.yml job db, PG17)"
+    },
+    "lib/services/payables/payment-request-identity.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure semantic identity of a payment request (fields, Israel paid date, fingerprint); run by payables-phase-1a-ci.yml job core"
+    },
     "lib/services/payables/secretary-ledger.db.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

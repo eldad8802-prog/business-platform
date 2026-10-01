@@ -24,6 +24,7 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/**"
       - "lib/services/payables/**"
+      - "lib/services/obligations/**"
       - "scripts/ci/erasure/**"
       - ".github/workflows/payables-phase-1a-ci.yml"
 
@@ -44,6 +45,8 @@ jobs:
       - run: npm ci
       - name: Accounting invariants
         run: npx tsx lib/services/payables/payables-core.test.ts
+      - name: Payment request identity (idempotency semantics)
+        run: node_modules/.bin/tsx lib/services/payables/payment-request-identity.test.ts
       - name: Erasure coverage — every new model has a disposition
         run: npm run verify:erasure-contract -- --baseline-check
 
@@ -98,6 +101,9 @@ jobs:
 
       - name: Ledger, tenancy, concurrency, idempotency and backfill
         run: npx tsx lib/services/payables/payables.db.test.ts
+
+      - name: Payment idempotency — replay, conflict, concurrent first requests, exactly-once recurrence
+        run: node_modules/.bin/tsx lib/services/payables/payment-idempotency.db.test.ts
 
       # ── The drift check was RETIRED here, deliberately ────────────────────
       #
