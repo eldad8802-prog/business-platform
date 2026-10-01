@@ -11,9 +11,9 @@
 # repository is public, so scheduled runs cost nothing. A daily Vercel cron in
 # vercel.json remains as a backstop should this schedule ever be suspended.
 #
-# The only secret is CRON_SECRET (a repository secret, identical to the one in
-# the Vercel Production environment). It is sent as a bearer header, never
-# echoed; the endpoint answers counts only.
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` GitHub
+# environment (main-only branch policy; the value Vercel Production accepts).
+# It is sent as a bearer header, never echoed; the endpoint answers counts only.
 
 name: payment settlement recovery (scheduled)
 
@@ -31,6 +31,10 @@ concurrency:
 
 jobs:
   recover:
+    # H-3/M-1: CRON authority comes ONLY from the protected `cron` environment, and only on main
+    # (a scheduled run always runs on the default branch). Enforced by workflow-policy WP-3/WP-4/WP-6.
+    if: github.ref == 'refs/heads/main'
+    environment: cron
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
