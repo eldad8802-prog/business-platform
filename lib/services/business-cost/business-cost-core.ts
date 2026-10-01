@@ -205,6 +205,25 @@ export function baselineDailyMinor(amountMinor: number, cadence: Cadence): numbe
   return roundHalfUp(BigInt(amountMinor) * den, num);
 }
 
+export type NormalUnit = "DAY" | "WEEK" | "MONTH" | "YEAR";
+
+/**
+ * The same amount, normalised to another unit through the same mean period
+ * lengths as the daily baseline (a month is 365.2425 / 12 days, a year
+ * 365.2425): amount × unitDays ÷ periodDays, rounded half-up to an agora.
+ * `DAY` is exactly `baselineDailyMinor`.
+ */
+export function normalizedEquivalentMinor(amountMinor: number, cadence: Cadence, unit: NormalUnit): number {
+  const period = meanPeriodDays(cadence);
+  const u =
+    unit === "DAY" ? { num: ONE, den: ONE }
+    : unit === "WEEK" ? { num: BigInt(7), den: ONE }
+    : unit === "MONTH" ? { num: BigInt(3652425), den: BigInt(120000) }
+    : { num: BigInt(3652425), den: BigInt(10000) };
+  // amount × (u.num/u.den) ÷ (period.num/period.den)
+  return roundHalfUp(BigInt(amountMinor) * u.num * period.den, u.den * period.num);
+}
+
 /* ──────────────────────────────────── inputs ─────────────────────────────── */
 
 export type CommitmentScheduleKind = "ONE_OFF" | "RECURRING" | "INSTALLMENT_PLAN";
@@ -228,6 +247,12 @@ export type CostInstallment = {
   amountMinor: number;
   currency: string;
   status: InstallmentStatus;
+  /**
+   * Active allocations of RECORDED payments against this occurrence, when the
+   * caller loaded them. The daily engine never reads it (payment timing is not
+   * economic cost); the intelligence layer uses it for what is still to pay.
+   */
+  paidMinor?: number;
 };
 
 /**
@@ -260,6 +285,11 @@ export type CostCommitment = {
    */
   endDate: CivilDate | null;
   installments: CostInstallment[];
+  /**
+   * The owner's own free-text classification (`Commitment.category`), when one
+   * was recorded. Never inferred. The daily engine does not read it.
+   */
+  category?: string | null;
 };
 
 export type CostPayment = {
@@ -408,14 +438,14 @@ const MAX_PROJECTION_STEPS = 20_000;
 
 type Occurrence = CostInstallment & { commitment: CostCommitment; day: number };
 
-function natureOf(c: CostCommitment): CostNature {
+export function natureOf(c: CostCommitment): CostNature {
   // Structured data only. A loan repayment is mostly principal — financing,
   // not cost — and the interest share is not recorded anywhere. Free-text
   // titles ("הלוואה") are deliberately NOT parsed into financial semantics.
   return c.payeeKind === "LENDER" ? "DEBT_SERVICE" : "OPERATING";
 }
 
-function seriesKeyOf(c: CostCommitment): string {
+export function seriesKeyOf(c: CostCommitment): string {
   // A legacy recurring obligation rolled forward as N separate rows sharing a
   // series id; the backfill made each row its own RECURRING commitment. They
   // are ONE economic commitment — treating them apart would count the rent
