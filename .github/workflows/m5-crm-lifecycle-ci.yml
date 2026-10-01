@@ -238,6 +238,7 @@ jobs:
 
       - name: 4. M5 battery (runtime role, real intake + lead service + routes)
         env:
+          M5_LAB_MODE: ${{ steps.base.outputs.mode }}
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}

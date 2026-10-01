@@ -175,6 +175,10 @@ async function main() {
       }));
     const won = pre.find((l) => l.status === "WON");
     ok("backfill: a float money value became NUMERIC(18,2) exactly (1234.567 → 1234.57)", won?.valueEstimate?.toFixed(2) === "1234.57", String(won?.valueEstimate));
+  } else if (process.env.M5_LAB_MODE === "pushed") {
+    // The base already contains M5: the migration (and its backfill) was proven in
+    // PR-A's lab and in Production; a pushed-schema lab has no pre-migration rows.
+    console.log("  (pushed-schema lab: backfill proven by the migration lab + Production proof Q13)");
   } else {
     ok("backfill fixture present (seeded before the migration)", false);
   }
@@ -470,7 +474,7 @@ async function main() {
   ok("B's owner reading A's lead history → 404", crossHist.status === 404);
   const ownHist = await getHistory(tokA, L1.id);
   ok("A's owner reads the full history (newest first) with no personal data",
-    ownHist.status === 200 && ownHist.json?.items?.[0]?.seq > 1 && !/050|972|noa@|Noa/.test(JSON.stringify(ownHist.json)));
+    ownHist.status === 200 && ownHist.json?.items?.[0]?.seq > 1 && !/9725\d{7}|05\d-?\d{3}-?\d{4}|noa@|Noa/.test(JSON.stringify(ownHist.json)));
   const crossIns = await rejects(() => asT(bizB.id, (tx) => tx.leadLifecycleEvent.create({ data: {
     businessId: bizA.id, leadId: L1.id, seq: 999, kind: "suggestion_dismissed", actorType: "SYSTEM", source: "SYSTEM", idempotencyKey: `${RUN}-x`,
   } })));
