@@ -79,6 +79,11 @@ export type LeadPriorityReasonKind =
   | "CUSTOMER_WAITING"
   | "NEW_UNHANDLED"
   | "HOT_THREAD"
+  // M5 lifecycle reasons (lead-attention.ts)
+  | "CUSTOMER_WROTE"
+  | "AWAITING_OWNER_DECISION"
+  | "QUOTE_NO_ACTIVITY"
+  | "STALLED"
   | "NONE";
 
 export type LeadPriority = {
@@ -253,6 +258,10 @@ const PRIORITY_LABELS: Record<LeadPriorityReasonKind, string> = {
   CUSTOMER_WAITING: "יש הודעה שלא נענתה",
   NEW_UNHANDLED: "ליד חדש שלא טופל",
   HOT_THREAD: "השיחה חמה",
+  CUSTOMER_WROTE: "הלקוח כתב",
+  AWAITING_OWNER_DECISION: "מחכה להחלטה שלכם",
+  QUOTE_NO_ACTIVITY: "הצעה בלי המשך",
+  STALLED: "ליד תקוע",
   NONE: "",
 };
 

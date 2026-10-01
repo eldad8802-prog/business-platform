@@ -415,8 +415,7 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
         "evidenceRef",
         "idempotencyKey",
       ],
-      // PR-A (migration only): no writer exists yet — PR-B names its only write site.
-      writeSites: [],
+      writeSites: ["lib/services/crm/lead-lifecycle.service.ts"],
     },
   },
 

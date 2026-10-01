@@ -24,6 +24,7 @@
  *                   SAME transaction — the idempotency anchor of step 1.
  */
 
+import { appendLeadLifecycleEvent, lockLeadForLifecycle } from "@/lib/services/crm/lead-lifecycle.service";
 import { Prisma } from "@prisma/client";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { leadService } from "@/lib/services/crm/lead.service";
@@ -130,10 +131,24 @@ export async function routeToLead(
           contact: { customerId },
           actor: { type: "INTEGRATION" },
           source: "INTEGRATION",
+          lifecycleEvidence: { kind: "intake_event", ref: String(event.id) },
         },
         { tx }
       );
       leadId = lead.id;
+    } else {
+      // M5 — a further explicit lead event for a phone with an open lead: recorded
+      // on that lead's lifecycle, once per intake event (the stage does not move).
+      const locked = await lockLeadForLifecycle(tx, businessId, leadId);
+      if (locked) {
+        await appendLeadLifecycleEvent(tx, locked, {
+          kind: "intake_attached",
+          idempotencyKey: `intake:${event.id}:lead-attached`,
+          actor: { type: "INTEGRATION" },
+          source: "INTEGRATION",
+          evidence: { kind: "intake_event", ref: String(event.id) },
+        });
+      }
     }
 
     // Uncertain identity → ask the owner (idempotent per event + candidate).

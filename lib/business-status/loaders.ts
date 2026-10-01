@@ -35,6 +35,7 @@ async function dbStep<T>(
   return withTenantTransaction((tx) => fn(tx));
 }
 
+import { QUOTE_CHECK_AFTER_DAYS, STALLED_AFTER_DAYS } from "@/lib/services/crm/lead-lifecycle-core";
 import {
   OPEN_LEAD_STATUSES,
   endOfLeadDayUtc,
@@ -123,6 +124,10 @@ export type LeadAttentionRaw = {
   nextFollowUpAt: Date | null;
   followUpNote: string | null;
   createdAt: Date;
+  /** M5 — lifecycle facts the attention contract reads. */
+  lastActivityAt: Date | null;
+  lastCustomerInboundAt: Date | null;
+  openIdentityProposals: number;
 };
 
 export type SupplierDraftRaw = {
@@ -506,30 +511,38 @@ export async function loadLeadsNeedingAttention(
   businessId: number,
   now: Date
 ): Promise<LeadAttentionRaw[]> {
-  return dbStep((db) => db.lead.findMany({
-    where: {
-      businessId,
-      status: { in: [...OPEN_LEAD_STATUSES] },
-      OR: [
-        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
-        {
-          status: "NEW",
-          nextFollowUpAt: null,
-          createdAt: { lt: startOfLeadDayUtc(now) },
-        },
-      ],
-    },
-    orderBy: [{ nextFollowUpAt: "asc" }, { createdAt: "asc" }],
-    take: BS_LEADS_CAP,
-    select: {
-      id: true,
-      customerName: true,
-      status: true,
-      nextFollowUpAt: true,
-      followUpNote: true,
-      createdAt: true,
-    },
-  }));
+  // M5 — the SQL is a SUPERSET of `evaluateLeadAttention` (the translator drops
+  // anything the evaluator rejects); day cutoffs are one day lenient so the
+  // Israel-local day arithmetic can only over-include, never hide.
+  const dayMs = 86_400_000;
+  const quoteCutoff = startOfLeadDayUtc(new Date(now.getTime() - (QUOTE_CHECK_AFTER_DAYS - 1) * dayMs));
+  const stallCutoff = startOfLeadDayUtc(new Date(now.getTime() - (STALLED_AFTER_DAYS - 1) * dayMs));
+  const open = [...OPEN_LEAD_STATUSES];
+  return dbStep((db) => db.$queryRaw<LeadAttentionRaw[]>`
+    SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
+           l."createdAt", l."lastActivityAt",
+           (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
+             WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
+           (SELECT count(*)::int FROM "IdentityProposal" p
+             WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed') AS "openIdentityProposals"
+    FROM "Lead" l
+    WHERE l."businessId" = ${businessId}
+      AND l."status"::text IN (${Prisma.join(open)})
+      AND (
+        l."nextFollowUpAt" <= ${endOfLeadDayUtc(now)}
+        OR (l."status" = 'NEW' AND l."nextFollowUpAt" IS NULL AND l."createdAt" < ${startOfLeadDayUtc(now)})
+        OR (l."nextFollowUpAt" IS NULL AND l."status" = 'QUOTED'
+            AND COALESCE(l."lastActivityAt", l."createdAt") < ${quoteCutoff})
+        OR (l."nextFollowUpAt" IS NULL AND l."status" IN ('OPEN', 'QUALIFIED')
+            AND COALESCE(l."lastActivityAt", l."createdAt") < ${stallCutoff})
+        OR EXISTS (SELECT 1 FROM "IdentityProposal" p
+                    WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed')
+        OR EXISTS (SELECT 1 FROM "Conversation" c
+                    WHERE c."businessId" = l."businessId" AND c."leadId" = l."id"
+                      AND c."customerLastInboundAt" > COALESCE(l."lastActivityAt", l."createdAt"))
+      )
+    ORDER BY l."nextFollowUpAt" ASC NULLS LAST, l."createdAt" ASC
+    LIMIT ${BS_LEADS_CAP * 3}`);
 }
 
 export async function loadSupplierPurchasesPending(

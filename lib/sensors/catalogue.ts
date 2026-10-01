@@ -351,6 +351,73 @@ export const SENSORS = {
     describes: "The owner confirmed, rejected or undid an identity proposal, or it was found stale.",
     consumer: "planned: proposal precision (how often owners confirm vs reject)",
   }),
+
+  /* ─────────────────────── leads — M5 lifecycle ─────────────────────── */
+  // Written by lib/services/crm/lead-lifecycle.service.ts beside each LeadLifecycleEvent row.
+  // Categories, counts and durations only: never a name, phone, email, note, reason text or amount.
+  LEAD_LIFECYCLE_STARTED: S({
+    eventType: "LEAD_LIFECYCLE_STARTED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["origin", "contactKnown"],
+    describes: "A lead entered the CRM lifecycle, through which path (manual, conversation, auto-capture, import, intake), and whether its contact was already known.",
+    consumer: "planned: lead volume and source mix; the denominator of conversion by source",
+  }),
+  LEAD_STAGE_CHANGED: S({
+    eventType: "LEAD_STAGE_CHANGED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["fromStage", "toStage", "closing", "reopening", "hoursInPreviousStage"],
+    describes: "The owner moved a lead from one lifecycle stage to another, and how long it had stayed in the previous stage.",
+    consumer: "planned: time between stages, where leads stall, lifecycle paths",
+  }),
+  LEAD_OUTCOME_RECORDED: S({
+    eventType: "LEAD_OUTCOME_RECORDED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["outcome", "daysOpen", "hadNextAction"],
+    describes: "A lead was closed as won, lost or dropped, after how many days, and whether a next action was still open.",
+    consumer: "planned: conversion rate and typical time to close (dropped excluded from the denominator)",
+  }),
+  LEAD_NEXT_ACTION_SCHEDULED: S({
+    eventType: "LEAD_NEXT_ACTION_SCHEDULED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["actionKind", "rescheduled", "dueInHours", "fromSuggestion"],
+    describes: "The owner set or postponed the next action on a lead: its kind, how far ahead, and whether it came from a Dubiz suggestion.",
+    consumer: "planned: follow-up behaviour, postponement rate, suggestion adoption",
+  }),
+  LEAD_NEXT_ACTION_COMPLETED: S({
+    eventType: "LEAD_NEXT_ACTION_COMPLETED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["actionKind", "onTime", "lateHours"],
+    describes: "The owner marked a lead's next action done, and whether it was done on time.",
+    consumer: "planned: follow-up delay and completion behaviour",
+  }),
+  LEAD_FIRST_HANDLED: S({
+    eventType: "LEAD_FIRST_HANDLED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["hoursToFirstHandling", "firstAction"],
+    describes: "The owner took the first lifecycle action on a lead, how many hours after it arrived, and which action it was.",
+    consumer: "planned: average time to first handling",
+  }),
+  LEAD_VALUE_RECORDED: S({
+    eventType: "LEAD_VALUE_RECORDED",
+    domain: "leads",
+    entityType: "LEAD",
+    version: 1,
+    payloadKeys: ["amountKind", "cleared"],
+    describes: "The owner recorded or cleared an estimated or agreed amount on a lead (the amount itself stays on the lead).",
+    consumer: "planned: how often owners price their pipeline",
+  }),
 } as const;
 
 export type SensorKey = keyof typeof SENSORS;

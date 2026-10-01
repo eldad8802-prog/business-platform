@@ -8,7 +8,13 @@ import type {
   LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
 
+import type { LeadCardLifecycle } from "@/lib/services/crm/lead-card.read-model";
+import type { LeadBriefing } from "@/lib/services/crm/lead-briefing";
+import type { LeadNextActionKindValue } from "@/lib/services/crm/lead-lifecycle-core";
+import type { LeadLifecycleHistoryItem } from "@/lib/services/crm/lead-lifecycle.service";
+
 export type { LeadFollowUpState, LeadStatusValue };
+export type { LeadBriefing, LeadCardLifecycle, LeadLifecycleHistoryItem, LeadNextActionKindValue };
 
 export type LeadListRow = {
   id: number;
@@ -45,6 +51,14 @@ export type LeadCardDTO = {
     lostReason: string | null;
     createdAt: string;
     updatedAt: string;
+    /** M5 — send back as expectedVersion on lifecycle writes. */
+    lifecycleVersion: number;
+    nextActionKind: string | null;
+    nextActionLabel: string | null;
+    firstHandledAt: string | null;
+    valueEstimate: string | null;
+    finalPrice: string | null;
+    currency: string | null;
   };
   followUp: LeadFollowUpState;
   needsAttention: boolean;
@@ -70,6 +84,8 @@ export type LeadCardDTO = {
   intelligence: LeadConversationIntelligence | null;
   /** W3 — why this lead sits where it does in the queue. */
   priority: LeadPriority;
+  /** M5 — lifecycle attention (fact / inference), Dubiz's suggestion, and history. */
+  lifecycle: LeadCardLifecycle;
 };
 
 /**
@@ -214,13 +230,82 @@ async function patchLead(
 export function updateLeadStatus(
   leadId: number,
   status: LeadStatusValue,
-  lostReason?: string | null
+  lostReason?: string | null,
+  expectedVersion?: number
 ): Promise<LeadCardDTO> {
   return patchLead(
     leadId,
-    { status, ...(lostReason ? { lostReason } : {}) },
+    {
+      status,
+      ...(lostReason ? { lostReason } : {}),
+      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+    },
     "לא הצלחנו לעדכן את הסטטוס"
   );
+}
+
+/**
+ * M5 — set or reschedule the next action (what + when). `fromSuggestionRuleId`
+ * marks an accepted Dubiz suggestion; `expectedVersion` refuses a stale screen.
+ */
+export function setLeadNextAction(
+  leadId: number,
+  input: {
+    followUpAt: string;
+    nextActionKind: LeadNextActionKindValue | null;
+    followUpNote?: string | null;
+    fromSuggestionRuleId?: string | null;
+    expectedVersion?: number;
+  }
+): Promise<LeadCardDTO> {
+  return patchLead(
+    leadId,
+    {
+      followUpAt: input.followUpAt,
+      nextActionKind: input.nextActionKind,
+      followUpNote: input.followUpNote ?? null,
+      ...(input.fromSuggestionRuleId ? { fromSuggestionRuleId: input.fromSuggestionRuleId } : {}),
+      ...(input.expectedVersion !== undefined ? { expectedVersion: input.expectedVersion } : {}),
+    },
+    "לא הצלחנו לקבוע את הפעולה הבאה"
+  );
+}
+
+/** M5 — record the estimated value or the amount agreed at WON (null clears). */
+export function setLeadValue(
+  leadId: number,
+  amountKind: "estimate" | "agreed",
+  amount: number | null,
+  expectedVersion?: number
+): Promise<LeadCardDTO> {
+  return patchLead(
+    leadId,
+    { value: { amountKind, amount }, ...(expectedVersion !== undefined ? { expectedVersion } : {}) },
+    "לא הצלחנו לשמור את הסכום"
+  );
+}
+
+/** M5 — "not now" to a Dubiz suggestion; it stays quiet until the lead changes. */
+export function dismissLeadSuggestion(
+  leadId: number,
+  ruleId: string,
+  expectedVersion?: number
+): Promise<LeadCardDTO> {
+  return patchLead(
+    leadId,
+    { dismissSuggestion: ruleId, ...(expectedVersion !== undefined ? { expectedVersion } : {}) },
+    "לא הצלחנו לעדכן"
+  );
+}
+
+/** M5 — the Secretary's lead briefing (read-only). */
+export async function getLeadBriefing(): Promise<LeadBriefing> {
+  const res = await fetchWithTimeout("/api/leads/briefing", {
+    headers: buildClientAuthHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) await parseError(res, "לא הצלחנו לטעון את סיכום הלידים");
+  return (await res.json()) as LeadBriefing;
 }
 
 export function setLeadFollowUp(

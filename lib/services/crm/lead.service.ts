@@ -34,6 +34,18 @@ import {
   type AuditSource,
 } from "@/lib/services/audit.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
+import {
+  appendLeadLifecycleEvent,
+  lockLeadForLifecycle,
+  type LifecycleEvidence,
+} from "@/lib/services/crm/lead-lifecycle.service";
+import {
+  LEAD_NEXT_ACTION_KINDS,
+  isLeadNextActionKind,
+  leadOriginFor,
+  parseLeadAmount,
+  type LeadNextActionKindValue,
+} from "@/lib/services/crm/lead-lifecycle-core";
 import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
 import {
   deriveLeadConversationIntelligence,
@@ -125,6 +137,8 @@ export type CreateLeadInput = LeadActorContext & {
   email?: string | null;
   intentSnapshot?: string | null;
   sourceChannel?: string | null;
+  /** M5 — what evidence brought this lead in (e.g. the intake event), recorded on its `created` step. */
+  lifecycleEvidence?: LifecycleEvidence | null;
   /**
    * Business Intake M4 — the contact was ALREADY decided by identity resolution:
    * a Customer id (verified in-business inside this transaction), or null for a
@@ -146,7 +160,14 @@ export type UpdateLeadInput = LeadActorContext & {
   sourceChannel?: string | null;
 };
 
-export type UpdateLeadStatusInput = LeadActorContext & {
+/**
+ * M5 — the lifecycleVersion the caller saw. When given and the lead has moved
+ * on since, the write is refused (409 LEAD_LIFECYCLE_STALE) instead of
+ * overwriting a newer decision. Omitted, the write applies to the current lead.
+ */
+type LeadVersionGuard = { expectedVersion?: number | null };
+
+export type UpdateLeadStatusInput = LeadActorContext & LeadVersionGuard & {
   businessId: number;
   leadId: number;
   status: LeadStatusValue | string;
@@ -154,17 +175,38 @@ export type UpdateLeadStatusInput = LeadActorContext & {
   lostReason?: string | null;
 };
 
-export type SetLeadFollowUpInput = LeadActorContext & {
+export type SetLeadFollowUpInput = LeadActorContext & LeadVersionGuard & {
   businessId: number;
   leadId: number;
   /** ISO-8601 instant. */
   followUpAt: string;
   note?: string | null;
+  /** M5 — what the next action is. Omitted on a reschedule, the current kind is kept. */
+  nextActionKind?: LeadNextActionKindValue | string | null;
+  /** M5 — set when the owner accepted a Dubiz suggestion (its versioned rule id). */
+  fromSuggestionRuleId?: string | null;
 };
 
-export type ClearLeadFollowUpInput = LeadActorContext & {
+export type ClearLeadFollowUpInput = LeadActorContext & LeadVersionGuard & {
   businessId: number;
   leadId: number;
+};
+
+export type SetLeadValueInput = LeadActorContext & LeadVersionGuard & {
+  businessId: number;
+  leadId: number;
+  /** estimate = estimated opportunity value; agreed = amount agreed at WON. */
+  amountKind: "estimate" | "agreed";
+  /** Non-negative, at most two decimals; null clears it. */
+  amount: number | string | null;
+  /** ISO-4217; defaults to the lead's currency (ILS). */
+  currency?: string | null;
+};
+
+export type DismissLeadSuggestionInput = LeadActorContext & LeadVersionGuard & {
+  businessId: number;
+  leadId: number;
+  ruleId: string;
 };
 
 export type GetLeadInput = {
@@ -444,6 +486,23 @@ export const leadService = {
         },
         { tx }
       );
+
+      // M5 — the lifecycle starts here, exactly once per lead (key lead:<id>:created).
+      {
+        const locked = await lockLeadForLifecycle(tx, input.businessId, lead.id);
+        if (locked) {
+          await appendLeadLifecycleEvent(tx, locked, {
+            kind: "created",
+            toStatus: "NEW",
+            idempotencyKey: `lead:${lead.id}:created`,
+            actor: input.actor,
+            source: input.source,
+            evidence: input.lifecycleEvidence ?? null,
+            origin: leadOriginFor(sourceChannel, input.source),
+          });
+          lead = await tx.lead.findFirstOrThrow({ where: { id: lead.id, businessId: input.businessId } });
+        }
+      }
 
       // M5.5 — the customer this lead brought into existence (never a reused one). Origin LEAD for
       // every path; the source (OWNER_UI vs IMPORT) tells a typed lead from an imported one.
@@ -878,11 +937,16 @@ export const leadService = {
     );
 
     const run = async (tx: Tx) => {
+      // M5 — row lock first: concurrent status changes on one lead serialize, and
+      // the second sees the first one's result (a double-tap is a no-op).
+      const locked = await lockLeadForLifecycle(tx, input.businessId, leadId, input.expectedVersion);
+      if (!locked) throw new NotFoundError("Lead not found");
       const current = await tx.lead.findFirst({
         where: { id: leadId, businessId: input.businessId },
         select: { id: true, status: true, phone: true },
       });
       if (!current) throw new NotFoundError("Lead not found");
+      const baseVersion = locked.lifecycleVersion;
 
       const transition = classifyLeadStatusTransition(
         current.status as LeadStatusValue,
@@ -917,6 +981,7 @@ export const leadService = {
         // A closed lead needs no chasing — drop the open follow-up so it can
         // never surface as "overdue" after the deal is already decided.
         data.nextFollowUpAt = null;
+        data.nextActionKind = null;
       }
       if (transition.reopening) {
         data.closedAt = null;
@@ -950,6 +1015,26 @@ export const leadService = {
         },
         { tx }
       );
+
+      // M5 — the durable lifecycle step (+ the dropped next action, when closing).
+      await appendLeadLifecycleEvent(tx, locked, {
+        kind: "status_changed",
+        fromStatus: current.status as LeadStatusValue,
+        toStatus: nextStatus,
+        idempotencyKey: `lead:${leadId}:v${baseVersion}:status:${nextStatus}`,
+        actor: input.actor,
+        source: input.source,
+      });
+      if (transition.closing && locked.nextFollowUpAt !== null) {
+        await appendLeadLifecycleEvent(tx, locked, {
+          kind: "next_action_cleared",
+          nextActionKind: locked.nextActionKind,
+          previousDueAt: locked.nextFollowUpAt,
+          idempotencyKey: `lead:${leadId}:v${baseVersion}:cleared-on-close`,
+          actor: input.actor,
+          source: input.source,
+        });
+      }
 
       if (nextStatus === "WON" || nextStatus === "LOST") {
         await logAuditEvent(
@@ -999,10 +1084,24 @@ export const leadService = {
       LEAD_FOLLOWUP_NOTE_MAX
     );
 
+    if (
+      input.nextActionKind !== undefined &&
+      input.nextActionKind !== null &&
+      !isLeadNextActionKind(input.nextActionKind)
+    ) {
+      throw new ValidationError(`nextActionKind must be one of: ${LEAD_NEXT_ACTION_KINDS.join(", ")}`);
+    }
+    const ruleId = normalizeLeadOptionalText(input.fromSuggestionRuleId, "fromSuggestionRuleId", 60);
+    if (ruleId !== null && !/^S[0-9]+_[A-Z_]+@[0-9]+$/.test(ruleId)) {
+      throw new ValidationError("fromSuggestionRuleId is not a suggestion rule id");
+    }
+
     const run = async (tx: Tx) => {
+      const locked = await lockLeadForLifecycle(tx, input.businessId, leadId, input.expectedVersion);
+      if (!locked) throw new NotFoundError("Lead not found");
       const current = await tx.lead.findFirst({
         where: { id: leadId, businessId: input.businessId },
-        select: { status: true, nextFollowUpAt: true },
+        select: { status: true, nextFollowUpAt: true, nextActionKind: true, followUpNote: true },
       });
       if (!current) throw new NotFoundError("Lead not found");
 
@@ -1012,15 +1111,43 @@ export const leadService = {
         );
       }
 
+      const nextActionKind: LeadNextActionKindValue | null =
+        input.nextActionKind === undefined
+          ? (locked.nextActionKind ?? null)
+          : ((input.nextActionKind as LeadNextActionKindValue | null) ?? null);
+
+      // A retried identical request changes nothing and records nothing.
+      if (
+        current.nextFollowUpAt !== null &&
+        current.nextFollowUpAt.getTime() === followUpAt.getTime() &&
+        (current.nextActionKind ?? null) === nextActionKind &&
+        (current.followUpNote ?? null) === note
+      ) {
+        return tx.lead.findFirstOrThrow({ where: { id: leadId, businessId: input.businessId } });
+      }
+
       const updated = await tx.lead.updateMany({
         where: { id: leadId, businessId: input.businessId },
         data: {
           nextFollowUpAt: followUpAt,
           followUpNote: note,
+          nextActionKind,
           lastActivityAt: now,
         },
       });
       if (updated.count !== 1) throw new NotFoundError("Lead not found");
+
+      const baseVersion = locked.lifecycleVersion;
+      await appendLeadLifecycleEvent(tx, locked, {
+        kind: current.nextFollowUpAt !== null ? "next_action_rescheduled" : "next_action_set",
+        nextActionKind,
+        dueAt: followUpAt,
+        previousDueAt: current.nextFollowUpAt,
+        idempotencyKey: `lead:${leadId}:v${baseVersion}:next:${followUpAt.getTime()}`,
+        actor: input.actor,
+        source: input.source,
+        evidence: ruleId ? { kind: "suggestion", ref: ruleId } : null,
+      });
 
       await logAuditEvent(
         {
@@ -1071,6 +1198,101 @@ export const leadService = {
   },
 
   /**
+   * M5 — record the owner's estimated opportunity value, or the amount agreed
+   * when the lead was won. Owner-entered, NOT billing truth: a quote document,
+   * an invoice or a payment is never inferred into these fields. An agreed
+   * amount only makes sense on a WON lead; the estimate on any lead.
+   */
+  async setLeadValue(input: SetLeadValueInput, options?: TxOptions) {
+    assertBusinessId(input.businessId);
+    const leadId = normalizeLeadId(input.leadId);
+    if (input.amountKind !== "estimate" && input.amountKind !== "agreed") {
+      throw new ValidationError("amountKind must be estimate or agreed");
+    }
+    let amount: string | null;
+    try {
+      amount = parseLeadAmount(input.amount);
+    } catch (error) {
+      throw new ValidationError((error as Error).message);
+    }
+    const currency =
+      input.currency === undefined || input.currency === null ? null : String(input.currency).trim().toUpperCase();
+    if (currency !== null && !/^[A-Z]{3}$/.test(currency)) {
+      throw new ValidationError("currency must be an ISO-4217 code");
+    }
+
+    const run = async (tx: Tx) => {
+      const locked = await lockLeadForLifecycle(tx, input.businessId, leadId, input.expectedVersion);
+      if (!locked) throw new NotFoundError("Lead not found");
+      if (input.amountKind === "agreed" && amount !== null && locked.status !== "WON") {
+        throw new ValidationError("An agreed amount can only be recorded on a won lead");
+      }
+      const field = input.amountKind === "estimate" ? "valueEstimate" : "finalPrice";
+      const current = await tx.lead.findFirstOrThrow({
+        where: { id: leadId, businessId: input.businessId },
+        select: { valueEstimate: true, finalPrice: true, currency: true },
+      });
+      const before = current[field] === null ? null : current[field]!.toFixed(2);
+      if (before === amount && (currency === null || currency === current.currency)) {
+        return tx.lead.findFirstOrThrow({ where: { id: leadId, businessId: input.businessId } });
+      }
+
+      await tx.lead.updateMany({
+        where: { id: leadId, businessId: input.businessId },
+        data: {
+          [field]: amount,
+          ...(currency !== null ? { currency } : {}),
+          lastActivityAt: new Date(),
+        },
+      });
+      const baseVersion = locked.lifecycleVersion;
+      await appendLeadLifecycleEvent(tx, locked, {
+        kind: "value_updated",
+        amountKind: input.amountKind,
+        amount,
+        idempotencyKey: `lead:${leadId}:v${baseVersion}:value:${input.amountKind}:${amount ?? "null"}`,
+        actor: input.actor,
+        source: input.source,
+      });
+      return tx.lead.findFirstOrThrow({ where: { id: leadId, businessId: input.businessId } });
+    };
+
+    if (options?.tx) return run(options.tx);
+    throw new ValidationError("setLeadValue must run inside a tenant transaction (pass options.tx)");
+  },
+
+  /**
+   * M5 — the owner says "not now" to a Dubiz suggestion. Recorded as a lifecycle
+   * step; the rule stays quiet on this lead until anything else changes on it.
+   * Nothing else about the lead changes.
+   */
+  async dismissLeadSuggestion(input: DismissLeadSuggestionInput, options?: TxOptions) {
+    assertBusinessId(input.businessId);
+    const leadId = normalizeLeadId(input.leadId);
+    const ruleId = normalizeLeadOptionalText(input.ruleId, "ruleId", 60);
+    if (ruleId === null || !/^S[0-9]+_[A-Z_]+@[0-9]+$/.test(ruleId)) {
+      throw new ValidationError("ruleId is not a suggestion rule id");
+    }
+
+    const run = async (tx: Tx) => {
+      const locked = await lockLeadForLifecycle(tx, input.businessId, leadId, input.expectedVersion);
+      if (!locked) throw new NotFoundError("Lead not found");
+      const baseVersion = locked.lifecycleVersion;
+      const result = await appendLeadLifecycleEvent(tx, locked, {
+        kind: "suggestion_dismissed",
+        idempotencyKey: `lead:${leadId}:v${baseVersion}:dismiss:${ruleId}`,
+        actor: input.actor,
+        source: input.source,
+        evidence: { kind: "suggestion", ref: ruleId },
+      });
+      return { lifecycleVersion: result.seq, duplicate: result.duplicate };
+    };
+
+    if (options?.tx) return run(options.tx);
+    throw new ValidationError("dismissLeadSuggestion must run inside a tenant transaction (pass options.tx)");
+  },
+
+  /**
    * Mark the follow-up done. Clearing the timestamp IS completion — there is no
    * separate reminder row to close, so this cannot double-fire or leave a
    * dangling job behind.
@@ -1080,21 +1302,36 @@ export const leadService = {
     const leadId = normalizeLeadId(input.leadId);
 
     const run = async (tx: Tx) => {
-      const current = await tx.lead.findFirst({
-        where: { id: leadId, businessId: input.businessId },
-        select: { nextFollowUpAt: true },
-      });
-      if (!current) throw new NotFoundError("Lead not found");
+      const locked = await lockLeadForLifecycle(tx, input.businessId, leadId, input.expectedVersion);
+      if (!locked) throw new NotFoundError("Lead not found");
+      const current = { nextFollowUpAt: locked.nextFollowUpAt };
+
+      // Completing an already-completed follow-up (a retry, a double-tap) is a
+      // no-op: nothing changes, nothing is recorded.
+      if (current.nextFollowUpAt === null) {
+        return tx.lead.findFirstOrThrow({ where: { id: leadId, businessId: input.businessId } });
+      }
 
       const updated = await tx.lead.updateMany({
         where: { id: leadId, businessId: input.businessId },
         data: {
           nextFollowUpAt: null,
           followUpNote: null,
+          nextActionKind: null,
           lastActivityAt: new Date(),
         },
       });
       if (updated.count !== 1) throw new NotFoundError("Lead not found");
+
+      const baseVersion = locked.lifecycleVersion;
+      await appendLeadLifecycleEvent(tx, locked, {
+        kind: "next_action_completed",
+        nextActionKind: locked.nextActionKind,
+        previousDueAt: locked.nextFollowUpAt,
+        idempotencyKey: `lead:${leadId}:v${baseVersion}:completed`,
+        actor: input.actor,
+        source: input.source,
+      });
 
       // Only an actual follow-up can be completed; clearing an empty one is a
       // no-op and must not invent a completion in the history.
@@ -1297,6 +1534,34 @@ export const leadService = {
         where: { id: conversationId, businessId: input.businessId, leadId: null },
         data: { leadId: lead.id },
       });
+
+      // M5 — lifecycle: `created` for a lead born here, `conversation_linked` for a new link.
+      {
+        const locked = await lockLeadForLifecycle(tx, input.businessId, lead.id);
+        if (locked && outcome === "created") {
+          await appendLeadLifecycleEvent(tx, locked, {
+            kind: "created",
+            toStatus: "NEW",
+            idempotencyKey: `lead:${lead.id}:created`,
+            actor: input.actor,
+            source: input.source,
+            evidence: { kind: "conversation", ref: String(conversationId) },
+            origin: input.source === "SYSTEM" ? "AUTO_CAPTURE" : "CONVERSATION",
+          });
+        }
+        if (locked && linked.count === 1) {
+          await appendLeadLifecycleEvent(tx, locked, {
+            kind: "conversation_linked",
+            idempotencyKey: `lead:${lead.id}:conversation:${conversationId}`,
+            actor: input.actor,
+            source: input.source,
+            evidence: { kind: "conversation", ref: String(conversationId) },
+          });
+        }
+        if (locked) {
+          lead = await tx.lead.findFirstOrThrow({ where: { id: lead.id, businessId: input.businessId } });
+        }
+      }
 
       if (outcome === "created") {
         await logAuditEvent(

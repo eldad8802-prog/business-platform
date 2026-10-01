@@ -5,17 +5,20 @@ import {
 } from "@/lib/services/crm/lead-attention";
 import type { LeadStatusValue } from "@/lib/services/crm/lead-core";
 import type { LeadAttentionRaw } from "../loaders";
+import { BS_LEADS_CAP } from "../limits";
 import type { BusinessStatusItemBuild, Severity } from "../types";
 
 /**
  * Leads → Business Status (Attention).
  *
- * The domain contributes exactly the reasons W1 can evidence: a follow-up the
- * owner promised and has not kept, and a new lead nobody has touched. It does
- * NOT contribute "hot", "cooling", "waiting" or "stalled quote" — those derive
- * from Conversation columns that nothing currently writes (the state writer is
- * gated off in every environment), and a badge over no evidence is worse than
- * no badge.
+ * The domain contributes exactly the reasons the lead lifecycle can evidence:
+ * a follow-up the owner promised and has not kept, a new lead nobody has
+ * touched, and (M5) a customer who wrote after the last update on the lead, an
+ * open identity question to the owner, a quoted lead and an open lead with no
+ * recorded activity. Every item states whether it is a FACT or a deterministic
+ * INFERENCE. It does NOT contribute "hot" or "cooling" — those derive from
+ * Conversation columns written only behind CONVERSATION_STATE_WRITER_ENABLED,
+ * and a badge over no evidence is worse than no badge.
  */
 
 function leadLabel(name: string | null): string {
@@ -25,8 +28,12 @@ function leadLabel(name: string | null): string {
 
 const SEVERITY_BY_REASON: Record<string, Severity> = {
   FOLLOWUP_OVERDUE: "HIGH",
+  CUSTOMER_WROTE: "HIGH",
   FOLLOWUP_DUE_TODAY: "MEDIUM",
+  AWAITING_OWNER_DECISION: "MEDIUM",
   NEW_UNHANDLED: "MEDIUM",
+  QUOTE_NO_ACTIVITY: "LOW",
+  STALLED: "LOW",
 };
 
 export function translateLeadsNeedingAttention(
@@ -41,6 +48,9 @@ export function translateLeadsNeedingAttention(
         status: r.status as LeadStatusValue,
         nextFollowUpAt: r.nextFollowUpAt,
         createdAt: r.createdAt,
+        lastActivityAt: r.lastActivityAt,
+        lastCustomerInboundAt: r.lastCustomerInboundAt,
+        openIdentityProposals: r.openIdentityProposals,
       },
       now
     );
@@ -53,6 +63,7 @@ export function translateLeadsNeedingAttention(
     const whom = leadLabel(r.customerName);
     const followUpNote = r.followUpNote?.trim();
 
+    if (builds.length >= BS_LEADS_CAP) break;
     builds.push({
       itemId: `leads:${attention.reason.toLowerCase()}:${r.id}`,
       domain: "leads",
@@ -78,8 +89,9 @@ export function translateLeadsNeedingAttention(
       priorityReferenceDate: r.nextFollowUpAt ?? r.createdAt,
       // Handled from the list itself — a follow-up the owner has already dealt
       // with should not require opening the lead just to say so.
+      // Only a follow-up the owner set can be marked done or snoozed from the list.
       quickActions:
-        attention.reason === "NEW_UNHANDLED"
+        attention.reason !== "FOLLOWUP_OVERDUE" && attention.reason !== "FOLLOWUP_DUE_TODAY"
           ? undefined
           : [
               { kind: "lead_followup_complete", label: "טופל", leadId: r.id },
