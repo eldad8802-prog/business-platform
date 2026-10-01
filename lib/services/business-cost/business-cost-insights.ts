@@ -111,20 +111,17 @@ export function composeCostInsights(summary: BusinessCostSummary): CostInsight[]
   }
 
   const c = summary.signals.cashOut;
-  if (c.state === "DETECTED" && c.historyMaxMinor !== null && c.historyMinMinor !== null) {
-    const above = c.direction === "ABOVE";
+  if (c.state === "DETECTED" && c.direction === "ABOVE" && c.historyMaxMinor !== null) {
     out.push({
       dedupeKey: `cost:cashout:${c.window.from}:${c.window.to}:${c.currentMinor}`,
       kind: "CASH_OUT_OUTSIDE_OWN_RANGE",
-      title: above ? "יצא יותר כסף מהרגיל ב־30 הימים האחרונים" : "יצא פחות כסף מהרגיל ב־30 הימים האחרונים",
+      title: "יצא יותר כסף מהרגיל ב־30 הימים האחרונים",
       body:
         `ב־30 הימים האחרונים יצאו בפועל ${ils(c.currentMinor)}. ` +
-        (above
-          ? `זה יותר מכל תקופה של 30 יום בשנה האחרונה (הגבוהה ביותר: ${ils(c.historyMaxMinor)}).`
-          : `זה פחות מכל תקופה של 30 יום בשנה האחרונה (הנמוכה ביותר: ${ils(c.historyMinMinor)}). ייתכן שחלק מהתשלומים עוד לא נרשמו.`),
+        `זה יותר מכל תקופה של 30 יום בשנה האחרונה (הגבוהה ביותר: ${ils(c.historyMaxMinor)}).`,
       facts: [
         { label: "יצא בפועל ב־30 הימים האחרונים", value: fromMinorUnits(c.currentMinor), sourceRef: `signal:cashOut.current@${c.window.from}..${c.window.to}` },
-        { label: above ? "הגבוה ביותר בשנה האחרונה" : "הנמוך ביותר בשנה האחרונה", value: fromMinorUnits(above ? c.historyMaxMinor : c.historyMinMinor), sourceRef: `signal:cashOut.${above ? "historyMax" : "historyMin"}` },
+        { label: "הגבוה ביותר בשנה האחרונה", value: fromMinorUnits(c.historyMaxMinor), sourceRef: "signal:cashOut.historyMax" },
       ],
       comparedPeriod: { from: c.history[0]?.from ?? c.window.from, to: c.window.to },
       completeness,
