@@ -208,6 +208,8 @@ section("6 · learning signals: real change, no change, insufficient history");
   eq("cash out within the business's own range → NONE", [normal.state, normal.historyMaxMinor], ["NONE", 300000]);
   const spike = cashOutSignal(input("2026-09-30", [steady], [...year, payment("2026-09-20T09:00:00Z", 2000000)]));
   eq("cash out above every window of its own year → DETECTED ABOVE", [spike.state, spike.direction, spike.currentMinor], ["DETECTED", "ABOVE", 2300000]);
+  const late = cashOutSignal(input("2026-10-01", [steady], year.filter((p) => p.paidAt.toISOString() < "2026-09-06")));
+  eq("rent not yet recorded this cycle (less cash than every window) → NONE, never a 'less than usual' conclusion", [late.state, late.direction], ["NONE", null]);
   const thin = cashOutSignal(input("2026-09-30", [steady], year.slice(-3)));
   eq("three months of payments → INSUFFICIENT_HISTORY (needs 6 windows)", [thin.state, thin.insufficient?.needDays], ["INSUFFICIENT_HISTORY", 180]);
 
@@ -237,8 +239,8 @@ section("8 · insights: only from DETECTED signals, every number from evidence")
   const young = commitment({ title: "שכירות", installments: monthlyInstallments("2026-08", 2, 300000) });
   const [ins] = composeCostInsights(summarizeBusinessCost(input("2026-09-30", [raised])));
   eq("rent raised → one baseline insight", ins?.kind, "BASELINE_RECURRING_COST_CHANGED");
-  check("its text states the recorded change from the evidence", (ins?.body ?? "").includes("מ־₪3,000 ל־₪3,300 החל מ־1/8/2026"), ins?.body);
-  check("…and the normalized daily cost before → after", ins?.body.includes("₪98.56") && ins?.body.includes("₪108.42"), ins?.body);
+  check("its text states the recorded change from the evidence", (ins?.body ?? "").includes("מ־3,000 ₪ ל־3,300 ₪ החל מ־1/8/2026"), ins?.body);
+  check("…and the normalized daily cost before → after", ins?.body.includes("98.56 ₪") && ins?.body.includes("108.42 ₪"), ins?.body);
   check("every number in the text is one of its facts", ["3000.00", "3300.00", "98.56", "108.42"].every((v) => ins.facts.some((f) => f.value === v || f.value.includes(v))));
   check("facts carry their source (signal or ledger row)", ins.facts.every((f) => /^(signal:|commitment:)/.test(f.sourceRef)));
   eq("it states what was compared", ins.comparedPeriod, { from: "2026-07-02", to: "2026-09-30" });
