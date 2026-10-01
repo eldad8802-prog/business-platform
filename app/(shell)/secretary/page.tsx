@@ -1,6 +1,7 @@
 "use client";
 
 import { LeadsBriefingCard } from "@/components/leads/LeadsBriefingCard";
+import { BusinessCostCard } from "@/components/business-cost/BusinessCostCard";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -402,6 +403,8 @@ function SecretaryPageInner() {
     return (
       <SecretaryErrorBoundary>
         <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing)} />
+        {/* Phase 3 — what the business costs, from the one business-cost engine. */}
+        <BusinessCostCard />
         {/* M5 — the sales side of the Secretary: leads that need the owner today. */}
         <LeadsBriefingCard />
         {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
