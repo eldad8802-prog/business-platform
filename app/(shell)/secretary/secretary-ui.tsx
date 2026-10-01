@@ -245,7 +245,7 @@ export type TodayModel = {
   showCapture?: boolean;
 };
 
-export function SecretaryHomeScreen({ model }: { model: SecretaryHomeModel }) {
+export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeModel; children?: ReactNode }) {
   const isNew = model.state === "new";
   const isDue = model.state === "due";
   return (
@@ -328,6 +328,7 @@ export function SecretaryHomeScreen({ model }: { model: SecretaryHomeModel }) {
             הוספה למעקב
           </Link>
         )}
+        {children}
       </section>
     </main>
   );

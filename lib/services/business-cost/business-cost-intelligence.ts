@@ -470,7 +470,8 @@ export type RangeSignal = {
   historyMinMinor: number | null;
   historyMaxMinor: number | null;
   historyMeanMinor: number | null;
-  direction: "ABOVE" | "BELOW" | null;
+  /** Only ABOVE: see cashOutSignal for why "below my range" is never concluded. */
+  direction: "ABOVE" | null;
   insufficient?: Insufficient;
 };
 
@@ -480,7 +481,6 @@ function rangeSignal(
   current: number,
   history: RangeSignal["history"],
   firstDataDay: number | null,
-  allowBelow: boolean,
 ): RangeSignal {
   const need = SIGNAL_POLICY.minHistoryWindows * SIGNAL_POLICY.windowDays;
   const oldestWindowStart = toDayNumber(window.from) - SIGNAL_POLICY.windowDays * SIGNAL_POLICY.historyWindows;
@@ -495,7 +495,7 @@ function rangeSignal(
   const min = Math.min(...values);
   const max = Math.max(...values);
   const mean = Math.round(values.reduce((s, v) => s + v, 0) / values.length);
-  const direction = current > max ? "ABOVE" : allowBelow && current < min ? "BELOW" : null;
+  const direction = current > max ? "ABOVE" : null;
   return { kind, state: direction ? "DETECTED" : "NONE", window, currentMinor: current, history: usable, historyMinMinor: min, historyMaxMinor: max, historyMeanMinor: mean, direction };
 }
 
@@ -538,13 +538,19 @@ export function upcomingConcentrationSignal(input: IntelligenceInput): RangeSign
     const a = t - W * k;
     history.push({ from: fromDayNumber(a), to: fromDayNumber(a + W - 1), minor: dueInWindow(input, a, a + W - 1) });
   }
-  return rangeSignal("UPCOMING_PAYMENT_CONCENTRATION", { from: next.from, to: next.to }, scheduledNext, history, firstOccurrenceDay(input), false);
+  return rangeSignal("UPCOMING_PAYMENT_CONCENTRATION", { from: next.from, to: next.to }, scheduledNext, history, firstOccurrenceDay(input));
 }
 
 /**
  * Cash out over the last 30 days compared with the business's own previous
- * 30-day windows. Outside the range it has itself shown — above or below — is
- * the signal; inside it is not, however large.
+ * 30-day windows. ABOVE every window it has itself shown is the signal; inside
+ * its range it is not, however large.
+ *
+ * Never BELOW: less recorded cash than usual cannot be told apart from a
+ * payment that is simply not recorded yet, or a monthly payment that fell just
+ * outside the 30-day window (a business paying rent on the 1st would be told
+ * "less money left than usual" every month before recording it). That is not
+ * evidence, so it is not concluded.
  */
 export function cashOutSignal(input: IntelligenceInput): RangeSignal {
   const W = SIGNAL_POLICY.windowDays;
@@ -570,7 +576,7 @@ export function cashOutSignal(input: IntelligenceInput): RangeSignal {
     const d = toDayNumber(civilDate(p.paidAt, input.timeZone));
     if (first === null || d < first) first = d;
   }
-  return rangeSignal("CASH_OUT_OUTSIDE_OWN_RANGE", { from: fromDayNumber(t - W + 1), to: input.asOf }, current, history, first, true);
+  return rangeSignal("CASH_OUT_OUTSIDE_OWN_RANGE", { from: fromDayNumber(t - W + 1), to: input.asOf }, current, history, first);
 }
 
 const ZONE_FORMAT = new Map<string, Intl.DateTimeFormat>();
