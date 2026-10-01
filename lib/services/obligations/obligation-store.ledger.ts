@@ -412,6 +412,17 @@ export function createObligationLedgerStore(
     async continueSeries(businessId: number, id: number): Promise<ObligationRecord | null> {
       return translate(async () => {
         const row = await load(businessId, id);
+        // The same lock the payment path takes (payables.service recordPaymentInTx),
+        // in the same order: a payment that settles this occurrence and a
+        // "handled" on it serialise here, and whichever runs second sees the
+        // occurrence the first one created — exactly one next occurrence, no
+        // unique-index race on (commitmentId, sequence).
+        await tx.$queryRaw`
+          SELECT "id" FROM "Installment"
+          WHERE "commitmentId" = ${row.commitmentId} AND "businessId" = ${businessId}
+          ORDER BY "id"
+          FOR UPDATE
+        `;
         // An occurrence after this one may already exist — settling it through
         // the payment flow materialises the next, and a plan pre-creates all.
         const existing = await tx.installment.findFirst({
