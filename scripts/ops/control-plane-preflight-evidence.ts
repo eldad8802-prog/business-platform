@@ -48,7 +48,7 @@ async function main(): Promise<void> {
     const migration = await q<Record<string, unknown>>("C1",
       `SELECT migration_name AS name, (finished_at IS NOT NULL AND rolled_back_at IS NULL) AS applied FROM "_prisma_migrations"
         WHERE migration_name IN ('20260901090000_d2_pw2_business_feature_access_rls', '20260527120000_platform_admin_foundation',
-                                 '20260528120000_platform_feature_access_foundation') ORDER BY 1`);
+                                 '20260528120000_platform_feature_access_foundation', '20261003090000_control_plane_production_privileges') ORDER BY 1`);
 
     const roles = await q<{ role: string } & Record<string, unknown>>("C2roles",
       `SELECT rolname AS role, rolcanlogin AS login, rolsuper AS super, rolbypassrls AS bypassrls, rolinherit AS inherit,
@@ -112,9 +112,28 @@ async function main(): Promise<void> {
       `SELECT column_name AS c, data_type AS type, is_nullable AS nullable, column_default IS NOT NULL AS "hasDefault"
          FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'PlatformAuditEvent' ORDER BY ordinal_position`);
 
+    // C8 — column-scoped privileges (has_table_privilege cannot see them): which columns each role may
+    // UPDATE on the overrides and SELECT on Business.
+    const columnPrivileges: Record<string, Record<string, string[]>> = {};
+    for (const r of ["app_ctlplane", "app_runtime", "app_runtime_prod"].filter((x) => existing.has(x))) {
+      const cols = async (t: string, p: string) => (await q<{ c: string }>(`C8 ${r}.${t}.${p}`,
+        `SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $2
+            AND has_column_privilege($1, 'public."' || $2 || '"', column_name, $3) ORDER BY ordinal_position`, r, t, p)).map((x) => x.c);
+      columnPrivileges[r] = {
+        "BusinessFeatureAccess UPDATE": await cols("BusinessFeatureAccess", "UPDATE"),
+        "BusinessFeatureAccess INSERT": await cols("BusinessFeatureAccess", "INSERT"),
+        "Business SELECT": await cols("Business", "SELECT"),
+      };
+    }
+
+    // C9 — the most recently applied migrations, with their finish time (which run applied what).
+    const recentMigrations = await q<Record<string, unknown>>("C9",
+      `SELECT migration_name AS name, finished_at AS "finishedAt", (rolled_back_at IS NOT NULL) AS "rolledBack"
+         FROM "_prisma_migrations" ORDER BY finished_at DESC NULLS FIRST LIMIT 4`);
+
     await verifyReadOnly(db, "owner");
-    console.log(JSON.stringify({ migration, roles, members, privilegeMatrix: matrix, publicGrants, rls, policies, triggers, defaultAcls,
-      overrides, featureAudit: featureAudit[0] ?? null, qaSandbox: qa[0] ?? null, auditColumns, errors }, null, 1));
+    console.log(JSON.stringify({ migration, recentMigrations, roles, members, privilegeMatrix: matrix, columnPrivileges, publicGrants, rls, policies,
+      triggers, defaultAcls, overrides, featureAudit: featureAudit[0] ?? null, qaSandbox: qa[0] ?? null, auditColumns, errors }, null, 1));
   } catch (e) {
     if (e instanceof RefusedError) { console.error(`REFUSED: ${e.message}`); process.exitCode = 3; }
     else { console.error(`FAILED: ${e instanceof Error ? e.name : "unknown"} ${(e as { code?: string })?.code ?? ""}`); process.exitCode = 1; }
