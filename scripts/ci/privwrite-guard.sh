@@ -62,6 +62,10 @@ run_guard() {
   local ADMSVC="lib/services/platform-admin/platform-business-features.service.ts"
   local RESOLVER="lib/services/feature-access/resolve-feature-access.ts"
   local ROUTE="app/api/platform-admin/businesses/[id]/features/[featureKey]/route.ts"
+  # Environment-neutral control-plane privileges (Production cutover). Optional: when present, it is held to
+  # the same grant rules as the per-environment artifact (1-4, 9, 10).
+  local CTLMIG="prisma/migrations/20261003090000_control_plane_production_privileges/migration.sql"
+  local GRANTSETS=("$GRANTS"); [ -f "$CTLMIG" ] && GRANTSETS+=("$CTLMIG")
 
   for f in "$MIG" "$GRANTS" "$ROLLBACK" "$CLIENT" "$CTLTX" "$UPDSVC" "$ADMSVC" "$RESOLVER" "$ROUTE"; do
     if [ ! -f "$f" ]; then
@@ -75,28 +79,28 @@ run_guard() {
   # app_admin keeps exactly its historical posture: SELECT everywhere plus the
   # pre-existing append-only PlatformAuditEvent INSERT. Nothing in this wave may
   # add a write to it.
-  for f in "$GRANTS" "$MIG"; do
+  for f in "${GRANTSETS[@]}" "$MIG"; do
     if sqlflat "$f" | grep -qiE "GRANT[^;]*(INSERT|UPDATE|DELETE)[^;]*TO[[:space:]]+app_admin"; then
       echo "CI-PRIVWRITE-1 FAIL: generic app_admin write grant in $f"; fail=1
     fi
   done
 
   # ── 2: no BYPASSRLS / SUPERUSER ─────────────────────────────────────────
-  for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
+  for f in "$MIG" "${GRANTSETS[@]}" "$ROLLBACK"; do
     if sqlflat "$f" | grep -qiE "(^|[^O])BYPASSRLS|[^O]SUPERUSER"; then
       echo "CI-PRIVWRITE-2 FAIL: BYPASSRLS/SUPERUSER in $f"; fail=1
     fi
   done
 
   # ── 3: no owner runtime ─────────────────────────────────────────────────
-  for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
+  for f in "$MIG" "${GRANTSETS[@]}" "$ROLLBACK"; do
     if sqlflat "$f" | grep -qiE "OWNER[[:space:]]+TO"; then
       echo "CI-PRIVWRITE-3 FAIL: ownership transfer in $f"; fail=1
     fi
   done
 
   # ── 4: no SECURITY DEFINER ──────────────────────────────────────────────
-  for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
+  for f in "$MIG" "${GRANTSETS[@]}" "$ROLLBACK"; do
     if sqlflat "$f" | grep -qi "SECURITY[[:space:]]\+DEFINER"; then
       echo "CI-PRIVWRITE-4 FAIL: SECURITY DEFINER in $f"; fail=1
     fi
@@ -138,20 +142,24 @@ run_guard() {
 
   # ── 9: control-plane grants name only approved tables ───────────────────
   local approved='BusinessFeatureAccess|PlatformAuditEvent|Business|PlatformFeaturePolicy'
+  for gf in "${GRANTSETS[@]}"; do
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     if ! echo "$line" | grep -qE "\"($approved)\"|ON SCHEMA public|SEQUENCE"; then
-      echo "CI-PRIVWRITE-9 FAIL: control-plane grant on an unapproved object -> $line"; fail=1
+      echo "CI-PRIVWRITE-9 FAIL: control-plane grant on an unapproved object in $gf -> $line"; fail=1
     fi
-  done < <(sqlflat "$GRANTS" | grep -iE "GRANT[^;]*TO[[:space:]]+app_ctlplane" || true)
+  done < <(sqlflat "$gf" | grep -iE "GRANT[^;]*TO[[:space:]]+app_ctlplane" || true)
+  done
 
   # ── 10: no DELETE granted to anyone; audit stays append-only ────────────
-  if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*DELETE"; then
-    echo "CI-PRIVWRITE-10 FAIL: a DELETE privilege is granted in $GRANTS"; fail=1
+  for gf in "${GRANTSETS[@]}"; do
+  if sqlflat "$gf" | grep -qiE "GRANT[^;]*DELETE"; then
+    echo "CI-PRIVWRITE-10 FAIL: a DELETE privilege is granted in $gf"; fail=1
   fi
-  if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*SELECT[^;]*ON \"PlatformAuditEvent\"[^;]*TO[[:space:]]+app_ctlplane"; then
+  if sqlflat "$gf" | grep -qiE "GRANT[^;]*SELECT[^;]*ON \"PlatformAuditEvent\"[^;]*TO[[:space:]]+app_ctlplane"; then
     echo "CI-PRIVWRITE-10 FAIL: the control-plane role is granted SELECT on the audit trail (append-only means it may not read what it wrote)"; fail=1
   fi
+  done
 
   # ── 11: ENABLE + FORCE RLS ──────────────────────────────────────────────
   sqlflat "$MIG" | grep -qE 'ALTER TABLE "BusinessFeatureAccess" ENABLE ROW LEVEL SECURITY' || {
@@ -469,6 +477,20 @@ TS
   local T9="$BASE/v9"; make_clean_tree "$T9"
   echo 'GRANT DELETE ON "BusinessFeatureAccess" TO app_ctlplane;' >> "$T9/scripts/security/d2-pw2-grants.sql"
   check "CI-PRIVWRITE-10 catches a DELETE grant" FAIL "$T9"
+
+  # The environment-neutral control-plane privileges migration is held to the same grant rules.
+  local CM="prisma/migrations/20261003090000_control_plane_production_privileges"
+  local T9b="$BASE/v9b"; make_clean_tree "$T9b"; mkdir -p "$T9b/$CM"
+  echo 'GRANT SELECT ON "Customer" TO app_ctlplane;' > "$T9b/$CM/migration.sql"
+  check "CI-PRIVWRITE-9 catches an unapproved grant in the control-plane migration" FAIL "$T9b"
+
+  local T9c="$BASE/v9c"; make_clean_tree "$T9c"; mkdir -p "$T9c/$CM"
+  echo 'GRANT DELETE ON "BusinessFeatureAccess" TO app_ctlplane;' > "$T9c/$CM/migration.sql"
+  check "CI-PRIVWRITE-10 catches a DELETE grant in the control-plane migration" FAIL "$T9c"
+
+  local T9d="$BASE/v9d"; make_clean_tree "$T9d"; mkdir -p "$T9d/$CM"
+  echo 'GRANT SELECT ON "PlatformAuditEvent" TO app_ctlplane;' > "$T9d/$CM/migration.sql"
+  check "CI-PRIVWRITE-10 catches audit SELECT in the control-plane migration" FAIL "$T9d"
 
   local T10="$BASE/v10"; make_clean_tree "$T10"
   sed -i 's/^ALTER TABLE "BusinessFeatureAccess" FORCE ROW LEVEL SECURITY;$//' \

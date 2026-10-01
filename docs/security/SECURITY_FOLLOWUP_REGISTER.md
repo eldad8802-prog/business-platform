@@ -109,6 +109,7 @@ would carry only the approved fields.
 |---|---|---|
 | O1 | POS key erasure runs `DELETE`; the hand-applied grant script (`scripts/security/d2-p7-wave3-grants.sql`) gives `POSApiKey` SELECT and UPDATE only | **Real Production state** (preflight 36508953537): `app_runtime_prod` **holds DELETE** on `POSApiKey` (default privileges), so erasure works. **The script is stale and incorrect:** it describes a grant set that is not the effective one. Fix: record the real, intended grant in a migration and retire the script's claim. |
 | O2 | The legacy POS env-secret fallback compares with `!==`, which is not constant-time (`app/api/inventory/pos/sale/route.ts:114-127`) | remove the fallback, or use `timingSafeEqual` |
+| O3 | The owner's default ACL hands `app_runtime` **INSERT/UPDATE/DELETE on every new table** (`pg_default_acl`: `app_runtime=arwd/neondb_owner`). It is how the runtime came to hold writes on `PlatformFeaturePolicy` / `PlatformFeatureDefinition` (no RLS — a control-plane bypass) and on the admin audit. | Preflight 36791336257. Those four tables are closed by migration `20261003090000` (control-plane cutover, `docs/security/CONTROL_PLANE_PRODUCTION_CUTOVER.md`). The default ACL itself is **open**: fix by narrowing it and granting per table in migrations, after an inventory of every table the runtime writes. |
 
 ## PRODUCT DEFECTS (found by the audit, not security)
 
