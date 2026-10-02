@@ -59,7 +59,9 @@ async function main() {
 
   // ---- 1. repository security state ----------------------------------------
   console.log("\n== 1. repository RLS state ==");
-  for (const r of ["app_admin", "app_ctlplane", "app_runtime"]) {
+  // app_auth too: B4's Business INSERT policy is TO app_auth, and a replayed policy naming a role that
+  // does not exist yet fails — and is swallowed below — leaving Business with no INSERT policy at all.
+  for (const r of ["app_admin", "app_auth", "app_ctlplane", "app_runtime"]) {
     await owner.$executeRawUnsafe(
       `DO $do$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${r}') THEN
          CREATE ROLE ${r} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
