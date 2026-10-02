@@ -135,7 +135,10 @@ echo "   → B4 approved alone is REFUSED while anything else is pending; naming
 setup_today now
 checkout "$T/g0"; deploy now "$T/g0" >/dev/null   # P2 applied, as Production
 CHECKOUT_ALL=1 checkout "$T/g" "$B4"
-others=$(cd "$T/g/prisma/migrations" && ls -d 2026* | while read -r m; do [ "$(has now "$m")" = "0" ] && [ "$m" != "$B4" ] && echo "$m"; done | paste -sd, -)
+others=""
+for m in $(cd "$T/g/prisma/migrations" && ls -d 2026*); do
+  if [ "$m" != "$B4" ] && [ "$(has now "$m")" = "0" ]; then others="${others:+$others,}$m"; fi
+done
 echo "   pending besides B4 on this checkout: ${others:-none}"
 if [ -n "$others" ]; then
   expect_refused now "$T/g" "$B4"
