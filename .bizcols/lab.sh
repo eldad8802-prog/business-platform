@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Business runtime-columns forensic — PostgreSQL lab.
 #
-#   .bizcols/lab.sh <db-name> [--b4]   (--b4 also applies 20261005090000_business_tenant_write_rls)
+#   .bizcols/lab.sh <db-name> [--b4]   (--b4 also applies 20261006090000_business_tenant_write_rls)
 #
 # Production topology from .c594/lab.sh (non-superuser CREATEROLE/BYPASSRLS
 # owner, NOLOGIN app_runtime group + LOGIN app_runtime_prod, the owner's default
@@ -24,7 +24,7 @@ psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
 if [ "${2:-}" = "--b4" ]; then
-  psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20261005090000_business_tenant_write_rls/migration.sql"
+  psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql"
   psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
     "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth_lab') THEN CREATE ROLE app_auth_lab LOGIN NOSUPERUSER NOBYPASSRLS ${LAB_PASSWORD:+PASSWORD '${LAB_PASSWORD}'} IN ROLE app_auth; END IF; END \$\$"
   echo "LAB READY: $DB (+ D2 E4 narrowing + B4)"

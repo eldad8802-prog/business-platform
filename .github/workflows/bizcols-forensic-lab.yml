@@ -24,7 +24,7 @@ on:
       - "ops/evidence/business-runtime-columns-preflight.sql"
       - ".bizcols/**"
       - ".github/workflows/bizcols-forensic-lab.yml"
-      - "prisma/migrations/20261005090000_business_tenant_write_rls/**"
+      - "prisma/migrations/20261006090000_business_tenant_write_rls/**"
       - "ops/evidence/business-tenant-write-rls-production-evidence.sql"
       - "lib/services/account/account-deletion.prisma-store.ts"
   workflow_dispatch:
@@ -91,7 +91,7 @@ jobs:
             npx tsx .bizcols/battery.ts
 
       - name: 3. B4 — the REAL migration + the REAL account-deletion code (19 checks)
-        if: hashFiles('prisma/migrations/20261005090000_business_tenant_write_rls/migration.sql') != ''
+        if: hashFiles('prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql') != ''
         run: |
           set -euo pipefail
           bash .bizcols/lab.sh b4_lab --b4
@@ -99,14 +99,14 @@ jobs:
 
 
       - name: 4. B4 post-apply proof — 14/14 after; exactly 1 3 4 5 6 7 fail before
-        if: hashFiles('prisma/migrations/20261005090000_business_tenant_write_rls/migration.sql') != ''
+        if: hashFiles('prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql') != ''
         run: |
           set -euo pipefail
-          M=prisma/migrations/20261005090000_business_tenant_write_rls/migration.sql
+          M=prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql
           sum=$(sha256sum "$M" | cut -d' ' -f1)
           grep -q "'$sum'" "$B4_PROOF" || { echo "the B4 proof pins a different checksum"; exit 1; }
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -v ON_ERROR_STOP=1 "$@"; }
-          lab -d b4_lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '20261005090000_business_tenant_write_rls', 1)"
+          lab -d b4_lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '20261006090000_business_tenant_write_rls', 1)"
           out=$(lab -d b4_lab -f "$B4_PROOF")
           printf '%s\n' "$out"
           test "$(printf '%s\n' "$out" | grep -cE '^ +[0-9]+ \| PASS')" = "14" || { echo "expected 14 PASS rows"; exit 1; }

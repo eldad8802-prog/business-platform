@@ -2,7 +2,7 @@
 -- business-tenant-write-rls-production-evidence.sql
 --
 -- Read-only post-apply proof for migration
---   20261005090000_business_tenant_write_rls   (B4)
+--   20261006090000_business_tenant_write_rls   (B4)
 -- Companion of business-runtime-columns-preflight.sql (run before the apply:
 -- Business has no RLS, the runtime's 5 SELECT + 5 UPD column grants).
 --
@@ -60,10 +60,10 @@ rt_cols AS (
   GROUP BY c.attname, v.v
 ),
 checks(n, ok, observed_count) AS (
-  SELECT 1, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261005090000_business_tenant_write_rls'
+  SELECT 1, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261006090000_business_tenant_write_rls'
                      AND finished_at IS NOT NULL AND rolled_back_at IS NULL
                      AND checksum = 'd507e6efa79ade6efadf4bbcd9a80937385b3a8dfc7102ee9227c611a525595a'),
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261005090000_business_tenant_write_rls')
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261006090000_business_tenant_write_rls')
   UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT relrowsecurity AND relforcerowsecurity FROM biz), (SELECT (relrowsecurity::int + relforcerowsecurity::int) FROM biz)::bigint

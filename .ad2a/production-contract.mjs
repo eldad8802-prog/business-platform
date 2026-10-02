@@ -248,7 +248,7 @@ export const PRODUCTION_RLS_CONTRACT = [
   // the tenant. The erasure's two Business transitions name their own business first.
   {
     table: "Business",
-    migration: "20261005090000_business_tenant_write_rls",
+    migration: "20261006090000_business_tenant_write_rls",
     why: "the erasure moves the lifecycle columns (quarantine, finalize) with an UPDATE that must name its own business",
     policies: [
       { name: "business_read_unchanged", command: "SELECT", using: "true" },
