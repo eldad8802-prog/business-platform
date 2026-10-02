@@ -175,6 +175,15 @@ function policySeedsFromMigration(): string[] {
 }
 
 
+/** Business Cost learning, Wave 1 — the four cost lineages, out of the migration that ships them. */
+function costWaveOneLineages(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql"), "utf8")
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
+  if (out.length !== 2) throw new Error(`expected 2 cost lineage inserts, found ${out.length}`);
+  return out;
+}
+
 /** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
 function laterRuleVersions(): string[] {
   const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
@@ -205,6 +214,7 @@ async function main(): Promise<void> {
   // would make this whole battery prove nothing about the rules themselves.
   for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
   for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of costWaveOneLineages()) await owner.$executeRawUnsafe(stmt);
   const seeded = await owner.derivationPolicyVersion.count();
   // Every rule's CURRENT version must exist (fail-closed resolver). The count is no longer one per
   // rule: a corrected rule keeps its v1 row beside its v2, which is what makes supersession auditable.
@@ -214,7 +224,7 @@ async function main(): Promise<void> {
     `SELECT count(DISTINCT "policyId")::int AS n FROM "DerivationPolicyVersion"`);
   const v2 = await owner.derivationPolicyVersion.count({ where: { version: "v2" } });
   check("the migrations seed the current version of every rule in the catalogue",
-    (lineages[0]?.n ?? 0) >= 14 && v2 === 3 && seeded === 17, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
+    (lineages[0]?.n ?? 0) >= 18 && v2 === 3 && seeded === 21, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are
@@ -498,7 +508,7 @@ async function main(): Promise<void> {
   // Every rule in the catalogue ran, and every one of them REPORTED — including the twelve that had
   // nothing to say. A rule that stays silent is indistinguishable from a rule that never ran, and
   // that difference is the whole answer to "why did Dubiz tell me nothing?".
-  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 14,
+  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 18,
     `rules=${mA.report.rulesRun}`);
   check("no rule failed on a missing version, a broken query or an unwritable measure",
     mA.report.rulesFailed === 0,
@@ -599,13 +609,21 @@ async function main(): Promise<void> {
   const { generateInsightsForBusiness, recordOwnerDecision, listOpenInsights } =
     await import("@/lib/knowledge/insight.service");
 
+  // Tenant A has payables, so the Business Cost FACT composers (Wave 1) may add their own insights
+  // beside this one; the cross-domain composition is selected by its key, and any other insight must
+  // be a cost FACT insight — never an interpretation.
+  const PRESSURE = "payables.pressure_with_paperwork_backlog";
   const gen = await generateInsightsForBusiness(bizA.id);
-  check("an insight was generated for tenant A", gen.length === 1, `n=${gen.length}`);
-  check("…and it is the cross-domain composition",
-    gen[0]?.insightKey === "payables.pressure_with_paperwork_backlog");
+  check("the cross-domain insight was generated for tenant A, exactly once",
+    gen.filter((g) => g.insightKey === PRESSURE).length === 1, `keys=${gen.map((g) => g.insightKey).join(",")}`);
+  const others = gen.filter((g) => g.insightKey !== PRESSURE);
+  check("…any other insight is a Business Cost FACT insight",
+    others.every((g) => g.insightKey.startsWith("cost.")), others.map((g) => g.insightKey).join(","));
 
   const openA = await listOpenInsights(bizA.id);
-  const ins = openA[0];
+  const ins = openA.find((i) => i.insightKey === PRESSURE);
+  check("cost insights carry no interpretation",
+    openA.filter((i) => i.insightKey.startsWith("cost.")).every((i) => i.interpretation === null));
   check("the insight is OPEN and awaiting the owner", ins?.status === "OPEN");
   check("it belongs to tenant A", ins?.businessId === bizA.id);
 
@@ -631,8 +649,8 @@ async function main(): Promise<void> {
       mimeType: "application/pdf", status: "needs_review" },
   });
   const genB = await generateInsightsForBusiness(bizB.id);
-  check("tenant B also gets an insight from its own facts", genB.length === 1);
-  const insB = (await listOpenInsights(bizB.id))[0];
+  check("tenant B also gets the cross-domain insight from its own facts", genB.filter((g) => g.insightKey === PRESSURE).length === 1);
+  const insB = (await listOpenInsights(bizB.id)).find((i) => i.insightKey === PRESSURE);
   check("tenant B's insight quotes NO habit (its measure is insufficient)",
     (insB?.factLines as { sourceKind: string }[]).every((l) => l.sourceKind !== "measure"));
   check("…and offers no interpretation it cannot support", insB?.interpretation === null);
@@ -665,7 +683,7 @@ async function main(): Promise<void> {
   check("regenerating does NOT reopen a dismissed insight", afterRegen?.status === "DISMISSED");
   check("…and does not erase who decided it", afterRegen?.ownerDecisionByUserId === actor.id);
   const countA = await owner.businessInsight.count({ where: { businessId: bizA.id } });
-  check("regenerating refreshes one row instead of breeding new ones", countA === 1, `rows=${countA}`);
+  check("regenerating refreshes rows instead of breeding new ones", countA === gen.length, `rows=${countA} generated=${gen.length}`);
 
   // A decision aimed at another tenant's insight must not land.
   const crossDecision = await recordOwnerDecision(bizB.id, ins!.id, "ADOPTED", actor.id);

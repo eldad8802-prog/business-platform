@@ -35,6 +35,7 @@
  * Purity: this module takes inputs and returns a draft. It reads no database and no clock.
  */
 import type { BusinessStatusItem } from "@/lib/business-status/types";
+import { composeCostInsights } from "./cost-insight-composer";
 
 export const COMPOSER_VERSION = "insight-composer@1";
 
@@ -51,6 +52,12 @@ export type ContributingRule = {
   readonly ruleVersion: string;
   readonly artifactKind: "fact" | "measure";
   readonly artifactRef: string;
+  /**
+   * What kind of knowledge this rule contributed. FACT = recorded truth; PATTERN = comparison with the
+   * business's own history; MEANING = interpretation. A composer may never silently promote one into
+   * the next. Optional for compositions that predate the distinction.
+   */
+  readonly level?: "FACT" | "PATTERN" | "MEANING";
 };
 
 export type InsightDraft = {
@@ -77,7 +84,13 @@ export type ComposerInput = {
     readonly trend: string | null;
     readonly ruleVersion: string;
     readonly measureId: number;
+    /** Subject of an entity-level measure (e.g. "commitment" 42); null for a business-level one. */
+    readonly entityType?: string | null;
+    readonly entityId?: number | null;
+    readonly detail?: Record<string, unknown> | null;
   }[];
+  /** Display labels resolved INSIDE the tenant, keyed "commitment:42". Measures themselves carry no names. */
+  readonly entityLabels?: Readonly<Record<string, string>>;
 };
 
 const SEVERITY_RANK: Record<string, number> = {
@@ -191,6 +204,14 @@ export const COMPOSERS: readonly ((input: ComposerInput) => InsightDraft | null)
   composeMoneyPressure,
 ];
 
+/** Compositions that may produce several drafts from one input (one per subject). */
+export const MULTI_COMPOSERS: readonly ((input: ComposerInput) => InsightDraft[])[] = [
+  composeCostInsights,
+];
+
 export function composeInsights(input: ComposerInput): InsightDraft[] {
-  return COMPOSERS.map((c) => c(input)).filter((d): d is InsightDraft => d !== null);
+  return [
+    ...COMPOSERS.map((c) => c(input)).filter((d): d is InsightDraft => d !== null),
+    ...MULTI_COMPOSERS.flatMap((c) => c(input)),
+  ];
 }

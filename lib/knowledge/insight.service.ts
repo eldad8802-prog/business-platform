@@ -40,11 +40,19 @@ export async function generateInsightsForBusiness(
         where: { businessId, status: "ACTIVE" },
         select: {
           id: true, measureKey: true, valueNumeric: true, valueUnit: true,
-          observationCount: true, trend: true,
+          observationCount: true, trend: true, entityType: true, entityId: true, detail: true,
           policyVersion: { select: { version: true } },
         },
       }),
     );
+
+    // Labels for entity-level measures, resolved here inside the tenant: measures carry no names.
+    const commitmentIds = measures.filter((m) => m.entityType === "commitment" && m.entityId != null).map((m) => m.entityId as number);
+    const commitments = commitmentIds.length
+      ? await tenantTx(businessId, (tx) =>
+          tx.commitment.findMany({ where: { businessId, id: { in: commitmentIds } }, select: { id: true, title: true } }),
+        )
+      : [];
 
     const input: ComposerInput = {
       businessId,
@@ -57,7 +65,11 @@ export async function generateInsightsForBusiness(
         trend: m.trend,
         ruleVersion: m.policyVersion.version,
         measureId: m.id,
+        entityType: m.entityType,
+        entityId: m.entityId,
+        detail: (m.detail as Record<string, unknown> | null) ?? null,
       })),
+      entityLabels: Object.fromEntries(commitments.map((c) => [`commitment:${c.id}`, c.title])),
     };
 
     const drafts = composeInsights(input);

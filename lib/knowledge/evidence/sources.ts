@@ -27,6 +27,9 @@ import type {
 } from "../rules/suppliers";
 import type { VendorDocumentObservation, ReviewObservation } from "../rules/documents";
 import type { PaperworkObservation } from "../rules/documents-paperwork-lag";
+import { civilDateInZone, DEFAULT_BUSINESS_TIME_ZONE, toDayNumber } from "@/lib/services/business-cost/business-cost-core";
+import { loadBusinessCostInputs } from "@/lib/services/business-cost/business-cost.service";
+import { COST_SOURCE_WINDOW_DAYS, type CostAuditEvent, type CostLedgerSnapshot } from "@/lib/knowledge/rules/cost";
 
 function startOf(now: Date, windowDays: number): Date {
   return new Date(now.getTime() - windowDays * DAY_MS);
@@ -475,4 +478,43 @@ export function correctedFieldsOf(verdicts: unknown): string[] {
     }
   }
   return out.sort();
+}
+
+/* ─────────────────────── Business Cost learning (Wave 1) ─────────────────────── */
+
+/**
+ * The cost ledger for one business: the Business Cost engine's own inputs (its loader: one tenantTx,
+ * RLS on every table, explicit businessId filter) plus when each commitment was RECORDED and the
+ * audit events that make a change or an end explicit. One observation per business.
+ */
+export async function loadCostLedger(businessId: number, now: Date): Promise<CostLedgerSnapshot[]> {
+  const day = toDayNumber(civilDateInZone(now, DEFAULT_BUSINESS_TIME_ZONE));
+  const inputs = await loadBusinessCostInputs({ businessId, paidFromDay: day - COST_SOURCE_WINDOW_DAYS, paidToDay: day });
+  const { meta, audit } = await tenantTx(businessId, async (tx) => ({
+    meta: await tx.commitment.findMany({
+      where: { businessId },
+      select: { id: true, createdAt: true },
+      orderBy: { id: "asc" },
+    }),
+    audit: await tx.payablesAuditEvent.findMany({
+      where: { businessId, eventType: { in: ["INSTALLMENT_AMOUNT_CHANGED", "COMMITMENT_ENDED"] } },
+      select: { id: true, eventType: true, commitmentId: true, installmentId: true, occurredAt: true, metadata: true },
+      orderBy: { id: "asc" },
+    }),
+  }));
+  return [
+    {
+      businessId,
+      inputs,
+      commitmentMeta: meta.map((m) => ({ commitmentId: m.id, createdAt: m.createdAt })),
+      audit: audit.map((e) => ({
+        id: e.id,
+        eventType: e.eventType as CostAuditEvent["eventType"],
+        commitmentId: e.commitmentId,
+        installmentId: e.installmentId,
+        occurredAt: e.occurredAt,
+        metadata: (e.metadata as Record<string, unknown> | null) ?? null,
+      })),
+    },
+  ];
 }
