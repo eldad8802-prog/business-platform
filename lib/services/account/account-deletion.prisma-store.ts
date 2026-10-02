@@ -98,6 +98,19 @@ function assertAtLeastOne(count: number, operation: string): void {
   }
 }
 
+/**
+ * Name the business a Business-row write belongs to, for this transaction only.
+ *
+ * The two lifecycle transitions below write the Business row outside a tenant
+ * job by design. Under the Business tenant-write policy
+ * (UPDATE USING/CHECK id = app.current_business_id) an unnamed transaction
+ * matches zero rows; naming the business it is erasing keeps the write possible
+ * for exactly that row and no other. Parameterised, transaction-local.
+ */
+async function setBusinessWriteContext(tx: Prisma.TransactionClient, businessId: number): Promise<void> {
+  await tx.$executeRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+}
+
 export const prismaAccountDeletionStore: AccountDeletionStore = {
   async getBusiness(businessId) {
     const b = await prisma.business.findUnique({
@@ -143,6 +156,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
     // everywhere, which is what makes the destruction below safe to do second.
     const transitioned = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+      // Business write pinning (B4): the row being transitioned is THIS business,
+      // so the transaction names it. Transaction-local, and it is not a tenant
+      // job (runTenantJob would refuse the quarantine this creates). Harmless
+      // while Business has no RLS; required once the tenant UPDATE policy exists,
+      // which would otherwise match zero rows here — silently, as an unwon race.
+      await setBusinessWriteContext(tx, businessId);
       const moved = await tx.business.updateMany({
         where: { id: businessId, deletionRequestedAt: null, deletedAt: null },
         data: { deletionRequestedAt: now },
@@ -616,6 +635,8 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
     // race rather than an error — so this no longer asserts exactly-one. The
     // orchestrator already treats an ALREADY-PURGED business as success.
     await prisma.$transaction(async (tx) => {
+      // Business write pinning (B4) — see quarantineAndRevokeIntegrations.
+      await setBusinessWriteContext(tx, businessId);
       await tx.business.updateMany({
         where: { id: businessId, deletedAt: null },
         data: { deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
