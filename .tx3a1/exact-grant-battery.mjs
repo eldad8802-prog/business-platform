@@ -442,13 +442,15 @@ async function main() {
   ok("B4: the tenant runtime cannot create a Business (signup is the auth plane's)", rtCreate !== null,
     "the runtime created a Business");
   const signup = await err(() => au.$transaction(async (tx) => {
-    const biz = await tx.business.create({ data: { name: "tx3a1-signup" } });
+    // Column lists exactly as lib/auth/signup.ts names them: the auth plane holds SELECT on a
+    // deliberate subset, so an unnamed RETURNING would be refused.
+    const biz = await tx.business.create({ data: { name: "tx3a1-signup" }, select: { id: true, name: true } });
     const user = await tx.user.create({
-      data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" } });
+      data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" }, select: { id: true } });
     return { biz, user };
   }));
   ok("signup (Business + User) succeeds under the restricted role", signup === null,
-    String(signup?.message ?? "").slice(0, 200));
+    String(signup?.message ?? "").slice(-400));
   const created = await owner.business.count({ where: { name: "tx3a1-signup" } });
   ok("...and the tenant row really COMMITTED (not a false success)", created === 1, `count=${created}`);
 
@@ -464,7 +466,7 @@ async function main() {
   // This asserts the hazard is real so that anyone who later adds an RLS-protected
   // write to the bootstrap transaction is stopped here rather than in production.
   const hazard = await err(() => au.$transaction(async (tx) => {
-    const biz = await tx.business.create({ data: { name: "tx3a1-hazard" } });
+    const biz = await tx.business.create({ data: { name: "tx3a1-hazard" }, select: { id: true } });
     // swallowed on purpose — this is the anti-pattern being demonstrated
     await tx.businessProfile.create({ data: { businessId: biz.id } }).catch(() => null);
     return biz;
@@ -621,19 +623,26 @@ async function stageERehearsal(owner, ownerUrl) {
   await owner.$executeRawUnsafe(
     `GRANT UPDATE (${cols(RUNTIME_BUSINESS_UPDATE_COLS)}) ON public."Business" TO ${E3_RUNTIME}`);
 
+  // The auth half is held the way Production holds it (.auth-session-privileges/verification.sql):
+  // the NOLOGIN group app_auth carries the exact contract and the LOGIN inherits it, holding nothing
+  // directly. Since B4 this is load-bearing, not cosmetic: Business's only INSERT policy is
+  // TO app_auth, so a signup login outside that group is refused by RLS however it is granted.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON public."User", public."Business" FROM app_auth`);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE public."User_id_seq", public."Business_id_seq" FROM app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT SELECT (${cols(AUTH_USER_SELECT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT SELECT (${cols(AUTH_USER_SELECT_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT INSERT (${cols(AUTH_USER_INSERT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT INSERT (${cols(AUTH_USER_INSERT_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT UPDATE (${cols(AUTH_USER_UPDATE_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT UPDATE (${cols(AUTH_USER_UPDATE_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT SELECT (${cols(AUTH_BUSINESS_SELECT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+    `GRANT SELECT (${cols(AUTH_BUSINESS_SELECT_COLS)}) ON public."Business" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT INSERT (${cols(AUTH_BUSINESS_INSERT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+    `GRANT INSERT (${cols(AUTH_BUSINESS_INSERT_COLS)}) ON public."Business" TO app_auth`);
   for (const s of ['"User_id_seq"', '"Business_id_seq"']) {
-    await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public.${s} TO ${E3_AUTH}`);
+    await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public.${s} TO app_auth`);
   }
+  await owner.$executeRawUnsafe(`GRANT app_auth TO ${E3_AUTH}`);
 
   // ---- a fixture to act on --------------------------------------------------
   const biz = await owner.$queryRawUnsafe(
