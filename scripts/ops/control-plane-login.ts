@@ -8,8 +8,11 @@
  * provision  create-once (or rotate the password of) `app_ctlplane_prod`: LOGIN, INHERIT, NOSUPERUSER,
  *            NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, NOREPLICATION, CONNECTION LIMIT 5, member of
  *            `app_ctlplane` and of nothing else. The password is the one inside CONTROL_PLANE_DATABASE_URL
- *            (the same value the owner stores in Vercel), turned into a SCRAM-SHA-256 verifier HERE, so the
- *            plaintext never reaches the database or any log. Preconditions, the write and the
+ *            (the same value the owner stores in Vercel). Neon manages roles through its own control plane and
+ *            accepts ONLY a plaintext password (it refuses a pre-hashed SCRAM verifier: run 36947430910), so the
+ *            password is sent as the PASSWORD literal over the TLS session to the verified endpoint and Neon
+ *            stores it hashed. It is restricted to [A-Za-z0-9_-] (no quoting, no injection) and redacted from every
+ *            error message; it never appears in any log. Preconditions, the write and the
  *            post-assertions are ONE transaction: any mismatch rolls the whole thing back.
  * disable    containment: NOLOGIN, revoke the `app_ctlplane` membership, terminate its sessions. Takes
  *            effect immediately, without a deploy. The role is never dropped (the Neon pooler caches role
@@ -17,7 +20,6 @@
  *
  * Output: booleans and codes only. Exit: 0 PASS · 1 FAIL · 3 REFUSED · 2 usage.
  */
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { assertSafeUrl, RefusedError } from "./runtime-rls-evidence";
 
@@ -26,13 +28,14 @@ const GROUP = "app_ctlplane";
 const MIGRATIONS = ["20260901090000_d2_pw2_business_feature_access_rls", "20261003090000_control_plane_production_privileges"];
 const CONNECTION_LIMIT = 5;
 
-/** SCRAM-SHA-256 verifier (RFC 5802/7677), the exact form Postgres stores in pg_authid. */
-export function scramVerifier(password: string, salt = randomBytes(16), iterations = 4096): string {
-  const salted = pbkdf2Sync(password.normalize("NFKC"), salt, iterations, 32, "sha256");
-  const clientKey = createHmac("sha256", salted).update("Client Key").digest();
-  const storedKey = createHash("sha256").update(clientKey).digest();
-  const serverKey = createHmac("sha256", salted).update("Server Key").digest();
-  return `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey.toString("base64")}:${serverKey.toString("base64")}`;
+/** Set once the password is parsed; every error path is scrubbed of it (and of any PASSWORD literal). */
+let secretToRedact: string | null = null;
+/** Register the password the moment it is parsed, so no later error path can print it. */
+export function registerSecretForRedaction(secret: string): void { secretToRedact = secret; }
+export function redact(message: string): string {
+  let m = message.replace(/PASSWORD\s+'[^']*'/gi, "PASSWORD '<redacted>'");
+  if (secretToRedact) m = m.split(secretToRedact).join("<redacted>");
+  return m.replace(/postgres(ql)?:\/\/[^\s'"]+/gi, "<url>");
 }
 
 /**
@@ -88,8 +91,9 @@ async function main(): Promise<void> {
     }
 
     const { password } = parseControlPlaneUrl(process.env.CONTROL_PLANE_DATABASE_URL, allowHost, process.env.OWNER_DATABASE_URL);
-    const verifier = scramVerifier(password);
-    if (!/^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(verifier)) throw new Error("verifier shape");
+    // Re-asserted at the point of use: the PASSWORD literal below is only ever built from this charset.
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(password)) throw new RefusedError("password shape");
+    registerSecretForRedaction(password);
 
     const result = await owner.$transaction(async (tx) => {
       // Preconditions.
@@ -107,9 +111,9 @@ async function main(): Promise<void> {
         if (existing.sup || existing.bypass || existing.createrole || existing.createdb || existing.repl) {
           throw new RefusedError(`${LOGIN} exists with an elevated attribute — refusing to reuse it`);
         }
-        await tx.$executeRawUnsafe(`ALTER ROLE ${LOGIN} ${attrs} PASSWORD '${verifier}'`);
+        await tx.$executeRawUnsafe(`ALTER ROLE ${LOGIN} ${attrs} PASSWORD '${password}'`);
       } else {
-        await tx.$executeRawUnsafe(`CREATE ROLE ${LOGIN} ${attrs} PASSWORD '${verifier}'`);
+        await tx.$executeRawUnsafe(`CREATE ROLE ${LOGIN} ${attrs} PASSWORD '${password}'`);
       }
       await tx.$executeRawUnsafe(`GRANT ${GROUP} TO ${LOGIN}`);
 
@@ -163,8 +167,8 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({ action, ...result, pass: true }, null, 1));
   } catch (e) {
-    if (e instanceof RefusedError) { console.error(`REFUSED: ${e.message}`); process.exitCode = 3; }
-    else { console.error(`FAILED: ${e instanceof Error ? e.message.replace(/SCRAM-SHA-256\$[^' ]+/g, "<verifier>") : "unknown"}`); process.exitCode = 1; }
+    if (e instanceof RefusedError) { console.error(`REFUSED: ${redact(e.message)}`); process.exitCode = 3; }
+    else { console.error(`FAILED: ${e instanceof Error ? redact(e.message) : "unknown"}`); process.exitCode = 1; }
   } finally {
     await owner?.$disconnect();
   }

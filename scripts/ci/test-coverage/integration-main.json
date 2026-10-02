@@ -124,6 +124,12 @@
     "lib/services/crm/lead-lifecycle.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "M5 lead lifecycle contract (next-action vocabulary = migration CHECKs, suggestions + dismissal, fact/inference classes, attention bands, Secretary briefing, no AI client in the lifecycle path); run by m5-crm-lifecycle-ci.yml, which also proves the suite can fail"
+    },
+    "scripts/ops/control-plane-login.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "d2-pw2-ci.yml",
+      "reason": "control-plane cutover (#610): the Production login provisioner refuses every non-approved CONTROL_PLANE_DATABASE_URL (user, endpoint, pooler, host/database vs owner, password charset), never prints a password/URL/PASSWORD literal, and grants exactly app_ctlplane with the pinned attributes; run by d2-pw2-ci.yml"
     }
   }
 }

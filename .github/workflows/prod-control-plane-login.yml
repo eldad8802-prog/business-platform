@@ -8,11 +8,12 @@ name: "Prod control plane — LOGIN role (OWNER GATE, writes roles)"
 #   provision  create-once / rotate-password app_ctlplane_prod (LOGIN, INHERIT, NOSUPERUSER, NOBYPASSRLS,
 #              NOCREATEDB, NOCREATEROLE, NOREPLICATION, CONNECTION LIMIT 5), member of app_ctlplane only.
 #              Password = the one inside the production-db secret CONTROL_PLANE_DATABASE_URL (the same value
-#              the owner stores in Vercel Production); hashed to a SCRAM-SHA-256 verifier on the runner.
+#              the owner stores in Vercel Production); sent as a plaintext PASSWORD literal over TLS because
+#              Neon accepts only plaintext (it hashes it); [A-Za-z0-9_-] only; redacted from every error.
 #              Preconditions, write and post-assertions are one transaction.
 #   disable    containment: NOLOGIN + revoke the group membership + terminate sessions. Immediate; no
 #              deploy needed. The role is never dropped.
-# Output: booleans only. No URL, password or verifier is ever printed.
+# Output: booleans only. No URL or password is ever printed.
 
 on:
   workflow_dispatch:
