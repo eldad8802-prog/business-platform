@@ -243,6 +243,19 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "identity_proposal_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // B4 — Business keeps every read (login, session, signup, lifecycle gates and the
+  // public coupon pages read it before a tenant exists) but its WRITES are pinned to
+  // the tenant. The erasure's two Business transitions name their own business first.
+  {
+    table: "Business",
+    migration: "20261005090000_business_tenant_write_rls",
+    why: "the erasure moves the lifecycle columns (quarantine, finalize) with an UPDATE that must name its own business",
+    policies: [
+      { name: "business_read_unchanged", command: "SELECT", using: "true" },
+      { name: "business_tenant_write", command: "UPDATE", using: `"id" = NULLIF(current_setting('app.current_business_id', true), '')::int`, check: `"id" = NULLIF(current_setting('app.current_business_id', true), '')::int` },
+      { name: "business_signup_insert", command: "INSERT", roles: ["app_auth"], check: "true" },
+    ],
+  },
   // Business Intake M3 — what Dubiz understood from a receipt. Same shape as
   // IntakeEvent: per command, NO DELETE; the erasure scrubs contact hints,
   // attribution and result pointers with an UPDATE.
@@ -386,8 +399,7 @@ export const PRODUCTION_RLS_CONTRACT = [
  * would change what stage 1 can do.
  */
 export const PRODUCTION_NO_RLS = [
-  { table: "Business", why: "login and signup run before a tenant id exists; boundary is column privilege" },
-  { table: "User", why: "same" },
+  { table: "User", why: "login and signup run before a tenant id exists; boundary is column privilege" },
   { table: "WhatsAppConnection", why: "no migration has ever put it under RLS; stage 1 reaches it" },
   { table: "POSApiKey", why: "same; stage 1 deletes these rows successfully" },
 ];
