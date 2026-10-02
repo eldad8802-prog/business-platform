@@ -43,8 +43,11 @@ export type KnowledgeDomain = "documents" | "payables" | "inventory" | "supplier
  * `Party`. That is deliberate rather than awkward — it means a vendor-level habit can only exist for a
  * vendor Dubiz has actually resolved, and an unresolved vendor produces no knowledge instead of
  * knowledge attached to a spelling.
+ *
+ * `commitment` is a payables-ledger `Commitment` (Business Cost learning, Wave 1): a recurring cost
+ * that changed, started or ended is knowledge ABOUT that commitment.
  */
-export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party";
+export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party" | "commitment";
 
 /**
  * Why a rule's answer can stop being authoritative.

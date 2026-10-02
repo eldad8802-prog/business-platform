@@ -49,6 +49,10 @@
       "workflow": "business-cost-ci.yml",
       "reason": "proves tenant isolation of GET /api/business-cost twice: at the service and under the repo's RLS migrations as a NOSUPERUSER NOBYPASSRLS role (business-cost-ci.yml job db)"
     },
+    "lib/knowledge/rules/cost-rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "Business Cost learning Wave 1 (COST-08/02/04/05): true positives and every false-positive guard, FACT-only deterministic composers, grounding guard, catalogue ↔ migration consistency, purity; run by m0-knowledge-tenant-safety.yml (tenant isolation of the persisted artifacts is proven by .m0/cost-learning-battery.ts in the same workflow)"
+    },
     "lib/services/business-cost/business-cost-intelligence.db.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

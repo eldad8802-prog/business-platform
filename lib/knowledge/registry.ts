@@ -43,6 +43,7 @@ import {
   type PaperworkObservation,
 } from "./rules/documents-paperwork-lag";
 import * as sources from "./evidence/sources";
+import { costRules, makeCostLedgerSource } from "./rules/cost";
 
 /**
  * DOC-04, expressed in the M4 contract.
@@ -112,6 +113,8 @@ export function knowledgeCatalogue(): AnyKnowledgeRule[] {
     sources.loadVendorDocuments(b, n, DOCUMENTS_WINDOW_DAYS),
   );
   const reviews = makeReviewSource((b, n) => sources.loadReviews(b, n, DOCUMENTS_WINDOW_DAYS));
+  // Business Cost learning (Wave 1): one load of the cost ledger serves all four cost rules.
+  const costLedger = makeCostLedgerSource(sources.loadCostLedger);
 
   const [invMovementRules, invAlertRules] = inventoryRules(movements, alerts);
   const [supOrderRules, supDeliveryRules] = supplierRules(orders, deliveries);
@@ -126,6 +129,7 @@ export function knowledgeCatalogue(): AnyKnowledgeRule[] {
     ...supDeliveryRules,
     ...docVendorRules,
     ...docReviewRules,
+    ...costRules(costLedger),
   ].map((r) => erase(r as KnowledgeRule<never>));
 }
 

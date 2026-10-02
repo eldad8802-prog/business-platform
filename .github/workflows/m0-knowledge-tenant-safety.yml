@@ -153,6 +153,11 @@ jobs:
       - name: M4 rule contracts (pure — 89 assertions across four domains)
         run: npx tsx lib/knowledge/rules/m4-rules.test.ts
 
+      # Business Cost learning, Wave 1 (COST-08/02/04/05): what each policy must detect and every
+      # false positive it must not raise; FACT-only composers; catalogue ↔ migration; purity.
+      - name: Business Cost learning rules (pure — Wave 1)
+        run: node_modules/.bin/tsx lib/knowledge/rules/cost-rules.test.ts
+
       - name: M4/M5 surface contracts (identity, collection, derivation)
         run: npx tsx lib/knowledge/m4-m5-surfaces.verify.test.ts
 
@@ -163,6 +168,12 @@ jobs:
       # RULES rather than about the plumbing the first battery already owns.
       - name: M4/M5 multi-domain + identity battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m4-m5-battery.ts
+
+      # Business Cost learning, Wave 1, through the database: ledger written by the payables services as
+      # a NOBYPASSRLS role, fail-closed without lineage rows, measures + FACT insights derived, tenant
+      # isolation of measures, insights and evidence links.
+      - name: Business Cost learning battery (real DB, NOBYPASSRLS role)
+        run: node_modules/.bin/tsx .m0/cost-learning-battery.ts
 
       # M5.5 — the sensor fabric. The pure contract first (occurrences, not interpretations; actor AND
       # source decided at every call site; no personal data in any payload), then the battery against a
