@@ -80,7 +80,13 @@ if [ "$MODE" != "--without-594" ]; then
   TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
   cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
   cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
-  for d in "$ROOT"/prisma/migrations/*/; do cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
+  # Only migrations up to and including #594: a later migration on main must never ride along
+  # (that is exactly the release-migrate hazard this lab exists to examine).
+  for d in "$ROOT"/prisma/migrations/*/; do
+    name="$(basename "$d")"
+    [[ "$name" > "$M594" ]] && continue
+    cp -r "$d" "$TMP/prisma/migrations/$name"
+  done
   if [ "$MODE" = "--broken-594" ]; then
     printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$M594/migration.sql"
   fi

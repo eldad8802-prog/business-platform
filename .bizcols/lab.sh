@@ -16,7 +16,9 @@
 set -euo pipefail
 DB="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-bash "$ROOT/.c594/lab.sh" "$DB" >/dev/null
+# The pre-#594 Production baseline (no migration deploy at all): Business exactly as the
+# D2 E4 narrowing left it. #594 does not touch the runtime's Business privileges.
+bash "$ROOT/.c594/lab.sh" "$DB" --without-594 >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
   "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth') THEN CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END \$\$"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
