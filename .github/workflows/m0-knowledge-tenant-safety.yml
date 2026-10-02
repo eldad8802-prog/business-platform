@@ -148,6 +148,14 @@ jobs:
       - name: Owner-decision surface contract
         run: npx tsx lib/knowledge/insight-decision-route.verify.test.ts
 
+      # Business Cost learning, Wave 1, through the database. It runs FIRST on the fresh lab because it
+      # proves fail-closed: before the Wave-1 lineage rows exist, the cost rules must write nothing. Every
+      # later battery seeds lineages idempotently (ON CONFLICT DO NOTHING), so running first changes none
+      # of their counts. Then: ledger written by the payables services as a NOBYPASSRLS role, measures +
+      # FACT insights derived, tenant isolation of measures, insights and evidence links.
+      - name: Business Cost learning battery (real DB, NOBYPASSRLS role)
+        run: node_modules/.bin/tsx .m0/cost-learning-battery.ts
+
       - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts
       - name: M4 rule contracts (pure — 89 assertions across four domains)
@@ -168,12 +176,6 @@ jobs:
       # RULES rather than about the plumbing the first battery already owns.
       - name: M4/M5 multi-domain + identity battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m4-m5-battery.ts
-
-      # Business Cost learning, Wave 1, through the database: ledger written by the payables services as
-      # a NOBYPASSRLS role, fail-closed without lineage rows, measures + FACT insights derived, tenant
-      # isolation of measures, insights and evidence links.
-      - name: Business Cost learning battery (real DB, NOBYPASSRLS role)
-        run: node_modules/.bin/tsx .m0/cost-learning-battery.ts
 
       # M5.5 — the sensor fabric. The pure contract first (occurrences, not interpretations; actor AND
       # source decided at every call site; no personal data in any payload), then the battery against a
