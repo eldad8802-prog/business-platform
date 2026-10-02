@@ -229,6 +229,41 @@ jobs:
             --expect '[FAIL] WP-0 intake-sweep.yml: does not parse as YAML' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
+      # R4: settlement recovery may obtain CRON authority ONLY through the `cron` environment, on main.
+      - name: Gate self-proof G14 — settlement recovery back on repo-level CRON authority is caught (WP-3)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G14-settlement-repo-level --file .github/workflows/payment-settlement-recovery.yml \
+            --anchor '    environment: cron' \
+            --replace '    # (environment binding removed)' \
+            --expect '[FAIL] WP-3 payment-settlement-recovery.yml: job recover references CRON_SECRET outside a protected environment' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
+      - name: Gate self-proof G15 — settlement recovery in the wrong environment is caught (WP-6)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G15-settlement-wrong-env --file .github/workflows/payment-settlement-recovery.yml \
+            --anchor '    environment: cron' \
+            --replace '    environment: knowledge-derive' \
+            --expect '[FAIL] WP-6 payment-settlement-recovery.yml: job recover references CRON_SECRET in environment knowledge-derive (bound to cron)' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
+      - name: Gate self-proof G16 — settlement recovery losing its main-only condition is caught (WP-4)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G16-settlement-not-main-only --file .github/workflows/payment-settlement-recovery.yml \
+            --anchor "    if: github.ref == 'refs/heads/main'" \
+            --replace '    # (main-only condition removed)' \
+            --expect '[FAIL] WP-4 payment-settlement-recovery.yml: job recover (environment cron) is not restricted to refs/heads/main' \
+            -- node scripts/ci/workflow-policy-guard.mjs .
+
+      # The trigger parser once swallowed the first trigger's indentation, so the FIRST trigger under
+      # `on:` was invisible to WP-5. Restoring that regex must turn the self-test red for that reason.
+      - name: Gate self-proof G17 — the first trigger under on is seen (WP-5 parser regression)
+        run: |
+          node scripts/ci/negative-proof.mjs --id G17-first-trigger --file scripts/ci/workflow-policy-guard.mjs \
+            --anchor '(text.match(/^on:[ \t]*\n([\s\S]*?)^(?=\S)/m) || [])' \
+            --replace '(text.match(/^on:\s*([\s\S]*?)^(?=\S)/m) || [])' \
+            --expect 'FAIL  self-test: the FIRST trigger under on: is seen (push listed first)' \
+            -- node scripts/ci/workflow-policy-guard.mjs --self-test
+
       - name: Build the lab template (schema + NOBYPASSRLS runtime role)
         env:
           DATABASE_URL: ${{ env.TEMPLATE_URL }}

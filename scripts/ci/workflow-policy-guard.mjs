@@ -24,6 +24,8 @@
  * EXEMPT lists are exact (a stale entry fails) and carry a reason. Peer-owned files are
  * exempted ONLY for the rules the peer must fix in its own PR; they are reported as residual.
  *
+ * SANCTIONED is narrower than EXEMPT: a by-design violation, exact rule + file + message (see below).
+ *
  * DEBT is narrower than EXEMPT: OPEN SECURITY DEBT, recorded per VIOLATION — exact rule, exact
  * file, exact message, exact count, and the exact (LF-normalised) sha256 of the file it was
  * observed in. A matching violation is reported loudly as debt instead of failing; ANY other
@@ -54,12 +56,43 @@ export const EXEMPT = {
   "WP-2": new Map([
     ["c3-settlement-ci.yml", "peer-owned (CardCom money session); pin in the peer PR"],
     ["collection-product-ci.yml", "peer-owned (CardCom money session); pin in the peer PR"],
-    ["payment-settlement-recovery.yml", "peer-owned (CardCom money session); pin in the peer PR"],
     ["m1-inbound-money-ci.yml", "peer-owned (CardCom money session, #524); pin in the peer's next PR"],
   ]),
-  "WP-3": new Map([["payment-settlement-recovery.yml", "peer-owned: CRON_SECRET without an environment — peer must add `environment: cron` (owner action prepared)"]]),
-  "WP-5": new Map([["payment-settlement-recovery.yml", "peer-owned: scheduled job holding CRON_SECRET — accepted schedule by design, secret must move to the cron environment"]]),
 };
+
+/**
+ * SANCTIONED — a deliberate, by-design violation, recorded per VIOLATION (exact rule + file +
+ * message), never per rule: every other finding of the same rule in that file still fails, and an
+ * entry whose violation is gone fails as stale. Not debt: nothing is expected to remove it.
+ *
+ * payment-settlement-recovery.yml must run on a schedule while holding CRON_SECRET — the 10-minute
+ * recovery cadence is the product (Vercel Hobby crons are daily). Its authority is bounded instead:
+ * the job is bound to `cron` (WP-3/WP-6) and main-only (WP-4). Only the SCHEDULE trigger is
+ * sanctioned; a push / pull_request / pull_request_target / workflow_run trigger, `contents: write`
+ * or `git push` in this file still fails WP-5.
+ */
+export const SANCTIONED = [
+  {
+    rule: "WP-5",
+    file: "payment-settlement-recovery.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: 10-minute settlement recovery; CRON authority bound to the `cron` environment, main-only",
+  },
+];
+
+/** Remove exactly-sanctioned violations from `found`; a sanctioned entry with no violation is stale. */
+export function applySanctioned(found, sanctioned = SANCTIONED) {
+  const rest = [];
+  const recorded = [];
+  const hit = new Set();
+  for (const v of found) {
+    const s = sanctioned.find((x) => x.rule === v.rule && x.file === v.file && x.message === v.msg);
+    if (s) { hit.add(s); recorded.push(`sanctioned ${v.rule} ${v.file}: ${v.msg} — ${s.reason}`); }
+    else rest.push(v);
+  }
+  const failures = sanctioned.filter((s) => !hit.has(s)).map((s) => `[FAIL] SANCTIONED-STALE ${s.rule} ${s.file}: "${s.message}" no longer occurs — remove the entry`);
+  return { rest, failures, recorded };
+}
 
 /**
  * OPEN SECURITY DEBT — NOT compliant behaviour. Temporary, violation-exact (see the header).
@@ -163,7 +196,9 @@ function jobsOf(text) {
 }
 
 function triggers(text) {
-  const onBlock = (text.match(/^on:\s*([\s\S]*?)^(?=\S)/m) || [])[1] ?? "";
+  // `[ \t]*\n`, not `\s*`: \s* also swallowed the FIRST trigger's indentation, so `^ {2}<t>:` never
+  // matched it and the first trigger under `on:` was invisible to WP-5.
+  const onBlock = (text.match(/^on:[ \t]*\n([\s\S]*?)^(?=\S)/m) || [])[1] ?? "";
   const inline = (text.match(/^on:\s*(\[.*\]|\w+)\s*$/m) || [])[1] ?? "";
   const set = new Set();
   for (const t of ["push", "pull_request", "pull_request_target", "schedule", "workflow_dispatch", "workflow_run", "workflow_call"]) {
@@ -223,8 +258,10 @@ export function check(root, { log = console.log } = {}) {
     hashes.set(f, sha256Lf(raw));
     for (const [rule, msg] of checkWorkflowText(f, raw)) found.push({ file: f, rule, msg });
   }
-  const { failures, debt } = applyDebt(found, hashes);
-  const problems = [...failures];
+  const sanc = applySanctioned(found);
+  const { failures, debt } = applyDebt(sanc.rest, hashes);
+  const problems = [...sanc.failures, ...failures];
+  for (const s of sanc.recorded) log(`  ${s}`);
   for (const [rule, m] of Object.entries(EXEMPT)) for (const f of m.keys()) if (!files.includes(f)) problems.push(`[FAIL] EXEMPT-STALE ${rule} ${f} no longer exists — remove the exemption`);
   for (const [rule, m] of Object.entries(EXEMPT)) for (const [f, why] of m) if (files.includes(f)) log(`  residual ${rule} ${f}: ${why}`);
   for (const d of debt) log(`  ${d}`);
@@ -250,6 +287,8 @@ function selfTest() {
     ["secret outside a protected environment", good.replace("    environment: neon-preview\n", ""), "WP-3"],
     ["protected environment without main-only condition", good.replace("    if: github.ref == 'refs/heads/main'\n", ""), "WP-4"],
     ["secret-bearing workflow with a push trigger", good.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n    branches: [feat/x]\n"), "WP-5"],
+    ["the FIRST trigger under on: is seen (push listed first)", good.replace("on:\n  workflow_dispatch:\n", "on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n"), "WP-5"],
+    ["the FIRST trigger under on: is seen (schedule listed first)", good.replace("on:\n  workflow_dispatch:\n", "on:\n  schedule:\n    - cron: \"*/10 * * * *\"\n  workflow_dispatch:\n"), "WP-5"],
     ["contents: write", good.replace("contents: read", "contents: write"), "WP-5"],
     ["git push", good.replace("run: echo", "run: git push origin main"), "WP-5"],
     ["compliant derive workflow (knowledge-derive env, main-only)", derive, null],
@@ -307,7 +346,32 @@ function selfTest() {
     ok &&= pass;
     console.log(`${pass ? "PASS" : "FAIL"}  self-test: debt — ${name}`);
   }
-  console.log(ok ? `workflow-policy-guard self-test: ${cases.length + debtCases.length} checks passed` : "workflow-policy-guard self-test FAILED");
+
+  // Settlement recovery: CRON authority only through `cron`, main-only; only its SCHEDULE is sanctioned.
+  const SF = "payment-settlement-recovery.yml";
+  const settle = `on:\n  schedule:\n    - cron: "*/10 * * * *"\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  recover:\n    if: github.ref == 'refs/heads/main'\n    environment: cron\n    runs-on: ubuntu-latest\n    steps:\n      - env:\n          CRON_SECRET: \${{ secrets.CRON_SECRET }}\n        run: echo\n`;
+  const judge = (file, text) => {
+    const s = applySanctioned(checkWorkflowText(file, text).map(([rule, msg]) => ({ file, rule, msg })));
+    return { failures: [...s.failures, ...s.rest.map((v) => `[FAIL] ${v.rule} ${v.file}: ${v.msg}`)], recorded: s.recorded };
+  };
+  const has = (r, rule) => r.failures.some((f) => f.includes(` ${rule} `));
+  const settleCases = [
+    ["compliant: cron-bound, main-only, schedule reported as sanctioned (not silent)", () => { const r = judge(SF, settle); return r.failures.length === 0 && r.recorded.length === 1 && r.recorded[0].includes("schedule trigger"); }],
+    ["regression to repo-level authority (no environment) fails WP-3", () => has(judge(SF, settle.replace("    environment: cron\n", "")), "WP-3")],
+    ["an inappropriate environment (production-db) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: production-db")), "WP-6")],
+    ["an inappropriate environment (knowledge-derive) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: knowledge-derive")), "WP-6")],
+    ["dropping the main-only condition fails WP-4", () => has(judge(SF, settle.replace("    if: github.ref == 'refs/heads/main'\n", "")), "WP-4")],
+    ["a push trigger is NOT covered by the sanction (fails WP-5)", () => has(judge(SF, settle.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n")), "WP-5")],
+    ["contents: write is NOT covered by the sanction (fails WP-5)", () => has(judge(SF, settle.replace("contents: read", "contents: write")), "WP-5")],
+    ["the same scheduled secret-holder in ANOTHER file is not sanctioned", () => has(judge("other-scheduler.yml", settle), "WP-5")],
+    ["a sanction whose violation is gone fails as stale", () => judge(SF, settle.replace("  schedule:\n    - cron: \"*/10 * * * *\"\n", "")).failures.some((f) => f.includes("SANCTIONED-STALE"))],
+  ];
+  for (const [name, fn] of settleCases) {
+    const pass = fn();
+    ok &&= pass;
+    console.log(`${pass ? "PASS" : "FAIL"}  self-test: settlement — ${name}`);
+  }
+  console.log(ok ? `workflow-policy-guard self-test: ${cases.length + debtCases.length + settleCases.length} checks passed` : "workflow-policy-guard self-test FAILED");
   return ok;
 }
 
