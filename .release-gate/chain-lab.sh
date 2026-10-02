@@ -99,6 +99,16 @@ verify chain "$T/d2" "$B4"
 deploy chain "$T/d2"
 test "$(applied chain)" = "165" && test "$(has chain "$B4")" = "1"
 proof_all_pass chain "$B4_PROOF" 14
+echo "  P2 x B4: after both, the runtime still writes its own P2 row (FK into Business, now under FORCE RLS) and not another's"
+biz() { lab chain -Atqc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('$1', now()) RETURNING id" | head -1; }
+BA=$(biz chain-A); BB=$(biz chain-B)
+rtp2() { PGPASSWORD="$LAB_PASSWORD" psql -X -U app_runtime_prod -d chain -v ON_ERROR_STOP=1 -Atq \
+  -c "BEGIN" -c "SELECT set_config('app.current_business_id', '$1', true)" \
+  -c "INSERT INTO \"BusinessIdentityStatement\" (\"businessId\",\"dimension\",\"text\",\"source\",\"updatedAt\") VALUES ($2,'SPECIALIZATION','x','OWNER_INPUT',now())" -c "COMMIT"; }
+rtp2 "$BA" "$BA" >/dev/null || { echo "FAIL: own P2 write refused after B4"; exit 1; }
+if rtp2 "$BA" "$BB" >/dev/null 2>&1; then echo "FAIL: cross-tenant P2 write allowed"; exit 1; fi
+test "$(lab chain -Atc "SELECT count(*) FROM \"BusinessIdentityStatement\" WHERE \"businessId\" IN ($BA, $BB)")" = "1"
+echo "    own write: ok; cross-tenant write: refused"
 echo "  re-running B4 → REFUSED (already applied)"
 expect_refused chain "$T/d2" "$B4"
 grep -q "approved but not pending" /tmp/gate.out
