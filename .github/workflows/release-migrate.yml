@@ -140,7 +140,7 @@ jobs:
             echo "- Trigger: manual (workflow_dispatch), approved via \`production-db\` environment."
             echo "- Action: \`prisma migrate deploy\` (pending migrations only) over the direct connection."
             echo "- Expected (and verified) migrations: ${EXPECTED}"
-          echo "- Reason: ${REASON:-'(none provided)'}"
+            echo "- Reason: ${REASON:-'(none provided)'}"
             echo ""
             echo "_Vercel auto-deploy is unaffected. This workflow applies migrations only._"
           } >> "$GITHUB_STEP_SUMMARY"

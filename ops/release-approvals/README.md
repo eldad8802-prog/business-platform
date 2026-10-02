@@ -4,20 +4,21 @@
 
 ```json
 {
-  "migration": "20261005090000_business_tenant_write_rls",
+  "migration": "20261006090000_business_tenant_write_rls",
   "sha256": "<sha256 of prisma/migrations/<name>/migration.sql, LF>",
   "decision": "https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>",
   "approvedBy": "eldad8802-prog",
   "approvedAt": "2026-10-02T00:00:00Z",
-  "preflightRun": 36925655282
+  "preflightRun": 123456789,
+  "preflightFile": "ops/evidence/business-runtime-columns-preflight.sql"
 }
 ```
 
-The gate checks five things:
+The gate checks four things:
 
 1. `sha256` equals the file. Any edit to the migration invalidates the approval.
 2. `decision` links the owner's written decision.
-3. `preflightRun` is a successful `prod-readonly-evidence.yml` run.
+3. `preflightRun` is a successful, manually dispatched `prod-readonly-evidence.yml` run from `main`, whose title (its run-name) names `preflightFile`. Runs from before the gate have no run-name and never qualify.
 4. That run started after the migration reached `main`.
 Separately, the run's `verify` step refuses unless `expected_migrations` equals exactly the migrations still pending.
 

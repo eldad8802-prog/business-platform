@@ -38,6 +38,7 @@ import { classify } from "./migration-security-classifier.mjs";
 const MIGRATIONS = "prisma/migrations";
 const APPROVALS = "ops/release-approvals";
 const NAME_RE = /^\d{14}_[a-z0-9_]+$/;
+const PREFLIGHT_FILE_RE = /^ops\/evidence\/[a-z0-9][a-z0-9._-]*\.sql$/;
 
 export function parseExpected(raw) {
   const names = String(raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -68,7 +69,25 @@ export function checkApproval(name, record, fileSha) {
   if (!/^https:\/\/github\.com\//.test(String(record.decision ?? ""))) problems.push("record.decision must link the owner's decision on github.com");
   if (!record.approvedBy) problems.push("record.approvedBy missing");
   if (!Number.isInteger(record.preflightRun) || record.preflightRun <= 0) problems.push("record.preflightRun must be a run id");
+  if (!PREFLIGHT_FILE_RE.test(String(record.preflightFile ?? ""))) problems.push("record.preflightFile must name the ops/evidence/*.sql the preflight ran");
   return problems;
+}
+
+/**
+ * Pure: is this GitHub run the preflight the record claims? A successful, manually dispatched
+ * prod-readonly-evidence.yml run FROM MAIN, started after the migration reached main, whose title
+ * (run-name) names the record's preflight file.
+ */
+export function checkPreflightRun(run, { notBefore, file }) {
+  if (!run) return "preflight run not found";
+  if (!String(run.path ?? "").endsWith("prod-readonly-evidence.yml")) return `run ${run.id} is not prod-readonly-evidence.yml`;
+  if (run.event !== "workflow_dispatch") return `run ${run.id} was not manually dispatched`;
+  if (run.head_branch !== "main") return `run ${run.id} ran from ${run.head_branch}, not main`;
+  if (run.status !== "completed" || run.conclusion !== "success") return `run ${run.id} concluded ${run.conclusion ?? run.status}`;
+  if (!notBefore) return "cannot establish when the migration reached main — refusing";
+  if (!(new Date(run.run_started_at) >= new Date(notBefore))) return `run ${run.id} started before the migration reached main`;
+  if (!file || !String(run.display_title ?? "").includes(file)) return `run ${run.id} does not name ${file} in its title (run-name)`;
+  return null;
 }
 
 function readApproval(name) {
@@ -79,19 +98,21 @@ function readApproval(name) {
 
 function mergedAt(name) {
   // First commit on this history that added the migration file.
-  const out = execFileSync("git", ["log", "--diff-filter=A", "--format=%cI", "--", join(MIGRATIONS, name, "migration.sql")], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
-  return out.length ? out[out.length - 1] : null;
+  // null (no history, shallow clone, git missing) refuses downstream: never assumed "old enough".
+  try {
+    const out = execFileSync("git", ["log", "--diff-filter=A", "--format=%cI", "--", join(MIGRATIONS, name, "migration.sql")], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    return out.length ? out[out.length - 1] : null;
+  } catch { return null; }
 }
 
-async function preflightRunOk(runId, notBefore) {
+async function preflightRunOk(runId, notBefore, file) {
   const repo = process.env.GITHUB_REPOSITORY, token = process.env.GITHUB_TOKEN;
   if (!repo || !token) return { ok: false, why: "GITHUB_TOKEN / GITHUB_REPOSITORY unavailable — cannot verify the preflight run" };
   const r = await fetch(`https://api.github.com/repos/${repo}/actions/runs/${runId}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } });
   if (!r.ok) return { ok: false, why: `preflight run ${runId}: HTTP ${r.status}` };
-  const run = await r.json();
-  if (!String(run.path ?? "").endsWith("prod-readonly-evidence.yml")) return { ok: false, why: `run ${runId} is not prod-readonly-evidence.yml` };
-  if (run.conclusion !== "success") return { ok: false, why: `run ${runId} concluded ${run.conclusion}` };
-  if (notBefore && new Date(run.run_started_at) < new Date(notBefore)) return { ok: false, why: `run ${runId} started before the migration reached main` };
+  const why = checkPreflightRun(await r.json(), { notBefore, file });
+  if (why) return { ok: false, why };
+  if (!existsSync(file)) return { ok: false, why: `${file} is not in this checkout` };
   return { ok: true };
 }
 
@@ -108,11 +129,11 @@ async function plan(expected) {
       const rec = readApproval(name);
       const problems = rec?.__invalid ? ["approval record is not valid JSON"] : checkApproval(name, rec, sum);
       if (!problems.length) {
-        const pre = await preflightRunOk(rec.preflightRun, mergedAt(name));
+        const pre = await preflightRunOk(rec.preflightRun, mergedAt(name), rec.preflightFile);
         if (!pre.ok) problems.push(pre.why);
       }
       if (problems.length) { refused = true; approval = `REFUSED — ${problems.join("; ")}`; }
-      else approval = `approved by ${rec.approvedBy} (${rec.decision}); preflight run ${rec.preflightRun}`;
+      else approval = `approved by ${rec.approvedBy} (${rec.decision}); preflight ${rec.preflightFile} run ${rec.preflightRun}`;
     }
     rows.push(`${name} | ${cls.length ? `AUTHORITY [${cls.join(", ")}]` : "plain"} | sha256 ${sum.slice(0, 16)}… | ${approval}`);
   }
@@ -159,12 +180,25 @@ function selfTest() {
   t("pending == expected passes", comparePending(["a", "b"], ["b", "a"]).ok);
   t("an EXTRA pending migration refuses (the #594 shape)", JSON.stringify(comparePending(["a", "p2"], ["a"]).extra) === '["p2"]');
   t("an approved-but-not-pending migration refuses", JSON.stringify(comparePending([], ["a"]).missing) === '["a"]');
-  const good = { migration: "m", sha256: "x".repeat(64), decision: "https://github.com/o/r/pull/1#c", approvedBy: "owner", preflightRun: 123 };
+  const good = { migration: "m", sha256: "x".repeat(64), decision: "https://github.com/o/r/pull/1#c", approvedBy: "owner", preflightRun: 123, preflightFile: "ops/evidence/m-preflight.sql" };
   t("a matching approval record passes", checkApproval("m", good, "x".repeat(64)).length === 0);
   t("a checksum mismatch refuses", checkApproval("m", good, "y".repeat(64)).length === 1);
   t("a missing record refuses", checkApproval("m", null, "x".repeat(64)).length === 1);
   t("a record without a preflight run refuses", checkApproval("m", { ...good, preflightRun: 0 }, "x".repeat(64)).length === 1);
   t("a record for another migration refuses", checkApproval("m", { ...good, migration: "n" }, "x".repeat(64)).length === 1);
+  t("a record without its preflight file refuses", checkApproval("m", { ...good, preflightFile: undefined }, "x".repeat(64)).length === 1);
+  t("a preflight file outside ops/evidence refuses", checkApproval("m", { ...good, preflightFile: "../x.sql" }, "x".repeat(64)).length === 1);
+  const run = { id: 9, path: ".github/workflows/prod-readonly-evidence.yml", event: "workflow_dispatch", head_branch: "main", status: "completed",
+    conclusion: "success", run_started_at: "2026-10-02T10:00:00Z", display_title: "Prod Read-Only Evidence — ops/evidence/m-preflight.sql" };
+  const at = { notBefore: "2026-10-02T09:00:00Z", file: "ops/evidence/m-preflight.sql" };
+  t("the matching preflight run passes", checkPreflightRun(run, at) === null);
+  t("a run of another workflow refuses", checkPreflightRun({ ...run, path: ".github/workflows/release-migrate.yml" }, at) !== null);
+  t("a failed preflight run refuses", checkPreflightRun({ ...run, conclusion: "failure" }, at) !== null);
+  t("a preflight run from a branch refuses", checkPreflightRun({ ...run, head_branch: "feat/x" }, at) !== null);
+  t("a preflight run that started before the merge refuses", checkPreflightRun({ ...run, run_started_at: "2026-10-02T08:59:59Z" }, at) !== null);
+  t("an unknown merge time refuses (never assumed old enough)", checkPreflightRun(run, { ...at, notBefore: null }) !== null);
+  t("a preflight run of a DIFFERENT evidence file refuses", checkPreflightRun({ ...run, display_title: "Prod Read-Only Evidence — ops/evidence/other.sql" }, at) !== null);
+  t("a run without a run-name (every run before the gate) refuses", checkPreflightRun({ ...run, display_title: "Prod Read-Only Evidence (CardCom E2E)" }, at) !== null);
   console.log(failed ? `\nrelease-migrate-gate self-test: ${failed} FAILED` : "\nrelease-migrate-gate self-test: all passed");
   return failed ? 1 : 0;
 }
