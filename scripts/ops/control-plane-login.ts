@@ -35,11 +35,21 @@ export function scramVerifier(password: string, salt = randomBytes(16), iteratio
   return `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey.toString("base64")}:${serverKey.toString("base64")}`;
 }
 
-/** The control-plane URL must name exactly this login on the verified host, directly, with a strong password. */
-export function parseControlPlaneUrl(raw: string | undefined, allowHost: string | null): { password: string } {
+/**
+ * The control-plane URL must name exactly this login, directly (no pooler), on the verified endpoint, with a
+ * strong password — and point at the SAME host and database as the owner connection, so the credential can
+ * only ever be set for, and used against, the authoritative Production database.
+ */
+export function parseControlPlaneUrl(raw: string | undefined, allowHost: string | null, ownerRaw?: string): { password: string } {
   const safe = assertSafeUrl("CONTROL_PLANE_DATABASE_URL", raw, allowHost); // refuses pooled / foreign hosts
   const url = new URL(safe);
   if (decodeURIComponent(url.username) !== LOGIN) throw new RefusedError(`CONTROL_PLANE_DATABASE_URL must authenticate as ${LOGIN}`);
+  if (ownerRaw !== undefined) {
+    const owner = new URL(assertSafeUrl("OWNER_DATABASE_URL", ownerRaw, allowHost));
+    if (url.hostname.toLowerCase() !== owner.hostname.toLowerCase()) throw new RefusedError("CONTROL_PLANE_DATABASE_URL host differs from the owner connection's host");
+    const db = (u: URL) => decodeURIComponent(u.pathname.replace(/^\//, ""));
+    if (!db(url) || db(url) !== db(owner)) throw new RefusedError("CONTROL_PLANE_DATABASE_URL database differs from the owner connection's database");
+  }
   const password = decodeURIComponent(url.password);
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(password)) {
     throw new RefusedError("the control-plane password must be 32-128 characters of [A-Za-z0-9_-] (URL-safe, no quoting)");
@@ -77,7 +87,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const { password } = parseControlPlaneUrl(process.env.CONTROL_PLANE_DATABASE_URL, allowHost);
+    const { password } = parseControlPlaneUrl(process.env.CONTROL_PLANE_DATABASE_URL, allowHost, process.env.OWNER_DATABASE_URL);
     const verifier = scramVerifier(password);
     if (!/^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(verifier)) throw new Error("verifier shape");
 

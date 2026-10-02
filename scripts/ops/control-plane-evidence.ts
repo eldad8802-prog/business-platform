@@ -120,9 +120,11 @@ async function main(): Promise<void> {
       const beforeAudit = await n(`SELECT count(*)::int AS n FROM "PlatformAuditEvent"`);
 
       // IDENTITY
-      const [who] = await ctl.$queryRawUnsafe<{ u: string; s: boolean; b: boolean; m: boolean }[]>(
-        `SELECT current_user AS u, r.rolsuper AS s, r.rolbypassrls AS b, pg_has_role(current_user, 'app_ctlplane', 'MEMBER') AS m FROM pg_roles r WHERE r.rolname = current_user`);
+      const [who] = await ctl.$queryRawUnsafe<{ u: string; s: boolean; b: boolean; m: boolean; d: string }[]>(
+        `SELECT current_database() AS d, current_user AS u, r.rolsuper AS s, r.rolbypassrls AS b, pg_has_role(current_user, 'app_ctlplane', 'MEMBER') AS m FROM pg_roles r WHERE r.rolname = current_user`);
+      const [ownerDb] = await owner.$queryRawUnsafe<{ d: string }[]>(`SELECT current_database() AS d`);
       if (who.u !== "app_ctlplane_prod" || who.s || who.b || !who.m) failures.push("identity: control-plane login is not the designed role");
+      if (who.d !== ownerDb.d) failures.push("identity: control-plane session is not on the owner database");
 
       // POSITIVE — the service's exact calls, then a deliberate rollback.
       const steps: Record<string, number | string | boolean | null> = {};
@@ -159,6 +161,7 @@ async function main(): Promise<void> {
         await attempt(ctl, "ctl UPDATE businessId", "deny", `UPDATE "BusinessFeatureAccess" SET "businessId" = 39 WHERE false`, QA),
         await attempt(ctl, "ctl SELECT audit trail", "deny", `SELECT count(*) FROM "PlatformAuditEvent"`, null),
         await attempt(ctl, "ctl UPDATE audit trail", "deny", `UPDATE "PlatformAuditEvent" SET action = action WHERE false`, null),
+        await attempt(ctl, "ctl DELETE audit trail", "deny", `DELETE FROM "PlatformAuditEvent" WHERE false`, null),
         await attempt(ctl, "ctl SELECT Business.deletedAt", "deny", `SELECT "deletedAt" FROM "Business" LIMIT 1`, null),
         await attempt(ctl, "ctl UPDATE feature policy", "deny", `UPDATE "PlatformFeaturePolicy" SET "globalEnabled" = "globalEnabled" WHERE false`, null),
         await attempt(ctl, "ctl INSERT feature definition", "deny", `INSERT INTO "PlatformFeatureDefinition" (key) VALUES ('__probe__')`, null),
