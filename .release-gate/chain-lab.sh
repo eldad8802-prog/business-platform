@@ -28,13 +28,18 @@ LATE="20261005120000_lab_merged_while_waiting"
 url() { echo "postgresql://lab_owner:${LAB_PASSWORD}@${PGHOST}:${PGPORT}/$1"; }
 lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
 
-# checkout <dir> <extra...>: main's migrations + the named extras, as a run's checkout would hold them.
+# checkout <dir> <extra...>: main's migrations UP TO P2 (main as the owner's decision found it) + the
+# named extras, as a run's checkout would hold them. CHECKOUT_ALL=1 copies every migration this
+# checkout has instead (main as it is now).
 checkout() {
   local dir="$1"; shift
   rm -rf "$dir"; mkdir -p "$dir/prisma/migrations"
   cp "$ROOT/prisma/schema.prisma" "$dir/prisma/"
   cp "$ROOT/prisma/migrations/migration_lock.toml" "$dir/prisma/migrations/"
-  for d in "$ROOT"/prisma/migrations/*/; do cp -r "$d" "$dir/prisma/migrations/"; done
+  for d in "$ROOT"/prisma/migrations/*/; do
+    [[ -z "${CHECKOUT_ALL:-}" && "$(basename "$d")" > "$P2" ]] && continue
+    cp -r "$d" "$dir/prisma/migrations/"
+  done
   for x in "$@"; do
     mkdir -p "$dir/prisma/migrations/$x"
     case "$x" in
@@ -124,6 +129,20 @@ echo; echo "F. a half-applied ledger row → REFUSED"
 lab incident -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, repeat('0',64), '$M594', 0)"
 expect_refused incident "$T/e" "$M594,$P2"
 grep -q "unfinished or rolled-back" /tmp/gate.out
+
+echo; echo "G. Production NOW: P2 applied (run 36951977443); main also carries every migration merged since (e.g. #609)"
+echo "   → B4 approved alone is REFUSED while anything else is pending; naming exactly the pending set is the only way through"
+setup_today now
+checkout "$T/g0"; deploy now "$T/g0" >/dev/null   # P2 applied, as Production
+CHECKOUT_ALL=1 checkout "$T/g" "$B4"
+others=$(cd "$T/g/prisma/migrations" && ls -d 2026* | while read -r m; do [ "$(has now "$m")" = "0" ] && [ "$m" != "$B4" ] && echo "$m"; done | paste -sd, -)
+echo "   pending besides B4 on this checkout: ${others:-none}"
+if [ -n "$others" ]; then
+  expect_refused now "$T/g" "$B4"
+  verify now "$T/g" "$others,$B4"
+else
+  verify now "$T/g" "$B4"
+fi
 
 rm -rf "$T"
 echo; echo "release-migrate gate chain lab: ALL SCENARIOS AS EXPECTED"
