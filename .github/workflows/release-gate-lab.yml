@@ -167,4 +167,11 @@ jobs:
             const d = steps.findIndex(applies);
             ok(v >= 0 && d > v, "verify runs before the only apply step");
             ok(steps.filter(applies).length === 1, "exactly one step runs prisma migrate deploy");
+            // RACE: a migration merged to main while a run waits for approval must not enter that run.
+            // Every checkout in both jobs is the DISPATCH commit (github.sha): no ref override, no fetch of
+            // another ref, no pull. verify and deploy run in the same job, on the same files.
+            const checkouts = ["plan", "migrate"].flatMap((j) => y.jobs[j].steps.filter((s) => String(s.uses || "").startsWith("actions/checkout@")));
+            ok(checkouts.length === 2 && checkouts.every((s) => !s.with || s.with.ref === undefined), "both jobs check out the dispatch commit (no ref override)");
+            ok(!y.jobs.migrate.steps.some((s) => /git\s+(fetch|pull|checkout|switch|reset)/.test(s.run || "")), "the protected job never moves its checkout");
+            ok(y.jobs.migrate.if === "github.ref == '"'"'refs/heads/main'"'"'" && y.jobs.plan.if === "github.ref == '"'"'refs/heads/main'"'"'", "both jobs run only from main");
           ' "$W"
