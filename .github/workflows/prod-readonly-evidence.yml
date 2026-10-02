@@ -1,4 +1,5 @@
 name: Prod Read-Only Evidence (CardCom E2E)
+run-name: "Prod Read-Only Evidence — ${{ inputs.sql_file || 'ops/evidence/cardcom-e2e-evidence.sql' }}"
 
 # Manual, gated, READ-ONLY verification of the completed CardCom Sandbox E2E.
 # Runs ONLY the SELECT queries in the SELECTED ops/evidence/*.sql file against
