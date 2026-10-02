@@ -78,6 +78,9 @@ async function main() {
     }
   }
   ok(`applied ${applied} RLS/role statements from the repository`, applied > 50);
+  // The replay swallows errors; make the one that matters here visible.
+  const [bizPol] = await owner.$queryRawUnsafe(`SELECT count(*)::int n FROM pg_policy WHERE polrelid = '"Business"'::regclass`);
+  ok("B4 replayed whole: Business carries its 3 policies (read, tenant row change, app_auth signup)", bizPol.n === 3, `policies=${bizPol.n}`);
 
   // ---- 2. reproduce Production's EXACT app_runtime grant contract -----------
   console.log("\n== 2. exact app_runtime grant contract (as measured in Production) ==");
