@@ -163,7 +163,8 @@ jobs:
             ok(y.jobs.migrate.environment === "production-db", "the protected job is the production-db environment");
             const steps = y.jobs.migrate.steps.map((s) => s.run || "");
             const v = steps.findIndex((r) => r.includes("release-migrate-gate.mjs verify"));
-            const d = steps.findIndex((r) => r.includes("migrate deploy"));
+            const applies = (r) => /^\s*(node_modules\/\.bin\/|npx )?prisma migrate deploy\b/m.test(r);
+            const d = steps.findIndex(applies);
             ok(v >= 0 && d > v, "verify runs before the only apply step");
-            ok(steps.filter((r) => /migrate deploy/.test(r)).length === 1, "exactly one apply step");
+            ok(steps.filter(applies).length === 1, "exactly one step runs prisma migrate deploy");
           ' "$W"
