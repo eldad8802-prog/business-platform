@@ -175,6 +175,15 @@ function policySeedsFromMigration(): string[] {
 }
 
 
+/** Business Cost learning, Wave 1 — the four cost lineages, out of the migration that ships them. */
+function costWaveOneLineages(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql"), "utf8")
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
+  if (out.length !== 2) throw new Error(`expected 2 cost lineage inserts, found ${out.length}`);
+  return out;
+}
+
 /** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
 function laterRuleVersions(): string[] {
   const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
@@ -205,6 +214,7 @@ async function main(): Promise<void> {
   // would make this whole battery prove nothing about the rules themselves.
   for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
   for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of costWaveOneLineages()) await owner.$executeRawUnsafe(stmt);
   const seeded = await owner.derivationPolicyVersion.count();
   // Every rule's CURRENT version must exist (fail-closed resolver). The count is no longer one per
   // rule: a corrected rule keeps its v1 row beside its v2, which is what makes supersession auditable.
@@ -214,7 +224,7 @@ async function main(): Promise<void> {
     `SELECT count(DISTINCT "policyId")::int AS n FROM "DerivationPolicyVersion"`);
   const v2 = await owner.derivationPolicyVersion.count({ where: { version: "v2" } });
   check("the migrations seed the current version of every rule in the catalogue",
-    (lineages[0]?.n ?? 0) >= 14 && v2 === 3 && seeded === 17, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
+    (lineages[0]?.n ?? 0) >= 18 && v2 === 3 && seeded === 21, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are
@@ -498,7 +508,7 @@ async function main(): Promise<void> {
   // Every rule in the catalogue ran, and every one of them REPORTED — including the twelve that had
   // nothing to say. A rule that stays silent is indistinguishable from a rule that never ran, and
   // that difference is the whole answer to "why did Dubiz tell me nothing?".
-  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 14,
+  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 18,
     `rules=${mA.report.rulesRun}`);
   check("no rule failed on a missing version, a broken query or an unwritable measure",
     mA.report.rulesFailed === 0,

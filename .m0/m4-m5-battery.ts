@@ -137,6 +137,15 @@ function policySeeds(): string[] {
 }
 
 
+/** Business Cost learning, Wave 1 — the four cost lineages, out of the migration that ships them. */
+function costWaveOneLineages(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql"), "utf8")
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
+  if (out.length !== 2) throw new Error(`expected 2 cost lineage inserts, found ${out.length}`);
+  return out;
+}
+
 /** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
 function laterRuleVersions(): string[] {
   const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
@@ -159,6 +168,7 @@ async function main(): Promise<void> {
   for (const stmt of policies) await owner.$executeRawUnsafe(stmt);
   for (const stmt of policySeeds()) await owner.$executeRawUnsafe(stmt);
   for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of costWaveOneLineages()) await owner.$executeRawUnsafe(stmt);
 
   // Privileges, not visibility. The battery proves which ROWS a tenant can see; granting broadly is
   // what stops a missing GRANT being mistaken for a working policy.
@@ -445,7 +455,7 @@ async function main(): Promise<void> {
   section("D1/D2 — what a real business learns, and what a thin one is told");
 
   const repA = await deriveKnowledgeForBusiness(bizA.id, NOW);
-  check("every rule in the catalogue ran", repA.rulesRun === 14, `n=${repA.rulesRun}`);
+  check("every rule in the catalogue ran", repA.rulesRun === 18, `n=${repA.rulesRun}`);
   check("no rule failed", repA.rulesFailed === 0,
     repA.rules.filter((r) => r.outcome === "failed").map((r) => `${r.ruleId}:${r.failedStage}:${r.failureDetail}`).join(" | "));
 
@@ -784,7 +794,7 @@ async function main(): Promise<void> {
   /* ══════════════════════════ OBSERVABILITY ══════════════════════════ */
   section("Observability — the questions a run must be able to answer");
   const final = await deriveKnowledgeForBusiness(bizA.id, NOW);
-  check("which rules ran, and for which tenant", final.rulesRun === 14 && final.businessId === bizA.id);
+  check("which rules ran, and for which tenant", final.rulesRun === 18 && final.businessId === bizA.id);
   check("how many produced knowledge", typeof final.measuresActive === "number" && final.measuresActive > 0);
   check("how many refused", typeof final.measuresInsufficient === "number");
   check("how many failed", final.rulesFailed === 0);
