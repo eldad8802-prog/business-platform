@@ -426,9 +426,22 @@ async function main() {
   // under RLS, but the restricted role still needs the table and sequence privileges,
   // and this has only ever run under the owner.
   console.log("\n== 9. bootstrap: tenant creation under the restricted role ==");
-  // The REAL lib/auth/signup.ts writes exactly Business + User, and neither is under
-  // RLS — that is what makes BOOTSTRAP a sound classification for it.
-  const signup = await err(() => rt.$transaction(async (tx) => {
+  // The REAL lib/auth/signup.ts writes exactly Business + User through authDb() — the AUTH
+  // plane (app_auth), never the tenant runtime. Since B4 (20261006090000) Business is under
+  // FORCE RLS with exactly one INSERT policy, TO app_auth, so signup is proven here through an
+  // app_auth LOGIN — the role that serves it in Production — and the tenant runtime is proven
+  // unable to create a Business at all. (Production already denies the runtime any Business
+  // INSERT by privilege, D2 E4; this lab's runtime still holds the table grant, so the
+  // refusal below is the policy's.)
+  const AUTH_LOGIN = "tx3a1_auth_login";
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${AUTH_LOGIN}`);
+  await owner.$executeRawUnsafe(
+    `CREATE ROLE ${AUTH_LOGIN} LOGIN PASSWORD '${RT_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT IN ROLE app_auth`);
+  const au = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, AUTH_LOGIN, RT_PW) });
+  const rtCreate = await err(() => rt.business.create({ data: { name: "tx3a1-runtime-create" } }));
+  ok("B4: the tenant runtime cannot create a Business (signup is the auth plane's)", rtCreate !== null,
+    "the runtime created a Business");
+  const signup = await err(() => au.$transaction(async (tx) => {
     const biz = await tx.business.create({ data: { name: "tx3a1-signup" } });
     const user = await tx.user.create({
       data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" } });
@@ -450,7 +463,7 @@ async function main() {
   //
   // This asserts the hazard is real so that anyone who later adds an RLS-protected
   // write to the bootstrap transaction is stopped here rather than in production.
-  const hazard = await err(() => rt.$transaction(async (tx) => {
+  const hazard = await err(() => au.$transaction(async (tx) => {
     const biz = await tx.business.create({ data: { name: "tx3a1-hazard" } });
     // swallowed on purpose — this is the anti-pattern being demonstrated
     await tx.businessProfile.create({ data: { businessId: biz.id } }).catch(() => null);
@@ -463,6 +476,9 @@ async function main() {
     String(hazard?.message ?? "").slice(0, 120));
   ok("the real signup does NOT write BusinessProfile, so it is unaffected",
     !readFileSync("lib/auth/signup.ts", "utf8").includes("businessProfile"));
+  ok("the real signup writes through authDb() (the auth plane), not the tenant client",
+    /authDb\(\)\.\$transaction/.test(readFileSync("lib/auth/signup.ts", "utf8")));
+  await au.$disconnect();
 
   // ---- 10. bootstrap lookups stay context-free ------------------------------
   console.log("\n== 10. pre-tenant bootstrap lookups ==");
