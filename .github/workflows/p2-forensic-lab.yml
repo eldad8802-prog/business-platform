@@ -1,0 +1,166 @@
+# P2 (#601) / migration 20261004090000_p2_business_identity — forensic proof on PostgreSQL
+# BEFORE any decision to apply it to Production (ephemeral PG17).
+#
+# .p2/lab.sh builds Production as it is today: 163 migrations, #594 the last applied, P2 pending;
+# non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the
+# owner's default privileges, app_auth, the D2 E4 Business narrowing.
+#
+#   1. PREFLIGHT on that lab: 19/19 PASS; the post-apply proof fails exactly what P2 creates.
+#   2. P2 by `prisma migrate deploy` (only P2): POST-APPLY PROOF 13/13, checksum pinned; the
+#      preflight then fails exactly its "P2 not there yet" checks.
+#   3. Battery (.p2/battery.ts): tenant isolation, no erasure, no other role, constraints, nothing
+#      that existed changes.
+#   4. Atomicity: P2 failing on its last statement leaves nothing behind.
+#   5. Faults: a DELETE grant is caught by the proof; a different default ACL is caught by the
+#      PREFLIGHT before apply AND by the proof after.
+#   6. Rollback (.p2/rollback.sql): back to 19/19 preflight; refused while owner rows exist.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: p2 — business identity forensic lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261004090000_p2_business_identity/**"
+      - "ops/evidence/p2-business-identity-catalog-preflight.sql"
+      - "ops/evidence/sec-p2-business-identity-production-evidence.sql"
+      - ".p2/**"
+      - ".github/workflows/p2-forensic-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: p2 forensic (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: p2_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: p2_ci_synthetic_super_pw
+      LAB_PASSWORD: p2_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/p2-business-identity-catalog-preflight.sql
+      EVIDENCE: ops/evidence/sec-p2-business-identity-production-evidence.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum prisma/migrations/20261004090000_p2_business_identity/migration.sql | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "P2 migration sha256 $sum (pinned in the proof)"
+
+      - name: 1. Production today (P2 pending) — PREFLIGHT 19/19; the proof fails exactly what P2 creates
+        run: |
+          set -euo pipefail
+          bash .p2/lab.sh p2_pre
+          export PGPASSWORD="$LAB_PASSWORD"
+          psql -X -U lab_owner -d p2_pre -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "19" || { echo "expected 19 PASS rows"; exit 1; }
+          fails=$(psql -X -U lab_owner -d p2_pre -v ON_ERROR_STOP=1 -At -F'|' -f "$EVIDENCE" | awk -F'|' '$3=="FAIL"{printf "%s ", $1}')
+          test "$fails" = "0 1 2 3 4 5 6 7 9 " || { echo "pre-P2 lab: expected 0 1 2 3 4 5 6 7 9 to fail, got: $fails"; exit 1; }
+
+      - name: 2. P2 by prisma migrate deploy — POST-APPLY PROOF 13/13; the preflight fails exactly its P2-absent checks
+        run: |
+          set -euo pipefail
+          bash .p2/lab.sh p2_post --with-p2
+          export PGPASSWORD="$LAB_PASSWORD"
+          psql -X -U lab_owner -d p2_post -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/post.out
+          res=$(psql -X -U lab_owner -d p2_post -v ON_ERROR_STOP=1 -At -F'|' -f "$EVIDENCE" | awk -F'|' 'NF>=3{print $3}' | sort | uniq -c | tr -s ' ')
+          echo "$res"
+          test "$(echo "$res" | grep -c FAIL || true)" = "0" && echo "$res" | grep -q " 13 PASS" || { echo "expected 13/13 PASS"; exit 1; }
+          fails=$(psql -X -U lab_owner -d p2_post -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | grep -E '^ +[0-9]+ \| FAIL' | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 5 6 7 " || { echo "post-P2 lab: expected preflight 2 3 5 6 7 to fail, got: $fails"; exit 1; }
+          led=$(psql -X -U lab_owner -d p2_post -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
+          test "$led" = "164" || { echo "expected 164 applied after P2, got $led"; exit 1; }
+
+      - name: 3. Battery — tenant isolation, no erasure, no other role, constraints, nothing existing changes
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p2_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p2_post" \
+            npx tsx .p2/battery.ts
+
+      - name: 4. Atomicity — P2 failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .p2/lab.sh p2_broken --broken-p2
+          export PGPASSWORD="$LAB_PASSWORD"
+          left=$(psql -X -U lab_owner -d p2_broken -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'BusinessIdentity%') + (SELECT count(*) FROM pg_type WHERE typname LIKE 'BusinessIdentity%' AND typtype = 'e') + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'p2\_identity\_%')")
+          led=$(psql -X -U lab_owner -d p2_broken -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261004090000_p2_business_identity' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — the proof catches a privilege drift; the PREFLIGHT catches a default-ACL drift before apply
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          failing() { lab "$1" -f "$2" | grep -E '^ +[0-9]+ \| FAIL' | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          failing_ev() { lab "$1" -At -F'|' -f "$EVIDENCE" | awk -F'|' '$3=="FAIL"{printf "%s ", $1}'; }
+          # (a) after apply: a DELETE grant to the runtime
+          lab p2_post -q -c 'GRANT DELETE ON "BusinessIdentityStatement" TO app_runtime'
+          got=$(failing_ev p2_post); test "$got" = "8 " || { echo "DELETE grant: expected proof FAIL '8 ', got '$got'"; exit 1; }
+          echo "fault detected [DELETE grant] → proof FAIL $got"
+          # (b) before apply: the owner's default ACL also hands app_auth SELECT on new tables
+          bash .p2/lab.sh p2_acl >/dev/null
+          lab p2_acl -q -c 'ALTER DEFAULT PRIVILEGES FOR ROLE lab_owner IN SCHEMA public GRANT SELECT ON TABLES TO app_auth'
+          got=$(failing p2_acl "$PREFLIGHT"); test "$got" = "14 " || { echo "default ACL drift: expected preflight FAIL '14 ', got '$got'"; exit 1; }
+          echo "fault detected BEFORE apply [default ACL → app_auth] → preflight FAIL $got"
+          LAB_PRE_SQL='ALTER DEFAULT PRIVILEGES FOR ROLE lab_owner IN SCHEMA public GRANT SELECT ON TABLES TO app_auth' \
+            bash .p2/lab.sh p2_acl --with-p2 >/dev/null
+          got=$(failing_ev p2_acl); test "$got" = "8 " || { echo "default ACL drift: expected proof FAIL '8 ' after apply, got '$got'"; exit 1; }
+          echo "…and after apply the proof fails $got (the preflight predicted it)"
+
+      - name: 6. Rollback — back to the P2-pending state; refused while owner rows exist
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          bash .p2/lab.sh p2_rb --with-p2 >/dev/null
+          lab p2_rb -q -f .p2/rollback.sql
+          lab p2_rb -f "$PREFLIGHT" | tee /tmp/rb.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/rb.out; then echo "rollback did not restore the P2-pending state"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/rb.out)" = "19" || { echo "expected 19 PASS after rollback"; exit 1; }
+          bash .p2/lab.sh p2_rb2 --with-p2 >/dev/null
+          b=$(lab p2_rb2 -Atc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('rb', now()) RETURNING id" 2>/dev/null || lab p2_rb2 -Atc "INSERT INTO \"Business\" (name) VALUES ('rb') RETURNING id")
+          b=$(echo "$b" | head -1)
+          lab p2_rb2 -q -c "INSERT INTO \"BusinessIdentityStatement\" (\"businessId\",\"dimension\",\"text\",\"source\",\"updatedAt\") VALUES ($b,'DESCRIPTION','x','OWNER_INPUT',now())"
+          if lab p2_rb2 -q -f .p2/rollback.sql 2>/tmp/rb2.err; then echo "rollback ran despite owner rows"; exit 1; fi
+          grep -q "P2 rollback refused" /tmp/rb2.err || { cat /tmp/rb2.err; exit 1; }
+          n=$(lab p2_rb2 -Atc "SELECT count(*) FROM \"BusinessIdentityStatement\"")
+          test "$n" = "1" || { echo "rows lost"; exit 1; }
+          echo "rollback refused while an owner row exists; the row is intact"

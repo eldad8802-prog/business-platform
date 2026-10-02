@@ -48,6 +48,8 @@ on:
           - 'ops/evidence/c594-control-plane-privileges-production-evidence.sql'
           - 'ops/evidence/p2-business-identity-preflight.sql'
           - 'ops/evidence/business-runtime-columns-preflight.sql'
+          - 'ops/evidence/p2-business-identity-catalog-preflight.sql'
+          - 'ops/evidence/sec-p2-business-identity-production-evidence.sql'
 
 permissions:
   contents: read
