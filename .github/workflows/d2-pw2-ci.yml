@@ -20,6 +20,7 @@ on:
       - "prisma/migrations/20260901090000_d2_pw2_business_feature_access_rls/**"
       - "scripts/security/d2-pw2-*.sql"
       - "scripts/ci/privwrite-guard.sh"
+      - "scripts/ops/control-plane-*.ts"
       - ".pw2/**"
       - "lib/prisma-control-plane.ts"
       - "lib/services/control-plane/**"
@@ -71,6 +72,9 @@ jobs:
         run: |
           bash scripts/ci/privwrite-guard.sh .
           bash scripts/ci/privwrite-guard.sh --self-test
+
+      - name: Control-plane login provisioner safety tests (blocking, no database)
+        run: node_modules/.bin/tsx --test scripts/ops/control-plane-login.test.ts
 
       - name: Existing admin-boundary ratchet (CI-2/CI-3/CI-4, blocking)
         run: bash scripts/ci/admin-boundary-guard.sh .

@@ -30,6 +30,8 @@ const CONNECTION_LIMIT = 5;
 
 /** Set once the password is parsed; every error path is scrubbed of it (and of any PASSWORD literal). */
 let secretToRedact: string | null = null;
+/** Register the password the moment it is parsed, so no later error path can print it. */
+export function registerSecretForRedaction(secret: string): void { secretToRedact = secret; }
 export function redact(message: string): string {
   let m = message.replace(/PASSWORD\s+'[^']*'/gi, "PASSWORD '<redacted>'");
   if (secretToRedact) m = m.split(secretToRedact).join("<redacted>");
@@ -91,7 +93,7 @@ async function main(): Promise<void> {
     const { password } = parseControlPlaneUrl(process.env.CONTROL_PLANE_DATABASE_URL, allowHost, process.env.OWNER_DATABASE_URL);
     // Re-asserted at the point of use: the PASSWORD literal below is only ever built from this charset.
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(password)) throw new RefusedError("password shape");
-    secretToRedact = password;
+    registerSecretForRedaction(password);
 
     const result = await owner.$transaction(async (tx) => {
       // Preconditions.
