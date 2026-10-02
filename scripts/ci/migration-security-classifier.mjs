@@ -64,8 +64,13 @@ function selfTest() {
   process.exit(failed ? 1 : 0);
 }
 
-const args = process.argv.slice(2);
-if (args[0] === "--self-test") selfTest();
+import { pathToFileURL } from "node:url";
+
+// CLI only when run directly — importing the module (release-migrate-gate) must not trigger it.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const args = isMain ? process.argv.slice(2) : null;
+if (!args) { /* imported */ }
+else if (args[0] === "--self-test") selfTest();
 else {
   const root = "prisma/migrations";
   const dirs = args[0] === "--all"

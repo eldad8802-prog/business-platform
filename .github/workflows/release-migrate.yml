@@ -1,4 +1,5 @@
 name: release-migrate
+run-name: "release-migrate — ${{ inputs.expected_migrations }}"
 
 # Gated Production migration — "Human approves, the Runner executes."
 #
@@ -19,6 +20,11 @@ name: release-migrate
 on:
   workflow_dispatch:
     inputs:
+      # GATE (docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md): the run applies EXACTLY these, or nothing.
+      expected_migrations:
+        description: 'Exact migration names this run may apply (comma-separated). Anything else pending stops the run.'
+        required: true
+        type: string
       reason:
         description: 'Audit note: why this migration run is happening (optional)'
         required: false
@@ -34,7 +40,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # No secrets here: classify every expected migration and check the approval record of each
+  # authority-changing one (checksum, owner decision, a successful post-merge preflight run) —
+  # BEFORE anyone is asked to approve the protected environment. The plan is in the run summary.
+  plan:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Plan — classify, check approval records and preflight runs
+        env:
+          EXPECTED: ${{ inputs.expected_migrations }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release-migrate-gate.mjs plan --expected "$EXPECTED"
+
   migrate:
+    needs: plan
     runs-on: ubuntu-latest
     # Binding this job to the protected environment is what enforces the
     # human-approval gate AND scopes the DATABASE_URL / DIRECT_URL secrets to
@@ -77,6 +104,14 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: node_modules/.bin/prisma migrate status
 
+      # GATE: the real pending set must be EXACTLY the expected set — a migration merged while this
+      # run waited for approval, or any other unapproved pending migration, stops the release here.
+      - name: Gate — pending set == expected set (before any apply)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED: ${{ inputs.expected_migrations }}
+        run: node scripts/ci/release-migrate-gate.mjs verify --expected "$EXPECTED"
+
       # The actual, approved apply. Applies pending migrations only, in order.
       # Fails the job (and stops the release) on any migration error.
       - name: prisma migrate deploy (apply pending — Production)
@@ -97,13 +132,15 @@ jobs:
         if: always()
         env:
           REASON: ${{ inputs.reason }}
+          EXPECTED: ${{ inputs.expected_migrations }}
         run: |
           {
             echo "## release-migrate (gated Production migration)"
             echo ""
             echo "- Trigger: manual (workflow_dispatch), approved via \`production-db\` environment."
             echo "- Action: \`prisma migrate deploy\` (pending migrations only) over the direct connection."
-            echo "- Reason: ${REASON:-'(none provided)'}"
+            echo "- Expected (and verified) migrations: ${EXPECTED}"
+          echo "- Reason: ${REASON:-'(none provided)'}"
             echo ""
             echo "_Vercel auto-deploy is unaffected. This workflow applies migrations only._"
           } >> "$GITHUB_STEP_SUMMARY"

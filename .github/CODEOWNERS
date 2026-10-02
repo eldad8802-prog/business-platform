@@ -71,3 +71,9 @@
 /lib/services/account/**            @eldad8802-prog
 /lib/services/payments/**           @eldad8802-prog
 /proxy.ts                           @eldad8802-prog
+
+# Release authority (docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md): who may apply what to Production.
+/.github/workflows/release-migrate.yml   @eldad8802-prog
+/ops/release-approvals/                  @eldad8802-prog
+/scripts/ci/release-migrate-gate.mjs     @eldad8802-prog
+/scripts/ci/migration-security-classifier.mjs @eldad8802-prog
