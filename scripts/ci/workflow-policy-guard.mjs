@@ -102,7 +102,8 @@ export function applySanctioned(found, sanctioned = SANCTIONED) {
  *
  *   #582 prod-derive-preenrollment-proof.yml — its Production proof SUCCEEDED (run 36662067636,
  *        2026-09-30T02:55Z). Its debt is DUE FOR REMOVAL.
- *   #584 prod-derive-enrollment-proof.yml    — its Production proof has NOT yet run.
+ *   #584 prod-derive-enrollment-proof.yml    — first Production run 37153235048 (2026-10-03); two harness
+ *        defects fixed in a reviewed change; preserved for the completing run.
  *
  * CLOSED SET. These are the LAST proof-preservation exceptions of this kind: DEBT_FILES is closed,
  * and a debt entry for any other file fails (DEBT-NOT-ALLOWED) — widening it is itself a reviewed
@@ -126,9 +127,9 @@ const DEBT_582 = {
 };
 const DEBT_584 = {
   file: "prod-derive-enrollment-proof.yml",
-  sha256: "5d114b8a72c464a12f96df5c6d974c9e5bd9a8d1e641e38691a260eb59414dcf",
+  sha256: "a2775e206e142948695ace4b43064dd835853d52b0b8c2dd3c93e567a460de84",
   status: "proof-preservation",
-  reason: "#584 reviewed Production proof harness, NOT yet executed — preserved unchanged until its proof has run",
+  reason: "#584 reviewed Production proof harness — first Production run 37153235048 exposed two harness defects (guardsHold read path; OutcomeActionEvent misclassified as owner-only), fixed in a reviewed change; preserved for the completing run",
   removeWhen: REMOVE_WHEN,
 };
 /** The closed set of files that may carry OPEN SECURITY DEBT. */

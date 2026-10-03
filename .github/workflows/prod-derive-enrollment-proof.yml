@@ -125,7 +125,7 @@ jobs:
                  brainRequested:null, brainAllowed:null, brainInvoked:null, brainSkipped:null}' >> calls.jsonl
             fi
             echo "$1: HTTP $3"
-            jq -c '{error, businessId, run, proofLevel, isolationHolds: .isolation.holds, guardsHold: .knowledge.guardsHold,
+            jq -c '{error, businessId, run, proofLevel, isolationHolds: .isolation.holds, guardsHold: .outcomes.guardsHold,
                     rules: {ok: .knowledge.rulesOk, failed: .knowledge.rulesFailed},
                     brain: (if .brain then {mode: .brain.mode, model: .brain.model, shadowRun: (if .brain.shadowRun then (.brain.shadowRun |
                       {status, modelCalled, accepted, acceptedByType, rejectedCodes, latencyMs, inputTokens, outputTokens, failureStage, snapshotMatches}) else null end)} else null end)}' "$4" 2>/dev/null || echo "  (non-JSON body, not printed)"
@@ -136,7 +136,7 @@ jobs:
           }
           good200() { # $1 label $2 body $3 business
             jq -e --argjson b "$3" '.ok == true and .businessId == $b and .proofLevel == "FULL" and .isolation.holds == true
-                                    and .knowledge.guardsHold == true and (.run.runId | type) == "string"' "$2" >/dev/null \
+                                    and .outcomes.guardsHold == true and (.run.runId | type) == "string"' "$2" >/dev/null \
               || { echo "::error::$1: 200 but not a FULL, isolated, guarded run for business $3"; return 1; }
           }
           ok=1

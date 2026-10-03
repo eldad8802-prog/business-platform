@@ -18,7 +18,8 @@
  *              calls imply (SUCCESS names its business; refusals name none); no secret in any of them.
  *   MUTATIONS  derive-writable tables: per-business deltas reported as EXPECTED artifacts, rows of every
  *              OTHER business unchanged (cross-tenant = 0); every non-derive tenant table unchanged for
- *              3 and 9 (unexpected = 0); OutcomeDecision / OutcomeActionEvent unchanged (nothing fabricated).
+ *              3 and 9 (unexpected = 0); OutcomeDecision unchanged (nothing fabricated); every new
+ *              OutcomeActionEvent points at an existing same-business ledger record (M9 provenance).
  *   TENANT     as app_runtime_prod (NOSUPERUSER, NOBYPASSRLS): no context → zero runs; in each tenant's
  *              context only its own runs, the other's run invisible; zero foreign rows in any derive table.
  *   SCHEMA     live catalog: the ownership guard (only outcome columns may change, businessId never), the
@@ -40,8 +41,14 @@ const DERIVE_TABLES = [
   "OutcomeRecommendation", "OutcomeDecision", "OutcomeActionEvent", "OutcomeObservation", "OutcomeAssessment",
   "KnowledgeDerivationRun",
 ];
-/** Written by derive but only ever from an owner interaction: must not move (no fabricated decisions/actions). */
-const MUST_NOT_MOVE = ["OutcomeDecision", "OutcomeActionEvent"];
+/** Only ever written from an owner interaction: must not move (no fabricated decisions). */
+const MUST_NOT_MOVE = ["OutcomeDecision"];
+/**
+ * OutcomeActionEvent is NOT owner-only: M9 derives it from the domain ledger ("what the ledger shows
+ * was done … never claimed", lib/knowledge/outcomes/track.ts). So it may move — but every NEW event must
+ * point at a real, existing source record of the SAME business, in the store M9's contract names.
+ */
+const ACTION_SOURCE_STORES = ["ReviewEvent", "PaymentAllocation", "Document", "Installment"] as const;
 /** Accounted separately (the audit store) or changed by the approved enrollment itself. */
 const ACCOUNTED_ELSEWHERE = ["SecurityEvent", "BusinessFeatureAccess", "PlatformAuditEvent"];
 const ISOLATION = [
@@ -57,6 +64,7 @@ type Snap = {
   other: Record<string, Record<string, Fp>>;
   businessRows: Record<string, Fp>;
   maxRunId: number;
+  maxActionEventId: number;
 };
 type Call = {
   label: string; business: number; code: number; error: string | null; runId: string | null; bodyBusinessId: number | null;
@@ -117,7 +125,8 @@ async function snapshot(db: PrismaClient, businesses: number[]): Promise<Snap> {
   const businessRows: Record<string, Fp> = {};
   for (const b of businesses) businessRows[b] = await fp(db, "Business", `WHERE t.id = $1`, b);
   const maxRunId = num((await q1(db, `SELECT coalesce(max(id), 0)::int AS n FROM "KnowledgeDerivationRun"`)).n);
-  return { businesses, derive, other, businessRows, maxRunId };
+  const maxActionEventId = num((await q1(db, `SELECT coalesce(max(id), 0)::int AS n FROM "OutcomeActionEvent"`)).n);
+  return { businesses, derive, other, businessRows, maxRunId, maxActionEventId };
 }
 
 async function main(): Promise<void> {
@@ -169,7 +178,7 @@ async function main(): Promise<void> {
       const countOnly = [...Object.entries(snap.derive).flatMap(([t, v]) => [...Object.values(v.per), v.others].some((f) => f && f.h === null) ? [t] : []),
         ...Object.entries(snap.other).flatMap(([t, v]) => Object.values(v).some((f) => f.h === null) ? [t] : [])];
       console.log(JSON.stringify({ phase, deriveTables: Object.keys(snap.derive).length, missing: Object.entries(snap.derive).filter(([, v]) => !v.exists).map(([k]) => k),
-        otherTenantTables: Object.keys(snap.other).length, countOnlyFingerprints: countOnly, maxRunId: snap.maxRunId }));
+        otherTenantTables: Object.keys(snap.other).length, countOnlyFingerprints: countOnly, maxRunId: snap.maxRunId, maxActionEventId: snap.maxActionEventId }));
       return;
     }
 
@@ -238,6 +247,24 @@ async function main(): Promise<void> {
     if (unexpected.length) failures.push(`mutations: non-derive tables changed: ${unexpected.join(",")}`);
     if (fabricated.length) failures.push(`mutations: owner-only tables moved: ${fabricated.join(",")}`);
 
+    // ACTION PROVENANCE — every OutcomeActionEvent created during the window points at a real, existing
+    // source record of the same (target) business, in a store M9's contract names. Ids/codes/times only.
+    const newActions = await owner.$queryRawUnsafe<{ id: number; b: number; store: string; rec: number; type: string; at: Date }[]>(
+      `SELECT id, "businessId" AS b, "domainStore" AS store, "domainRecordId" AS rec, "eventType" AS type, "occurredAt" AS at
+         FROM "OutcomeActionEvent" WHERE id > $1 ORDER BY id`, before.maxActionEventId ?? Number.MAX_SAFE_INTEGER);
+    const actionProvenance: { businessId: number; domainStore: string; domainRecordId: number; eventType: string; occurredAt: Date; sourceExists: boolean; sourceBusinessId: number | null }[] = [];
+    for (const x of newActions) {
+      let sourceBusinessId: number | null = null;
+      if ((ACTION_SOURCE_STORES as readonly string[]).includes(x.store)) {
+        const [s] = await owner.$queryRawUnsafe<{ b: number }[]>(`SELECT "businessId" AS b FROM "${x.store}" WHERE id = $1`, x.rec);
+        sourceBusinessId = s ? Number(s.b) : null;
+      }
+      actionProvenance.push({ businessId: x.b, domainStore: x.store, domainRecordId: x.rec, eventType: x.type, occurredAt: x.at,
+        sourceExists: sourceBusinessId !== null, sourceBusinessId });
+    }
+    const badActions = actionProvenance.filter((a) => !a.sourceExists || a.sourceBusinessId !== a.businessId || !businesses.includes(a.businessId));
+    if (badActions.length) failures.push(`provenance: ${badActions.length} new action event(s) without an existing same-business source record`);
+
     // TENANT — as the runtime login; set_config(..., true) is not a write.
     const noContextRuns = num((await q1(runtime, `SELECT count(*)::int AS n FROM "KnowledgeDerivationRun"`)).n);
     const runIdsOf = (b: number) => oks.filter((c) => c.business === b).map((c) => c.runId as string);
@@ -285,6 +312,7 @@ async function main(): Promise<void> {
       ledger: { newRuns: runs.map((r) => ({ businessId: r.b, runId: r.runId, status: r.status, finished: r.fin, brainRequested: r.req, brainAllowed: r.allowed, brainInvoked: r.invoked, counts: r.counts ? JSON.parse(r.counts) : null })), stillRunning },
       audit: { events: got, expected: want, secretsChecked: secrets.length, secretsInAudit },
       mutations: { expectedArtifacts, crossTenant, untenantedChanged, unexpected, ownerOnlyTablesMoved: fabricated },
+      actionProvenance,
       tenant: { noContextRuns, [A]: tenantA, [B]: tenantB, holds: tenantHolds },
       schema: { ownershipGuard, updatePolicyPinned, oneRunningIndex },
       feature: e,
