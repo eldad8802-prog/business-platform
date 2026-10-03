@@ -27,6 +27,7 @@ on:
       - "prisma/migrations/20261006090000_business_tenant_write_rls/**"
       - "ops/evidence/business-tenant-write-rls-production-evidence.sql"
       - "ops/evidence/business-tenant-write-rls-preflight.sql"
+      - "ops/evidence/business-b4-role-classification.sql"
       - "lib/services/account/account-deletion.prisma-store.ts"
   workflow_dispatch:
 
@@ -136,3 +137,38 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d biz_lab -c "REVOKE ALL ON \"Business\" FROM b4_rogue_signup" -c "REVOKE USAGE ON SCHEMA public FROM b4_rogue_signup" -c "DROP ROLE b4_rogue_signup"
           got=$(fails b4_lab); test "$got" = "2 4 " || { echo "post-B4 lab: expected preflight 2 4 to fail, got '$got'"; exit 1; }
           echo "post-B4 lab: preflight fails exactly $got (B4 recorded, Business under RLS)"
+
+      - name: 6. Role classification (evidence for preflight checks 7/12) — planted roles are classified exactly
+        if: hashFiles('prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql') != ''
+        run: |
+          set -euo pipefail
+          CL=ops/evidence/business-b4-role-classification.sql
+          PRE=ops/evidence/business-tenant-write-rls-preflight.sql
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$CL"; then echo "write keyword in $CL"; exit 1; fi
+          grep -q "'$CL'" .github/workflows/prod-readonly-evidence.yml || { echo "$CL not selectable"; exit 1; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d biz_lab -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d biz_lab "$@"; }
+          # clean baseline: nothing to classify
+          out=$(lab -A -F'|' -f "$CL"); echo "$out" | grep -qx '0|0|0|0' || { echo "baseline: expected 0|0|0|0"; echo "$out"; exit 1; }
+          # plant one role of each shape the preflight can trip on
+          su -c "CREATE ROLE cl_owner_member LOGIN NOSUPERUSER NOBYPASSRLS INHERIT IN ROLE lab_owner" \
+             -c "CREATE ROLE cl_direct_ins LOGIN NOSUPERUSER NOBYPASSRLS" \
+             -c "GRANT USAGE ON SCHEMA public TO cl_direct_ins" -c "GRANT INSERT (name) ON \"Business\" TO cl_direct_ins" \
+             -c "CREATE ROLE cl_direct_upd NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+             -c "GRANT USAGE ON SCHEMA public TO cl_direct_upd" -c "GRANT UPDATE (\"deletedAt\") ON \"Business\" TO cl_direct_upd"
+          pre=$(lab -f "$PRE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1"="$3}' | tr -d ' ' | tr '\n' ' ')
+          echo "preflight with planted roles: $pre"
+          test "$pre" = "7=2 12=2 " || { echo "expected preflight 7=2 12=2"; exit 1; }
+          out=$(lab -A -F'|' -f "$CL"); echo "$out"
+          echo "$out" | grep -qx '2|2|1|3' || { echo "summary: expected 2|2|1|3 (same sets as the preflight)"; exit 1; }
+          n() { echo "$out" | grep -cx "$1" || true; }
+          test "$(n 'in_check7|t')" = "2" && test "$(n 'in_check12|t')" = "2" \
+            && test "$(n 'member_of_owner|t')" = "1" && test "$(n 'owner_ins_and_upd|t')" = "1" \
+            && test "$(n 'direct_ins|t')" = "1" && test "$(n 'direct_upd|t')" = "1" \
+            && test "$(n 'can_login|f')" = "1" && test "$(n 'known_repo_role|t')" = "0" \
+            || { echo "classification flags differ from the planted roles"; exit 1; }
+          if echo "$out" | grep -q 'cl_'; then echo "a role name leaked into the output"; exit 1; fi
+          su -c "REVOKE ALL ON \"Business\" FROM cl_direct_ins, cl_direct_upd" -c "REVOKE USAGE ON SCHEMA public FROM cl_direct_ins, cl_direct_upd" \
+             -c "DROP ROLE cl_owner_member" -c "DROP ROLE cl_direct_ins" -c "DROP ROLE cl_direct_upd"
+          echo "role classification: owner member, direct INSERT login and direct UPDATE role each classified exactly; no name printed"
