@@ -37,7 +37,9 @@ const FEATURE = "knowledge_derivation";
 const DERIVE_TABLES = [
   "KnowledgeMeasure", "KnowledgeMeasureEvidenceLink", "TemporalKnowledge", "BusinessInsight",
   "DerivedClaimProjection", "DerivedClaimCandidate", "DerivedClaimEvidenceLink",
-  "IdentityLink", "IdentityProposal", "PartyResolutionClaim", "EntityLinkProposal", "CollectionAction", "LearningEvent", "Recommendation",
+  // Party: the M5 identity step inside derive creates one (createPartyTx + an m5-entity-identity claim) —
+  // proven by diagnostic run 37154799441 (Party 29, business 9, inside the derivation run window).
+  "Party", "IdentityLink", "IdentityProposal", "PartyResolutionClaim", "EntityLinkProposal", "CollectionAction", "LearningEvent", "Recommendation",
   "OutcomeRecommendation", "OutcomeDecision", "OutcomeActionEvent", "OutcomeObservation", "OutcomeAssessment",
   "KnowledgeDerivationRun",
 ];
