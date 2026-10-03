@@ -1,0 +1,9 @@
+{
+  "migration": "20261006090000_business_tenant_write_rls",
+  "sha256": "d507e6efa79ade6efadf4bbcd9a80937385b3a8dfc7102ee9227c611a525595a",
+  "decision": "https://github.com/eldad8802-prog/business-platform/pull/611#issuecomment-5973221842",
+  "approvedBy": "eldad8802-prog",
+  "approvedAt": "2026-10-03T20:30:15Z",
+  "preflightRun": 37151765946,
+  "preflightFile": "ops/evidence/business-tenant-write-rls-preflight.sql"
+}
