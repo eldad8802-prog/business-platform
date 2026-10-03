@@ -159,11 +159,13 @@ jobs:
              -c "GRANT USAGE ON SCHEMA public TO cl_direct_upd" -c "GRANT UPDATE (\"deletedAt\") ON \"Business\" TO cl_direct_upd"
           pre=$(lab -f "$PRE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1"="$3}' | tr -d ' ' | tr '\n' ' ')
           echo "preflight with planted roles: $pre"
-          test "$pre" = "7=2 12=2 " || { echo "expected preflight 7=2 12=2"; exit 1; }
+          # The owner role is a member of app_runtime (as in Production), so an owner-member login is
+          # transitively a runtime member: check 10 sees it and check 12 excludes it.
+          test "$pre" = "7=2 10=1 12=1 " || { echo "expected preflight 7=2 10=1 12=1"; exit 1; }
           out=$(lab -A -F'|' -f "$CL"); echo "$out"
-          echo "$out" | grep -qx '2|2|1|3' || { echo "summary: expected 2|2|1|3 (same sets as the preflight)"; exit 1; }
+          echo "$out" | grep -qx '2|1|0|3' || { echo "summary: expected 2|1|0|3 (same sets as the preflight)"; exit 1; }
           n() { echo "$out" | grep -cx "$1" || true; }
-          test "$(n 'in_check7|t')" = "2" && test "$(n 'in_check12|t')" = "2" \
+          test "$(n 'in_check7|t')" = "2" && test "$(n 'in_check12|t')" = "1" && test "$(n 'member_app_runtime|t')" = "1" \
             && test "$(n 'member_of_owner|t')" = "1" && test "$(n 'owner_ins_and_upd|t')" = "1" \
             && test "$(n 'direct_ins|t')" = "1" && test "$(n 'direct_upd|t')" = "1" \
             && test "$(n 'can_login|f')" = "1" && test "$(n 'known_repo_role|t')" = "0" \
