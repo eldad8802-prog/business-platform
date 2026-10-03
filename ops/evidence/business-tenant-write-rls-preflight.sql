@@ -18,6 +18,15 @@
 --     NOBYPASSRLS (otherwise B4 binds nobody);
 --   * no role other than the runtime group/logins can change a Business row
 --     (such a role would also become tenant-pinned by B4 — it must be known).
+--   * BYPASSRLS roles are outside B4 by construction: row-level security, FORCE
+--     included, never applies to them, so B4 can neither refuse nor pin them.
+--     Checks 6, 7 and 12 therefore count only RLS-bound (NOBYPASSRLS) roles —
+--     the only ones B4 changes anything for. Run 37150916395 classified the two
+--     roles the first version counted: Neon platform roles (neon_superuser and
+--     its one login), write access from the predefined write-all role, no app
+--     group, no session, not a repository identity. In exchange, check 16 fails
+--     if ANY bypassing role touches the app (an app_* role or a member of one),
+--     because such a role would make B4 toothless for that identity.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog and counts only. Guard-clean: no write keyword, prose included.
@@ -29,16 +38,18 @@
 \echo ' 3 L2 finished migrations (INFO count)'
 \echo ' 4 B1 Business has no row-level security, no FORCE, no policy (observed = policies)'
 \echo ' 5 A1 app_auth exists: NOLOGIN NOSUPERUSER NOBYPASSRLS'
-\echo ' 6 A2 logins that can add a Business row (migration role and superusers excluded) — observed = how many'
+\echo ' 6 A2 RLS-bound logins that can add a Business row (migration role, superusers and BYPASSRLS excluded) — observed = how many'
 \echo ' 7 A3 every such login inherits app_auth (B4 signup policy covers it) — observed = logins NOT covered'
 \echo ' 8 A4 at least one login inherits app_auth (the signup identity exists) — observed = how many'
 \echo ' 9 A5 app_auth logins are NOSUPERUSER NOBYPASSRLS — observed = offenders'
 \echo '10 R1 the runtime group and its logins can add NO Business row (D2 E4) — observed = runtime roles that can'
 \echo '11 R2 runtime logins (migration role excluded) are NOSUPERUSER NOBYPASSRLS — observed = how many logins'
-\echo '12 W1 roles outside the runtime that can change a Business row (migration role and superusers excluded) — observed = how many'
+\echo '12 W1 RLS-bound roles outside the runtime that can change a Business row (migration role, superusers and BYPASSRLS excluded) — observed = how many'
 \echo '13 W2 PUBLIC holds nothing on Business'
 \echo '14 N1 Business rows (INFO)'
 \echo '15 N2 Business rows with a deletion requested but not finished (INFO — account deletion in flight when B4 lands)'
+\echo '16 X1 no BYPASSRLS role touches the app: none is an app_* role or a member of one (migration role excluded) — observed = offenders'
+\echo '17 X2 BYPASSRLS roles outside B4 by construction (INFO — migration role and superusers excluded)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -54,10 +65,14 @@ rt AS (SELECT oid FROM pg_roles WHERE rolname = 'app_runtime'),
 au AS (SELECT oid, rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_auth'),
 roles AS (SELECT r.oid, r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls FROM pg_roles r
           WHERE r.rolname <> current_user AND NOT r.rolsuper AND r.rolname NOT LIKE 'pg\_%'),
--- effective "can add a row" / "can change a row" on Business, any column or the table
+-- roles B4 can bind at all (row-level security never applies to BYPASSRLS)
+bound AS (SELECT r.* FROM roles r WHERE NOT r.rolbypassrls),
+-- effective "can add a row" on Business, any column or the table: every role (check 10) and RLS-bound only (6, 7)
 can_add AS (SELECT r.* FROM roles r WHERE has_table_privilege(r.oid, (SELECT oid FROM biz), 'INS' || 'ERT')
             OR EXISTS (SELECT 1 FROM cols c WHERE has_column_privilege(r.oid, (SELECT oid FROM biz), c.attname, 'INS' || 'ERT'))),
-can_change AS (SELECT r.* FROM roles r WHERE has_table_privilege(r.oid, (SELECT oid FROM biz), 'UPD' || 'ATE')
+can_add_bound AS (SELECT a.* FROM can_add a WHERE NOT a.rolbypassrls),
+-- effective "can change a row", RLS-bound only (12)
+can_change AS (SELECT r.* FROM bound r WHERE has_table_privilege(r.oid, (SELECT oid FROM biz), 'UPD' || 'ATE')
                OR EXISTS (SELECT 1 FROM cols c WHERE has_column_privilege(r.oid, (SELECT oid FROM biz), c.attname, 'UPD' || 'ATE'))),
 runtime_roles AS (SELECT r.* FROM roles r WHERE r.oid = (SELECT oid FROM rt)
                   OR (r.rolcanlogin AND pg_has_role(r.oid, (SELECT oid FROM rt), 'MEMBER'))),
@@ -73,9 +88,9 @@ checks(n, ok, observed_count) AS (
                       AND NOT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = (SELECT oid FROM biz)),
                       (SELECT count(*) FROM pg_policy WHERE polrelid = (SELECT oid FROM biz))
   UNION ALL SELECT 5, EXISTS (SELECT 1 FROM au WHERE NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls), (SELECT count(*) FROM au)
-  UNION ALL SELECT 6, true, (SELECT count(*) FROM can_add WHERE rolcanlogin)
-  UNION ALL SELECT 7, NOT EXISTS (SELECT 1 FROM can_add a WHERE a.rolcanlogin AND a.oid NOT IN (SELECT oid FROM auth_logins)),
-                      (SELECT count(*) FROM can_add a WHERE a.rolcanlogin AND a.oid NOT IN (SELECT oid FROM auth_logins))
+  UNION ALL SELECT 6, true, (SELECT count(*) FROM can_add_bound WHERE rolcanlogin)
+  UNION ALL SELECT 7, NOT EXISTS (SELECT 1 FROM can_add_bound a WHERE a.rolcanlogin AND a.oid NOT IN (SELECT oid FROM auth_logins)),
+                      (SELECT count(*) FROM can_add_bound a WHERE a.rolcanlogin AND a.oid NOT IN (SELECT oid FROM auth_logins))
   UNION ALL SELECT 8, EXISTS (SELECT 1 FROM auth_logins), (SELECT count(*) FROM auth_logins)
   UNION ALL SELECT 9, NOT EXISTS (SELECT 1 FROM auth_logins WHERE rolsuper OR rolbypassrls),
                       (SELECT count(*) FROM auth_logins WHERE rolsuper OR rolbypassrls)
@@ -92,6 +107,11 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM biz, aclexplode(biz.relacl) x WHERE x.grantee = 0)
   UNION ALL SELECT 14, true, (SELECT count(*) FROM "Business")
   UNION ALL SELECT 15, true, (SELECT count(*) FROM "Business" WHERE "deletionRequestedAt" IS NOT NULL AND "deletedAt" IS NULL)
+  UNION ALL SELECT 16, NOT EXISTS (SELECT 1 FROM roles r WHERE r.rolbypassrls AND (r.rolname LIKE 'app\_%'
+                         OR EXISTS (SELECT 1 FROM pg_roles g WHERE g.rolname LIKE 'app\_%' AND pg_has_role(r.oid, g.oid, 'MEMBER')))),
+                       (SELECT count(*) FROM roles r WHERE r.rolbypassrls AND (r.rolname LIKE 'app\_%'
+                         OR EXISTS (SELECT 1 FROM pg_roles g WHERE g.rolname LIKE 'app\_%' AND pg_has_role(r.oid, g.oid, 'MEMBER'))))
+  UNION ALL SELECT 17, true, (SELECT count(*) FROM roles WHERE rolbypassrls)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
