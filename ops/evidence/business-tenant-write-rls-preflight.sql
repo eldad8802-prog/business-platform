@@ -48,8 +48,8 @@
 \echo '13 W2 PUBLIC holds nothing on Business'
 \echo '14 N1 Business rows (INFO)'
 \echo '15 N2 Business rows with a deletion requested but not finished (INFO — account deletion in flight when B4 lands)'
-echo '16 X1 no BYPASSRLS role touches the app: none is an app_* role or a member of one (migration role excluded) — observed = offenders'
-echo '17 X2 BYPASSRLS roles outside B4 by construction (INFO — migration role and superusers excluded)'
+\echo '16 X1 no BYPASSRLS role touches the app: none is an app_* role or a member of one (migration role excluded) — observed = offenders'
+\echo '17 X2 BYPASSRLS roles outside B4 by construction (INFO — migration role and superusers excluded)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
