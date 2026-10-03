@@ -94,6 +94,26 @@ function nullInsertTables(root) {
 }
 const NULL_INSERT_CALL = /\.(create|createMany)\(\{\s*data:\s*\[?\s*\{[^{}]*,\s*businessId:\s*null\s*\}\s*\]?\s*\}\)/;
 
+/**
+ * B4 — NOT a file allowlist. Tables whose migrations declare a SELECT policy open to every role and
+ * row (`FOR SELECT USING (true)`, no TO clause) are read-open, write-pinned: a bare READ returns the
+ * same rows with or without a tenant context, so it is not tenant access. Every WRITE stays a
+ * violation. The AST guard (ast-security-guard.mjs, readOpenModels) applies the same rule.
+ */
+function readOpenTables(root) {
+  const out = new Set();
+  const dir = join(root, "prisma/migrations");
+  for (const entry of readdirSync(dir)) {
+    let sql = "";
+    try { sql = readFileSync(join(dir, entry, "migration.sql"), "utf8").replace(/--[^\n]*/g, ""); } catch { continue; }
+    for (const m of sql.matchAll(/CREATE POLICY\s+"?\w+"?\s+ON\s+"?(\w+)"?([^;]*);/gi)) {
+      if (/^FOR\s+SELECT\s+USING\s*\(\s*true\s*\)$/i.test(m[2].trim())) out.add(m[1]);
+    }
+  }
+  return out;
+}
+const READ_OPS = /^(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany|count|aggregate|groupBy)$/;
+
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
@@ -108,7 +128,9 @@ function main() {
   const root = process.argv[2] ?? ".";
   const tables = forcedRlsTables(root);
   const nullInsert = nullInsertTables(root);
+  const readOpen = readOpenTables(root);
   const dataRuleHits = [];
+  const openReadHits = [];
   const models = new Map(
     [...tables].map((t) => [t.charAt(0).toLowerCase() + t.slice(1), t])
   );
@@ -128,6 +150,7 @@ function main() {
       if (!m || !models.has(m[1])) return;
       const hit = { file: rel, line: i + 1, table: models.get(m[1]), op: m[2] };
       if (nullInsert.has(hit.table) && /^(create|createMany)$/.test(hit.op) && NULL_INSERT_CALL.test(line)) { dataRuleHits.push(hit); return; }
+      if (readOpen.has(hit.table) && READ_OPS.test(hit.op)) { openReadHits.push(hit); return; }
       if (ALLOWLIST.has(rel)) allowedHits.push(hit);
       else violations.push(hit);
     });
@@ -136,6 +159,7 @@ function main() {
   console.log(`FORCE-RLS tables declared by migrations: ${tables.size}`);
   console.log(`application files scanned: ${files.length}`);
   for (const h of dataRuleHits) console.log(`  untenanted insert (DB restricts GUC-less inserts to businessId NULL): ${h.file}:${h.line} ${h.table}.${h.op}`);
+  for (const h of openReadHits) console.log(`  read of a read-open table (SELECT USING (true); writes stay pinned): ${h.file}:${h.line} ${h.table}.${h.op}`);
 
   const staleAllow = [];
   for (const [file, reason] of ALLOWLIST) {

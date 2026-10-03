@@ -59,7 +59,9 @@ async function main() {
 
   // ---- 1. repository security state ----------------------------------------
   console.log("\n== 1. repository RLS state ==");
-  for (const r of ["app_admin", "app_ctlplane", "app_runtime"]) {
+  // app_auth too: B4's Business INSERT policy is TO app_auth, and a replayed policy naming a role that
+  // does not exist yet fails — and is swallowed below — leaving Business with no INSERT policy at all.
+  for (const r of ["app_admin", "app_auth", "app_ctlplane", "app_runtime"]) {
     await owner.$executeRawUnsafe(
       `DO $do$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${r}') THEN
          CREATE ROLE ${r} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
@@ -76,6 +78,9 @@ async function main() {
     }
   }
   ok(`applied ${applied} RLS/role statements from the repository`, applied > 50);
+  // The replay swallows errors; make the one that matters here visible.
+  const [bizPol] = await owner.$queryRawUnsafe(`SELECT count(*)::int n FROM pg_policy WHERE polrelid = '"Business"'::regclass`);
+  ok("B4 replayed whole: Business carries its 3 policies (read, tenant row change, app_auth signup)", bizPol.n === 3, `policies=${bizPol.n}`);
 
   // ---- 2. reproduce Production's EXACT app_runtime grant contract -----------
   console.log("\n== 2. exact app_runtime grant contract (as measured in Production) ==");
@@ -426,16 +431,31 @@ async function main() {
   // under RLS, but the restricted role still needs the table and sequence privileges,
   // and this has only ever run under the owner.
   console.log("\n== 9. bootstrap: tenant creation under the restricted role ==");
-  // The REAL lib/auth/signup.ts writes exactly Business + User, and neither is under
-  // RLS — that is what makes BOOTSTRAP a sound classification for it.
-  const signup = await err(() => rt.$transaction(async (tx) => {
-    const biz = await tx.business.create({ data: { name: "tx3a1-signup" } });
+  // The REAL lib/auth/signup.ts writes exactly Business + User through authDb() — the AUTH
+  // plane (app_auth), never the tenant runtime. Since B4 (20261006090000) Business is under
+  // FORCE RLS with exactly one INSERT policy, TO app_auth, so signup is proven here through an
+  // app_auth LOGIN — the role that serves it in Production — and the tenant runtime is proven
+  // unable to create a Business at all. (Production already denies the runtime any Business
+  // INSERT by privilege, D2 E4; this lab's runtime still holds the table grant, so the
+  // refusal below is the policy's.)
+  const AUTH_LOGIN = "tx3a1_auth_login";
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${AUTH_LOGIN}`);
+  await owner.$executeRawUnsafe(
+    `CREATE ROLE ${AUTH_LOGIN} LOGIN PASSWORD '${RT_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT IN ROLE app_auth`);
+  const au = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, AUTH_LOGIN, RT_PW) });
+  const rtCreate = await err(() => rt.business.create({ data: { name: "tx3a1-runtime-create" } }));
+  ok("B4: the tenant runtime cannot create a Business (signup is the auth plane's)", rtCreate !== null,
+    "the runtime created a Business");
+  const signup = await err(() => au.$transaction(async (tx) => {
+    // Column lists exactly as lib/auth/signup.ts names them: the auth plane holds SELECT on a
+    // deliberate subset, so an unnamed RETURNING would be refused.
+    const biz = await tx.business.create({ data: { name: "tx3a1-signup" }, select: { id: true, name: true } });
     const user = await tx.user.create({
-      data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" } });
+      data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" }, select: { id: true } });
     return { biz, user };
   }));
   ok("signup (Business + User) succeeds under the restricted role", signup === null,
-    String(signup?.message ?? "").slice(0, 200));
+    String(signup?.message ?? "").slice(-400));
   const created = await owner.business.count({ where: { name: "tx3a1-signup" } });
   ok("...and the tenant row really COMMITTED (not a false success)", created === 1, `count=${created}`);
 
@@ -450,8 +470,8 @@ async function main() {
   //
   // This asserts the hazard is real so that anyone who later adds an RLS-protected
   // write to the bootstrap transaction is stopped here rather than in production.
-  const hazard = await err(() => rt.$transaction(async (tx) => {
-    const biz = await tx.business.create({ data: { name: "tx3a1-hazard" } });
+  const hazard = await err(() => au.$transaction(async (tx) => {
+    const biz = await tx.business.create({ data: { name: "tx3a1-hazard" }, select: { id: true } });
     // swallowed on purpose — this is the anti-pattern being demonstrated
     await tx.businessProfile.create({ data: { businessId: biz.id } }).catch(() => null);
     return biz;
@@ -463,6 +483,9 @@ async function main() {
     String(hazard?.message ?? "").slice(0, 120));
   ok("the real signup does NOT write BusinessProfile, so it is unaffected",
     !readFileSync("lib/auth/signup.ts", "utf8").includes("businessProfile"));
+  ok("the real signup writes through authDb() (the auth plane), not the tenant client",
+    /authDb\(\)\.\$transaction/.test(readFileSync("lib/auth/signup.ts", "utf8")));
+  await au.$disconnect();
 
   // ---- 10. bootstrap lookups stay context-free ------------------------------
   console.log("\n== 10. pre-tenant bootstrap lookups ==");
@@ -605,19 +628,26 @@ async function stageERehearsal(owner, ownerUrl) {
   await owner.$executeRawUnsafe(
     `GRANT UPDATE (${cols(RUNTIME_BUSINESS_UPDATE_COLS)}) ON public."Business" TO ${E3_RUNTIME}`);
 
+  // The auth half is held the way Production holds it (.auth-session-privileges/verification.sql):
+  // the NOLOGIN group app_auth carries the exact contract and the LOGIN inherits it, holding nothing
+  // directly. Since B4 this is load-bearing, not cosmetic: Business's only INSERT policy is
+  // TO app_auth, so a signup login outside that group is refused by RLS however it is granted.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON public."User", public."Business" FROM app_auth`);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE public."User_id_seq", public."Business_id_seq" FROM app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT SELECT (${cols(AUTH_USER_SELECT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT SELECT (${cols(AUTH_USER_SELECT_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT INSERT (${cols(AUTH_USER_INSERT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT INSERT (${cols(AUTH_USER_INSERT_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT UPDATE (${cols(AUTH_USER_UPDATE_COLS)}) ON public."User" TO ${E3_AUTH}`);
+    `GRANT UPDATE (${cols(AUTH_USER_UPDATE_COLS)}) ON public."User" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT SELECT (${cols(AUTH_BUSINESS_SELECT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+    `GRANT SELECT (${cols(AUTH_BUSINESS_SELECT_COLS)}) ON public."Business" TO app_auth`);
   await owner.$executeRawUnsafe(
-    `GRANT INSERT (${cols(AUTH_BUSINESS_INSERT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+    `GRANT INSERT (${cols(AUTH_BUSINESS_INSERT_COLS)}) ON public."Business" TO app_auth`);
   for (const s of ['"User_id_seq"', '"Business_id_seq"']) {
-    await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public.${s} TO ${E3_AUTH}`);
+    await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public.${s} TO app_auth`);
   }
+  await owner.$executeRawUnsafe(`GRANT app_auth TO ${E3_AUTH}`);
 
   // ---- a fixture to act on --------------------------------------------------
   const biz = await owner.$queryRawUnsafe(

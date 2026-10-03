@@ -124,6 +124,29 @@ export function nullInsertModels(root) {
   return out;
 }
 
+/**
+ * B4 — models whose migrations declare a SELECT policy open to every role and every row
+ * (`FOR SELECT USING (true)`, no TO clause): read-open, write-pinned. A bare READ of such a model
+ * is not tenant access (the database returns the same rows with or without a tenant context);
+ * every WRITE on it stays a site, because its write policies are tenant-pinned.
+ */
+export function readOpenModels(root) {
+  const out = new Set();
+  const dir = path.join(root, "prisma/migrations");
+  if (!fs.existsSync(dir)) return out;
+  for (const d of fs.readdirSync(dir)) {
+    const f = path.join(dir, d, "migration.sql");
+    if (!fs.existsSync(f)) continue;
+    const sql = fs.readFileSync(f, "utf8").replace(/--[^\n]*/g, "");
+    for (const m of sql.matchAll(/CREATE POLICY\s+"?\w+"?\s+ON\s+"?(\w+)"?([^;]*);/gi)) {
+      const body = m[2].trim();
+      if (/^FOR\s+SELECT\s+USING\s*\(\s*true\s*\)$/i.test(body)) out.add(m[1].charAt(0).toLowerCase() + m[1].slice(1));
+    }
+  }
+  return out;
+}
+export const READ_OPS = new Set(["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]);
+
 /** SECURITY DEFINER functions with a pinned search_path and EXECUTE revoked from PUBLIC. */
 export function definerLookupFns(root) {
   const out = new Set();
@@ -336,6 +359,13 @@ export function analyseFile(root, file, ctx) {
     });
   };
 
+  const isOpenRead = (access, model) => {
+    if (!ctx.readOpen || !ctx.readOpen.has(model)) return false;
+    const op = access.parent;
+    if (!ts.isPropertyAccessExpression(op) || op.expression !== access || !READ_OPS.has(op.name.text)) return false;
+    return ts.isCallExpression(op.parent) && op.parent.expression === op;
+  };
+
   const visit = (n) => {
     if (r !== "lib/prisma.ts") {
       const loadsClientModule = (spec) => resolveSpec(r, spec) === CANONICAL_PRISMA;
@@ -391,6 +421,7 @@ export function analyseFile(root, file, ctx) {
       if (ts.isPropertyAccessExpression(n) && isCanonical(n.expression)) {
         const m = n.name.text;
         if (ctx.models.has(m) && isSanctionedNullInsert(n, m)) { /* DB-restricted untenanted insert (see header) */ }
+        else if (ctx.models.has(m) && isOpenRead(n, m)) { /* B4: a read of a read-open model (see readOpenModels) */ }
         else if (ctx.models.has(m)) d("AST-3", n, `bare:${m}`);
         else if (m === "$extends") d("AST-2", n, "escape:extends"); // returns a NEW client carrying no tenant context
         else if (m === "$queryRaw" && isDefinerLookup(n)) { /* DB-scoped definer lookup (see header) */ }
@@ -517,7 +548,7 @@ function findConst(body, name) {
 
 export function scan(root) {
   const files = [...SCAN_DIRS.flatMap((d) => walk(path.join(root, d), [])), ...ROOT_FILES.map((f) => path.join(root, f)).filter((f) => fs.existsSync(f))];
-  const ctx = { models: forcedRlsModels(root), nullInsert: nullInsertModels(root), definerFns: definerLookupFns(root), controlPlaneAllow: controlPlaneAllow(root) };
+  const ctx = { models: forcedRlsModels(root), nullInsert: nullInsertModels(root), readOpen: readOpenModels(root), definerFns: definerLookupFns(root), controlPlaneAllow: controlPlaneAllow(root) };
   const violations = [];
   const debt = new Map();
   for (const f of files) {
@@ -623,6 +654,10 @@ function selfTest() {
     ["INT null-insert: businessId NULL insert on a NULL-only-insert-policy model passes", { "prisma/migrations/2_n/migration.sql": 'ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;\nCREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL OR "businessId" = 1);', "lib/x/we.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: null }] });' }, null],
     ["INT null-insert: a spread AFTER businessId: null is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL);', "lib/x/wf.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ businessId: null, ...row }] });' }, "AST-3"],
     ["INT null-insert: non-null businessId is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY p ON "Customer" FOR INSERT TO app_runtime WITH CHECK ("businessId" IS NULL);', "lib/x/wg.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: row.businessId }] });' }, "AST-3"],
+    ["B4 read-open: a bare read of a USING (true) model passes", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY r ON "Customer" FOR SELECT USING (true);', "lib/x/ro1.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (id: number) => prisma.customer.findUnique({ where: { id } });' }, null],
+    ["B4 read-open: a bare WRITE of a read-open model is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY r ON "Customer" FOR SELECT USING (true);', "lib/x/ro2.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (id: number) => prisma.customer.updateMany({ where: { id }, data: {} });' }, "AST-3"],
+    ["B4 read-open: a role-restricted USING (true) does not open reads", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY r ON "Customer" FOR SELECT TO app_admin USING (true);', "lib/x/ro3.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (id: number) => prisma.customer.findUnique({ where: { id } });' }, "AST-3"],
+    ["B4 read-open: a tenant-scoped SELECT policy does not open reads", { "prisma/migrations/2_n/migration.sql": 'CREATE POLICY r ON "Customer" FOR SELECT USING ("businessId" = 1);', "lib/x/ro4.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = () => prisma.customer.findMany();' }, "AST-3"],
     ["INT null-insert: model WITHOUT a NULL-only insert policy is a site", { "lib/x/wh.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (row: any) => prisma.customer.createMany({ data: [{ ...row, businessId: null }] });' }, "AST-3"],
     ["INT definer: SELECT cols FROM a DEFINER lookup passes", { "prisma/migrations/2_n/migration.sql": 'CREATE OR REPLACE FUNCTION public.lk(p text) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $f$ SELECT 1 $f$;\nREVOKE ALL ON FUNCTION public.lk(text) FROM PUBLIC;', "lib/x/wi.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (k: string) => prisma.$queryRaw`SELECT a, b FROM public.lk(${k})`;' }, null],
     ["INT definer: a function NOT revoked from PUBLIC is a site", { "prisma/migrations/2_n/migration.sql": 'CREATE OR REPLACE FUNCTION public.lk(p text) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $f$ SELECT 1 $f$;', "lib/x/wj.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = (k: string) => prisma.$queryRaw`SELECT public.lk(${k}) AS b`;' }, "AST-3"],

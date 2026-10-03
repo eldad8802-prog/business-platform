@@ -53,6 +53,8 @@ on:
           - 'ops/evidence/sec-p2-business-identity-production-evidence.sql'
           - 'ops/evidence/cost-learning-wave1-evidence.sql'
           - 'ops/evidence/cost-learning-wave1-verdict.sql'
+          - 'ops/evidence/business-tenant-write-rls-preflight.sql'
+          - 'ops/evidence/business-tenant-write-rls-production-evidence.sql'
 
 permissions:
   contents: read
