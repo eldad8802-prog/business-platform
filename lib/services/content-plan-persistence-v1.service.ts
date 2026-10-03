@@ -12,6 +12,7 @@ import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/ty
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 import { sanitizeContentInsightAnswers } from "@/lib/services/content/content-insight-snapshot";
+import { sanitizeChoiceProvenance } from "@/lib/features/content/choice-provenance";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import { ContentRunStatus, ContentVariantStatus, Prisma } from "@prisma/client";
@@ -42,6 +43,8 @@ export type VideoPlanBodyForPersistence = {
   brandTone?: string;
   priceLevel?: "budget" | "mid" | "premium";
   differentiators?: string[];
+  /** P2 — whether selectedDirection.tone / audienceTypes were chosen or filled in. Sanitized below. */
+  choiceProvenance?: unknown;
 };
 
 export type VideoPlanVariantForPersistence = {
@@ -103,6 +106,11 @@ export function buildInputSnapshotData(body: VideoPlanBodyForPersistence) {
     differentiators: body.differentiators,
     selectedDirection: pickDirectionSnapshot(body.selectedDirection),
     contentInsightAnswers: sanitizeContentInsightAnswers(body.contentInsightAnswers),
+    // P2: always written on new runs, so "no marker" can only mean a legacy run.
+    choiceProvenance: sanitizeChoiceProvenance(body.choiceProvenance, {
+      tone: body.selectedDirection?.tone,
+      audienceTypes: body.audienceTypes,
+    }),
   };
 }
 

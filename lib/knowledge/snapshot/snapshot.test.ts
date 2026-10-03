@@ -189,6 +189,54 @@ function partyStored(withLink: boolean): StoredKnowledge {
   ok("rules are versioned and declared", CROSS_DOMAIN_RULES.every((r) => /^X-[A-Z]+-\d+$/.test(r.ruleId) && /^v\d+$/.test(r.version) && r.requires.length > 40));
 }
 
+/* ── P2 · owner identity statements and fact authorities ── */
+{
+  const st = (id: number, dimension: string, code: string | null, source: string, publicUseApproved: boolean, sourceRef: string | null) =>
+    ({ id, dimension, code, source, sourceRef, status: "ACTIVE", confirmedByUserId: 7, publicUseApproved, createdAt: ago(2) });
+  const s = {
+    ...baseStored(),
+    identityStatements: [
+      st(41, "TONE", "WARM", "OWNER_INPUT", false, "settings"),
+      st(42, "TARGET_AUDIENCE", "BUSINESSES", "OWNER_ADOPTED_SUGGESTION", false, "p2.signals.v2|BOT_AUDIENCE:botAudience=business>TARGET_AUDIENCE:BUSINESSES"),
+      st(43, "SPECIALIZATION", null, "OWNER_INPUT", true, "settings"),
+      st(44, "SPECIALIZATION", null, "OWNER_INPUT", false, "settings"),
+      st(45, "DESCRIPTION", null, "OWNER_INPUT", false, "settings"),
+    ],
+    identityFacts: [
+      { id: 61, fact: "CITY", sourceField: "BusinessProfile.city", publicUseApproved: true, confirmedByUserId: 7, confirmedAt: ago(1), valueCurrent: true },
+      { id: 62, fact: "PUBLIC_PHONE", sourceField: "BusinessProfile.billingPhone", publicUseApproved: true, confirmedByUserId: 7, confirmedAt: ago(1), valueCurrent: false },
+    ],
+  } as unknown as StoredKnowledge;
+  const snap = build(s, baseDomain());
+  const ids = snap.knowledge.filter((k) => k.domain === "identity");
+  const statements = ids.filter((k) => k.provenance[0]?.store === "BusinessIdentityStatement");
+  ok("every owner identity statement becomes one OWNER_CONFIRMED knowledge item", statements.length === 5 && ids.every((k) => k.authority === "OWNER_CONFIRMED" && k.kind === "OWNER_DECISION"));
+  ok("STABLE SOURCE REFERENCE: subject and provenance both name the exact statement row",
+    statements.every((k) => k.subject?.type === "identity-statement" && k.provenance.length === 1 && k.subject.id === k.provenance[0].id));
+  const specs = statements.filter((k) => (k.value as { dimension: string }).dimension === "SPECIALIZATION");
+  ok("two specializations are two items with two different pointers — never just 'specialization exists'",
+    specs.length === 2 && new Set(specs.map((k) => k.subject!.id)).size === 2 && new Set(specs.map((k) => k.slot)).size === 2);
+  ok("which specialization is public is traceable to its row",
+    specs.find((k) => (k.value as { publicUseApproved: boolean }).publicUseApproved)?.subject?.id === 43);
+  const adopted = statements.find((k) => k.subject?.id === 42)!;
+  ok("owner confirmation and provenance are traceable (ownerConfirmed, confirmedBy, source, sourceRef incl. rules version)",
+    (adopted.value as Record<string, unknown>).ownerConfirmed === true && (adopted.value as Record<string, unknown>).confirmedByUserId === 7 &&
+    (adopted.value as Record<string, unknown>).source === "OWNER_ADOPTED_SUGGESTION" && String((adopted.value as Record<string, unknown>).sourceRef).startsWith("p2.signals.v2|"));
+  const tone = statements.find((k) => k.slot === "identity|TONE|WARM");
+  ok("a coded statement carries its code and is never public-use approved", (tone?.value as { code: string }).code === "WARM" && (tone?.value as { publicUseApproved: boolean }).publicUseApproved === false);
+  ok("a text statement carries presence and authority, never its text", statements.filter((k) => "hasText" in k.value).every((k) => !("text" in k.value)));
+  ok("identity item values use only reference/flag keys", ids.every((k) => Object.keys(k.value).every((key) =>
+    ["dimension", "code", "hasText", "status", "source", "sourceRef", "ownerConfirmed", "confirmedByUserId", "publicUseApproved", "fact", "sourceField", "valueCurrent"].includes(key))));
+
+  const facts = ids.filter((k) => k.provenance[0]?.store === "BusinessIdentityFactAuthority");
+  ok("a current fact authority is one item pointing at its authority row, with no value", facts.length === 1 && facts[0].subject?.type === "identity-fact-authority" && facts[0].subject.id === 61 &&
+    (facts[0].value as Record<string, unknown>).publicUseApproved === true && !("value" in facts[0].value));
+  ok("a lapsed authority (value changed since approval) is not knowledge", !facts.some((k) => k.subject?.id === 62));
+
+  const none = build(baseStored(), baseDomain());
+  ok("a business with no statements gets no identity item — nothing is filled in", none.knowledge.every((k) => k.domain !== "identity"));
+}
+
 /* ── bounds: history size does not grow the snapshot ── */
 {
   const s = baseStored();

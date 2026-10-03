@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { vibeSourceOnContinue, type ToneProvenance } from "@/lib/features/content/choice-provenance";
 
 export type VibeId =
   | "professional_clean"
@@ -25,6 +26,8 @@ type ContentFlow = {
   mode?: ContentMode;
   creationEntryMode?: CreationEntryMode;
   vibe?: VibeId;
+  /** P2 — how `vibe` came to be: clicked by the owner, or restored without a record. */
+  vibeSource?: ToneProvenance;
   canFilm?: boolean;
   contentArchetypeId?: string;
   goal?: string;
@@ -106,6 +109,8 @@ function vibeToEntryMode(canFilm: boolean): CreationEntryMode {
 export default function ContentPage() {
   const router = useRouter();
   const [selectedVibe, setSelectedVibe] = useState<VibeId | null>(null);
+  // Restoring a saved vibe is not a choice; only a click in this visit is.
+  const [vibeClicked, setVibeClicked] = useState(false);
   const [canFilm, setCanFilm] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -129,6 +134,7 @@ export default function ContentPage() {
     const updated: ContentFlow = {
       ...existing,
       vibe: selectedVibe,
+      vibeSource: vibeSourceOnContinue(vibeClicked, existing.vibeSource),
       canFilm,
       mode: vibeToMode(canFilm),
       creationEntryMode: vibeToEntryMode(canFilm),
@@ -171,7 +177,10 @@ export default function ContentPage() {
                   aria-checked={isSelected}
                   aria-label={`${card.label} — ${card.sublabel}`}
                   className="vibe-tile"
-                  onClick={() => setSelectedVibe(card.id)}
+                  onClick={() => {
+                    setSelectedVibe(card.id);
+                    setVibeClicked(true);
+                  }}
                   style={vibeTileStyle(card, isSelected)}
                 >
                   <span style={tileIconStyle(card)} aria-hidden>

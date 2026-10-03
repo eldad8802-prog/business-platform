@@ -164,6 +164,51 @@ export function assembleSnapshot(
     });
   }
 
+  /* ── 1d'. P2 owner identity statements and identity-fact authorities ──
+   * OWNER_CONFIRMED by construction. Every item points at its canonical row twice — the typed
+   * `subject` and the `provenance` reference — so "which specialization" always resolves to one
+   * BusinessIdentityStatement (resolveIdentityProvenance, within the same business). Coded dimensions
+   * carry their code; text dimensions carry only that the statement exists and its public-use
+   * authority — the text itself never enters the snapshot. Fact authorities enter only while the
+   * canonical value still matches the approved one, and carry no value. Derived identity signals are
+   * MACHINE_PROPOSALs and stay out until the owner adopts one (it then arrives as a statement). */
+  for (const s of stored.identityStatements ?? []) {
+    const slot = s.code !== null ? `identity|${s.dimension}|${s.code}` : `identity|${s.dimension}|statement|${s.id}`;
+    drafts.push({
+      slot, kind: "OWNER_DECISION", domain: "identity", subject: { type: "identity-statement", id: s.id },
+      key: `identity.${s.dimension.toLowerCase()}`, ruleId: null, ruleVersion: null, authority: "OWNER_CONFIRMED",
+      value: {
+        dimension: s.dimension,
+        ...(s.code !== null ? { code: s.code } : { hasText: true }),
+        status: s.status,
+        source: s.source,
+        sourceRef: s.sourceRef,
+        ownerConfirmed: true,
+        confirmedByUserId: s.confirmedByUserId,
+        publicUseApproved: s.code !== null ? false : s.publicUseApproved,
+      },
+      observationCount: null, window: null, status: "ACTIVE",
+      freshness: { ageDays: ageDays(asOf, s.createdAt), fresh: true },
+      evidence: { fingerprint: null, refCount: null }, caveats: [],
+      provenance: [{ store: "BusinessIdentityStatement", id: s.id }],
+    });
+  }
+  for (const f of stored.identityFacts ?? []) {
+    if (!f.valueCurrent) continue; // the value changed since the decision: the authority has lapsed
+    drafts.push({
+      slot: `identity|FACT|${f.fact}`, kind: "OWNER_DECISION", domain: "identity", subject: { type: "identity-fact-authority", id: f.id },
+      key: `identity.fact.${f.fact.toLowerCase()}`, ruleId: null, ruleVersion: null, authority: "OWNER_CONFIRMED",
+      value: {
+        fact: f.fact, sourceField: f.sourceField, status: "ACTIVE", valueCurrent: true,
+        ownerConfirmed: true, confirmedByUserId: f.confirmedByUserId, publicUseApproved: f.publicUseApproved,
+      },
+      observationCount: null, window: null, status: "ACTIVE",
+      freshness: { ageDays: ageDays(asOf, f.confirmedAt), fresh: true },
+      evidence: { fingerprint: null, refCount: null }, caveats: [],
+      provenance: [{ store: "BusinessIdentityFactAuthority", id: f.id }],
+    });
+  }
+
   /* ── 1e. L0 facts (authoritative domain state, structured fields only) ── */
   for (const f of domain.facts) {
     drafts.push({

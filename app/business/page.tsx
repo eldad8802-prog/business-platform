@@ -306,6 +306,7 @@ export default function BusinessProfilePage() {
             <nav className={`${desk.manage} ${desk.desktopOnly}`} aria-label="עוד בעסק שלך">
               <h2>עוד בעסק שלך</h2>
               <p>כל אחד מנוהל במסך משלו.</p>
+              <Link href="/business/identity">איך העסק מוצג <span>מה מייחד אתכם ולמי אתם פונים</span></Link>
               <Link href="/business/bot">הבוט שלי <span>איך הוא עונה ללקוחות</span></Link>
               <Link href="/revenue">הקופונים שלי <span>ההטבות שהעסק מוציא</span></Link>
               <Link href="/settings/connections">חיבורים <span>סליקה, וואטסאפ ו-Gmail</span></Link>

@@ -293,6 +293,13 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   SupplierPurchaseDraft: unmanaged("supplierName and supplierId"),
   VendorLearning: unmanaged("vendorName and its normalised form"),
   BusinessBotKnowledge: unmanaged("address and notes, entered by the owner"),
+  // P2. Owner-authored statements about the business: no customer data by construction (codes are
+  // a closed business-level list; text refuses phones, emails and links), but free text can still
+  // name the owner, so it takes the same E2 position as BusinessBotKnowledge.
+  BusinessIdentityStatement: unmanaged("text of owner identity statements (description, specialization, differentiator, service area), plus confirmedBy/publicUseApprovedBy/retiredBy user ids"),
+  // P2. No value is stored, but valueHash is a sha256 of the owner's own phone / email / address
+  // when designated as public contact — a low-entropy fingerprint of personal data.
+  BusinessIdentityFactAuthority: unmanaged("valueHash (sha256 of the confirmed fact value, incl. a designated phone/email/address), plus confirmedBy/publicUseApprovedBy/retiredBy user ids"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
   AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
   InboundEmailMessage: unmanaged(

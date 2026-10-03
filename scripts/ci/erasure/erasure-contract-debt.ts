@@ -82,6 +82,10 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Appointment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSession", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSessionSecret", why: "E2" },
+  // P2. Owner-authored identity text can name the owner, like BusinessBotKnowledge notes.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIdentityStatement", why: "E2" },
+  // P2. A fact authority's valueHash fingerprints the owner's designated phone / email / address.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIdentityFactAuthority", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
   // Payables Phase 1a. Commitment and Installment are what BusinessObligation

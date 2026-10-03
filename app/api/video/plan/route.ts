@@ -46,6 +46,8 @@ type VideoPlanRequestBody = {
   brandTone?: string;
   priceLevel?: "budget" | "mid" | "premium";
   differentiators?: string[];
+  /** P2 — whether the tone / audience were chosen by the owner or filled in by the flow. */
+  choiceProvenance?: unknown;
 };
 
 function validateBody(body: VideoPlanRequestBody) {

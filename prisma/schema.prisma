@@ -206,6 +206,8 @@ model Business {
   serviceAssets                 BusinessServiceAsset[]
   itemAssets                    InventoryItemAsset[]
   offeringDemandSignals         OfferingDemandSignal[]
+  identityStatements            BusinessIdentityStatement[]
+  identityFactAuthorities       BusinessIdentityFactAuthority[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -2862,6 +2864,108 @@ enum OfferingDemandSignalType {
 enum OfferingDemandSource {
   APPOINTMENT
   SALE
+}
+
+/// P2 — what an owner statement is about. Coded dimensions (audience, objectives, tone,
+/// positioning) carry `code`; claim-like dimensions (description, specialization,
+/// differentiator, service area) carry `text`. Enforced by CHECK in the migration.
+enum BusinessIdentityDimension {
+  DESCRIPTION
+  SPECIALIZATION
+  TARGET_AUDIENCE
+  PRIMARY_OBJECTIVE
+  SECONDARY_OBJECTIVE
+  TONE
+  POSITIONING
+  DIFFERENTIATOR
+  SERVICE_AREA
+}
+
+/// P2 — how an owner statement came to exist. Both are owner-confirmed: a derived signal
+/// becomes a statement only when the owner adopts it.
+enum BusinessIdentitySource {
+  OWNER_INPUT
+  OWNER_ADOPTED_SUGGESTION
+}
+
+enum BusinessIdentityStatus {
+  ACTIVE
+  RETIRED
+}
+
+/// P2 — an OWNER-CONFIRMED statement about who the business is. Never an inference: derived
+/// positioning is recomputed on read (lib/services/identity) and enters here only when the owner
+/// adopts it. Facts stay on Business / BusinessProfile / P1 offerings.
+///
+/// Authority: FACT → DERIVED → OWNER_CONFIRMED (a row) → PUBLIC_USE_APPROVED (flag) → PUBLISHED
+/// (not built). Public use is refused by CHECK for audience / objective / tone / positioning.
+///
+/// DO NOT regenerate this model from `prisma db pull`: the migration also creates two PARTIAL
+/// unique indexes (one ACTIVE row per single-valued dimension; one ACTIVE row per code) and CHECK
+/// constraints that Prisma cannot express. Rows are retired, never deleted.
+model BusinessIdentityStatement {
+  id                        Int                       @id @default(autoincrement())
+  businessId                Int
+  dimension                 BusinessIdentityDimension
+  code                      String?
+  text                      String?
+  source                    BusinessIdentitySource
+  /// Adopted suggestions: the signal key they came from. Owner input: optional surface name.
+  sourceRef                 String?
+  status                    BusinessIdentityStatus    @default(ACTIVE)
+  confirmedByUserId         Int?
+  publicUseApproved         Boolean                   @default(false)
+  publicUseApprovedAt       DateTime?
+  publicUseApprovedByUserId Int?
+  retiredAt                 DateTime?
+  retiredByUserId           Int?
+  createdAt                 DateTime                  @default(now())
+  updatedAt                 DateTime                  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([id, businessId])
+  @@index([businessId, status, dimension])
+}
+
+/// P2 — an identity FACT whose canonical value lives elsewhere (see sourceField).
+enum BusinessIdentityFact {
+  BUSINESS_NAME
+  CITY
+  OPENING_HOURS
+  PUBLIC_PHONE
+  PUBLIC_EMAIL
+  PUBLIC_ADDRESS
+}
+
+/// P2 — the owner's confirmation and public-use approval of one identity FACT. The value is never
+/// copied: `valueHash` is the sha256 of the exact value the decision was made for, so a later change
+/// of Business.name / BusinessProfile.* lapses the authority by itself. Fact existence (and billing
+/// field existence) never grants public use. `sourceField` is fixed per fact by CHECK.
+///
+/// DO NOT regenerate from `prisma db pull`: the migration adds a PARTIAL unique index (one ACTIVE
+/// authority per fact) and CHECK constraints Prisma cannot express. Rows are retired, never deleted.
+model BusinessIdentityFactAuthority {
+  id                        Int                    @id @default(autoincrement())
+  businessId                Int
+  fact                      BusinessIdentityFact
+  sourceField               String
+  valueHash                 String
+  status                    BusinessIdentityStatus @default(ACTIVE)
+  confirmedByUserId         Int?
+  confirmedAt               DateTime               @default(now())
+  publicUseApproved         Boolean                @default(false)
+  publicUseApprovedAt       DateTime?
+  publicUseApprovedByUserId Int?
+  retiredAt                 DateTime?
+  retiredByUserId           Int?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([id, businessId])
+  @@index([businessId, status])
 }
 
 enum ContentRenderStatus {

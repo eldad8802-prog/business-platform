@@ -85,7 +85,11 @@ export type ProvenanceRef = {
     | "PayablesExposure"
     | "CollectionAction"
     | "OutcomeRecommendation"
-    | "OutcomeAssessment";
+    | "OutcomeAssessment"
+    /** P2 — an owner identity statement (code or presence only; never its text). */
+    | "BusinessIdentityStatement"
+    /** P2 — the owner's confirmation / public-use approval of an identity fact (never its value). */
+    | "BusinessIdentityFactAuthority";
   readonly id: number | string;
 };
 
