@@ -1,0 +1,54 @@
+name: Prod Read-Only Evidence (derive proof diagnostic)
+
+# #584 run 37153235048 — READ-ONLY diagnostic of two observations in business 9: which Party rows changed
+# in the B9 derivation run window and the source of their resolution claims; and the provenance of the
+# OutcomeActionEvent observed in that window (source store/record exists, same business).
+# scripts/ops/derive-proof-diagnostic.ts. ONE owner session, READ ONLY by Postgres (verified before and
+# after). Output: ids, codes, times, booleans — never a name, content or amount. Changes nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-derive-proof-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Derive proof diagnostic (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secret present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db — NOT RUN."; exit 1; fi
+          echo "Connection secret present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Derive proof diagnostic (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+        run: node_modules/.bin/tsx scripts/ops/derive-proof-diagnostic.ts --allow-host ep-flat-brook-am4bhq1y --run-id a4496e59-1696-472b-8807-bb35508d4192 --business 9
