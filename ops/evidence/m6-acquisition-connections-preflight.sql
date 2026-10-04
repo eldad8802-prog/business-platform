@@ -6,10 +6,11 @@
 --
 -- Measures every premise the migration's outcome depends on:
 --   * the ledger is clean, M6 is not recorded and nothing that sorts after M6 was applied first;
---   * JOINT RELEASE: the P3-A pair (20261008090000_p3a_identity_enum_values,
---     20261008090100_p3a_trust_claims) sorts BEFORE M6, so `prisma migrate deploy` applies it in the
---     same release-migrate run. Check 19 asserts the pair is consistent — both pending (the joint
---     release) or both applied (M6 released after P3-A) — and never half-applied. This file proves
+--   * the P3-A pair (20261008090000_p3a_identity_enum_values, 20261008090100_p3a_trust_claims)
+--     sorts BEFORE M6. The owner's plan (Option B): P3-A is released first as the approved prefix
+--     while M6 stays held; M6 is released afterwards, in its own run, after a fresh run of this
+--     preflight. Check 19 asserts the pair is consistent — both applied (P3-A released, the plan)
+--     or both pending (before it) — and never half-applied. This file proves
 --     M6's own premises only; the exact name-level pending set is proven by
 --     ops/evidence/p3a-trust-conversion-preflight.sql in the same preflight phase;
 --   * none of the names M6 creates exists (table, sequence, indexes, policies, functions) and none
@@ -45,7 +46,7 @@
 \echo '16 D3 default privileges (migration role, public, sequences): app_runtime holds exactly rU'
 \echo '17 D4 default privileges (migration role): nothing schema-wide (global) and no other sequence grantee'
 \echo '18 P1 PlatformFeatureDefinition.key and PlatformFeaturePolicy.featureKey are unique (ON CONFLICT targets)'
-\echo '19 J1 the P3-A pair sorting before M6 is both pending (joint release) or both applied, never half (observed = P3-A ledger rows)'
+\echo '19 J1 the P3-A pair sorting before M6 is both applied (released first, the plan) or both pending, never half (observed = P3-A ledger rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
