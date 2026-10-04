@@ -47,6 +47,7 @@ on:
           - 'ops/evidence/m5-crm-lead-lifecycle-production-evidence.sql'
           - 'ops/evidence/m6-acquisition-connections-preflight.sql'
           - 'ops/evidence/m6-acquisition-connections-production-evidence.sql'
+          - 'ops/evidence/m6-operational-evidence.sql'
           - 'ops/evidence/c594-control-plane-privileges-preflight.sql'
           - 'ops/evidence/c594-control-plane-privileges-production-evidence.sql'
           - 'ops/evidence/p2-business-identity-preflight.sql'
