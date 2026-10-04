@@ -156,6 +156,12 @@
       "lab": "workflow",
       "workflow": "learning-coverage-ci.yml",
       "reason": "All-Feature Learning Coverage drift guard: every tenant model, route family, learning rule and sensor carries an explicit learning decision; no invented consumer, model or route; LearningEvent written only by the governed writers; run by learning-coverage-ci.yml with negative proofs"
+    },
+    "lib/intake/acquisition/acquisition-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m6-acquisition-ci.yml",
+      "reason": "M6: the one canonical acquisition lead per provider (web / Google / Meta), Meta X-Hub-Signature-256 verification, exact browser origins, key hashing and constant-time equality, non-personal receipt metadata, test submissions never becoming leads; run on pull_request by m6-acquisition-ci.yml"
     }
   }
 }

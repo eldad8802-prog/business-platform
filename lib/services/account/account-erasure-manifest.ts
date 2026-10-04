@@ -98,6 +98,14 @@ export const REVOKE_INTEGRATIONS = [
   // blanking it to a constant would collide across two account deletions. The delegate
   // is `pOSApiKey`, and the column is `keyHash` — the old entry named neither.
   { model: "pOSApiKey", deleteRow: true },
+  // M6 — acquisition connections: revoked in place (no DELETE policy; the row is the audit of the
+  // binding). The Meta Page token and the owner-facing label go; the key hash stays (a hash of a
+  // random key, naming nobody) but a REVOKED row can never resolve again.
+  {
+    model: "acquisitionConnection",
+    clear: ["credentialCiphertext", "credentialIv", "credentialTag", "credentialKeyId", "credentialExpiresAt", "label"],
+    set: { status: "REVOKED", revokedAt: "now" },
+  },
 ] as const;
 
 /** Bucket B.1 — anonymize in place (row kept, PII fields scrubbed). Customers are

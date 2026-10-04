@@ -29,7 +29,7 @@ import { Prisma } from "@prisma/client";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { leadService } from "@/lib/services/crm/lead.service";
 import { customerService } from "@/lib/services/crm/customer.service";
-import { OPEN_LEAD_STATUSES } from "@/lib/services/crm/lead-core";
+import { LEAD_INTENT_MAX, OPEN_LEAD_STATUSES } from "@/lib/services/crm/lead-core";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import type {
   ClaimedIntakeEvent,
@@ -128,6 +128,8 @@ export async function routeToLead(
           phone,
           email: identifiers.find((i) => i.kind === "email")?.value ?? null,
           sourceChannel: `intake:${event.sourceKey}`.slice(0, SOURCE_CHANNEL_MAX),
+          // M6 — an explicit lead form's answers, as the owner reads them (personal; erased with the lead).
+          intentSnapshot: normalized.leadIntent ? normalized.leadIntent.trim().slice(0, LEAD_INTENT_MAX) || null : null,
           contact: { customerId },
           actor: { type: "INTEGRATION" },
           source: "INTEGRATION",

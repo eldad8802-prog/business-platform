@@ -230,6 +230,18 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // constant would collide across multiple account deletions; the row carries no
           // fiscal FK, so deletion is the correct revoke.
           await tx.pOSApiKey.deleteMany({ where: { businessId } });
+          // M6 — acquisition connections: revoke in place (FORCE RLS, no DELETE policy). A REVOKED
+          // row never resolves again; the Page token and label are gone.
+          await tx.acquisitionConnection.updateMany({
+            where: { businessId },
+            data: {
+              status: "REVOKED",
+              revokedAt: now,
+              credentialCiphertext: null, credentialIv: null, credentialTag: null, credentialKeyId: null,
+              credentialExpiresAt: null,
+              label: null,
+            },
+          });
         }),
       { quarantinePolicy: "erasure" }
     );

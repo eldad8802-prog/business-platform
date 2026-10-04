@@ -75,6 +75,8 @@ export type AppendLifecycleInput = {
   occurredAt?: Date;
   /** Only for `created`: the closed-vocabulary origin for the learning sensor. */
   origin?: LeadOrigin;
+  /** M6 — only for `created` by Business Intake: the source key (closed vocabulary, never personal). */
+  intakeSource?: string;
 };
 
 export type AppendLifecycleResult = { seq: number; duplicate: boolean };
@@ -234,7 +236,11 @@ async function emitLifecycleSensors(
         {
           ...base(),
           sensor: "LEAD_LIFECYCLE_STARTED",
-          payload: { origin: input.origin ?? "MANUAL", contactKnown: lead.customerId !== null },
+          payload: {
+            origin: input.origin ?? "MANUAL",
+            contactKnown: lead.customerId !== null,
+            ...(input.intakeSource && /^[a-z][a-z0-9_.]{0,40}$/.test(input.intakeSource) ? { intakeSource: input.intakeSource } : {}),
+          },
           idempotencyKey: `lead:${lead.id}:lifecycle-started`,
         },
         { tx }
