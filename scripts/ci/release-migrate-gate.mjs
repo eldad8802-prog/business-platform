@@ -213,6 +213,46 @@ export function checkReleaseBinding(expected, bindings) {
 }
 
 /**
+ * Pure: which owner-bound release sets are in force for `expected`, and which records refuse.
+ * `entries` = every approval record: { path, name, record, prev } (prev = previousApproval(...)), or
+ * { path, name, invalid: true }. A record matters when its own migration is requested, or its CURRENT
+ * or its PREVIOUS binding touches the request — so a removed or changed binding cannot drop out of view.
+ * Unless that change is validly superseded, the PREVIOUS binding stays in force (and the record
+ * refuses); after a valid supersession the new authority governs and nothing resurrects.
+ * Returns { refusals: [text], bindings: [{ source, migration, releaseSet }] }.
+ */
+export function evaluateApprovalBindings(expected, entries, known) {
+  const refusals = [];
+  const bindings = [];
+  const touches = (set) => Array.isArray(set) && set.some((n) => expected.includes(n));
+  for (const r of entries) {
+    if (r.invalid) {
+      if (!expected.includes(r.name)) refusals.push(`REFUSED — ${r.path} is not valid JSON (it could hide an owner-bound release set)`);
+      continue; // a requested migration's invalid record is refused by the authority check itself
+    }
+    if (r.record.releaseSet !== undefined) {
+      const shape = checkReleaseSet(r.record.migration ?? r.name, r.record, known);
+      // A malformed binding refuses every release (fail closed): it cannot be told what it binds.
+      if (shape.length) { refusals.push(`REFUSED — ${r.path}: ${shape.join("; ")}`); continue; }
+    }
+    if (!r.prev || r.prev.error) {
+      // History is unreadable, so a binding this record once carried cannot be ruled out: fail closed.
+      refusals.push(`REFUSED — cannot read the git history of ${r.path} (no git or a shallow clone; a removed or changed release binding could not be detected)`);
+      continue;
+    }
+    const previousSet = r.prev.record?.releaseSet;
+    if (!(expected.includes(r.name) || touches(r.record.releaseSet) || touches(previousSet))) continue;
+    const sup = checkSupersession(r.record, r.prev.record);
+    if (sup.length) {
+      refusals.push(`REFUSED — ${r.path}: ${sup.join("; ")}`);
+      if (Array.isArray(previousSet)) bindings.push({ source: `${r.path} (previous binding, not validly superseded)`, migration: r.prev.record.migration, releaseSet: previousSet });
+    }
+    if (r.record.releaseSet !== undefined) bindings.push({ source: r.path, migration: r.record.migration, releaseSet: r.record.releaseSet });
+  }
+  return { refusals, bindings };
+}
+
+/**
  * Pure: may `current` replace `previous` (the record file's previous version in git history)?
  * A change of binding — a releaseSet added to an approved record, changed, or removed — is a new
  * owner decision: `current.supersedes` must equal `previous.decision`, and `current.decision` must
@@ -225,7 +265,9 @@ export function checkSupersession(current, previous) {
   if (before === after) return [];
   const problems = [];
   if (current?.supersedes !== previous.decision) {
-    problems.push(`the release binding changed (${before ?? "none"} → ${after ?? "none"}) without "supersedes": "${previous.decision}" — a changed owner decision must name the decision it replaces`);
+    problems.push(after === null
+      ? `the owner-bound release set ${before} was REMOVED without superseding the prior decision ("supersedes": "${previous.decision}" and a new decision link are required)`
+      : `the release binding changed (${before ?? "none"} → ${after}) without "supersedes": "${previous.decision}" — a changed owner decision must name the decision it replaces`);
   }
   if (current?.decision === previous.decision) problems.push("the release binding changed but the decision link did not — link the NEW owner decision");
   return problems;
@@ -324,21 +366,24 @@ function allApprovalRecords() {
 }
 
 /**
- * The version a binding change is judged against: walking the record's git history from newest to
- * oldest, the most recent EARLIER version whose releaseSet differs from the current one (so a change
- * cannot be laundered by touching the file again afterwards). { record } or { none: true } when the
- * binding never changed; { error } when the history cannot be read (shallow or missing clone) — the
- * caller refuses rather than assume.
+ * The version a binding change is judged against: walking the record's committed history from newest
+ * to oldest, the most recent version whose releaseSet differs from the record as it is now (so a change
+ * cannot be laundered by touching the file again afterwards). Versions that are not valid JSON are
+ * skipped — an unreadable intermediate version must not be able to stand in for the binding it hid.
+ *   { record }      the last valid version with a different binding
+ *   { none: true }  no committed version ever bound differently (also: a record not committed yet)
+ *   { error: true } the history cannot be read — no git, or a SHALLOW clone (whose log silently looks
+ *                   like "no history"); the caller refuses rather than assume
  */
 function previousApproval(path, current) {
   try {
+    if (execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() !== "false") return { error: true };
     const commits = execFileSync("git", ["log", "--format=%H", "--", path], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
-    if (!commits.length) return { error: true };
     const binding = (r) => (r?.releaseSet === undefined ? null : JSON.stringify(r.releaseSet));
-    for (const c of commits.slice(1)) {
+    for (const c of commits) {
       let rec;
-      try { rec = JSON.parse(execFileSync("git", ["show", `${c}:${path}`], { encoding: "utf8" })); } catch { rec = { __invalid: true }; }
-      if (rec.__invalid || binding(rec) !== binding(current)) return { record: rec };
+      try { rec = JSON.parse(execFileSync("git", ["show", `${c}:${path}`], { encoding: "utf8" })); } catch { continue; }
+      if (binding(rec) !== binding(current)) return { record: rec };
     }
     return { none: true };
   } catch { return { error: true }; }
@@ -370,27 +415,11 @@ async function authorize(expected) {
   const order = prismaOrder(expected);
   if (order.join() !== expected.join()) { refused = true; rows.push(`REFUSED — expected is not in Prisma order; Prisma applies: ${order.join(", ")}`); }
 
-  // Owner-bound release sets: every record that binds, plus every record of a requested migration.
-  const bindings = [];
-  for (const r of allApprovalRecords()) {
-    const touches = expected.includes(r.name) || (!r.invalid && Array.isArray(r.record.releaseSet) && r.record.releaseSet.some((n) => expected.includes(n)));
-    if (r.invalid) {
-      if (expected.includes(r.name)) continue; // already refused above as invalid JSON
-      refused = true; rows.push(`REFUSED — ${r.path} is not valid JSON (it could hide an owner-bound release set)`); continue;
-    }
-    if (r.record.releaseSet !== undefined) {
-      const shape = checkReleaseSet(r.record.migration ?? r.name, r.record, known);
-      // A malformed binding refuses every release (fail closed): it cannot be told what it binds.
-      if (shape.length) { refused = true; rows.push(`REFUSED — ${r.path}: ${shape.join("; ")}`); continue; }
-      bindings.push({ source: r.path, migration: r.record.migration, releaseSet: r.record.releaseSet });
-    }
-    if (touches) {
-      const prev = previousApproval(r.path, r.record);
-      if (prev.error) { refused = true; rows.push(`REFUSED — cannot read the git history of ${r.path} (a changed release binding could not be detected)`); continue; }
-      const sup = checkSupersession(r.record, prev.record);
-      if (sup.length) { refused = true; rows.push(`REFUSED — ${r.path}: ${sup.join("; ")}`); }
-    }
-  }
+  // Owner-bound release sets: every approval record, its current binding and its previous one.
+  const entries = allApprovalRecords().map((r) => (r.invalid ? r : { ...r, prev: previousApproval(r.path, r.record) }));
+  const scan = evaluateApprovalBindings(expected, entries, known);
+  if (scan.refusals.length) { refused = true; rows.push(...scan.refusals); }
+  const bindings = scan.bindings;
   const binding = checkReleaseBinding(expected, bindings);
   rows.push(...binding.lines);
   if (binding.problems.length) { refused = true; rows.push(...binding.problems); }
@@ -626,6 +655,36 @@ function selfTest() {
   const audit = checkReleaseBinding([A, B], abc).lines.join("\n");
   t("audit: the gate prints the bound set and the requested release, member by member",
     audit.includes("owner-bound release set detected") && audit.includes(`  ${C}`) && audit.includes("requested release:\n  " + A + "\n  " + B));
+  // ── historical bindings: the same evaluation authorize() runs (evaluateApprovalBindings → checkReleaseBinding)
+  const D1 = "https://github.com/o/r/pull/1#decision-1", D2 = "https://github.com/o/r/pull/2#decision-2";
+  const recOf = (m, extra) => ({ migration: m, sha256: "x".repeat(64), decision: D1, approvedBy: "owner", preflightRun: 1, preflightFile: "ops/evidence/x.sql", ...extra });
+  const entry = (m, record, prevRecord) => ({ path: `ops/release-approvals/${m}.json`, name: m, record, prev: prevRecord === undefined ? { none: true } : { record: prevRecord } });
+  const gate = (expected, entries) => {
+    const scan = evaluateApprovalBindings(expected, entries, KNOWN);
+    const b = checkReleaseBinding(expected, scan.bindings);
+    return { ok: scan.refusals.length === 0 && b.problems.length === 0, text: [...scan.refusals, ...b.problems].join(" ") };
+  };
+  const cBound = recOf(C, { releaseSet: [A, B, C] });
+  const cRemoved = recOf(C, {}); // binding removed, no supersedes, same decision
+  const h1 = gate([A, B], [entry(C, cRemoved, cBound)]);
+  t("H1 C's binding [A,B,C] REMOVED without supersedes, [A,B] requested (C not requested) → refused",
+    !h1.ok && /REMOVED without superseding the prior decision/.test(h1.text) && /only a subset/.test(h1.text), h1.text);
+  // H2: a later unrelated edit; previousApproval() still returns the last DIFFERENT binding ([A,B,C]).
+  const h2 = gate([A, B], [entry(C, { ...cRemoved, approvedAt: "later" }, cBound)]);
+  t("H2 a further edit after the removal (the last different binding is still [A,B,C]) → refused", !h2.ok && /REMOVED/.test(h2.text), h2.text);
+  const cValidRemoval = recOf(C, { supersedes: D1, decision: D2 });
+  const h3 = gate([A, B], [entry(C, cValidRemoval, cBound)]);
+  t("H3 removal with supersedes = D1 and decision D2, no other binding → [A,B] allowed", h3.ok, h3.text);
+  t("H3b … and the old set does not resurrect: [A,B,C] is a plain prefix question again", gate([A, B, C], [entry(C, cValidRemoval, cBound)]).ok);
+  const bStillBound = recOf(B, { releaseSet: [A, B, C] });
+  const h4 = gate([A, B], [entry(C, cValidRemoval, cBound), entry(B, bStillBound)]);
+  t("H4 C validly removed its binding but B still binds [A,B,C] → [A,B] refused", !h4.ok && /only a subset/.test(h4.text), h4.text);
+  const h4b = gate([A, B], [entry(C, cValidRemoval, cBound), entry(B, recOf(B, { supersedes: D1, decision: D2 }), bStillBound)]);
+  t("H4b … once B's binding is validly removed too → [A,B] allowed", h4b.ok, h4b.text);
+  t("H5 a record whose history cannot be read refuses (no git / shallow clone)",
+    !gate([A], [{ path: "ops/release-approvals/x.json", name: C, record: cBound, prev: { error: true } }]).ok);
+  t("H6 a record unrelated to the request (no current or previous binding touching it) is not consulted",
+    gate([D], [entry(C, cRemoved, cBound)]).ok);
   console.log(failed ? `\nrelease-migrate-gate self-test: ${failed} FAILED` : "\nrelease-migrate-gate self-test: all passed");
   return failed ? 1 : 0;
 }

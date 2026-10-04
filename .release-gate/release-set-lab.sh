@@ -21,6 +21,15 @@
 #   S6  a malformed binding (out of order / unknown / duplicate / own migration missing) → refused
 #   S7  an approval record that is not valid JSON        → refused (it could hide a binding)
 #   S8  no readable git history for a binding record     → refused (supersession undecidable)
+#   H1  C's binding [A,B,C] REMOVED without supersedes;  → [A,B] refused (C is not even requested: its
+#       the request does not name C                        PREVIOUS binding is read from git history)
+#   H2  … then another edit to C, binding still absent    → [A,B] refused (judged against the last
+#                                                          DIFFERENT binding; the edit launders nothing)
+#   H3  C's removal carries supersedes = D1 + decision D2  → [A,B] allowed (nothing else binds)
+#   H4  C validly removed, B still binds [A,B,C]           → [A,B] refused until B is reconciled too
+#   H5  an invalid-JSON version between [A,B,C] and the    → [A,B] refused (unreadable versions are
+#       removal                                             skipped, they cannot stand in for D1)
+#   H6  a shallow clone (git log looks like "no history")  → refused
 #
 #   .release-gate/release-set-lab.sh
 set -euo pipefail
@@ -93,5 +102,41 @@ refuse "S7 [A]"                                              "$T/s7" "$A"       
 echo "S8 no git history"
 repo "$T/s8"; record "$T/s8" "$B" "$(set3 "$A" "$B" "$C")"; rm -rf "$T/s8/.git"
 refuse "S8 [A,B,C]"                                          "$T/s8" "$A,$B,$C"     "cannot read the git history"
+
+D1="https://github.com/lab/lab/pull/1#decision-1"; D2="https://github.com/lab/lab/pull/2#decision-2"
+echo "H1 a binding REMOVED without supersedes (the removed record's migration is not requested)"
+repo "$T/h1"; record "$T/h1" "$C" "$(set3 "$A" "$B" "$C")"
+record "$T/h1" "$C" ""
+refuse "H1 [A,B]"                                            "$T/h1" "$A,$B"        "REMOVED without superseding the prior decision"
+grep -q "previous binding, not validly superseded" "$T/out" || fail "H1: the previous binding was not kept in force"
+grep -q "only a subset of the owner-approved release set" "$T/out" || fail "H1: the previous binding did not refuse the subset"
+
+echo "H2 a later edit after the unauthorized removal"
+record "$T/h1" "$C" ',"approvedAt":"later"'
+refuse "H2 [A,B]"                                            "$T/h1" "$A,$B"        "REMOVED without superseding the prior decision"
+
+echo "H3 a valid removal"
+repo "$T/h3"; record "$T/h3" "$C" "$(set3 "$A" "$B" "$C")"
+DECISION="$D2" record "$T/h3" "$C" ",\"supersedes\":\"$D1\""
+allow  "H3 [A,B] (C's binding validly superseded; nothing else binds)" "$T/h3" "$A,$B"
+allow  "H3 [A,B,C] (the old set does not resurrect)"         "$T/h3" "$A,$B,$C"
+
+echo "H4 C validly removed its binding, B still binds the old set"
+repo "$T/h4"; record "$T/h4" "$B" "$(set3 "$A" "$B" "$C")"; record "$T/h4" "$C" "$(set3 "$A" "$B" "$C")"
+DECISION="$D2" record "$T/h4" "$C" ",\"supersedes\":\"$D1\""
+refuse "H4 [A,B]"                                            "$T/h4" "$A,$B"        "only a subset of the owner-approved release set"
+DECISION="$D2" record "$T/h4" "$B" ",\"supersedes\":\"$D1\""
+allow  "H4 [A,B] once B is validly reconciled too"           "$T/h4" "$A,$B"
+
+echo "H5 an invalid-JSON version cannot launder a removal"
+repo "$T/h5"; record "$T/h5" "$C" "$(set3 "$A" "$B" "$C")"
+echo '{ not json' > "$T/h5/ops/release-approvals/$C.json"; ( cd "$T/h5" && git -c user.email=lab@example.test -c user.name=lab add -A && git -c user.email=lab@example.test -c user.name=lab commit -qm broken )
+record "$T/h5" "$C" ""
+refuse "H5 [A,B]"                                            "$T/h5" "$A,$B"        "REMOVED without superseding the prior decision"
+
+echo "H6 a shallow clone"
+repo "$T/h6src"; record "$T/h6src" "$B" "$(set3 "$A" "$B" "$C")"; record "$T/h6src" "$B" "$(set3 "$A" "$B" "$C"),\"approvedAt\":\"x\""
+git clone -q --depth 1 "file://$T/h6src" "$T/h6" 2>/dev/null
+refuse "H6 [A,B,C]"                                          "$T/h6" "$A,$B,$C"     "shallow clone"
 
 echo "RELEASE-SET LAB: PASS"
