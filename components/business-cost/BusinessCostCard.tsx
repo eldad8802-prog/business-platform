@@ -18,8 +18,11 @@ const ils = (decimal: string) => {
   return `${n.toLocaleString("he-IL", { minimumFractionDigits: frac, maximumFractionDigits: frac })} ₪`;
 };
 
-/** At most this many learned insights; the card is a summary, not a feed. */
-const MAX_INSIGHTS = 3;
+/** Learned insights shown at once; the rest open on demand. The card is a summary, not a feed. */
+const VISIBLE_INSIGHTS = 2;
+
+/** Data gaps the owner can act on. Others (an unconfirmed backbone, foreign currency) stay in the gate, silently. */
+const ACTIONABLE_GAP = /#(UNALLOCATED_CASH|DUE_WITHOUT_RECORDED_PAYMENT|ONE_OFF_COVERAGE_UNKNOWN)$/;
 
 /**
  * The Secretary's cost line: what the business costs, what actually left, what
@@ -35,13 +38,16 @@ const MAX_INSIGHTS = 3;
  *
  * "מה השתנה" shows the LEARNED cost insights (Business Cost learning: governed
  * policies, gated by COST-08, evidence-linked), from GET /api/insights — FACT
- * or PATTERN, each labelled as such, its facts on demand. COST-08's own
- * completeness insight is not news: it is shown as a quiet reliability note.
+ * or PATTERN, each labelled as such, its facts on demand. COST-08 is a gate,
+ * not news: a reliability note appears only for gaps the owner can close
+ * (unlinked payments, due dates without a recorded payment, one-offs without a
+ * period); an unconfirmed backbone or foreign currency stays silent in the gate.
  * Nothing here interprets, recommends or decides.
  */
 export function BusinessCostCard() {
   const [summary, setSummary] = useState<BusinessCostSummaryApi | null>(null);
   const [learned, setLearned] = useState<LearnedCostInsightApi[]>([]);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -59,13 +65,14 @@ export function BusinessCostCard() {
   }, []);
 
   if (!summary || summary.baseline.completeness.state === "EMPTY") return null;
-  const partial = summary.baseline.completeness.state === "PARTIAL";
+  // Only the actionable engine reason is worth a sentence: one-off costs whose period is unknown are left out.
+  const oneOffsUnplaced = summary.baseline.completeness.reasons.includes("UNALLOCATABLE_COMMITMENTS");
   const overdue = Number(summary.upcoming.overdue.total) > 0;
   const changes = learned
     .filter((i) => i.insightKey !== "cost.data_completeness")
-    .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : b.id - a.id))
-    .slice(0, MAX_INSIGHTS);
-  const reliability = learned.find((i) => i.insightKey === "cost.data_completeness") ?? null;
+    .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : b.id - a.id));
+  const visible = showAll ? changes : changes.slice(0, VISIBLE_INSIGHTS);
+  const gapLines = (learned.find((i) => i.insightKey === "cost.data_completeness")?.factLines ?? []).filter((f) => ACTIONABLE_GAP.test(f.sourceRef));
 
   const row = (label: string, value: string, hint?: string) => (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", borderTop: `1px solid ${DS.line}` }}>
@@ -100,14 +107,19 @@ export function BusinessCostCard() {
       {changes.length > 0 ? (
         <div style={{ marginTop: 12 }}>
           <h3 style={{ margin: "0 0 6px", fontSize: 15, color: DS.ink }}>מה השתנה</h3>
-          {changes.map((i) => (
+          {visible.map((i) => (
             <LearnedInsight key={i.id} insight={i} />
           ))}
+          {changes.length > VISIBLE_INSIGHTS ? (
+            <button type="button" onClick={() => setShowAll((v) => !v)} style={linkButton}>
+              {showAll ? "הצג פחות" : changes.length - VISIBLE_INSIGHTS === 1 ? "עוד שינוי אחד" : `עוד ${changes.length - VISIBLE_INSIGHTS} שינויים`}
+            </button>
+          ) : null}
         </div>
       ) : null}
-      {reliability ? <ReliabilityNote insight={reliability} /> : partial ? (
+      {gapLines.length > 0 ? <ReliabilityNote lines={gapLines.map((f) => f.text)} /> : oneOffsUnplaced ? (
         <p style={{ margin: "8px 0 0", color: DS.tertiary, fontSize: 13 }}>
-          חלק מההוצאות עוד לא ידועות במלואן — המספרים מבוססים רק על מה שנרשם.
+          יש הוצאות חד־פעמיות שלא נרשם לאיזו תקופה הן שייכות, ולכן הן לא נכללות בעלות היומית.
         </p>
       ) : null}
     </section>
@@ -149,11 +161,11 @@ function LearnedInsight({ insight }: { insight: LearnedCostInsightApi }) {
   );
 }
 
-function ReliabilityNote({ insight }: { insight: LearnedCostInsightApi }) {
+function ReliabilityNote({ lines }: { lines: string[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ margin: "10px 0 0", color: DS.tertiary, fontSize: 13 }}>
-      <span>המידע על העלויות עדיין חלקי — ההשוואות מבוססות רק על מה שנרשם. </span>
+      <span>חלק מנתוני העלות עוד לא נרשמו במלואם, ולכן ההשוואות מבוססות רק על מה שנרשם. </span>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -164,11 +176,13 @@ function ReliabilityNote({ insight }: { insight: LearnedCostInsightApi }) {
       </button>
       {open ? (
         <ul style={{ margin: "6px 0 0", paddingInlineStart: 18, lineHeight: 1.7 }}>
-          {insight.factLines.map((f, k) => (
-            <li key={k}>{f.text}</li>
+          {lines.map((t, k) => (
+            <li key={k}>{t}</li>
           ))}
         </ul>
       ) : null}
     </div>
   );
 }
+
+const linkButton = { marginTop: 6, padding: 0, border: 0, background: "none", color: DS.accent, fontSize: 13, cursor: "pointer", font: "inherit" } as const;

@@ -223,7 +223,9 @@ section("Insights · FACT only, deterministic, every number grounded");
     { id: 9201, eventType: "INSTALLMENT_AMOUNT_CHANGED", commitmentId: rent.id, installmentId: rentInst[6].id, occurredAt: NOW, metadata: { after: "8800.00" } },
     { id: 9202, eventType: "COMMITMENT_ENDED", commitmentId: sw.id, installmentId: null, occurredAt: NOW, metadata: { endsOn: "2026-09-30T00:00:00.000Z" } },
   ];
-  const s = snap([rent, leasing, sw], { audit, created: { [leasing.id]: "2026-09-10" }, affirmed: false });
+  // An actionable gap (cash not tied to any commitment) beside a non-actionable one (backbone not confirmed).
+  const loose: CostPayment = { id: next(), paidAt: new Date("2026-09-25T09:00:00Z"), amountMinor: 2000000, currency: "ILS", status: "RECORDED", payeeName: "x", method: "CASH", allocations: [] };
+  const s = snap([rent, leasing, sw], { audit, created: { [leasing.id]: "2026-09-10" }, affirmed: false, payments: [...paymentsFor(rent, leasing, sw), loose] });
   const measures = [
     ...deriveCostCompleteness([s], NOW),
     ...deriveRecurringAmountChange([s], NOW),
@@ -261,7 +263,16 @@ section("Insights · FACT only, deterministic, every number grounded");
     const bad = ungroundedClaims(text, [...grounding, ...extra]);
     ok(`${d.insightKey}: every number and date is grounded in its measure`, bad.length === 0, bad);
   }
-  ok("data gaps make the fact insights say they rest only on what was recorded", by("cost.recurring_amount_changed").uncertainty?.includes("רק על מה שנרשם") === true);
+  ok("an actionable data gap makes the fact insights say they rest only on what was recorded", by("cost.recurring_amount_changed").uncertainty?.includes("רק על מה שנרשם") === true);
+  ok("the completeness insight shows ONLY actionable gaps, each line tagged with its gap code",
+    by("cost.data_completeness").factLines.length === 1 && by("cost.data_completeness").factLines[0].sourceRef.endsWith("#UNALLOCATED_CASH"), by("cost.data_completeness")?.factLines);
+  ok("…no engine terminology (no trustworthy-days line, no backbone line)", !by("cost.data_completeness").factLines.some((f) => /ימים$|אושר שכל/.test(f.text)));
+  // Backbone not confirmed and nothing else: the gate works silently — no completeness insight, no uncertainty line.
+  const quiet = snap([rent, leasing, sw], { audit, created: { [leasing.id]: "2026-09-10" }, affirmed: false });
+  const qm = [...deriveCostCompleteness([quiet], NOW), ...deriveRecurringAmountChange([quiet], NOW)].filter((m) => m.status === "ACTIVE");
+  const qd = composeCostInsights({ businessId: BIZ, facts: [], activeMeasures: qm.map((m, i) => ({ measureKey: m.measureKey, valueNumeric: m.valueNumeric!, valueUnit: m.valueUnit, observationCount: m.observationCount, trend: m.trend, ruleVersion: "v1", measureId: 600 + i, entityType: m.entityType, entityId: m.entityId, detail: m.detail })) });
+  ok("backbone-only: COST-08 still records the gap, but nothing is shown to the owner",
+    ((qm.find((m) => m.measureKey === "payables.cost_data_completeness")?.detail as any)?.gaps ?? []).includes("BACKBONE_NOT_AFFIRMED") && !qd.some((d) => d.insightKey === "cost.data_completeness") && qd.every((d) => d.uncertainty === null), qd.map((d) => [d.insightKey, d.uncertainty]));
   const noGate = composeCostInsights({ ...input, activeMeasures: input.activeMeasures.filter((m) => m.measureKey !== "payables.cost_data_completeness") });
   ok("without COST-08 the insight says completeness is unknown", noGate[0]?.uncertainty === "לא ידוע עד כמה נתוני העלות של העסק מלאים.");
   ok("dedupe keys are stable for the same facts", JSON.stringify(composeCostInsights(input).map((d) => d.dedupeKey)) === JSON.stringify(drafts.map((d) => d.dedupeKey)));
@@ -390,7 +401,7 @@ section("PATTERN insights · deterministic, comparison only, no meaning");
   const by = (k: string) => drafts.find((d) => d.insightKey === k)!;
   ok("three PATTERN insights", drafts.length === 3, drafts.map((d) => d.insightKey));
   ok("baseline: what changed, compared with what, which record", by("cost.baseline_shift")?.factLines.map((f) => f.text).join(" | ") ===
-    "3,000 ₪ לחודש ב־3/7/2026, 3,300 ₪ לחודש ב־1/10/2026 | עלות יום פעילות ממוצע: מ־98.56 ₪ ל־108.42 ₪ | שכירות: מ־3,000 ₪ ל־3,300 ₪ לחודש | הרמה החדשה נשמרת לפחות 30 יום", by("cost.baseline_shift")?.factLines.map((f) => f.text));
+    "מ־3,000 ₪ לחודש (3/7/2026) ל־3,300 ₪ לחודש (1/10/2026) | עלות יום פעילות ממוצע: מ־98.56 ₪ ל־108.42 ₪ | שכירות: מ־3,000 ₪ ל־3,300 ₪ לחודש | הרמה החדשה נשמרת לפחות 30 יום", by("cost.baseline_shift")?.factLines.map((f) => f.text));
   ok("upcoming: the owner's own allowed sentence shape", by("cost.upcoming_concentration")?.factLines[0].text === "28,300 ₪ רשומים לתשלום עד 30/10/2026" && by("cost.upcoming_concentration").factLines.some((f) => f.text === "הגבוה ביותר ב־12 תקופות קודמות של 30 יום שנבדקו: 3,300 ₪"), by("cost.upcoming_concentration")?.factLines.map((f) => f.text));
   ok("cash out: amounts and the largest payment, no judgement", by("cost.cash_out_above_range")?.factLines.some((f) => f.text === "התשלום הגדול ביותר בתקופה: 20,000 ₪"));
   ok("PATTERN level on the rule, FACT on the COST-08 gate, never MEANING",
