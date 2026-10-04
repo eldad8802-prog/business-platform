@@ -62,7 +62,7 @@
 \echo '17 N1 INFO: BusinessIdentityStatement rows'
 \echo '18 N2 INFO: BusinessIdentityFactAuthority rows'
 \echo '19 X1 the evidence role bypasses row-level security, so 17 and 18 are whole counts'
-echo '20 M1 M6 is on main and still pending after the P3-A prefix: no ledger row for it and no AcquisitionConnection relation (observed = ledger rows + relations)'
+\echo '20 M1 M6 is on main and still pending after the P3-A prefix: no ledger row for it and no AcquisitionConnection relation (observed = ledger rows + relations)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
