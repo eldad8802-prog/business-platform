@@ -27,7 +27,11 @@ import { GET as ownerGET, POST as ownerPOST } from "../app/api/integrations/acqu
 import { GET as sweepGET } from "../app/api/intake/sweep/route";
 import { runIntakeSweep } from "../lib/intake/intake-sweeper";
 import { deriveEventIdentity } from "../lib/intake/core/event-identity";
+import { setMetaCodeExchangeForTests, setMetaGraphCallForTests } from "../lib/intake/acquisition/providers/meta-graph";
+import { POST as metaPagesPOST } from "../app/api/integrations/acquisition/meta/pages/route";
+import { POST as metaConnectPOST } from "../app/api/integrations/acquisition/meta/connect/route";
 
+type MetaPagesBody = { handle?: string; pages?: { id: string; name: string; canAdvertise: boolean }[] };
 const RUN = `m6-${Date.now()}`;
 let pass = 0;
 const failures: string[] = [];
@@ -347,8 +351,8 @@ async function main() {
   down = false;
   fetched.length = 0;
   const later = new Date(Date.now() + 3 * 3_600_000);
-  const [r1, r2] = await Promise.all([runIntakeSweep({ now: later }), runIntakeSweep({ now: later })]);
-  ok("two concurrent sweeps: no business errors in either", r1.businessErrors === 0 && r2.businessErrors === 0, JSON.stringify([r1, r2]));
+  const [sw1, sw2] = await Promise.all([runIntakeSweep({ now: later }), runIntakeSweep({ now: later })]);
+  ok("two concurrent sweeps: no business errors in either", sw1.businessErrors === 0 && sw2.businessErrors === 0, JSON.stringify([sw1, sw2]));
   ok("two concurrent sweeps: A's recovered Meta lead was fetched ONCE (one worker per receipt)",
     fetched.filter((x) => x === "9100001").length === 1, JSON.stringify(fetched));
   ok("…and became exactly ONE Lead in A",
@@ -378,6 +382,58 @@ async function main() {
     intakeRegistry.get("web.form")!.hydrate!({ businessId: B.id, now: new Date() }, { providerAccountRef: webB.connection.publicId } as never));
   ok("a website receipt whose endpoint was revoked is ignored too", !!revokedWeb && webHydrate.kind === "ignored", JSON.stringify(webHydrate));
   setMetaGraphFetchForTests(null);
+
+  console.log("\n-- 10. owner Meta connect: login code → Pages + sealed handle → connect (no token in the browser) --");
+  const userB = await o.user.create({ data: { email: `${RUN}-b@lab.test`, password: "x", businessId: B.id, role: "USER" } });
+  const authB = { authorization: `Bearer ${signAuthToken(userB.id)}`, "content-type": "application/json" };
+  const ownerReq = (path: string, headers: Record<string, string>, body?: unknown) =>
+    new NextRequest(`http://m6.local${path}`, body === undefined ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+  const overview = async () => (await (await ownerGET(ownerReq("/api/integrations/acquisition", authB))).json()) as { meta?: { available?: boolean; login?: Record<string, string> | null } };
+
+  delete process.env.NEXT_PUBLIC_META_LEAD_ADS_CONFIG_ID;
+  ok("without the Meta login configuration, Meta is reported NOT available", (await overview()).meta?.available === false);
+  ok("…and the pages step refuses (503), nothing is called", (await metaPagesPOST(ownerReq("/api/integrations/acquisition/meta/pages", authB, { code: "c" }))).status === 503);
+  process.env.META_APP_ID ||= "1234567890";
+  process.env.NEXT_PUBLIC_META_LEAD_ADS_CONFIG_ID = "9876543210";
+  const ov = await overview();
+  ok("configured: Meta available, the browser gets only the public app id + login configuration",
+    ov.meta?.available === true && ov.meta.login?.configId === "9876543210" && !JSON.stringify(ov).includes(process.env.META_LEAD_ADS_APP_SECRET!), JSON.stringify(ov.meta));
+
+  const subscribed: string[] = [];
+  setMetaCodeExchangeForTests(async (url) => {
+    const code = new URL(url).searchParams.get("code");
+    return code === "good-code" ? { status: 200, json: { access_token: "USER-TOKEN-B" } } : { status: 400, json: { error: { code: 190 } } };
+  });
+  setMetaGraphCallForTests(async (method, path, token) => {
+    if (method === "GET" && path.startsWith("/me/accounts")) {
+      if (token !== "USER-TOKEN-B") return { status: 401, json: { error: { code: 190 } } };
+      return { status: 200, json: { data: [
+        { id: "4040404040", name: "B Studio", access_token: "PAGE-TOKEN-B2", tasks: ["ADVERTISE", "MANAGE"] },
+        { id: "5050505050", name: "B Fan Page", access_token: "PAGE-TOKEN-B3", tasks: ["MODERATE"] },
+      ] } };
+    }
+    if (method === "POST" && path.includes("/subscribed_apps")) { subscribed.push(`${path}|${token}`); return { status: 200, json: { success: true } }; }
+    return { status: 404, json: {} };
+  });
+  ok("a bad login code → refused (403), no handle", (await metaPagesPOST(ownerReq("/api/integrations/acquisition/meta/pages", authB, { code: "bad" }))).status === 403);
+  const pagesRes = await metaPagesPOST(ownerReq("/api/integrations/acquisition/meta/pages", authB, { code: "good-code" }));
+  const pagesBody = (await pagesRes.json()) as MetaPagesBody;
+  ok("a good code → the owner's Pages and a handle; no user or Page token in the answer",
+    pagesRes.status === 200 && pagesBody.pages?.length === 2 && typeof pagesBody.handle === "string" && !/USER-TOKEN|PAGE-TOKEN|access_token/.test(JSON.stringify(pagesBody)), JSON.stringify(pagesBody).slice(0, 200));
+  ok("the old body shape (a raw user token from the browser) is no longer accepted",
+    (await metaConnectPOST(ownerReq("/api/integrations/acquisition/meta/connect", authB, { userAccessToken: "USER-TOKEN-B", pageId: "4040404040" }))).status === 400);
+  ok("B's handle used by ANOTHER business → refused (400), nothing bound",
+    (await metaConnectPOST(ownerReq("/api/integrations/acquisition/meta/connect", auth, { handle: pagesBody.handle, pageId: "4040404040" }))).status === 400 &&
+      (await o.acquisitionConnection.count({ where: { externalResourceId: "4040404040" } })) === 0);
+  ok("a Page without the advertise task → refused (403)",
+    (await metaConnectPOST(ownerReq("/api/integrations/acquisition/meta/connect", authB, { handle: pagesBody.handle, pageId: "5050505050" }))).status === 403);
+  const connectRes = await metaConnectPOST(ownerReq("/api/integrations/acquisition/meta/connect", authB, { handle: pagesBody.handle, pageId: "4040404040" }));
+  const bound = await o.acquisitionConnection.findFirst({ where: { externalResourceId: "4040404040", status: "ACTIVE" } });
+  ok("connect → 201: the Page is subscribed with ITS token and bound to B, token encrypted",
+    connectRes.status === 201 && bound?.businessId === B.id && subscribed.some((s) => s.endsWith("|PAGE-TOKEN-B2")) && !!bound.credentialCiphertext && !JSON.stringify(bound).includes("PAGE-TOKEN-B2"),
+    JSON.stringify({ s: connectRes.status, subscribed }));
+  setMetaCodeExchangeForTests(null);
+  setMetaGraphCallForTests(null);
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

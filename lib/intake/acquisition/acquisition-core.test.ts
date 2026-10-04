@@ -13,6 +13,7 @@ import { normalizeOrigins } from "./connection.service";
 import { hashKey, newPublicId, newSharedKey, PUBLIC_ID_PATTERN, safeEqual } from "./keys";
 import { deriveLeadArrivals, leadSourceGroup } from "@/lib/services/crm/lead-briefing";
 import type { ClaimedIntakeEvent } from "@/lib/intake/core/contract";
+import { HANDLE_TTL_MS, openConnectHandle, sealConnectHandle } from "./connect-handle";
 
 let n = 0;
 function t(name: string, fn: () => void) {
@@ -151,6 +152,21 @@ t("Secretary arrivals: today's new leads grouped by source, labels in Hebrew", (
   assert.deepEqual(a.bySource.map((s) => [s.group, s.count]), [["meta", 3], ["google", 2], ["web", 2]]);
   assert.equal(leadSourceGroup("intake:meta.lead_ads").label, "פייסבוק/אינסטגרם");
   assert.equal(leadSourceGroup("MANUAL").group, "manual");
+});
+
+t("Meta connect handle: opens only for the same business, unexpired and untampered; never shows the token", () => {
+  process.env.ACQUISITION_CREDENTIAL_ENCRYPTION_KEY ||= "ab".repeat(32);
+  const now = Date.now();
+  const h = sealConnectHandle(7, "USER-TOKEN-1", now);
+  assert.ok(!h.includes("USER-TOKEN-1") && !Buffer.from(h, "base64url").toString("utf8").includes("USER-TOKEN-1"));
+  assert.equal(openConnectHandle(7, h, now + 1000), "USER-TOKEN-1");
+  assert.equal(openConnectHandle(8, h, now + 1000), null);
+  assert.equal(openConnectHandle(7, h, now + HANDLE_TTL_MS + 1), null);
+  const j = JSON.parse(Buffer.from(h, "base64url").toString("utf8"));
+  assert.equal(openConnectHandle(7, Buffer.from(JSON.stringify({ ...j, x: j.x + 60_000 })).toString("base64url"), now), null);
+  assert.equal(openConnectHandle(7, Buffer.from(JSON.stringify({ ...j, c: Buffer.from("x").toString("base64") })).toString("base64url"), now), null);
+  assert.equal(openConnectHandle(7, 42, now), null);
+  assert.equal(openConnectHandle(7, "not-a-handle", now), null);
 });
 
 console.log(`\nALL M6 ACQUISITION CORE TESTS PASSED — ${n} checks`);

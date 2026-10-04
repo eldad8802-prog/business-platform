@@ -45,7 +45,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!existing) return notFound;
       if (existing.sourceKey === "meta.lead_ads" && existing.externalResourceId) {
         const cred = await readMetaPageToken(businessId, existing.externalResourceId).catch(() => null);
-        if (cred) await unsubscribePage(existing.externalResourceId, cred.token);
+        if (cred) await unsubscribePage(existing.externalResourceId, cred.token).catch(() => undefined);
       }
       const c = await revokeConnection(id);
       return c ? NextResponse.json({ connection: c }) : notFound;
