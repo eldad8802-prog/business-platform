@@ -25,6 +25,10 @@
 //         STARTED AFTER the migration reached main and names the record's evidence file — and its
 //         log shows the evidence VERDICT: at least one PASS row and no FAIL row (a run "succeeds"
 //         even when a check inside it fails);
+//       * OWNER-BOUND RELEASE SETS: every approval record carrying "releaseSet" that shares a
+//         migration with expected must equal expected exactly (subset, superset, other order,
+//         conflicting sets refuse); a changed binding must name the decision it supersedes (see
+//         checkReleaseSet / checkReleaseBinding / checkSupersession);
 //       * prints the plan (name, class, checksum, approval) for the approver.
 //
 //   stage   (inside the protected job, AFTER approval, BEFORE any write)
@@ -127,6 +131,106 @@ export function checkApproval(name, record, fileSha) {
   return problems;
 }
 
+// ── OWNER-BOUND RELEASE SETS ───────────────────────────────────────────────────────────────────
+// The approved-prefix capability (stage) is TECHNICAL: it can apply any approved prefix of the
+// pending order. An owner decision can be narrower: "these migrations go to Production TOGETHER, in
+// one run". That is AUTHORITY, so it lives where authority lives — in the repository-tracked approval
+// record — never in a dispatch input:
+//
+//   "releaseSet": ["<name>", …]   optional; the complete set, in Prisma order, that must be applied
+//                                 together in one run.
+//
+// Restrict-only: a binding can only turn a release into a refusal, never authorize anything. Every
+// approval record that carries a releaseSet touching the requested release is consulted — not only
+// the records of the requested migrations — so a subset cannot slip through because the one record
+// that binds it belongs to a migration that was left out. Records without releaseSet keep the generic
+// prefix behaviour (backward compatible).
+//
+// Changing an owner's mind is a NEW authority artifact: the record that changes or removes a binding
+// must name the decision it replaces ("supersedes": "<previous decision URL>") and carry a new
+// decision link; the gate compares the record with its previous version in git history.
+
+/** Pure: the shape of one record's releaseSet. `known` = migration directory names in this checkout. */
+export function checkReleaseSet(name, record, known) {
+  if (!record || record.releaseSet === undefined) return [];
+  const rs = record.releaseSet;
+  if (!Array.isArray(rs) || rs.length === 0) return ["releaseSet must be a non-empty list of migration names"];
+  const problems = [];
+  const bad = rs.filter((n) => typeof n !== "string" || !NAME_RE.test(n));
+  if (bad.length) problems.push(`releaseSet holds names that are not migration names: ${bad.map(String).join(", ")}`);
+  const dup = rs.filter((n, i) => rs.indexOf(n) !== i);
+  if (dup.length) problems.push(`releaseSet lists a migration twice: ${[...new Set(dup)].join(", ")}`);
+  if (!rs.includes(name)) problems.push(`releaseSet does not contain the record's own migration ${name}`);
+  if (known) {
+    const unknown = rs.filter((n) => NAME_RE.test(String(n)) && !known.has(n));
+    if (unknown.length) problems.push(`releaseSet names migrations that do not exist in this checkout: ${unknown.join(", ")}`);
+  }
+  if (!bad.length && !dup.length && prismaOrder(rs).join() !== rs.join()) {
+    problems.push(`releaseSet is not in Prisma order (canonical: ${prismaOrder(rs).join(", ")})`);
+  }
+  return problems;
+}
+
+/**
+ * Pure: the release binding. `bindings` = every record that carries a releaseSet:
+ * [{ source, migration, releaseSet }]. Only bindings that share a migration with `expected` apply.
+ * Returns { problems, lines } — lines is the audit text printed for the approver.
+ */
+export function checkReleaseBinding(expected, bindings) {
+  const relevant = bindings.filter((b) => Array.isArray(b.releaseSet) && b.releaseSet.some((n) => expected.includes(n)));
+  const lines = [];
+  const problems = [];
+  if (!relevant.length) return { problems, lines };
+  const sets = new Map();
+  for (const b of relevant) {
+    const key = b.releaseSet.join(",");
+    if (!sets.has(key)) sets.set(key, { set: b.releaseSet, sources: [] });
+    sets.get(key).sources.push(b.source);
+  }
+  if (sets.size > 1) {
+    lines.push("conflicting owner-bound release sets:");
+    for (const { set, sources } of sets.values()) lines.push(`  [${set.join(", ")}] (${sources.join(", ")})`);
+    problems.push("REFUSED: approval records bind the requested migrations to DIFFERENT release sets — an owner decision must reconcile them (supersedes) before any of them is released");
+    return { problems, lines };
+  }
+  const [{ set, sources }] = [...sets.values()];
+  lines.push(`owner-bound release set detected (${sources.join(", ")}):`, ...set.map((n) => `  ${n}`));
+  lines.push("requested release:", ...expected.map((n) => `  ${n}`));
+  if (set.join() === expected.join()) return { problems, lines };
+  const inSet = expected.filter((n) => set.includes(n));
+  const outside = expected.filter((n) => !set.includes(n));
+  const left = set.filter((n) => !expected.includes(n));
+  if (!outside.length && left.length) {
+    problems.push(`REFUSED: requested migrations are only a subset of the owner-approved release set (left out: ${left.join(", ")}) — releasing part of it needs a new owner decision`);
+  } else if (outside.length && !left.length) {
+    problems.push(`REFUSED: requested migrations go beyond the owner-approved release set (outside it: ${outside.join(", ")})`);
+  } else if (outside.length) {
+    problems.push(`REFUSED: requested migrations differ from the owner-approved release set (left out: ${left.join(", ")}; outside it: ${outside.join(", ")})`);
+  } else {
+    problems.push(`REFUSED: requested order ${inSet.join(", ")} is not the owner-approved release order`);
+  }
+  return { problems, lines };
+}
+
+/**
+ * Pure: may `current` replace `previous` (the record file's previous version in git history)?
+ * A change of binding — a releaseSet added to an approved record, changed, or removed — is a new
+ * owner decision: `current.supersedes` must equal `previous.decision`, and `current.decision` must
+ * be a different decision link. Unchanged bindings need nothing.
+ */
+export function checkSupersession(current, previous) {
+  if (!previous || previous.__invalid) return [];
+  const before = previous.releaseSet === undefined ? null : JSON.stringify(previous.releaseSet);
+  const after = current?.releaseSet === undefined ? null : JSON.stringify(current?.releaseSet);
+  if (before === after) return [];
+  const problems = [];
+  if (current?.supersedes !== previous.decision) {
+    problems.push(`the release binding changed (${before ?? "none"} → ${after ?? "none"}) without "supersedes": "${previous.decision}" — a changed owner decision must name the decision it replaces`);
+  }
+  if (current?.decision === previous.decision) problems.push("the release binding changed but the decision link did not — link the NEW owner decision");
+  return problems;
+}
+
 /**
  * Pure: is this GitHub run the preflight the record claims? A successful, manually dispatched
  * prod-readonly-evidence.yml run FROM MAIN, started after the migration reached main, whose title
@@ -205,10 +309,46 @@ async function preflightRunOk(runId, notBefore, file) {
   return { ok: true };
 }
 
+/**
+ * Every approval record in this checkout (all of ops/release-approvals/*.json): the owner-bound
+ * release sets live in them. An unreadable record is reported, never skipped — a corrupt file must
+ * not be able to hide a binding.
+ */
+function allApprovalRecords() {
+  if (!existsSync(APPROVALS)) return [];
+  return readdirSync(APPROVALS).filter((f) => f.endsWith(".json")).map((f) => {
+    const path = `${APPROVALS}/${f}`; // forward slashes: also a git pathspec (git show <commit>:<path>)
+    try { return { path, name: f.replace(/\.json$/, ""), record: JSON.parse(readFileSync(path, "utf8")) }; }
+    catch { return { path, name: f.replace(/\.json$/, ""), invalid: true }; }
+  });
+}
+
+/**
+ * The version a binding change is judged against: walking the record's git history from newest to
+ * oldest, the most recent EARLIER version whose releaseSet differs from the current one (so a change
+ * cannot be laundered by touching the file again afterwards). { record } or { none: true } when the
+ * binding never changed; { error } when the history cannot be read (shallow or missing clone) — the
+ * caller refuses rather than assume.
+ */
+function previousApproval(path, current) {
+  try {
+    const commits = execFileSync("git", ["log", "--format=%H", "--", path], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (!commits.length) return { error: true };
+    const binding = (r) => (r?.releaseSet === undefined ? null : JSON.stringify(r.releaseSet));
+    for (const c of commits.slice(1)) {
+      let rec;
+      try { rec = JSON.parse(execFileSync("git", ["show", `${c}:${path}`], { encoding: "utf8" })); } catch { rec = { __invalid: true }; }
+      if (rec.__invalid || binding(rec) !== binding(current)) return { record: rec };
+    }
+    return { none: true };
+  } catch { return { error: true }; }
+}
+
 /** The authority checks (plan, and again in the protected job). Returns { refused, rows }. */
 async function authorize(expected) {
   let refused = false;
   const rows = [];
+  const known = new Set(checkoutDirs());
   for (const name of expected) {
     const file = join(MIGRATIONS, name, "migration.sql");
     if (!existsSync(file)) { rows.push(`${name} | REFUSED — not a migration in this checkout`); refused = true; continue; }
@@ -229,6 +369,31 @@ async function authorize(expected) {
   }
   const order = prismaOrder(expected);
   if (order.join() !== expected.join()) { refused = true; rows.push(`REFUSED — expected is not in Prisma order; Prisma applies: ${order.join(", ")}`); }
+
+  // Owner-bound release sets: every record that binds, plus every record of a requested migration.
+  const bindings = [];
+  for (const r of allApprovalRecords()) {
+    const touches = expected.includes(r.name) || (!r.invalid && Array.isArray(r.record.releaseSet) && r.record.releaseSet.some((n) => expected.includes(n)));
+    if (r.invalid) {
+      if (expected.includes(r.name)) continue; // already refused above as invalid JSON
+      refused = true; rows.push(`REFUSED — ${r.path} is not valid JSON (it could hide an owner-bound release set)`); continue;
+    }
+    if (r.record.releaseSet !== undefined) {
+      const shape = checkReleaseSet(r.record.migration ?? r.name, r.record, known);
+      // A malformed binding refuses every release (fail closed): it cannot be told what it binds.
+      if (shape.length) { refused = true; rows.push(`REFUSED — ${r.path}: ${shape.join("; ")}`); continue; }
+      bindings.push({ source: r.path, migration: r.record.migration, releaseSet: r.record.releaseSet });
+    }
+    if (touches) {
+      const prev = previousApproval(r.path, r.record);
+      if (prev.error) { refused = true; rows.push(`REFUSED — cannot read the git history of ${r.path} (a changed release binding could not be detected)`); continue; }
+      const sup = checkSupersession(r.record, prev.record);
+      if (sup.length) { refused = true; rows.push(`REFUSED — ${r.path}: ${sup.join("; ")}`); }
+    }
+  }
+  const binding = checkReleaseBinding(expected, bindings);
+  rows.push(...binding.lines);
+  if (binding.problems.length) { refused = true; rows.push(...binding.problems); }
   return { refused, rows };
 }
 
@@ -407,6 +572,60 @@ function selfTest() {
   t("verdict: one FAIL row refuses (the P3-A 18/19 run shape)", /1 FAIL/.test(checkPreflightVerdict(`${ts} 1 | PASS | 0 \n${ts} 3 | FAIL | 1 `) ?? ""));
   t("verdict: no PASS row refuses", checkPreflightVerdict(`${ts}hello\n${ts}CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END`) !== null);
   t("verdict: SQL text naming 'FAIL' is not a verdict", checkPreflightVerdict(`${ts}SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result\n${ts} 1 | PASS | 0 `) === null);
+  // ── owner-bound release sets (synthetic names) ─────────────────────────────────────────────
+  const A = "20300101090000_a", B = "20300101090100_b", C = "20300101090200_c", D = "20300101090300_d";
+  const KNOWN = new Set([A, B, C, D]);
+  const ABCD = [A, B, C, D];
+  const bind = (migration, releaseSet, source = `ops/release-approvals/${migration}.json`) => ({ source, migration, releaseSet });
+  const allowed = (expected, bindings) => checkReleaseBinding(expected, bindings).problems.length === 0;
+  const why = (expected, bindings) => checkReleaseBinding(expected, bindings).problems.join(" ");
+  t("R1 no releaseSet: the exact pending set is allowed (prefix layer, binding silent)",
+    checkPrefix(ABCD, ABCD).ok && allowed(ABCD, []));
+  t("R2 no releaseSet: a shorter prefix is allowed, the rest held",
+    checkPrefix(ABCD, [A, B]).ok && checkPrefix(ABCD, [A, B]).held.join() === `${C},${D}` && allowed([A, B], []));
+  const abc = [bind(B, [A, B, C])];
+  t("R3 releaseSet [A,B,C] + dispatch [A,B,C] → allowed", allowed([A, B, C], abc));
+  t("R4 releaseSet [A,B,C] + dispatch [A,B] → refused as a subset", /only a subset.*left out: .*_c/.test(why([A, B], abc)));
+  t("R5 releaseSet [A,B,C] + dispatch [A] → refused as a subset", /only a subset/.test(why([A], abc)));
+  t("R6 releaseSet [A,B,C] + dispatch [A,B,C,D] → refused as beyond the set", /beyond the owner-approved release set.*_d/.test(why([A, B, C, D], abc)));
+  t("R6b a dispatch that leaves part out AND adds another → refused as different", /differ from.*left out: .*_c.*outside it: .*_d/.test(why([A, B, D], abc)));
+  t("R6c a dispatch that touches the set only through a member it left the record of out → still refused (all binding records consulted)",
+    /only a subset/.test(why([A], [bind(C, [A, B, C])])));
+  t("R7 B and C both bind [A,B,C] → allowed", allowed([A, B, C], [bind(B, [A, B, C]), bind(C, [A, B, C])]));
+  t("R8 B binds [A,B,C], C binds [A,B] → refused as conflicting", /DIFFERENT release sets/.test(why([A, B, C], [bind(B, [A, B, C]), bind(C, [A, B])])));
+  t("R8b the conflict refuses whichever subset is requested", /DIFFERENT/.test(why([A, B], [bind(B, [A, B, C]), bind(C, [A, B])])));
+  t("R9 a duplicate in releaseSet → refused", checkReleaseSet(B, { releaseSet: [A, B, B] }, KNOWN).some((p) => /twice/.test(p)));
+  t("R10 an unknown migration in releaseSet → refused", checkReleaseSet(B, { releaseSet: [A, B, "20300101099900_ghost"] }, KNOWN).some((p) => /do not exist/.test(p)));
+  t("R10b a non-migration name in releaseSet → refused", checkReleaseSet(B, { releaseSet: [A, B, "main"] }, KNOWN).some((p) => /not migration names/.test(p)));
+  t("R11 the record's own migration absent from its releaseSet → refused", checkReleaseSet(B, { releaseSet: [A, C] }, KNOWN).some((p) => /own migration/.test(p)));
+  t("R12 a releaseSet out of Prisma order → refused deterministically, naming the canonical order",
+    checkReleaseSet(B, { releaseSet: [B, A, C] }, KNOWN).some((p) => /not in Prisma order \(canonical: 20300101090000_a, 20300101090100_b, 20300101090200_c\)/.test(p)));
+  t("R12b an empty or non-list releaseSet → refused", checkReleaseSet(B, { releaseSet: [] }, KNOWN).length === 1 && checkReleaseSet(B, { releaseSet: "all" }, KNOWN).length === 1);
+  t("R12c a well-formed releaseSet passes its shape check", checkReleaseSet(B, { releaseSet: [A, B, C] }, KNOWN).length === 0);
+  t("R12d no releaseSet (legacy record) → no shape problem, no binding", checkReleaseSet(B, { migration: B }, KNOWN).length === 0 && allowed([A], []));
+  const legacy = { migration: B, sha256: "x".repeat(64), decision: "https://github.com/o/r/pull/1#c", approvedBy: "owner", preflightRun: 123, preflightFile: "ops/evidence/b-preflight.sql" };
+  t("R13 checksum mismatch still refuses a bound record (authority stays checksum-bound)",
+    checkApproval(B, { ...legacy, releaseSet: [A, B, C] }, "y".repeat(64)).some((p) => /checksum/.test(p)));
+  t("R13b a legacy record without releaseSet still validates unchanged", checkApproval(B, legacy, "x".repeat(64)).length === 0);
+  // R14 (unfinished / failed ledger row) and R15 (stale / failed / wrong-file preflight run) are the
+  // unchanged ledger and preflight checks above (decide(), checkPreflightRun, checkPreflightVerdict).
+  t("R14 an unfinished row refuses before any binding question (the prefix layer has no pending answer)", !checkPrefix([], [A]).ok);
+  t("R15 a bound record still needs a passing preflight (a FAIL verdict refuses)", checkPreflightVerdict(" 1 | FAIL | 1 ") !== null);
+  const v1 = { ...legacy, releaseSet: [A, B, C] };
+  t("R16 changing [A,B,C] → [A,B] without supersedes → refused",
+    checkSupersession({ ...v1, releaseSet: [A, B] }, v1).some((p) => /supersedes/.test(p)));
+  t("R16b … with supersedes but the SAME decision link → refused",
+    checkSupersession({ ...v1, releaseSet: [A, B], supersedes: v1.decision }, v1).some((p) => /decision link did not/.test(p)));
+  const v2 = { ...v1, releaseSet: [A, B], supersedes: v1.decision, decision: "https://github.com/o/r/pull/2#new" };
+  t("R16c … with supersedes = the old decision and a NEW decision → accepted", checkSupersession(v2, v1).length === 0);
+  t("R16d under the new authority [A,B] is allowed and [A,B,C] is refused",
+    allowed([A, B], [bind(B, v2.releaseSet)]) && /beyond/.test(why([A, B, C], [bind(B, v2.releaseSet)])));
+  t("R16e removing a binding is a change too (needs supersedes)", checkSupersession({ ...legacy }, v1).length >= 1);
+  t("R16f adding a binding to an approved record is a change too", checkSupersession(v1, legacy).length >= 1);
+  t("R16g an unchanged binding needs nothing; a first version has no previous", checkSupersession(v1, { ...v1 }).length === 0 && checkSupersession(v1, undefined).length === 0);
+  const audit = checkReleaseBinding([A, B], abc).lines.join("\n");
+  t("audit: the gate prints the bound set and the requested release, member by member",
+    audit.includes("owner-bound release set detected") && audit.includes(`  ${C}`) && audit.includes("requested release:\n  " + A + "\n  " + B));
   console.log(failed ? `\nrelease-migrate-gate self-test: ${failed} FAILED` : "\nrelease-migrate-gate self-test: all passed");
   return failed ? 1 : 0;
 }

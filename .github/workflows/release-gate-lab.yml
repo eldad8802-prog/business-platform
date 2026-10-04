@@ -18,6 +18,9 @@
 #      (ledger proof) after it
 #   5. approved prefix (.release-gate/prefix-lab.sh): the owner's 12 cases on the real
 #      stage → prisma migrate deploy → confirm path, the actual ledger checked after each
+#   6. owner-bound release sets (.release-gate/release-set-lab.sh): an approval record's releaseSet
+#      allows exactly that set; a subset, a superset, conflicting sets, a malformed or unreadable
+#      binding and a binding changed without "supersedes" are refused; no binding → prefix unchanged
 #
 # Until B4 (#611) and the P2 forensic (#614) are on main, their files are read from those PR
 # branches (read-only git); the B4 file must hash to the reviewed sha256.
@@ -206,3 +209,6 @@ jobs:
           # P3A2 record names. M6 uses its real record and preflight run.
           P3A_PREFLIGHT_RUN: "37227137539"
         run: bash .release-gate/prefix-lab.sh
+
+      - name: 6. Owner-bound release sets — the real gate CLI (plan) in throwaway git checkouts, synthetic migrations
+        run: bash .release-gate/release-set-lab.sh
