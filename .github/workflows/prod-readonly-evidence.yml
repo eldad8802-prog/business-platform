@@ -58,6 +58,8 @@ on:
           - 'ops/evidence/business-tenant-write-rls-production-evidence.sql'
           - 'ops/evidence/business-b4-role-classification.sql'
           - 'ops/evidence/cost-learning-tenant-breakdown.sql'
+          - 'ops/evidence/m6-acquisition-connections-preflight.sql'
+          - 'ops/evidence/m6-acquisition-connections-production-evidence.sql'
 
 permissions:
   contents: read
