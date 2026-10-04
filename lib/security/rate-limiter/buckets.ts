@@ -34,6 +34,22 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "global", limit: 600, windowSeconds: 60 },
     ],
   },
+  // M6 acquisition webhooks (Meta / Google / website server posts), after the trusted resolver named
+  // the business. Fail-OPEN: a Redis blip must not drop a real lead (the provider would not retry).
+  ACQUISITION_INTAKE: {
+    failMode: "open",
+    rules: [{ scope: "business", limit: 300, windowSeconds: 60 }],
+  },
+  // M6 website BROWSER posts (a browser cannot keep a secret): per IP and per business, so one
+  // visitor cannot flood the leads of a business. Fail-OPEN for the same reason.
+  ACQUISITION_WEB_PUBLIC: {
+    failMode: "open",
+    rules: [
+      { scope: "ip", limit: 10, windowSeconds: 60 },
+      { scope: "ip", limit: 60, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 120, windowSeconds: 60 * 60 },
+    ],
+  },
   // Regular Documents read API (inbox / list). Keyed by user.
   DOCUMENTS_API: {
     failMode: "open",

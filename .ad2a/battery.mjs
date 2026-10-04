@@ -261,6 +261,10 @@ async function main() {
   // Business Intake M4 — migration 20261001090000_m4_identity_routing, mirrored exactly.
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "IdentityLink", "IdentityProposal" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "IdentityLink", "IdentityProposal" FROM ${RT_ROLE}`);
+  // M6 — migration 20261009090000_m6_acquisition_connections, mirrored exactly (SELECT, INSERT,
+  // UPDATE; DELETE revoked): the erasure revokes connections in place with an UPDATE.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "AcquisitionConnection" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "AcquisitionConnection" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );

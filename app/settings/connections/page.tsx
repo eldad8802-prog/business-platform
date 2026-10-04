@@ -4,6 +4,7 @@ import styles from "../settings-desk.module.css";
 import { PaymentConnectionCard } from "@/components/settings/PaymentConnectionCard";
 import { IntegrationStatusCards } from "@/components/settings/IntegrationStatusCards";
 import { AuthorityConnectionCard } from "@/components/settings/AuthorityConnectionCard";
+import { LeadSourcesPanel } from "@/components/settings/LeadSourcesPanel";
 
 export default function SettingsConnectionsPage() {
   return (
@@ -13,6 +14,7 @@ export default function SettingsConnectionsPage() {
         <PaymentConnectionCard />
         <AuthorityConnectionCard />
         <IntegrationStatusCards />
+        <LeadSourcesPanel />
       </div>
       <SettingsSection>
         <p className="text-sm leading-6 text-[var(--dz-text-muted)]">

@@ -301,6 +301,24 @@ export async function markFailed(
   );
 }
 
+/**
+ * M6 — a notification-only source completed its receipt (hydrate). The payload stays PERSONAL DATA
+ * under the same purge rules; only an unfinished receipt (not completed, payload not purged) changes.
+ */
+export async function replacePayload(
+  businessId: number,
+  eventId: number,
+  payload: Prisma.InputJsonValue,
+  metadata?: Prisma.InputJsonValue
+): Promise<void> {
+  await withTenantTransaction((tx) =>
+    tx.intakeEvent.updateMany({
+      where: { id: eventId, businessId, payloadPurgedAt: null, status: { in: ["RECEIVED", "FAILED"] } },
+      data: { payload, ...(metadata !== undefined ? { metadata } : {}) },
+    })
+  );
+}
+
 /** Record how far processing got (normalized / routed), without other changes. */
 export async function markStage(businessId: number, eventId: number, stage: IntakeStage): Promise<void> {
   await withTenantTransaction((tx) =>

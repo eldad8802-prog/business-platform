@@ -25,9 +25,10 @@
  * here takes a businessId from a payload.
  */
 
-import type { IntakeEventFamily } from "@prisma/client";
+import type { IntakeEventFamily, Prisma } from "@prisma/client";
 import { runTenantJob } from "@/lib/tenant/job";
 import {
+  replacePayload,
   claimEvent,
   errorCodeOf,
   listDueEventIds,
@@ -234,6 +235,27 @@ export async function processIntakeEvent(
       logIntake("ignored", { ...base, code: "payload_unavailable" });
       await emitSettled(event, "ignored", null, now);
       return "ignored";
+    }
+
+    // M6 — a notification-only source completes its receipt first (normalize stays pure).
+    if (adapter.hydrate) {
+      const h = await adapter.hydrate(ctx, event);
+      if (h.kind === "deferred") {
+        await markDeferred(businessId, event, h.until, h.code);
+        logIntake("deferred", { ...base, stage: "hydrate", code: h.code });
+        return "deferred";
+      }
+      if (h.kind === "ignored") {
+        await markIgnored(businessId, event.id, h.code);
+        logIntake("ignored", { ...base, stage: "hydrate", code: h.code });
+        await emitSettled(event, "ignored", null, now);
+        return "ignored";
+      }
+      if (h.kind === "hydrated") {
+        await replacePayload(businessId, event.id, h.payload, h.metadata);
+        event.payload = h.payload as Prisma.JsonValue;
+        if (h.metadata !== undefined) event.metadata = h.metadata as Prisma.JsonValue;
+      }
     }
 
     const normalized = adapter.normalize(event);

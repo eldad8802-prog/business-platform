@@ -12,8 +12,9 @@ import { runIntakeSweep } from "@/lib/intake/intake-sweeper";
  * the caller: every tenant is resolved and entered server-side. The response is
  * counts only.
  *
- * Not scheduled by this change. It is callable by the intake-sweep workflow
- * (manual dispatch); putting it on a schedule is an owner decision.
+ * Scheduled every 10 minutes by .github/workflows/intake-sweep.yml (POST), with
+ * a daily Vercel cron backstop (GET, vercel.json) should that schedule ever be
+ * suspended. Concurrent runs are safe: receipts are claimed under a lease.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,11 @@ async function handle(req: NextRequest) {
     });
     return NextResponse.json({ ok: false, error: "sweep_failed" }, { status: 500 });
   }
+}
+
+/** Vercel Cron invokes GET with the CRON_SECRET bearer — the daily backstop. */
+export async function GET(req: NextRequest) {
+  return handle(req);
 }
 
 export async function POST(req: NextRequest) {

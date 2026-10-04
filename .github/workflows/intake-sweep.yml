@@ -1,23 +1,28 @@
-# Business Intake M2 — the intake sweeper.
+# Business Intake — the intake sweeper (scheduled).
 #
-# The WhatsApp webhook writes a durable IntakeEvent receipt before it answers
-# Meta, then processes it. A receipt that did not finish (a failure on its
-# backoff, a throttled document, a worker that died) is retried by the next
-# webhook for the same business — and by this sweeper, for businesses that go
-# quiet.
+# Every webhook (WhatsApp, and the M6 acquisition sources: website forms, Google
+# Ads lead forms, Meta Lead Ads) writes a durable IntakeEvent receipt before it
+# answers, then processes it. A receipt that did not finish — a failure on its
+# backoff, a Meta lead whose answers could not be fetched yet, a throttled
+# document, a worker that died — is retried by this sweeper, so a business that
+# goes quiet still gets its lead.
 #
-# MANUAL DISPATCH ONLY. Scheduling a job that calls Production is an owner
-# decision taken after the M2 release, not something this change switches on.
-# To schedule it, add:
-#   schedule:
-#     - cron: "*/10 * * * *"
+# WHY GITHUB ACTIONS. Same as payment-settlement-recovery.yml: Vercel Hobby crons
+# run at most daily; a daily Vercel cron (vercel.json) remains as a backstop.
 #
-# The only secret is CRON_SECRET (the same repository secret settlement recovery
-# uses). The endpoint answers counts only.
+# Safe to run at any cadence and concurrently: each receipt is claimed under a
+# lease (one worker per receipt), every write is keyed by the receipt's unique
+# (business, source, provider id), a revoked connection's receipts are settled
+# IGNORED, and every tenant is entered server-side under its own RLS context.
+#
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` environment
+# (main-only). The endpoint answers counts only; they go to the step summary.
 
-name: intake sweep (manual)
+name: intake sweep (scheduled)
 
 on:
+  schedule:
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -30,12 +35,13 @@ concurrency:
 jobs:
   sweep:
     # H-3/M-1: CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the
-    # protected `cron` environment (same binding as knowledge-derive.yml; owner action in PR 525).
+    # protected `cron` environment (same binding as payment-settlement-recovery.yml).
     if: github.ref == 'refs/heads/main'
     environment: cron
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      # The endpoint answers 500 when any business failed to sweep, so an unhealthy run goes red.
       - name: Sweep intake receipts on Production
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -49,4 +55,8 @@ jobs:
             -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$SWEEP_URL")
           echo "HTTP $code"
           cat sweep.json; echo
+          {
+            echo "### Intake sweep — HTTP $code"
+            echo '```json'; cat sweep.json; echo; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           [ "$code" = "200" ] || { echo "::error::intake sweep answered $code"; exit 1; }

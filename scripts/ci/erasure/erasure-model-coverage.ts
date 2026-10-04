@@ -140,6 +140,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // cleared under tenant context and the battery proves the sentinel is gone.
   Notification: { disposition: "ERASURE_MANAGED" },
   WhatsAppConnection: { disposition: "ERASURE_MANAGED" },
+  // M6 — revoked in place by account deletion's integration stage (REVOKE_INTEGRATIONS).
+  AcquisitionConnection: { disposition: "ERASURE_MANAGED" },
   EmailConnection: { disposition: "ERASURE_MANAGED" },
   OAuthToken: { disposition: "ERASURE_MANAGED" },
   POSApiKey: { disposition: "ERASURE_MANAGED" },

@@ -291,9 +291,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "intake", name: "Business intake (unified ingress)", coverage: "CHANNEL", channelOf: ["conversations", "leads", "customers"],
-    reason: "Every inbound event becomes a receipt routed into conversations/leads/customers; its evidence is learned there, against IntakeEvent.occurredAt (business time).",
+    reason: "Every inbound event becomes a receipt routed into conversations/leads/customers; its evidence is learned there, against IntakeEvent.occurredAt (business time). M6 acquisition connections are its trusted source mapping (configuration, not evidence); the lead's source is learned through LEAD_LIFECYCLE_STARTED.intakeSource.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: ["IntakeEvent", "IntakeNormalizedEvent"], sensors: ["INTAKE_EVENT_SETTLED", "INTAKE_IDENTITY_RESOLVED"], legacyEvents: [], routes: ["api/intake"],
+    models: ["IntakeEvent", "IntakeNormalizedEvent", "AcquisitionConnection"], sensors: ["INTAKE_EVENT_SETTLED", "INTAKE_IDENTITY_RESOLVED"], legacyEvents: [], routes: ["api/intake"],
     outcome: NO_OUTCOME,
   },
   {

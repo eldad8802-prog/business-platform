@@ -243,6 +243,18 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "identity_proposal_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // M6 — acquisition connections (the trusted provider-resource → business mapping).
+  // Per command, NO DELETE: revoke is an UPDATE, and the erasure revokes in place.
+  {
+    table: "AcquisitionConnection",
+    migration: "20261009090000_m6_acquisition_connections",
+    why: "holds the encrypted Meta Page token and the owner's label; the erasure revokes the row and clears both with an UPDATE",
+    policies: [
+      { name: "m6_acquisition_connection_select", command: "SELECT", using: TENANT },
+      { name: "m6_acquisition_connection_insert", command: "INSERT", check: TENANT },
+      { name: "m6_acquisition_connection_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   // B4 — Business keeps every read (login, session, signup, lifecycle gates and the
   // public coupon pages read it before a tenant exists) but its WRITES are pinned to
   // the tenant. The erasure's two Business transitions name their own business first.
@@ -582,6 +594,10 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   IntakeNormalizedEvent: {
     verbs: SIU,
     basis: "migration 20260929090000_m3_canonical_intake grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  AcquisitionConnection: {
+    verbs: SIU,
+    basis: "migration 20261009090000_m6_acquisition_connections grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
 };
 

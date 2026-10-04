@@ -1,0 +1,125 @@
+# M6 — first-wave acquisition connectors (website forms, Google Ads lead forms, Meta Lead Ads).
+#
+#   core      the no-database acquisition suite + the intake / identity / sensor suites it touches
+#   battery   PostgreSQL 17, Production's RLS (replayed verbatim from the migrations), the REAL M6
+#             migration, a NOBYPASSRLS runtime running the app code: the real webhook routes and
+#             owner API, the real intake processor, M4 identity, routeToLead, M5 lifecycle, the
+#             Secretary briefing, learning-signal privacy, tenant isolation.
+#
+# Synthetic credentials; ZERO secrets; ZERO network (the Meta Graph read is stubbed in-process).
+
+name: m6 — acquisition connectors (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/intake/**"
+      - "app/api/intake/acquisition/**"
+      - "app/api/integrations/acquisition/**"
+      - "lib/services/crm/lead-briefing.ts"
+      - "lib/services/crm/lead.service.ts"
+      - "lib/services/crm/lead-lifecycle.service.ts"
+      - "lib/sensors/catalogue.ts"
+      - "lib/security/rate-limiter/**"
+      - "components/leads/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261009090000_m6_acquisition_connections/**"
+      - ".m6/**"
+      - ".github/workflows/m6-acquisition-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: M6 acquisition core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/intake/acquisition/acquisition-core.test.ts
+      - run: npx tsx lib/intake/core/intake-core.test.ts
+      - run: npx tsx lib/intake/identity/identity-core.test.ts
+      - run: npx tsx lib/sensors/sensors.test.ts
+
+  battery:
+    name: M6 battery (PG17, Production RLS, real M6 migration, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m6_owner
+          POSTGRES_PASSWORD: m6_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m6
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m6_owner -d dubiz_m6"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNER_URL: postgresql://m6_owner:m6_ci_synthetic_owner_pw@localhost:5432/dubiz_m6
+      RUNTIME_URL: postgresql://app_runtime:m6_ci_synthetic_runtime_pw@localhost:5432/dubiz_m6
+      AUTH_TOKEN_SECRET: m6_ci_secret_synthetic_at_least_32_characters_long
+      META_LEAD_ADS_APP_SECRET: m6_ci_synthetic_meta_app_secret
+      META_LEAD_ADS_VERIFY_TOKEN: m6_ci_synthetic_verify_token
+      ACQUISITION_CREDENTIAL_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PGPASSWORD: m6_ci_synthetic_owner_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Roles as in Production (runtime NOSUPERUSER NOBYPASSRLS; app_auth / app_ctlplane / app_admin groups)
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 'm6_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS"
+
+      - name: 2. Schema without M6 (db push), then the REAL M6 migration
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            let s = fs.readFileSync("prisma/schema.prisma", "utf8");
+            const a = s.indexOf("model AcquisitionConnection {");
+            const b = s.indexOf("\n}\n", a) + 3;
+            s = s.slice(0, a) + s.slice(b);
+            s = s.replace(/\n\s*acquisitionConnections\s+AcquisitionConnection\[\]/, "");
+            fs.writeFileSync("/tmp/base.prisma", s);'
+          npx prisma db push --schema /tmp/base.prisma --skip-generate
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
+          npx prisma generate
+
+      - name: 3. Production row-level security, replayed verbatim from the migrations
+        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections
+
+      - name: 4. M6 acquisition battery — real routes, real intake, M4 identity, M5 lifecycle, Secretary, isolation
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/acquisition-battery.ts

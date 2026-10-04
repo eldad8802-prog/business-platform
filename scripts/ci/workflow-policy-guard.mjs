@@ -70,6 +70,9 @@ export const EXEMPT = {
  * the job is bound to `cron` (WP-3/WP-6) and main-only (WP-4). Only the SCHEDULE trigger is
  * sanctioned; a push / pull_request / pull_request_target / workflow_run trigger, `contents: write`
  * or `git push` in this file still fails WP-5.
+ *
+ * intake-sweep.yml is the same shape for the same reason: a lead receipt that did not finish when
+ * it arrived (Meta answers not yet readable, a transient failure) is retried every 10 minutes.
  */
 export const SANCTIONED = [
   {
@@ -77,6 +80,12 @@ export const SANCTIONED = [
     file: "payment-settlement-recovery.yml",
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: 10-minute settlement recovery; CRON authority bound to the `cron` environment, main-only",
+  },
+  {
+    rule: "WP-5",
+    file: "intake-sweep.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: 10-minute intake retry (M6 acquisition + WhatsApp receipts); CRON authority bound to the `cron` environment, main-only",
   },
 ];
 
@@ -352,13 +361,17 @@ function selfTest() {
   const SF = "payment-settlement-recovery.yml";
   const settle = `on:\n  schedule:\n    - cron: "*/10 * * * *"\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  recover:\n    if: github.ref == 'refs/heads/main'\n    environment: cron\n    runs-on: ubuntu-latest\n    steps:\n      - env:\n          CRON_SECRET: \${{ secrets.CRON_SECRET }}\n        run: echo\n`;
   const judge = (file, text) => {
-    const s = applySanctioned(checkWorkflowText(file, text).map(([rule, msg]) => ({ file, rule, msg })));
+    // Each file is judged against ITS sanctions only (the real run sees every file at once).
+    const s = applySanctioned(checkWorkflowText(file, text).map(([rule, msg]) => ({ file, rule, msg })), SANCTIONED.filter((x) => x.file === file));
     return { failures: [...s.failures, ...s.rest.map((v) => `[FAIL] ${v.rule} ${v.file}: ${v.msg}`)], recorded: s.recorded };
   };
   const has = (r, rule) => r.failures.some((f) => f.includes(` ${rule} `));
   const settleCases = [
     ["compliant: cron-bound, main-only, schedule reported as sanctioned (not silent)", () => { const r = judge(SF, settle); return r.failures.length === 0 && r.recorded.length === 1 && r.recorded[0].includes("schedule trigger"); }],
     ["regression to repo-level authority (no environment) fails WP-3", () => has(judge(SF, settle.replace("    environment: cron\n", "")), "WP-3")],
+    ["intake-sweep.yml: the same cron-bound, main-only schedule is sanctioned", () => { const r = judge("intake-sweep.yml", settle); return r.failures.length === 0 && r.recorded.length === 1; }],
+    ["intake-sweep.yml: a push trigger is NOT covered (fails WP-5)", () => has(judge("intake-sweep.yml", settle.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n")), "WP-5")],
+    ["intake-sweep.yml: no environment fails WP-3", () => has(judge("intake-sweep.yml", settle.replace("    environment: cron\n", "")), "WP-3")],
     ["an inappropriate environment (production-db) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: production-db")), "WP-6")],
     ["an inappropriate environment (knowledge-derive) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: knowledge-derive")), "WP-6")],
     ["dropping the main-only condition fails WP-4", () => has(judge(SF, settle.replace("    if: github.ref == 'refs/heads/main'\n", "")), "WP-4")],
