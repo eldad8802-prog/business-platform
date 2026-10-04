@@ -86,7 +86,7 @@ export const SENSORS = {
     payloadKeys: ["previousStartsAt", "startsAt", "durationChanged"],
     describes: "An appointment's time was changed; the previous and new start.",
     timeSemantics: "ACTION_TIME",
-    learning: { role: "AUDIT_ONLY", reason: "Only record of a reschedule (business times are in the payload); not consumed yet." },
+    learning: { role: "OBSERVATION_SOURCE", consumedBy: ["APPT-04"] },
   }),
 
   /* ─────────────────────────────── suppliers / purchasing ─────────────────────────────── */
@@ -252,7 +252,7 @@ export const SENSORS = {
     payloadKeys: ["kind", "format", "rowCount"],
     describes: "The owner exported business data out of Dubiz; which kind and how much.",
     timeSemantics: "ACTION_TIME",
-    learning: { role: "AUDIT_ONLY", reason: "Only record of an export (accountant pack, CSV, uniform file); not consumed yet." },
+    learning: { role: "OBSERVATION_SOURCE", consumedBy: ["REP-01"] },
   }),
 
   /* ─────────────────────────────── conversations ─────────────────────────────── */

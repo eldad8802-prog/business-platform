@@ -36,6 +36,15 @@ import {
 } from "../rules/income";
 import { computeExpectedPaymentDate, resolveCustomerPaymentTermsDays } from "@/lib/services/billing/collection/payment-terms";
 import { authoritativeAllocationWhere, authoritativeCreditNoteWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
+import {
+  openingOf,
+  type ConversationOpeningObservation, type FollowUpObservation, type LeadObservation,
+} from "../rules/funnel";
+import {
+  ACCOUNTANT_EXPORT_KINDS,
+  type ActObservation, type AppointmentObservation, type DemandSignalObservation, type HandledInstallmentObservation,
+  type ObligationObservation,
+} from "../rules/operations";
 
 function startOf(now: Date, windowDays: number): Date {
   return new Date(now.getTime() - windowDays * DAY_MS);
@@ -656,7 +665,7 @@ export async function loadPaymentRequests(businessId: number, now: Date, windowD
     tx.paymentRequest.findMany({
       where: { businessId, createdAt: { gte: startOf(now, windowDays), lte: now } },
       orderBy: [{ id: "asc" }],
-      select: { id: true, businessId: true, customerId: true, createdAt: true, status: true, paidAt: true, expiresAt: true },
+      select: { id: true, businessId: true, customerId: true, createdAt: true, status: true, paidAt: true },
     }),
   );
   return rows.map((p) => ({
@@ -667,6 +676,158 @@ export async function loadPaymentRequests(businessId: number, now: Date, windowD
     // A payment recorded after `now` had not happened yet at `now`.
     status: p.status === "PAID" && p.paidAt !== null && p.paidAt.getTime() > now.getTime() ? "PENDING" : p.status,
     paidAt: p.paidAt !== null && p.paidAt.getTime() <= now.getTime() ? p.paidAt : null,
-    expiresAt: p.expiresAt,
   }));
+}
+
+/* ══════════════════════ FUNNEL (All-Feature Learning Coverage · W3) ══════════════════════ */
+
+/** Leads that arrived or closed inside the window. `firstHandledAt` is M5's own field. */
+export async function loadLeads(businessId: number, now: Date, windowDays: number): Promise<LeadObservation[]> {
+  const from = startOf(now, windowDays);
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.lead.findMany({
+      where: { businessId, OR: [{ createdAt: { gte: from, lte: now } }, { closedAt: { gte: from, lte: now } }] },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, createdAt: true, firstHandledAt: true, status: true, closedAt: true },
+    }),
+  );
+  return rows.map((l) => ({
+    recordId: l.id, businessId: l.businessId, createdAt: l.createdAt,
+    firstHandledAt: l.firstHandledAt !== null && l.firstHandledAt.getTime() <= now.getTime() ? l.firstHandledAt : null,
+    status: l.status as LeadObservation["status"],
+    closedAt: l.closedAt !== null && l.closedAt.getTime() <= now.getTime() ? l.closedAt : null,
+  }));
+}
+
+/** Completed lead next-actions that had a due day (LeadLifecycleEvent `next_action_completed`). */
+export async function loadLeadFollowUps(businessId: number, now: Date, windowDays: number): Promise<FollowUpObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.leadLifecycleEvent.findMany({
+      where: { businessId, kind: "next_action_completed", previousDueAt: { not: null }, occurredAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, occurredAt: true, previousDueAt: true },
+    }),
+  );
+  return rows.map((e) => ({ recordId: e.id, businessId: e.businessId, completedAt: e.occurredAt, dueAt: e.previousDueAt as Date }));
+}
+
+/**
+ * Conversations that started inside the window, reduced to their opening exchange (`openingOf`): the
+ * first inbound with a provider message id (a real delivery), then the first outbound that did not fail.
+ */
+export async function loadConversationOpenings(businessId: number, now: Date, windowDays: number): Promise<ConversationOpeningObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.conversation.findMany({
+      where: { businessId, startedAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: {
+        id: true, businessId: true,
+        messages: {
+          where: { businessId, sentAt: { lte: now } },
+          orderBy: [{ sentAt: "asc" }, { id: "asc" }],
+          take: 50,
+          select: { sentAt: true, direction: true, providerMessageId: true, sendStatus: true },
+        },
+      },
+    }),
+  );
+  const out: ConversationOpeningObservation[] = [];
+  for (const c of rows) {
+    const o = openingOf(c.messages.map((m) => ({
+      at: m.sentAt, direction: m.direction, fromProvider: m.providerMessageId !== null, sendFailed: m.sendStatus === "FAILED",
+    })));
+    if (o) out.push({ recordId: c.id, businessId: c.businessId, ...o });
+  }
+  return out;
+}
+
+/* ══════════════════════ OPERATIONS (All-Feature Learning Coverage · W3) ══════════════════════ */
+
+/**
+ * Appointments created or due inside the window, each with whether an APPOINTMENT_RESCHEDULED
+ * observation exists for it — the only record of a move, since Appointment keeps no history.
+ */
+export async function loadAppointments(businessId: number, now: Date, windowDays: number): Promise<AppointmentObservation[]> {
+  const from = startOf(now, windowDays);
+  const { appts, moved } = await tenantTx(businessId, async (tx) => {
+    const appts = await tx.appointment.findMany({
+      where: { businessId, OR: [{ createdAt: { gte: from, lte: now } }, { startsAt: { gte: from, lte: now } }] },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, status: true, startsAt: true, createdAt: true },
+    });
+    const ids = appts.map((a) => a.id);
+    const moved = ids.length === 0 ? [] : await tx.learningEvent.findMany({
+      where: { businessId, eventType: "APPOINTMENT_RESCHEDULED", entityId: { in: ids }, createdAt: { lte: now } },
+      select: { entityId: true },
+    });
+    return { appts, moved };
+  });
+  const rescheduled = new Set(moved.map((m) => m.entityId));
+  return appts.map((a) => ({
+    recordId: a.id, businessId: a.businessId, status: a.status as AppointmentObservation["status"],
+    startsAt: a.startsAt, createdAt: a.createdAt, rescheduled: rescheduled.has(a.id),
+  }));
+}
+
+/** Installments the owner marked handled inside the window, and when money was first recorded against them. */
+export async function loadHandledInstallments(businessId: number, now: Date, windowDays: number): Promise<HandledInstallmentObservation[]> {
+  const { flows, allocs } = await tenantTx(businessId, async (tx) => {
+    const flows = await tx.installmentWorkflow.findMany({
+      where: { businessId, handledAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ installmentId: "asc" }],
+      select: { installmentId: true, businessId: true, handledAt: true },
+    });
+    const ids = flows.map((f) => f.installmentId);
+    const allocs = ids.length === 0 ? [] : await tx.paymentAllocation.findMany({
+      where: { businessId, installmentId: { in: ids }, reversedAt: null, payment: { status: "RECORDED", paidAt: { lte: now } } },
+      select: { installmentId: true, payment: { select: { paidAt: true } } },
+    });
+    return { flows, allocs };
+  });
+  const firstPaid = new Map<number, Date>();
+  for (const a of allocs) {
+    const prev = firstPaid.get(a.installmentId);
+    if (!prev || a.payment.paidAt.getTime() < prev.getTime()) firstPaid.set(a.installmentId, a.payment.paidAt);
+  }
+  return flows.map((f) => ({ recordId: f.installmentId, businessId: f.businessId, handledAt: f.handledAt as Date, paidAt: firstPaid.get(f.installmentId) ?? null }));
+}
+
+/** Obligations the owner marked MET inside the window. Owner-asserted; the rule labels it so. */
+export async function loadMetObligations(businessId: number, now: Date, windowDays: number): Promise<ObligationObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.businessObligation.findMany({
+      where: { businessId, state: "MET", metAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, dueAt: true, metAt: true },
+    }),
+  );
+  return rows.map((o) => ({ recordId: o.id, businessId: o.businessId, dueAt: o.dueAt, metAt: o.metAt as Date }));
+}
+
+/** Demand signals for SERVICES inside the window (products are learned by the inventory rules). */
+export async function loadServiceDemandSignals(businessId: number, now: Date, windowDays: number): Promise<DemandSignalObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.offeringDemandSignal.findMany({
+      where: { businessId, offeringKind: "SERVICE", businessServiceId: { not: null }, createdAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, businessServiceId: true, createdAt: true },
+    }),
+  );
+  return rows.map((s) => ({ recordId: s.id, businessId: s.businessId, businessServiceId: s.businessServiceId as number, at: s.createdAt }));
+}
+
+/** Accountant exports (DATA_EXPORTED observations of an accountant kind) inside the window, at action time. */
+export async function loadAccountantExports(businessId: number, now: Date, windowDays: number): Promise<ActObservation[]> {
+  const from = startOf(now, windowDays);
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.learningEvent.findMany({
+      where: { businessId, eventType: "DATA_EXPORTED", createdAt: { gte: from, lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, occurredAt: true, createdAt: true, payload: true },
+    }),
+  );
+  return rows
+    .filter((e) => (ACCOUNTANT_EXPORT_KINDS as readonly string[]).includes(String((e.payload as Record<string, unknown> | null)?.kind ?? "")))
+    .map((e) => ({ recordId: e.id, businessId: e.businessId, at: e.occurredAt ?? e.createdAt }))
+    .filter((e) => e.at.getTime() >= from.getTime() && e.at.getTime() <= now.getTime());
 }

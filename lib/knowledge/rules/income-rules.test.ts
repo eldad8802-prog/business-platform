@@ -134,20 +134,21 @@ section("PAY-01 / PAY-02 payment links");
 {
   let id = 0;
   const pr = (p: Partial<PaymentRequestObservation> & { createdDaysAgo: number }): PaymentRequestObservation => ({
-    recordId: ++id, businessId: BIZ, customerId: null, createdAt: ago(p.createdDaysAgo), status: "PENDING", paidAt: null, expiresAt: null, ...p,
+    recordId: ++id, businessId: BIZ, customerId: null, createdAt: ago(p.createdDaysAgo), status: "PENDING", paidAt: null, ...p,
   });
   const rows = [
     pr({ createdDaysAgo: 50, status: "PAID", paidAt: ago(49) }), pr({ createdDaysAgo: 40, status: "PAID", paidAt: ago(37) }),
-    pr({ createdDaysAgo: 30, status: "PAID", paidAt: ago(28) }), pr({ createdDaysAgo: 25, status: "EXPIRED" }),
-    pr({ createdDaysAgo: 20, status: "CANCELLED" }), pr({ createdDaysAgo: 18, status: "PAID", paidAt: ago(16) }),
+    pr({ createdDaysAgo: 30, status: "PAID", paidAt: ago(28) }), pr({ createdDaysAgo: 18, status: "PAID", paidAt: ago(16) }),
     pr({ createdDaysAgo: 15, status: "PAID", paidAt: ago(14) }),
-    pr({ createdDaysAgo: 2 }), // still open
-    pr({ createdDaysAgo: 30, expiresAt: ago(10) }), // pending but expired: resolved, not paid
+    pr({ createdDaysAgo: 60, status: "PAID", paidAt: ago(15) }), // paid, but 45 days later: outside the horizon
+    pr({ createdDaysAgo: 45 }), // horizon passed, never paid
+    pr({ createdDaysAgo: 35, status: "CANCELLED" }),
+    pr({ createdDaysAgo: 10 }), pr({ createdDaysAgo: 2 }), // horizon still open: wait
   ];
   const [conv] = deriveLinkConversion(rows, NOW, BIZ);
-  ok("open links wait; lapsed pending links count as not paid", conv.observationCount === 8 && conv.valueNumeric === 0.63, conv);
+  ok("paid-within-30-days: 5 of 8 matured (young unpaid links wait; expiry is never inferred)", conv.observationCount === 8 && conv.valueNumeric === 0.63, conv);
   const [ttp] = deriveLinkTimeToPay(rows, NOW, BIZ);
-  ok("time to pay median 2 days over 5 paid links", ttp.status === "ACTIVE" && ttp.valueNumeric === 2 && ttp.observationCount === 5, ttp);
+  ok("time to pay median 2 days over 6 paid links", ttp.status === "ACTIVE" && ttp.valueNumeric === 2 && ttp.observationCount === 6, ttp);
 }
 
 section("COLL-01..03 collection — timing, coverage, and a sequence that is never a cause");

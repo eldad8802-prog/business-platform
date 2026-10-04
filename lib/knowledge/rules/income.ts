@@ -43,6 +43,8 @@ export const CREDIT_MATURITY_DAYS = 30;
 export const REMINDER_FOLLOW_DAYS = 14;
 /** An invoice is "overdue enough" to expect a reminder once its due day is this far behind. */
 export const OVERDUE_GRACE_DAYS = 7;
+/** PAY-01: a payment link counts as converted when paid within this many days of being created. */
+export const LINK_HORIZON_DAYS = 30;
 
 /* ─────────────────────────────── observation types ─────────────────────────────── */
 
@@ -87,7 +89,6 @@ export type PaymentRequestObservation = {
   readonly createdAt: Date;
   readonly status: "PENDING" | "PAID" | "FAILED" | "CANCELLED" | "EXPIRED";
   readonly paidAt: Date | null;
-  readonly expiresAt: Date | null;
 };
 
 /* ─────────────────────────────── settlement (pure) ─────────────────────────────── */
@@ -151,7 +152,7 @@ export const CUST03 = desc({ ruleId: "CUST-03", domain: "customers", measureKey:
   entityType: "customer", minSupport: 3, valueUnit: "currency", question: "What is the typical invoice amount for this customer, and how far does it range?" });
 
 export const PAY01 = desc({ ruleId: "PAY-01", domain: "payments", measureKey: "payments.link_conversion", policyKey: "payments-link-conversion",
-  entityType: null, minSupport: 5, valueUnit: "ratio", question: "What share of this business's resolved payment links were paid?" });
+  entityType: null, minSupport: 5, valueUnit: "ratio", question: "What share of this business's payment links were paid within 30 days of being created?" });
 export const PAY02 = desc({ ruleId: "PAY-02", domain: "payments", measureKey: "payments.link_time_to_pay", policyKey: "payments-link-time-to-pay",
   entityType: null, minSupport: 5, valueUnit: "days", question: "How many days typically pass between creating a payment link and it being paid?" });
 
@@ -229,12 +230,17 @@ export function deriveCustomerTicketSize(rows: readonly IncomeDocumentObservatio
     group.map((o): ValuePoint => ({ recordId: o.recordId, businessId: o.businessId, at: o.issuedAt, value: o.total })), now, businessId));
 }
 
-/** A link is RESOLVED once it is no longer pending, or its expiry has passed (it can no longer be paid). */
-const resolved = (p: PaymentRequestObservation, now: Date) =>
-  p.status !== "PENDING" || (p.expiresAt !== null && p.expiresAt.getTime() < now.getTime());
-
+/**
+ * "Paid within LINK_HORIZON_DAYS of being sent" — fully observable. Expiry is NOT read: the EXPIRED status
+ * has no writer (SENSOR_COVERAGE.md, BLOCKED_PRODUCT_SEMANTICS), so "this link lapsed" would be an
+ * inference. A link is in the population once its horizon has passed, or as soon as it was paid inside it.
+ */
 export function deriveLinkConversion(rows: readonly PaymentRequestObservation[], now: Date, businessId: number): MeasureResult[] {
-  const pts: SharePoint[] = rows.filter((p) => resolved(p, now)).map((p) => ({ recordId: p.recordId, businessId: p.businessId, at: p.createdAt, hit: p.status === "PAID" }));
+  const horizon = LINK_HORIZON_DAYS * DAY;
+  const paidInside = (p: PaymentRequestObservation) =>
+    p.status === "PAID" && p.paidAt !== null && p.paidAt.getTime() - p.createdAt.getTime() <= horizon;
+  const pts: SharePoint[] = rows.filter((p) => paidInside(p) || now.getTime() - p.createdAt.getTime() >= horizon)
+    .map((p) => ({ recordId: p.recordId, businessId: p.businessId, at: p.createdAt, hit: paidInside(p) }));
   return [shareMeasure({ measureKey: PAY01.measureKey, entityType: null, entityId: null, valueUnit: "ratio", evidenceKind: "payment-request",
     minSupport: PAY01.minSupport, windowDays: PAY01.windowDays }, pts, now, businessId)];
 }

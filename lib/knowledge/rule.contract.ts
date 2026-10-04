@@ -32,7 +32,9 @@ import type { MeasureResult, MeasureUnit } from "./measure.contract";
 export type KnowledgeDomain =
   | "documents" | "payables" | "inventory" | "suppliers"
   // All-Feature Learning Coverage · W2 — the income side.
-  | "billing" | "customers" | "payments" | "collection";
+  | "billing" | "customers" | "payments" | "collection"
+  // W3 — the sales funnel and running the business.
+  | "leads" | "conversations" | "appointments" | "secretary" | "offering" | "reports";
 
 /**
  * What the measure is ABOUT, when it is not about the business as a whole.
@@ -53,8 +55,10 @@ export type KnowledgeDomain =
  * `customer` is a domain `Customer` row, reached ONLY through an explicit `customerId` foreign key on the
  * evidence (W2). Never through a phone, email or tax-id match: cross-source customer identity is an
  * owner decision not yet taken, so a document without the key teaches nothing about any customer.
+ *
+ * `business-service` is a `BusinessService` row (W3): demand for one offered service.
  */
-export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party" | "commitment" | "customer";
+export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party" | "commitment" | "customer" | "business-service";
 
 /**
  * Why a rule's answer can stop being authoritative.
