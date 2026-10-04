@@ -1,35 +1,60 @@
 #!/usr/bin/env node
-// release-migrate-gate — what release-migrate is allowed to apply, decided BEFORE it applies.
+// release-migrate-gate — what release-migrate is allowed to apply, decided BEFORE it applies, and
+// the only migrations the apply step can SEE.
 //
 // THE INCIDENT (docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md): on 2026-10-01 release-migrate
 // applied #594's privilege migration because it was pending on main and a run was dispatched and
 // approved — while the owner's security decision package for it did not exist yet. Nothing in the
 // workflow knew which migration had been approved.
 //
-// THIS GATE (implementation of the proposal; wired only after owner approval):
+// THE SECOND PROBLEM (2026-10-04, P3-A behind M6): `prisma migrate deploy` applies EVERY pending
+// migration, so an exact-set gate forced the owner to approve a later, unrelated migration merged to
+// main (M6) just to release an earlier, ready one (P3-A). Weakening the comparison would not help:
+// deploy would still apply M6. So the apply step is given a STAGED migrations directory that holds
+// only what is already applied plus the approved prefix — an unapproved migration's SQL is not there
+// to run. Nothing is marked applied by hand, the ledger is never edited, no SQL bypasses Prisma.
 //
 //   plan    (no secrets — runs BEFORE the protected job)
 //     node scripts/ci/release-migrate-gate.mjs plan --expected "<a,b,…>"
+//       * the names are given IN PRISMA ORDER (the order they will be applied);
 //       * every expected name is a migration directory in this checkout;
 //       * every expected AUTHORITY-CHANGING migration (classifier) has an approval record
 //         ops/release-approvals/<name>.json whose sha256 equals the file at this SHA, names a
 //         decision, an approver and a preflight run id;
-//       * when GITHUB_TOKEN is present, that preflight run is a SUCCESSFUL run of
-//         prod-readonly-evidence.yml that STARTED AFTER the migration reached main;
+//       * that preflight run is a SUCCESSFUL run of prod-readonly-evidence.yml FROM MAIN that
+//         STARTED AFTER the migration reached main and names the record's evidence file — and its
+//         log shows the evidence VERDICT: at least one PASS row and no FAIL row (a run "succeeds"
+//         even when a check inside it fails);
 //       * prints the plan (name, class, checksum, approval) for the approver.
 //
-//   verify  (inside the protected job, after approval, BEFORE `prisma migrate deploy`)
-//     node scripts/ci/release-migrate-gate.mjs verify --expected "<a,b,…>"
-//       * computes the REAL pending set: migration directories minus FINISHED ledger rows
-//         (DIRECT_URL); refuses if any ledger row is unfinished or rolled back;
-//       * refuses unless pending == expected EXACTLY. One extra migration — e.g. a privilege
-//         migration merged while the run waited for approval — stops the release.
+//   stage   (inside the protected job, AFTER approval, BEFORE any write)
+//     node scripts/ci/release-migrate-gate.mjs stage --expected "<a,b,…>" --pinned-sha <sha> --out <dir>
+//       * this checkout is exactly the dispatch commit (HEAD == --pinned-sha);
+//       * the authority checks of `plan` again, after the wait (a record or run cannot have changed
+//         its meaning while the run waited);
+//       * reads the Production ledger NOW; refuses any unfinished or rolled-back row;
+//       * pending order = migration directories AT THE DISPATCH SHA minus finished ledger rows,
+//         in Prisma order;
+//       * PREFIX INVARIANT: expected == pending[0..k) exactly, in order. An unapproved migration
+//         before or inside the expected run, a gap, a different order, or a name that is not
+//         pending refuses. Everything after the prefix stays pending;
+//       * writes <dir>/prisma: schema.prisma + migration_lock.toml + byte-identical copies of the
+//         applied directories and the approved prefix ONLY, re-reads that tree and refuses unless it
+//         holds exactly those names with identical checksums; records <dir>/release-manifest.json.
+//       `prisma migrate deploy --schema <dir>/prisma/schema.prisma` then cannot apply anything else.
+//
+//   confirm (inside the protected job, AFTER the apply)
+//     node scripts/ci/release-migrate-gate.mjs confirm --expected "<a,b,…>" --out <dir>
+//       * re-reads the ledger: finished == finished-before ∪ expected EXACTLY, no unfinished or
+//         rolled-back row, and no ledger row at all for any migration left pending.
+//
+//   verify  stage's ledger + prefix checks without writing (no authority re-check, no staging).
 //
 //   --self-test  pure checks (no network, no database).
 //
 // EXIT: 0 allowed, 1 refused, 2 could not evaluate (also refuses).
 
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, mkdirSync, cpSync, writeFileSync, rmSync, appendFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -38,26 +63,55 @@ import { classify } from "./migration-security-classifier.mjs";
 const MIGRATIONS = "prisma/migrations";
 const APPROVALS = "ops/release-approvals";
 const NAME_RE = /^\d{14}_[a-z0-9_]+$/;
+const SHA_RE = /^[0-9a-f]{40}$/;
 const PREFLIGHT_FILE_RE = /^ops\/evidence\/[a-z0-9][a-z0-9._-]*\.sql$/;
 
+/** The names, in the order given (= the order they must be applied). */
 export function parseExpected(raw) {
   const names = String(raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (names.length === 0) throw new Error("expected_migrations is empty — name exactly what may be applied");
   for (const n of names) if (!NAME_RE.test(n)) throw new Error(`not a migration name: ${n}`);
   if (new Set(names).size !== names.length) throw new Error("expected_migrations lists a name twice");
-  return [...names].sort();
+  return names;
+}
+
+/** Prisma's order: migration directory names, byte-wise. */
+export function prismaOrder(names) {
+  return [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 export function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** Pure: compare the real pending set with the expected one. */
+/** Pure: compare the real pending set with the expected one (kept for the exact-set reading). */
 export function comparePending(pending, expected) {
   const p = new Set(pending), e = new Set(expected);
   const extra = [...p].filter((x) => !e.has(x)).sort();
   const missing = [...e].filter((x) => !p.has(x)).sort();
   return { ok: extra.length === 0 && missing.length === 0, extra, missing };
+}
+
+/**
+ * Pure: the PREFIX INVARIANT. `pending` is in Prisma order; `expected` in the order given.
+ * ok only when expected == pending[0..expected.length) element by element. `held` is what stays
+ * pending (every element sorts after the whole approved prefix).
+ */
+export function checkPrefix(pending, expected) {
+  const reasons = [];
+  const pendingSet = new Set(pending);
+  for (const e of expected) if (!pendingSet.has(e)) reasons.push(`approved but not pending (already applied or absent): ${e}`);
+  if (!reasons.length) {
+    for (let i = 0; i < expected.length; i++) {
+      if (expected[i] === pending[i]) continue;
+      const before = pending.slice(0, pending.indexOf(expected[i])).filter((p) => !expected.includes(p));
+      if (before.length) reasons.push(`pending but NOT approved, and it would have to run before ${expected[i]}: ${before.join(", ")}`);
+      else reasons.push(`expected is not in Prisma order: position ${i + 1} is ${expected[i]}, Prisma applies ${pending[i]} there`);
+      break;
+    }
+  }
+  const ok = reasons.length === 0;
+  return { ok, reasons, held: ok ? pending.slice(expected.length) : [] };
 }
 
 /** Pure: validate one approval record against the migration file's checksum. */
@@ -90,6 +144,25 @@ export function checkPreflightRun(run, { notBefore, file }) {
   return null;
 }
 
+/**
+ * Pure: the evidence VERDICT in a preflight job log. Evidence rows are pipe-separated
+ * (`n | PASS | observed`); a verdict is a cell that is exactly PASS or FAIL. The workflow run
+ * concludes "success" whenever the SQL ran, whatever it found — so the gate reads the verdict.
+ */
+export function checkPreflightVerdict(logText) {
+  const lines = String(logText ?? "").split(/\r?\n/).map((l) => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, ""));
+  let pass = 0, fail = 0;
+  for (const l of lines) {
+    if (!l.includes("|")) continue;
+    const c = l.split("|").map((s) => s.trim());
+    if (c.includes("FAIL")) fail++;
+    else if (c.includes("PASS")) pass++;
+  }
+  if (fail) return `its evidence reports ${fail} FAIL row(s) — a preflight that found a problem is not a passing preflight`;
+  if (!pass) return "its log shows no PASS verdict row — cannot establish that the preflight passed";
+  return null;
+}
+
 function readApproval(name) {
   const f = join(APPROVALS, `${name}.json`);
   if (!existsSync(f)) return null;
@@ -105,23 +178,40 @@ function mergedAt(name) {
   } catch { return null; }
 }
 
-async function preflightRunOk(runId, notBefore, file) {
+function gh(path) {
   const repo = process.env.GITHUB_REPOSITORY, token = process.env.GITHUB_TOKEN;
-  if (!repo || !token) return { ok: false, why: "GITHUB_TOKEN / GITHUB_REPOSITORY unavailable — cannot verify the preflight run" };
-  const r = await fetch(`https://api.github.com/repos/${repo}/actions/runs/${runId}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } });
+  return fetch(`https://api.github.com/repos/${repo}${path}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } });
+}
+
+async function preflightRunOk(runId, notBefore, file) {
+  if (!process.env.GITHUB_REPOSITORY || !process.env.GITHUB_TOKEN) return { ok: false, why: "GITHUB_TOKEN / GITHUB_REPOSITORY unavailable — cannot verify the preflight run" };
+  const r = await gh(`/actions/runs/${runId}`);
   if (!r.ok) return { ok: false, why: `preflight run ${runId}: HTTP ${r.status}` };
   const why = checkPreflightRun(await r.json(), { notBefore, file });
   if (why) return { ok: false, why };
   if (!existsSync(file)) return { ok: false, why: `${file} is not in this checkout` };
+  const jobs = await gh(`/actions/runs/${runId}/jobs?per_page=20`);
+  if (!jobs.ok) return { ok: false, why: `preflight run ${runId} jobs: HTTP ${jobs.status}` };
+  const list = (await jobs.json()).jobs ?? [];
+  if (!list.length) return { ok: false, why: `preflight run ${runId} has no job` };
+  let log = "";
+  for (const j of list) {
+    const l = await gh(`/actions/jobs/${j.id}/logs`);
+    if (!l.ok) return { ok: false, why: `preflight run ${runId} log: HTTP ${l.status} (expired or unreadable — re-run the preflight)` };
+    log += (await l.text()) + "\n";
+  }
+  const verdict = checkPreflightVerdict(log);
+  if (verdict) return { ok: false, why: `preflight run ${runId}: ${verdict}` };
   return { ok: true };
 }
 
-async function plan(expected) {
+/** The authority checks (plan, and again in the protected job). Returns { refused, rows }. */
+async function authorize(expected) {
   let refused = false;
   const rows = [];
   for (const name of expected) {
     const file = join(MIGRATIONS, name, "migration.sql");
-    if (!existsSync(file)) { console.log(`REFUSE  ${name}: not a migration in this checkout`); refused = true; continue; }
+    if (!existsSync(file)) { rows.push(`${name} | REFUSED — not a migration in this checkout`); refused = true; continue; }
     const sum = sha256(file);
     const cls = classify(readFileSync(file, "utf8"));
     let approval = "not required (no authority change)";
@@ -137,49 +227,162 @@ async function plan(expected) {
     }
     rows.push(`${name} | ${cls.length ? `AUTHORITY [${cls.join(", ")}]` : "plain"} | sha256 ${sum.slice(0, 16)}… | ${approval}`);
   }
+  const order = prismaOrder(expected);
+  if (order.join() !== expected.join()) { refused = true; rows.push(`REFUSED — expected is not in Prisma order; Prisma applies: ${order.join(", ")}`); }
+  return { refused, rows };
+}
+
+function summary(title, rows) {
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## ${title}\n\n${rows.map((r) => `- ${r}`).join("\n")}\n\n`);
+}
+
+async function plan(expected) {
+  const { refused, rows } = await authorize(expected);
   console.log("release-migrate plan:\n  " + rows.join("\n  "));
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    const { appendFileSync } = await import("node:fs");
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## release-migrate plan\n\n${rows.map((r) => `- ${r}`).join("\n")}\n`);
-  }
+  summary("release-migrate plan", rows);
   return refused ? 1 : 0;
 }
 
-async function verify(expected) {
+async function readLedger() {
   const { PrismaClient } = await import("@prisma/client");
   const db = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
   try {
-    const ledger = await db.$queryRawUnsafe(`SELECT migration_name, finished_at IS NOT NULL AS done, rolled_back_at IS NOT NULL AS rolled FROM "_prisma_migrations"`);
-    const bad = ledger.filter((r) => !r.done || r.rolled).map((r) => r.migration_name);
-    if (bad.length) { console.log(`REFUSE: unfinished or rolled-back ledger rows: ${bad.join(", ")}`); return 1; }
-    const applied = new Set(ledger.map((r) => r.migration_name));
-    const dirs = readdirSync(MIGRATIONS, { withFileTypes: true }).filter((d) => d.isDirectory() && NAME_RE.test(d.name)).map((d) => d.name);
-    const pending = dirs.filter((d) => !applied.has(d)).sort();
-    const cmp = comparePending(pending, expected);
-    console.log(`pending:  ${pending.join(", ") || "(none)"}\nexpected: ${expected.join(", ")}`);
-    if (!cmp.ok) {
-      if (cmp.extra.length) console.log(`REFUSE: pending but NOT approved for this run: ${cmp.extra.join(", ")}`);
-      if (cmp.missing.length) console.log(`REFUSE: approved but not pending (already applied or absent): ${cmp.missing.join(", ")}`);
-      return 1;
-    }
-    console.log("OK: the pending set is exactly the approved set");
-    return 0;
+    return await db.$queryRawUnsafe(`SELECT migration_name, finished_at IS NOT NULL AS done, rolled_back_at IS NOT NULL AS rolled FROM "_prisma_migrations"`);
   } finally {
     await db.$disconnect();
   }
+}
+
+function checkoutDirs(root = MIGRATIONS) {
+  return readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && NAME_RE.test(d.name)).map((d) => d.name);
+}
+
+/** Ledger + checkout → the prefix decision. Prints; returns { ok, finished, pending, held }. */
+async function decide(expected) {
+  const ledger = await readLedger();
+  const bad = ledger.filter((r) => !r.done || r.rolled).map((r) => r.migration_name);
+  if (bad.length) { console.log(`REFUSE: unfinished or rolled-back ledger rows: ${bad.join(", ")}`); return { ok: false }; }
+  const finished = new Set(ledger.map((r) => r.migration_name));
+  const pending = prismaOrder(checkoutDirs().filter((d) => !finished.has(d)));
+  const p = checkPrefix(pending, expected);
+  console.log(`pending (Prisma order): ${pending.join(", ") || "(none)"}\nexpected:               ${expected.join(", ")}`);
+  if (!p.ok) { for (const r of p.reasons) console.log(`REFUSE: ${r}`); return { ok: false }; }
+  console.log(p.held.length
+    ? `OK: expected is the approved prefix of the pending order; stays pending (not applied by this run): ${p.held.join(", ")}`
+    : "OK: the pending set is exactly the approved set");
+  return { ok: true, finished, pending, held: p.held };
+}
+
+async function verify(expected) {
+  return (await decide(expected)).ok ? 0 : 1;
+}
+
+function assertPinned(pinned) {
+  if (!SHA_RE.test(String(pinned ?? ""))) throw new Error("--pinned-sha <40-hex dispatch sha> is required");
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  if (head !== pinned) { console.log(`REFUSE: this checkout is ${head}, not the dispatch commit ${pinned}`); return false; }
+  console.log(`pinned: checkout == dispatch commit ${pinned}`);
+  return true;
+}
+
+async function stage(expected, { pinned, out }) {
+  if (!out) throw new Error("--out <dir> is required");
+  if (!assertPinned(pinned)) return 1;
+  const auth = await authorize(expected);
+  console.log("authority (re-checked after approval):\n  " + auth.rows.join("\n  "));
+  if (auth.refused) return 1;
+  const d = await decide(expected);
+  if (!d.ok) return 1;
+
+  const keep = new Set([...checkoutDirs().filter((n) => d.finished.has(n)), ...expected]);
+  rmSync(out, { recursive: true, force: true });
+  const mig = join(out, "prisma", "migrations");
+  mkdirSync(mig, { recursive: true });
+  cpSync("prisma/schema.prisma", join(out, "prisma", "schema.prisma"));
+  cpSync(join(MIGRATIONS, "migration_lock.toml"), join(mig, "migration_lock.toml"));
+  for (const n of keep) cpSync(join(MIGRATIONS, n), join(mig, n), { recursive: true });
+
+  // Re-read what was written: exactly the kept names, byte-identical, and no held migration.
+  const staged = checkoutDirs(mig);
+  const problems = [];
+  if (staged.length !== keep.size || staged.some((n) => !keep.has(n))) problems.push("staged names differ from applied ∪ approved");
+  for (const n of staged) if (sha256(join(mig, n, "migration.sql")) !== sha256(join(MIGRATIONS, n, "migration.sql"))) problems.push(`staged ${n} differs from the checkout`);
+  for (const h of d.held) if (existsSync(join(mig, h))) problems.push(`held migration ${h} was staged`);
+  const stagedPending = prismaOrder(staged.filter((n) => !d.finished.has(n)));
+  if (stagedPending.join() !== expected.join()) problems.push(`staged pending ${stagedPending.join(", ")} ≠ expected`);
+  if (problems.length) { for (const p of problems) console.log(`REFUSE: ${p}`); return 1; }
+
+  const manifest = {
+    pinnedSha: pinned,
+    expected,
+    held: d.held,
+    finishedBefore: prismaOrder([...d.finished]),
+    expectedSha256: Object.fromEntries(expected.map((n) => [n, sha256(join(MIGRATIONS, n, "migration.sql"))])),
+  };
+  writeFileSync(join(out, "release-manifest.json"), JSON.stringify(manifest, null, 2));
+  const rows = [
+    `dispatch commit: ${pinned}`,
+    `applies (in order): ${expected.join(", ")}`,
+    `stays pending, NOT staged: ${d.held.join(", ") || "(none)"}`,
+    `staged: ${staged.length} migration directories = ${staged.length - expected.length} applied + ${expected.length} approved`,
+  ];
+  console.log("STAGED:\n  " + rows.join("\n  "));
+  summary("release-migrate staged", rows);
+  return 0;
+}
+
+async function confirm(expected, { out }) {
+  if (!out) throw new Error("--out <dir> is required");
+  const m = JSON.parse(readFileSync(join(out, "release-manifest.json"), "utf8"));
+  if (m.expected.join() !== expected.join()) { console.log("REFUSE: the manifest is for another expected list"); return 1; }
+  const ledger = await readLedger();
+  const problems = [];
+  const bad = ledger.filter((r) => !r.done || r.rolled).map((r) => r.migration_name);
+  if (bad.length) problems.push(`unfinished or rolled-back ledger rows: ${bad.join(", ")}`);
+  const names = new Set(ledger.map((r) => r.migration_name)); // any row, finished or not
+  const finished = new Set(ledger.filter((r) => r.done && !r.rolled).map((r) => r.migration_name));
+  const want = new Set([...m.finishedBefore, ...m.expected]);
+  const extra = [...names].filter((n) => !want.has(n));
+  const missing = [...want].filter((n) => !finished.has(n));
+  if (extra.length) problems.push(`ledger rows this release did not approve: ${extra.join(", ")}`);
+  if (missing.length) problems.push(`approved but not recorded as FINISHED: ${missing.join(", ")}`);
+  const heldRows = m.held.filter((h) => names.has(h));
+  if (heldRows.length) problems.push(`a held migration has a ledger row: ${heldRows.join(", ")}`);
+  const rows = [
+    `ledger: ${finished.size} finished of ${names.size} rows (was ${m.finishedBefore.length}; +${m.expected.length} approved)`,
+    `applied now: ${m.expected.map((n) => `${n} ${finished.has(n) ? "✓" : names.has(n) ? "✗ FAILED / UNFINISHED" : "✗ NO ROW"}`).join(", ")}`,
+    `still pending (no ledger row): ${m.held.map((h) => `${h} ${names.has(h) ? "✗ HAS A ROW" : "✓"}`).join(", ") || "(none)"}`,
+  ];
+  console.log("LEDGER AFTER:\n  " + rows.join("\n  "));
+  summary("release-migrate ledger after", rows);
+  if (problems.length) { for (const p of problems) console.log(`FAIL: ${p}`); return 1; }
+  console.log("OK: the ledger holds exactly what was applied before plus the approved prefix");
+  return 0;
 }
 
 function selfTest() {
   let failed = 0;
   const t = (name, cond) => { if (!cond) failed++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}`); };
   const throws = (fn) => { try { fn(); return false; } catch { return true; } };
-  t("parseExpected sorts and trims", JSON.stringify(parseExpected(" 20261005090000_b , 20261004090000_a")) === '["20261004090000_a","20261005090000_b"]');
+  t("parseExpected keeps the given order and trims", JSON.stringify(parseExpected(" 20261005090000_b , 20261004090000_a")) === '["20261005090000_b","20261004090000_a"]');
   t("parseExpected refuses empty", throws(() => parseExpected("")));
   t("parseExpected refuses a non-migration name", throws(() => parseExpected("main")));
   t("parseExpected refuses duplicates", throws(() => parseExpected("20261004090000_a,20261004090000_a")));
-  t("pending == expected passes", comparePending(["a", "b"], ["b", "a"]).ok);
-  t("an EXTRA pending migration refuses (the #594 shape)", JSON.stringify(comparePending(["a", "p2"], ["a"]).extra) === '["p2"]');
-  t("an approved-but-not-pending migration refuses", JSON.stringify(comparePending([], ["a"]).missing) === '["a"]');
+  t("prismaOrder is byte order (same timestamp: the name decides)", prismaOrder(["20261008090000_p3a", "20261008090000_learning"]).join() === "20261008090000_learning,20261008090000_p3a");
+  t("pending == expected (exact set) compares equal", comparePending(["a", "b"], ["b", "a"]).ok);
+  t("an EXTRA pending migration is visible (the #594 shape)", JSON.stringify(comparePending(["a", "p2"], ["a"]).extra) === '["p2"]');
+  const P = ["A", "B", "C"];
+  const pre = (e) => checkPrefix(P, e);
+  t("prefix [A] allowed, B and C held", pre(["A"]).ok && pre(["A"]).held.join() === "B,C");
+  t("prefix [A,B] allowed, C held", pre(["A", "B"]).ok && pre(["A", "B"]).held.join() === "C");
+  t("prefix [A,B,C] allowed (the exact set), nothing held", pre(["A", "B", "C"]).ok && pre(["A", "B", "C"]).held.length === 0);
+  t("[B] refused: A is unapproved and runs before it", !pre(["B"]).ok && /NOT approved.*before B: A/.test(pre(["B"]).reasons[0]));
+  t("[A,C] refused: B is unapproved and inside the run", !pre(["A", "C"]).ok && /before C: B/.test(pre(["A", "C"]).reasons[0]));
+  t("[B,C] refused", !pre(["B", "C"]).ok);
+  t("[B,A] refused: wrong order", !pre(["B", "A"]).ok && /not in Prisma order/.test(pre(["B", "A"]).reasons[0]));
+  t("[A,B,C,D] refused: D is not pending", !pre(["A", "B", "C", "D"]).ok && /not pending.*D/.test(pre(["A", "B", "C", "D"]).reasons[0]));
+  t("a refused prefix holds nothing back as 'pending' output", pre(["B"]).held.length === 0);
+  t("[A] with nothing pending refused (re-run)", !checkPrefix([], ["A"]).ok);
   const good = { migration: "m", sha256: "x".repeat(64), decision: "https://github.com/o/r/pull/1#c", approvedBy: "owner", preflightRun: 123, preflightFile: "ops/evidence/m-preflight.sql" };
   t("a matching approval record passes", checkApproval("m", good, "x".repeat(64)).length === 0);
   t("a checksum mismatch refuses", checkApproval("m", good, "y".repeat(64)).length === 1);
@@ -199,17 +402,34 @@ function selfTest() {
   t("an unknown merge time refuses (never assumed old enough)", checkPreflightRun(run, { ...at, notBefore: null }) !== null);
   t("a preflight run of a DIFFERENT evidence file refuses", checkPreflightRun({ ...run, display_title: "Prod Read-Only Evidence — ops/evidence/other.sql" }, at) !== null);
   t("a run without a run-name (every run before the gate) refuses", checkPreflightRun({ ...run, display_title: "Prod Read-Only Evidence (CardCom E2E)" }, at) !== null);
+  const ts = "2026-10-04T18:20:01.1234567Z ";
+  t("verdict: all PASS rows pass", checkPreflightVerdict(`${ts} 1 | PASS | 0 \n${ts} 2 | PASS | 6 `) === null);
+  t("verdict: one FAIL row refuses (the P3-A 18/19 run shape)", /1 FAIL/.test(checkPreflightVerdict(`${ts} 1 | PASS | 0 \n${ts} 3 | FAIL | 1 `) ?? ""));
+  t("verdict: no PASS row refuses", checkPreflightVerdict(`${ts}hello\n${ts}CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END`) !== null);
+  t("verdict: SQL text naming 'FAIL' is not a verdict", checkPreflightVerdict(`${ts}SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result\n${ts} 1 | PASS | 0 `) === null);
   console.log(failed ? `\nrelease-migrate-gate self-test: ${failed} FAILED` : "\nrelease-migrate-gate self-test: all passed");
   return failed ? 1 : 0;
 }
 
-const [cmd, flag, value] = process.argv.slice(2);
+function args(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    if (!String(argv[i]).startsWith("--") || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    out[argv[i].slice(2)] = argv[i + 1];
+  }
+  return out;
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
 try {
   if (cmd === "--self-test") process.exit(selfTest());
-  if (flag !== "--expected") throw new Error("usage: release-migrate-gate.mjs plan|verify --expected \"<names>\"");
-  const expected = parseExpected(value);
+  const a = args(rest);
+  if (a.expected === undefined) throw new Error('usage: release-migrate-gate.mjs plan|verify|stage|confirm --expected "<names>" [--pinned-sha <sha>] [--out <dir>]');
+  const expected = parseExpected(a.expected);
   if (cmd === "plan") process.exit(await plan(expected));
   if (cmd === "verify") process.exit(await verify(expected));
+  if (cmd === "stage") process.exit(await stage(expected, { pinned: a["pinned-sha"], out: a.out }));
+  if (cmd === "confirm") process.exit(await confirm(expected, { out: a.out }));
   throw new Error(`unknown command ${cmd}`);
 } catch (e) {
   console.error(`release-migrate-gate: could not evaluate — ${e.message}`);

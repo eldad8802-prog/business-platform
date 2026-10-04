@@ -6,15 +6,22 @@
 # — the set of migration directories a release-migrate run would see at its SHA. Where the gate
 # allows, the SAME checkout is applied by `prisma migrate deploy`, exactly as the workflow does.
 #
-#   A  P2 pending + B4 approved alone          → verify REFUSES (P2 would ride along)
-#   B  P2 + B4 both named                      → verify allows (only when both are named)
-#   C  a migration merged while a run waits    → verify REFUSES (not in the expected set)
+# APPROVED PREFIX (2026-10-04): the expected list must be the FIRST pending migrations in Prisma order.
+# An unapproved migration before or among them refuses; one after them stays pending (the protected job
+# stages only applied + approved, so it cannot run — proven on the real stage/apply path by
+# .release-gate/prefix-lab.sh).
+#
+#   A  P2 pending + B4 approved alone          → verify REFUSES (P2 is unapproved and runs before B4)
+#   B  P2 + B4 both named, in order            → verify allows; in the wrong order → REFUSED
+#   C  a migration merged into the checkout     → INSIDE the approved run: REFUSED;
+#                                                after it: allowed, reported as staying pending
 #   D  the controlled chain                    → P2 alone: allowed, deployed, P2 proof 13/13;
 #                                                then B4 alone: allowed, deployed, B4 proof 14/14;
 #                                                re-running B4 → REFUSED (no longer pending)
 #   E  the #594 incident, replayed             → ledger before #594, #594 + P2 pending:
-#                                                verify for #594 alone REFUSES (P2 extra);
-#                                                nothing was applied
+#                                                P2 alone REFUSES (#594 unapproved before it);
+#                                                #594 alone is a prefix — P2 is reported as held
+#                                                (never staged); nothing was applied
 #   F  a half-applied ledger row               → verify REFUSES
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD, B4_SQL (B4 migration file), P2_PROOF, B4_PROOF.
@@ -83,19 +90,25 @@ setup_today chain
 echo "Production-today lab: $(applied chain) applied; P2 recorded: $(has chain "$P2")"
 test "$(applied chain)" = "163" && test "$(has chain "$P2")" = "0"
 
-echo; echo "A. P2 pending, B4 approved alone → REFUSED"
+echo; echo "A. P2 pending, B4 approved alone → REFUSED (P2 is unapproved and would run first)"
 checkout "$T/a" "$B4"
 expect_refused chain "$T/a" "$B4"
-grep -q "NOT approved for this run: $P2" /tmp/gate.out
+grep -q "NOT approved, and it would have to run before $B4: $P2" /tmp/gate.out
 test "$(applied chain)" = "163"
 
-echo; echo "B. P2 + B4 named together → allowed (and only then)"
+echo; echo "B. P2 + B4 named together, in Prisma order → allowed; in the wrong order → REFUSED"
 verify chain "$T/a" "$P2,$B4"
+expect_refused chain "$T/a" "$B4,$P2"
+grep -q "not in Prisma order" /tmp/gate.out
 
-echo; echo "C. a migration merged while the run waited → REFUSED"
+echo; echo "C. a migration merged into the checkout ($LATE sorts between P2 and B4)"
 checkout "$T/c" "$B4" "$LATE"
-expect_refused chain "$T/c" "$P2"
-grep -q "NOT approved for this run: .*$LATE" /tmp/gate.out && grep -q "NOT approved for this run: .*$B4" /tmp/gate.out
+echo "  inside the approved run [P2, B4] → REFUSED"
+expect_refused chain "$T/c" "$P2,$B4"
+grep -q "NOT approved, and it would have to run before $B4: $LATE" /tmp/gate.out
+echo "  after the approved run [P2] → allowed; $LATE and B4 reported as staying pending"
+verify chain "$T/c" "$P2"
+grep -q "stays pending (not applied by this run): $LATE, $B4" /tmp/gate.out
 
 echo; echo "D. the controlled chain: P2 alone, then B4 alone"
 checkout "$T/d1"
@@ -122,11 +135,15 @@ echo "  re-running B4 → REFUSED (already applied)"
 expect_refused chain "$T/d2" "$B4"
 grep -q "approved but not pending" /tmp/gate.out
 
-echo; echo "E. the #594 incident replayed: #594 + P2 pending, #594 approved alone → REFUSED, nothing applied"
+echo; echo "E. the #594 incident replayed: #594 + P2 pending"
 bash "$ROOT/.c594/lab.sh" incident --without-594 >/dev/null
 checkout "$T/e"
-expect_refused incident "$T/e" "$M594"
-grep -q "NOT approved for this run: $P2" /tmp/gate.out
+echo "  P2 alone → REFUSED (#594 is unapproved and runs before it)"
+expect_refused incident "$T/e" "$P2"
+grep -q "NOT approved, and it would have to run before $P2: $M594" /tmp/gate.out
+echo "  #594 alone → a prefix: P2 is reported as held, never part of this run"
+verify incident "$T/e" "$M594"
+grep -q "stays pending (not applied by this run): $P2" /tmp/gate.out
 test "$(has incident "$M594")" = "0" && test "$(has incident "$P2")" = "0"
 
 echo; echo "F. a half-applied ledger row → REFUSED"
@@ -135,21 +152,25 @@ expect_refused incident "$T/e" "$M594,$P2"
 grep -q "unfinished or rolled-back" /tmp/gate.out
 
 echo; echo "G. Production NOW: P2 applied (run 36951977443); main also carries every migration merged since (e.g. #609)"
-echo "   → B4 approved alone is REFUSED while anything else is pending; naming exactly the pending set is the only way through"
+echo "   → B4 approved alone is REFUSED while anything unapproved is pending BEFORE it; the full pending set,"
+echo "     in Prisma order, passes; any prefix ending at B4 passes"
 setup_today now
 checkout "$T/g0"; deploy now "$T/g0" >/dev/null   # P2 applied, as Production
 CHECKOUT_ALL=1 checkout "$T/g" "$B4"
-others=""
-for m in $(cd "$T/g/prisma/migrations" && ls -d 2026*); do
-  if [ "$m" != "$B4" ] && [ "$(has now "$m")" = "0" ]; then others="${others:+$others,}$m"; fi
+before=""; all=""
+for m in $(cd "$T/g/prisma/migrations" && ls -d 2026* | LC_ALL=C sort); do
+  [ "$(has now "$m")" = "0" ] || continue
+  all="${all:+$all,}$m"
+  [[ "$m" < "$B4" ]] && before="${before:+$before,}$m"
 done
-echo "   pending besides B4 on this checkout: ${others:-none}"
-if [ -n "$others" ]; then
+echo "   pending before B4 on this checkout: ${before:-none}"
+if [ -n "$before" ]; then
   expect_refused now "$T/g" "$B4"
-  verify now "$T/g" "$others,$B4"
+  verify now "$T/g" "$before,$B4"
 else
   verify now "$T/g" "$B4"
 fi
+verify now "$T/g" "$all"
 
 rm -rf "$T"
 echo; echo "release-migrate gate chain lab: ALL SCENARIOS AS EXPECTED"
