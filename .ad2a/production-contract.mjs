@@ -247,7 +247,7 @@ export const PRODUCTION_RLS_CONTRACT = [
   // Per command, NO DELETE: revoke is an UPDATE, and the erasure revokes in place.
   {
     table: "AcquisitionConnection",
-    migration: "20261008090000_m6_acquisition_connections",
+    migration: "20261009090000_m6_acquisition_connections",
     why: "holds the encrypted Meta Page token and the owner's label; the erasure revokes the row and clears both with an UPDATE",
     policies: [
       { name: "m6_acquisition_connection_select", command: "SELECT", using: TENANT },
@@ -597,7 +597,7 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   },
   AcquisitionConnection: {
     verbs: SIU,
-    basis: "migration 20261008090000_m6_acquisition_connections grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+    basis: "migration 20261009090000_m6_acquisition_connections grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
 };
 

@@ -146,7 +146,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
-    // M6 — first-wave acquisition sources. OFF by default (migration 20261008090000): no inbound lead
+    // M6 — first-wave acquisition sources. OFF by default (migration 20261009090000): no inbound lead
     // is accepted for a business until that source is enabled for it.
     {
       key: PLATFORM_FEATURE_KEYS.ACQUISITION_META_LEAD_ADS,

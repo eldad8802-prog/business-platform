@@ -1,6 +1,6 @@
 # Business Intake M6 — First-wave acquisition connectors (v1)
 
-Status: built and proven in CI; **every source OFF**; migration `20261008090000_m6_acquisition_connections` awaits the owner gate (#612 process). Code: #630. Migration: #627.
+Status: built and proven in CI; **every source OFF**; migration `20261009090000_m6_acquisition_connections` awaits the owner gate (#612 process). Code: #630. Migration: #627.
 
 ## 1. What M6 does
 

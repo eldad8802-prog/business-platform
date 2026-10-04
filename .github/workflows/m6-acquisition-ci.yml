@@ -24,7 +24,7 @@ on:
       - "lib/security/rate-limiter/**"
       - "components/leads/**"
       - "prisma/schema.prisma"
-      - "prisma/migrations/20261008090000_m6_acquisition_connections/**"
+      - "prisma/migrations/20261009090000_m6_acquisition_connections/**"
       - ".m6/**"
       - ".github/workflows/m6-acquisition-ci.yml"
   workflow_dispatch:
@@ -112,11 +112,11 @@ jobs:
             -c "GRANT USAGE ON SCHEMA public TO app_runtime" \
             -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime" \
             -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime"
-          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261008090000_m6_acquisition_connections/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
           npx prisma generate
 
       - name: 3. Production row-level security, replayed verbatim from the migrations
-        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261008090000_m6_acquisition_connections
+        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections
 
       - name: 4. M6 acquisition battery — real routes, real intake, M4 identity, M5 lifecycle, Secretary, isolation
         env:
