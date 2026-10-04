@@ -7,7 +7,7 @@
 #   1. .c594/lab.sh <db> — non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
 #      app_runtime_prod, the owner's DEFAULT PRIVILEGES, baselined ledger, #594 by migrate deploy;
 #   2. app_auth / app_ctlplane exist (B4 refuses without app_auth), the real D2 E4 narrowing;
-#   3. `prisma migrate deploy` over every migration that sorts before M6 (P2, cost waves, B4, …);
+#   3. every migration between #594 and M6 recorded applied (real checksums) and B4 applied verbatim;
 #   4. --with-m6: `prisma migrate deploy` again, up to and including M6 — the release-migrate
 #      mechanism, which therefore applies exactly M6. --broken-m6: a copy that fails at its end.
 #
@@ -47,9 +47,21 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   return $rc
 }
 
-# The last migration before M6, whatever main holds (computed, never hard-coded).
-PRE_M6="$(ls -1 "$ROOT/prisma/migrations" | grep -E "^[0-9]{14}_" | awk -v m="$M6" '$0 < m' | sort | tail -1)"
-deploy_upto "$PRE_M6" >/dev/null || { echo "baseline deploy (up to $PRE_M6) failed"; exit 1; }
+# Every migration between #594 and M6 is APPLIED in Production. The pushed schema (main's
+# schema.prisma) already holds their tables and types, so replaying them would collide; instead the
+# ledger records each with its real checksum, exactly as Production's ledger does, and the one whose
+# effect is not a Prisma object and touches what M6 builds on — B4's FORCE RLS on Business — is
+# applied verbatim. M6 itself then goes through `prisma migrate deploy` alone.
+M594="20261003090000_control_plane_production_privileges"
+B4="20261006090000_business_tenant_write_rls"
+for d in "$ROOT"/prisma/migrations/*/; do
+  name="$(basename "$d")"
+  [[ "$name" =~ ^[0-9]{14}_ ]] || continue
+  [[ "$name" > "$M594" && "$name" < "$M6" ]] || continue
+  if [ "$name" = "$B4" ]; then psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$d/migration.sql"; fi
+  sum="$(sha256sum "$d/migration.sql" | cut -d" " -f1)"
+  psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '$name', 1)"
+done
 
 case "$MODE" in
   --with-m6)   deploy_upto "$M6" || { echo "M6 deploy failed"; exit 1; } ;;
