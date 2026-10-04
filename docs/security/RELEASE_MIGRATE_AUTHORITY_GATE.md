@@ -106,3 +106,127 @@ Finished rows = finished-before ∪ expected exactly; no unfinished row; no row 
 
 ### Proof
 `.release-gate/prefix-lab.sh` (release-gate-lab.yml step 5): the owner's 12 cases on PG17, each through the real stage → deploy → confirm path, with the actual ledger and objects checked after each.
+
+## 8. Owner-bound release sets (`releaseSet`)
+
+### Two different things
+- **Approved prefix (section 7) is a technical capability.** `stage` can apply any prefix of the pending order that the run names, and hold everything after it. It answers: *can this list be applied in this order without running anything else?*
+- **An owner-bound release set is authority.** It records an owner decision that certain migrations go to Production **together, in one run**. It answers: *did the owner approve releasing exactly this list?*
+
+The prefix capability stays generic. A binding only narrows what a particular owner decision allows.
+
+### Where it lives
+In the approval record, which is repository-tracked and reviewed. It is never a workflow input:
+
+```json
+{
+  "migration": "20300101090100_b",
+  "sha256": "<file sha256>",
+  "decision": "https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>",
+  "approvedBy": "<owner>",
+  "preflightRun": 123456789,
+  "preflightFile": "ops/evidence/<b>-preflight.sql",
+  "releaseSet": ["20300101090000_a", "20300101090100_b", "20300101090200_c"]
+}
+```
+
+`releaseSet` is optional. When it is present it must meet all of these:
+- it is a non-empty list of migration names;
+- every name is a migration directory in the checkout;
+- no name appears twice;
+- it contains the record's own `migration`;
+- it is in **Prisma order**. A different order is refused, and the message shows the canonical order; the gate never re-sorts silently.
+
+### What the gate enforces
+These checks run in `plan` and again in `stage`, after approval and before any write.
+
+- **Every binding record is consulted.** That is every record under `ops/release-approvals/` whose `releaseSet` shares a migration with `expected_migrations`, not only the records of the requested migrations. A part of a bound set cannot slip through just because the record that binds it belongs to a migration left out of the request.
+- **Exact match.** `expected_migrations` must equal the bound set exactly:
+  - a **subset** is refused ("requested migrations are only a subset of the owner-approved release set");
+  - a **superset** is refused;
+  - a list that leaves part out and adds something else is refused.
+- **Conflicts.** If two records bind the requested migrations to **different** sets, the gate refuses and lists both sets. It does not guess which one is newer.
+- **Restrict-only.** A binding never authorizes anything by itself. Every authority-changing migration still needs its own checksum-bound, preflight-bound record (section 4). The ledger and prefix checks (`decide`) are unchanged.
+- **Fail closed.** A malformed binding, or an approval record that is not valid JSON, refuses every release, because it cannot be told what it binds.
+
+The plan prints the bound set and the requested release member by member, so an operator sees exactly why it stopped:
+
+```
+owner-bound release set detected (ops/release-approvals/20300101090100_b.json):
+  20300101090000_a
+  20300101090100_b
+  20300101090200_c
+requested release:
+  20300101090000_a
+  20300101090100_b
+REFUSED: requested migrations are only a subset of the owner-approved release set (left out: 20300101090200_c) — releasing part of it needs a new owner decision
+```
+
+### Changing an owner decision (supersession)
+Editing the `expected_migrations` input can never weaken a binding. A changed decision is a **new authority artifact**: a reviewed approval-record PR that changes the record, carrying both of these:
+- `"supersedes": "<the previous decision URL>"`
+- a **new** `decision` link
+
+The gate walks the record's git history (release-migrate checks out with full history) and takes the most recent earlier version whose binding differs from the current one. The current record must name that version's decision in `supersedes`, and must link a different decision. Comparing against the last *different* binding means an unauthorized change cannot be laundered by touching the file again afterwards.
+
+What counts as a change of binding:
+- adding a binding to an approved record;
+- changing the set;
+- removing the binding.
+
+Every other record that binds the old set must be changed the same way. Otherwise the two records conflict and the gate refuses.
+
+**Historical bindings stay in view.** For every approval record the gate reads both its current binding and the binding it had before its last binding change (git history). A record is consulted when any of these touch the request:
+- its own migration;
+- its **current** binding;
+- its **previous** binding.
+
+So a binding cannot disappear from enforcement just because the current JSON no longer contains it. If a binding was changed or **removed** without valid supersession:
+- the record refuses;
+- its **previous** binding stays in force, so a subset of it is refused too.
+
+After a valid supersession the new authority governs and the old set does not resurrect.
+
+The walk skips versions that are not valid JSON, so an unreadable intermediate version cannot stand in for the decision it hid.
+
+**Tombstone rule: records that ever carried a binding are never deleted.** The gate also reads approval records that existed in the commit's history but are gone from the checkout. It finds them by scanning deletions under `ops/release-approvals/` in the ancestry of HEAD, with rename detection off, so a rename counts as a deletion too. For each one, it collects every `releaseSet` any committed version carried.
+
+If such a record ever carried a binding, and its migration or any of those sets touches the request, the release is **refused**, and every one of those historical sets stays in force. This holds **even if the binding had been validly superseded before the deletion.** Physical deletion is never itself an authority transition, and the gate does not try to prove a deleted history "resolved".
+
+To change or drop a binding:
+1. keep the file;
+2. supersede the binding inside it (`supersedes` plus a new `decision`).
+
+The record then remains as a tombstone. Restoring a deleted file lifts the refusal.
+
+Records that **never** carried a `releaseSet` are not tombstoned. They may be deleted, and their deletion blocks nothing.
+
+**Full git history is mandatory.** **Unreadable history fails closed.** If history cannot be read, every release is refused: that covers no git, and a **shallow** clone, whose log would silently look like "no history". release-migrate checks out with full history.
+
+Example:
+1. The owner approves releasing A, B and C together. The records of B and C carry `releaseSet: [A, B, C]`. Releasing `[A, B, C]` is allowed. Releasing `[A, B]` or `[A]` is refused.
+2. The owner later decides A and B may go without C. B's record changes to `releaseSet: [A, B]` with `supersedes` naming decision 1 and a new `decision` link. C's record drops or changes its binding the same way.
+3. Now `[A, B]` is allowed and `[A, B, C]` is refused.
+
+### Backward compatibility
+Records without `releaseSet` validate exactly as before. Their migrations keep the generic prefix behaviour, so existing records need no rewrite.
+
+### Proof
+- **`release-migrate-gate.mjs --self-test`:** the R-matrix, run with synthetic names:
+  - no binding: an exact set and a shorter prefix are both allowed;
+  - a bound set: exact is allowed; subset, superset and different are refused;
+  - agreeing records are allowed; conflicting records are refused;
+  - malformed sets (duplicate, unknown, own-missing, out of order, empty) are refused;
+  - checksum and preflight still bind;
+  - supersession: refused without `supersedes`, refused with the same decision link, allowed under a new decision, and both adding and removing a binding count as changes.
+- **Historical bindings (self-test H1–H6) and deleted records (self-test D1–D7):** run through `evaluateApprovalBindings`, the same evaluation `authorize()` uses. They cover:
+  - a removal without `supersedes`;
+  - a later edit after an unauthorized removal;
+  - a valid removal (the old set does not resurrect);
+  - a valid removal while another record still binds the old set;
+  - unreadable history;
+  - unrelated records.
+- **`.release-gate/release-set-lab.sh` (release-gate-lab.yml step 6):** the same cases through the real `plan` CLI in throwaway git checkouts:
+  - S1–S8, including the laundering attempt and a checkout with no git history;
+  - H1–H6: removal without authority, laundering by a later edit, valid removal, the other record still binding, an invalid-JSON intermediate version, and a shallow clone;
+  - D1–D5: a bound record deleted; unrelated commits after the deletion; deletion after a valid supersession (refused, then allowed once restored); a deletion while another record still binds; a legacy record deletion (allowed).
