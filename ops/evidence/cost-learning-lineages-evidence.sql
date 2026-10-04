@@ -26,7 +26,7 @@ SELECT
   NOT EXISTS (SELECT 1 FROM k WHERE (SELECT count(*) FROM v WHERE v.key = k.key AND v.version = 'v1') <> 1
                                  OR (SELECT count(*) FROM v WHERE v.key = k.key) <> 1) AS each_exactly_v1;
 
-\echo '== L3 no unexpected cost lineage (COST-03, T-AP-03 and the blocked / deferred / future ones absent)'
+\echo '== L3 no unexpected cost lineage (expected 0; the five known non-cost cadence lineages are named and excluded)'
 SELECT count(*) AS unexpected_lineage_count
 FROM "DerivationPolicy"
 WHERE (key ILIKE '%cost%' OR key ILIKE '%baseline%' OR key ILIKE '%cadence%' OR key ILIKE '%concentration%'
@@ -34,7 +34,10 @@ WHERE (key ILIKE '%cost%' OR key ILIKE '%baseline%' OR key ILIKE '%cadence%' OR 
        OR key = 'temporal-payables-late-share')
   AND key NOT IN ('payables-cost-data-completeness', 'payables-recurring-amount-change', 'payables-new-material-commitment',
                   'payables-ended-commitment', 'payables-baseline-shift', 'payables-upcoming-concentration',
-                  'payables-cash-out-above-range');
+                  'payables-cash-out-above-range')
+  -- Pre-existing NON-cost lineages the broad patterns also match (M4/M6 cadence rules of other domains):
+  AND key NOT IN ('documents-vendor-billing-cadence', 'suppliers-purchase-cadence', 'temporal-documents-vendor-cadence',
+                  'temporal-inventory-restock-cadence', 'temporal-suppliers-purchase-cadence');
 
 \echo '== L4 enrollment unchanged, nothing new learned since the last derive'
 SELECT
