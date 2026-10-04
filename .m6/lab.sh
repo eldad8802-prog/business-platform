@@ -3,17 +3,18 @@
 #
 #   .m6/lab.sh <db-name> [--with-m6 | --broken-m6]
 #
-# Production before the JOINT release: 168 migrations applied (learning-coverage policies the last), and
-# three pending — the P3-A pair (20261008090000_p3a_identity_enum_values, 20261008090100_p3a_trust_claims),
-# which sorts before M6, and M6. One release-migrate run applies all three, in that order. This lab is that:
+# Production as it is after P3-A (owner Option B; P3-A applied 2026-10-05 by release-migrate 37235232994):
+# 170 migrations applied — the P3-A pair (20261008090000_p3a_identity_enum_values,
+# 20261008090100_p3a_trust_claims) the last — and M6 the ONLY pending migration. This lab is that:
 #   1. .c594/lab.sh <db> — non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
 #      app_runtime_prod, the owner's DEFAULT PRIVILEGES, baselined ledger, #594 by migrate deploy;
 #   2. app_auth / app_ctlplane exist (B4 refuses without app_auth), the real D2 E4 narrowing;
 #   3. every migration between #594 and the P3-A pair recorded applied (real checksums); B4 applied
 #      verbatim, and P2 too (P3-A replaces two P2 CHECKs by name, so the P2 tables must be the ones the
 #      P2 migration built, not the `db push` ones);
-#   4. --with-m6: `prisma migrate deploy` again, up to and including M6 — the release-migrate
-#      mechanism, which therefore applies exactly P3-A #1, P3-A #2, M6. --broken-m6: M6 fails at its end.
+#   4. the P3-A pair by `prisma migrate deploy` (real files, as Production applied them);
+#   5. --with-m6: `prisma migrate deploy` again, up to and including M6 — which therefore applies
+#      exactly M6, alone. --broken-m6: M6 fails at its end.
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
@@ -55,8 +56,8 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
 # schema (main's schema.prisma) already holds their tables and types, so replaying them would collide;
 # instead the ledger records each with its real checksum, exactly as Production's ledger does. Two are
 # applied verbatim because what comes next builds on them: B4 (FORCE RLS on Business, which M6 builds on)
-# and P2 (whose CHECKs P3-A replaces by name — the `db push` P2 tables are dropped first). The joint
-# release — P3-A #1, P3-A #2, M6 — then goes through `prisma migrate deploy`, in order.
+# and P2 (whose CHECKs P3-A replaces by name — the `db push` P2 tables are dropped first). The P3-A pair
+# then goes through `prisma migrate deploy` (as Production applied it), and M6 alone after it.
 M594="20261003090000_control_plane_production_privileges"
 P2="20261004090000_p2_business_identity"
 B4="20261006090000_business_tenant_write_rls"
@@ -73,9 +74,13 @@ for d in "$ROOT"/prisma/migrations/*/; do
   psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, '$sum', now(), '$name', 1)"
 done
 
+# Production after P3-A: the pair, applied by the real migrate deploy (170 applied; M6 the only pending).
+P3A_LAST="20261008090100_p3a_trust_claims"
+deploy_upto "$P3A_LAST" >/dev/null || { echo "P3-A deploy (the Production baseline) failed"; exit 1; }
+
 case "$MODE" in
   --with-m6)   deploy_upto "$M6" || { echo "M6 deploy failed"; exit 1; } ;;
   --broken-m6) if deploy_upto "$M6" broken; then echo "broken M6 did NOT fail"; exit 1; fi
                echo "LAB READY: $DB (M6 deploy FAILED as intended)"; exit 0 ;;
 esac
-echo "LAB READY: $DB (${MODE:-168 applied; P3-A pair + M6 pending})"
+echo "LAB READY: $DB (${MODE:-170 applied, P3-A the last; M6 the only pending})"
