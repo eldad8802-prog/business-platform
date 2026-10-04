@@ -3,16 +3,21 @@
 # `prisma migrate deploy`, the real GitHub runs API (read-only). ZERO secrets; ZERO Neon.
 #
 #   1. self-tests (gate + classifier); classification of #594, P2 and B4 (all authority-changing)
-#   2. chain lab (.release-gate/chain-lab.sh): P2 cannot ride along with B4; a migration merged
-#      while a run waits is refused; the controlled chain P2 → B4 applies exactly one approved
-#      migration per run (P2 proof 13/13, B4 proof 14/14); the #594 incident replayed is refused;
-#      a half-applied ledger is refused
+#   2. chain lab (.release-gate/chain-lab.sh), APPROVED-PREFIX semantics: B4 approved alone while
+#      the unapproved P2 runs before it is refused; a migration inside the approved run is refused,
+#      one after it is reported held; wrong order is refused; the controlled chain P2 → B4 applies
+#      exactly one approved migration per run (P2 proof 13/13, B4 proof 14/14); in the #594 replay
+#      P2 is held, never applied; a half-applied ledger is refused
 #   3. plan (no DB, the real runs API): an authority migration without a record, with a wrong
 #      checksum, with a run that is not the preflight, with a preflight that started before the
 #      merge, or with a preflight that does not name its file, is refused; a plain migration needs
 #      no record
-#   4. wiring of the DRAFT release-migrate.yml: required exact input, plan before the protected
-#      job, verify before the apply, no secret in the plan job
+#   4. wiring of release-migrate.yml: required exact input, plan before the protected job, no secret
+#      in the plan job; in the protected job: stage (pinned to github.sha, authority re-checked,
+#      ledger, prefix) before the only apply, the apply against the STAGED directory only, confirm
+#      (ledger proof) after it
+#   5. approved prefix (.release-gate/prefix-lab.sh): the owner's 12 cases on the real
+#      stage → prisma migrate deploy → confirm path, the actual ledger checked after each
 #
 # Until B4 (#611) and the P2 forensic (#614) are on main, their files are read from those PR
 # branches (read-only git); the B4 file must hash to the reviewed sha256.
@@ -161,17 +166,41 @@ jobs:
             ok(!JSON.stringify(y.jobs.plan).includes("secrets."), "plan job reads no secret");
             ok(y.jobs.migrate.needs === "plan" || (y.jobs.migrate.needs || []).includes("plan"), "the protected job needs plan");
             ok(y.jobs.migrate.environment === "production-db", "the protected job is the production-db environment");
-            const steps = y.jobs.migrate.steps.map((s) => s.run || "");
-            const v = steps.findIndex((r) => r.includes("release-migrate-gate.mjs verify"));
+            const mig = y.jobs.migrate.steps;
+            const steps = mig.map((s) => s.run || "");
+            const v = steps.findIndex((r) => r.includes("release-migrate-gate.mjs stage"));
             const applies = (r) => /^\s*(node_modules\/\.bin\/|npx )?prisma migrate deploy\b/m.test(r);
             const d = steps.findIndex(applies);
-            ok(v >= 0 && d > v, "verify runs before the only apply step");
+            const c = steps.findIndex((r) => r.includes("release-migrate-gate.mjs confirm"));
+            ok(v >= 0 && d > v, "stage (authority + ledger + prefix) runs before the only apply step");
             ok(steps.filter(applies).length === 1, "exactly one step runs prisma migrate deploy");
+            ok(c > d, "confirm (the ledger proof) runs after the apply");
+            // APPROVED PREFIX: the apply sees ONLY the staged directory (applied + the approved prefix).
+            const OUT = "$RUNNER_TEMP/release";
+            ok(steps[v].includes(`--out "${OUT}"`), "stage writes the staged directory");
+            ok(steps[d].includes(`--schema "${OUT}/prisma/schema.prisma"`), "the apply runs against the staged directory, never the checkout");
+            ok(steps.filter(applies).every((r) => r.split("\n").filter((l) => applies(l)).every((l) => l.includes(`--schema "${OUT}/prisma/schema.prisma"`))), "no apply against the full checkout");
+            ok(steps[c].includes(`--out "${OUT}"`), "confirm reads the same staged manifest");
+            // RACE: the protected job re-checks AFTER approval: the dispatch commit, authority, ledger.
+            ok(steps[v].includes("--pinned-sha") && (mig[v].env || {}).PINNED_SHA === "${{ github.sha }}", "stage pins the dispatch commit (github.sha)");
+            ok((mig[v].env || {}).GITHUB_TOKEN === "${{ github.token }}", "stage re-checks approval records and preflight runs after approval");
+            const perm = y.jobs.migrate.permissions || {};
+            ok(perm.actions === "read" && perm.contents === "read" && Object.keys(perm).length === 2, "the protected job reads contents + actions only");
+            const co = mig.find((s) => String(s.uses || "").startsWith("actions/checkout@"));
+            ok(co && co.with && co.with["fetch-depth"] === 0, "the protected checkout has history (merge times for the authority re-check)");
             // RACE: a migration merged to main while a run waits for approval must not enter that run.
             // Every checkout in both jobs is the DISPATCH commit (github.sha): no ref override, no fetch of
-            // another ref, no pull. verify and deploy run in the same job, on the same files.
+            // another ref, no pull. stage, deploy and confirm run in the same job, on the same files.
             const checkouts = ["plan", "migrate"].flatMap((j) => y.jobs[j].steps.filter((s) => String(s.uses || "").startsWith("actions/checkout@")));
             ok(checkouts.length === 2 && checkouts.every((s) => !s.with || s.with.ref === undefined), "both jobs check out the dispatch commit (no ref override)");
             ok(!y.jobs.migrate.steps.some((s) => /git\s+(fetch|pull|checkout|switch|reset)/.test(s.run || "")), "the protected job never moves its checkout");
             ok(y.jobs.migrate.if === "github.ref == '"'"'refs/heads/main'"'"'" && y.jobs.plan.if === "github.ref == '"'"'refs/heads/main'"'"'", "both jobs run only from main");
           ' "$W"
+
+      - name: 5. Approved prefix — 12 cases on the real stage → migrate deploy → confirm path, ledger after each
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # The real P3-A preflight (read-only, from main) that passed in full — the authority the lab's
+          # P3A2 record names. M6 uses its real record and preflight run.
+          P3A_PREFLIGHT_RUN: "37227137539"
+        run: bash .release-gate/prefix-lab.sh

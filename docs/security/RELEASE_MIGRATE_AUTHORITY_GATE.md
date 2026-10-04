@@ -82,3 +82,27 @@ For a flagged migration, the run summary links the migration's post-apply proof 
 1. Approve the change to `release-migrate.yml` (L1, L3), the CODEOWNERS entry, and `ops/release-approvals/` (L2).
 2. Wire the classifier into CI (the migration-first guard and release-migrate), with its self-test.
 3. Backfill approval records only for migrations pending at adoption. Already-applied migrations need none.
+
+## 7. Approved prefix (2026-10-04)
+
+### Root cause
+`prisma migrate deploy` has no target: it applies **every** migration directory that has no finished ledger row. With an exact-set gate, a later migration merged to main (M6, `20261009090000`) made it impossible to release an earlier, ready one (P3-A, `20261008090000` / `20261008090100`) without approving M6 too. Relaxing the comparison alone would not help — deploy would still run M6.
+
+### Design
+The protected job hands `prisma migrate deploy` a **staged** migrations directory, built from the dispatch commit, that holds the applied migrations and the approved prefix — nothing else. A migration outside the approved prefix is not in that directory, so the apply step cannot run it. No ledger edit, no `migrate resolve`, no SQL outside Prisma, no rename, no revert.
+
+### Prefix invariant
+`expected` (in the order given) must equal the first `k` pending migrations in Prisma order (byte order of directory names). With pending `[A, B, C]`: `[A]`, `[A,B]`, `[A,B,C]` pass; `[B]`, `[A,C]`, `[B,C]`, `[B,A]` refuse. An unapproved migration before or among the expected ones refuses before any write; one after them stays pending. The exact set is the case `k = pending.length`.
+
+### Race protection (after approval, before any write — `gate stage`)
+1. The checkout is the dispatch commit (`HEAD == github.sha`); a migration merged to main later is not in it.
+2. The authority checks run again: approval record (checksum), decision link, approver, preflight run (prod-readonly-evidence.yml, main, after the merge, naming its file) **and the preflight's verdict** — a preflight log with any FAIL row, or no PASS row, refuses (a run concludes "success" whenever its SQL ran).
+3. The Production ledger is read now; an unfinished or rolled-back row refuses.
+4. Pending order is computed from the dispatch commit; the prefix invariant is checked.
+5. The staged tree is re-read: exactly applied ∪ approved, byte-identical, no held migration.
+
+### Ledger proof (`gate confirm`, after the apply)
+Finished rows = finished-before ∪ expected exactly; no unfinished row; no row at all for a held migration.
+
+### Proof
+`.release-gate/prefix-lab.sh` (release-gate-lab.yml step 5): the owner's 12 cases on PG17, each through the real stage → deploy → confirm path, with the actual ledger and objects checked after each.
