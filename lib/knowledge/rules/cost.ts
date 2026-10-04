@@ -15,9 +15,19 @@
  *                                              the business's own previous baseline
  *   COST-05  payables.ended_commitment         a recurring commitment that was EXPLICITLY ended
  *
- * DEFINED, NOT ACTIVE (`COST_POLICY_CATALOGUE`): COST-01, COST-03, COST-06, COST-07, T-AP-03, and the
- * blocked / deferred / future ones. They have no rule, no lineage row and no composer. Their
- * eligibility is already computed by COST-08, so Wave 2 adds rules — not another architecture.
+ * WAVE 2 — PATTERN (comparison with THIS business's own history only; gated by COST-08):
+ *   COST-01  payables.baseline_shift            a sustained change in the recorded monthly baseline
+ *   COST-06  payables.upcoming_concentration    what falls due in the next 30 days vs every covered
+ *                                               historical 30-day window
+ *   COST-07  payables.cash_out_above_range      recorded cash out in the last 30 days ABOVE every covered
+ *                                               historical window (never "below": an unrecorded payment
+ *                                               and lower spend are indistinguishable)
+ * A PATTERN measure is ACTIVE when the business is eligible and the comparison was made — with
+ * `detail.detected` saying whether the pattern holds — and INSUFFICIENT_EVIDENCE when COST-08 says
+ * the history cannot carry the comparison. History is the COVERED windows only: calendar time is not.
+ *
+ * DEFINED, NOT ACTIVE (`COST_POLICY_CATALOGUE`): COST-03, and the blocked / deferred / future ones.
+ * T-AP-03 is BLOCKED: see its catalogue note.
  *
  * FACT ≠ PATTERN ≠ MEANING
  *   Wave-1 measures are FACTS: a recorded change, a recorded new commitment and its size relative to
@@ -44,7 +54,7 @@ import {
   type CostCommitment,
   type CostInstallment,
 } from "@/lib/services/business-cost/business-cost-core";
-import { baselineViews } from "@/lib/services/business-cost/business-cost-intelligence";
+import { baselineViews, upcomingObligations } from "@/lib/services/business-cost/business-cost-intelligence";
 import type { EvidenceSource, KnowledgeRule, RuleDescriptor } from "../rule.contract";
 import type { MeasureEvidenceRef, MeasureResult } from "../measure.contract";
 import { measureFingerprint } from "../measure.contract";
@@ -124,12 +134,33 @@ export const COST_POLICY_PARAMS = {
     },
   },
   "payables-ended-commitment": { v1: { lookbackDays: 90 } },
+  "payables-baseline-shift": {
+    v1: {
+      /** Compare the monthly baseline now with this many days ago. */
+      lookbackDays: 90,
+      /** Sustained: the new level must already have held, unchanged, for this many days. */
+      sustainedDays: 30,
+      /** Owner-approved detection parameter: |Δ| ≥ max(3% of the previous monthly baseline, one previous daily baseline). */
+      minShareOfPriorMonthly: 0.03,
+      minPriorDailyBaselines: 1,
+      minTrustworthyHistoryDays: 90,
+    },
+  },
+  "payables-upcoming-concentration": {
+    v1: { horizonDays: 30, minCoveredWindows: 6, minTrustworthyHistoryDays: 180 },
+  },
+  "payables-cash-out-above-range": {
+    v1: { windowDays: 30, minCoveredWindows: 6, minTrustworthyHistoryDays: 180 },
+  },
 } as const;
 
 const P08 = COST_POLICY_PARAMS["payables-cost-data-completeness"].v1;
 const P02 = COST_POLICY_PARAMS["payables-recurring-amount-change"].v1;
 const P04 = COST_POLICY_PARAMS["payables-new-material-commitment"].v1;
 const P05 = COST_POLICY_PARAMS["payables-ended-commitment"].v1;
+const P01 = COST_POLICY_PARAMS["payables-baseline-shift"].v1;
+const P06 = COST_POLICY_PARAMS["payables-upcoming-concentration"].v1;
+const P07 = COST_POLICY_PARAMS["payables-cash-out-above-range"].v1;
 
 /* ─────────────────────────────── the catalogue ────────────────────────────── */
 
@@ -155,11 +186,11 @@ export const COST_POLICY_CATALOGUE: readonly CostPolicyEntry[] = [
   { ruleId: "COST-02", measureKey: "payables.recurring_amount_change", policyKey: "payables-recurring-amount-change", level: "FACT", status: "ACTIVE", minTrustworthyHistoryDays: 0, note: "recorded fact" },
   { ruleId: "COST-04", measureKey: "payables.new_material_commitment", policyKey: "payables-new-material-commitment", level: "FACT", status: "ACTIVE", minTrustworthyHistoryDays: 0, note: "needs a covered window before the commitment started (checked per commitment)" },
   { ruleId: "COST-05", measureKey: "payables.ended_commitment", policyKey: "payables-ended-commitment", level: "FACT", status: "ACTIVE", minTrustworthyHistoryDays: 0, note: "explicit end only" },
-  { ruleId: "COST-01", measureKey: null, policyKey: null, level: "PATTERN", status: "INACTIVE", minTrustworthyHistoryDays: 90, note: "proposed v1: max(3% of baseline, one day's baseline)" },
+  { ruleId: "COST-01", measureKey: "payables.baseline_shift", policyKey: "payables-baseline-shift", level: "PATTERN", status: "ACTIVE", minTrustworthyHistoryDays: 90, note: "v1: |Δ| ≥ max(3% of the previous monthly baseline, one previous daily baseline), held 30 days" },
   { ruleId: "COST-03", measureKey: null, policyKey: null, level: "FACT", status: "INACTIVE", minTrustworthyHistoryDays: 0, note: "cadence change" },
-  { ruleId: "COST-06", measureKey: null, policyKey: null, level: "PATTERN", status: "INACTIVE", minTrustworthyHistoryDays: 180, note: "above every own completed window" },
-  { ruleId: "COST-07", measureKey: null, policyKey: null, level: "PATTERN", status: "INACTIVE", minTrustworthyHistoryDays: 180, note: "above every own completed window; never below" },
-  { ruleId: "T-AP-03", measureKey: null, policyKey: null, level: "PATTERN", status: "INACTIVE", minTrustworthyHistoryDays: 180, note: "late share over time" },
+  { ruleId: "COST-06", measureKey: "payables.upcoming_concentration", policyKey: "payables-upcoming-concentration", level: "PATTERN", status: "ACTIVE", minTrustworthyHistoryDays: 180, note: "above every COVERED historical window (≥ 6)" },
+  { ruleId: "COST-07", measureKey: "payables.cash_out_above_range", policyKey: "payables-cash-out-above-range", level: "PATTERN", status: "ACTIVE", minTrustworthyHistoryDays: 180, note: "above every COVERED historical window (≥ 6); never below" },
+  { ruleId: "T-AP-03", measureKey: null, policyKey: null, level: "PATTERN", status: "BLOCKED", minTrustworthyHistoryDays: 180, note: "the Secretary's paid form defaults the payment date to the day it is recorded, so a MANUAL payment's paidAt can be the recording date: lateness over time would partly measure late recording. Needs paid-date provenance (owner-edited vs default) or externally-backed settlements before it may learn" },
   { ruleId: "COST-09", measureKey: null, policyKey: null, level: "PATTERN", status: "BLOCKED", minTrustworthyHistoryDays: 180, note: "needs classification history; 70% coverage is a proposal" },
   { ruleId: "COST-10", measureKey: null, policyKey: null, level: "FACT", status: "DEFERRED", minTrustworthyHistoryDays: 90, note: "descriptive only, after append-only behavioural history exists" },
   { ruleId: "COST-11", measureKey: null, policyKey: null, level: "PATTERN", status: "FUTURE", minTrustworthyHistoryDays: 730, note: "seasonality" },
@@ -613,6 +644,170 @@ export function deriveEndedCommitment(observations: readonly CostLedgerSnapshot[
   return out;
 }
 
+/* ───────────────────────── Wave 2 · PATTERN descriptors ───────────────────── */
+
+const PATTERN_FRESHNESS: RuleDescriptor["freshness"] = ["NEW_EVIDENCE", "WINDOW_ROLLED", "EVIDENCE_REVERSED", "RULE_VERSION_CHANGED"];
+
+export const COST01: RuleDescriptor = {
+  ...SHARED,
+  ruleId: "COST-01",
+  measureKey: "payables.baseline_shift",
+  policyKey: "payables-baseline-shift",
+  entityType: null,
+  minSupport: 1,
+  windowDays: P01.lookbackDays,
+  freshness: PATTERN_FRESHNESS,
+  question: "Did this business's recorded monthly cost baseline change, materially and lastingly, against its own baseline 90 days ago?",
+};
+export const COST06: RuleDescriptor = {
+  ...SHARED,
+  ruleId: "COST-06",
+  measureKey: "payables.upcoming_concentration",
+  policyKey: "payables-upcoming-concentration",
+  entityType: null,
+  minSupport: 1,
+  windowDays: P08.windowDays * P08.completedWindows,
+  freshness: PATTERN_FRESHNESS,
+  question: "Is more falling due in the next 30 days than in any covered 30-day window of this business's own history?",
+};
+export const COST07: RuleDescriptor = {
+  ...SHARED,
+  ruleId: "COST-07",
+  measureKey: "payables.cash_out_above_range",
+  policyKey: "payables-cash-out-above-range",
+  entityType: null,
+  minSupport: 1,
+  windowDays: P08.windowDays * P08.completedWindows,
+  freshness: PATTERN_FRESHNESS,
+  question: "Was more cash recorded as paid in the last 30 days than in any covered 30-day window of this business's own history?",
+};
+
+/** The eligibility every PATTERN shares: COST-08's trustworthy history, and its covered windows as the only history. */
+function patternEligibility(s: CostLedgerSnapshot, now: Date, minDays: number, minCovered: number) {
+  const a = assessCostCompleteness(s, now);
+  const days = a.eligibility.trustworthyHistoryDays;
+  const covered = a.eligibility.windows.slice(0, days / P08.windowDays).filter((w) => w.covered === true);
+  const eligible = a.hasData && days >= minDays && covered.length >= minCovered;
+  const reason = !a.hasData
+    ? "NO_COST_DATA"
+    : days < minDays
+      ? `TRUSTWORTHY_HISTORY_${days}_OF_${minDays}_DAYS`
+      : `COVERED_WINDOWS_${covered.length}_OF_${minCovered}`;
+  return { a, days, covered, eligible, reason };
+}
+
+function ineligible(d: RuleDescriptor, s: CostLedgerSnapshot, asOf: number, from: number, e: ReturnType<typeof patternEligibility>, params: object): MeasureResult {
+  return result(d, s.businessId, null, "INSUFFICIENT_EVIDENCE", null, {
+    level: "PATTERN", params, reason: e.reason, trustworthyHistoryDays: e.days, coveredWindows: e.covered.length,
+    minSupport: d.minSupport, have: 0,
+  }, [], from, asOf);
+}
+
+/* ────────────────────── COST-01 · sustained baseline shift ──────────────────── */
+
+export function deriveBaselineShift(observations: readonly CostLedgerSnapshot[], now: Date): MeasureResult[] {
+  const s = observations[0];
+  if (!s) return [];
+  const asOf = asOfOf(s, now);
+  const from = asOf - P01.lookbackDays;
+  const e = patternEligibility(s, now, P01.minTrustworthyHistoryDays, 1);
+  if (!e.eligible) return [ineligible(COST01, s, asOf, from, e, P01)];
+  const input = { ...s.inputs, asOf: fromDayNumber(asOf) };
+  const then = baselineViews(input, fromDayNumber(from));
+  const mid = baselineViews(input, fromDayNumber(asOf - P01.sustainedDays));
+  const current = baselineViews(input, fromDayNumber(asOf));
+  if (then.monthlyMinor <= 0) {
+    return [result(COST01, s.businessId, null, "INSUFFICIENT_EVIDENCE", null, { level: "PATTERN", params: P01, reason: "NO_PRIOR_BASELINE", minSupport: 1, have: 0 }, [], from, asOf)];
+  }
+  const delta = current.monthlyMinor - then.monthlyMinor;
+  // |Δ| ≥ max(3% of the previous monthly baseline, one previous daily baseline) — integer arithmetic.
+  const floor = Math.max(Math.ceil((then.monthlyMinor * Math.round(P01.minShareOfPriorMonthly * 10_000)) / 10_000), then.dailyMinor * P01.minPriorDailyBaselines);
+  const material = Math.abs(delta) >= floor;
+  // Sustained: today's level already held 30 days ago — a change inside the last 30 days is not yet a pattern.
+  const sustained = mid.monthlyMinor === current.monthlyMinor;
+  const before = new Map(then.lines.map((l) => [l.seriesKey, l]));
+  const after = new Map(current.lines.map((l) => [l.seriesKey, l]));
+  const drivers: Array<{ commitmentId: number; change: "ADDED" | "ENDED" | "CHANGED"; monthlyFromMinor: number; monthlyToMinor: number }> = [];
+  for (const [k, l] of after) {
+    const b = before.get(k);
+    if (!b) drivers.push({ commitmentId: l.commitmentId, change: "ADDED", monthlyFromMinor: 0, monthlyToMinor: l.monthlyMinor });
+    else if (b.monthlyMinor !== l.monthlyMinor) drivers.push({ commitmentId: l.commitmentId, change: "CHANGED", monthlyFromMinor: b.monthlyMinor, monthlyToMinor: l.monthlyMinor });
+  }
+  for (const [k, b] of before) if (!after.has(k)) drivers.push({ commitmentId: b.commitmentId, change: "ENDED", monthlyFromMinor: b.monthlyMinor, monthlyToMinor: 0 });
+  drivers.sort((x, y) => Math.abs(y.monthlyToMinor - y.monthlyFromMinor) - Math.abs(x.monthlyToMinor - x.monthlyFromMinor) || x.commitmentId - y.commitmentId);
+  const refs = drivers.map((d) => ref("commitment", s.businessId, d.commitmentId));
+  if (refs.length === 0) refs.push(...e.a.refs.slice(0, 1));
+  return [result(COST01, s.businessId, null, "ACTIVE", toMajor(delta), {
+    level: "PATTERN", params: P01,
+    detected: material && sustained && delta !== 0,
+    comparedFrom: fromDayNumber(from), comparedTo: fromDayNumber(asOf),
+    monthlyFromMinor: then.monthlyMinor, monthlyToMinor: current.monthlyMinor,
+    dailyFromMinor: then.dailyMinor, dailyToMinor: current.dailyMinor,
+    floorMinor: floor, material, sustained, drivers,
+    trustworthyHistoryDays: e.days,
+  }, refs, from, asOf)];
+}
+
+/* ─────────────────── COST-06 · upcoming payment concentration ───────────────── */
+
+export function deriveUpcomingConcentration(observations: readonly CostLedgerSnapshot[], now: Date): MeasureResult[] {
+  const s = observations[0];
+  if (!s) return [];
+  const asOf = asOfOf(s, now);
+  const from = asOf - P08.windowDays * P08.completedWindows;
+  const e = patternEligibility(s, now, P06.minTrustworthyHistoryDays, P06.minCoveredWindows);
+  if (!e.eligible) return [ineligible(COST06, s, asOf, from, e, P06)];
+  const to = asOf + P06.horizonDays - 1;
+  // What falls due, paid or not: stored occurrences at their scheduled amount plus the projection of
+  // running series — the same quantity each covered historical window's dueMinor measured.
+  const recorded = windowCoverage(s, asOf, to);
+  const projected = upcomingObligations({ ...s.inputs, asOf: fromDayNumber(asOf) }, fromDayNumber(asOf), fromDayNumber(to)).projectedMinor;
+  const total = recorded.dueMinor + projected;
+  const history = e.covered.map((w) => w.dueMinor);
+  const max = Math.max(...history);
+  const mean = Math.round(history.reduce((x, v) => x + v, 0) / history.length);
+  return [result(COST06, s.businessId, null, "ACTIVE", toMajor(total), {
+    level: "PATTERN", params: P06,
+    detected: total > max,
+    window: { from: fromDayNumber(asOf), to: fromDayNumber(to) },
+    currentMinor: total, recordedMinor: recorded.dueMinor, projectedMinor: projected,
+    historyMaxMinor: max, historyMeanMinor: mean, coveredWindows: history.length,
+    trustworthyHistoryDays: e.days,
+  }, recorded.refs.length ? recorded.refs : e.a.refs.slice(0, 1), from, asOf)];
+}
+
+/* ─────────────────────── COST-07 · cash out above own range ─────────────────── */
+
+export function deriveCashOutAboveRange(observations: readonly CostLedgerSnapshot[], now: Date): MeasureResult[] {
+  const s = observations[0];
+  if (!s) return [];
+  const asOf = asOfOf(s, now);
+  const from = asOf - P08.windowDays * P08.completedWindows;
+  const e = patternEligibility(s, now, P07.minTrustworthyHistoryDays, P07.minCoveredWindows);
+  if (!e.eligible) return [ineligible(COST07, s, asOf, from, e, P07)];
+  const cur = windowCoverage(s, asOf - P07.windowDays + 1, asOf);
+  const history = e.covered.map((w) => w.cashOutMinor);
+  const max = Math.max(...history);
+  const mean = Math.round(history.reduce((x, v) => x + v, 0) / history.length);
+  const payments = s.inputs.payments
+    .filter((p) => p.status === "RECORDED" && p.currency === s.inputs.baseCurrency)
+    .filter((p) => {
+      const d = toDayNumber(civilDateInZone(p.paidAt, s.inputs.timeZone));
+      return d >= asOf - P07.windowDays + 1 && d <= asOf;
+    })
+    .sort((x, y) => y.amountMinor - x.amountMinor || x.id - y.id);
+  return [result(COST07, s.businessId, null, "ACTIVE", toMajor(cur.cashOutMinor), {
+    level: "PATTERN", params: P07,
+    // ABOVE only. Below the business's own range is never concluded: an unrecorded payment and lower
+    // spending look the same in the record.
+    detected: cur.cashOutMinor > max,
+    window: { from: cur.from, to: cur.to },
+    currentMinor: cur.cashOutMinor, historyMaxMinor: max, historyMeanMinor: mean, coveredWindows: history.length,
+    largestPayments: payments.slice(0, 3).map((p) => ({ paymentId: p.id, amountMinor: p.amountMinor })),
+    trustworthyHistoryDays: e.days,
+  }, payments.length ? payments.map((p) => ref("payment", s.businessId, p.id)) : e.a.refs.slice(0, 1), from, asOf)];
+}
+
 /* ──────────────────────────────── the rules ───────────────────────────────── */
 
 export function costRules(source: EvidenceSource<CostLedgerSnapshot>): KnowledgeRule<CostLedgerSnapshot>[] {
@@ -621,5 +816,8 @@ export function costRules(source: EvidenceSource<CostLedgerSnapshot>): Knowledge
     { descriptor: COST02, source, derive: deriveRecurringAmountChange },
     { descriptor: COST04, source, derive: deriveNewMaterialCommitment },
     { descriptor: COST05, source, derive: deriveEndedCommitment },
+    { descriptor: COST01, source, derive: deriveBaselineShift },
+    { descriptor: COST06, source, derive: deriveUpcomingConcentration },
+    { descriptor: COST07, source, derive: deriveCashOutAboveRange },
   ];
 }

@@ -18,6 +18,9 @@ import {
   deriveEndedCommitment,
   deriveNewMaterialCommitment,
   deriveRecurringAmountChange,
+  deriveBaselineShift,
+  deriveUpcomingConcentration,
+  deriveCashOutAboveRange,
   type CostAuditEvent,
   type CostLedgerSnapshot,
 } from "./cost";
@@ -279,21 +282,126 @@ section("AI grounding guard (kept for later waves; unused in Wave 1)");
 section("Catalogue, versions, migration and purity");
 {
   const active = COST_POLICY_CATALOGUE.filter((e) => e.status === "ACTIVE");
-  ok("Wave 1 = exactly COST-08, COST-02, COST-04, COST-05", JSON.stringify(active.map((e) => e.ruleId).sort()) === JSON.stringify(["COST-02", "COST-04", "COST-05", "COST-08"]));
+  ok("active = Wave 1 FACT (COST-08/02/04/05) + Wave 2 PATTERN (COST-01/06/07)",
+    JSON.stringify(active.map((e) => e.ruleId).sort()) === JSON.stringify(["COST-01", "COST-02", "COST-04", "COST-05", "COST-06", "COST-07", "COST-08"]));
+  ok("the PATTERN policies are marked PATTERN, the Wave-1 ones FACT",
+    active.every((e) => (["COST-01", "COST-06", "COST-07"].includes(e.ruleId) ? e.level === "PATTERN" : e.level === "FACT")));
   const registered = catalogueDescriptors().filter((d) => d.ruleId.startsWith("COST-") || d.ruleId === "T-AP-03");
   ok("only the active ones are in the knowledge catalogue", JSON.stringify(registered.map((d) => d.ruleId).sort()) === JSON.stringify(active.map((e) => e.ruleId).sort()));
-  ok("COST-01/03/06/07 and T-AP-03 are defined but INACTIVE", ["COST-01", "COST-03", "COST-06", "COST-07", "T-AP-03"].every((r) => COST_POLICY_CATALOGUE.find((e) => e.ruleId === r)?.status === "INACTIVE"));
+  ok("COST-03 is defined but INACTIVE; T-AP-03 is BLOCKED with its reason",
+    COST_POLICY_CATALOGUE.find((e) => e.ruleId === "COST-03")?.status === "INACTIVE" &&
+    COST_POLICY_CATALOGUE.find((e) => e.ruleId === "T-AP-03")?.status === "BLOCKED" &&
+    /paid-date provenance/.test(COST_POLICY_CATALOGUE.find((e) => e.ruleId === "T-AP-03")?.note ?? ""));
   ok("COST-09 blocked, COST-10 deferred, COST-11/12 future", COST_POLICY_CATALOGUE.find((e) => e.ruleId === "COST-09")?.status === "BLOCKED" && COST_POLICY_CATALOGUE.find((e) => e.ruleId === "COST-10")?.status === "DEFERRED" && ["COST-11", "COST-12"].every((r) => COST_POLICY_CATALOGUE.find((e) => e.ruleId === r)?.status === "FUTURE"));
-  const sql = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql"), "utf8");
-  ok("every active policy has its lineage + v1 in the migration, and no inactive one does",
-    active.every((e) => sql.includes(`'${e.policyKey}'`)) && !/baseline-shift|cadence-change|upcoming|cash-out/.test(sql));
-  ok("the migration only inserts governance rows (no DDL, no RLS, no grants)", !/(CREATE|ALTER|DROP|GRANT|REVOKE|POLICY|TABLE|INDEX)/i.test(sql.replace(/--.*$/gm, "")));
+  const wave1 = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql"), "utf8");
+  const wave2 = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql"), "utf8");
+  ok("every active policy has its lineage + v1 in exactly one of the two migrations",
+    active.every((e) => Number(wave1.includes("'" + e.policyKey + "'")) + Number(wave2.includes("'" + e.policyKey + "'")) === 1));
+  ok("no inactive / blocked policy is registered by either migration",
+    !/cadence-change|late-share|structure|seasonal|behaviour|behavior/.test(wave1 + wave2));
+  const ddl = /\b(CREATE|ALTER|DROP|GRANT|REVOKE|POLICY|TABLE|INDEX|UPDATE|DELETE|TRUNCATE)\b/i;
+  ok("the DDL detector is real (it catches a statement it must catch)", ddl.test("ALTER TABLE x") && ddl.test("create policy p") && !ddl.test('INSERT INTO "DerivationPolicy"'));
+  ok("both migrations only insert governance rows (no DDL, no RLS, no privileges)",
+    [wave1, wave2].every((sql) => !ddl.test(sql.replace(/--.*$/gm, ""))));
   ok("every active policy has versioned parameters", active.every((e) => (COST_POLICY_PARAMS as Record<string, { v1: object }>)[e.policyKey!]?.v1));
   ok("COST-04 threshold is the owner's 5% of the previous baseline", COST_POLICY_PARAMS["payables-new-material-commitment"].v1.materialShareOfPriorBaseline === 0.05);
   const code = fs.readFileSync(path.join(__dirname, "cost.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
   ok("cost.ts imports no Prisma and opens no transaction", !/@prisma\/client|lib\/prisma|tenantTx/.test(code));
   ok("cost.ts reads no clock and no env", !/Date\.now\(\)|new Date\(\)|process\.env/.test(code));
   ok("cost.ts declares no confidence score", !/confidence\s*[:=]/i.test(code));
+}
+
+/* ──────────────────────────── Wave 2 · PATTERN ─────────────────────────── */
+section("COST-01 · sustained baseline shift — own history, gated by COST-08");
+{
+  // 13 monthly rent occurrences, all paid → 360 trustworthy days.
+  const raised = com({ installments: monthly("2025-10", 13, (k) => (k >= 10 ? 330000 : 300000)) }); // 3,300 from 1/8/2026
+  const [m] = deriveBaselineShift([snap([raised])], NOW);
+  ok("rent raised in August, held since → detected, +300/month", m?.status === "ACTIVE" && detail(m).detected === true && m.valueNumeric === 300, m && detail(m));
+  ok("…compared with the business's own baseline 90 days ago", detail(m).monthlyFromMinor === 300000 && detail(m).monthlyToMinor === 330000 && detail(m).comparedFrom === "2026-07-03");
+  ok("…floor = max(3% of 3,000, one day's 98.56) = 98.56", detail(m).floorMinor === 9856);
+  ok("…its driver is the rent series, CHANGED", JSON.stringify(detail(m).drivers.map((d: any) => [d.change, d.monthlyFromMinor, d.monthlyToMinor])) === JSON.stringify([["CHANGED", 300000, 330000]]));
+  ok("…evidence is the driver commitment", m.evidenceSet.refs.length === 1 && m.evidenceSet.refs[0].kind === "commitment" && m.evidenceSet.refs[0].recordId === raised.id);
+  ok("…PATTERN, no direction of 'better/worse'", detail(m).level === "PATTERN" && m.trend === null);
+
+  const fresh = com({ installments: monthly("2025-10", 13, (k) => (k >= 12 ? 330000 : 300000)) }); // new amount only from 1/10
+  const [f] = deriveBaselineShift([snap([fresh])], NOW);
+  ok("a change from today is not yet sustained → ACTIVE but not detected", f.status === "ACTIVE" && detail(f).detected === false && detail(f).sustained === false && detail(f).material === true, detail(f));
+  const small = com({ installments: monthly("2025-10", 13, (k) => (k >= 10 ? 305000 : 300000)) });
+  const [sm] = deriveBaselineShift([snap([small])], NOW);
+  ok("+50/month (< floor 98.56) → not material, not detected", detail(sm).detected === false && detail(sm).material === false);
+  const steady = com({ installments: monthly("2025-10", 13, 300000) });
+  ok("no change → not detected", detail(deriveBaselineShift([snap([steady])], NOW)[0]).detected === false);
+
+  const young = com({ installments: monthly("2026-08", 3, 300000) });
+  const [y] = deriveBaselineShift([snap([young])], NOW);
+  ok("60 trustworthy days → INSUFFICIENT_EVIDENCE, the reason names the gate", y.status === "INSUFFICIENT_EVIDENCE" && /^TRUSTWORTHY_HISTORY_\d+_OF_90_DAYS$/.test(detail(y).reason) && y.valueNumeric === null, detail(y).reason);
+  const unpaid = com({ installments: monthly("2025-10", 13, (k) => (k >= 10 ? 330000 : 300000), "01", "1900-01-01") });
+  const [u] = deriveBaselineShift([snap([unpaid], { payments: [] })], NOW);
+  ok("a year of commitments with nothing recorded as paid → INSUFFICIENT, never a 'shift'", u.status === "INSUFFICIENT_EVIDENCE" && detail(u).reason === "TRUSTWORTHY_HISTORY_0_OF_90_DAYS", detail(u).reason);
+}
+
+section("COST-06 · upcoming concentration — covered windows only");
+{
+  const rent = com({ installments: monthly("2025-10", 13, 300000) });
+  const tax = com({ scheduleKind: "ONE_OFF", recurrence: "NONE", installments: [inst("2026-10-10", 2500000)] });
+  const [m] = deriveUpcomingConcentration([snap([rent, tax], { payments: paymentsFor(rent) })], NOW);
+  ok("a large payment falling due next week → detected above every covered window", m?.status === "ACTIVE" && detail(m).detected === true && detail(m).currentMinor === 2800000 && detail(m).historyMaxMinor === 300000, m && detail(m));
+  ok("…compared with 12 covered windows", detail(m).coveredWindows === 12, detail(m).coveredWindows);
+  const [n] = deriveUpcomingConcentration([snap([rent])], NOW);
+  ok("a normal month → not detected", detail(n).detected === false && detail(n).currentMinor === 300000, detail(n));
+  const young = com({ installments: monthly("2026-05", 6, 300000) });
+  const [y] = deriveUpcomingConcentration([snap([young, tax], { payments: paymentsFor(young) })], NOW);
+  ok("~150 trustworthy days → INSUFFICIENT, however large the upcoming amount", y.status === "INSUFFICIENT_EVIDENCE" && /OF_180_DAYS/.test(detail(y).reason), detail(y).reason);
+  // An unpaid month four months back breaks trustworthy history: what lies before it is not comparable history.
+  const gap = com({ installments: monthly("2025-10", 13, 300000).map((i) => (i.dueDate === "2026-06-01" ? { ...i, paidMinor: 0 } : i)) });
+  const [g] = deriveUpcomingConcentration([snap([gap, tax], { payments: paymentsFor(gap) })], NOW);
+  ok("an unrecorded payment four months back cuts the history → INSUFFICIENT", g.status === "INSUFFICIENT_EVIDENCE", detail(g).reason);
+}
+
+section("COST-07 · cash out above own range — never below");
+{
+  const rent = com({ installments: monthly("2025-10", 13, 300000) });
+  const big: CostPayment = { id: next(), paidAt: new Date("2026-09-20T09:00:00Z"), amountMinor: 2000000, currency: "ILS", status: "RECORDED", payeeName: "x", method: "BANK_TRANSFER", allocations: [] };
+  const [m] = deriveCashOutAboveRange([snap([rent], { payments: [...paymentsFor(rent), big] })], NOW);
+  ok("₪20,000 paid in the window (October rent not yet recorded) → detected above every covered window", m?.status === "ACTIVE" && detail(m).detected === true && detail(m).currentMinor === 2000000 && detail(m).historyMaxMinor === 300000, m && detail(m));
+  ok("…the largest payment is named by id and amount only", detail(m).largestPayments[0].paymentId === big.id && detail(m).largestPayments[0].amountMinor === 2000000);
+  const notYet = com({ installments: monthly("2025-10", 13, 300000, "01", "2026-09-30") }); // October's rent not recorded yet
+  const [n] = deriveCashOutAboveRange([snap([notYet])], NOW);
+  ok("rent not recorded yet this cycle → not detected (never 'below my range')", n.status === "ACTIVE" && detail(n).detected === false && !("direction" in detail(n)), detail(n));
+  const young = com({ installments: monthly("2026-06", 5, 300000) });
+  ok("young history → INSUFFICIENT", deriveCashOutAboveRange([snap([young], { payments: [...paymentsFor(young), big] })], NOW)[0].status === "INSUFFICIENT_EVIDENCE");
+}
+
+section("PATTERN insights · deterministic, comparison only, no meaning");
+{
+  const rent = com({ title: "שכירות", installments: monthly("2025-10", 13, (k) => (k >= 10 ? 330000 : 300000)) });
+  const tax = com({ title: "מס", scheduleKind: "ONE_OFF", recurrence: "NONE", installments: [inst("2026-10-10", 2500000)] });
+  const big: CostPayment = { id: next(), paidAt: new Date("2026-09-20T09:00:00Z"), amountMinor: 2000000, currency: "ILS", status: "RECORDED", payeeName: "x", method: "BANK_TRANSFER", allocations: [] };
+  const s = snap([rent, tax], { payments: [...paymentsFor(rent), big] });
+  const ms = [deriveCostCompleteness, deriveBaselineShift, deriveUpcomingConcentration, deriveCashOutAboveRange].flatMap((f) => f([s], NOW)).filter((m) => m.status === "ACTIVE");
+  const input: ComposerInput = {
+    businessId: BIZ, facts: [],
+    activeMeasures: ms.map((m, i) => ({ measureKey: m.measureKey, valueNumeric: m.valueNumeric!, valueUnit: m.valueUnit, observationCount: m.observationCount, trend: m.trend, ruleVersion: "v1", measureId: 700 + i, entityType: m.entityType, entityId: m.entityId, detail: m.detail })),
+    entityLabels: { [`commitment:${rent.id}`]: "שכירות" },
+  };
+  const PATTERN_KEYS = ["cost.baseline_shift", "cost.upcoming_concentration", "cost.cash_out_above_range"];
+  const drafts = composeCostInsights(input).filter((d) => PATTERN_KEYS.includes(d.insightKey));
+  const by = (k: string) => drafts.find((d) => d.insightKey === k)!;
+  ok("three PATTERN insights", drafts.length === 3, drafts.map((d) => d.insightKey));
+  ok("baseline: what changed, compared with what, which record", by("cost.baseline_shift")?.factLines.map((f) => f.text).join(" | ") ===
+    "3,000 ₪ לחודש ב־3/7/2026, 3,300 ₪ לחודש ב־1/10/2026 | עלות יום פעילות ממוצע: מ־98.56 ₪ ל־108.42 ₪ | שכירות: מ־3,000 ₪ ל־3,300 ₪ לחודש | הרמה החדשה נשמרת לפחות 30 יום", by("cost.baseline_shift")?.factLines.map((f) => f.text));
+  ok("upcoming: the owner's own allowed sentence shape", by("cost.upcoming_concentration")?.factLines[0].text === "28,300 ₪ רשומים לתשלום עד 30/10/2026" && by("cost.upcoming_concentration").factLines.some((f) => f.text === "הגבוה ביותר ב־12 תקופות קודמות של 30 יום שנבדקו: 3,300 ₪"), by("cost.upcoming_concentration")?.factLines.map((f) => f.text));
+  ok("cash out: amounts and the largest payment, no judgement", by("cost.cash_out_above_range")?.factLines.some((f) => f.text === "התשלום הגדול ביותר בתקופה: 20,000 ₪"));
+  ok("PATTERN level on the rule, FACT on the COST-08 gate, never MEANING",
+    drafts.every((d) => d.contributingRules[0].level === "PATTERN" && d.contributingRules.slice(1).every((r) => r.level === "FACT") && d.contributingRules.every((r) => r.level !== "MEANING")));
+  ok("no interpretation, no recommendation", drafts.every((d) => d.interpretation === null && d.suggestedActions.length === 0));
+  const FORBIDDEN = /בגלל|כי |טוב|רע|חיסכון|רווח|הפסד|מומלץ|כדאי|צמיחה|בעיה|שליטה|קושי|לא תוכל|תזרים|מסוכן|חריגה|בזבוז|יכולת/;
+  ok("no cause, judgement, control, difficulty, profit or affordability wording", drafts.every((d) => !FORBIDDEN.test([d.title, ...d.factLines.map((f) => f.text), d.uncertainty ?? ""].join(" "))));
+  const notDetected = composeCostInsights({ ...input, activeMeasures: input.activeMeasures.map((m) => ({ ...m, detail: { ...(m.detail ?? {}), detected: false } })) });
+  ok("a comparison that did not detect a pattern composes nothing", !notDetected.some((d) => PATTERN_KEYS.includes(d.insightKey)));
+  ok("dedupe is per situation: the same new baseline level → the same key", by("cost.baseline_shift")?.dedupeKey === "cost.baseline_shift:300000:330000");
+  ok("upcoming / cash-out dedupe per month (a daily re-derive refreshes, it does not breed)", by("cost.upcoming_concentration")?.dedupeKey === "cost.upcoming_concentration:2026-10" && by("cost.cash_out_above_range")?.dedupeKey === "cost.cash_out_above_range:2026-10");
 }
 
 section("Tenant isolation, by construction");

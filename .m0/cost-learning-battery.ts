@@ -71,10 +71,14 @@ const priorLineages = () => [
   ...statements("prisma/migrations/20260924090100_m4_m5_knowledge_expansion/migration.sql", (s) => /^INSERT INTO "DerivationPolicy/.test(s)),
   ...statements("prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql", (s) => /^INSERT INTO "DerivationPolicyVersion"/.test(s)),
 ];
-const waveOneLineages = () =>
-  statements("prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", (s) => /^INSERT INTO "DerivationPolicy/.test(s));
+const waveOneLineages = () => [
+  ...statements("prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", (s) => /^INSERT INTO "DerivationPolicy/.test(s)),
+  ...statements("prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql", (s) => /^INSERT INTO "DerivationPolicy/.test(s)),
+];
 
-const COST_KEYS = ["payables.cost_data_completeness", "payables.recurring_amount_change", "payables.new_material_commitment", "payables.ended_commitment"];
+const FACT_KEYS = ["payables.cost_data_completeness", "payables.recurring_amount_change", "payables.new_material_commitment", "payables.ended_commitment"];
+const PATTERN_KEYS = ["payables.baseline_shift", "payables.upcoming_concentration", "payables.cash_out_above_range"];
+const COST_KEYS = [...FACT_KEYS, ...PATTERN_KEYS];
 
 async function main(): Promise<void> {
   section("Provision — a lab that mirrors Production's enforcement");
@@ -152,18 +156,18 @@ async function main(): Promise<void> {
   section("G1 · fail-closed before the Wave-1 lineages exist");
   const before = await deriveKnowledgeForBusiness(bizA.id, NOW);
   const costReports = before.rules.filter((r) => COST_KEYS.includes(r.measureKey));
-  check("the four cost rules are in the catalogue", costReports.length === 4);
+  check("the seven cost rules (4 FACT + 3 PATTERN) are in the catalogue", costReports.length === 7);
   check("each refuses at the 'policy' stage", costReports.every((r) => r.outcome === "failed" && r.failedStage === "policy"), costReports.map((r) => [r.ruleId, r.failedStage]));
   check("…and nothing was written", (await owner.knowledgeMeasure.count({ where: { businessId: bizA.id, measureKey: { in: COST_KEYS } } })) === 0);
 
   section("Apply the migration's governance rows");
   for (const s of waveOneLineages()) await owner.$executeRawUnsafe(s);
   const lineages = await owner.derivationPolicy.findMany({ where: { key: { startsWith: "payables-" } }, include: { versions: true } });
-  check("four Wave-1 lineages with v1", ["payables-cost-data-completeness", "payables-recurring-amount-change", "payables-new-material-commitment", "payables-ended-commitment"].every((k) => lineages.find((l) => l.key === k)?.versions.some((v) => v.version === "v1")));
+  check("seven cost lineages with v1 (Wave 1 + Wave 2)", ["payables-cost-data-completeness", "payables-recurring-amount-change", "payables-new-material-commitment", "payables-ended-commitment", "payables-baseline-shift", "payables-upcoming-concentration", "payables-cash-out-above-range"].every((k) => lineages.find((l) => l.key === k)?.versions.some((v) => v.version === "v1")));
 
   section("W1–W4 · derive");
   const repA = await deriveKnowledgeForBusiness(bizA.id, NOW);
-  check("all four cost rules ran ok for A", repA.rules.filter((r) => COST_KEYS.includes(r.measureKey)).every((r) => r.outcome === "ok"), repA.rules.filter((r) => COST_KEYS.includes(r.measureKey)).map((r) => [r.ruleId, r.outcome, r.failureDetail]));
+  check("all seven cost rules ran ok for A", repA.rules.filter((r) => COST_KEYS.includes(r.measureKey)).every((r) => r.outcome === "ok"), repA.rules.filter((r) => COST_KEYS.includes(r.measureKey)).map((r) => [r.ruleId, r.outcome, r.failureDetail]));
   await deriveKnowledgeForBusiness(bizB.id, NOW);
   const mA = await owner.knowledgeMeasure.findMany({ where: { businessId: bizA.id, measureKey: { in: COST_KEYS } } });
   const one = (k: string, entityId?: number) => mA.find((m) => m.measureKey === k && (entityId === undefined || m.entityId === entityId));
@@ -183,6 +187,23 @@ async function main(): Promise<void> {
   const gateB = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizB.id, measureKey: "payables.cost_data_completeness" } });
   check("W4 COST-08 (B): its one-off with unknown coverage is a named gap", ((gateB?.detail as any)?.gaps ?? []).includes("ONE_OFF_COVERAGE_UNKNOWN"), gateB?.detail);
   check("W4 COST-08 (B): six months is not enough for 180-day patterns unless recorded as covered", typeof (gateB?.detail as any)?.eligibility?.["COST-06"]?.eligible === "boolean");
+
+  section("P1 · PATTERN — gated by COST-08, measured against the business's own covered history");
+  const gateDays = async (b: number) => Number((await owner.knowledgeMeasure.findFirstOrThrow({ where: { businessId: b, measureKey: "payables.cost_data_completeness" } })).valueNumeric);
+  for (const [label, biz] of [["A", bizA.id], ["B", bizB.id]] as const) {
+    const days = await gateDays(biz);
+    const pm = await owner.knowledgeMeasure.findMany({ where: { businessId: biz, measureKey: { in: PATTERN_KEYS } } });
+    check(`${label}: one measure per PATTERN rule`, pm.length === 3, pm.map((m) => m.measureKey));
+    for (const m of pm) {
+      const min = m.measureKey === "payables.baseline_shift" ? 90 : 180;
+      const det = (m.detail ?? {}) as Record<string, any>;
+      check(`${label} ${m.measureKey}: INSUFFICIENT exactly when trustworthy history (${days}) < ${min}`,
+        (m.status === "INSUFFICIENT_EVIDENCE") === (days < min) && (m.status === "ACTIVE" ? typeof det.detected === "boolean" && det.level === "PATTERN" : /TRUSTWORTHY_HISTORY|COVERED_WINDOWS|NO_PRIOR_BASELINE/.test(det.reason ?? "")), { status: m.status, detail: det });
+      check(`${label} ${m.measureKey}: no 'better/worse' trend`, m.trend === null);
+    }
+  }
+  const shift = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizA.id, measureKey: "payables.baseline_shift" } });
+  check("A COST-01: the leasing added 10 days ago is NOT yet a sustained shift", shift?.status !== "ACTIVE" || ((shift.detail as any)?.sustained === false && (shift.detail as any)?.detected === false), shift?.detail);
 
   section("W5 · insights");
   await generateInsightsForBusiness(bizA.id);
