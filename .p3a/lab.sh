@@ -41,9 +41,10 @@ psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/202609081
 # `prisma db push` (inside .c594/lab.sh) built every table from schema.prisma, P2's included, without
 # the P2 migration's CHECKs, partial indexes, policies or grants. Production's P2 tables were built
 # by that migration, and P3-A replaces two of its CHECKs by name — so drop what db push made for P2
-# and let migrate deploy build it the way Production has it.
+# and let migrate deploy build it the way Production has it. The same holds for M6's table once the
+# code models it: a pushed AcquisitionConnection is removed so M6 stays genuinely pending here.
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" \
-  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority" CASCADE' \
+  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "AcquisitionConnection" CASCADE' \
   -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact" CASCADE' \
   -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name > '20261003090000_control_plane_production_privileges'"
 
