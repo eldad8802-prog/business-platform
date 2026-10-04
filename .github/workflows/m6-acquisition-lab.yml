@@ -1,12 +1,14 @@
 # M6 PR-A / migration 20261009090000_m6_acquisition_connections — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17).
 #
-# .m6/lab.sh builds Production as it is before M6 (every earlier migration applied); non-superuser
+# .m6/lab.sh builds Production as it is before the JOINT release: 168 migrations applied, and the
+# P3-A pair (which sorts before M6) + M6 pending — one release-migrate run applies all three. Non-superuser
 # CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default
 # privileges, app_auth / app_ctlplane, the D2 E4 narrowing; Business under B4's FORCE RLS.
 #
-#   1. PREFLIGHT on that lab: 18/18; the post-apply proof fails exactly what M6 creates.
-#   2. M6 by `prisma migrate deploy` (only M6): POST-APPLY PROOF 15/15, checksum pinned; the
+#   1. PREFLIGHT on that lab: 19/19 (19 = the P3-A pair is consistent: both pending, never half);
+#      the post-apply proof fails exactly what M6 creates.
+#   2. The joint release by `prisma migrate deploy` (P3-A #1, P3-A #2, M6, in that order): POST-APPLY PROOF 15/15, checksum pinned; the
 #      preflight then fails exactly its "M6 not there yet" checks.
 #   3. Battery (.m6/connection-battery.ts): tenant isolation, one live mapping per resource, the
 #      pre-tenant lookups, constraints, features off, cascade.
@@ -83,14 +85,14 @@ jobs:
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
           echo "M6 sha256 $sum (pinned)"
 
-      - name: 1. Production today (B4 last, M6 pending) — PREFLIGHT 18/18; the proof fails exactly what M6 creates
+      - name: 1. Production before the joint release (168 applied; P3-A pair + M6 pending) — PREFLIGHT 19/19; the proof fails exactly what M6 creates
         run: |
           set -euo pipefail
           bash .m6/lab.sh m6_pre
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "18" || { echo "expected 18 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "19" || { echo "expected 19 PASS"; exit 1; }
           fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           echo "proof on the pre-M6 lab fails: $fails"
           test "$fails" = "1 3 4 5 6 7 8 12 13 14 " || { echo "expected 1 3 4 5 6 7 8 12 13 14"; exit 1; }

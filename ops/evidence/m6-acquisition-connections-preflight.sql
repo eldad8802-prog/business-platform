@@ -5,7 +5,13 @@
 --   20261009090000_m6_acquisition_connections   (M6 PR-A — NOT applied)
 --
 -- Measures every premise the migration's outcome depends on:
---   * the ledger is clean, M6 is not recorded and B4 is the latest migration;
+--   * the ledger is clean, M6 is not recorded and nothing that sorts after M6 was applied first;
+--   * JOINT RELEASE: the P3-A pair (20261008090000_p3a_identity_enum_values,
+--     20261008090100_p3a_trust_claims) sorts BEFORE M6, so `prisma migrate deploy` applies it in the
+--     same release-migrate run. Check 19 asserts the pair is consistent — both pending (the joint
+--     release) or both applied (M6 released after P3-A) — and never half-applied. This file proves
+--     M6's own premises only; the exact name-level pending set is proven by
+--     ops/evidence/p3a-trust-conversion-preflight.sql in the same preflight phase;
 --   * none of the names M6 creates exists (table, sequence, indexes, policies, functions) and none
 --     of its three feature keys is defined yet;
 --   * the FK target Business.id exists; the migration role owns Business and is BYPASSRLS — the
@@ -39,6 +45,7 @@
 \echo '16 D3 default privileges (migration role, public, sequences): app_runtime holds exactly rU'
 \echo '17 D4 default privileges (migration role): nothing schema-wide (global) and no other sequence grantee'
 \echo '18 P1 PlatformFeatureDefinition.key and PlatformFeaturePolicy.featureKey are unique (ON CONFLICT targets)'
+\echo '19 J1 the P3-A pair sorting before M6 is both pending (joint release) or both applied, never half (observed = P3-A ledger rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -65,6 +72,8 @@ defacl_items AS (
   WHERE d.defaclrole = (SELECT oid FROM me)),
 defacl AS (SELECT kind, nsp, grantee, string_agg(DISTINCT l, '' ORDER BY l) AS letters FROM defacl_items GROUP BY kind, nsp, grantee),
 uniq_on(tbl, col) AS (VALUES ('PlatformFeatureDefinition', 'key'), ('PlatformFeaturePolicy', 'featureKey')),
+p3a_pair(name) AS (VALUES ('20261008090000_p3a_identity_enum_values'), ('20261008090100_p3a_trust_claims')),
+p3a_rows AS (SELECT l.migration_name, l.finished_at, l.rolled_back_at FROM ledger l JOIN p3a_pair p ON p.name = l.migration_name),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
             (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
@@ -104,6 +113,9 @@ checks(n, ok, observed_count) AS (
                           SELECT 1 FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid AND t.relnamespace = (SELECT oid FROM pub)
                           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
                           WHERE t.relname = u.tbl AND i.indisunique AND i.indnatts = 1 AND a.attname = u.col AND i.indpred IS NULL)) = 2, 2
+  UNION ALL SELECT 19, (SELECT count(*) FROM p3a_rows) IN (0, 2)
+                       AND NOT EXISTS (SELECT 1 FROM p3a_rows WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
+                       (SELECT count(*) FROM p3a_rows)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
