@@ -11,6 +11,10 @@
     {
       "path": "/api/payments/settlement-recovery",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/intake/sweep",
+      "schedule": "20 3 * * *"
     }
   ]
 }

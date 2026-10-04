@@ -203,6 +203,25 @@ export async function bindMetaPage(input: {
 }
 
 /**
+ * Whether a receipt may still be acted on, by the provider reference it was accepted for (the
+ * endpoint publicId; the Page id for Meta). "revoked" when no connection for that reference is
+ * left un-revoked in THIS business — the owner revoked it, the Page moved to another business, or
+ * the account is being erased. Paused is not revoked: what was accepted before a pause is processed.
+ */
+export async function connectionStateForRef(
+  sourceKey: AcquisitionSourceKey,
+  accountRef: string | null
+): Promise<"live" | "revoked"> {
+  if (!accountRef) return "revoked";
+  const where =
+    sourceKey === "meta.lead_ads"
+      ? { sourceKey, externalResourceId: accountRef, status: { not: "REVOKED" } }
+      : { sourceKey, publicId: accountRef, status: { not: "REVOKED" } };
+  const live = await withTenantTransaction((tx) => tx.acquisitionConnection.count({ where }));
+  return live > 0 ? "live" : "revoked";
+}
+
+/**
  * The live Page token for a Meta Page (hydrate), by the Page id the receipt carries — so a Page the
  * owner reconnected after a token failure is picked up by the next retry. Null when none is live.
  */

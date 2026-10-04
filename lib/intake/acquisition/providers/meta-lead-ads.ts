@@ -20,9 +20,9 @@ import { acquisitionReceipt, canonicalLead } from "../canonical";
 import { makeAcquisitionAdapter } from "../adapter";
 import { resolveResourceConnection } from "../resolve";
 import { markConnectionError, readMetaPageToken } from "../connection.service";
+import { metaAppSecret, metaGraphVersion } from "../meta-config";
 
 export const META_LEAD_ADS_SOURCE = "meta.lead_ads" as const;
-const GRAPH_VERSION_DEFAULT = "v25.0";
 export const META_LEAD_FIELDS =
   "id,created_time,field_data,form_id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,platform,is_organic,custom_disclaimer_responses";
 
@@ -118,7 +118,7 @@ export function setMetaGraphFetchForTests(fn: GraphFetch | null): void {
 }
 
 function appSecretProof(token: string): string | null {
-  const secret = process.env.META_LEAD_ADS_APP_SECRET?.trim();
+  const secret = metaAppSecret();
   return secret ? createHmac("sha256", secret).update(token).digest("hex") : null;
 }
 
@@ -134,7 +134,7 @@ export async function hydrateMetaLead(ctx: { businessId: number; now: Date }, ev
   const cred = await readMetaPageToken(ctx.businessId, p.pageId);
   if (!cred) return { kind: "deferred", code: "page_not_connected", until: new Date(ctx.now.getTime() + 6 * HOUR) };
 
-  const version = process.env.META_LEAD_ADS_GRAPH_VERSION?.trim() || GRAPH_VERSION_DEFAULT;
+  const version = metaGraphVersion();
   const proof = appSecretProof(cred.token);
   const url =
     `https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(p.leadgenId)}` +

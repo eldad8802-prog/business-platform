@@ -189,7 +189,9 @@ export type NormalizedIntake = {
 export type HydrateResult =
   | { kind: "hydrated"; payload: Prisma.InputJsonValue; metadata?: Prisma.InputJsonValue }
   | { kind: "unchanged" }
-  | { kind: "deferred"; code: string; until: Date };
+  | { kind: "deferred"; code: string; until: Date }
+  /** The receipt must not be acted on (e.g. its connection was revoked): settled IGNORED, no write. */
+  | { kind: "ignored"; code: string };
 
 // ─── adapter ───────────────────────────────────────────────────────────────
 

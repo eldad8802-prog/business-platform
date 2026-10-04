@@ -245,6 +245,12 @@ export async function processIntakeEvent(
         logIntake("deferred", { ...base, stage: "hydrate", code: h.code });
         return "deferred";
       }
+      if (h.kind === "ignored") {
+        await markIgnored(businessId, event.id, h.code);
+        logIntake("ignored", { ...base, stage: "hydrate", code: h.code });
+        await emitSettled(event, "ignored", null, now);
+        return "ignored";
+      }
       if (h.kind === "hydrated") {
         await replacePayload(businessId, event.id, h.payload, h.metadata);
         event.payload = h.payload as Prisma.JsonValue;

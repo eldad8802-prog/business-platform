@@ -24,6 +24,9 @@ import { POST as webPOST, OPTIONS as webOPTIONS } from "../app/api/intake/acquis
 import { POST as googlePOST } from "../app/api/intake/acquisition/google/[publicId]/route";
 import { GET as metaGET, POST as metaPOST } from "../app/api/intake/acquisition/meta/route";
 import { GET as ownerGET, POST as ownerPOST } from "../app/api/integrations/acquisition/route";
+import { GET as sweepGET } from "../app/api/intake/sweep/route";
+import { runIntakeSweep } from "../lib/intake/intake-sweeper";
+import { deriveEventIdentity } from "../lib/intake/core/event-identity";
 
 const RUN = `m6-${Date.now()}`;
 let pass = 0;
@@ -312,6 +315,69 @@ async function main() {
   const started = learning.filter((l) => l.eventType === "LEAD_LIFECYCLE_STARTED").map((l) => (l.payload as { intakeSource?: string })?.intakeSource);
   ok("LEAD_LIFECYCLE_STARTED records which acquisition source (closed vocabulary)",
     started.includes("web.form") && started.includes("google.lead_form") && started.includes("meta.lead_ads"), JSON.stringify(started));
+
+  console.log("\n-- 9. durable retry: the scheduled sweep (safe, idempotent, concurrent, isolated) --");
+  process.env.CRON_SECRET ||= `m6-lab-cron-${"x".repeat(48)}`;
+  const sweepReq = (bearer?: string) => new NextRequest("http://m6.local/api/intake/sweep", { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} });
+  ok("the sweep endpoint refuses a caller without CRON_SECRET (401)", (await sweepGET(sweepReq())).status === 401);
+  ok("the sweep endpoint refuses a wrong secret (401)", (await sweepGET(sweepReq("nope-".repeat(12)))).status === 401);
+
+  const metaKey = (pageId: string, leadgenId: string) => deriveEventIdentity({ providerEventId: leadgenId, accountScope: pageId }).externalEventId;
+  const fetched: string[] = [];
+  let down = true;
+  setMetaGraphFetchForTests(async (url) => {
+    const id = decodeURIComponent(url.split("/").pop()!.split("?")[0]);
+    fetched.push(id);
+    if (down) return { status: 503, json: { error: { code: 2, message: "temporarily unavailable" } } };
+    return { status: 200, json: { id, created_time: new Date().toISOString(), form_id: "777", platform: "fb",
+      field_data: [{ name: "full_name", values: ["Retry Person"] }, { name: "phone_number", values: [`+97254444${id.slice(-4)}`] }] } };
+  });
+  // Meta is down when the notifications arrive: the receipts are durable, the leads are not lost.
+  await meta(leadgen(pageA, "9100001"));
+  await meta(leadgen(pageB, "9100002"));
+  await drain(A.id); await drain(B.id);
+  const failedA = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: metaKey(pageA, "9100001") } });
+  ok("a lead whose answers could not be read is kept, FAILED on backoff (observable code, not lost)",
+    failedA?.status === "FAILED" && !!failedA.lastErrorCode, JSON.stringify({ s: failedA?.status, c: failedA?.lastErrorCode }));
+
+  // B revokes its Page before the retry: B's pending receipt must NOT become a Lead (and Meta is not asked).
+  const bConn = await o.acquisitionConnection.findFirst({ where: { businessId: B.id, externalResourceId: pageB, status: { not: "REVOKED" } } });
+  await runWithTenantContext({ businessId: B.id }, () => revokeConnection(bConn!.id));
+
+  down = false;
+  fetched.length = 0;
+  const later = new Date(Date.now() + 3 * 3_600_000);
+  const [r1, r2] = await Promise.all([runIntakeSweep({ now: later }), runIntakeSweep({ now: later })]);
+  ok("two concurrent sweeps: no business errors in either", r1.businessErrors === 0 && r2.businessErrors === 0, JSON.stringify([r1, r2]));
+  ok("two concurrent sweeps: A's recovered Meta lead was fetched ONCE (one worker per receipt)",
+    fetched.filter((x) => x === "9100001").length === 1, JSON.stringify(fetched));
+  ok("…and became exactly ONE Lead in A",
+    (await o.lead.count({ where: { businessId: A.id, phone: { contains: "4444" } } })) === 1);
+  const bEv = await o.intakeEvent.findFirst({ where: { businessId: B.id, externalEventId: metaKey(pageB, "9100002") } });
+  ok("B's receipt for its REVOKED Page is settled IGNORED (connection_revoked), never fetched, no Lead",
+    bEv?.status === "IGNORED" && bEv.lastErrorCode === "connection_revoked" && !fetched.includes("9100002") &&
+      (await o.lead.count({ where: { businessId: B.id, phone: { contains: "4444" } } })) === 0,
+    JSON.stringify({ s: bEv?.status, c: bEv?.lastErrorCode, fetched }));
+  ok("tenant isolation: A's recovered lead is in A only",
+    (await o.lead.count({ where: { phone: { contains: "44440001" } } })) === 1 &&
+      (await o.lead.count({ where: { businessId: { not: A.id }, phone: { contains: "44440001" } } })) === 0);
+
+  // Meta re-notifies (it retries for ~36 h) and the schedule runs again: still one Lead.
+  await meta(leadgen(pageA, "9100001"));
+  const again = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const againBody = (await again.json()) as { ok?: boolean; report?: Record<string, unknown> };
+  ok("the scheduled endpoint (CRON_SECRET) answers 200 with counts only",
+    again.status === 200 && againBody.ok === true && !!againBody.report && !/4444|Retry Person|PAGE-TOKEN/.test(JSON.stringify(againBody)), JSON.stringify(againBody));
+  ok("a re-notified, re-swept recovered lead is still ONE Lead (idempotent)",
+    (await o.lead.count({ where: { businessId: A.id, phone: { contains: "4444" } } })) === 1 &&
+      (await o.intakeEvent.count({ where: { businessId: A.id, externalEventId: metaKey(pageA, "9100001") } })) === 1);
+
+  // The same revoked-connection rule holds for every source (one shared adapter step).
+  const revokedWeb = await runWithTenantContext({ businessId: B.id }, () => revokeConnection(webB.connection.id));
+  const webHydrate = await runWithTenantContext({ businessId: B.id }, () =>
+    intakeRegistry.get("web.form")!.hydrate!({ businessId: B.id, now: new Date() }, { providerAccountRef: webB.connection.publicId } as never));
+  ok("a website receipt whose endpoint was revoked is ignored too", !!revokedWeb && webHydrate.kind === "ignored", JSON.stringify(webHydrate));
+  setMetaGraphFetchForTests(null);
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

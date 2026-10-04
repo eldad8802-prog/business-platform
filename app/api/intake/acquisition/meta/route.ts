@@ -7,7 +7,8 @@
  *       connected that Page (definer lookup). A Page nobody connected is skipped, never routed.
  *       Receipts are references; the answers are read with the Page token in the processor's
  *       hydrate step, after the 200.
- * Config: META_LEAD_ADS_APP_SECRET, META_LEAD_ADS_VERIFY_TOKEN. Missing → 503 (fail closed).
+ * Config: the Meta app secret (META_LEAD_ADS_APP_SECRET, else the app's WHATSAPP_APP_SECRET) and
+ * META_LEAD_ADS_VERIFY_TOKEN (Dubiz's own value). Missing → 503 (fail closed).
  * Answers: 200 once every Page's receipts are durable; 401 bad signature; 413 too large;
  * 503 config / store unavailable (Meta retries for up to ~36 h).
  */
@@ -18,6 +19,7 @@ import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/ac
 import { safeEqual } from "@/lib/intake/acquisition/keys";
 import { resolveResourceConnection } from "@/lib/intake/acquisition/resolve";
 import { logIntake } from "@/lib/intake/core/observability";
+import { metaAppSecret, metaVerifyToken } from "@/lib/intake/acquisition/meta-config";
 import {
   META_LEAD_ADS_SOURCE,
   metaReferenceReceipt,
@@ -28,7 +30,7 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
-  const expected = process.env.META_LEAD_ADS_VERIFY_TOKEN?.trim();
+  const expected = metaVerifyToken();
   if (!expected) return new NextResponse("unavailable", { status: 503 });
   const u = new URL(req.url);
   const mode = u.searchParams.get("hub.mode");
@@ -41,7 +43,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const secret = process.env.META_LEAD_ADS_APP_SECRET?.trim();
+  const secret = metaAppSecret();
   if (!secret) return NextResponse.json({ error: "unavailable" }, { status: 503 });
   let raw: string;
   try {

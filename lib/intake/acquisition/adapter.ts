@@ -7,6 +7,7 @@
 import type { IntakeAdapter, RouteResult } from "@/lib/intake/core/contract";
 import { normalizeAcquisitionLead } from "./canonical";
 import { listAcquisitionTenants } from "./resolve";
+import { connectionStateForRef } from "./connection.service";
 
 export const ACQUISITION_NORMALIZER_VERSION = 1;
 
@@ -21,7 +22,14 @@ export function makeAcquisitionAdapter(input: {
     normalizerVersion: `${input.sourceKey}@${ACQUISITION_NORMALIZER_VERSION}`,
     coreDestinations: ["lead"],
     resolveTenant: input.resolveTenant,
-    ...(input.hydrate ? { hydrate: input.hydrate } : {}),
+    // Every retry first re-checks the connection: a receipt whose connection was revoked after it
+    // arrived (key leaked, Page disconnected, account erased) is settled IGNORED — never a Lead.
+    async hydrate(ctx, event) {
+      if ((await connectionStateForRef(input.sourceKey, event.providerAccountRef)) === "revoked") {
+        return { kind: "ignored", code: "connection_revoked" };
+      }
+      return input.hydrate ? input.hydrate(ctx, event) : { kind: "unchanged" };
+    },
     normalize: normalizeAcquisitionLead,
     // Reached only for a non-lead target (a provider test submission → "none"): nothing to write.
     async route(_ctx, normalized): Promise<RouteResult> {

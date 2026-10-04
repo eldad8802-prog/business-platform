@@ -8,13 +8,12 @@
  * appsecret_proof accompanies every call when META_LEAD_ADS_APP_SECRET is set.
  */
 import { createHmac } from "node:crypto";
-
-const VERSION_DEFAULT = "v25.0";
+import { metaAppId, metaAppSecret, metaGraphVersion } from "../meta-config";
 type GraphCall = (method: "GET" | "POST" | "DELETE", path: string, token: string) => Promise<{ status: number; json: unknown }>;
 
 const realCall: GraphCall = async (method, path, token) => {
-  const secret = process.env.META_LEAD_ADS_APP_SECRET?.trim();
-  const version = process.env.META_LEAD_ADS_GRAPH_VERSION?.trim() || VERSION_DEFAULT;
+  const secret = metaAppSecret();
+  const version = metaGraphVersion();
   const sep = path.includes("?") ? "&" : "?";
   const proof = secret ? `${sep}appsecret_proof=${createHmac("sha256", secret).update(token).digest("hex")}` : "";
   const r = await fetch(`https://graph.facebook.com/${encodeURIComponent(version)}${path}${proof}`, {
@@ -61,6 +60,38 @@ export async function listManagedPages(userToken: string): Promise<ManagedPage[]
       canAdvertise: Array.isArray(p.tasks) && p.tasks.includes("ADVERTISE"),
       accessToken: p.access_token as string,
     }));
+}
+
+/**
+ * The one-time code from the owner's Facebook Login for Business → their user token (JS SDK code
+ * flow: no redirect_uri; the app secret stays server-side and is never logged).
+ */
+export async function exchangeLoginCode(code: string): Promise<string> {
+  const id = metaAppId();
+  const secret = metaAppSecret();
+  if (!id || !secret) throw new MetaGraphError("provider_error");
+  if (typeof code !== "string" || !code || code.length > 2048) throw new MetaGraphError("token_invalid");
+  const url = new URL(`https://graph.facebook.com/${encodeURIComponent(metaGraphVersion())}/oauth/access_token`);
+  url.searchParams.set("client_id", id);
+  url.searchParams.set("client_secret", secret);
+  url.searchParams.set("code", code);
+  const res = await exchange(url.toString());
+  const token = (res.json as { access_token?: unknown } | null)?.access_token;
+  if (res.status !== 200 || typeof token !== "string" || !token) fail(res.status, res.json);
+  return token;
+}
+
+type Exchange = (url: string) => Promise<{ status: number; json: unknown }>;
+const realExchange: Exchange = async (url) => {
+  const r = await fetch(url, { method: "GET", cache: "no-store", signal: AbortSignal.timeout(10_000) });
+  let json: unknown = null;
+  try { json = await r.json(); } catch { json = null; }
+  return { status: r.status, json };
+};
+let exchange: Exchange = realExchange;
+export function setMetaCodeExchangeForTests(fn: Exchange | null): void {
+  if (process.env.NODE_ENV === "production") throw new Error("test hook disabled in production");
+  exchange = fn ?? realExchange;
 }
 
 export async function subscribePage(pageId: string, pageToken: string): Promise<void> {

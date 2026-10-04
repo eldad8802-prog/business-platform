@@ -1,8 +1,8 @@
 /**
- * POST /api/integrations/acquisition/meta/connect — { userAccessToken, pageId }.
+ * POST /api/integrations/acquisition/meta/connect — { handle, pageId } (handle from …/meta/pages).
  *
  * The owner chose one of THEIR Pages (from their own Facebook Login for Business). The server
- * re-reads the owner's Pages with that token (never trusts a pageId alone), requires the ADVERTISE
+ * opens the handle (this business, unexpired) and re-reads the owner's Pages (never trusts a pageId alone), requires the ADVERTISE
  * task (Meta's condition for reading leads), subscribes the Page to `leadgen` for Dubiz's app,
  * then binds Page → this business with the Page token encrypted. A Page live on another business
  * is refused (one live mapping per Page).
@@ -10,7 +10,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { bindMetaPage } from "@/lib/intake/acquisition/connection.service";
-import { isCredentialKeyConfigured } from "@/lib/intake/acquisition/credential-crypto";
+import { openConnectHandle } from "@/lib/intake/acquisition/connect-handle";
+import { isMetaLeadAdsConfigured } from "@/lib/intake/acquisition/meta-config";
 import { enabledSources, withOwner } from "@/lib/intake/acquisition/owner-api";
 import { listManagedPages, MetaGraphError, subscribePage } from "@/lib/intake/acquisition/providers/meta-graph";
 
@@ -19,13 +20,12 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   return withOwner(req, async ({ businessId, userId }) => {
     if (!(await enabledSources(businessId))["meta.lead_ads"]) return NextResponse.json({ error: "source_not_enabled" }, { status: 403 });
-    if (!isCredentialKeyConfigured()) return NextResponse.json({ error: "unavailable" }, { status: 503 });
-    const body = (await req.json().catch(() => null)) as { userAccessToken?: unknown; pageId?: unknown } | null;
-    const token = typeof body?.userAccessToken === "string" ? body.userAccessToken.trim() : "";
+    if (!isMetaLeadAdsConfigured()) return NextResponse.json({ error: "unavailable" }, { status: 503 });
+    const body = (await req.json().catch(() => null)) as { handle?: unknown; pageId?: unknown } | null;
     const pageId = typeof body?.pageId === "string" ? body.pageId.trim() : "";
-    if (!token || token.length > 1024 || !/^[0-9]{1,32}$/.test(pageId)) {
-      return NextResponse.json({ error: "userAccessToken and pageId required" }, { status: 400 });
-    }
+    if (!/^[0-9]{1,32}$/.test(pageId)) return NextResponse.json({ error: "handle and pageId required" }, { status: 400 });
+    const token = openConnectHandle(businessId, body?.handle);
+    if (!token) return NextResponse.json({ error: "handle_expired" }, { status: 400 });
     try {
       const page = (await listManagedPages(token)).find((p) => p.id === pageId);
       if (!page) return NextResponse.json({ error: "page_not_managed" }, { status: 403 });
