@@ -31,6 +31,8 @@ on:
       # is why a new erasure consumer reached main with both guards silent.
       - "lib/services/account/**"
       - "scripts/ci/erasure/**"
+      # #629 the learning-coverage manifest names the model (a declaration; pinned in the verifier).
+      - "lib/knowledge/coverage/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
       - ".github/workflows/i8b6-historical-records-ci.yml"
