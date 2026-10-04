@@ -224,8 +224,8 @@ jobs:
       - name: Gate self-proof G13 — an unparseable workflow is caught (WP-0)
         run: |
           node scripts/ci/negative-proof.mjs --id G13-unparseable-workflow --file .github/workflows/intake-sweep.yml \
-            --anchor 'name: intake sweep (manual)' \
-            --replace $'name: intake sweep (manual)\nname: a second top-level name key' \
+            --anchor 'name: intake sweep (scheduled)' \
+            --replace $'name: intake sweep (scheduled)\nname: a second top-level name key' \
             --expect '[FAIL] WP-0 intake-sweep.yml: does not parse as YAML' \
             -- node scripts/ci/workflow-policy-guard.mjs .
 
