@@ -182,8 +182,10 @@ jobs:
             ok(steps.filter(applies).every((r) => r.split("\n").filter((l) => applies(l)).every((l) => l.includes(`--schema "${OUT}/prisma/schema.prisma"`))), "no apply against the full checkout");
             ok(steps[c].includes(`--out "${OUT}"`), "confirm reads the same staged manifest");
             // RACE: the protected job re-checks AFTER approval: the dispatch commit, authority, ledger.
-            ok(steps[v].includes("--pinned-sha") && (mig[v].env || {}).PINNED_SHA === "${{ github.sha }}", "stage pins the dispatch commit (github.sha)");
-            ok((mig[v].env || {}).GITHUB_TOKEN === "${{ github.token }}", "stage re-checks approval records and preflight runs after approval");
+            // An Actions expression string, built so the dollar-brace sequence never appears in this script (Actions would expand it).
+            const expr = (e) => "$" + "{{ " + e + " }}";
+            ok(steps[v].includes("--pinned-sha") && (mig[v].env || {}).PINNED_SHA === expr("github.sha"), "stage pins the dispatch commit (github.sha)");
+            ok((mig[v].env || {}).GITHUB_TOKEN === expr("github.token"), "stage re-checks approval records and preflight runs after approval");
             const perm = y.jobs.migrate.permissions || {};
             ok(perm.actions === "read" && perm.contents === "read" && Object.keys(perm).length === 2, "the protected job reads contents + actions only");
             const co = mig.find((s) => String(s.uses || "").startsWith("actions/checkout@"));
