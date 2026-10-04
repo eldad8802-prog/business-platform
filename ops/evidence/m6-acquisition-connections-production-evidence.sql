@@ -2,7 +2,7 @@
 -- m6-acquisition-connections-production-evidence.sql
 --
 -- Read-only POST-APPLY proof that migration
---   20261007090000_m6_acquisition_connections
+--   20261008090000_m6_acquisition_connections
 -- is in force with exactly its intended security properties.
 --
 -- NO DATA ROW is read except counts. Catalog, ledger and feature governance rows only.
@@ -59,10 +59,10 @@ fns AS (SELECT p.oid, p.proname, p.prosecdef, p.provolatile, p.proowner, p.proco
         FROM pg_proc p WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname LIKE 'm6\_acquisition\_%'),
 fkeys(k) AS (VALUES ('acquisition_meta_lead_ads'), ('acquisition_google_lead_forms'), ('acquisition_web_forms')),
 checks(n, ok, observed_count) AS (
-  SELECT 1, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261007090000_m6_acquisition_connections'
+  SELECT 1, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261008090000_m6_acquisition_connections'
                      AND finished_at IS NOT NULL AND rolled_back_at IS NULL
                      AND checksum = '9bdbf251828f8c1eafb852481880a6a305e266c52dab86eea19a62d943f766e4'),
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261007090000_m6_acquisition_connections')
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261008090000_m6_acquisition_connections')
   UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT count(*) FROM cols) = 21 AND NOT EXISTS (SELECT col FROM expected_cols EXCEPT SELECT attname FROM cols),

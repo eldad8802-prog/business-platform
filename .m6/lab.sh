@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# M6 / migration 20261007090000_m6_acquisition_connections — Production-topology lab.
+# M6 / migration 20261008090000_m6_acquisition_connections — Production-topology lab.
 #
 #   .m6/lab.sh <db-name> [--with-m6 | --broken-m6]
 #
-# Production after B4 (2026-10-03): 166 migrations applied, the last one B4. This lab is that:
+# Production before M6: every migration that sorts before M6 applied, M6 pending. This lab is that:
 #   1. .c594/lab.sh <db> — non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
 #      app_runtime_prod, the owner's DEFAULT PRIVILEGES, baselined ledger, #594 by migrate deploy;
 #   2. app_auth / app_ctlplane exist (B4 refuses without app_auth), the real D2 E4 narrowing;
-#   3. `prisma migrate deploy` over the migrations up to and INCLUDING B4 (P2, cost wave 1, B4);
+#   3. `prisma migrate deploy` over every migration that sorts before M6 (P2, cost waves, B4, …);
 #   4. --with-m6: `prisma migrate deploy` again, up to and including M6 — the release-migrate
 #      mechanism, which therefore applies exactly M6. --broken-m6: a copy that fails at its end.
 #
@@ -15,8 +15,7 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-B4="20261006090000_business_tenant_write_rls"
-M6="20261007090000_m6_acquisition_connections"
+M6="20261008090000_m6_acquisition_connections"
 bash "$ROOT/.c594/lab.sh" "$DB" >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
   "DO \$\$ BEGIN
@@ -48,11 +47,13 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   return $rc
 }
 
-deploy_upto "$B4" >/dev/null || { echo "baseline deploy (up to B4) failed"; exit 1; }
+# The last migration before M6, whatever main holds (computed, never hard-coded).
+PRE_M6="$(ls -1 "$ROOT/prisma/migrations" | grep -E "^[0-9]{14}_" | awk -v m="$M6" '$0 < m' | sort | tail -1)"
+deploy_upto "$PRE_M6" >/dev/null || { echo "baseline deploy (up to $PRE_M6) failed"; exit 1; }
 
 case "$MODE" in
   --with-m6)   deploy_upto "$M6" || { echo "M6 deploy failed"; exit 1; } ;;
   --broken-m6) if deploy_upto "$M6" broken; then echo "broken M6 did NOT fail"; exit 1; fi
                echo "LAB READY: $DB (M6 deploy FAILED as intended)"; exit 0 ;;
 esac
-echo "LAB READY: $DB (${MODE:-Production today: 166 applied, B4 last, M6 pending})"
+echo "LAB READY: $DB (${MODE:-every migration before M6 applied, M6 pending})"

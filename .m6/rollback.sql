@@ -1,4 +1,4 @@
--- M6 PR-A rollback — 20261007090000_m6_acquisition_connections.
+-- M6 PR-A rollback — 20261008090000_m6_acquisition_connections.
 --
 -- OWNER-RUN ONLY, never by the app, never by a workflow without a separate owner decision.
 -- Proven in the lab (m6-acquisition-lab.yml): afterwards the preflight is whole again.
@@ -26,5 +26,5 @@ DELETE FROM "PlatformFeaturePolicy"
  WHERE "featureKey" IN ('acquisition_meta_lead_ads', 'acquisition_google_lead_forms', 'acquisition_web_forms');
 DELETE FROM "PlatformFeatureDefinition"
  WHERE "key" IN ('acquisition_meta_lead_ads', 'acquisition_google_lead_forms', 'acquisition_web_forms');
-DELETE FROM "_prisma_migrations" WHERE migration_name = '20261007090000_m6_acquisition_connections';
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261008090000_m6_acquisition_connections';
 COMMIT;
