@@ -22,3 +22,22 @@ export async function fetchBusinessCostSummary(signal?: AbortSignal): Promise<Bu
   if (!res.ok) throw new Error(`business cost summary failed (${res.status})`);
   return (await res.json()) as BusinessCostSummaryApi;
 }
+
+/** A learned Business Cost insight (KnowledgeMeasure → BusinessInsight), as GET /api/insights returns it. */
+export type LearnedCostInsightApi = {
+  id: number;
+  insightKey: string;
+  title: string;
+  factLines: Array<{ text: string; sourceKind: string; sourceRef: string }>;
+  uncertainty: string | null;
+  contributingRules: Array<{ ruleId: string; ruleVersion: string; level?: "FACT" | "PATTERN" | "MEANING" }>;
+  generatedAt: string;
+};
+
+/** The session business's OPEN learned cost insights (cost.*). Empty when the business is not learning. */
+export async function fetchLearnedCostInsights(signal?: AbortSignal): Promise<LearnedCostInsightApi[]> {
+  const res = await fetch("/api/insights", { headers: buildClientAuthHeaders(), cache: "no-store", signal });
+  if (!res.ok) throw new Error(`insights failed (${res.status})`);
+  const body = (await res.json()) as { insights?: LearnedCostInsightApi[] };
+  return (body.insights ?? []).filter((i) => i.insightKey.startsWith("cost."));
+}
