@@ -178,7 +178,7 @@ function policySeedsFromMigration(): string[] {
 /** Business Cost learning — the cost lineages (Wave 1 FACT + Wave 2 PATTERN), out of the migrations that ship them. */
 function costWaveOneLineages(): string[] {
   const out: string[] = [];
-  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql"]) {
+  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql", "prisma/migrations/20261008090000_learning_coverage_policies/migration.sql"]) {
     const sql = readFileSync(join(process.cwd(), f), "utf8")
       .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
     const stmts = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
     `SELECT count(DISTINCT "policyId")::int AS n FROM "DerivationPolicyVersion"`);
   const v2 = await owner.derivationPolicyVersion.count({ where: { version: "v2" } });
   check("the migrations seed the current version of every rule in the catalogue",
-    (lineages[0]?.n ?? 0) >= 21 && v2 === 3 && seeded === 24, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
+    (lineages[0]?.n ?? 0) >= 54 && v2 === 3 && seeded === 57, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are
@@ -512,7 +512,7 @@ async function main(): Promise<void> {
   // Every rule in the catalogue ran, and every one of them REPORTED — including the twelve that had
   // nothing to say. A rule that stays silent is indistinguishable from a rule that never ran, and
   // that difference is the whole answer to "why did Dubiz tell me nothing?".
-  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 21,
+  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 47,
     `rules=${mA.report.rulesRun}`);
   check("no rule failed on a missing version, a broken query or an unwritable measure",
     mA.report.rulesFailed === 0,

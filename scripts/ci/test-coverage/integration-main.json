@@ -156,6 +156,24 @@
       "lab": "workflow",
       "workflow": "learning-coverage-ci.yml",
       "reason": "All-Feature Learning Coverage drift guard: every tenant model, route family, learning rule and sensor carries an explicit learning decision; no invented consumer, model or route; LearningEvent written only by the governed writers; run by learning-coverage-ci.yml with negative proofs"
+    },
+    "lib/knowledge/rules/income-rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "All-Feature Learning Coverage W2 (BILL/CUST/PAY/COLL): settlement arithmetic, maturity and refusal rules, customer FK-only grouping, no inferred link expiry, no reminder-effect rule; run by m0-knowledge-tenant-safety.yml (tenant isolation of persisted measures is proven by the knowledge batteries in the same workflow)"
+    },
+    "lib/knowledge/rules/funnel-operations-rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "All-Feature Learning Coverage W3 (LEAD/CONV/APPT/SEC/OFF/REP): real-inbound-only conversations, outcomes only where they exist, owner-asserted labels, the two OBSERVATION_SOURCE sensors, and the absence of rules the evidence manifest does not support; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/coverage/policy-lineage.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "every catalogue and temporal rule lineage is seeded by exactly one shipped migration with v1; the coverage migration is governance rows only and seeds nothing unused; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/coverage/bks-brain-coverage.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "learning-coverage-ci.yml",
+      "reason": "every rule output reaches the BKS under its domain and the shadow Brain context with opaque subject aliases, no customer database id and no money value; run by learning-coverage-ci.yml and m0-knowledge-tenant-safety.yml"
     }
   }
 }
