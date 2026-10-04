@@ -70,7 +70,7 @@ wt() {  # wt <name> [mutator]: a worktree of HEAD, the mutator applied and commi
   if [ -n "${2:-}" ]; then
     ( cd "$d" && "$2" )
     git -C "$d" add -A
-    git -C "$d" -c user.name=lab -c user.email=lab@localhost commit -q -m "lab: $1"
+    git -C "$d" -c user.name=lab -c user.email=lab@localhost commit -q --allow-empty -m "lab: $1"
   fi
 }
 sum() { sha256sum "$1" | cut -d' ' -f1; }
@@ -79,6 +79,7 @@ record() {  # record <run> <file>: a LAB approval record for P3A2 matching the f
     "$A2" "$(sum "prisma/migrations/$A2/migration.sql")" "$GITHUB_REPOSITORY" "$1" "$2" > "ops/release-approvals/$A2.json"
 }
 m_record()        { record "$P3A_PREFLIGHT_RUN" "$P3A_PRE"; }
+m_norecord()      { rm -f "ops/release-approvals/$A2.json"; }   # whatever main holds, this checkout has none
 m_record_failrun(){ record "$FAIL_RUN" "$P3A_PRE"; }
 m_record_otherfile(){ record "$P3A_PREFLIGHT_RUN" "ops/evidence/m6-acquisition-connections-preflight.sql"; }
 m_tamper()        { m_record; printf '\n-- lab: changed after approval\n' >> "prisma/migrations/$A2/migration.sql"; }
@@ -86,7 +87,8 @@ m_broken()        { printf '\n-- lab fault: the last statement fails\nSELECT 1 /
 m_late_in()       { m_record; mkdir -p "prisma/migrations/$LATE_IN"; printf -- '-- lab: merged to main\nSELECT 1;\n' > "prisma/migrations/$LATE_IN/migration.sql"; }
 m_late_after()    { mkdir -p "prisma/migrations/$LATE_AFTER"; printf -- '-- lab: merged to main after the dispatch\nCREATE TABLE "LabLate" (id int);\n' > "prisma/migrations/$LATE_AFTER/migration.sql"; }
 
-wt plain                      # main as it is: no P3-A record (M6 has its real one)
+wt plain                      # main as it is (M6 has its real record; P3A2 may have its real one)
+wt norecord m_norecord        # P3A2 without any approval record
 wt rec m_record               # + the lab P3A2 record (the "approved" checkout)
 wt failrun m_record_failrun
 wt otherfile m_record_otherfile
@@ -151,7 +153,7 @@ echo "  5. [P3A2,P3A1]";   refused pfx_ref "$T/rec" "$A2,$A1" "not in Prisma ord
 ledger pfx_ref 168 0 0 0 0 0
 
 echo; echo "6. P3A2 authority → REFUSED"
-echo "  no approval record";                       refused pfx_ref "$T/plain" "$A1,$A2" "no approval record ops/release-approvals/$A2.json"
+echo "  no approval record";                       refused pfx_ref "$T/norecord" "$A1,$A2" "no approval record ops/release-approvals/$A2.json"
 echo "  a record naming the real 18/19 preflight"; refused pfx_ref "$T/failrun" "$A1,$A2" "preflight run $FAIL_RUN: its evidence reports 1 FAIL row"
 echo "  a record naming another evidence file";    refused pfx_ref "$T/otherfile" "$A1,$A2" "does not name ops/evidence/m6-acquisition-connections-preflight.sql"
 ledger pfx_ref 168 0 0 0 0 0
