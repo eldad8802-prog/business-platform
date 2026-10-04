@@ -1,30 +1,33 @@
 # P3-A / migrations 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims —
-# proof on PostgreSQL BEFORE they reach Production (ephemeral PG17), as part of the JOINT release.
+# proof on PostgreSQL BEFORE they reach Production (ephemeral PG17).
 #
-# M6 (20261009090000_m6_acquisition_connections) merged before P3-A and sorts after it, and
-# `prisma migrate deploy` applies every pending migration in order — so one release-migrate run applies
-# P3-A #1, P3-A #2 and M6. The workstreams stay separate (own migrations, proofs, approval records);
-# this lab proves P3-A inside that real release.
+# M6 (20261009090000_m6_acquisition_connections) merged before P3-A and sorts after it. The Production
+# plan (owner decision, Option B — supersedes any joint-release plan): the P3-A pair is released ALONE as
+# the APPROVED PREFIX of the pending order — release-migrate stages applied + the approved prefix only, so
+# M6 stays pending — and M6 gets its own preflight, approval record and release afterwards. Applying all
+# three in one run (below) is kept as a lab scenario only: it proves P3-A and M6 together on one
+# database (non-interaction, both proofs), not a release plan.
 #
-# .p3a/lab.sh builds Production as it is before the joint release: 168 migrations applied
+# .p3a/lab.sh builds Production as it is today: 168 migrations applied
 # (learning-coverage policies the last), the P2 tables built by the real P2 migration; non-superuser
 # CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default
 # privileges, app_auth / app_ctlplane, the D2 E4 narrowing; Business under B4's FORCE RLS.
 #
 #   1. Shared baseline: P3-A PREFLIGHT 20/20 (name-level: pending = exactly the three; 20 = M6 not built) and M6's own
 #      PREFLIGHT 19/19 on the SAME lab; the P3-A proof fails exactly what P3-A creates.
-#   2. The joint release by `prisma migrate deploy` (exactly three, in order): P3-A proof 20/20 AND
+#   2. All three by `prisma migrate deploy` (lab scenario, in order): P3-A proof 20/20 AND
 #      M6's own proof 15/15 on the same database; the P3-A preflight then fails exactly its
 #      "not there yet" checks; ledger = 171.
 #   3. Non-interaction: the catalog fingerprint of everything P3-A and P2 own is identical with and
 #      without M6, and M6's SQL names none of those objects.
-#   4. Release gate: the real gate allows exactly the three, and refuses any other expected set, a
-#      fourth migration merged while a run waits, and an unfinished ledger row.
-#   5. Battery (.p3a/battery.ts) as app_runtime_prod on the joint database.
+#   4. Release gate (approved prefix): the P3-A pair is allowed with M6 held; the three in order are
+#      allowed; M6 alone, P3-A #1 + M6, the wrong order, a name not pending and an unfinished ledger
+#      row are refused; a fourth migration merged after M6 stays held.
+#   5. Battery (.p3a/battery.ts) as app_runtime_prod on the all-three database.
 #   6. Atomicity: P3-A #2 failing on its last statement leaves nothing of it behind, and M6 never runs.
 #   7. Faults: DELETE grant, column change grant on "wording", NO FORCE, permissive FOR ALL — each
 #      caught by the check meant for it.
-#   8. Rollback in reverse release order (M6's, then P3-A's): P3-A #2 reverted whole, labels inert,
+#   8. Rollback in reverse apply order (M6's, then P3-A's): P3-A #2 reverted whole, labels inert,
 #      re-apply makes BOTH proofs whole; refused while a claim exists.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
@@ -127,7 +130,7 @@ jobs:
           test "$fails" = "1 2 4 5 6 7 8 10 11 12 13 14 15 16 18 " || { echo "expected 1 2 4 5 6 7 8 10 11 12 13 14 15 16 18"; exit 1; }
           test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "168"
 
-      - name: 2. The joint release by prisma migrate deploy — exactly three, in order; P3-A proof 20/20 AND M6 proof 15/15; ledger 171
+      - name: 2. All three by prisma migrate deploy (lab scenario, not the release plan) — in order; P3-A proof 20/20 AND M6 proof 15/15; ledger 171
         run: |
           set -euo pipefail
           bash .p3a/lab.sh p3a_joint --joint | tee /tmp/joint.out
@@ -159,12 +162,12 @@ jobs:
           fi
           echo "M6 names no P3-A / P2 object; the surface fingerprint is identical with and without M6"
 
-      - name: 4. Release gate — the real gate allows exactly the three, nothing else
+      - name: 4. Release gate — approved prefix — the P3-A pair allowed with M6 held; M6 alone, gaps, wrong order refused
         run: |
           set -euo pipefail
           bash .p3a/gate-proof.sh p3a_pre
 
-      - name: 5. Battery — isolation, authority, constraints, P2 extensions, cascade (as app_runtime_prod, joint database)
+      - name: 5. Battery — isolation, authority, constraints, P2 extensions, cascade (as app_runtime_prod, all-three database)
         run: |
           set -euo pipefail
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p3a_joint" \

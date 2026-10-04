@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# The REAL release gate (scripts/ci/release-migrate-gate.mjs `verify`) against the joint-release lab:
-# 168 applied, P3-A #1 + P3-A #2 + M6 pending (.p3a/lab.sh <db>, no mode).
+# The REAL release gate (scripts/ci/release-migrate-gate.mjs `verify`, APPROVED-PREFIX semantics) against
+# Production today: 168 applied, P3-A #1 + P3-A #2 + M6 pending (.p3a/lab.sh <db>, no mode).
+# The Production plan (owner, Option B): the P3-A pair is released as the approved prefix; M6 stays
+# pending and has its own release. The staged apply that keeps a held migration from running is proven
+# by .release-gate/prefix-lab.sh.
 #
-#   G1  expected = exactly the three                   → ALLOWED
-#   G2  expected = the P3-A pair only                   → REFUSED (M6 would ride along)
-#   G3  expected = M6 only                              → REFUSED (the P3-A pair would ride along)
+#   G1  expected = the three, in order                  → ALLOWED (the exact set; nothing held)
+#   G2  expected = the P3-A pair                        → ALLOWED, M6 held (the P3-A release)
+#   G2b expected = the pair in the wrong order          → REFUSED
+#   G3  expected = M6 only                              → REFUSED (the P3-A pair runs before it)
+#   G3b expected = P3-A #1 + M6                         → REFUSED (P3-A #2 inside the run)
 #   G4  expected = the three + a name not pending       → REFUSED (approved but not pending)
-#   G5  a fourth migration merged while a run waits     → REFUSED (pending but not approved)
-#   G6  expected = the three, ledger holds an unfinished row → REFUSED
+#   G5  a fourth migration, sorting after M6, merged    → the pair: ALLOWED, M6 + the fourth held
+#   G6  expected = the pair, ledger holds an unfinished row → REFUSED
 #
 #   .p3a/gate-proof.sh <db>     env: PGHOST, PGPORT, LAB_PASSWORD. Synthetic only. ZERO network.
 set -euo pipefail
@@ -47,16 +52,19 @@ TMP="$(mktemp -d)"
 checkout "$TMP/main"
 checkout "$TMP/late" "$LATE"
 
-expect "G1 the exact three"                  allowed "$TMP/main" "$THREE"
-expect "G2 the P3-A pair only"               refused "$TMP/main" "$P1,$P2"
+held() { grep -q "stays pending (not applied by this run): $1$" /tmp/p3a-gate.out || { echo "FAIL: held set is not [$1]"; exit 1; }; }
+expect "G1 the three, in order (exact set)"  allowed "$TMP/main" "$THREE"
+expect "G2 the P3-A pair (approved prefix)"  allowed "$TMP/main" "$P1,$P2"; held "$M6"
+expect "G2b the pair in the wrong order"     refused "$TMP/main" "$P2,$P1"
 expect "G3 M6 only"                          refused "$TMP/main" "$M6"
+expect "G3b P3-A #1 + M6"                    refused "$TMP/main" "$P1,$M6"
 expect "G4 the three + one not pending"      refused "$TMP/main" "$THREE,20261011090000_lab_not_pending"
-expect "G5 a fourth merged while waiting"    refused "$TMP/late" "$THREE"
+expect "G5 the pair, a fourth merged after M6" allowed "$TMP/late" "$P1,$P2"; held "$M6, $LATE"
 PGPASSWORD="$LAB_PASSWORD" psql -X -q -U lab_owner -d "$DB" -v ON_ERROR_STOP=1 -c \
   "INSERT INTO \"_prisma_migrations\" (id, checksum, migration_name, applied_steps_count) VALUES ('p3a-gate-proof-unfinished', repeat('0',64), '$P1', 0)"
-expect "G6 an unfinished ledger row"         refused "$TMP/main" "$THREE"
+expect "G6 an unfinished ledger row"         refused "$TMP/main" "$P1,$P2"
 PGPASSWORD="$LAB_PASSWORD" psql -X -q -U lab_owner -d "$DB" -v ON_ERROR_STOP=1 -c \
   "DELETE FROM \"_prisma_migrations\" WHERE id = 'p3a-gate-proof-unfinished'"
-expect "G1 again after the lab row is gone"  allowed "$TMP/main" "$THREE"
+expect "G2 again after the lab row is gone"  allowed "$TMP/main" "$P1,$P2"; held "$M6"
 rm -rf "$TMP"
-echo "RELEASE GATE EXACT-MATCH PROOF: PASS"
+echo "RELEASE GATE APPROVED-PREFIX PROOF: PASS"
