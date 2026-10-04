@@ -1,4 +1,4 @@
-# M6 PR-A / migration 20261008090000_m6_acquisition_connections — proof on PostgreSQL BEFORE it
+# M6 PR-A / migration 20261009090000_m6_acquisition_connections — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17).
 #
 # .m6/lab.sh builds Production as it is before M6 (every earlier migration applied); non-superuser
@@ -22,7 +22,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261008090000_m6_acquisition_connections/**"
+      - "prisma/migrations/20261009090000_m6_acquisition_connections/**"
       - "ops/evidence/m6-acquisition-connections-*.sql"
       - ".m6/**"
       - ".github/workflows/m6-acquisition-lab.yml"
@@ -60,7 +60,7 @@ jobs:
       LAB_PASSWORD: m6_ci_synthetic_role_pw
       PREFLIGHT: ops/evidence/m6-acquisition-connections-preflight.sql
       EVIDENCE: ops/evidence/m6-acquisition-connections-production-evidence.sql
-      M6: prisma/migrations/20261008090000_m6_acquisition_connections/migration.sql
+      M6: prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -122,7 +122,7 @@ jobs:
           bash .m6/lab.sh m6_broken --broken-m6
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_broken -v ON_ERROR_STOP=1 "$@"; }
           left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'AcquisitionConnection%') + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'm6\_acquisition\_%') + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key LIKE 'acquisition\_%')")
-          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261008090000_m6_acquisition_connections' AND finished_at IS NULL")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261009090000_m6_acquisition_connections' AND finished_at IS NULL")
           echo "objects left=$left unfinished ledger rows=$led"
           test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
 

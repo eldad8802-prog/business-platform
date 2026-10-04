@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6 / migration 20261008090000_m6_acquisition_connections — Production-topology lab.
+# M6 / migration 20261009090000_m6_acquisition_connections — Production-topology lab.
 #
 #   .m6/lab.sh <db-name> [--with-m6 | --broken-m6]
 #
@@ -15,7 +15,7 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-M6="20261008090000_m6_acquisition_connections"
+M6="20261009090000_m6_acquisition_connections"
 bash "$ROOT/.c594/lab.sh" "$DB" >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
   "DO \$\$ BEGIN

@@ -2,7 +2,7 @@
 -- m6-acquisition-connections-preflight.sql
 --
 -- Read-only Production PREFLIGHT for migration
---   20261008090000_m6_acquisition_connections   (M6 PR-A — NOT applied)
+--   20261009090000_m6_acquisition_connections   (M6 PR-A — NOT applied)
 --
 -- Measures every premise the migration's outcome depends on:
 --   * the ledger is clean, M6 is not recorded and B4 is the latest migration;
@@ -22,7 +22,7 @@
 
 \echo '== M6 acquisition connections preflight — legend (n → check) =='
 \echo ' 1 L0 migration ledger: no unfinished and no rolled-back row (observed = such rows)'
-\echo ' 2 L1 20261008090000_m6_acquisition_connections is NOT recorded'
+\echo ' 2 L1 20261009090000_m6_acquisition_connections is NOT recorded'
 \echo ' 3 L2 every finished migration sorts BEFORE M6 (M6 is next; nothing later was applied first)'
 \echo ' 4 L3 finished migrations (INFO count)'
 \echo ' 5 N1 none of the relation names M6 creates exists (table, sequence, 5 indexes)'
@@ -68,10 +68,10 @@ uniq_on(tbl, col) AS (VALUES ('PlatformFeatureDefinition', 'key'), ('PlatformFea
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
             (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM ledger WHERE migration_name = '20261008090000_m6_acquisition_connections'),
-                      (SELECT count(*) FROM ledger WHERE migration_name = '20261008090000_m6_acquisition_connections')
+  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM ledger WHERE migration_name = '20261009090000_m6_acquisition_connections'),
+                      (SELECT count(*) FROM ledger WHERE migration_name = '20261009090000_m6_acquisition_connections')
   UNION ALL SELECT 3, (SELECT max(migration_name) FROM ledger WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL)
-                        < '20261008090000_m6_acquisition_connections', 1
+                        < '20261009090000_m6_acquisition_connections', 1
   UNION ALL SELECT 4, true, (SELECT count(*) FROM ledger WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 5, NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname IN (SELECT nm FROM rel_names)),
                       (SELECT count(*) FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname IN (SELECT nm FROM rel_names))

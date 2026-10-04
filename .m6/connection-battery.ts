@@ -1,5 +1,5 @@
 /**
- * M6 PR-A — what migration 20261008090000_m6_acquisition_connections does, measured with the real
+ * M6 PR-A — what migration 20261009090000_m6_acquisition_connections does, measured with the real
  * tenant runtime on a Production-shaped database (lab: .m6/lab.sh <db> --with-m6).
  *
  *   1. tenant isolation: the runtime reads / writes only the business named by
