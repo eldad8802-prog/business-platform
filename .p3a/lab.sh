@@ -4,24 +4,25 @@
 #
 #   .p3a/lab.sh <db-name> [--with-p3a | --broken-p3a]
 #
-# Production once Wave-2 is applied: 167 migrations, the last one 20261007090000_cost_learning_wave2_patterns
-# (its release-migrate run is at the gate as this is written; P3-A is applied only after it). This lab is that:
+# Production as it is (2026-10-04): 168 migrations, the last one 20261008090000_learning_coverage_policies; P3-A
+# and M6 (20261009090000, merged before P3-A, sorts after it) pending. This lab is that:
 #   1. .c594/lab.sh <db> — non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
 #      app_runtime_prod, the owner's DEFAULT PRIVILEGES (which would hand the runtime DELETE on any
 #      new table — P3-A must take that back), baselined ledger, #594 by migrate deploy;
 #   2. app_auth / app_ctlplane exist (B4 refuses without app_auth), the real D2 E4 narrowing;
-#   3. `prisma migrate deploy` over the migrations up to and INCLUDING Wave-2 (P2, cost wave 1, B4,
-#      cost wave 2) —
+#   3. `prisma migrate deploy` over the migrations up to and INCLUDING the learning-coverage policy rows
+#      (P2, cost wave 1, B4, cost wave 2, learning coverage) —
 #      so the P2 tables P3-A alters are the real ones, built by the real P2 migration;
 #   4. --with-p3a: `prisma migrate deploy` again, up to and including both P3-A files — the
-#      release-migrate mechanism, which therefore applies exactly the two P3-A migrations.
+#      release-migrate mechanism with the approved prefix staged, which applies exactly the two P3-A
+#      migrations; M6 sorts after them and stays pending.
 #      --broken-p3a: the second P3-A file fails on its last statement.
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASELINE="20261007090000_cost_learning_wave2_patterns"
+BASELINE="20261008090000_learning_coverage_policies"
 P3A_ENUMS="20261008090000_p3a_identity_enum_values"
 P3A="20261008090100_p3a_trust_claims"
 bash "$ROOT/.c594/lab.sh" "$DB" >/dev/null
@@ -63,11 +64,11 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   return $rc
 }
 
-deploy_upto "$BASELINE" >/dev/null || { echo "baseline deploy (up to Wave-2) failed"; exit 1; }
+deploy_upto "$BASELINE" >/dev/null || { echo "baseline deploy (up to the learning-coverage rows) failed"; exit 1; }
 
 case "$MODE" in
   --with-p3a)   deploy_upto "$P3A" || { echo "P3-A deploy failed"; exit 1; } ;;
   --broken-p3a) if deploy_upto "$P3A" broken; then echo "broken P3-A did NOT fail"; exit 1; fi
                 echo "LAB READY: $DB (P3-A deploy FAILED as intended)"; exit 0 ;;
 esac
-echo "LAB READY: $DB (${MODE:-Production before P3-A: 167 applied, Wave-2 last, P3-A pending})"
+echo "LAB READY: $DB (${MODE:-Production before P3-A: 168 applied, learning coverage last, P3-A + M6 pending})"
