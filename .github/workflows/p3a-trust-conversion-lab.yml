@@ -1,0 +1,176 @@
+# P3-A PR-1 / migrations 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims —
+# proof on PostgreSQL BEFORE they reach Production (ephemeral PG17).
+#
+# .p3a/lab.sh builds Production as it will be right before P3-A: 167 migrations, cost Wave-2 the last
+# applied (P3-A goes after it), the P2 tables
+# built by the real P2 migration; non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime +
+# LOGIN app_runtime_prod, the owner's default privileges, app_auth / app_ctlplane, the D2 E4
+# narrowing; Business under B4's FORCE RLS.
+#
+#   1. PREFLIGHT on that lab: 19/19; the post-apply proof fails exactly what P3-A creates.
+#   2. P3-A by `prisma migrate deploy` (exactly the pair): POST-APPLY PROOF 20/20, checksums pinned;
+#      the preflight then fails exactly its "P3-A not there yet" checks.
+#   3. Battery (.p3a/battery.ts) as app_runtime_prod: tenant isolation, authority (never created
+#      public, immutable content, frozen retired rows), constraints, P2 extensions, cascade.
+#   4. Atomicity: the second file failing on its last statement leaves nothing of it behind.
+#   5. Faults: a DELETE grant, a column change grant on "wording", NO FORCE and a permissive FOR ALL
+#      policy are each caught by the proof, each by the check meant for it.
+#   6. Rollback (.p3a/rollback.sql): reverts 20261008090100 whole (the enum labels of 20261008090000
+#      cannot be removed by PostgreSQL and are proven inert); re-apply makes the proof whole; refused
+#      while a claim exists.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: p3a — trust + conversion migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261008090000_p3a_identity_enum_values/**"
+      - "prisma/migrations/20261008090100_p3a_trust_claims/**"
+      - "ops/evidence/p3a-trust-conversion-*.sql"
+      - ".p3a/**"
+      - ".github/workflows/p3a-trust-conversion-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: p3a trust + conversion (PG17, real migrations via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: p3a_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: p3a_ci_synthetic_super_pw
+      LAB_PASSWORD: p3a_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/p3a-trust-conversion-preflight.sql
+      EVIDENCE: ops/evidence/p3a-trust-conversion-production-evidence.sql
+      P3A_ENUMS: prisma/migrations/20261008090000_p3a_identity_enum_values/migration.sql
+      P3A: prisma/migrations/20261008090100_p3a_trust_claims/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there; checksums pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          for m in "$P3A_ENUMS" "$P3A"; do
+            sum=$(sha256sum "$m" | cut -d' ' -f1)
+            grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum for $m"; exit 1; }
+            echo "$m sha256 $sum (pinned)"
+          done
+          test "$(ls -d prisma/migrations/*/ | wc -l)" = "169" || { echo "expected 169 migration directories (167 + the P3-A pair)"; exit 1; }
+
+      - name: 1. Production before P3-A (Wave-2 last, P3-A pending) — PREFLIGHT 19/19; the proof fails exactly what P3-A creates
+        run: |
+          set -euo pipefail
+          bash .p3a/lab.sh p3a_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "19" || { echo "expected 19 PASS"; exit 1; }
+          fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          echo "proof on the pre-P3-A lab fails: $fails"
+          test "$fails" = "1 2 4 5 6 7 8 10 11 12 13 14 15 16 18 " || { echo "expected 1 2 4 5 6 7 8 10 11 12 13 14 15 16 18"; exit 1; }
+
+      - name: 2. P3-A by prisma migrate deploy — POST-APPLY PROOF 20/20; the preflight fails exactly its P3-A-absent checks
+        run: |
+          set -euo pipefail
+          bash .p3a/lab.sh p3a_post --with-p3a
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/post.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "3 4 5 6 7 8 9 10 11 " || { echo "post-P3-A lab: expected preflight 3 4 5 6 7 8 9 10 11 to fail, got: $fails"; exit 1; }
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "169"
+
+      - name: 3. Battery — isolation, authority, constraints, P2 extensions, cascade (as app_runtime_prod)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p3a_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p3a_post" \
+            npx tsx .p3a/battery.ts
+
+      - name: 4. Atomicity — the second P3-A file failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .p3a/lab.sh p3a_broken --broken-p3a
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'BusinessTrustClaim%') + (SELECT count(*) FROM pg_type WHERE typname IN ('ConversionChannel','TrustClaimKind','TrustClaimClass','TrustClaimStatus','TrustVerificationMethod')) + (SELECT count(*) FROM pg_attribute WHERE attrelid = '\"BusinessIdentityStatement\"'::regclass AND attname = 'channel')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261008090100_p3a_trust_claims' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_post -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          fault "DELETE grant to runtime" "7 9 " 'GRANT DELETE ON "BusinessTrustClaim" TO app_runtime' 'REVOKE DELETE ON "BusinessTrustClaim" FROM app_runtime'
+          fault "column change grant on wording" "8 " 'GRANT UPDATE ("wording") ON "BusinessTrustClaim" TO app_runtime' 'REVOKE UPDATE ("wording") ON "BusinessTrustClaim" FROM app_runtime'
+          fault "NO FORCE row-level security" "4 " 'ALTER TABLE "BusinessTrustClaim" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "BusinessTrustClaim" FORCE ROW LEVEL SECURITY'
+          fault "permissive FOR ALL policy" "5 " 'CREATE POLICY p3_fault_all ON "BusinessTrustClaim" USING (true)' 'DROP POLICY p3_fault_all ON "BusinessTrustClaim"'
+          got=$(failing); test -z "$got" || { echo "proof not whole again: $got"; exit 1; }
+
+      - name: 6. Rollback — 20261008090100 reverted whole, labels inert, re-apply whole; refused while a claim exists
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          failing() { lab "$1" -f "$2" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          bash .p3a/lab.sh p3a_rb --with-p3a >/dev/null
+          lab p3a_rb -q -f .p3a/rollback.sql
+          got=$(failing p3a_rb "$PREFLIGHT")
+          test "$got" = "3 4 7 8 " || { echo "after rollback: expected preflight '3 4 7 8 ' (20261008090000 recorded, its labels kept), got '$got'"; exit 1; }
+          b=$(lab p3a_rb -Atqc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('rb', now()) RETURNING id" | head -1)
+          if lab p3a_rb -q -c "INSERT INTO \"BusinessIdentityStatement\" (\"businessId\",\"dimension\",\"code\",\"source\",\"updatedAt\") VALUES ($b,'CONVERSION_DECLARATION','ACCEPTS_VISITS','OWNER_INPUT',now())" 2>/dev/null; then echo "a kept label is not inert"; exit 1; fi
+          if lab p3a_rb -q -c "INSERT INTO \"BusinessIdentityFactAuthority\" (\"businessId\",\"fact\",\"sourceField\",\"valueHash\",\"updatedAt\") VALUES ($b,'PUBLIC_WHATSAPP','WhatsAppConnection.displayPhoneNumber',repeat('a',64),now())" 2>/dev/null; then echo "a kept label is not inert"; exit 1; fi
+          echo "kept labels are inert under the restored P2 CHECKs"
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+          cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
+          for d in prisma/migrations/*/; do cp -r "$d" "$TMP/prisma/migrations/"; done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p3a_rb"
+          DATABASE_URL="$U" DIRECT_URL="$U" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | grep -E "Applying migration"
+          got=$(failing p3a_rb "$EVIDENCE"); test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "re-apply applied 20261008090100 only; proof whole"
+          lab p3a_rb -q -c "INSERT INTO \"BusinessTrustClaim\" (\"businessId\",\"claimKind\",\"claimClass\",\"params\",\"wording\",\"wordingHash\",\"confirmedByUserId\",\"updatedAt\") VALUES ($b,'FOUNDED_YEAR','OWNER_ASSERTED','{}'::jsonb,'w',encode(sha256(convert_to('w','UTF8')),'hex'),1,now())"
+          if lab p3a_rb -q -f .p3a/rollback.sql 2>/tmp/rb.err; then echo "rollback ran despite a claim"; exit 1; fi
+          grep -q "P3-A rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while a claim exists; nothing changed"
