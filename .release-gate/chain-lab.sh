@@ -72,6 +72,10 @@ setup_today() {  # Production today: 163 applied (#594 last), P2 pending; app_au
   psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
     "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth') THEN CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END \$\$"
   lab "$1" -q -f "$ROOT/prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
+  # main's schema.prisma now models tables of the migrations these scenarios replay (P2, M6):
+  # `db push` created them already. Remove the pushed copies so each replayed migration
+  # creates its objects exactly as it did / will in Production.
+  lab "$1" -q -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "AcquisitionConnection" CASCADE'     -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact" CASCADE'
 }
 
 T="$(mktemp -d)"
