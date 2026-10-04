@@ -46,8 +46,19 @@ export async function generateInsightsForBusiness(
       }),
     );
 
-    // Labels for entity-level measures, resolved here inside the tenant: measures carry no names.
-    const commitmentIds = measures.filter((m) => m.entityType === "commitment" && m.entityId != null).map((m) => m.entityId as number);
+    // Labels for entity-level measures and for the commitments a PATTERN names as its drivers, resolved
+    // here inside the tenant: measures carry no names.
+    const driverIds = measures.flatMap((m) =>
+      ((m.detail as { drivers?: Array<{ commitmentId?: unknown }> } | null)?.drivers ?? [])
+        .map((d) => d.commitmentId)
+        .filter((id): id is number => typeof id === "number"),
+    );
+    const commitmentIds = [
+      ...new Set([
+        ...measures.filter((m) => m.entityType === "commitment" && m.entityId != null).map((m) => m.entityId as number),
+        ...driverIds,
+      ]),
+    ];
     const commitments = commitmentIds.length
       ? await tenantTx(businessId, (tx) =>
           tx.commitment.findMany({ where: { businessId, id: { in: commitmentIds } }, select: { id: true, title: true } }),

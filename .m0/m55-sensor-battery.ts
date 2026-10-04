@@ -107,8 +107,8 @@ async function main(): Promise<void> {
   check("the M5.5 migration registers the v2 rule versions", v2.length === 1);
   for (const s of v2) await owner.$executeRawUnsafe(s);
   // Business Cost learning, Wave 1 lineages — the catalogue now carries the four cost rules.
-  for (const s of sqlStatements("prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", /^INSERT INTO "DerivationPolicy/)) {
-    await owner.$executeRawUnsafe(s);
+  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql"]) {
+    for (const s of sqlStatements(f, /^INSERT INTO "DerivationPolicy/)) await owner.$executeRawUnsafe(s);
   }
 
   // Grants go to the GROUP role, as in Production, and reach the runtime by inheritance.

@@ -109,6 +109,53 @@ export function composeCostInsights(input: ComposerInput): InsightDraft[] {
     }
   }
 
+  // ── Wave 2 · PATTERN — comparisons with this business's own covered history. Still no meaning:
+  // what changed, compared with what, from which records. Never why, never good/bad, never affordability.
+  for (const m of input.activeMeasures) {
+    const d = D(m);
+    if (d.detected !== true) continue;
+    const ref = `knowledge-measure:${m.measureId}`;
+    const rule = (ruleId: string): ContributingRule => ({ ruleId, ruleVersion: m.ruleVersion, artifactKind: "measure", artifactRef: ref, level: "PATTERN" });
+    const line = (text: string): FactLine => ({ text, sourceKind: "measure", sourceRef: ref });
+
+    if (m.measureKey === "payables.baseline_shift") {
+      const up = (d.monthlyToMinor as number) > (d.monthlyFromMinor as number);
+      const drivers = ((d.drivers ?? []) as Array<{ commitmentId: number; change: string; monthlyFromMinor: number; monthlyToMinor: number }>).slice(0, 3);
+      const name = (id: number) => input.entityLabels?.[`commitment:${id}`] ?? "התחייבות";
+      out.push(draft("cost.baseline_shift", `cost.baseline_shift:${d.monthlyFromMinor}:${d.monthlyToMinor}`,
+        up ? "העלות הקבועה החודשית שנרשמה עלתה" : "העלות הקבועה החודשית שנרשמה ירדה", [
+          line(`${money(d.monthlyFromMinor as number)} לחודש ב־${date(d.comparedFrom as string)}, ${money(d.monthlyToMinor as number)} לחודש ב־${date(d.comparedTo as string)}`),
+          line(`עלות יום פעילות ממוצע: מ־${money(d.dailyFromMinor as number)} ל־${money(d.dailyToMinor as number)}`),
+          ...drivers.map((x) => line(
+            x.change === "ADDED" ? `נוספה: ${name(x.commitmentId)} (${money(x.monthlyToMinor)} לחודש)`
+            : x.change === "ENDED" ? `הסתיימה: ${name(x.commitmentId)} (${money(x.monthlyFromMinor)} לחודש)`
+            : `${name(x.commitmentId)}: מ־${money(x.monthlyFromMinor)} ל־${money(x.monthlyToMinor)} לחודש`)),
+          line("הרמה החדשה נשמרת לפחות 30 יום"),
+        ], [rule("COST-01"), ...gate], note.uncertainty));
+    }
+
+    if (m.measureKey === "payables.upcoming_concentration") {
+      const w = d.window as { from: string; to: string };
+      out.push(draft("cost.upcoming_concentration", `cost.upcoming_concentration:${w.from.slice(0, 7)}`,
+        "ב־30 הימים הקרובים רשום לתשלום יותר מבכל תקופה קודמת שנבדקה", [
+          line(`${money(d.currentMinor as number)} רשומים לתשלום עד ${date(w.to)}`),
+          ...((d.projectedMinor as number) > 0 ? [line(`מתוכם ${money(d.projectedMinor as number)} לפי החזרתיות של התחייבויות קבועות`)] : []),
+          line(`הגבוה ביותר ב־${d.coveredWindows as number} תקופות קודמות של 30 יום שנבדקו: ${money(d.historyMaxMinor as number)}`),
+        ], [rule("COST-06"), ...gate], note.uncertainty));
+    }
+
+    if (m.measureKey === "payables.cash_out_above_range") {
+      const w = d.window as { from: string; to: string };
+      const largest = ((d.largestPayments ?? []) as Array<{ amountMinor: number }>)[0];
+      out.push(draft("cost.cash_out_above_range", `cost.cash_out_above_range:${w.to.slice(0, 7)}`,
+        "ב־30 הימים האחרונים נרשם יותר כסף יוצא מבכל תקופה קודמת שנבדקה", [
+          line(`${money(d.currentMinor as number)} נרשמו כתשלומים בין ${date(w.from)} ל־${date(w.to)}`),
+          line(`הגבוה ביותר ב־${d.coveredWindows as number} תקופות קודמות של 30 יום שנבדקו: ${money(d.historyMaxMinor as number)}`),
+          ...(largest ? [line(`התשלום הגדול ביותר בתקופה: ${money(largest.amountMinor)}`)] : []),
+        ], [rule("COST-07"), ...gate], note.uncertainty));
+    }
+  }
+
   // COST-08 itself: said only when something concrete is missing.
   const c = input.activeMeasures.find((m) => m.measureKey === "payables.cost_data_completeness");
   if (c) {
