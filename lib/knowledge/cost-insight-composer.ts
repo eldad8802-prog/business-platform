@@ -30,7 +30,8 @@ function percentFromBp(bp: number): string {
   return `${(bp / 100).toLocaleString("he-IL", { maximumFractionDigits: 1 })}%`;
 }
 
-const RECORDING_GAPS = new Set(["UNALLOCATED_CASH", "DUE_WITHOUT_RECORDED_PAYMENT", "BACKBONE_NOT_AFFIRMED"]);
+/** Gaps that make a figure rest on incomplete records — and that the owner can close. */
+const RECORDING_GAPS = new Set(["UNALLOCATED_CASH", "DUE_WITHOUT_RECORDED_PAYMENT"]);
 
 function completenessNote(input: ComposerInput): { uncertainty: string | null; rule: ContributingRule | null } {
   const c = input.activeMeasures.find((m) => m.measureKey === "payables.cost_data_completeness");
@@ -124,7 +125,7 @@ export function composeCostInsights(input: ComposerInput): InsightDraft[] {
       const name = (id: number) => input.entityLabels?.[`commitment:${id}`] ?? "התחייבות";
       out.push(draft("cost.baseline_shift", `cost.baseline_shift:${d.monthlyFromMinor}:${d.monthlyToMinor}`,
         up ? "העלות הקבועה החודשית שנרשמה עלתה" : "העלות הקבועה החודשית שנרשמה ירדה", [
-          line(`${money(d.monthlyFromMinor as number)} לחודש ב־${date(d.comparedFrom as string)}, ${money(d.monthlyToMinor as number)} לחודש ב־${date(d.comparedTo as string)}`),
+          line(`מ־${money(d.monthlyFromMinor as number)} לחודש (${date(d.comparedFrom as string)}) ל־${money(d.monthlyToMinor as number)} לחודש (${date(d.comparedTo as string)})`),
           line(`עלות יום פעילות ממוצע: מ־${money(d.dailyFromMinor as number)} ל־${money(d.dailyToMinor as number)}`),
           ...drivers.map((x) => line(
             x.change === "ADDED" ? `נוספה: ${name(x.commitmentId)} (${money(x.monthlyToMinor)} לחודש)`
@@ -164,17 +165,19 @@ export function composeCostInsights(input: ComposerInput): InsightDraft[] {
     const comp = (d.components ?? {}) as Record<string, number>;
     const windows = (d.windows ?? []) as Array<{ dueMinor: number; paidOfDueMinor: number }>;
     const ref = `knowledge-measure:${c.measureId}`;
+    // Only gaps the OWNER can close are composed — each line tagged with its gap code (sourceRef "#CODE")
+    // so a consumer never has to parse wording. Foreign currency and an unconfirmed backbone stay in
+    // the COST-08 measure: the gate keeps working on them silently, with nothing to tell the owner.
     const lines: FactLine[] = [];
+    const shown: string[] = [];
     for (const g of gaps) {
-      if (g === "UNALLOCATED_CASH") lines.push({ text: `${money(comp.recentUnallocatedCashMinor)} מהתשלומים ב־${comp.recentDays} הימים האחרונים אינם משויכים להתחייבות שנרשמה`, sourceKind: "measure", sourceRef: ref });
-      if (g === "DUE_WITHOUT_RECORDED_PAYMENT" && windows[0]) lines.push({ text: `בתקופת 30 הימים האחרונה שנבדקה נרשם תשלום ל־${money(windows[0].paidOfDueMinor)} מתוך ${money(windows[0].dueMinor)} שהגיעו למועדם`, sourceKind: "measure", sourceRef: ref });
-      if (g === "ONE_OFF_COVERAGE_UNKNOWN") lines.push({ text: `${comp.uncertainOneOffCount} הוצאות חד־פעמיות בלי תקופה ידועה אינן נכללות בעלות הקבועה`, sourceKind: "measure", sourceRef: ref });
-      if (g === "FOREIGN_CURRENCY_EXCLUDED") lines.push({ text: `${comp.foreignCurrencySeries} התחייבויות במטבע זר אינן נכללות`, sourceKind: "measure", sourceRef: ref });
-      if (g === "BACKBONE_NOT_AFFIRMED") lines.push({ text: "עדיין לא אושר שכל ההוצאות הקבועות נרשמו", sourceKind: "measure", sourceRef: ref });
+      const add = (text: string) => { lines.push({ text, sourceKind: "measure", sourceRef: `${ref}#${g}` }); shown.push(g); };
+      if (g === "UNALLOCATED_CASH") add(`${money(comp.recentUnallocatedCashMinor)} מהתשלומים ב־${comp.recentDays} הימים האחרונים לא שויכו להתחייבות שנרשמה`);
+      if (g === "DUE_WITHOUT_RECORDED_PAYMENT" && windows[0]) add(`מתוך ${money(windows[0].dueMinor)} שהגיעו למועד בתקופה הקודמת, נרשמו תשלומים על ${money(windows[0].paidOfDueMinor)}`);
+      if (g === "ONE_OFF_COVERAGE_UNKNOWN") add(comp.uncertainOneOffCount === 1 ? "להוצאה חד־פעמית אחת לא נרשם לאיזו תקופה היא שייכת" : `ל־${comp.uncertainOneOffCount} הוצאות חד־פעמיות לא נרשם לאיזו תקופה הן שייכות`);
     }
     if (lines.length > 0) {
-      lines.push({ text: `היסטוריית עלות שאפשר להסתמך עליה: ${d.trustworthyHistoryDays as number} ימים`, sourceKind: "measure", sourceRef: ref });
-      out.push(draft("cost.data_completeness", `cost.data_completeness:${gaps.join(",")}`, "חלק מנתוני העלות אינם מלאים", lines, [{ ruleId: "COST-08", ruleVersion: c.ruleVersion, artifactKind: "measure", artifactRef: ref, level: "FACT" }], null));
+      out.push(draft("cost.data_completeness", `cost.data_completeness:${shown.join(",")}`, "חלק מנתוני העלות אינם מלאים", lines, [{ ruleId: "COST-08", ruleVersion: c.ruleVersion, artifactKind: "measure", artifactRef: ref, level: "FACT" }], null));
     }
   }
   return out;
