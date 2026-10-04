@@ -16,6 +16,9 @@ export const PLATFORM_FEATURE_KEYS = {
   STARTER_BOT: "starter_bot",
   REPORTS: "reports",
   KNOWLEDGE_DERIVATION: "knowledge_derivation",
+  ACQUISITION_META_LEAD_ADS: "acquisition_meta_lead_ads",
+  ACQUISITION_GOOGLE_LEAD_FORMS: "acquisition_google_lead_forms",
+  ACQUISITION_WEB_FORMS: "acquisition_web_forms",
 } as const;
 
 export type PlatformFeatureKey =
@@ -140,6 +143,32 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "גזירת ידע עסקי",
       category: "intelligence",
       description: "הרשאת הפעלת גזירת ידע (למידה) עבור העסק — כבויה כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // M6 — first-wave acquisition sources. OFF by default (migration 20261007090000): no inbound lead
+    // is accepted for a business until that source is enabled for it.
+    {
+      key: PLATFORM_FEATURE_KEYS.ACQUISITION_META_LEAD_ADS,
+      displayName: "לידים מ־Meta (פייסבוק ואינסטגרם)",
+      category: "integrations",
+      description: "קבלת לידים מטופסי Lead Ads של עמוד פייסבוק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.ACQUISITION_GOOGLE_LEAD_FORMS,
+      displayName: "לידים מטופסי Google Ads",
+      category: "integrations",
+      description: "קבלת לידים מטופסי לידים של Google Ads (webhook) — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.ACQUISITION_WEB_FORMS,
+      displayName: "לידים מטופס באתר",
+      category: "integrations",
+      description: "קבלת לידים מטופס יצירת קשר באתר העסק — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

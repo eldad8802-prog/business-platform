@@ -173,7 +173,23 @@ export type NormalizedIntake = {
   identity: IdentityOutcome;
   attribution: IntakeAttributionV1 | null;
   target: RouteTarget;
+  /**
+   * M6 — what the person asked for, as the OWNER should read it (an explicit lead form's answers,
+   * one "question: answer" per line). PERSONAL DATA: never persisted on the normalized row; the core
+   * lead destination writes it to Lead.intentSnapshot (erased with the lead) and nowhere else.
+   */
+  leadIntent?: string;
 };
+
+/**
+ * M6 — a notification-only provider (Meta Lead Ads: the webhook names the lead, the answers must be
+ * fetched) completes its receipt BEFORE normalize, which stays pure. Retry-safe: an already
+ * complete payload returns `unchanged`.
+ */
+export type HydrateResult =
+  | { kind: "hydrated"; payload: Prisma.InputJsonValue; metadata?: Prisma.InputJsonValue }
+  | { kind: "unchanged" }
+  | { kind: "deferred"; code: string; until: Date };
 
 // ─── adapter ───────────────────────────────────────────────────────────────
 
@@ -232,6 +248,12 @@ export interface IntakeAdapter {
    * an unknown / owner-stopped account. A database error must THROW.
    */
   resolveTenant(accountRef: string): Promise<number | null>;
+  /**
+   * M6 — optional, runs inside the tenant context before normalize: complete a notification-only
+   * receipt from the provider (network allowed). A thrown error is a retryable failure;
+   * {@link IntakeTerminalError} dead-letters.
+   */
+  hydrate?(ctx: { businessId: number; now: Date }, event: ClaimedIntakeEvent): Promise<HydrateResult>;
   /** Pure and deterministic. A failure is terminal: retrying cannot fix it. */
   normalize(event: ClaimedIntakeEvent): NormalizeResult;
   /** Writes the domain records. MUST be idempotent: a retry re-runs it. */

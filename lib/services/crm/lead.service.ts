@@ -499,6 +499,7 @@ export const leadService = {
             source: input.source,
             evidence: input.lifecycleEvidence ?? null,
             origin: leadOriginFor(sourceChannel, input.source),
+            ...(sourceChannel?.startsWith("intake:") ? { intakeSource: sourceChannel.slice("intake:".length) } : {}),
           });
           lead = await tx.lead.findFirstOrThrow({ where: { id: lead.id, businessId: input.businessId } });
         }

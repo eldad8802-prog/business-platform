@@ -151,6 +151,11 @@ export function leadSourceLabel(source: string | null): string | null {
     REFERRAL: "המלצה",
     WEBSITE: "אתר",
     OTHER: "אחר",
+    // Business Intake sources (sourceChannel "intake:<sourceKey>").
+    "intake:whatsapp": "וואטסאפ",
+    "intake:meta.lead_ads": "פייסבוק/אינסטגרם",
+    "intake:google.lead_form": "גוגל",
+    "intake:web.form": "טופס באתר",
   };
   return known[source] ?? source;
 }
