@@ -29,7 +29,10 @@
 import type { MeasureResult, MeasureUnit } from "./measure.contract";
 
 /** The domains that can produce knowledge. A closed set: an unlisted domain is a typo, not a feature. */
-export type KnowledgeDomain = "documents" | "payables" | "inventory" | "suppliers";
+export type KnowledgeDomain =
+  | "documents" | "payables" | "inventory" | "suppliers"
+  // All-Feature Learning Coverage · W2 — the income side.
+  | "billing" | "customers" | "payments" | "collection";
 
 /**
  * What the measure is ABOUT, when it is not about the business as a whole.
@@ -46,8 +49,12 @@ export type KnowledgeDomain = "documents" | "payables" | "inventory" | "supplier
  *
  * `commitment` is a payables-ledger `Commitment` (Business Cost learning, Wave 1): a recurring cost
  * that changed, started or ended is knowledge ABOUT that commitment.
+ *
+ * `customer` is a domain `Customer` row, reached ONLY through an explicit `customerId` foreign key on the
+ * evidence (W2). Never through a phone, email or tax-id match: cross-source customer identity is an
+ * owner decision not yet taken, so a document without the key teaches nothing about any customer.
  */
-export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party" | "commitment";
+export type KnowledgeEntityType = "supplier" | "payee" | "inventory-item" | "party" | "commitment" | "customer";
 
 /**
  * Why a rule's answer can stop being authoritative.

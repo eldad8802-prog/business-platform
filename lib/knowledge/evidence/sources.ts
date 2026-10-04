@@ -30,6 +30,12 @@ import type { PaperworkObservation } from "../rules/documents-paperwork-lag";
 import { civilDateInZone, DEFAULT_BUSINESS_TIME_ZONE, toDayNumber } from "@/lib/services/business-cost/business-cost-core";
 import { loadBusinessCostInputs } from "@/lib/services/business-cost/business-cost.service";
 import { COST_SOURCE_WINDOW_DAYS, type CostAuditEvent, type CostLedgerSnapshot } from "@/lib/knowledge/rules/cost";
+import {
+  resolveSettlement, toCents,
+  type CoverageEvent, type IncomeDocumentObservation, type PaymentRequestObservation, type QuoteObservation,
+} from "../rules/income";
+import { computeExpectedPaymentDate, resolveCustomerPaymentTermsDays } from "@/lib/services/billing/collection/payment-terms";
+import { authoritativeAllocationWhere, authoritativeCreditNoteWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
 
 function startOf(now: Date, windowDays: number): Date {
   return new Date(now.getTime() - windowDays * DAY_MS);
@@ -517,4 +523,150 @@ export async function loadCostLedger(businessId: number, now: Date): Promise<Cos
       })),
     },
   ];
+}
+
+/* ══════════════════════ INCOME (All-Feature Learning Coverage · W2) ══════════════════════ */
+
+/**
+ * ISSUED income documents (TAX_INVOICE, TAX_INVOICE_RECEIPT) issued inside the window, with everything
+ * authoritative that happened to them.
+ *
+ * THE SAME DEFINITIONS THE OWNER'S COLLECTION SCREEN USES, imported rather than restated:
+ *   due        `resolveCustomerPaymentTermsDays` (customer → business → 30) + `computeExpectedPaymentDate`
+ *              (the Israeli due DAY), exactly as `awaiting-payment.rules.ts` computes it
+ *   paid       only allocations of an ISSUED receipt (`authoritativeAllocationWhere`)
+ *   credited   only ISSUED credit notes referencing the invoice (`authoritativeCreditNoteWhere`)
+ * Movements dated after `now` are dropped, so a rebuild at an earlier `now` sees an earlier world.
+ *
+ * Reminders are the owner's own CollectionAction rows naming the invoice, directly or through a payment
+ * request raised for it. `customerId` is the document's own foreign key — never a phone/email match.
+ */
+export async function loadIncomeDocuments(
+  businessId: number,
+  now: Date,
+  windowDays: number,
+): Promise<IncomeDocumentObservation[]> {
+  const { profile, docs, actions } = await tenantTx(businessId, async (tx) => {
+    const profile = await tx.businessProfile.findUnique({ where: { businessId }, select: { billingPaymentTermsDays: true } });
+    const docs = await tx.billingDocument.findMany({
+      where: {
+        businessId,
+        status: "ISSUED",
+        documentType: { in: ["TAX_INVOICE", "TAX_INVOICE_RECEIPT"] },
+        issuedAt: { gte: startOf(now, windowDays), lte: now },
+      },
+      orderBy: [{ id: "asc" }],
+      select: {
+        id: true, businessId: true, documentType: true, customerId: true, issuedAt: true, totalAmount: true,
+        customer: { select: { paymentTermsDays: true } },
+        paymentAllocationsAsInvoice: {
+          where: { businessId, ...authoritativeAllocationWhere(businessId) },
+          select: { allocatedAmount: true, receiptDocument: { select: { issuedAt: true } } },
+        },
+        creditNotes: { where: { businessId, ...authoritativeCreditNoteWhere() }, select: { totalAmount: true, issuedAt: true } },
+      },
+    });
+    const ids = docs.map((d) => d.id);
+    const actions = ids.length === 0 ? [] : await tx.collectionAction.findMany({
+      where: {
+        businessId,
+        // A reminder about an invoice issued in the window cannot predate the window.
+        occurredAt: { gte: startOf(now, windowDays), lte: now },
+        OR: [{ billingDocumentId: { in: ids } }, { paymentRequestId: { not: null } }],
+      },
+      select: { billingDocumentId: true, occurredAt: true, paymentRequestId: true },
+    });
+    const requestIds = [...new Set(actions.map((a) => a.paymentRequestId).filter((x): x is number => x !== null))];
+    const requests = requestIds.length === 0 ? [] : await tx.paymentRequest.findMany({
+      where: { businessId, id: { in: requestIds }, billingDocumentId: { in: ids } },
+      select: { id: true, billingDocumentId: true },
+    });
+    const docOfRequest = new Map(requests.map((r) => [r.id, r.billingDocumentId as number]));
+    return {
+      profile, docs,
+      actions: actions.map((a) => ({ at: a.occurredAt,
+        docId: a.billingDocumentId ?? (a.paymentRequestId !== null ? docOfRequest.get(a.paymentRequestId) ?? null : null) })),
+    };
+  });
+
+  const firstReminder = new Map<number, Date>();
+  for (const a of actions) {
+    if (a.docId === null) continue;
+    const prev = firstReminder.get(a.docId);
+    if (!prev || a.at.getTime() < prev.getTime()) firstReminder.set(a.docId, a.at);
+  }
+
+  return docs.map((d) => {
+    const issuedAt = d.issuedAt as Date;
+    const isInvoice = d.documentType === "TAX_INVOICE";
+    const events: CoverageEvent[] = [
+      ...d.paymentAllocationsAsInvoice
+        .filter((a) => a.receiptDocument.issuedAt !== null && a.receiptDocument.issuedAt.getTime() <= now.getTime())
+        .map((a) => ({ at: a.receiptDocument.issuedAt as Date, cents: toCents(a.allocatedAmount), kind: "RECEIPT" as const })),
+      ...d.creditNotes
+        .filter((c) => c.issuedAt !== null && c.issuedAt.getTime() <= now.getTime())
+        .map((c) => ({ at: c.issuedAt as Date, cents: toCents(c.totalAmount), kind: "CREDIT" as const })),
+    ];
+    const totalCents = toCents(d.totalAmount);
+    const s = resolveSettlement(totalCents, events);
+    return {
+      recordId: d.id,
+      businessId: d.businessId,
+      docType: d.documentType as "TAX_INVOICE" | "TAX_INVOICE_RECEIPT",
+      customerId: d.customerId,
+      issuedAt,
+      total: totalCents / 100,
+      expectedAt: isInvoice
+        ? computeExpectedPaymentDate(issuedAt, resolveCustomerPaymentTermsDays(d.customer?.paymentTermsDays ?? null, profile?.billingPaymentTermsDays ?? null))
+        : null,
+      // A TAX_INVOICE_RECEIPT is paid at issue; it carries no settlement to measure.
+      settledAt: isInvoice ? s.settledAt : null,
+      creditedOut: s.creditedOut,
+      hasCreditNote: s.hasCreditNote,
+      firstReminderAt: isInvoice ? firstReminder.get(d.id) ?? null : null,
+    };
+  });
+}
+
+/**
+ * ISSUED quotes inside the window. A quote "converted" only when the invoice it became was itself
+ * ISSUED — a draft invoice is an intention, the same rule the allocation authority applies.
+ */
+export async function loadQuotes(businessId: number, now: Date, windowDays: number): Promise<QuoteObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.billingDocument.findMany({
+      where: { businessId, status: "ISSUED", documentType: "QUOTE", issuedAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, issuedAt: true, validUntil: true, convertedToInvoice: { select: { status: true, issuedAt: true } } },
+    }),
+  );
+  return rows.map((q) => ({
+    recordId: q.id,
+    businessId: q.businessId,
+    issuedAt: q.issuedAt as Date,
+    validUntil: q.validUntil,
+    converted: q.convertedToInvoice?.status === "ISSUED"
+      && q.convertedToInvoice.issuedAt !== null && q.convertedToInvoice.issuedAt.getTime() <= now.getTime(),
+  }));
+}
+
+/** Payment requests (links) created inside the window, with their terminal state as the provider reported it. */
+export async function loadPaymentRequests(businessId: number, now: Date, windowDays: number): Promise<PaymentRequestObservation[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.paymentRequest.findMany({
+      where: { businessId, createdAt: { gte: startOf(now, windowDays), lte: now } },
+      orderBy: [{ id: "asc" }],
+      select: { id: true, businessId: true, customerId: true, createdAt: true, status: true, paidAt: true, expiresAt: true },
+    }),
+  );
+  return rows.map((p) => ({
+    recordId: p.id,
+    businessId: p.businessId,
+    customerId: p.customerId,
+    createdAt: p.createdAt,
+    // A payment recorded after `now` had not happened yet at `now`.
+    status: p.status === "PAID" && p.paidAt !== null && p.paidAt.getTime() > now.getTime() ? "PENDING" : p.status,
+    paidAt: p.paidAt !== null && p.paidAt.getTime() <= now.getTime() ? p.paidAt : null,
+    expiresAt: p.expiresAt,
+  }));
 }

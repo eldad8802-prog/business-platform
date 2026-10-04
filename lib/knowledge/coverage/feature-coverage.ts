@@ -148,8 +148,8 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
 
   /* ─────────────────────────── income side (deep) ─────────────────────────── */
   {
-    key: "billing", name: "Billing (invoices, quotes, receipts, credit notes)", coverage: "GAP",
-    rules: [], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
+    key: "billing", name: "Billing (invoices, quotes, receipts, credit notes)", coverage: "LEARNS",
+    rules: ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
     l0: ["billing-review", "billing-pdf", "billing-draft-age"],
     models: ["BillingDocument", "BillingDocumentLine", "BillingReceiptPayment", "BillingPaymentAllocation", "BillingAuditEvent",
       "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument"],
@@ -162,8 +162,8 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH" },
   },
   {
-    key: "payments-in", name: "Payments-in / payment links", coverage: "GAP",
-    rules: [], temporalRules: [], otherUnits: [], l0: ["payment-link-age"],
+    key: "payments-in", name: "Payments-in / payment links", coverage: "LEARNS",
+    rules: ["PAY-01", "PAY-02"], temporalRules: [], otherUnits: [], l0: ["payment-link-age"],
     models: ["BusinessPaymentConnection", "PaymentRequest", "PaymentTransaction", "PaymentAccountingSettlement", "PaymentProviderRouting",
       "PaymentWebhookEvent", "PaymentAuditEvent"],
     sensors: [], legacyEvents: [], routes: ["api/payments", "page/payments"],
@@ -171,15 +171,15 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH" },
   },
   {
-    key: "collection", name: "Collection (receivables, reminders)", coverage: "GAP",
-    rules: [], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
+    key: "collection", name: "Collection (receivables, reminders)", coverage: "LEARNS",
+    rules: ["COLL-01", "COLL-02", "COLL-03"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
     models: ["CollectionAction"], sensors: [], legacyEvents: [], routes: ["api/collection", "page/collection"],
     target: { coverage: "LEARNS", plan: "Reminder timing relative to due date, reminder → payment sequence (sequence, never cause), share of overdue receivables collected." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH", note: "Currently excluded from M9 (no invoice link on a reminder, refunds not netted)." },
   },
   {
-    key: "customers", name: "Customers (CRM card)", coverage: "GAP",
-    rules: [], temporalRules: [], otherUnits: [], l0: [],
+    key: "customers", name: "Customers (CRM card)", coverage: "LEARNS",
+    rules: ["CUST-01", "CUST-02", "CUST-03"], temporalRules: [], otherUnits: [], l0: [],
     models: ["Customer", "CrmNote", "CrmAttachment"],
     sensors: ["CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_ARCHIVED", "CUSTOMER_REACTIVATED", "CUSTOMER_TAX_IDENTITY_CHANGED"],
     legacyEvents: [], routes: ["api/customers", "api/customer", "api/crm", "page/customers"],
