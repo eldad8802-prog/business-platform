@@ -115,7 +115,7 @@ jobs:
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "3 4 5 6 7 8 9 10 11 " || { echo "post-P3-A lab: expected preflight 3 4 5 6 7 8 9 10 11 to fail, got: $fails"; exit 1; }
-          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "169"
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "170"
 
       - name: 3. Battery — isolation, authority, constraints, P2 extensions, cascade (as app_runtime_prod)
         run: |
