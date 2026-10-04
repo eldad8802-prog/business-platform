@@ -178,6 +178,7 @@ if deploy pfx_fail; then fail "the broken P3A2 deployed"; fi
 ledger pfx_fail 169 1 1 0 0 0
 [ "$(done_ pfx_fail "$A1")" = "1" ] && [ "$(done_ pfx_fail "$A2")" = "0" ] || fail "want P3A1 finished, P3A2 not finished"
 if confirm pfx_fail "$A1,$A2"; then fail "confirm passed a failed release"; fi
+grep -q "$A2 ✗ FAILED / UNFINISHED" /tmp/confirm.out || fail "confirm did not show P3A2 as failed"
 echo "  the next stage refuses while the failed row stands"
 refused pfx_fail "$T/rec" "$A2" "unfinished or rolled-back ledger rows: $A2"
 ledger pfx_fail 169 1 1 0 0 0

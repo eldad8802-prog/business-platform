@@ -339,17 +339,18 @@ async function confirm(expected, { out }) {
   const problems = [];
   const bad = ledger.filter((r) => !r.done || r.rolled).map((r) => r.migration_name);
   if (bad.length) problems.push(`unfinished or rolled-back ledger rows: ${bad.join(", ")}`);
-  const names = new Set(ledger.map((r) => r.migration_name));
+  const names = new Set(ledger.map((r) => r.migration_name)); // any row, finished or not
+  const finished = new Set(ledger.filter((r) => r.done && !r.rolled).map((r) => r.migration_name));
   const want = new Set([...m.finishedBefore, ...m.expected]);
   const extra = [...names].filter((n) => !want.has(n));
-  const missing = [...want].filter((n) => !names.has(n));
+  const missing = [...want].filter((n) => !finished.has(n));
   if (extra.length) problems.push(`ledger rows this release did not approve: ${extra.join(", ")}`);
-  if (missing.length) problems.push(`approved but not recorded as applied: ${missing.join(", ")}`);
+  if (missing.length) problems.push(`approved but not recorded as FINISHED: ${missing.join(", ")}`);
   const heldRows = m.held.filter((h) => names.has(h));
   if (heldRows.length) problems.push(`a held migration has a ledger row: ${heldRows.join(", ")}`);
   const rows = [
-    `ledger: ${names.size} rows (was ${m.finishedBefore.length}; +${m.expected.length} approved)`,
-    `applied now: ${m.expected.map((n) => `${n} ${names.has(n) ? "✓" : "✗"}`).join(", ")}`,
+    `ledger: ${finished.size} finished of ${names.size} rows (was ${m.finishedBefore.length}; +${m.expected.length} approved)`,
+    `applied now: ${m.expected.map((n) => `${n} ${finished.has(n) ? "✓" : names.has(n) ? "✗ FAILED / UNFINISHED" : "✗ NO ROW"}`).join(", ")}`,
     `still pending (no ledger row): ${m.held.map((h) => `${h} ${names.has(h) ? "✗ HAS A ROW" : "✓"}`).join(", ") || "(none)"}`,
   ];
   console.log("LEDGER AFTER:\n  " + rows.join("\n  "));
