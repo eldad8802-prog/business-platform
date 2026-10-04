@@ -1,0 +1,155 @@
+# M6 PR-A / migration 20261007090000_m6_acquisition_connections — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17).
+#
+# .m6/lab.sh builds Production as it is after B4: 166 migrations, B4 the last applied; non-superuser
+# CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default
+# privileges, app_auth / app_ctlplane, the D2 E4 narrowing; Business under B4's FORCE RLS.
+#
+#   1. PREFLIGHT on that lab: 18/18; the post-apply proof fails exactly what M6 creates.
+#   2. M6 by `prisma migrate deploy` (only M6): POST-APPLY PROOF 15/15, checksum pinned; the
+#      preflight then fails exactly its "M6 not there yet" checks.
+#   3. Battery (.m6/connection-battery.ts): tenant isolation, one live mapping per resource, the
+#      pre-tenant lookups, constraints, features off, cascade.
+#   4. Atomicity: M6 failing on its last statement leaves nothing behind.
+#   5. Faults: a DELETE grant to the runtime and an EXECUTE grant to app_auth are each caught.
+#   6. Rollback (.m6/rollback.sql): back to a whole preflight; refused while a connection exists.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m6 — acquisition connections lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261007090000_m6_acquisition_connections/**"
+      - "ops/evidence/m6-acquisition-connections-*.sql"
+      - ".m6/**"
+      - ".github/workflows/m6-acquisition-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: m6 acquisition connections (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: m6_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: m6_ci_synthetic_super_pw
+      LAB_PASSWORD: m6_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/m6-acquisition-connections-preflight.sql
+      EVIDENCE: ops/evidence/m6-acquisition-connections-production-evidence.sql
+      M6: prisma/migrations/20261007090000_m6_acquisition_connections/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there; checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$M6" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "M6 sha256 $sum (pinned)"
+
+      - name: 1. Production today (B4 last, M6 pending) — PREFLIGHT 18/18; the proof fails exactly what M6 creates
+        run: |
+          set -euo pipefail
+          bash .m6/lab.sh m6_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "18" || { echo "expected 18 PASS"; exit 1; }
+          fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          echo "proof on the pre-M6 lab fails: $fails"
+          test "$fails" = "1 3 4 5 6 7 8 12 13 14 " || { echo "expected 1 3 4 5 6 7 8 12 13 14"; exit 1; }
+
+      - name: 2. M6 by prisma migrate deploy — POST-APPLY PROOF 15/15; the preflight fails exactly its M6-absent checks
+        run: |
+          set -euo pipefail
+          bash .m6/lab.sh m6_post --with-m6
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/post.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "15" || { echo "expected 15 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 5 6 7 8 " || { echo "post-M6 lab: expected preflight 2 3 5 6 7 8 to fail, got: $fails"; exit 1; }
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "167"
+
+      - name: 3. Battery — isolation, one live mapping per resource, pre-tenant lookups, constraints, features off
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/m6_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/m6_post" \
+            npx tsx .m6/connection-battery.ts
+
+      - name: 4. Atomicity — M6 failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .m6/lab.sh m6_broken --broken-m6
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'AcquisitionConnection%') + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'm6\_acquisition\_%') + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key LIKE 'acquisition\_%')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261007090000_m6_acquisition_connections' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — a DELETE grant and a foreign EXECUTE grant are each caught by the proof
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_post -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          lab -q -c 'GRANT DELETE ON "AcquisitionConnection" TO app_runtime'
+          got=$(failing); test "$got" = "9 " || { echo "DELETE grant: expected '9 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE DELETE ON "AcquisitionConnection" FROM app_runtime'
+          echo "fault detected [DELETE grant to runtime] → FAIL $got"
+          lab -q -c 'GRANT EXECUTE ON FUNCTION public.m6_acquisition_resolve_resource(text, text) TO app_auth'
+          got=$(failing); test "$got" = "13 " || { echo "EXECUTE to app_auth: expected '13 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE EXECUTE ON FUNCTION public.m6_acquisition_resolve_resource(text, text) FROM app_auth'
+          echo "fault detected [EXECUTE to app_auth] → FAIL $got"
+          got=$(failing); test -z "$got" || { echo "proof not whole again: $got"; exit 1; }
+
+      - name: 6. Rollback — back to a whole preflight; refused while a connection exists
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          bash .m6/lab.sh m6_rb --with-m6 >/dev/null
+          lab m6_rb -q -f .m6/rollback.sql
+          out=$(lab m6_rb -f "$PREFLIGHT"); echo "$out" | grep -E '^ +[0-9]+ \| (PASS|FAIL)'
+          if echo "$out" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "rollback did not restore the M6-pending state"; exit 1; fi
+          bash .m6/lab.sh m6_rb2 --with-m6 >/dev/null
+          b=$(lab m6_rb2 -Atqc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('rb', now()) RETURNING id" | head -1)
+          lab m6_rb2 -q -c "INSERT INTO \"AcquisitionConnection\" (\"businessId\",\"sourceKey\",\"publicId\",\"keyHash\",\"updatedAt\") VALUES ($b,'web.form','rb_public_id_0123456789abcdef', repeat('a',64), now())"
+          if lab m6_rb2 -q -f .m6/rollback.sql 2>/tmp/rb.err; then echo "rollback ran despite a connection"; exit 1; fi
+          grep -q "M6 rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while a connection exists; nothing changed"

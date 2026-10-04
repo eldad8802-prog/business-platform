@@ -23,6 +23,7 @@ import {
 import { OPEN_LEAD_STATUSES, type LeadStatusValue } from "@/lib/services/crm/lead-core";
 import type { LeadSuggestion } from "@/lib/services/crm/lead-lifecycle-core";
 import { dismissedSuggestionRules } from "@/lib/services/crm/lead-lifecycle.service";
+import { jerusalemDayKey, jerusalemDayUtcHalfOpen } from "@/lib/utils/jerusalem-day";
 
 type Tx = Prisma.TransactionClient;
 
@@ -68,6 +69,8 @@ export type LeadBriefing = {
   /** false when more open leads exist than were scanned — counts are then a floor. */
   complete: boolean;
   generatedAt: string;
+  /** M6 — today's new leads and where they came from (set by getLeadBriefing). */
+  arrivals?: LeadArrivals;
 };
 
 function emptyCounts(): LeadBriefingCounts {
@@ -174,7 +177,57 @@ export async function loadLeadBriefingFacts(
   };
 }
 
-export async function getLeadBriefing(tx: Tx, businessId: number, now = new Date()): Promise<LeadBriefing> {
+// ── M6 — today's new leads, with where they came from ─────────────────────────
+
+/** Where a lead came from, as the owner says it. The source is context, not a separate inbox. */
+export function leadSourceGroup(sourceChannel: string | null): { group: string; label: string } {
+  const s = (sourceChannel ?? "").trim();
+  if (s === "intake:meta.lead_ads") return { group: "meta", label: "פייסבוק/אינסטגרם" };
+  if (s === "intake:google.lead_form") return { group: "google", label: "גוגל" };
+  if (s === "intake:web.form" || s.toUpperCase() === "WEBSITE") return { group: "web", label: "האתר" };
+  if (s === "intake:whatsapp" || s.toUpperCase() === "WHATSAPP") return { group: "whatsapp", label: "וואטסאפ" };
+  if (!s || s.toUpperCase() === "MANUAL") return { group: "manual", label: "הוזנו ידנית" };
+  return { group: "other", label: "מקורות אחרים" };
+}
+
+export type LeadArrivals = {
+  /** Leads created today (Israeli calendar day), any status. */
+  today: number;
+  bySource: { group: string; label: string; count: number }[];
+};
+
+export function deriveLeadArrivals(rows: readonly { sourceChannel: string | null; n: number }[]): LeadArrivals {
+  const groups = new Map<string, { group: string; label: string; count: number }>();
+  let today = 0;
+  for (const r of rows) {
+    const n = Number(r.n) || 0;
+    if (n <= 0) continue;
+    today += n;
+    const g = leadSourceGroup(r.sourceChannel);
+    const cur = groups.get(g.group) ?? { ...g, count: 0 };
+    cur.count += n;
+    groups.set(g.group, cur);
+  }
+  const bySource = [...groups.values()].sort((a, b) => b.count - a.count || a.group.localeCompare(b.group));
+  return { today, bySource };
+}
+
+export async function loadLeadArrivals(tx: Tx, businessId: number, now: Date): Promise<LeadArrivals> {
+  const { from, toExclusive } = jerusalemDayUtcHalfOpen(jerusalemDayKey(now));
+  const rows = await tx.$queryRaw<{ sourceChannel: string | null; n: number }[]>`
+    SELECT l."sourceChannel", count(*)::int AS "n"
+    FROM "Lead" l
+    WHERE l."businessId" = ${businessId} AND l."createdAt" >= ${from} AND l."createdAt" < ${toExclusive}
+    GROUP BY l."sourceChannel"`;
+  return deriveLeadArrivals(rows);
+}
+
+export async function getLeadBriefing(
+  tx: Tx,
+  businessId: number,
+  now = new Date()
+): Promise<LeadBriefing> {
   const { rows, complete } = await loadLeadBriefingFacts(tx, businessId);
-  return deriveLeadBriefing(rows, now, complete);
+  const arrivals = await loadLeadArrivals(tx, businessId, now);
+  return { ...deriveLeadBriefing(rows, now, complete), arrivals };
 }

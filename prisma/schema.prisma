@@ -254,6 +254,7 @@ model Business {
   businessInsights              BusinessInsight[]
   entityLinkProposals           EntityLinkProposal[]
   intakeEvents                  IntakeEvent[]
+  acquisitionConnections        AcquisitionConnection[]
   outcomeRecommendations        OutcomeRecommendation[]
   outcomeDecisions              OutcomeDecision[]
   outcomeActionEvents           OutcomeActionEvent[]
@@ -6182,6 +6183,43 @@ enum IntakeEventStatus {
   PROCESSED
   FAILED
   IGNORED
+}
+
+/// M6 — the trusted provider-resource → business mapping for acquisition sources
+/// (migration 20261007090000_m6_acquisition_connections). FORCE RLS, no DELETE policy (revoke, never
+/// erase). Inbound webhooks resolve it only through the m6_acquisition_* SECURITY DEFINER lookups.
+/// PARTIAL UNIQUE INDEX (raw SQL, do not regenerate): AcquisitionConnection_live_resource_key on
+/// (sourceKey, externalResourceId) WHERE externalResourceId IS NOT NULL AND status <> 'REVOKED'.
+model AcquisitionConnection {
+  id                   Int       @id @default(autoincrement())
+  businessId           Int
+  /// meta.lead_ads | google.lead_form | web.form (CHECK)
+  sourceKey            String
+  /// ACTIVE | PAUSED | ERROR | REVOKED (CHECK)
+  status               String    @default("ACTIVE")
+  publicId             String    @unique
+  externalResourceId   String?
+  label                String?
+  /// sha256 hex of the shared key — the key itself is never stored.
+  keyHash              String?
+  keyHint              String?
+  allowedOrigins       String[]  @default([])
+  credentialCiphertext String?
+  credentialIv         String?
+  credentialTag        String?
+  credentialKeyId      String?
+  credentialExpiresAt  DateTime?
+  createdByUserId      Int?
+  lastEventAt          DateTime?
+  lastErrorCode        String?
+  revokedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([id, businessId])
+  @@index([businessId, sourceKey, status])
 }
 
 model IntakeEvent {

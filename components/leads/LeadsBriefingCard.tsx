@@ -33,9 +33,17 @@ export function LeadsBriefingCard() {
     };
   }, []);
 
-  if (!briefing || briefing.counts.needsAttention === 0) return null;
+  const arrivals = briefing?.arrivals;
+  if (!briefing || (briefing.counts.needsAttention === 0 && !arrivals?.today)) return null;
   const c = briefing.counts;
   const lines: string[] = [];
+  // M6 — today's arrivals with their sources ("3 מפייסבוק/אינסטגרם, 2 מגוגל"): context, not a separate inbox.
+  if (arrivals && arrivals.today > 0) {
+    const sources = arrivals.bySource.length > 1 || (arrivals.bySource[0] && arrivals.bySource[0].group !== "manual")
+      ? " · " + arrivals.bySource.map((s) => (s.group === "manual" ? `${s.count} ${s.label}` : `${s.count} מ${s.label}`)).join(", ")
+      : "";
+    lines.push(`נכנסו היום ${arrivals.today === 1 ? "ליד חדש אחד" : `${arrivals.today} לידים חדשים`}${sources}`);
+  }
   if (c.CUSTOMER_WROTE) lines.push(`${c.CUSTOMER_WROTE} לקוחות כתבו ומחכים לכם`);
   if (c.FOLLOWUP_OVERDUE) lines.push(`${c.FOLLOWUP_OVERDUE} מעקבים באיחור`);
   if (c.FOLLOWUP_DUE_TODAY) lines.push(`${c.FOLLOWUP_DUE_TODAY} מעקבים להיום`);

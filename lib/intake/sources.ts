@@ -9,5 +9,14 @@
 
 import { IntakeRegistry } from "@/lib/intake/core/registry";
 import { whatsAppIntakeAdapter } from "@/lib/intake/whatsapp/whatsapp-intake";
+import { metaLeadAdsAdapter } from "@/lib/intake/acquisition/providers/meta-lead-ads";
+import { googleLeadFormAdapter } from "@/lib/intake/acquisition/providers/google-lead-form";
+import { webFormAdapter } from "@/lib/intake/acquisition/providers/web-form";
 
-export const intakeRegistry = new IntakeRegistry().register(whatsAppIntakeAdapter);
+// M6 — first-wave acquisition sources. Each accepts nothing for a business until its platform
+// feature (acquisition_*) is enabled for that business; all three are OFF by default.
+export const intakeRegistry = new IntakeRegistry()
+  .register(whatsAppIntakeAdapter)
+  .register(metaLeadAdsAdapter)
+  .register(googleLeadFormAdapter)
+  .register(webFormAdapter);
