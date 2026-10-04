@@ -29,6 +29,9 @@ psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
    END \$\$"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
+# Once the code PR models M6's table, `db push` creates it (without RLS, functions or features).
+# M6 must create it exactly as Production will, so a pushed copy is removed first.
+psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -c 'DROP TABLE IF EXISTS "AcquisitionConnection" CASCADE'
 
 deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   local TMP; TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
