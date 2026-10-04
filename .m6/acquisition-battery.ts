@@ -221,8 +221,9 @@ async function main() {
       id, created_time: new Date().toISOString(), form_id: "777", ad_id: "5501", ad_name: "Spring ad", adset_id: "4401", adset_name: "TLV",
       campaign_id: "3301", campaign_name: "Spring", platform: "ig",
       field_data: [
-        { name: "full_name", values: ["Yossi Meta"] }, { name: "phone_number", values: ["+972525550202"] },
-        { name: "email", values: ["yossi@example.test"] }, { name: "what_do_you_need", values: ["Solar panels"] },
+        // A distinct person per lead id (same id → same person), so recovery is visible as a new Lead.
+        { name: "full_name", values: ["Yossi Meta"] }, { name: "phone_number", values: [`+97252555${id.slice(-4)}`] },
+        { name: "email", values: [`yossi${id.slice(-4)}@example.test`] }, { name: "what_do_you_need", values: ["Solar panels"] },
       ],
       custom_disclaimer_responses: [{ checkbox_key: "marketing_ok", is_checked: "1" }],
     } };
