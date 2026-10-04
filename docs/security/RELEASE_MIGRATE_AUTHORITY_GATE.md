@@ -189,7 +189,19 @@ After a valid supersession the new authority governs and the old set does not re
 
 The walk skips versions that are not valid JSON, so an unreadable intermediate version cannot stand in for the decision it hid.
 
-**Unreadable history fails closed.** If history cannot be read, every release is refused: that covers no git, and a **shallow** clone, whose log would silently look like "no history". release-migrate checks out with full history.
+**Tombstone rule: records that ever carried a binding are never deleted.** The gate also reads approval records that existed in the commit's history but are gone from the checkout. It finds them by scanning deletions under `ops/release-approvals/` in the ancestry of HEAD, with rename detection off, so a rename counts as a deletion too. For each one, it collects every `releaseSet` any committed version carried.
+
+If such a record ever carried a binding, and its migration or any of those sets touches the request, the release is **refused**, and every one of those historical sets stays in force. This holds **even if the binding had been validly superseded before the deletion.** Physical deletion is never itself an authority transition, and the gate does not try to prove a deleted history "resolved".
+
+To change or drop a binding:
+1. keep the file;
+2. supersede the binding inside it (`supersedes` plus a new `decision`).
+
+The record then remains as a tombstone. Restoring a deleted file lifts the refusal.
+
+Records that **never** carried a `releaseSet` are not tombstoned. They may be deleted, and their deletion blocks nothing.
+
+**Full git history is mandatory.** **Unreadable history fails closed.** If history cannot be read, every release is refused: that covers no git, and a **shallow** clone, whose log would silently look like "no history". release-migrate checks out with full history.
 
 Example:
 1. The owner approves releasing A, B and C together. The records of B and C carry `releaseSet: [A, B, C]`. Releasing `[A, B, C]` is allowed. Releasing `[A, B]` or `[A]` is refused.
@@ -207,7 +219,7 @@ Records without `releaseSet` validate exactly as before. Their migrations keep t
   - malformed sets (duplicate, unknown, own-missing, out of order, empty) are refused;
   - checksum and preflight still bind;
   - supersession: refused without `supersedes`, refused with the same decision link, allowed under a new decision, and both adding and removing a binding count as changes.
-- **Historical bindings (self-test H1–H6):** run through `evaluateApprovalBindings`, the same evaluation `authorize()` uses. They cover:
+- **Historical bindings (self-test H1–H6) and deleted records (self-test D1–D7):** run through `evaluateApprovalBindings`, the same evaluation `authorize()` uses. They cover:
   - a removal without `supersedes`;
   - a later edit after an unauthorized removal;
   - a valid removal (the old set does not resurrect);
@@ -216,4 +228,5 @@ Records without `releaseSet` validate exactly as before. Their migrations keep t
   - unrelated records.
 - **`.release-gate/release-set-lab.sh` (release-gate-lab.yml step 6):** the same cases through the real `plan` CLI in throwaway git checkouts:
   - S1–S8, including the laundering attempt and a checkout with no git history;
-  - H1–H6: removal without authority, laundering by a later edit, valid removal, the other record still binding, an invalid-JSON intermediate version, and a shallow clone.
+  - H1–H6: removal without authority, laundering by a later edit, valid removal, the other record still binding, an invalid-JSON intermediate version, and a shallow clone;
+  - D1–D5: a bound record deleted; unrelated commits after the deletion; deletion after a valid supersession (refused, then allowed once restored); a deletion while another record still binds; a legacy record deletion (allowed).

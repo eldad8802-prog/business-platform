@@ -226,6 +226,20 @@ export function evaluateApprovalBindings(expected, entries, known) {
   const bindings = [];
   const touches = (set) => Array.isArray(set) && set.some((n) => expected.includes(n));
   for (const r of entries) {
+    if (r.deletedHistoryUnreadable) {
+      refusals.push(`REFUSED — cannot read the git history of ${r.path} (no git or a shallow clone; a deleted approval record that carried a release binding could not be detected)`);
+      continue;
+    }
+    if (r.deleted) {
+      // TOMBSTONE RULE: a record that EVER carried a releaseSet is never physically deleted — not even
+      // after a valid supersession. Its migration and every set it ever bound stay guarded until the
+      // file is restored. A record that never carried a releaseSet may be deleted freely (legacy).
+      if (!r.historicalSets?.length) continue;
+      if (!(expected.includes(r.name) || r.historicalSets.some(touches))) continue;
+      refusals.push(`REFUSED — ${r.path} was DELETED, but it carried an owner-bound release set (${r.historicalSets.map((h) => `[${h.join(", ")}]`).join(", ")}); records that ever carried releaseSet are tombstoned, never deleted — restore the file (a changed decision goes through "supersedes" in the record itself)`);
+      for (const h of r.historicalSets) bindings.push({ source: `${r.path} (deleted — historical binding stays in force)`, migration: r.name, releaseSet: h });
+      continue;
+    }
     if (r.invalid) {
       if (!expected.includes(r.name)) refusals.push(`REFUSED — ${r.path} is not valid JSON (it could hide an owner-bound release set)`);
       continue; // a requested migration's invalid record is refused by the authority check itself
@@ -389,6 +403,34 @@ function previousApproval(path, current) {
   } catch { return { error: true }; }
 }
 
+/**
+ * Approval records that existed in this commit's history but are not in the checkout now — and every
+ * releaseSet any of their committed versions carried. Bounded to ops/release-approvals/*.json, to the
+ * ancestry of HEAD (what was merged), with rename detection OFF so a rename shows as a deletion.
+ * Versions that are not valid JSON are skipped. { deleted: [{ path, name, historicalSets }] } or
+ * { error: true } (no git, or a shallow clone).
+ */
+function deletedApprovalRecords() {
+  try {
+    if (execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() !== "false") return { error: true };
+    const out = execFileSync("git", ["log", "--no-renames", "--diff-filter=D", "--name-only", "--format=", "HEAD", "--", `${APPROVALS}/`], { encoding: "utf8" });
+    const paths = [...new Set(out.split("\n").map((l) => l.trim()).filter((p) => /^ops\/release-approvals\/[^/]+\.json$/.test(p)))]
+      .filter((p) => !existsSync(p));
+    const deleted = [];
+    for (const path of paths) {
+      const commits = execFileSync("git", ["log", "--no-renames", "--format=%H", "HEAD", "--", path], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+      const historicalSets = [];
+      for (const c of commits) {
+        let rec;
+        try { rec = JSON.parse(execFileSync("git", ["show", `${c}:${path}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })); } catch { continue; }
+        if (Array.isArray(rec?.releaseSet) && !historicalSets.some((h) => h.join() === rec.releaseSet.join())) historicalSets.push(rec.releaseSet);
+      }
+      deleted.push({ path, name: path.slice(APPROVALS.length + 1).replace(/\.json$/, ""), historicalSets });
+    }
+    return { deleted };
+  } catch { return { error: true }; }
+}
+
 /** The authority checks (plan, and again in the protected job). Returns { refused, rows }. */
 async function authorize(expected) {
   let refused = false;
@@ -417,6 +459,9 @@ async function authorize(expected) {
 
   // Owner-bound release sets: every approval record, its current binding and its previous one.
   const entries = allApprovalRecords().map((r) => (r.invalid ? r : { ...r, prev: previousApproval(r.path, r.record) }));
+  const gone = deletedApprovalRecords();
+  if (gone.error) entries.push({ path: `${APPROVALS}/`, name: "", deletedHistoryUnreadable: true });
+  else for (const d of gone.deleted) entries.push({ ...d, deleted: true });
   const scan = evaluateApprovalBindings(expected, entries, known);
   if (scan.refusals.length) { refused = true; rows.push(...scan.refusals); }
   const bindings = scan.bindings;
@@ -685,6 +730,21 @@ function selfTest() {
     !gate([A], [{ path: "ops/release-approvals/x.json", name: C, record: cBound, prev: { error: true } }]).ok);
   t("H6 a record unrelated to the request (no current or previous binding touching it) is not consulted",
     gate([D], [entry(C, cRemoved, cBound)]).ok);
+  // ── deleted approval records (tombstone rule), through the same evaluation authorize() runs
+  const deleted = (m, historicalSets) => ({ path: `ops/release-approvals/${m}.json`, name: m, deleted: true, historicalSets });
+  const d1 = gate([A, B], [deleted(C, [[A, B, C]])]);
+  t("D1 a record that bound [A,B,C] was DELETED, [A,B] requested → refused (deleted + its binding stays in force)",
+    !d1.ok && /was DELETED, but it carried an owner-bound release set/.test(d1.text) && /only a subset/.test(d1.text), d1.text);
+  t("D2 more history after the deletion changes nothing (the deleted path's versions are all read) → still refused",
+    !gate([A, B], [deleted(C, [[A, B, C]]), entry(D, recOf(D, {}))]).ok);
+  const d3 = gate([A, B], [deleted(C, [[A, B, C]])]); // its history ALSO holds a valid supersession; still bound
+  t("D3 tombstone policy: even after a valid supersession, deleting a record that ever bound refuses ([A,B])", !d3.ok);
+  t("D3b … also when the deleted record's own migration is requested", !gate([C], [deleted(C, [[A, B, C]])]).ok);
+  t("D4 C deleted and B still binds [A,B,C] → refused", !gate([A, B], [deleted(C, [[A, B, C]]), entry(B, recOf(B, { releaseSet: [A, B, C] }))]).ok);
+  t("D5 a deleted record that NEVER carried releaseSet blocks nothing (legacy)", gate([A, B], [deleted(C, [])]).ok);
+  t("D6 a deleted bound record unrelated to the request blocks nothing", gate([D], [deleted(C, [[A, B, C]])]).ok);
+  t("D7 unreadable history of deleted records (no git / shallow) refuses",
+    !gate([D], [{ path: "ops/release-approvals/", name: "", deletedHistoryUnreadable: true }]).ok);
   console.log(failed ? `\nrelease-migrate-gate self-test: ${failed} FAILED` : "\nrelease-migrate-gate self-test: all passed");
   return failed ? 1 : 0;
 }

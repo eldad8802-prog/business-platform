@@ -30,6 +30,13 @@
 #   H5  an invalid-JSON version between [A,B,C] and the    → [A,B] refused (unreadable versions are
 #       removal                                             skipped, they cannot stand in for D1)
 #   H6  a shallow clone (git log looks like "no history")  → refused
+#   D1  C's record (bound [A,B,C]) physically DELETED      → [A,B] refused (deleted record found in
+#                                                          history; its binding stays in force)
+#   D2  … then unrelated commits                           → [A,B] still refused
+#   D3  TOMBSTONE POLICY: C validly superseded (binding    → [A,B] allowed; after deleting C's file →
+#       removed, supersedes D1, decision D2), THEN deleted   refused; file restored → allowed again
+#   D4  C validly removed + deleted, B still binds [A,B,C] → [A,B] refused
+#   D5  a record that NEVER carried releaseSet, deleted    → [A,B] allowed (legacy is not tombstoned)
 #
 #   .release-gate/release-set-lab.sh
 set -euo pipefail
@@ -46,6 +53,7 @@ repo() {  # repo <dir>: a checkout with A..D and no records, one commit
   ( cd "$1" && git init -q && git config core.autocrlf false && git -c user.email=lab@example.test -c user.name=lab add -A && git -c user.email=lab@example.test -c user.name=lab commit -qm base )
 }
 record() {  # record <dir> <migration> <json-tail> : write + commit ops/release-approvals/<m>.json
+  mkdir -p "$1/ops/release-approvals"   # git rm of the last record removes the directory
   printf '{"migration":"%s","sha256":"%s","decision":"%s","approvedBy":"lab","preflightRun":1,"preflightFile":"ops/evidence/lab.sql"%s}\n' \
     "$2" "$(printf '0%.0s' $(seq 64))" "${DECISION:-https://github.com/lab/lab/pull/1#decision-1}" "$3" > "$1/ops/release-approvals/$2.json"
   ( cd "$1" && git -c user.email=lab@example.test -c user.name=lab add -A && git -c user.email=lab@example.test -c user.name=lab commit -qm "record $2" )
@@ -138,5 +146,35 @@ echo "H6 a shallow clone"
 repo "$T/h6src"; record "$T/h6src" "$B" "$(set3 "$A" "$B" "$C")"; record "$T/h6src" "$B" "$(set3 "$A" "$B" "$C"),\"approvedAt\":\"x\""
 git clone -q --depth 1 "file://$T/h6src" "$T/h6" 2>/dev/null
 refuse "H6 [A,B,C]"                                          "$T/h6" "$A,$B,$C"     "shallow clone"
+
+delrec() {  # delrec <dir> <migration>: git rm + commit
+  ( cd "$1" && git rm -q "ops/release-approvals/$2.json" && git -c user.email=lab@example.test -c user.name=lab commit -qm "delete $2" )
+}
+echo "D1 a bound record physically deleted"
+repo "$T/d1"; record "$T/d1" "$C" "$(set3 "$A" "$B" "$C")"; delrec "$T/d1" "$C"
+refuse "D1 [A,B]"                                            "$T/d1" "$A,$B"        "was DELETED, but it carried an owner-bound release set"
+grep -q "only a subset of the owner-approved release set" "$T/out" || fail "D1: the deleted record's binding did not stay in force"
+
+echo "D2 unrelated commits after the deletion"
+record "$T/d1" "$D" ""; ( cd "$T/d1" && echo x > unrelated.txt && git -c user.email=lab@example.test -c user.name=lab add -A && git -c user.email=lab@example.test -c user.name=lab commit -qm unrelated )
+refuse "D2 [A,B]"                                            "$T/d1" "$A,$B"        "was DELETED"
+
+echo "D3 tombstone policy: deletion is refused even after a valid supersession"
+repo "$T/d3"; record "$T/d3" "$C" "$(set3 "$A" "$B" "$C")"
+DECISION="$D2" record "$T/d3" "$C" ",\"supersedes\":\"$D1\""
+allow  "D3 [A,B] (validly superseded, file present)"         "$T/d3" "$A,$B"
+cp "$T/d3/ops/release-approvals/$C.json" "$T/c-superseded.json"; delrec "$T/d3" "$C"
+refuse "D3 [A,B] after deleting the superseded record"       "$T/d3" "$A,$B"        "tombstoned, never deleted"
+mkdir -p "$T/d3/ops/release-approvals"; cp "$T/c-superseded.json" "$T/d3/ops/release-approvals/$C.json"; ( cd "$T/d3" && git -c user.email=lab@example.test -c user.name=lab add -A && git -c user.email=lab@example.test -c user.name=lab commit -qm "restore $C" )
+allow  "D3 [A,B] once the record is restored"                "$T/d3" "$A,$B"
+
+echo "D4 C validly removed and deleted; B still binds the old set"
+repo "$T/d4"; record "$T/d4" "$B" "$(set3 "$A" "$B" "$C")"; record "$T/d4" "$C" "$(set3 "$A" "$B" "$C")"
+DECISION="$D2" record "$T/d4" "$C" ",\"supersedes\":\"$D1\""; delrec "$T/d4" "$C"
+refuse "D4 [A,B]"                                            "$T/d4" "$A,$B"        "only a subset of the owner-approved release set"
+
+echo "D5 a legacy record (never bound) deleted"
+repo "$T/d5"; record "$T/d5" "$C" ""; delrec "$T/d5" "$C"
+allow  "D5 [A,B]"                                            "$T/d5" "$A,$B"
 
 echo "RELEASE-SET LAB: PASS"
