@@ -114,7 +114,7 @@ jobs:
           echo "$M6 sha256 $sum (pinned by M6's own proof)"
           test "$(ls -d prisma/migrations/*/ | wc -l)" = "171" || { echo "expected 171 migration directories (168 applied + the three pending)"; exit 1; }
 
-      - name: 1. Shared baseline (168 applied; P3-A pair + M6 pending) — P3-A PREFLIGHT 20/20 and M6 PREFLIGHT 19/19 on the same lab
+      - name: 1. Baseline before P3-A (168 applied; P3-A pair + M6 pending) — P3-A PREFLIGHT 20/20; the M6 preflight refuses (P3-A not applied yet)
         run: |
           set -euo pipefail
           bash .p3a/lab.sh p3a_pre
@@ -123,8 +123,9 @@ jobs:
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "P3-A preflight FAILS on the shared baseline"; exit 1; fi
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
           lab -f "$M6_PREFLIGHT" | tee /tmp/m6pre.out
-          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/m6pre.out; then echo "M6 preflight FAILS on the shared baseline"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/m6pre.out)" = "19" || { echo "expected 19 M6 PASS"; exit 1; }
+          m6fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/m6pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          echo "M6 preflight before P3-A fails: $m6fails"
+          test "$m6fails" = "19 20 23 " || { echo "before P3-A: expected the M6 preflight to fail exactly 19 20 23 (P3-A not applied), got: $m6fails"; exit 1; }
           fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           echo "P3-A proof on the shared baseline fails: $fails"
           test "$fails" = "1 2 4 5 6 7 8 10 11 12 13 14 15 16 18 " || { echo "expected 1 2 4 5 6 7 8 10 11 12 13 14 15 16 18"; exit 1; }
@@ -148,10 +149,13 @@ jobs:
           test "$fails" = "3 4 5 6 7 8 9 10 11 20 " || { echo "after the joint release: expected P3-A preflight '3 4 5 6 7 8 9 10 11 20 ' to fail, got: $fails"; exit 1; }
           test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "171"
 
-      - name: 3. Non-interaction — M6 changes nothing P3-A or P2 owns
+      - name: 3. Non-interaction — M6 changes nothing P3-A or P2 owns; after P3-A the M6 PREFLIGHT is 24/24
         run: |
           set -euo pipefail
           bash .p3a/lab.sh p3a_only --with-p3a >/dev/null
+          PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_only -v ON_ERROR_STOP=1 -f "$M6_PREFLIGHT" | tee /tmp/m6only.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/m6only.out; then echo "M6 preflight FAILS after P3-A"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/m6only.out)" = "24" || { echo "expected 24 M6 PASS after P3-A"; exit 1; }
           fp() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -Atf .p3a/surface-fingerprint.sql; }
           a=$(fp p3a_only); b=$(fp p3a_joint)
           echo "P3-A pair only : $a"

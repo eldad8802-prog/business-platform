@@ -1,14 +1,15 @@
 # M6 PR-A / migration 20261009090000_m6_acquisition_connections — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17).
 #
-# .m6/lab.sh builds Production as it is before the JOINT release: 168 migrations applied, and the
-# P3-A pair (which sorts before M6) + M6 pending — one release-migrate run applies all three. Non-superuser
+# .m6/lab.sh builds Production as it is after P3-A (owner Option B; applied 2026-10-05): 170 migrations
+# applied, the P3-A pair the last, and M6 the ONLY pending migration — released alone. Non-superuser
 # CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default
 # privileges, app_auth / app_ctlplane, the D2 E4 narrowing; Business under B4's FORCE RLS.
 #
-#   1. PREFLIGHT on that lab: 19/19 (19 = the P3-A pair is consistent: both pending, never half);
+#   1. PREFLIGHT on that lab: 24/24 (19 P3-A applied; 20/21 by name: M6 the only pending; 22 the
+#      intake / identity / CRM / feature tables under FORCE RLS; 23 P3-A coexists; 24 no acquisition data);
 #      the post-apply proof fails exactly what M6 creates.
-#   2. The joint release by `prisma migrate deploy` (P3-A #1, P3-A #2, M6, in that order): POST-APPLY PROOF 15/15, checksum pinned; the
+#   2. M6 alone by `prisma migrate deploy`: POST-APPLY PROOF 15/15, checksum pinned; the
 #      preflight then fails exactly its "M6 not there yet" checks.
 #   3. Battery (.m6/connection-battery.ts): tenant isolation, one live mapping per resource, the
 #      pre-tenant lookups, constraints, features off, cascade.
@@ -85,14 +86,14 @@ jobs:
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
           echo "M6 sha256 $sum (pinned)"
 
-      - name: 1. Production before the joint release (168 applied; P3-A pair + M6 pending) — PREFLIGHT 19/19; the proof fails exactly what M6 creates
+      - name: 1. Production after P3-A (170 applied; M6 the only pending) — PREFLIGHT 24/24; the proof fails exactly what M6 creates
         run: |
           set -euo pipefail
           bash .m6/lab.sh m6_pre
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m6_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "19" || { echo "expected 19 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "24" || { echo "expected 24 PASS"; exit 1; }
           fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           echo "proof on the pre-M6 lab fails: $fails"
           test "$fails" = "1 3 4 5 6 7 8 12 13 14 " || { echo "expected 1 3 4 5 6 7 8 12 13 14"; exit 1; }
@@ -106,7 +107,7 @@ jobs:
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "15" || { echo "expected 15 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
-          test "$fails" = "2 3 5 6 7 8 " || { echo "post-M6 lab: expected preflight 2 3 5 6 7 8 to fail, got: $fails"; exit 1; }
+          test "$fails" = "2 3 5 6 7 8 21 " || { echo "post-M6 lab: expected preflight 2 3 5 6 7 8 21 to fail, got: $fails"; exit 1; }
           want=$(ls -1 prisma/migrations | grep -E "^[0-9]{14}_" | awk -v m="$(basename "$(dirname "$M6")")" '$0 <= m' | wc -l)
           got=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
           test "$got" = "$want" || { echo "ledger: expected $want applied, got $got"; exit 1; }
