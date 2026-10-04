@@ -166,6 +166,17 @@ jobs:
       - name: Business Cost learning rules (pure — Wave 1)
         run: node_modules/.bin/tsx lib/knowledge/rules/cost-rules.test.ts
 
+      # All-Feature Learning Coverage (W2/W3): income, funnel and operations rules — what each must
+      # learn and what it must refuse; catalogue <-> lineage migration; every rule reaches BKS/Brain.
+      - name: Income rules (pure — billing, customers, payments-in, collection)
+        run: node_modules/.bin/tsx lib/knowledge/rules/income-rules.test.ts
+      - name: Funnel and operations rules (pure — leads, conversations, appointments, secretary, offering, reports)
+        run: node_modules/.bin/tsx lib/knowledge/rules/funnel-operations-rules.test.ts
+      - name: Policy lineages (every rule versioned by exactly one shipped migration)
+        run: node_modules/.bin/tsx lib/knowledge/coverage/policy-lineage.test.ts
+      - name: BKS / Brain coverage (every rule reaches the snapshot and the shadow Brain, privately)
+        run: node_modules/.bin/tsx lib/knowledge/coverage/bks-brain-coverage.test.ts
+
       - name: M4/M5 surface contracts (identity, collection, derivation)
         run: npx tsx lib/knowledge/m4-m5-surfaces.verify.test.ts
 

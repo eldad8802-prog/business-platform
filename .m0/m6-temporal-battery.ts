@@ -87,11 +87,13 @@ async function main(): Promise<void> {
     "prisma/migrations/20260924090100_m4_m5_knowledge_expansion/migration.sql",
     "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql",
     "prisma/migrations/20260926090000_m6_temporal_knowledge/migration.sql",
+    // All-Feature Learning Coverage — the seven W2/W3 temporal lineages ship here.
+    "prisma/migrations/20261008090000_learning_coverage_policies/migration.sql",
   ]) {
     for (const s of sqlStatements(f, /^INSERT INTO "DerivationPolicy/)) await owner.$executeRawUnsafe(s);
   }
   const temporalVersions = await owner.derivationPolicyVersion.count({ where: { policy: { key: { startsWith: "temporal-" } } } });
-  check("the M6 migration seeds ten temporal rule lineages", temporalVersions === 10, `n=${temporalVersions}`);
+  check("the migrations seed seventeen temporal rule lineages (M6 ten + coverage seven)", temporalVersions === 17, `n=${temporalVersions}`);
 
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${GROUP}`);
   await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${GROUP}`);
@@ -146,7 +148,7 @@ async function main(): Promise<void> {
   /* ══════════════════ T3 — real derivation ══════════════════ */
   section("T3 — baseline, stable pattern and anomaly, through the real service");
   const repA = await deriveTemporalForBusiness(bizA.id, AS_OF);
-  check("every temporal rule ran", repA.rulesFailed === 0 && repA.rulesRun === 10, `failed=${repA.rulesFailed}`);
+  check("every temporal rule ran", repA.rulesFailed === 0 && repA.rulesRun === 17, `failed=${repA.rulesFailed}`);
   const rowsA = await owner.temporalKnowledge.findMany({
     where: { businessId: bizA.id, temporalKey: "documents.paperwork_lag", contextKey: "", status: { in: ["ACTIVE", "INSUFFICIENT_HISTORY"] } },
   });

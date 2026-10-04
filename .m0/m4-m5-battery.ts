@@ -140,7 +140,7 @@ function policySeeds(): string[] {
 /** Business Cost learning — the cost lineages (Wave 1 FACT + Wave 2 PATTERN), out of the migrations that ship them. */
 function costWaveOneLineages(): string[] {
   const out: string[] = [];
-  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql"]) {
+  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql", "prisma/migrations/20261008090000_learning_coverage_policies/migration.sql"]) {
     const sql = readFileSync(join(process.cwd(), f), "utf8")
       .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
     const stmts = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
@@ -459,7 +459,7 @@ async function main(): Promise<void> {
   section("D1/D2 — what a real business learns, and what a thin one is told");
 
   const repA = await deriveKnowledgeForBusiness(bizA.id, NOW);
-  check("every rule in the catalogue ran", repA.rulesRun === 21, `n=${repA.rulesRun}`);
+  check("every rule in the catalogue ran", repA.rulesRun === 47, `n=${repA.rulesRun}`);
   check("no rule failed", repA.rulesFailed === 0,
     repA.rules.filter((r) => r.outcome === "failed").map((r) => `${r.ruleId}:${r.failedStage}:${r.failureDetail}`).join(" | "));
 
@@ -798,7 +798,7 @@ async function main(): Promise<void> {
   /* ══════════════════════════ OBSERVABILITY ══════════════════════════ */
   section("Observability — the questions a run must be able to answer");
   const final = await deriveKnowledgeForBusiness(bizA.id, NOW);
-  check("which rules ran, and for which tenant", final.rulesRun === 21 && final.businessId === bizA.id);
+  check("which rules ran, and for which tenant", final.rulesRun === 47 && final.businessId === bizA.id);
   check("how many produced knowledge", typeof final.measuresActive === "number" && final.measuresActive > 0);
   check("how many refused", typeof final.measuresInsufficient === "number");
   check("how many failed", final.rulesFailed === 0);

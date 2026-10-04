@@ -28,7 +28,9 @@ for (const f of FEATURE_COVERAGE) {
   if (!["LEARNS", "AGGREGATOR", "META"].includes(f.coverage)) {
     ok(`${f.key}: ${f.coverage} carries a reason (a decision, not an omission)`, (f.reason ?? "").length >= 20 || f.coverage === "GAP", f.reason);
   }
-  if (f.coverage === "GAP") ok(`${f.key}: GAP carries a milestone target`, !!f.target && f.target.plan.length >= 20);
+  // All-Feature Learning Coverage DoD, made permanent: a feature may never again sit undecided. A new
+  // feature lands LEARNING, or with an explicit decision and its reason (BLOCKED, L0_ONLY, …).
+  ok(`${f.key}: not GAP (every feature has a learning path or a recorded decision)`, f.coverage !== "GAP");
   if (f.coverage === "LEARNS") ok(`${f.key}: LEARNS names at least one active rule`, f.rules.length + f.temporalRules.length > 0);
   if (f.coverage === "CHANNEL") ok(`${f.key}: CHANNEL names the features it delivers into`, (f.channelOf ?? []).length > 0 && (f.channelOf ?? []).every((k) => keys.includes(k)), f.channelOf);
   if (f.coverage === "LEGACY_ALIAS") ok(`${f.key}: LEGACY_ALIAS points at an existing feature`, !!f.aliasOf && keys.includes(f.aliasOf));

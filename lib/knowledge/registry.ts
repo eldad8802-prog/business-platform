@@ -44,6 +44,15 @@ import {
 } from "./rules/documents-paperwork-lag";
 import * as sources from "./evidence/sources";
 import { costRules, makeCostLedgerSource } from "./rules/cost";
+import {
+  incomeRules,
+  makeIncomeDocumentSource,
+  makePaymentRequestSource,
+  makeQuoteSource,
+  INCOME_WINDOW_DAYS,
+} from "./rules/income";
+import * as funnel from "./rules/funnel";
+import * as ops from "./rules/operations";
 
 /**
  * DOC-04, expressed in the M4 contract.
@@ -115,6 +124,26 @@ export function knowledgeCatalogue(): AnyKnowledgeRule[] {
   const reviews = makeReviewSource((b, n) => sources.loadReviews(b, n, DOCUMENTS_WINDOW_DAYS));
   // Business Cost learning (Wave 1): one load of the cost ledger serves all four cost rules.
   const costLedger = makeCostLedgerSource(sources.loadCostLedger);
+  // Income side (W2): one load of the income documents serves billing, customers and collection.
+  const incomeDocs = makeIncomeDocumentSource((b, n) => sources.loadIncomeDocuments(b, n, INCOME_WINDOW_DAYS));
+  const quotes = makeQuoteSource((b, n) => sources.loadQuotes(b, n, INCOME_WINDOW_DAYS));
+  const requests = makePaymentRequestSource((b, n) => sources.loadPaymentRequests(b, n, INCOME_WINDOW_DAYS));
+  const [incDocRules, incQuoteRules, incRequestRules] = incomeRules(incomeDocs, quotes, requests);
+  // W3 — the sales funnel and running the business.
+  const F = funnel.FUNNEL_WINDOW_DAYS;
+  const funnelSet = funnel.funnelRules(
+    funnel.makeLeadSource((b, n) => sources.loadLeads(b, n, F)),
+    funnel.makeFollowUpSource((b, n) => sources.loadLeadFollowUps(b, n, F)),
+    funnel.makeConversationOpeningSource((b, n) => sources.loadConversationOpenings(b, n, F)),
+  );
+  const O = ops.OPERATIONS_WINDOW_DAYS;
+  const opsSet = ops.operationsRules({
+    appointments: ops.makeAppointmentSource((b, n) => sources.loadAppointments(b, n, O)),
+    handled: ops.makeHandledInstallmentSource((b, n) => sources.loadHandledInstallments(b, n, O)),
+    obligations: ops.makeObligationSource((b, n) => sources.loadMetObligations(b, n, O)),
+    demand: ops.makeDemandSignalSource((b, n) => sources.loadServiceDemandSignals(b, n, O)),
+    exports: ops.makeAccountantExportSource((b, n) => sources.loadAccountantExports(b, n, O)),
+  });
 
   const [invMovementRules, invAlertRules] = inventoryRules(movements, alerts);
   const [supOrderRules, supDeliveryRules] = supplierRules(orders, deliveries);
@@ -130,6 +159,11 @@ export function knowledgeCatalogue(): AnyKnowledgeRule[] {
     ...docVendorRules,
     ...docReviewRules,
     ...costRules(costLedger),
+    ...incDocRules,
+    ...incQuoteRules,
+    ...incRequestRules,
+    ...funnelSet,
+    ...opsSet,
   ].map((r) => erase(r as KnowledgeRule<never>));
 }
 

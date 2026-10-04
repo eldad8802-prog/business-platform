@@ -20,12 +20,16 @@
  *   L0 facts                NOT_TEMPORAL — point-in-time by definition
  */
 import { calendarDays } from "../rule-kit";
+import type { KnowledgeDomain } from "../rule.contract";
 import * as sources from "../evidence/sources";
 import type { SettlementObservation } from "../rules/payables";
 import type { MovementObservation } from "../rules/inventory";
 import type { SupplierDeliveryObservation, SupplierOrderObservation } from "../rules/suppliers";
 import type { ReviewObservation, VendorDocumentObservation } from "../rules/documents";
 import type { NumericPoint, RatePoint, TemporalSpec } from "./temporal.contract";
+import type { IncomeDocumentObservation, PaymentRequestObservation } from "../rules/income";
+import type { ConversationOpeningObservation, LeadObservation } from "../rules/funnel";
+import type { AppointmentObservation } from "../rules/operations";
 
 /** One series the engine will assess, and where it belongs. */
 export type TemporalSeries =
@@ -53,7 +57,7 @@ export type TemporalRule<TObs> = {
   /** LearningEvent sensors read as evidence (observation sources only); held by the coverage contract test. */
   readonly evidenceSensors?: readonly string[];
   readonly temporalKey: string;
-  readonly domain: "documents" | "payables" | "inventory" | "suppliers";
+  readonly domain: KnowledgeDomain;
   readonly policyKey: string;
   readonly versionLabel: string;
   /** The M4 rule whose evidence this follows over time. */
@@ -357,7 +361,143 @@ const tSupp02: TemporalRule<SupplierDeliveryObservation> = {
   },
 };
 
+
+/* ──────────────── income, funnel, operations (All-Feature Learning Coverage W2/W3) ──────────────── */
+
+const INCOME_DEPENDENCIES = [
+  "Invoice / receipt issued by owner", "Receipt auto-issued by payment settlement", "Credit note drafted / issued",
+];
+const BILL01_SPEC: TemporalSpec = {
+  valueKind: "cadence", unit: "days", historyDays: 365, recentDays: 90,
+  minHistory: 8, minSpanDays: 90, minRecent: 3,
+  materialFloor: 3, stableRelativeSpread: 0.3,
+  trendPeriods: 4, minPerPeriod: 2, staleAfterDays: 90,
+};
+const BILL02_SPEC: TemporalSpec = { ...AP01_SPEC };
+const CUST01_SPEC: TemporalSpec = { ...AP04_SPEC };
+const INCOME_SOURCE = {
+  key: "temporal.billing.income-documents",
+  load: (b: number, asOf: Date) => sources.loadIncomeDocuments(b, asOf, loadWindow(BILL01_SPEC)),
+};
+/** A paid TAX_INVOICE only — the same population as BILL-02 (receipts-at-issue and credit-cancelled excluded). */
+const paidInvoicePoint = (o: IncomeDocumentObservation): NumericPoint | null =>
+  o.docType === "TAX_INVOICE" && !o.creditedOut && o.settledAt !== null && o.expectedAt !== null
+    ? { at: o.settledAt, value: calendarDays(o.expectedAt, o.settledAt), recordId: o.recordId, evidenceKind: "billing-document" }
+    : null;
+
+const tBill01: TemporalRule<IncomeDocumentObservation> = {
+  ruleId: "T-BILL-01", temporalKey: "billing.invoicing_cadence", domain: "billing",
+  policyKey: "temporal-billing-invoicing-cadence", versionLabel: "v1", followsRule: "BILL-01",
+  spec: BILL01_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
+  series(obs) {
+    const g = gaps(obs.map((o) => ({ at: o.issuedAt, recordId: o.recordId })), "billing-document");
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "", points: g.points, lastEventAt: g.last }];
+  },
+};
+
+const tBill02: TemporalRule<IncomeDocumentObservation> = {
+  ruleId: "T-BILL-02", temporalKey: "billing.payment_timing", domain: "billing",
+  policyKey: "temporal-billing-payment-timing", versionLabel: "v1", followsRule: "BILL-02",
+  spec: BILL02_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.map(paidInvoicePoint).filter((p): p is NumericPoint => p !== null) }];
+  },
+};
+
+/** Per customer by the explicit `customerId` FK only — never an inferred identity. */
+const tCust01: TemporalRule<IncomeDocumentObservation> = {
+  ruleId: "T-CUST-01", temporalKey: "customers.payment_timing", domain: "customers",
+  policyKey: "temporal-customers-payment-timing", versionLabel: "v1", followsRule: "CUST-01",
+  spec: CUST01_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
+  series(obs) {
+    return [...byEntity(obs, (o) => o.customerId)].map(([customerId, rows]) => ({
+      kind: "numeric" as const, entityType: "customer", entityId: customerId, contextKey: "",
+      points: rows.map(paidInvoicePoint).filter((p): p is NumericPoint => p !== null),
+    }));
+  },
+};
+
+const PAY02_SPEC: TemporalSpec = {
+  valueKind: "duration", unit: "days", historyDays: 365, recentDays: 90,
+  minHistory: 8, minSpanDays: 90, minRecent: 4,
+  materialFloor: 1, stableRelativeSpread: 0.5,
+  trendPeriods: 4, minPerPeriod: 2, staleAfterDays: 120,
+};
+const tPay02: TemporalRule<PaymentRequestObservation> = {
+  ruleId: "T-PAY-02", temporalKey: "payments.link_time_to_pay", domain: "payments",
+  policyKey: "temporal-payments-link-time-to-pay", versionLabel: "v1", followsRule: "PAY-02",
+  spec: PAY02_SPEC, manifestDependencies: ["Payment request created / cancelled", "Provider verified a payment"],
+  source: { key: "temporal.payments.requests", load: (b, asOf) => sources.loadPaymentRequests(b, asOf, loadWindow(PAY02_SPEC)) },
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((p) => p.status === "PAID" && p.paidAt !== null)
+        .map((p) => ({ at: p.paidAt as Date, value: calendarDays(p.createdAt, p.paidAt as Date), recordId: p.recordId, evidenceKind: "payment-request" })) }];
+  },
+};
+
+/** Fractional days, for habits measured in hours (lead handling, reply latency). */
+const fractionalDays = (from: Date, to: Date) => Math.round(((to.getTime() - from.getTime()) / 86_400_000) * 100) / 100;
+
+const LEAD01_SPEC: TemporalSpec = {
+  valueKind: "duration", unit: "days", historyDays: 365, recentDays: 90,
+  minHistory: 10, minSpanDays: 90, minRecent: 4,
+  materialFloor: 0.5, stableRelativeSpread: 0.5,
+  trendPeriods: 4, minPerPeriod: 3, staleAfterDays: 120,
+};
+const tLead01: TemporalRule<LeadObservation> = {
+  ruleId: "T-LEAD-01", temporalKey: "leads.first_handling_days", domain: "leads",
+  policyKey: "temporal-leads-first-handling-days", versionLabel: "v1", followsRule: "LEAD-01",
+  spec: LEAD01_SPEC,
+  manifestDependencies: ["Lead lifecycle step (created, status changed, next action set / rescheduled / completed, value updated)"],
+  source: { key: "temporal.leads.leads", load: (b, asOf) => sources.loadLeads(b, asOf, loadWindow(LEAD01_SPEC)) },
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((l) => l.firstHandledAt !== null && l.firstHandledAt.getTime() >= l.createdAt.getTime())
+        .map((l) => ({ at: l.firstHandledAt as Date, value: fractionalDays(l.createdAt, l.firstHandledAt as Date), recordId: l.recordId, evidenceKind: "lead" })) }];
+  },
+};
+
+const CONV01_SPEC: TemporalSpec = { ...LEAD01_SPEC, materialFloor: 0.25 };
+const tConv01: TemporalRule<ConversationOpeningObservation> = {
+  ruleId: "T-CONV-01", temporalKey: "conversations.first_reply_days", domain: "conversations",
+  policyKey: "temporal-conversations-first-reply-days", versionLabel: "v1", followsRule: "CONV-01",
+  spec: CONV01_SPEC,
+  manifestDependencies: ["Inbound WhatsApp message", "Owner sends a message"],
+  partialJustification:
+    "'Owner sends a message' is PARTIAL because senderType is client-asserted and Message has no user id. " +
+    "This rule never reads senderType: a reply is any OUTBOUND message that did not fail, which is the business " +
+    "answering because no autonomous send path exists ('Bot / template message sent' is BLOCKED). Inbound counts " +
+    "only with a providerMessageId (the COVERED WhatsApp row), so app-posted 'inbound' is never a customer.",
+  source: { key: "temporal.conversations.openings", load: (b, asOf) => sources.loadConversationOpenings(b, asOf, loadWindow(CONV01_SPEC)) },
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((c) => c.firstReplyAt !== null)
+        .map((c) => ({ at: c.firstReplyAt as Date, value: fractionalDays(c.firstInboundAt, c.firstReplyAt as Date), recordId: c.recordId, evidenceKind: "message" })) }];
+  },
+};
+
+const APPT03_SPEC: TemporalSpec = {
+  valueKind: "duration", unit: "days", historyDays: 365, recentDays: 90,
+  minHistory: 10, minSpanDays: 90, minRecent: 4,
+  materialFloor: 2, stableRelativeSpread: 0.5,
+  trendPeriods: 4, minPerPeriod: 3, staleAfterDays: 120,
+};
+const tAppt03: TemporalRule<AppointmentObservation> = {
+  ruleId: "T-APPT-03", temporalKey: "appointments.booking_lead_days", domain: "appointments",
+  policyKey: "temporal-appointments-booking-lead-days", versionLabel: "v1", followsRule: "APPT-03",
+  spec: APPT03_SPEC, manifestDependencies: ["Appointment created", "Appointment rescheduled"],
+  source: { key: "temporal.appointments.appointments", load: (b, asOf) => sources.loadAppointments(b, asOf, loadWindow(APPT03_SPEC)) },
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((a) => a.startsAt !== null && a.status !== "PROPOSED" && a.startsAt.getTime() >= a.createdAt.getTime())
+        .map((a) => ({ at: a.createdAt, value: fractionalDays(a.createdAt, a.startsAt as Date), recordId: a.recordId, evidenceKind: "appointment" })) }];
+  },
+};
 /** Built per call, like the M4 catalogue: nothing is constructed at import time. */
 export function temporalCatalogue(): AnyTemporalRule[] {
-  return [tDoc04, tDoc05, tDoc02, tDoc06, tAp01, tAp04, tInv02, tInv04, tSupp01, tSupp02] as unknown as AnyTemporalRule[];
+  return [
+    tDoc04, tDoc05, tDoc02, tDoc06, tAp01, tAp04, tInv02, tInv04, tSupp01, tSupp02,
+    tBill01, tBill02, tCust01, tPay02, tLead01, tConv01, tAppt03,
+  ] as unknown as AnyTemporalRule[];
 }
