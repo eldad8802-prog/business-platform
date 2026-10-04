@@ -1,0 +1,77 @@
+# All-Feature Learning Coverage — the drift guard.
+#
+# Every business feature, tenant model, route family, learning rule and sensor must carry an explicit
+# learning-coverage decision in lib/knowledge/coverage/feature-coverage.ts, and nothing in that manifest
+# may claim something that does not exist. Runs on any change that could add a feature (routes, schema,
+# sensors, knowledge), with negative proofs that the guard actually bites.
+#
+# No database. No secrets. No network beyond npm.
+
+name: learning — all-feature coverage guard
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "prisma/schema.prisma"
+      - "lib/sensors/**"
+      - "lib/knowledge/**"
+      - "lib/business-status/**"
+      - "lib/services/audit.service.ts"
+      - ".github/workflows/learning-coverage-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Learning coverage contract (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Coverage contract (features, rules, models, routes, sensors, LearningEvent writers)
+        run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - name: Sensor contract (learning roles and time semantics typed)
+        run: npx tsx lib/sensors/sensors.test.ts
+
+      - name: Negative proof — an unowned route family must fail
+        run: |
+          set -uo pipefail
+          mkdir -p app/api/zz-unowned-feature && echo "export {};" > app/api/zz-unowned-feature/route.ts
+          if npx tsx lib/knowledge/coverage/feature-coverage.test.ts > /tmp/neg1.log 2>&1; then
+            echo "NEGATIVE PROOF FAILED: an unowned route family passed"; exit 1; fi
+          grep -q "api/zz-unowned-feature" /tmp/neg1.log || { echo "NEGATIVE PROOF FAILED: wrong failure"; cat /tmp/neg1.log; exit 1; }
+          rm -rf app/api/zz-unowned-feature
+          echo "unowned route family refused ✔"
+
+      - name: Negative proof — an invented sensor consumer must fail
+        run: |
+          set -uo pipefail
+          F=lib/sensors/catalogue.ts
+          cp "$F" "$F.bak"
+          # Turn the first AUDIT_ONLY decision into a consumer claim naming a rule that does not exist.
+          sed -i '0,/learning: { role: "AUDIT_ONLY", reason: [^}]*}/s//learning: { role: "OBSERVATION_SOURCE", consumedBy: ["NO-SUCH-RULE"] }/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAIL: mutation did not apply"; exit 1; fi
+          if npx tsx lib/knowledge/coverage/feature-coverage.test.ts > /tmp/neg2.log 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE PROOF FAILED: an invented consumer passed"; exit 1; fi
+          grep -q "consumer NO-SUCH-RULE exists" /tmp/neg2.log || { mv "$F.bak" "$F"; echo "NEGATIVE PROOF FAILED: wrong failure"; cat /tmp/neg2.log; exit 1; }
+          mv "$F.bak" "$F"
+          echo "invented consumer refused ✔"
+
+      - name: Negative proof — a direct LearningEvent write must fail
+        run: |
+          set -uo pipefail
+          mkdir -p lib/zz-neg && printf 'export const f = (db: any) => db.learningEvent.create({ data: {} });\n' > lib/zz-neg/writer.ts
+          if npx tsx lib/knowledge/coverage/feature-coverage.test.ts > /tmp/neg3.log 2>&1; then
+            echo "NEGATIVE PROOF FAILED: a direct LearningEvent write passed"; exit 1; fi
+          grep -q "lib/zz-neg/writer.ts" /tmp/neg3.log || { echo "NEGATIVE PROOF FAILED: wrong failure"; cat /tmp/neg3.log; exit 1; }
+          rm -rf lib/zz-neg
+          echo "direct LearningEvent write refused ✔"
