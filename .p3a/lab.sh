@@ -2,21 +2,24 @@
 # P3-A / migrations 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims —
 # Production-topology lab.
 #
-#   .p3a/lab.sh <db-name> [--with-p3a | --broken-p3a]
+#   .p3a/lab.sh <db-name> [--joint | --with-p3a | --broken-p3a]
 #
-# Production as it is (2026-10-04): 168 migrations, the last one 20261008090000_learning_coverage_policies; P3-A
-# and M6 (20261009090000, merged before P3-A, sorts after it) pending. This lab is that:
+# Production before the JOINT release: 168 migrations applied, the last one
+# 20261008090000_learning_coverage_policies (cost Wave-2 before it), and three pending — P3-A #1,
+# P3-A #2 and 20261009090000_m6_acquisition_connections. M6 merged before P3-A and sorts after it;
+# `prisma migrate deploy` applies every pending migration in order, so ONE release-migrate run applies
+# all three. This lab is that:
 #   1. .c594/lab.sh <db> — non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
 #      app_runtime_prod, the owner's DEFAULT PRIVILEGES (which would hand the runtime DELETE on any
 #      new table — P3-A must take that back), baselined ledger, #594 by migrate deploy;
 #   2. app_auth / app_ctlplane exist (B4 refuses without app_auth), the real D2 E4 narrowing;
-#   3. `prisma migrate deploy` over the migrations up to and INCLUDING the learning-coverage policy rows
-#      (P2, cost wave 1, B4, cost wave 2, learning coverage) —
-#      so the P2 tables P3-A alters are the real ones, built by the real P2 migration;
-#   4. --with-p3a: `prisma migrate deploy` again, up to and including both P3-A files — the
-#      release-migrate mechanism with the approved prefix staged, which applies exactly the two P3-A
-#      migrations; M6 sorts after them and stays pending.
-#      --broken-p3a: the second P3-A file fails on its last statement.
+#   3. `prisma migrate deploy` over the migrations up to and INCLUDING the 168th (P2, cost wave 1, B4,
+#      cost wave 2, learning-coverage policies) — so the P2 tables P3-A alters are the real ones,
+#      built by the real P2 migration;
+#   4. --joint: `prisma migrate deploy` again over main as it is — the release-migrate mechanism,
+#      which therefore applies exactly P3-A #1, P3-A #2, M6, in that order (the real release);
+#      --with-p3a: the P3-A pair only — the comparison point for "M6 changes nothing P3-A owns";
+#      --broken-p3a: the joint release with P3-A #2 failing on its last statement (M6 must not run).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
@@ -25,6 +28,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE="20261008090000_learning_coverage_policies"
 P3A_ENUMS="20261008090000_p3a_identity_enum_values"
 P3A="20261008090100_p3a_trust_claims"
+M6="20261009090000_m6_acquisition_connections"
 bash "$ROOT/.c594/lab.sh" "$DB" >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
   "DO \$\$ BEGIN
@@ -43,7 +47,7 @@ psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" \
   -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact" CASCADE' \
   -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name > '20261003090000_control_plane_production_privileges'"
 
-deploy_upto() {  # deploy_upto <last-migration-name> [broken]
+deploy_upto() {  # deploy_upto <last-migration-name> [<migration that fails on its last statement>]
   local TMP; TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
   cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
   cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
@@ -52,8 +56,8 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
     [[ "$name" > "$1" ]] && continue
     cp -r "$d" "$TMP/prisma/migrations/$name"
   done
-  if [ "${2:-}" = "broken" ]; then
-    printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$1/migration.sql"
+  if [ -n "${2:-}" ]; then
+    printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$2/migration.sql"
   fi
   set +e
   ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
@@ -64,11 +68,12 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   return $rc
 }
 
-deploy_upto "$BASELINE" >/dev/null || { echo "baseline deploy (up to the learning-coverage rows) failed"; exit 1; }
+deploy_upto "$BASELINE" >/dev/null || { echo "baseline deploy (168) failed"; exit 1; }
 
 case "$MODE" in
+  --joint)      deploy_upto "$M6" || { echo "joint deploy failed"; exit 1; } ;;
   --with-p3a)   deploy_upto "$P3A" || { echo "P3-A deploy failed"; exit 1; } ;;
-  --broken-p3a) if deploy_upto "$P3A" broken; then echo "broken P3-A did NOT fail"; exit 1; fi
-                echo "LAB READY: $DB (P3-A deploy FAILED as intended)"; exit 0 ;;
+  --broken-p3a) if deploy_upto "$M6" "$P3A"; then echo "broken P3-A did NOT fail"; exit 1; fi
+                echo "LAB READY: $DB (joint deploy FAILED at P3-A #2 as intended)"; exit 0 ;;
 esac
-echo "LAB READY: $DB (${MODE:-Production before P3-A: 168 applied, learning coverage last, P3-A + M6 pending})"
+echo "LAB READY: $DB (${MODE:-168 applied; P3-A pair + M6 pending})"
