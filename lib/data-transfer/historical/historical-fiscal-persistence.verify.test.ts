@@ -476,6 +476,10 @@ const ALLOWED_TO_NAME_IT = [
   "lib/data-transfer/historical/historical-records.ts",
   // and the test that holds it to reading only
   "lib/data-transfer/historical/historical-records.verify.test.ts",
+  // #629 All-Feature Learning Coverage: the feature manifest lists every tenant model once,
+  // with its learning decision. It names the model as a string in a list — a declaration, not a
+  // consumer — and the read-only rule below holds it to that.
+  "lib/knowledge/coverage/feature-coverage.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {

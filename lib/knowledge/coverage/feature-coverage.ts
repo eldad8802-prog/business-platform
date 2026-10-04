@@ -118,8 +118,8 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "business-cost", name: "Business cost (daily cost)", coverage: "LEARNS",
-    rules: ["COST-08", "COST-02", "COST-04", "COST-05"], temporalRules: [],
-    otherUnits: ["composer:cost.* (Wave 1 facts)"], l0: [],
+    rules: ["COST-08", "COST-02", "COST-04", "COST-05", "COST-01", "COST-06", "COST-07"], temporalRules: [],
+    otherUnits: ["composer:cost.* (Wave 1 facts, Wave 2 patterns — #628)"], l0: [],
     models: [], sensors: [], legacyEvents: [],
     routes: ["api/business-cost"],
     outcome: { observableAction: false, observableOutcome: false, ownerDecisionRelevant: true, recommendationPotential: "LOW", note: "Owned by the Phase 3 cost-learning workstream." },
