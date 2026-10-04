@@ -6,14 +6,14 @@
  * Each rule is proven on what it must learn AND on what it must refuse: credit-cancelled invoices never
  * count as paid, TAX_INVOICE_RECEIPTs never enter payment timing, immature quotes and invoices are not
  * yet evidence, documents without a customer FK teach nothing about any customer, and the reminder →
- * payment measure is labelled a sequence, never a cause.
+ * payment is never learned as an effect (M7 family A).
  */
 import {
   resolveSettlement, toCents,
   deriveBillingCadence, deriveBillingPaymentTiming, deriveBillingLateShare, deriveQuoteConversion, deriveCreditNoteShare,
   deriveCustomerPaymentTiming, deriveCustomerCadence, deriveCustomerTicketSize,
   deriveLinkConversion, deriveLinkTimeToPay,
-  deriveReminderTiming, deriveOverdueRemindedShare, deriveSettledAfterReminderShare,
+  deriveReminderTiming, deriveOverdueRemindedShare,
   type IncomeDocumentObservation as Doc, type QuoteObservation, type PaymentRequestObservation,
 } from "./income";
 import { catalogueDescriptors } from "../registry";
@@ -151,7 +151,7 @@ section("PAY-01 / PAY-02 payment links");
   ok("time to pay median 2 days over 6 paid links", ttp.status === "ACTIVE" && ttp.valueNumeric === 2 && ttp.observationCount === 6, ttp);
 }
 
-section("COLL-01..03 collection — timing, coverage, and a sequence that is never a cause");
+section("COLL-01 / COLL-02 collection — what the owner did with overdue invoices");
 {
   const due = (d: Doc) => (d.expectedAt as Date).getTime();
   const rem = (d: Doc, afterDue: number): Doc => ({ ...d, firstReminderAt: new Date(due(d) + afterDue * DAY) });
@@ -160,13 +160,10 @@ section("COLL-01..03 collection — timing, coverage, and a sequence that is nev
   const c = rem(paid(160, 15), 5);   // within 14
   const d = rem(inv({ issuedDaysAgo: 140 }), 6); // unpaid, window long closed → miss
   const e = rem(paid(120, 9), 7);    // within
-  const early = rem(paid(110, -1), 3);  // paid before reminder → outside COLL-03 population
-  const fresh = rem(inv({ issuedDaysAgo: 40 }), 5); // reminder 5 days ago-ish, window still open → waits
   const [timing] = deriveReminderTiming([a, b, c, d, e], NOW, BIZ);
   ok("first reminder lands a median 7 days after due", timing.status === "ACTIVE" && timing.valueNumeric === 7, timing);
-  const [seq] = deriveSettledAfterReminderShare([a, b, c, d, e, early, fresh], NOW, BIZ);
-  ok("3 of 5 settled within 14 days of the first reminder", seq.valueNumeric === 0.6 && seq.observationCount === 5, seq);
-  ok("labelled SEQUENCE_NOT_CAUSE", (seq.detail as any)?.caveat === "SEQUENCE_NOT_CAUSE");
+  ok("no rule claims what a reminder achieved (M7 family A: sequence is not effect)",
+    !catalogueDescriptors().some((x) => /after_reminder|reminder_effect/.test(x.measureKey)));
 
   const overdueUnreminded = [paid(300, 20), paid(280, 25), inv({ issuedDaysAgo: 100 })];
   const onTime = paid(260, 2); // paid within the grace: never overdue
@@ -178,8 +175,8 @@ section("COLL-01..03 collection — timing, coverage, and a sequence that is nev
 section("catalogue — the income rules are registered once, in their own domains");
 {
   const d = catalogueDescriptors();
-  const ids = ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05", "CUST-01", "CUST-02", "CUST-03", "PAY-01", "PAY-02", "COLL-01", "COLL-02", "COLL-03"];
-  ok("all 13 income rules registered exactly once", ids.every((i) => d.filter((x) => x.ruleId === i).length === 1));
+  const ids = ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05", "CUST-01", "CUST-02", "CUST-03", "PAY-01", "PAY-02", "COLL-01", "COLL-02"];
+  ok("all 12 income rules registered exactly once", ids.every((i) => d.filter((x) => x.ruleId === i).length === 1));
   ok("measure-key prefix = domain (BKS derives domain from it)", d.filter((x) => ids.includes(x.ruleId)).every((x) => x.measureKey.startsWith(`${x.domain}.`)));
   ok("policy keys and measure keys are unique across the catalogue",
     new Set(d.map((x) => x.policyKey)).size === d.length && new Set(d.map((x) => x.measureKey)).size === d.length);

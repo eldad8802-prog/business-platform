@@ -239,6 +239,17 @@ keep `NULL` for both. Nothing backfills them.
 | Content generation runs | `ContentRun` etc. | — | — | — | — | NOT_LEARNING_RELEVANT (marketing tool internals) | — |
 | Account deleted | `Business.deletedAt` + `ACCOUNT_DELETED` | now with actor | owner/UI | irreversible | — | COVERED | M5.5 (actor) |
 
+## Domain ledgers added to the evidence boundary (All-Feature Learning Coverage)
+
+Rows the W2/W3 learning rules depend on that this manifest did not list yet. Each was checked against
+its writer: server-side, inside the domain transaction, with a server-derived actor.
+
+| Action | Authoritative evidence | Sensor | Actor / source | Reversal | Consumer | Status | Since |
+|---|---|---|---|---|---|---|---|
+| Lead lifecycle step (created, status changed, next action set / rescheduled / completed, value updated) | `LeadLifecycleEvent` (append-only, `seq`, idempotency key) in the lead transaction; `Lead.firstHandledAt` set once on the first owner FIRST_HANDLING_KINDS action | `LEAD_*` (LEDGER_DUPLICATE) | owner (session) or system, server-built | reopen is its own step | LEAD-01..04 | COVERED_BY_DOMAIN_STATE | M5 |
+| Secretary item marked handled (ledger mode) | `InstallmentWorkflow.handledAt/handledByUserId`; money moving is `PaymentAllocation` + `Payment.paidAt` | `OBLIGATION_CHANGED` | owner (session) | — (handled ≠ paid) | SEC-01 (dormant until the secretary ledger cutover, an owner gate) | COVERED_BY_DOMAIN_STATE | Phase 2 |
+| Offering demand recorded (booking / sale) | `OfferingDemandSignal` (unique business + idempotency key), written in the appointment / sale transaction | — | system, from an owner or integration action | — | OFF-01 | COVERED_BY_DOMAIN_STATE | P2 |
+
 ---
 
 ## Known blind spots (open, on purpose)

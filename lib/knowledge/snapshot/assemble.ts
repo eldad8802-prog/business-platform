@@ -52,6 +52,17 @@ const FACT_CAVEATS: Record<string, string[]> = {
   "inventory-alerts": ["POS_HELD_SALE_STOCK_DEFECT_MAY_DISTORT_QUANTITIES"],
 };
 
+/**
+ * Epistemic labels a RULE put on its own measure, carried as item caveats so they survive into the
+ * Brain context (which sees caveats, never `detail`): an obligation closure is OWNER_ASSERTED — the
+ * owner said so, nothing verified it. Closed set: an unknown label is not promoted.
+ */
+const MEASURE_CAVEATS = new Set(["OWNER_ASSERTED"]);
+function measureCaveats(detail: unknown): string[] {
+  const d = (detail ?? {}) as { caveat?: unknown; authority?: unknown };
+  return [d.caveat, d.authority].filter((x): x is string => typeof x === "string" && MEASURE_CAVEATS.has(x)).sort();
+}
+
 export function assembleSnapshot(
   businessId: number,
   asOf: Date,
@@ -81,7 +92,7 @@ export function assembleSnapshot(
       value: { value: m.valueNumeric.toString(), unit: m.valueUnit, trend: m.trend, detail: m.detail },
       observationCount: m.observationCount, window: { start: m.windowStart.toISOString(), end: m.windowEnd.toISOString() },
       status: "ACTIVE", freshness: { ageDays: age, fresh: age <= PREMISE_MAX_AGE_DAYS },
-      evidence: { fingerprint: m.evidenceFingerprint, refCount: m.observationCount }, caveats: [],
+      evidence: { fingerprint: m.evidenceFingerprint, refCount: m.observationCount }, caveats: measureCaveats(m.detail),
       provenance: [{ store: "KnowledgeMeasure", id: m.id }],
     });
   }

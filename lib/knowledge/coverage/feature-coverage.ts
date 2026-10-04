@@ -149,7 +149,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   /* ─────────────────────────── income side (deep) ─────────────────────────── */
   {
     key: "billing", name: "Billing (invoices, quotes, receipts, credit notes)", coverage: "LEARNS",
-    rules: ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
+    rules: ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05"], temporalRules: ["T-BILL-01", "T-BILL-02"], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
     l0: ["billing-review", "billing-pdf", "billing-draft-age"],
     models: ["BillingDocument", "BillingDocumentLine", "BillingReceiptPayment", "BillingPaymentAllocation", "BillingAuditEvent",
       "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument"],
@@ -163,7 +163,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "payments-in", name: "Payments-in / payment links", coverage: "LEARNS",
-    rules: ["PAY-01", "PAY-02"], temporalRules: [], otherUnits: [], l0: ["payment-link-age"],
+    rules: ["PAY-01", "PAY-02"], temporalRules: ["T-PAY-02"], otherUnits: [], l0: ["payment-link-age"],
     models: ["BusinessPaymentConnection", "PaymentRequest", "PaymentTransaction", "PaymentAccountingSettlement", "PaymentProviderRouting",
       "PaymentWebhookEvent", "PaymentAuditEvent"],
     sensors: [], legacyEvents: [], routes: ["api/payments", "page/payments"],
@@ -172,14 +172,14 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "collection", name: "Collection (receivables, reminders)", coverage: "LEARNS",
-    rules: ["COLL-01", "COLL-02", "COLL-03"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
+    rules: ["COLL-01", "COLL-02"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
     models: ["CollectionAction"], sensors: [], legacyEvents: [], routes: ["api/collection", "page/collection"],
     target: { coverage: "LEARNS", plan: "Reminder timing relative to due date, reminder → payment sequence (sequence, never cause), share of overdue receivables collected." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH", note: "Currently excluded from M9 (no invoice link on a reminder, refunds not netted)." },
   },
   {
     key: "customers", name: "Customers (CRM card)", coverage: "LEARNS",
-    rules: ["CUST-01", "CUST-02", "CUST-03"], temporalRules: [], otherUnits: [], l0: [],
+    rules: ["CUST-01", "CUST-02", "CUST-03"], temporalRules: ["T-CUST-01"], otherUnits: [], l0: [],
     models: ["Customer", "CrmNote", "CrmAttachment"],
     sensors: ["CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_ARCHIVED", "CUSTOMER_REACTIVATED", "CUSTOMER_TAX_IDENTITY_CHANGED"],
     legacyEvents: [], routes: ["api/customers", "api/customer", "api/crm", "page/customers"],
@@ -190,7 +190,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   /* ─────────────────────────── other business features ─────────────────────────── */
   {
     key: "leads", name: "Leads", coverage: "LEARNS",
-    rules: ["LEAD-01", "LEAD-02", "LEAD-03", "LEAD-04"], temporalRules: [], otherUnits: [], l0: ["leads-attention"],
+    rules: ["LEAD-01", "LEAD-02", "LEAD-03", "LEAD-04"], temporalRules: ["T-LEAD-01"], otherUnits: [], l0: ["leads-attention"],
     models: ["Lead", "LeadLifecycleEvent"],
     sensors: ["LEAD_LIFECYCLE_STARTED", "LEAD_STAGE_CHANGED", "LEAD_OUTCOME_RECORDED", "LEAD_NEXT_ACTION_SCHEDULED", "LEAD_NEXT_ACTION_COMPLETED",
       "LEAD_FIRST_HANDLED", "LEAD_VALUE_RECORDED"],
@@ -202,7 +202,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "conversations", name: "Conversations / inbox", coverage: "LEARNS",
-    rules: ["CONV-01", "CONV-02"], temporalRules: [], otherUnits: [], l0: ["attention-queue"],
+    rules: ["CONV-01", "CONV-02"], temporalRules: ["T-CONV-01"], otherUnits: [], l0: ["attention-queue"],
     models: ["Conversation", "Message"],
     sensors: ["CONVERSATION_OPENED_MANUALLY", "CONVERSATION_CLOSED", "CONVERSATION_HUMAN_TAKEOVER"],
     legacyEvents: ["CONVERSATION_INBOUND_RECEIVED", "CONVERSATION_BUSINESS_RESPONDED", "CONVERSATION_BECAME_HOT", "CONVERSATION_STAGE_ADVANCED"],
@@ -221,7 +221,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "appointments", name: "Appointments", coverage: "LEARNS",
-    rules: ["APPT-01", "APPT-02", "APPT-03", "APPT-04"], temporalRules: [], otherUnits: [], l0: [],
+    rules: ["APPT-01", "APPT-02", "APPT-03", "APPT-04"], temporalRules: ["T-APPT-03"], otherUnits: [], l0: [],
     models: ["Appointment"], sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments"],
     target: { coverage: "LEARNS", plan: "No-show and cancellation rate, booking lead time, reschedule rate — status history from the observation sensors (Appointment keeps no history)." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },

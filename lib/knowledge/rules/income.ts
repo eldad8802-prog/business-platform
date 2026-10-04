@@ -17,12 +17,16 @@
  * measure, because "paid on time" would be a lie about a document nobody paid.
  *
  * WHAT IS DELIBERATELY NOT HERE.
+ *   - KNOWN LIMITS, inherited and labelled (SENSOR_COVERAGE.md blind spots): a refund posts no
+ *     accounting counterpart, so a refunded invoice still reads as settled — here exactly as on the
+ *     collection screen; and `PaymentRequest.paidAt` is processing time, not the provider's payment
+ *     time, which is noise at PAY-02's day resolution.
  *   - TAX_INVOICE_RECEIPT is paid at issue by definition; it counts toward invoicing cadence and ticket
  *     size, never toward payment timing (it would drag every median to zero).
  *   - Lead → invoice: there is no link in the schema; lead learning lives with leads.
- *   - Collection → payment is SEQUENCE, never cause. COLL-03 records how often a reminded invoice was
- *     settled soon after the reminder; its detail carries `SEQUENCE_NOT_CAUSE`, and nothing downstream
- *     may read it as "reminders work".
+ *   - Reminder → payment. "Settled N days after a reminder" was audited and rejected in M7 (cross-domain
+ *     family A): settlement timestamps are processing time, and a sequence is not an effect. COLL-01
+ *     and COLL-02 learn what the OWNER did with overdue invoices, never what a reminder achieved.
  *   - Customer identity across sources (phone / email / tax id) is an owner decision. Per-customer
  *     rules here use the explicit domain foreign key `customerId` only; an invoice without one teaches
  *     nothing about any customer.
@@ -39,8 +43,6 @@ export const INCOME_WINDOW_DAYS = 365;
 export const QUOTE_MATURITY_DAYS = 30;
 /** An invoice younger than this is not yet evidence of whether a credit note follows. */
 export const CREDIT_MATURITY_DAYS = 30;
-/** "Soon after the reminder" for COLL-03. A sequence window, not an effect window. */
-export const REMINDER_FOLLOW_DAYS = 14;
 /** An invoice is "overdue enough" to expect a reminder once its due day is this far behind. */
 export const OVERDUE_GRACE_DAYS = 7;
 /** PAY-01: a payment link counts as converted when paid within this many days of being created. */
@@ -160,9 +162,6 @@ export const COLL01 = desc({ ruleId: "COLL-01", domain: "collection", measureKey
   entityType: null, minSupport: 3, valueUnit: "days", question: "How many days after the due day does this owner usually send the first reminder?" });
 export const COLL02 = desc({ ruleId: "COLL-02", domain: "collection", measureKey: "collection.overdue_reminded_share", policyKey: "collection-overdue-reminded-share",
   entityType: null, minSupport: 5, valueUnit: "ratio", question: "What share of this business's overdue invoices received a reminder before being paid?" });
-export const COLL03 = desc({ ruleId: "COLL-03", domain: "collection", measureKey: "collection.settled_after_reminder_share", policyKey: "collection-settled-after-reminder-share",
-  entityType: null, minSupport: 5, valueUnit: "ratio",
-  question: "What share of reminded invoices were settled within 14 days after the first reminder? (Sequence, never cause.)" });
 
 /* ─────────────────────────────── derivation (pure) ─────────────────────────────── */
 
@@ -279,23 +278,6 @@ export function deriveOverdueRemindedShare(rows: readonly IncomeDocumentObservat
     minSupport: COLL02.minSupport, windowDays: COLL02.windowDays }, pts.filter((p) => p.at.getTime() <= now.getTime()), now, businessId)];
 }
 
-/** Reminded invoices whose follow window has closed, and whether they were settled inside it. SEQUENCE, never cause. */
-export function deriveSettledAfterReminderShare(rows: readonly IncomeDocumentObservation[], now: Date, businessId: number): MeasureResult[] {
-  const pts: SharePoint[] = [];
-  for (const o of rows) {
-    if (o.docType !== "TAX_INVOICE" || o.creditedOut || o.firstReminderAt === null) continue;
-    const r = o.firstReminderAt.getTime();
-    const windowEnd = r + REMINDER_FOLLOW_DAYS * DAY;
-    if (o.settledAt !== null && o.settledAt.getTime() < r) continue; // paid before any reminder: not in this population
-    if (windowEnd > now.getTime() && (o.settledAt === null || o.settledAt.getTime() > windowEnd)) continue; // still open
-    pts.push({ recordId: o.recordId, businessId: o.businessId, at: o.firstReminderAt,
-      hit: o.settledAt !== null && o.settledAt.getTime() >= r && o.settledAt.getTime() <= windowEnd });
-  }
-  const m = shareMeasure({ measureKey: COLL03.measureKey, entityType: null, entityId: null, valueUnit: "ratio", evidenceKind: "collection-action",
-    minSupport: COLL03.minSupport, windowDays: COLL03.windowDays }, pts, now, businessId);
-  return [{ ...m, detail: { ...(m.detail ?? {}), caveat: "SEQUENCE_NOT_CAUSE" } }];
-}
-
 /* ─────────────────────────────── rules ─────────────────────────────── */
 
 export function makeIncomeDocumentSource(load: EvidenceSource<IncomeDocumentObservation>["load"]): EvidenceSource<IncomeDocumentObservation> {
@@ -333,7 +315,6 @@ export function incomeRules(
       rule(CUST03, docs, deriveCustomerTicketSize),
       rule(COLL01, docs, deriveReminderTiming),
       rule(COLL02, docs, deriveOverdueRemindedShare),
-      rule(COLL03, docs, deriveSettledAfterReminderShare),
     ],
     [rule(BILL04, quotes, deriveQuoteConversion)],
     [rule(PAY01, requests, deriveLinkConversion), rule(PAY02, requests, deriveLinkTimeToPay)],
