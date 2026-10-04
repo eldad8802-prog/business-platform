@@ -4,23 +4,31 @@
 -- Read-only Production PREFLIGHT for the P3-A pair
 --   20261008090000_p3a_identity_enum_values
 --   20261008090100_p3a_trust_claims
--- (NOT applied).
+-- (NOT applied), released as the APPROVED PREFIX of the pending order. M6
+-- (20261009090000_m6_acquisition_connections) is on main too, NOT applied, and
+-- sorts AFTER both P3-A files: it stays pending and is not part of this release
+-- (release-migrate applies the approved prefix only; M6 has its own preflight,
+-- approval record and release).
 --
 -- release-migrate pauses the whole job at the production-db gate, so its own
 -- "migrate status (pre)" step can only be read after approval, when the apply
 -- runs straight after it. This file answers the same question BEFORE approval,
 -- by NAME:
 --
---   pending set  =  repository names (169)  minus  applied ledger names
+--   pending order  =  repository names (171)  minus  applied ledger names
+--                  =  [P3-A #1, P3-A #2, M6]
 --
--- The 167 names below are every migration directory on main other than the two
--- P3-A files. The pending set is exactly the P3-A pair only when every expected
--- name is applied (missing = 0) and no ledger row carries any other name
--- (unexpected = 0).
+-- The 168 names below are every migration directory on main other than the
+-- two P3-A files and M6 (they include cost Wave-2 and the learning-coverage
+-- policy rows, both applied). The pending order is exactly [P3-A #1, P3-A #2,
+-- M6] only when every expected name is applied (missing = 0), no ledger row
+-- carries any other name (unexpected = 0), and none of the three is recorded.
+-- Then the P3-A pair is the first two pending migrations: the approved prefix.
 --
 -- It also measures the premises the two files rely on:
---   * nothing P3-A builds exists yet (table, five types, three enum labels, the
+--   * nothing P3-A builds exists yet (table, five types, two enum labels, the
 --     statement channel column, the new CHECK);
+--   * nothing M6 builds exists yet (its table), so M6 is pending, not half-built;
 --   * the two P2 CHECKs P3-A replaces BY NAME exist and still have P2's shape;
 --   * app_runtime exists (the guarded privilege block names it) and every
 --     runtime login is NOSUPERUSER NOBYPASSRLS;
@@ -36,8 +44,8 @@
 
 \echo '== P3-A preflight — legend (n → check) =='
 \echo ' 1 L0 migration ledger: no unfinished and no rolled-back row (observed = such rows)'
-\echo ' 2 L1 every one of the 167 expected names is applied (observed = missing)'
-\echo ' 3 L2 no ledger row outside the 167 expected names (observed = unexpected)'
+\echo ' 2 L1 every one of the 168 expected names is applied (observed = missing)'
+\echo ' 3 L2 no ledger row outside the 168 expected names (observed = unexpected)'
 \echo ' 4 L3 neither P3-A name is recorded (observed = P3-A ledger rows)'
 \echo ' 5 T1 no BusinessTrustClaim relation'
 \echo ' 6 T2 none of the five P3-A types exists (observed = how many exist)'
@@ -54,6 +62,7 @@
 \echo '17 N1 INFO: BusinessIdentityStatement rows'
 \echo '18 N2 INFO: BusinessIdentityFactAuthority rows'
 \echo '19 X1 the evidence role bypasses row-level security, so 17 and 18 are whole counts'
+\echo '20 M1 M6 is on main and still pending after the P3-A prefix: no ledger row for it and no AcquisitionConnection relation (observed = ledger rows + relations)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -227,10 +236,13 @@ WITH expected(name) AS (
     ('20261004090000_p2_business_identity'),
     ('20261005090000_cost_learning_wave1_policies'),
     ('20261006090000_business_tenant_write_rls'),
-    ('20261007090000_cost_learning_wave2_patterns')
+    ('20261007090000_cost_learning_wave2_patterns'),
+    ('20261008090000_learning_coverage_policies')
 ),
 ledger AS (SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations"),
 p3a(name) AS (VALUES ('20261008090000_p3a_identity_enum_values'), ('20261008090100_p3a_trust_claims')),
+-- on main, NOT applied, sorts after the P3-A pair: stays pending (not in this release)
+m6(name) AS (VALUES ('20261009090000_m6_acquisition_connections')),
 labels AS (
   SELECT t.typname::text AS typ, e.enumlabel::text AS label
   FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
@@ -302,6 +314,10 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 18, true, (SELECT count(*) FROM "BusinessIdentityFactAuthority")
   UNION ALL SELECT 19, (SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user),
                        (CASE WHEN (SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user) THEN 1 ELSE 0 END)
+  UNION ALL SELECT 20, NOT EXISTS (SELECT 1 FROM ledger l WHERE l.migration_name IN (SELECT name FROM m6))
+                       AND to_regclass('public."AcquisitionConnection"') IS NULL,
+                       (SELECT count(*) FROM ledger l WHERE l.migration_name IN (SELECT name FROM m6))
+                       + (CASE WHEN to_regclass('public."AcquisitionConnection"') IS NULL THEN 0 ELSE 1 END)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;

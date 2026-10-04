@@ -1,13 +1,13 @@
 # P3-A PR-1 / migrations 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims —
 # proof on PostgreSQL BEFORE they reach Production (ephemeral PG17).
 #
-# .p3a/lab.sh builds Production as it will be right before P3-A: 167 migrations, cost Wave-2 the last
+# .p3a/lab.sh builds Production as it will be right before P3-A: 168 migrations, the learning-coverage rows the last (M6 pending after P3-A)
 # applied (P3-A goes after it), the P2 tables
 # built by the real P2 migration; non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime +
 # LOGIN app_runtime_prod, the owner's default privileges, app_auth / app_ctlplane, the D2 E4
 # narrowing; Business under B4's FORCE RLS.
 #
-#   1. PREFLIGHT on that lab: 19/19; the post-apply proof fails exactly what P3-A creates.
+#   1. PREFLIGHT on that lab: 20/20; the post-apply proof fails exactly what P3-A creates.
 #   2. P3-A by `prisma migrate deploy` (exactly the pair): POST-APPLY PROOF 20/20, checksums pinned;
 #      the preflight then fails exactly its "P3-A not there yet" checks.
 #   3. Battery (.p3a/battery.ts) as app_runtime_prod: tenant isolation, authority (never created
@@ -91,16 +91,16 @@ jobs:
             grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum for $m"; exit 1; }
             echo "$m sha256 $sum (pinned)"
           done
-          test "$(ls -d prisma/migrations/*/ | wc -l)" = "169" || { echo "expected 169 migration directories (167 + the P3-A pair)"; exit 1; }
+          test "$(ls -d prisma/migrations/*/ | wc -l)" = "171" || { echo "expected 171 migration directories (168 + the P3-A pair + M6)"; exit 1; }
 
-      - name: 1. Production before P3-A (Wave-2 last, P3-A pending) — PREFLIGHT 19/19; the proof fails exactly what P3-A creates
+      - name: 1. Production before P3-A (learning coverage last, P3-A + M6 pending) — PREFLIGHT 20/20; the proof fails exactly what P3-A creates
         run: |
           set -euo pipefail
           bash .p3a/lab.sh p3a_pre
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d p3a_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the Production-today lab"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "19" || { echo "expected 19 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
           fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           echo "proof on the pre-P3-A lab fails: $fails"
           test "$fails" = "1 2 4 5 6 7 8 10 11 12 13 14 15 16 18 " || { echo "expected 1 2 4 5 6 7 8 10 11 12 13 14 15 16 18"; exit 1; }
@@ -115,7 +115,7 @@ jobs:
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "3 4 5 6 7 8 9 10 11 " || { echo "post-P3-A lab: expected preflight 3 4 5 6 7 8 9 10 11 to fail, got: $fails"; exit 1; }
-          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "169"
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "170"
 
       - name: 3. Battery — isolation, authority, constraints, P2 extensions, cascade (as app_runtime_prod)
         run: |

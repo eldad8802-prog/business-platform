@@ -10,8 +10,8 @@
 -- WHAT IT RESTORES: everything 20261008090100 did — the table, its five types, the statement
 -- channel column and its CHECK, and P2's two CHECKs exactly as 20261004090000 wrote them.
 --
--- WHAT IT CANNOT RESTORE: PostgreSQL has no way to remove a label from an enum, so the three labels
--- 20261008090000 added stay, and that migration stays recorded (the ledger keeps telling the truth).
+-- WHAT IT CANNOT RESTORE: PostgreSQL has no way to remove a label from an enum, so the two labels
+-- 20261008090000 added (PUBLIC_WHATSAPP, CONVERSION_DECLARATION) stay, and that migration stays recorded (the ledger keeps telling the truth).
 -- They are inert: P2's restored CHECKs admit neither CONVERSION_DECLARATION (not a coded or text
 -- dimension) nor PUBLIC_WHATSAPP (no source field), so no row can carry them.
 -- Re-applying afterwards is `prisma migrate deploy`, which then applies 20261008090100 only.
