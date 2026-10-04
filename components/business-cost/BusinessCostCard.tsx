@@ -124,10 +124,8 @@ function LearnedInsight({ insight }: { insight: LearnedCostInsightApi }) {
   const level = insight.contributingRules[0]?.level;
   return (
     <div style={{ marginTop: 8, background: DS.surface2, borderRadius: 12, padding: "10px 12px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <div style={{ fontWeight: 600, color: DS.ink }}>{insight.title}</div>
-        {level && LEVEL_LABEL[level] ? <span style={{ color: DS.muted, fontSize: 12, whiteSpace: "nowrap" }}>{LEVEL_LABEL[level]}</span> : null}
-      </div>
+      {level && LEVEL_LABEL[level] ? <div style={{ color: DS.muted, fontSize: 12 }}>{LEVEL_LABEL[level]}</div> : null}
+      <div style={{ fontWeight: 600, color: DS.ink }}>{insight.title}</div>
       <div style={{ color: DS.ink, fontSize: 14, lineHeight: 1.6 }}>{insight.factLines[0]?.text}</div>
       <button
         type="button"
