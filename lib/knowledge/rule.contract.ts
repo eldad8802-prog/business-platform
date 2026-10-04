@@ -98,6 +98,13 @@ export type RuleDescriptor = {
   readonly valueUnit: MeasureUnit;
   /** Which of the closed triggers apply to this rule. Documentation that ships with the artifact. */
   readonly freshness: readonly FreshnessTrigger[];
+  /**
+   * The LearningEvent sensors (catalogue eventTypes) this rule reads as evidence, when the act it
+   * learns from leaves no domain-ledger trace. Absent for rules that read domain ledgers only. The
+   * coverage contract test holds both ends: a sensor whose `learning.role` is OBSERVATION_SOURCE must
+   * name this rule, and this rule must list that sensor here.
+   */
+  readonly evidenceSensors?: readonly string[];
   /** One sentence, in English, of what the rule claims. Rendered in reports; never shown to an owner. */
   readonly question: string;
 };

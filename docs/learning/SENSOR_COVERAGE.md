@@ -12,6 +12,16 @@ enforces the sensor contract.
 Last full audit: **M5.5, 2026-09-25**, against `main` at `0d4ee26`. Six domain audits, all read-only,
 every claim cited to file and line at the time. This table is their reconciled result.
 
+> **Consumption is now authoritative in code, not here (All-Feature Learning Coverage).** The audit after
+> #584 found that the "consumer" column below — and the catalogue's old free-text `consumer` field —
+> named rules that never read `LearningEvent`. The free-text field is gone. Each sensor now declares a
+> structured `learning` role in [`lib/sensors/catalogue.ts`](../../lib/sensors/catalogue.ts)
+> (`OBSERVATION_SOURCE` with verified consuming rules, `LEDGER_DUPLICATE` with the authoritative ledger,
+> or `AUDIT_ONLY` with a reason) and a `timeSemantics`, and every business feature's learning decision
+> lives in [`lib/knowledge/coverage/feature-coverage.ts`](../../lib/knowledge/coverage/feature-coverage.ts),
+> enforced by `feature-coverage.test.ts`. The consumer column below is **historical**: read it as intent
+> recorded at M5.5, never as a statement that a rule consumes the sensor.
+
 ## Statuses
 
 | Status | Meaning |

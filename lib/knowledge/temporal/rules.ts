@@ -50,6 +50,8 @@ export type TemporalSeries =
 
 export type TemporalRule<TObs> = {
   readonly ruleId: string;
+  /** LearningEvent sensors read as evidence (observation sources only); held by the coverage contract test. */
+  readonly evidenceSensors?: readonly string[];
   readonly temporalKey: string;
   readonly domain: "documents" | "payables" | "inventory" | "suppliers";
   readonly policyKey: string;

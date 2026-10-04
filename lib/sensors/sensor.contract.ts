@@ -94,6 +94,39 @@ export type SensorDefinition = {
   readonly payloadKeys: readonly string[];
   /** One sentence: what occurred. Never why. */
   readonly describes: string;
-  /** The rule or planned consumer, or null when the sensor exists for completeness of the record. */
-  readonly consumer: string | null;
+  /** What the row's time means — see `SensorTimeSemantics`. */
+  readonly timeSemantics: SensorTimeSemantics;
+  /** Whether learning reads this sensor, and if not, why — see `SensorLearningRole`. */
+  readonly learning: SensorLearningRole;
 };
+
+/**
+ * What a sensor row's time means. Decided per sensor, because the same `createdAt` column carries two
+ * different things depending on who wrote it.
+ *
+ *   ACTION_TIME     the row is written synchronously with the act it records (an owner clicking, a
+ *                   system transition), so its time IS the business time of that act.
+ *   INGESTION_TIME  the row is written when Dubiz processed something that happened earlier or
+ *                   elsewhere (an import, an integration, an asynchronous settlement). Its time is when
+ *                   Dubiz learned of it, NOT when it happened in the business — a temporal rule may not
+ *                   use it; the business time lives in the domain ledger the sensor duplicates.
+ */
+export type SensorTimeSemantics = "ACTION_TIME" | "INGESTION_TIME";
+
+/**
+ * The sensor architecture (All-Feature Learning Coverage): the DOMAIN LEDGER is the authority wherever
+ * a domain records the business fact; LearningEvent is an OBSERVATION ledger for acts that leave no
+ * durable domain trace. Every sensor states which of the three it is — there is no free-text
+ * "consumer" any more, so a consumer cannot be declared that does not exist.
+ *
+ *   OBSERVATION_SOURCE  a learning rule reads THIS sensor (it is the only record of the act).
+ *                       `consumedBy` names the rules; the coverage contract test verifies each rule
+ *                       exists and declares the sensor in its evidence.
+ *   LEDGER_DUPLICATE    the act is recorded authoritatively in `ledger` (Prisma models); learning reads
+ *                       the ledger, and the sensor is an audit trail of the same act. Never a second truth.
+ *   AUDIT_ONLY          no learning reads it; `reason` says why (no learning value, or not yet consumed).
+ */
+export type SensorLearningRole =
+  | { readonly role: "OBSERVATION_SOURCE"; readonly consumedBy: readonly string[] }
+  | { readonly role: "LEDGER_DUPLICATE"; readonly ledger: readonly string[] }
+  | { readonly role: "AUDIT_ONLY"; readonly reason: string };

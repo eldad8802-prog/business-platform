@@ -23,7 +23,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["origin", "importRunId", "sourceRowNumber", "conversationId", "leadId"],
     describes: "A customer record came into existence, and through which path (UI, lead, WhatsApp, import, billing).",
-    consumer: "planned: customer acquisition channel mix",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Acquisition path exists only here; not consumed yet. Written by imports too, so its time is ingestion time." },
   }),
   CUSTOMER_UPDATED: S({
     eventType: "CUSTOMER_UPDATED",
@@ -32,7 +33,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields"],
     describes: "The owner changed a customer's details; which fields, never their values.",
-    consumer: null,
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Field-name audit of an edit; the Customer row is the authority and an edit carries no learnable behaviour." },
   }),
   CUSTOMER_ARCHIVED: S({
     eventType: "CUSTOMER_ARCHIVED",
@@ -41,7 +43,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: [],
     describes: "The owner marked a customer inactive.",
-    consumer: "planned: customer churn",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of an archive (Customer.isActive keeps no history); not consumed yet." },
   }),
   CUSTOMER_REACTIVATED: S({
     eventType: "CUSTOMER_REACTIVATED",
@@ -50,7 +53,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: [],
     describes: "The owner marked an inactive customer active again.",
-    consumer: "planned: customer churn",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of a reactivation (Customer.isActive keeps no history); not consumed yet." },
   }),
   CUSTOMER_TAX_IDENTITY_CHANGED: S({
     eventType: "CUSTOMER_TAX_IDENTITY_CHANGED",
@@ -59,7 +63,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields"],
     describes: "The owner changed a customer's billing tax identity; which fields, never their values.",
-    consumer: null,
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Identity audit trail; identity learning reads the Customer/claims ledger, not this event." },
   }),
 
   /* ─────────────────────────────── appointments ─────────────────────────────── */
@@ -70,7 +75,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["from", "to"],
     describes: "An appointment moved between lifecycle states (confirmed, completed, cancelled, no-show).",
-    consumer: "planned: no-show and cancellation rate",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of an appointment's status history (Appointment keeps the current status only); not consumed yet." },
   }),
   APPOINTMENT_RESCHEDULED: S({
     eventType: "APPOINTMENT_RESCHEDULED",
@@ -79,7 +85,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["previousStartsAt", "startsAt", "durationChanged"],
     describes: "An appointment's time was changed; the previous and new start.",
-    consumer: "planned: reschedule rate",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of a reschedule (business times are in the payload); not consumed yet." },
   }),
 
   /* ─────────────────────────────── suppliers / purchasing ─────────────────────────────── */
@@ -90,7 +97,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["origin", "importRunId", "sourceRowNumber", "hasTaxId"],
     describes: "A supplier record came into existence, and through which path (UI or import).",
-    consumer: "M5 identity resolution (subjects)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["Supplier"] },
   }),
   SUPPLIER_UPDATED: S({
     eventType: "SUPPLIER_UPDATED",
@@ -99,7 +107,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields", "taxIdChanged"],
     describes: "The owner changed a supplier's details; which fields, never their values.",
-    consumer: "M5 identity resolution (a changed tax id changes what may bind)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["Supplier"] },
   }),
   SUPPLIER_DEACTIVATED: S({
     eventType: "SUPPLIER_DEACTIVATED",
@@ -108,7 +117,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: [],
     describes: "The owner marked a supplier inactive.",
-    consumer: "SUPP-01 freshness (a quiet supplier)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of a deactivation (Supplier.isActive keeps no history); not consumed yet." },
   }),
   SUPPLIER_REACTIVATED: S({
     eventType: "SUPPLIER_REACTIVATED",
@@ -117,7 +127,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: [],
     describes: "The owner marked an inactive supplier active again.",
-    consumer: null,
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of a reactivation (Supplier.isActive keeps no history); not consumed yet." },
   }),
   SUPPLIER_PURCHASE_DRAFT_REJECTED: S({
     eventType: "SUPPLIER_PURCHASE_DRAFT_REJECTED",
@@ -126,7 +137,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["lineCount"],
     describes: "The owner rejected a supplier purchase draft that intake had proposed.",
-    consumer: "planned: intake precision",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["SupplierPurchaseDraft"] },
   }),
   PURCHASE_ORDER_STATUS_SETTLED: S({
     eventType: "PURCHASE_ORDER_STATUS_SETTLED",
@@ -135,7 +147,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["from", "to"],
     describes: "A purchase order reached a new settled status (e.g. CLOSED) after receiving or a remainder decision, and when.",
-    consumer: "SUPP-02 (closure time)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["PurchaseOrder"] },
   }),
   PURCHASE_ORDER_REMAINDER_DECIDED: S({
     eventType: "PURCHASE_ORDER_REMAINDER_DECIDED",
@@ -144,7 +157,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["purchaseOrderId", "from", "to"],
     describes: "The owner decided what happens to an undelivered remainder (backorder or close short).",
-    consumer: "SUPP-03 (short deliveries the owner accepted)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["PurchaseOrderLine"] },
   }),
 
   /* ─────────────────────────────── inventory / POS ─────────────────────────────── */
@@ -155,7 +169,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["origin", "importRunId", "sourceRowNumber", "pendingMatchId", "supplierPurchaseDraftId"],
     describes: "An inventory item came into existence, and through which path.",
-    consumer: "INV-* (item population)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["InventoryItem"] },
   }),
   INVENTORY_ITEM_UPDATED: S({
     eventType: "INVENTORY_ITEM_UPDATED",
@@ -164,7 +179,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields", "identityChanged", "thresholdsChanged", "deactivated", "reactivated"],
     describes: "The owner changed an item; which fields, and whether its SKU/barcode or stock thresholds changed.",
-    consumer: "INV-05 (a moved threshold changes what 'pressure' means)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Threshold edits; the one rule that would read them (INV-05 temporal) is blocked by the POS product defect." },
   }),
   INVENTORY_RECEIVING_POSTED: S({
     eventType: "INVENTORY_RECEIVING_POSTED",
@@ -173,7 +189,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["purchaseOrderId", "movementIds", "lineCount"],
     describes: "A receiving session was posted; the stock movements it produced, as structured ids.",
-    consumer: "SUPP-02, INV-02 (movement ↔ receipt provenance)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["ReceivingSession", "ReceivingLine", "InventoryMovement"] },
   }),
   POS_SALE_INGESTED: S({
     eventType: "POS_SALE_INGESTED",
@@ -182,7 +199,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["externalSaleId", "posSource", "movementIds", "lineCount", "outcome"],
     describes: "A POS sale arrived and was applied to stock, or held for matching; the movements it produced.",
-    consumer: "planned: sales velocity (POS-sourced only)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["InventorySale", "InventorySaleLine", "InventorySourceSaleLine"] },
   }),
   POS_PENDING_MATCH_RESOLVED: S({
     eventType: "POS_PENDING_MATCH_RESOLVED",
@@ -191,7 +209,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["mode", "externalSaleId", "movementIds", "mappingReplaced"],
     describes: "The owner resolved a held POS sale (link, create, or reject); the movement it produced.",
-    consumer: "planned: POS mapping precision",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["InventoryPendingMatch"] },
   }),
   INVENTORY_DRAFT_DECIDED: S({
     eventType: "INVENTORY_DRAFT_DECIDED",
@@ -200,7 +219,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["decision", "itemId"],
     describes: "The owner approved, merged or rejected a photo-detected inventory draft.",
-    consumer: "planned: photo detection precision",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["InventoryDraft"] },
   }),
 
   /* ─────────────────────────────── documents / data ─────────────────────────────── */
@@ -211,7 +231,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["origin", "forcedDuplicate", "importRunId", "sourceRowNumber"],
     describes: "A document entered the system, through which path, and whether the owner forced a duplicate in.",
-    consumer: "DOC-04 (intake channel), DOC-06 (correction rate per channel)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["Document"] },
   }),
   DOCUMENT_REPROCESS_REQUESTED: S({
     eventType: "DOCUMENT_REPROCESS_REQUESTED",
@@ -220,7 +241,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["outcome"],
     describes: "The owner asked for a document to be extracted again.",
-    consumer: "planned: extraction reliability",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of an owner-requested reprocess; extraction reliability is not a business behaviour of the owner's business." },
   }),
   DATA_EXPORTED: S({
     eventType: "DATA_EXPORTED",
@@ -229,7 +251,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["kind", "format", "rowCount"],
     describes: "The owner exported business data out of Dubiz; which kind and how much.",
-    consumer: null,
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of an export (accountant pack, CSV, uniform file); not consumed yet." },
   }),
 
   /* ─────────────────────────────── conversations ─────────────────────────────── */
@@ -240,7 +263,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["channel", "linkedCustomer", "linkedLead"],
     describes: "The owner opened a conversation by hand (not from an inbound message).",
-    consumer: null,
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["Conversation"] },
   }),
   CONVERSATION_CLOSED: S({
     eventType: "CONVERSATION_CLOSED",
@@ -249,7 +273,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["previousStatus"],
     describes: "The owner closed a conversation.",
-    consumer: "planned: conversation resolution time",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["Conversation"] },
   }),
   CONVERSATION_HUMAN_TAKEOVER: S({
     eventType: "CONVERSATION_HUMAN_TAKEOVER",
@@ -258,7 +283,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["draftsDismissed"],
     describes: "The owner took a conversation over from the bot; how many pending drafts were dismissed.",
-    consumer: "planned: bot handoff rate",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Only record of a takeover from the bot; not consumed yet." },
   }),
 
   /* ─────────────────────────────── settings ─────────────────────────────── */
@@ -270,7 +296,8 @@ export const SENSORS = {
     payloadKeys: ["fields", "fromBusinessModel", "toBusinessModel"],
     // category is free text, so it appears only by name in `fields`; businessModel is a validated enum.
     describes: "The owner changed how the business describes itself (category, business model).",
-    consumer: "every rule's interpretation of the business (M6 baselines reset on a model change)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Interpretation boundary for every baseline; no rule reads it yet." },
   }),
   BILLING_IDENTITY_CHANGED: S({
     eventType: "BILLING_IDENTITY_CHANGED",
@@ -279,7 +306,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields", "fromBusinessKind", "toBusinessKind", "taxIdChanged", "vatNumberChanged"],
     describes: "The owner changed the business's billing identity; VAT status as from/to, identifiers as a flag only.",
-    consumer: "billing interpretation (VAT status changes what an amount means)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Billing identity audit; the BusinessProfile row is the authority and an edit carries no learnable behaviour." },
   }),
   BOT_SETTINGS_CHANGED: S({
     eventType: "BOT_SETTINGS_CHANGED",
@@ -288,7 +316,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fields", "fromEnabled", "toEnabled", "fromMode", "toMode"],
     describes: "The owner changed the assistant's settings; whether it was switched on or off, and its mode.",
-    consumer: "planned: response latency (a bot being on changes what 'the business replied' means)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "AUDIT_ONLY", reason: "Bot configuration audit; the bot settings rows are the authority." },
   }),
 
   /* ─────────────────────────────── insights ─────────────────────────────── */
@@ -299,7 +328,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["from", "to", "insightKind", "composerVersion", "noteGiven"],
     describes: "The owner explicitly decided on an insight; the previous and new decision. Silence writes nothing.",
-    consumer: "M9 recommendation/outcome learning",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["BusinessInsight"] },
   }),
 
   /* ─────────────────────────────── payables (legacy obligations) ─────────────────────────────── */
@@ -310,7 +340,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["action", "fields", "amountChanged", "dueAtChanged"],
     describes: "A legacy obligation was created, edited, snoozed, completed, released, oriented or continued by its series.",
-    consumer: "planned: legacy obligation handling (the Commitment ledger has its own audit)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["BusinessObligation"] },
   }),
 
   /* ─────────────────────────────── business intake (M3) ─────────────────────────────── */
@@ -331,7 +362,8 @@ export const SENSORS = {
     ],
     describes:
       "A business-intake receipt reached a terminal outcome (processed, ignored or dead-lettered): its source, family, route, attempts and latency.",
-    consumer: "planned: intake health + per-source volume/latency (M8 attribution joins on the receipt, not on this)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["IntakeEvent"] },
   }),
   INTAKE_IDENTITY_RESOLVED: S({
     eventType: "INTAKE_IDENTITY_RESOLVED",
@@ -340,7 +372,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["state", "identifierKinds", "strongBases", "candidateCount", "policyVersion", "routingRule", "destination"],
     describes: "M4 resolved who an intake event is about (resolved, candidate, ambiguous, conflict, unresolved) and chose its route.",
-    consumer: "planned: identity quality + routing mix per source (categories only, never identifier values)",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["IntakeNormalizedEvent"] },
   }),
   IDENTITY_PROPOSAL_DECIDED: S({
     eventType: "IDENTITY_PROPOSAL_DECIDED",
@@ -349,7 +382,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["action", "outcome"],
     describes: "The owner confirmed, rejected or undid an identity proposal, or it was found stale.",
-    consumer: "planned: proposal precision (how often owners confirm vs reject)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["IdentityProposal"] },
   }),
 
   /* ─────────────────────── leads — M5 lifecycle ─────────────────────── */
@@ -362,7 +396,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["origin", "contactKnown"],
     describes: "A lead entered the CRM lifecycle, through which path (manual, conversation, auto-capture, import, intake), and whether its contact was already known.",
-    consumer: "planned: lead volume and source mix; the denominator of conversion by source",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_STAGE_CHANGED: S({
     eventType: "LEAD_STAGE_CHANGED",
@@ -371,7 +406,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["fromStage", "toStage", "closing", "reopening", "hoursInPreviousStage"],
     describes: "The owner moved a lead from one lifecycle stage to another, and how long it had stayed in the previous stage.",
-    consumer: "planned: time between stages, where leads stall, lifecycle paths",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_OUTCOME_RECORDED: S({
     eventType: "LEAD_OUTCOME_RECORDED",
@@ -380,7 +416,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["outcome", "daysOpen", "hadNextAction"],
     describes: "A lead was closed as won, lost or dropped, after how many days, and whether a next action was still open.",
-    consumer: "planned: conversion rate and typical time to close (dropped excluded from the denominator)",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_NEXT_ACTION_SCHEDULED: S({
     eventType: "LEAD_NEXT_ACTION_SCHEDULED",
@@ -389,7 +426,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["actionKind", "rescheduled", "dueInHours", "fromSuggestion"],
     describes: "The owner set or postponed the next action on a lead: its kind, how far ahead, and whether it came from a Dubiz suggestion.",
-    consumer: "planned: follow-up behaviour, postponement rate, suggestion adoption",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_NEXT_ACTION_COMPLETED: S({
     eventType: "LEAD_NEXT_ACTION_COMPLETED",
@@ -398,7 +436,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["actionKind", "onTime", "lateHours"],
     describes: "The owner marked a lead's next action done, and whether it was done on time.",
-    consumer: "planned: follow-up delay and completion behaviour",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_FIRST_HANDLED: S({
     eventType: "LEAD_FIRST_HANDLED",
@@ -407,7 +446,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["hoursToFirstHandling", "firstAction"],
     describes: "The owner took the first lifecycle action on a lead, how many hours after it arrived, and which action it was.",
-    consumer: "planned: average time to first handling",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
   LEAD_VALUE_RECORDED: S({
     eventType: "LEAD_VALUE_RECORDED",
@@ -416,7 +456,8 @@ export const SENSORS = {
     version: 1,
     payloadKeys: ["amountKind", "cleared"],
     describes: "The owner recorded or cleared an estimated or agreed amount on a lead (the amount itself stays on the lead).",
-    consumer: "planned: how often owners price their pipeline",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LeadLifecycleEvent"] },
   }),
 } as const;
 
