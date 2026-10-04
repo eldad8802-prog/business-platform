@@ -13,16 +13,21 @@ run-name: "release-migrate — ${{ inputs.expected_migrations }}"
 #     a REQUIRED REVIEWER. GitHub pauses the run until a human approves — and the
 #     Production DB connection secrets are only exposed to the job AFTER approval.
 #   - Uses the Neon DIRECT (non-pooled) connection for DDL, per Neon/Prisma.
-#   - Applies PENDING migrations only (migrate deploy never resets, never
-#     generates, and — on the baselined Production DB — never re-runs history,
-#     so the known timestamp anomaly does not affect a pending-only apply).
+#   - Applies the APPROVED PREFIX of the pending migrations only. The gate stages a
+#     migrations directory holding the applied migrations + the approved prefix, and
+#     `prisma migrate deploy` runs against THAT directory: a later migration merged to
+#     main stays pending, because its SQL is not there to run. Nothing is marked applied
+#     by hand, the ledger is never edited, no SQL bypasses Prisma
+#     (docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md, "Approved prefix").
 #   - Vercel auto-deploy is untouched; this workflow never deploys app code.
 on:
   workflow_dispatch:
     inputs:
       # GATE (docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md): the run applies EXACTLY these, or nothing.
+      # They must be the first pending migrations, in Prisma order; anything pending before or among them
+      # stops the run, anything after them stays pending.
       expected_migrations:
-        description: 'Exact migration names this run may apply (comma-separated). Anything else pending stops the run.'
+        description: 'Exact migration names this run may apply, comma-separated, in Prisma order — the first pending migrations. Anything unapproved before or among them stops the run; later ones stay pending.'
         required: true
         type: string
       reason:
@@ -72,6 +77,11 @@ jobs:
     # step re-asserts it so the guarantee is visible in the log and cannot be lost
     # by editing the condition alone.
     if: github.ref == 'refs/heads/main'
+    # actions: read — the authority checks run AGAIN after approval (approval records, preflight
+    # runs and their verdicts), from this job, before any write.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Assert the dispatched ref is main (L-21)
         env:
@@ -81,10 +91,14 @@ jobs:
             echo "::error::release-migrate may only run from refs/heads/main (got ${REF})"; exit 1
           fi
           echo "ref OK: ${REF}"
+      # The DISPATCH commit (github.sha — no ref override). A migration merged to main while this run
+      # waits for approval is not in this checkout; the gate re-asserts HEAD == github.sha.
+      # Full history: the authority re-check needs each migration's merge time.
       - name: Checkout (read-only, no persisted git credentials)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -104,29 +118,40 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: node_modules/.bin/prisma migrate status
 
-      # GATE: the real pending set must be EXACTLY the expected set — a migration merged while this
-      # run waited for approval, or any other unapproved pending migration, stops the release here.
-      - name: Gate — pending set == expected set (before any apply)
+      # GATE, after approval and before any write: the checkout is the dispatch commit; the authority
+      # checks again (approval records, checksums, preflight runs and verdicts); the Production ledger
+      # read NOW; the expected list is exactly the first pending migrations in Prisma order. Then it
+      # stages the ONLY migrations the apply step will see: applied + the approved prefix.
+      - name: Gate — authority, ledger, approved prefix; stage the approved migrations (before any apply)
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           EXPECTED: ${{ inputs.expected_migrations }}
-        run: node scripts/ci/release-migrate-gate.mjs verify --expected "$EXPECTED"
+          PINNED_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release-migrate-gate.mjs stage --expected "$EXPECTED" --pinned-sha "$PINNED_SHA" --out "$RUNNER_TEMP/release"
 
-      # The actual, approved apply. Applies pending migrations only, in order.
-      # Fails the job (and stops the release) on any migration error.
-      - name: prisma migrate deploy (apply pending — Production)
+      # The actual, approved apply — against the STAGED directory, which holds nothing else to apply.
+      # Fails the job (and stops the release) on any migration error; a later migration never runs.
+      - name: prisma migrate deploy (approved prefix only — Production)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: node_modules/.bin/prisma migrate deploy
+        run: node_modules/.bin/prisma migrate deploy --schema "$RUNNER_TEMP/release/prisma/schema.prisma"
 
-      # Post-state verification. Must be "up to date" (exit 0); if not, the job
-      # fails so the release is not declared complete.
-      - name: prisma migrate status (post — must be up to date)
+      # Post-state against the staged directory: must be "up to date" (exit 0).
+      - name: prisma migrate status (post — the staged set must be up to date)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: node_modules/.bin/prisma migrate status
+        run: node_modules/.bin/prisma migrate status --schema "$RUNNER_TEMP/release/prisma/schema.prisma"
+
+      # LEDGER PROOF: the ledger now holds exactly what it held before plus the approved prefix, and no
+      # row for any migration left pending.
+      - name: Gate — confirm the ledger after the apply
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED: ${{ inputs.expected_migrations }}
+        run: node scripts/ci/release-migrate-gate.mjs confirm --expected "$EXPECTED" --out "$RUNNER_TEMP/release"
 
       - name: Job Summary
         if: always()
@@ -138,8 +163,8 @@ jobs:
             echo "## release-migrate (gated Production migration)"
             echo ""
             echo "- Trigger: manual (workflow_dispatch), approved via \`production-db\` environment."
-            echo "- Action: \`prisma migrate deploy\` (pending migrations only) over the direct connection."
-            echo "- Expected (and verified) migrations: ${EXPECTED}"
+            echo "- Action: \`prisma migrate deploy\` over a staged directory (applied + the approved prefix only), direct connection."
+            echo "- Expected (verified as the first pending migrations, in order): ${EXPECTED}"
             echo "- Reason: ${REASON:-'(none provided)'}"
             echo ""
             echo "_Vercel auto-deploy is unaffected. This workflow applies migrations only._"
