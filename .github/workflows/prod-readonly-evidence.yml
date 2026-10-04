@@ -59,6 +59,7 @@ on:
           - 'ops/evidence/business-b4-role-classification.sql'
           - 'ops/evidence/cost-learning-tenant-breakdown.sql'
           - 'ops/evidence/cost-learning-wave2-preflight.sql'
+          - 'ops/evidence/cost-learning-lineages-evidence.sql'
 
 permissions:
   contents: read
