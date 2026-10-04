@@ -43,6 +43,7 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   local rc=$?
   set -e
   grep -E "Applying migration|have been successfully applied|Error|error" "$TMP/deploy.log" | head -6
+  if [ $rc -ne 0 ] && [ "${2:-}" != "broken" ]; then echo "--- migrate deploy log (rc=$rc) ---" >&2; tail -40 "$TMP/deploy.log" >&2; fi
   rm -rf "$TMP"
   return $rc
 }
