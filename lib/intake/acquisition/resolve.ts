@@ -1,7 +1,7 @@
 /**
  * M6 — the pre-tenant resolvers: the ONLY way an inbound acquisition request reaches a business.
  *
- * Each asks one SECURITY DEFINER function (migration 20261007090000) "which business owns this exact
+ * Each asks one SECURITY DEFINER function (migration 20261008090000) "which business owns this exact
  * key", by equality on a unique value. Nothing here reads a businessId from a request, enumerates
  * connections, or falls back to a default tenant. A database error PROPAGATES (never "not found"),
  * so the webhook answers non-2xx and the provider redelivers.

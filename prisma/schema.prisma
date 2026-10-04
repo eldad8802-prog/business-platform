@@ -6186,7 +6186,7 @@ enum IntakeEventStatus {
 }
 
 /// M6 — the trusted provider-resource → business mapping for acquisition sources
-/// (migration 20261007090000_m6_acquisition_connections). FORCE RLS, no DELETE policy (revoke, never
+/// (migration 20261008090000_m6_acquisition_connections). FORCE RLS, no DELETE policy (revoke, never
 /// erase). Inbound webhooks resolve it only through the m6_acquisition_* SECURITY DEFINER lookups.
 /// PARTIAL UNIQUE INDEX (raw SQL, do not regenerate): AcquisitionConnection_live_resource_key on
 /// (sourceKey, externalResourceId) WHERE externalResourceId IS NOT NULL AND status <> 'REVOKED'.
