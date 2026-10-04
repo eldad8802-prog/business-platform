@@ -1,0 +1,1 @@
+{"migration":"20261008090100_p3a_trust_claims","sha256":"4394bf1307d588ff43fca5d489488ecf07cc51f842b073181858d8c3fd4677b4","decision":"https://github.com/eldad8802-prog/business-platform/pull/635#issuecomment-5984224352","approvedBy":"eldad8802-prog","approvedAt":"2026-10-04T20:46:49Z","preflightRun":37227137539,"preflightFile":"ops/evidence/p3a-trust-conversion-preflight.sql"}
