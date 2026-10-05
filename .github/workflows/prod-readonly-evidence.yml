@@ -67,6 +67,7 @@ on:
           - 'ops/evidence/p3a-trust-conversion-preflight.sql'
           - 'ops/evidence/p3a-trust-conversion-production-evidence.sql'
           - 'ops/evidence/m0-signup-production-evidence.sql'
+          - 'ops/evidence/m1-onboarding-preflight.sql'
 
 permissions:
   contents: read
