@@ -1,0 +1,57 @@
+name: Prod Read-Only Evidence (learning coverage pin diagnostic, B3/B9)
+
+# All-Feature Learning Coverage — READ-ONLY diagnosis of the two "existing learning pinned" failures of the final
+# proof (run 37253581837). scripts/ops/learning-coverage-pin-diagnostic.ts selects exactly the flagged rows (a
+# pre-coverage rule measure whose lineage key differs from the current rule) and proves, per row: status, actual
+# vs expected lineage, created before the expected lineage, current-lineage row for the same slot, and
+# LEGITIMATE_HISTORY / HISTORICAL_STATUS_UNEXPLAINED / LIVE_WRONG_PIN.
+#
+# ONE owner session, READ ONLY by Postgres (verified before and after). Output: keys, statuses, lineage names,
+# timestamps, booleans — never a value, detail, evidence, entity id or name. Changes nothing. B3 and B9 only.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-learning-coverage-pin-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Learning coverage pin diagnostic (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secret present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db — NOT RUN."; exit 1; fi
+          echo "Connection secret present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Learning coverage pin diagnostic (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+        run: node_modules/.bin/tsx scripts/ops/learning-coverage-pin-diagnostic.ts --allow-host ep-flat-brook-am4bhq1y --businesses 3,9
