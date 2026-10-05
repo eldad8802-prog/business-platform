@@ -192,6 +192,12 @@
       "lab": "workflow",
       "workflow": "learning-coverage-ci.yml",
       "reason": "provenance: every evidence kind a coverage rule emits is mapped to the table its record id lives in (the map the read-only Production proof resolves links through); COLL-01 points at invoices and CONV-01/02 at conversations; run by learning-coverage-ci.yml"
+    },
+    "scripts/ops/lineage-pin-classifier.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "learning-coverage-ci.yml",
+      "reason": "the one rule the read-only Production proof and diagnostic use for knowledge pinned to a superseded lineage: LIVE_WRONG_PIN and HISTORICAL_STATUS_UNEXPLAINED fail, LEGITIMATE_HISTORY passes only when corroborated; no blanket SUPERSEDED exclusion; run by learning-coverage-ci.yml"
     }
   }
 }
