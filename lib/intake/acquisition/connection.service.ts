@@ -59,6 +59,13 @@ export function normalizeOrigins(raw: unknown): string[] {
       throw new ValidationError("an origin is scheme + host (+ port) only");
     }
     out.add(u.origin);
+    // An owner types "my-site.co.il" or "www.my-site.co.il"; visitors arrive on either. The www /
+    // bare twin of the same https site is allowed with it (never for localhost or an IP address).
+    if (u.protocol === "https:" && !local && !/^[\d.]+$/.test(u.hostname) && u.hostname.includes(".")) {
+      const twin = new URL(u.origin);
+      twin.hostname = u.hostname.startsWith("www.") ? u.hostname.slice(4) : `www.${u.hostname}`;
+      if (twin.hostname.includes(".")) out.add(twin.origin);
+    }
   }
   if (out.size > MAX_ALLOWED_ORIGINS) throw new ValidationError(`at most ${MAX_ALLOWED_ORIGINS} origins`);
   return [...out];

@@ -131,7 +131,10 @@ t("bounds: at most 30 answers, values cut at 500, control characters removed", (
   assert.ok(l.answers.every((a) => a.value.length <= 500 && !a.value.includes("\u0000")));
 });
 t("origins: exact https origins only; paths, queries, http (non-local) and junk refused", () => {
-  assert.deepEqual(normalizeOrigins(["https://a.example", "https://a.example/", "http://localhost:3000"]), ["https://a.example", "http://localhost:3000"]);
+  assert.deepEqual(normalizeOrigins(["https://a.example", "https://a.example/", "http://localhost:3000"]), ["https://a.example", "https://www.a.example", "http://localhost:3000"]);
+  // the www / bare twin of an https site comes with it, both ways; never for localhost or an IP
+  assert.deepEqual(normalizeOrigins(["https://www.shop.co.il"]), ["https://www.shop.co.il", "https://shop.co.il"]);
+  assert.deepEqual(normalizeOrigins(["https://10.0.0.5"]), ["https://10.0.0.5"]);
   for (const bad of [["http://a.example"], ["https://a.example/contact"], ["https://a.example?x=1"], ["javascript:alert(1)"], "x"]) {
     assert.throws(() => normalizeOrigins(bad));
   }
@@ -152,6 +155,21 @@ t("Secretary arrivals: today's new leads grouped by source, labels in Hebrew", (
   assert.deepEqual(a.bySource.map((s) => [s.group, s.count]), [["meta", 3], ["google", 2], ["web", 2]]);
   assert.equal(leadSourceGroup("intake:meta.lead_ads").label, "פייסבוק/אינסטגרם");
   assert.equal(leadSourceGroup("MANUAL").group, "manual");
+});
+
+t("web form without submission_id: same enquiry the same day = one receipt; the next day = a new one", () => {
+  const at = (iso: string, extra: Record<string, string> = {}) => {
+    const p = parseWebForm(flattenFields({ name: "Noa", phone: "050-1234567", message: "quote please", ...extra })!);
+    assert.ok(p.ok);
+    if (!p.ok) throw new Error("parse");
+    return acquisitionReceipt({ ...p.lead, submittedAt: iso }, "pub1").externalEventId;
+  };
+  const first = at("2026-10-05T09:00:00.120Z");
+  assert.equal(at("2026-10-05T09:00:00.987Z"), first, "a double-click (ms apart) collapses");
+  assert.equal(at("2026-10-05T17:30:00.000Z"), first, "a resubmit later that day collapses");
+  assert.notEqual(at("2026-10-06T09:00:00.120Z"), first, "the same enquiry the next day is new");
+  assert.notEqual(at("2026-10-05T09:00:00.120Z", { message: "a different question" }), first, "different content is new");
+  assert.notEqual(at("2026-10-05T09:00:00.120Z", { submission_id: "s-42" }), first, "a form-supplied submission id wins");
 });
 
 t("Meta connect handle: opens only for the same business, unexpired and untampered; never shows the token", () => {

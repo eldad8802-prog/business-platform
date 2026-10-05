@@ -14,7 +14,8 @@ import { NextRequest } from "next/server";
 import { signAuthToken } from "../lib/auth-token";
 import { runTenantJob } from "../lib/tenant/job";
 import { runWithTenantContext } from "../lib/tenant/context";
-import { drainIntake } from "../lib/intake/core/processor";
+import { acceptIntake, drainIntake } from "../lib/intake/core/processor";
+import { ACQUISITION_EVENT_TYPE } from "../lib/intake/acquisition/canonical";
 import { intakeRegistry } from "../lib/intake/sources";
 import { bindMetaPage, createKeyedConnection, revokeConnection, setPaused } from "../lib/intake/acquisition/connection.service";
 import { setMetaGraphFetchForTests } from "../lib/intake/acquisition/providers/meta-lead-ads";
@@ -434,6 +435,66 @@ async function main() {
     JSON.stringify({ s: connectRes.status, subscribed }));
   setMetaCodeExchangeForTests(null);
   setMetaGraphCallForTests(null);
+
+  console.log("\n-- 11. website readiness: plain HTML form, same-day dedup, www twin, inactive business, failure observability --");
+  const site = await mk(A.id, "web.form", ["https://shop-a.example"]);
+  const twin = await o.acquisitionConnection.findUnique({ where: { id: site.connection.id } });
+  ok("the owner gave one site; its www twin is allowed with it",
+    JSON.stringify(twin?.allowedOrigins) === JSON.stringify(["https://shop-a.example", "https://www.shop-a.example"]), JSON.stringify(twin?.allowedOrigins));
+  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string) =>
+    webPOST(new NextRequest(`http://m6.local/api/intake/acquisition/web/${publicId}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml", origin,
+        ...(referer ? { referer } : {}), "x-forwarded-for": "203.0.113.9" },
+      body: new URLSearchParams(fields).toString(),
+    }), params({ publicId }));
+  const enquiry = { name: "Plain Form", phone: "053-777-1234", message: "do you work on Fridays", page_url: "https://www.shop-a.example/contact?utm_source=newsletter" };
+  const before11 = await o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
+  const h1 = await htmlPost(site.connection.publicId, enquiry, "https://www.shop-a.example", "https://www.shop-a.example/contact");
+  const page = await h1.text();
+  ok("a plain HTML form post from the www twin → 200 Hebrew thank-you page (not JSON), safe headers",
+    h1.status === 200 && (h1.headers.get("content-type") ?? "").startsWith("text/html") && page.includes("תודה") &&
+      (h1.headers.get("content-security-policy") ?? "").includes("default-src \x27none\x27"), `${h1.status} ${h1.headers.get("content-type")}`);
+  ok("the page links back to the referring page on the allowed site, and echoes nothing the visitor typed",
+    page.includes("https://www.shop-a.example/contact") && !page.includes("053-777-1234") && !page.includes("Fridays"));
+  const h2 = await htmlPost(site.connection.publicId, enquiry, "https://www.shop-a.example");
+  const h3 = await htmlPost(site.connection.publicId, enquiry, "https://shop-a.example");
+  const after11 = await o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
+  ok("a double submit + a resubmit of the SAME enquiry (no submission_id) the same day → ONE receipt",
+    h2.status === 200 && h3.status === 200 && after11 === before11 + 1, JSON.stringify({ before11, after11 }));
+  const formLead = await o.lead.count({ where: { businessId: A.id, phone: { contains: "537771234" } } });
+  ok("…and ONE Lead", formLead === 1, String(formLead));
+  const missing = await htmlPost(site.connection.publicId, { name: "No Contact", message: "hi" }, "https://shop-a.example");
+  ok("a plain form without phone or email → 400 Hebrew page asking for contact details",
+    missing.status === 400 && (await missing.text()).includes("פרטי קשר"));
+  const json = await web(site.connection.publicId, { phone: "053-777-9999", message: "api client" }, { origin: "https://shop-a.example" });
+  ok("a script / API client still gets JSON (202)", json.status === 202 && (json.headers.get("content-type") ?? "").includes("application/json"));
+
+  const D = await o.business.create({ data: { name: `${RUN}-D` } });
+  await enable(D.id, "acquisition_web_forms");
+  const webD = await mk(D.id, "web.form");
+  await o.business.update({ where: { id: D.id }, data: { deletionRequestedAt: new Date() } });
+  const inactive = await web(webD.connection.publicId, { submission_id: `${RUN}-d1`, phone: "054-111-2222" }, { key: webD.key });
+  ok("an inactive business (deletion requested) → 404, nothing recorded",
+    inactive.status === 404 && (await o.intakeEvent.count({ where: { businessId: D.id } })) === 0, String(inactive.status));
+
+  // A receipt that cannot be processed (no contact at all) dead-letters during the scheduled sweep:
+  // the run must be unhealthy (500, reason failed_receipts) — "the sweep ran" is not "the leads arrived".
+  const bad = deriveEventIdentity({ providerEventId: `${RUN}-poison`, accountScope: webA.connection.publicId });
+  await acceptIntake({
+    registry: intakeRegistry, sourceKey: "web.form", accountRef: webA.connection.publicId,
+    receipts: [{ family: "LEAD", eventType: ACQUISITION_EVENT_TYPE, externalEventId: bad.externalEventId, dedupeBasis: bad.dedupeBasis,
+      providerAccountRef: null, occurredAt: new Date(), payload: { v: 1 } as never, metadata: { v: 1 } as never }],
+  });
+  const unhealthy = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const uBody = (await unhealthy.json()) as { ok?: boolean; reasons?: string[]; report?: { events?: { failed?: number } } };
+  ok("a sweep in which a receipt fails → 500, ok:false, reason failed_receipts, counts only",
+    unhealthy.status === 500 && uBody.ok === false && (uBody.reasons ?? []).includes("failed_receipts") && (uBody.report?.events?.failed ?? 0) >= 1,
+    JSON.stringify(uBody));
+  const poison = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: bad.externalEventId } });
+  ok("…the poison receipt is dead-lettered (not retried forever), and the next sweep is healthy again",
+    poison?.status === "FAILED" && poison.nextAttemptAt === null && (poison.lastErrorCode ?? "").startsWith("normalize:") &&
+      (await sweepGET(sweepReq(process.env.CRON_SECRET))).status === 200, JSON.stringify({ s: poison?.status, n: poison?.nextAttemptAt, c: poison?.lastErrorCode }));
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

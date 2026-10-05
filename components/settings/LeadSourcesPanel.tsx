@@ -44,8 +44,8 @@ const SOURCES: { key: SourceKey; title: string; description: string }[] = [
 ];
 
 const STATUS: Record<Connection["status"], { label: string; tone: string }> = {
-  ACTIVE: { label: "מחובר", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
-  PAUSED: { label: "מושהה", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
+  ACTIVE: { label: "פעיל — מקבל פניות", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
+  PAUSED: { label: "מושהה — פניות לא מתקבלות", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
   ERROR: { label: "דורש חיבור מחדש", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
   REVOKED: { label: "מנותק", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
 };
@@ -124,30 +124,79 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The ready-made contact form an owner pastes into their own site (Wix / WordPress "HTML embed").
+ * It carries NO secret: it posts from the browser, so the endpoint accepts it only from the site
+ * address the owner gave, behind the honeypot and the rate limits. The one-line script records the
+ * page the visitor was on (campaign tags included) for attribution.
+ */
+function formSnippet(url: string): string {
+  return [
+    `<form action="${url}" method="post" accept-charset="UTF-8" dir="rtl" style="display:grid;gap:8px;max-width:420px">`,
+    `  <input name="name" placeholder="שם" autocomplete="name">`,
+    `  <input name="phone" type="tel" placeholder="טלפון" autocomplete="tel" required>`,
+    `  <input name="email" type="email" placeholder="אימייל (לא חובה)" autocomplete="email">`,
+    `  <textarea name="message" rows="4" placeholder="במה נוכל לעזור?"></textarea>`,
+    `  <input name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-5000px">`,
+    `  <input type="hidden" name="page_url">`,
+    `  <button type="submit">שליחה</button>`,
+    `</form>`,
+    `<script>document.querySelectorAll('input[name="page_url"]').forEach(function(i){i.value=location.href});</script>`,
+  ].join("\n");
+}
+
+function WebFormInstall({ url }: { url: string }) {
+  return (
+    <div className="mt-2">
+      <ol className="list-decimal space-y-1 pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
+        <li>מעתיקים את הטופס המוכן.</li>
+        <li>מדביקים אותו בעמוד &quot;צור קשר&quot; באתר (בוויקס / וורדפרס: רכיב &quot;HTML&quot; או &quot;קוד מוטמע&quot;).</li>
+        <li>מכאן כל פנייה מהטופס נכנסת ישר לרשימת הלידים, עם העמוד והקמפיין שממנו הגיעה.</li>
+      </ol>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Copy text={formSnippet(url)} label="העתקת הטופס המוכן" />
+      </div>
+    </div>
+  );
+}
+
 function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secret; onDone: () => void }) {
   const developerNote =
     `Send each form submission as an HTTP POST (JSON or form-encoded) to:\n${secret.url}\n` +
     `Header: Authorization: Bearer ${secret.key}\n` +
     `Fields: name, phone, email, message (any other field is kept as an answer); ` +
     `optional submission_id (prevents duplicates), page_url, utm_source/utm_medium/utm_campaign, gclid, fbclid.`;
+  if (source === "web.form") {
+    return (
+      <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
+        <p className="text-xs font-bold text-[var(--dz-text-primary)]">הטופס מוכן — נשאר רק להדביק אותו באתר.</p>
+        <WebFormInstall url={secret.url} />
+        <details className="mt-3">
+          <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">למי שבנה את האתר: שליחה מהשרת (קוד סודי)</summary>
+          <p className="mt-2 text-[11px] leading-5 text-[var(--dz-text-muted)]">הקוד הסודי מוצג רק עכשיו. הוא לשימוש בשרת של האתר בלבד — לעולם לא בתוך עמוד שהמבקרים רואים.</p>
+          <Field label="כתובת" value={secret.url} />
+          <Field label="קוד סודי" value={secret.key} />
+          <div className="mt-2"><Copy text={developerNote} label="העתקת הוראות למפתח" /></div>
+        </details>
+        <div className="mt-3">
+          <button type="button" onClick={onDone} className="rounded-full bg-[var(--dz-text-primary)] px-4 py-1 text-xs font-bold text-[var(--dz-surface)]">
+            סיום
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
       <p className="text-xs font-bold text-[var(--dz-text-primary)]">העתק/י עכשיו — הקוד לא יוצג שוב.</p>
-      {source === "google.lead_form" ? (
-        <ol className="mt-2 list-decimal space-y-1 pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
-          <li>ב-Google Ads פתח/י את טופס הלידים ← &quot;שילוב Webhook&quot;.</li>
-          <li>הדבק/י את הכתובת בשדה &quot;Webhook URL&quot; ואת הקוד בשדה &quot;Key&quot;.</li>
-          <li>לחץ/י &quot;שליחת נתוני בדיקה&quot; — הבדיקה לא תיצור ליד, אבל תסמן שהחיבור עובד.</li>
-        </ol>
-      ) : (
-        <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          מסור/י למי שבנה את האתר את הכתובת ואת הקוד (או את ההוראות המלאות למטה). מכאן כל פנייה מהטופס תגיע ללידים.
-        </p>
-      )}
+      <ol className="mt-2 list-decimal space-y-1 pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
+        <li>ב-Google Ads פתח/י את טופס הלידים ← &quot;שילוב Webhook&quot;.</li>
+        <li>הדבק/י את הכתובת בשדה &quot;Webhook URL&quot; ואת הקוד בשדה &quot;Key&quot;.</li>
+        <li>לחץ/י &quot;שליחת נתוני בדיקה&quot; — הבדיקה לא תיצור ליד, אבל תסמן שהחיבור עובד.</li>
+      </ol>
       <Field label="כתובת" value={secret.url} />
       <Field label="קוד סודי" value={secret.key} />
       <div className="mt-3 flex flex-wrap gap-2">
-        {source === "web.form" ? <Copy text={developerNote} label="העתקת הוראות למפתח" /> : null}
         <button type="button" onClick={onDone} className="rounded-full bg-[var(--dz-text-primary)] px-4 py-1 text-xs font-bold text-[var(--dz-surface)]">
           שמרתי, סיום
         </button>
@@ -197,13 +246,21 @@ export function LeadSourcesPanel() {
 
   const create = (sourceKey: "web.form" | "google.lead_form") =>
     run(`create:${sourceKey}`, async () => {
-      const site = sourceKey === "web.form" && siteInput.trim() ? originOf(siteInput) : null;
-      if (sourceKey === "web.form" && siteInput.trim() && !site) throw new Error("כתובת האתר לא תקינה.");
+      const site = sourceKey === "web.form" ? originOf(siteInput) : null;
+      if (sourceKey === "web.form" && !siteInput.trim()) throw new Error("כדי שהטופס באתר יעבוד, צריך את כתובת האתר שלך.");
+      if (sourceKey === "web.form" && !site) throw new Error("כתובת האתר לא תקינה — למשל: www.my-site.co.il");
       const r = await api<{ connection: Connection; key: string }>("/api/integrations/acquisition", {
         sourceKey,
         ...(site ? { allowedOrigins: [site] } : {}),
       });
       setSecret({ connectionId: r.connection.id, url: r.connection.endpointUrl ?? "", key: r.key });
+    });
+
+  const saveSite = (c: Connection, input: string) =>
+    run(`site:${c.id}`, async () => {
+      const site = originOf(input);
+      if (!input.trim() || !site) throw new Error("כתובת האתר לא תקינה — למשל: www.my-site.co.il");
+      await api(`/api/integrations/acquisition/${c.id}`, { action: "set_origins", allowedOrigins: [site] });
     });
 
   const act = (c: Connection, action: "rotate" | "pause" | "resume" | "revoke") =>
@@ -309,7 +366,13 @@ export function LeadSourcesPanel() {
                     ) : null}
                     <Action onClick={() => act(c, "revoke")} busy={busy === `revoke:${c.id}`} danger>ניתוק</Action>
                   </div>
-                  {c.endpointUrl && c.status !== "PAUSED" ? (
+                  {c.endpointUrl && c.status !== "PAUSED" && c.sourceKey === "web.form" ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">הטופס להדבקה באתר</summary>
+                      <WebFormInstall url={c.endpointUrl} />
+                      <SiteEditor current={c.allowedOrigins} busy={busy === `site:${c.id}`} onSave={(v) => saveSite(c, v)} />
+                    </details>
+                  ) : c.endpointUrl && c.status !== "PAUSED" ? (
                     <details className="mt-2">
                       <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">הכתובת לחיבור</summary>
                       <Field label="כתובת" value={c.endpointUrl} />
@@ -326,7 +389,8 @@ export function LeadSourcesPanel() {
                     dir="ltr"
                     value={siteInput}
                     onChange={(e) => setSiteInput(e.target.value)}
-                    placeholder="www.your-site.co.il (לא חובה)"
+                    placeholder="כתובת האתר שלך, למשל www.my-site.co.il"
+                    aria-label="כתובת האתר שלך"
                     className="min-w-0 flex-1 rounded-full border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-1 text-xs"
                   />
                   <Action onClick={() => create("web.form")} busy={busy === "create:web.form"} primary>
@@ -369,6 +433,30 @@ export function LeadSourcesPanel() {
         })}
       </div>
     </section>
+  );
+}
+
+function SiteEditor({ current, busy, onSave }: { current: string[]; busy: boolean; onSave: (v: string) => void }) {
+  // One line per site: the www / bare twin the server adds is not shown twice.
+  const shown = current
+    .map((o) => o.replace(/^https?:\/\//, ""))
+    .filter((h) => !h.startsWith("www.") || !current.includes(`https://${h.slice(4)}`));
+  const [value, setValue] = useState("");
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] font-bold text-[var(--dz-text-muted)]">כתובת האתר שממנו הטופס נשלח: {shown.join(", ") || "—"}</div>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <input
+          dir="ltr"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="כתובת חדשה, למשל www.my-site.co.il"
+          aria-label="כתובת אתר חדשה"
+          className="min-w-0 flex-1 rounded-full border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-1 text-xs"
+        />
+        <Action onClick={() => onSave(value)} busy={busy}>שמירת כתובת</Action>
+      </div>
+    </div>
   );
 }
 
