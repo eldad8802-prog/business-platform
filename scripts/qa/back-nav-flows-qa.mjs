@@ -815,7 +815,7 @@ try {
   }
 } finally {
   await browser.close();
-  writeEvidence();
+  writeEvidence(process.env.QA_BROWSER === "webkit" ? "qa-evidence/back-nav/flow-chains-webkit.md" : undefined);
 }
 const { pass, failures } = summary();
 console.log(`\n${pass} passed, ${failures.length} failed`);

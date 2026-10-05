@@ -116,7 +116,8 @@ export async function runChain(page, { id, title, viewport, entry, backs, shots 
       }
     }
     if (shots) {
-      const file = `qa-evidence/back-nav/chains/${viewport}-${id}-back${i + 1}.png`;
+      const engine = process.env.QA_BROWSER === "webkit" ? "webkit-" : "";
+      const file = `qa-evidence/back-nav/chains/${engine}${viewport}-${id}-back${i + 1}.png`;
       await page.screenshot({ path: file });
       row.shot = file;
     }
