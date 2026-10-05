@@ -55,7 +55,7 @@ export type Tool = {
 
 export type ToolGroup = {
   key: ToolGroupKey;
-  /** The family name — on Home, on its own screen, and on /tools. */
+  /** The family name — on Home and on its own screen. */
   label: string;
   /**
    * Representative capabilities, as the owner would name them. EXAMPLES, never
@@ -67,8 +67,6 @@ export type ToolGroup = {
   icons: string[];
   /** URL segment of the family's own screen: /tools/<slug>. */
   slug: string;
-  /** Anchor id of the family's section on /tools (old deep links keep working). */
-  anchorId: string;
   /** The domains whose exceptions this group's status label speaks for. */
   domains: StatusDomain[];
 };
@@ -91,8 +89,6 @@ export const HOME_ROUTES = {
   /** The Payment Secretary, and its "today" screen. */
   secretary: "/secretary",
   secretaryToday: "/secretary?today=1",
-  /** The tool directory, and the root of the three family screens. */
-  tools: "/tools",
   /** Settings — reached from Home's gear, and the only owner of configuration. */
   settings: "/settings",
   /** Home. */
@@ -113,7 +109,6 @@ export const TOOL_GROUPS: ToolGroup[] = [
     capabilityLine: "חשבוניות · גבייה · התחייבויות",
     icons: ["invoice", "collection", "payables"],
     slug: "money",
-    anchorId: "group-money",
     domains: ["billing", "documents"],
   },
   {
@@ -122,7 +117,6 @@ export const TOOL_GROUPS: ToolGroup[] = [
     capabilityLine: "לקוחות · לידים · שיחות",
     icons: ["customers", "leads", "conversations"],
     slug: "customers",
-    anchorId: "group-customers",
     domains: ["inbox", "leads"],
   },
   {
@@ -135,19 +129,19 @@ export const TOOL_GROUPS: ToolGroup[] = [
     capabilityLine: "מלאי · ספקים",
     icons: ["inventory", "suppliers"],
     slug: "operations",
-    anchorId: "group-operations",
     domains: ["inventory", "supplier"],
   },
 ];
 
-/** The family's own screen — where the Home family row sends the owner. */
-export function categoryHref(group: ToolGroup): string {
-  return `${HOME_ROUTES.tools}/${group.slug}`;
-}
+/**
+ * The family screens live under /tools/<slug>. The /tools root catalogue was retired (it duplicated
+ * the sidebar and Home's family tiles); next.config.ts sends a direct visit to Home.
+ */
+const FAMILY_BASE = "/tools";
 
-/** The group's section inside /tools. Old links (/tools#group-money) keep working. */
-export function groupHref(group: ToolGroup): string {
-  return `${HOME_ROUTES.tools}#${group.anchorId}`;
+/** The family's own screen — where the Home family tile sends the owner. */
+export function categoryHref(group: ToolGroup): string {
+  return `${FAMILY_BASE}/${group.slug}`;
 }
 
 export function groupBySlug(slug: string): ToolGroup | undefined {
@@ -155,7 +149,7 @@ export function groupBySlug(slug: string): ToolGroup | undefined {
 }
 
 /**
- * Every tool shown on /tools, in group order.
+ * Every tool in the three family screens (/tools/<slug>), in group order.
  *
  * WHAT BELONGS HERE: a capability the owner goes to and MANAGES. A way of
  * CREATING something belongs to the global "+" or to the screen that owns it,
@@ -338,7 +332,6 @@ export function toolsInGroup(group: ToolGroupKey): Tool[] {
 export function allMappedHrefs(): string[] {
   return [
     ...Object.values(HOME_ROUTES),
-    ...TOOL_GROUPS.map(groupHref),
     ...TOOL_GROUPS.map(categoryHref),
     ...TOOLS.map((t) => t.href),
     obligationHref(1),

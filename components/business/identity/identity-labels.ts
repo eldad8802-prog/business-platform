@@ -71,6 +71,8 @@ export const FACT_STATE_LABELS: Record<string, string> = {
   PUBLIC_USE_APPROVED: "מאושר לשימוש פומבי",
 };
 
+const CONTENT_TONE_LABELS: Record<string, string> = { clear: "בהיר ומקצועי", warm: "חם ואישי", energetic: "אנרגטי", premium: "יוקרתי" };
+
 /** What Dubiz noticed, per signal kind — phrased as an observation, never as a claim. */
 export function describeSignal(kind: string, value: Record<string, string | number | boolean>): string {
   switch (kind) {
@@ -86,6 +88,10 @@ export function describeSignal(kind: string, value: Record<string, string | numb
       return `הושלמו ${value.bookings} תורים לשירותים בחצי השנה האחרונה`;
     case "DEMAND_CONCENTRATION":
       return `הצעה אחת מרכזת כ־${value.sharePct}% מהביקוש (פנימי בלבד — לא טענה שיווקית)`;
+    case "CONTENT_TONE_PREFERENCE":
+      return `בתוכן שיצרת, ברוב הפעמים בחרת בטון "${CONTENT_TONE_LABELS[String(value.contentTone)] ?? "קבוע"}"`;
+    case "CONTENT_AUDIENCE_PREFERENCE":
+      return value.contentAudience === "existing" ? "בתוכן שיצרת, בחרת לפנות בעיקר ללקוחות קיימים" : "בתוכן שיצרת, בחרת לפנות בעיקר ללקוחות חדשים";
     case "CONTENT_VARIANT_PREFERENCE":
       return `בתוכן, בחרת ברוב הפעמים בגרסה מסוג "${value.variantKey}"`;
     case "BOT_TONE":
@@ -95,7 +101,7 @@ export function describeSignal(kind: string, value: Record<string, string | numb
     case "BOT_PRIORITY":
       return "בהגדרות הבוט בחרת עדיפות";
     default:
-      return kind;
+      return "Dubiz זיהה דפוס בפעילות של העסק";
   }
 }
 
@@ -192,3 +198,46 @@ export const READINESS_LABELS: Record<string, string> = {
   PUBLIC_TRUST_CLAIM: "טענת אמון אחת שאושרה לשימוש ציבורי",
   REVIEW_CLAIM_LIKE_TEXT: "בדיקה של טקסט שנשמע כמו טענת אמון",
 };
+
+/* ── Landing knowledge (the redesigned screen) ── */
+
+export const CHAPTER_COPY: Record<"who" | "audience" | "why" | "action", { title: string; purpose: string; icon: string; tone: "teal" | "violet" | "amber" | "blue" }> = {
+  who: { title: "מי העסק שלך?", purpose: "מה העסק עושה ואיפה — הבסיס לכל עמוד שיוצג ללקוחות.", icon: "🏪", tone: "teal" },
+  audience: { title: "למי אתם רוצים להגיע?", purpose: "מי הלקוחות שהדף העתידי ידבר אליהם.", icon: "🎯", tone: "violet" },
+  why: { title: "למה שיבחרו דווקא בכם?", purpose: "הטון, הבידול והאמון — מה שיגרום ללקוח לבחור בכם.", icon: "⭐", tone: "amber" },
+  action: { title: "מה אתם רוצים שהלקוח יעשה?", purpose: "הפעולה שהדף יוביל אליה — רק דרכים שבאמת זמינות.", icon: "📞", tone: "blue" },
+};
+
+export const CHAPTER_STATE_LABELS: Record<"COMPLETE" | "IN_PROGRESS" | "MISSING", string> = {
+  COMPLETE: "הושלם",
+  IN_PROGRESS: "בתהליך",
+  MISSING: "חסר מידע",
+};
+
+export const NEED_LABELS: Record<string, string> = {
+  DESCRIPTION: "משפט אחד שמתאר את העסק",
+  CATEGORY: "תחום העסק",
+  TARGET_AUDIENCE: "לפחות קהל אחד",
+  POSITIONING: "במה אתם רוצים שיזכרו אתכם",
+  DIFFERENTIATOR_OR_TRUST: "מה מבדל אתכם, או טענת אמון",
+  PRIMARY_OBJECTIVE: "מה הכי חשוב שלקוח יעשה",
+  USABLE_PATH: "דרך זמינה ללקוח לעשות את זה",
+};
+
+/** The future page's sections, in the owner's words. */
+export const PREVIEW_ROLE_LABELS: Record<string, { title: string; empty: string }> = {
+  HERO: { title: "פתיחה", empty: "שם העסק ומשפט התיאור יופיעו כאן אחרי שתאשר אותם לשימוש בדף." },
+  ABOUT: { title: "במה העסק מתמחה", empty: "תחומי ההתמחות ואזור השירות יופיעו כאן אחרי אישור." },
+  DIFFERENTIATORS: { title: "למה לבחור בנו", empty: "מה שמבדל אתכם יופיע כאן אחרי אישור." },
+  TRUST: { title: "אמון", empty: "טענות אמון שאישרת יופיעו כאן. Dubiz לא ממציא המלצות או מספרים." },
+  CONTACT: { title: "יצירת קשר", empty: "פרטי קשר שאישרת לשימוש ציבורי יופיעו כאן." },
+  CALL_TO_ACTION: { title: "כפתור פעולה", empty: "הכפתור יופיע כשתהיה דרך זמינה למה שחשוב לכם שהלקוח יעשה." },
+};
+
+/** Public-use status of an owner item, in human language. */
+export const PUBLIC_STATUS_LABELS = {
+  READY: "מוכן לשימוש בדף הנחיתה",
+  INTERNAL: "מידע פנימי בלבד",
+  AWAITING: "ממתין לאישור שלך",
+  MISSING: "צריך להשלים",
+} as const;

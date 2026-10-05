@@ -71,6 +71,8 @@ jobs:
         run: npx tsx lib/services/identity/identity.verify.test.ts
       - name: Three-strategy identity + offering inputs
         run: npx tsx lib/services/identity/identity-strategy.verify.test.ts
+      - name: Landing knowledge (chapters, approved-only preview, learned signals)
+        run: npx tsx lib/services/identity/landing-knowledge.verify.test.ts
       - name: M7 snapshot incl. owner identity items
         run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
       - name: P3-A context, trust authority, conversion, AI projection, safety gates

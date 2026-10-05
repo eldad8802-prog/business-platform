@@ -117,7 +117,7 @@ export function BusinessSummaryCard() {
           href="/business/identity"
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
-          איך העסק מוצג
+          הנוכחות הדיגיטלית
         </Link>
       </div>
     </section>

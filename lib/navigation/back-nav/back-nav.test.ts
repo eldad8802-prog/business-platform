@@ -158,15 +158,15 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
 }
 // In-screen flow steps (useFlowStep: ?step= / ?cstep= / ?list= are identity params).
 {
-  const t = resolve(["/tools", "/pricing", "/pricing?step=calc", "/pricing?step=result"]);
+  const t = resolve(["/tools/money", "/pricing", "/pricing?step=calc", "/pricing?step=result"]);
   ok("pricing result → calc step (one step back)", t.kind === "history" && t.url === "/pricing?step=calc" && t.delta === -1);
-  const t2 = resolve(["/tools", "/pricing", "/pricing?step=calc"]);
+  const t2 = resolve(["/tools/money", "/pricing", "/pricing?step=calc"]);
   ok("pricing calc → catalog", t2.kind === "history" && t2.url === "/pricing" && t2.delta === -1);
   const t3 = resolve(["/collection", "/collection/new", "/collection/new?step=details", "/collection/new"]);
   ok("collection: 'other customer' step → back to details actually taken", t3.kind === "history" && t3.url === "/collection/new?step=details");
   const t4 = resolve(["/revenue", "/revenue?view=create", "/revenue?view=create&cstep=direction"]);
   ok("coupon direction → goal step", t4.kind === "history" && t4.url === "/revenue?view=create");
-  const t5 = resolve(["/tools", "/revenue/redeem", "/revenue/redeem?step=manual", "/revenue/redeem?step=error"]);
+  const t5 = resolve(["/tools/money", "/revenue/redeem", "/revenue/redeem?step=manual", "/revenue/redeem?step=error"]);
   ok("redeem error → manual entry", t5.kind === "history" && t5.url === "/revenue/redeem?step=manual");
   const t6 = resolve(["/inbox", "/inbox?list=conversation_list", "/inbox?list=conversation_list&conversationId=7"]);
   ok("inbox conversation → that category's list → (then) triage", t6.kind === "history" && t6.url === "/inbox?list=conversation_list");
@@ -175,7 +175,7 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
 
 // Completed flows: consumed (done) steps are never a target.
 {
-  const store = chain(["/tools", "/pricing", "/pricing?step=new1", "/pricing?step=created"]);
+  const store = chain(["/tools/money", "/pricing", "/pricing?step=new1", "/pricing?step=created"]);
   store.e2.done = true;
   const t = resolveBackTarget({ store, currentId: "e3", scope: S, isTransient: isTransientPath, screenKey: screenKeyOf });
   ok("created → catalog, skipping the consumed wizard step", t.kind === "history" && t.url === "/pricing" && t.delta === -2);
@@ -188,8 +188,8 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
 }
 // #hash continuation: same URL (hash dropped) → same screen → skipped.
 {
-  const t = resolve(["/tools", "/payables/match/41", "/payables/match/41"]);
-  ok("#fragment entry on the detail → back reaches the real origin", t.kind === "history" && t.url === "/tools" && t.delta === -2);
+  const t = resolve(["/tools/money", "/payables/match/41", "/payables/match/41"]);
+  ok("#fragment entry on the detail → back reaches the real origin", t.kind === "history" && t.url === "/tools/money" && t.delta === -2);
 }
 
 // Store hygiene.

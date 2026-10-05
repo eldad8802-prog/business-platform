@@ -58,7 +58,6 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabel: "לפרטי העסק" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
-  { pattern: "/tools", parent: "/app", parentLabel: "לבית" },
   { pattern: "/pricing", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
   { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view", "cstep"] },
   { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי", identityParams: ["step"] },
@@ -114,7 +113,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   // ---- CRM ------------------------------------------------------------------
   { pattern: "/customers/[id]", parent: "/customers", parentLabel: "לרשימת הלקוחות" },
   { pattern: "/leads/[id]", parent: "/leads", parentLabel: "לרשימת הלידים" },
-  { pattern: "/suppliers", parent: "/tools", parentLabel: "לכלים" },
+  { pattern: "/suppliers", parent: "/tools/operations", parentLabel: "לניהול העסק" },
   { pattern: "/suppliers/[id]", parent: "/suppliers", parentLabel: "לרשימת הספקים" },
 
   // ---- inventory ------------------------------------------------------------
@@ -155,11 +154,12 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/settings/import-export/historical", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
   { pattern: "/settings/import-export/historical/records", parent: "/settings/import-export/historical", parentLabel: "לנתונים היסטוריים" },
   { pattern: "/settings/import-export/historical/records/[id]", parent: "/settings/import-export/historical/records", parentLabel: "לרשימת הרשומות" },
-  { pattern: "/tools/[category]", parent: "/tools", parentLabel: "לכלים" },
+  // The /tools catalogue is retired (next.config → /app); each family screen is reached from Home.
+  { pattern: "/tools/[category]", parent: "/app", parentLabel: "לבית" },
   { pattern: "/business", parent: "/settings", parentLabel: "להגדרות" },
   { pattern: "/business/identity", parent: "/business", parentLabel: "לפרופיל העסק" },
-  { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabel: "לאיך העסק מוצג" },
-  { pattern: "/business/bot", parent: "/tools", parentLabel: "לכלים" },
+  { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabel: "לנוכחות הדיגיטלית" },
+  { pattern: "/business/bot", parent: "/tools/customers", parentLabel: "ללקוחות ומכירות" },
   { pattern: "/business/bot-settings", parent: "/business/bot", parentLabel: "לבוט שלי" },
   { pattern: "/business/bot-settings/[area]", parent: "/business/bot-settings", parentLabel: "להגדרות הבוט" },
 ];

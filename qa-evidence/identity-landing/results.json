@@ -1,0 +1,192 @@
+[
+  {
+    "name": "partial 390: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 390: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: readiness is a chapter count, not a percentage",
+    "ok": true,
+    "detail": "דף הנחיתה העתידי שלךDubiz לומד את העסק שלך כדי לבנות לו דף נחיתה מותאםהידע מגיע משני מקורות: מה שאתה מספר ומאשר, ומה ש-D"
+  },
+  {
+    "name": "partial: preview marked not published",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: approved description shows in the preview",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: internal specialization is NOT in the preview",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: internal guarantee claim is NOT in the preview",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: call-to-action is the usable CALL path",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial: learned suggestions come from real services",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "preview links to the P3-B strategy directions page",
+    "ok": true,
+    "detail": "/business/landing-strategy 200"
+  },
+  {
+    "name": "partial 768: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 768: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1024: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1024: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1440: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1440: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1920: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "partial 1920: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 390: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 390: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty: 0 of 4 chapters",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty: learned shows the honest empty state",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 768: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 768: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 1440: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty 1440: RTL",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "mobile: exactly one chapter open at a time",
+    "ok": true,
+    "detail": "1"
+  },
+  {
+    "name": "mobile: 'next chapter' opens the next chapter",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "learned: 'אשר והוסף' uses the existing adopt endpoint",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "learned: the adopted suggestion leaves the learned list",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "/tools root redirects (307) to /app",
+    "ok": true,
+    "detail": "307 → /app"
+  },
+  {
+    "name": "/tools/money family screen still served",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "/tools/customers family screen still served",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "/tools/operations family screen still served",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "an old /tools#group-* link lands on Home",
+    "ok": true,
+    "detail": "http://localhost:3030/app#group-money"
+  },
+  {
+    "name": "billing (root) shows no back control without an origin",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "business back falls back to Settings, not /tools",
+    "ok": true,
+    "detail": "http://localhost:3030/settings"
+  },
+  {
+    "name": "/tools/money renders with no link to the retired /tools root",
+    "ok": true,
+    "detail": ""
+  }
+]

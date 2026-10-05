@@ -1,36 +1,15 @@
-"use client";
+import type { Metadata } from "next";
 
-import Link from "next/link";
-import PageHeader from "@/components/ui/page-header";
-import { BusinessIdentityEditor } from "@/components/business/identity/BusinessIdentityEditor";
-import { TrustConversionPanel } from "@/components/business/identity/TrustConversionPanel";
-import styles from "./identity-page.module.css";
+import { IdentityScreen } from "@/components/business/identity/landing/IdentityScreen";
+
+export const metadata: Metadata = { title: "הנוכחות הדיגיטלית של העסק" };
 
 /**
- * P2 + P3-A — who the business is (owner statements and public facts), how customers can reach it
- * (conversion) and what Dubiz may say about it (trust). The canonical screen for identity.
+ * What Dubiz knows about the business, on its way to a future landing page. The canonical read
+ * model is BusinessIdentityContext (P3-A); the screen re-organises it into four chapters and keeps
+ * every authority rule: owner statements, separate public-use approval, re-validated suggestions,
+ * internal-first trust claims. Nothing is published.
  */
 export default function BusinessIdentityPage() {
-  return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
-      <PageHeader title="איך העסק מוצג" backHref="/business" backLabel="חזרה" showBack />
-      <main className={styles.main}>
-        <p className={styles.intro}>
-          כמה דברים שרק אתה יודע על העסק — כדי ש-Dubiz ידבר בשמו נכון. הכול אופציונלי, ואפשר לשנות בכל רגע.
-          שום דבר לא יוצג ללקוחות בלי שסימנת &quot;מאושר לשימוש פומבי&quot;.
-        </p>
-        <p className={styles.intro}>
-          <Link href="/business/landing-strategy">לאילו כיווני דף נחיתה זה מוביל ←</Link>
-        </p>
-        <div className={styles.layout}>
-          <div className={styles.column}>
-            <BusinessIdentityEditor />
-          </div>
-          <div className={styles.column}>
-            <TrustConversionPanel />
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+  return <IdentityScreen />;
 }

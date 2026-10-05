@@ -69,7 +69,7 @@ function chains(vp) {
     id: "F1-collection-steps",
     title: "Collection: customer → details → other customer, then back ×3",
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("Collection", (p) => pushTo(p, "/collection")),
       step("גבה", async (p) => {
         await p.getByRole("button", { name: "גבה", exact: true }).first().click();
@@ -131,7 +131,7 @@ function chains(vp) {
 
   /* F3 — Pricing: catalog → calc → result (button) ------------------------ */
   const pricingEntry = [
-    step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+    step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
     step("Pricing", (p) => pushTo(p, "/pricing")),
     step("item תספורת", async (p) => {
       await p.getByRole("button", { name: /תספורת/ }).click();
@@ -148,7 +148,7 @@ function chains(vp) {
       checks: async (p) => [["material cost still 123", (await p.locator("#calc-material").inputValue()) === "123", await p.locator("#calc-material").inputValue()]] },
     { label: "catalog", expect: at("/pricing"),
       checks: async (p) => [["catalog list shown", await p.getByRole("button", { name: /צבע/ }).isVisible()]] },
-    { label: "Tools", expect: at("/tools") },
+    { label: "Tools", expect: at("/tools/money") },
   ];
   list.push({ id: "F3-pricing-calc", title: "Pricing: catalog → calculation → result, back ×3", entry: pricingEntry, backs: pricingBacks });
   list.push({ id: "F3b-pricing-calc-browser", title: "Pricing: same chain, browser Back", entry: pricingEntry, backs: pricingBacks, via: "browser" });
@@ -158,7 +158,7 @@ function chains(vp) {
     id: "F4-pricing-new",
     title: "Pricing: new item step 1 → step 2, back ×3",
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("Pricing", (p) => pushTo(p, "/pricing")),
       step("+ הוספת פריט", async (p) => {
         await p.getByRole("button", { name: "הוספת פריט" }).first().click();
@@ -174,7 +174,7 @@ function chains(vp) {
       { label: "step 1, name kept", expect: at("/pricing?step=new1"),
         checks: async (p) => [["item name still ייעוץ", (await p.getByPlaceholder("לדוגמה: ייעוץ אסטרטגי").inputValue()) === "ייעוץ"]] },
       { label: "catalog", expect: at("/pricing") },
-      { label: "Tools", expect: at("/tools"),
+      { label: "Tools", expect: at("/tools/money"),
         checks: async () => [["no item was created", posts.pricingCreate === 0, `POSTs=${posts.pricingCreate}`]] },
     ],
   });
@@ -184,7 +184,7 @@ function chains(vp) {
     id: "F5-coupon-wizard",
     title: "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("My coupons", (p) => pushTo(p, "/revenue")),
       step("צור קופון חדש", async (p) => {
         await p.getByRole("button", { name: "צור קופון חדש" }).first().click();
@@ -203,7 +203,7 @@ function chains(vp) {
       { label: "direction step", expect: at("/revenue?view=create&cstep=direction") },
       { label: "goal step (first step of the flow)", expect: at("/revenue?view=create") },
       { label: "my coupons — after confirming the discard prompt", expect: at("/revenue"), dialog: "accept" },
-      { label: "Tools", expect: at("/tools") },
+      { label: "Tools", expect: at("/tools/money") },
     ],
   });
 
@@ -213,7 +213,7 @@ function chains(vp) {
     title: "Redeem: scan → manual → wrong code (error), back ×3",
     before: () => resetPosts(),
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("Redeem", (p) => pushTo(p, "/revenue/redeem")),
       step("הקלד קוד", async (p) => {
         await p.getByRole("button", { name: "הקלד קוד במקום סריקה" }).click();
@@ -229,7 +229,7 @@ function chains(vp) {
       { label: "manual entry, code kept", expect: at("/revenue/redeem?step=manual"),
         checks: async (p) => [["code still BAD", (await p.getByPlaceholder("הדבק או הקלד קוד קופון").inputValue()) === "BAD"]] },
       { label: "scan step", expect: at("/revenue/redeem") },
-      { label: "Tools", expect: at("/tools") },
+      { label: "Tools", expect: at("/tools/money") },
     ],
   });
 
@@ -239,7 +239,7 @@ function chains(vp) {
     title: "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
     before: () => resetPosts(),
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("Redeem", (p) => pushTo(p, "/revenue/redeem")),
       step("הקלד קוד", async (p) => {
         await p.getByRole("button", { name: "הקלד קוד במקום סריקה" }).click();
@@ -254,7 +254,7 @@ function chains(vp) {
     backs: [
       { label: "scan step — manual entry was replaced (completed)", expect: at("/revenue/redeem"),
         checks: async () => [["exactly one redemption POST", posts.redeem === 1, `POSTs=${posts.redeem}`]] },
-      { label: "Tools", expect: at("/tools"),
+      { label: "Tools", expect: at("/tools/money"),
         checks: async () => [["still one redemption", posts.redeem === 1, `POSTs=${posts.redeem}`]] },
     ],
   });
@@ -361,7 +361,7 @@ function chains(vp) {
   /* F11 — Content creation flow (route steps, choices restored) ----------- */
   const contentEntry = [
     step("Tools", async (p) => {
-      await p.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+      await p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" });
       await p.evaluate(() => localStorage.removeItem("content_flow"));
     }),
     step("Content", (p) => pushTo(p, "/content")),
@@ -392,7 +392,7 @@ function chains(vp) {
       { label: "direction step, choice kept", expect: at("/content/archetype"), checks: checked(".direction-card") },
       { label: "goal step, choice kept", expect: at("/content/goal"), checks: checked(".goal-card") },
       { label: "vibe step, choice kept", expect: at("/content"), checks: checked(".vibe-tile") },
-      { label: "Tools", expect: at("/tools") },
+      { label: "Tools", expect: at("/tools/money") },
     ],
   });
   list.push({
@@ -404,14 +404,14 @@ function chains(vp) {
       { label: "direction step", expect: at("/content/archetype"), checks: checked(".direction-card") },
       { label: "goal step", expect: at("/content/goal"), checks: checked(".goal-card") },
       { label: "vibe step", expect: at("/content"), checks: checked(".vibe-tile") },
-      { label: "Tools", expect: at("/tools") },
+      { label: "Tools", expect: at("/tools/money") },
     ],
   });
 
   /* ============ completed actions: every commit counted ================= */
 
   const couponToTerms = [
-    step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+    step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
     step("My coupons", (p) => pushTo(p, "/revenue")),
     step("צור קופון חדש", async (p) => {
       await p.getByRole("button", { name: "צור קופון חדש" }).first().click();
@@ -441,7 +441,7 @@ function chains(vp) {
         { label: "my coupons — wizard steps consumed", expect: at("/revenue"),
           ...(via === "button" ? { press: (p) => p.getByRole("button", { name: "סגירה" }).click(), pressLabel: "close (X)" } : {}),
           checks: async () => [["exactly one publish POST", posts.couponPublish === 1, `POSTs=${posts.couponPublish}`]] },
-        { label: "Tools", expect: at("/tools"),
+        { label: "Tools", expect: at("/tools/money"),
           checks: async () => [["still one publish", posts.couponPublish === 1, `POSTs=${posts.couponPublish}`]] },
       ],
     });
@@ -452,7 +452,7 @@ function chains(vp) {
     title: "Pricing: save costs to the item (completed), back ×2",
     before: () => resetPosts(),
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("Pricing", (p) => pushTo(p, "/pricing")),
       step("item תספורת", async (p) => {
         await p.getByRole("button", { name: /תספורת/ }).click();
@@ -471,7 +471,7 @@ function chains(vp) {
     backs: [
       { label: "catalog — the saving step consumed", expect: at("/pricing"),
         checks: async () => [["exactly one save", posts.pricingSave === 1, `saves=${posts.pricingSave}`]] },
-      { label: "Tools", expect: at("/tools"),
+      { label: "Tools", expect: at("/tools/money"),
         checks: async () => [["still one save", posts.pricingSave === 1, `saves=${posts.pricingSave}`]] },
     ],
   });
@@ -483,7 +483,7 @@ function chains(vp) {
       before: () => resetPosts(),
       via,
       entry: [
-        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
         step("Pricing", (p) => pushTo(p, "/pricing")),
         step("+ → name → step 2", async (p) => {
           await p.getByRole("button", { name: "הוספת פריט" }).first().click();
@@ -500,7 +500,7 @@ function chains(vp) {
       backs: [
         { label: "catalog — wizard steps consumed", expect: at("/pricing"),
           checks: async () => [["exactly one create", posts.pricingCreate === 1, `creates=${posts.pricingCreate}`]] },
-        { label: "Tools", expect: at("/tools"),
+        { label: "Tools", expect: at("/tools/money"),
           checks: async () => [["still one create", posts.pricingCreate === 1, `creates=${posts.pricingCreate}`]] },
       ],
     });
@@ -542,7 +542,7 @@ function chains(vp) {
     });
   const wizardToConfirm = [
     step("Tools", async (p) => {
-      await p.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+      await p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" });
       await p.evaluate(() => localStorage.removeItem("inventory:supplierPurchases:newDraft:v1"));
     }),
     step("Inventory", (p) => pushTo(p, "/inventory")),
@@ -610,7 +610,7 @@ function chains(vp) {
       via,
       entry: [
         step("Tools + flow data", async (p) => {
-          await p.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+          await p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" });
           await seedContent(p);
         }),
         step("content step", (p) => pushTo(p, "/content")),
@@ -626,7 +626,7 @@ function chains(vp) {
       backs: [
         { label: "the step before the render (render never re-entered)", expect: at("/content"),
           checks: async () => [["exactly one render POST", posts.contentRender === 1, `renders=${posts.contentRender}`]] },
-        { label: "Tools", expect: at("/tools"),
+        { label: "Tools", expect: at("/tools/money"),
           checks: async () => [["still one render", posts.contentRender === 1, `renders=${posts.contentRender}`]] },
       ],
     });
@@ -715,7 +715,7 @@ function chains(vp) {
       title: "#fragment jump on a detail screen keeps the chain",
       via,
       entry: [
-        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
         step("detail", (p) => pushTo(p, "/payables/match/41")),
         step("#lines (fragment entry)", async (p) => {
           await p.evaluate(() => {
@@ -726,10 +726,10 @@ function chains(vp) {
       ],
       backs:
         via === "button"
-          ? [{ label: "Tools — the real origin (fragment entry is the same screen)", expect: at("/tools") }]
+          ? [{ label: "Tools — the real origin (fragment entry is the same screen)", expect: at("/tools/money") }]
           : [
               { label: "the detail without the fragment", expect: at("/payables/match/41") },
-              { label: "Tools", expect: at("/tools") },
+              { label: "Tools", expect: at("/tools/money") },
             ],
     });
   }
@@ -749,7 +749,7 @@ function chains(vp) {
     id: "F21b-full-reload-navigation",
     title: "Entry created by a full-document navigation (location.assign): no fabricated origin",
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("location.assign → detail", async (p) => {
         await p.evaluate(() => location.assign("/payables/match/42"));
         await p.waitForURL("**/payables/match/42");
@@ -762,7 +762,7 @@ function chains(vp) {
     id: "F21c-lost-session-trail",
     title: "Trail storage lost (cleared), then refresh: no fabricated origin",
     entry: [
-      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
       step("detail", (p) => pushTo(p, "/payables/match/41")),
       step("sessionStorage cleared + reload", async (p) => {
         await p.evaluate(() => sessionStorage.clear());
@@ -778,10 +778,10 @@ function chains(vp) {
       id: "F22-suppliers-list",
       title: "Suppliers list (phone/tablet) opened from Tools: back to Tools",
       entry: [
-        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("Tools", (p) => p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" })),
         step("Suppliers", (p) => pushTo(p, "/suppliers")),
       ],
-      backs: [{ label: "Tools", expect: at("/tools") }],
+      backs: [{ label: "Tools", expect: at("/tools/money") }],
     });
   }
 

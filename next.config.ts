@@ -24,6 +24,15 @@ const nextConfig: NextConfig = {
         destination: "/home",
         permanent: true,
       },
+      // The /tools catalogue, retired: it repeated the sidebar and Home's three family tiles. The
+      // family screens (/tools/money · customers · operations) stay; a direct visit to the root —
+      // including an old /tools#group-* link — lands on Home, where those tiles are. Temporary (307),
+      // so the decision stays reversible without browsers caching it.
+      {
+        source: "/tools",
+        destination: "/app",
+        permanent: false,
+      },
     ];
   },
 

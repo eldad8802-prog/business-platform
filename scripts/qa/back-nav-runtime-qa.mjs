@@ -188,7 +188,7 @@ async function scenario(browser, vp) {
   check("browser Forward/Back returns to the same list", path(page) === "/customers");
 
   /* ---- 1. multi-source: the same screen from three sources -------------- */
-  for (const source of ["/tools", "/settings", "/customers"]) {
+  for (const source of ["/tools/money", "/settings", "/customers"]) {
     await pushTo(page, source);
     await pushTo(page, DETAIL);
     check(`${DETAIL} from ${source}: back mode = history`, (await backMode(page)) === "history");
@@ -198,13 +198,13 @@ async function scenario(browser, vp) {
   }
 
   /* ---- 3. refresh keeps the origin -------------------------------------- */
-  await pushTo(page, "/tools");
+  await pushTo(page, "/tools/money");
   await pushTo(page, DETAIL);
   await page.reload({ waitUntil: "networkidle" });
   check("after refresh: back still knows the origin", (await backMode(page)) === "history");
   await clickBack(page);
-  await page.waitForURL((u) => u.pathname === "/tools");
-  check("after refresh: back → /tools", new URL(page.url()).pathname === "/tools");
+  await page.waitForURL((u) => u.pathname === "/tools/money");
+  check("after refresh: back → /tools", new URL(page.url()).pathname === "/tools/money");
 
   /* ---- 5. rapid repeated activation moves exactly one screen ----------- */
   await pushTo(page, "/settings");
@@ -303,7 +303,7 @@ async function scenario(browser, vp) {
   await page.screenshot({ path: `qa-evidence/back-nav/${vp.name}-detail.png` });
 
   /* ---- 7. account switch is a trail boundary ---------------------------- */
-  await pushTo(page, "/tools");
+  await pushTo(page, "/tools/money");
   await pushTo(page, DETAIL);
   await page.evaluate((t) => localStorage.setItem("token", t), tokenFor(10));
   await pushTo(page, "/payables/match/43");
