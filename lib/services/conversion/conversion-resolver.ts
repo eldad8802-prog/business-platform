@@ -182,7 +182,8 @@ function objectiveGate(objective: string, channel: ConversionChannelCode, declar
   return null;
 }
 
-const CHANNEL_PREFERENCE_ORDER: ConversionChannelCode[] = ["DUBIZ_FORM", "WHATSAPP_CLOUD", "WHATSAPP_LINK", "PHONE", "IN_PERSON", "EMAIL", "EXTERNAL_LINK", "DUBIZ_BOOKING", "DUBIZ_CHECKOUT"];
+/** Channel order used to pick the best path for an objective (shared with the P3-B strategy engine). */
+export const CHANNEL_PREFERENCE_ORDER: ConversionChannelCode[] = ["DUBIZ_FORM", "WHATSAPP_CLOUD", "WHATSAPP_LINK", "PHONE", "IN_PERSON", "EMAIL", "EXTERNAL_LINK", "DUBIZ_BOOKING", "DUBIZ_CHECKOUT"];
 
 export function resolveConversion(input: ConversionInputs): ConversionResolution {
   const channels = channelCapabilities(input);
