@@ -41,6 +41,8 @@ jobs:
         run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
       - name: BKS / Brain coverage (every rule reaches the snapshot and the shadow Brain)
         run: npx tsx lib/knowledge/coverage/bks-brain-coverage.test.ts
+      - name: Evidence kinds (every coverage evidence link names the table its id lives in)
+        run: npx tsx lib/knowledge/coverage/evidence-kinds.test.ts
       - name: Sensor contract (learning roles and time semantics typed)
         run: npx tsx lib/sensors/sensors.test.ts
 

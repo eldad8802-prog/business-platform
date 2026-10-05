@@ -1,0 +1,71 @@
+name: Prod Read-Only Evidence (learning coverage proof, B3/B9)
+
+# All-Feature Learning Coverage — the final Production proof, READ ONLY. Run AFTER the two real
+# derivations (knowledge-derive.yml for business 3 and for business 9). scripts/ops/learning-coverage-proof.ts:
+# the latest SUCCEEDED run of each business after `since` (rules ran, 0 failures), the 33 coverage lineages,
+# every coverage measure pinned to its v1, provenance of every coverage evidence link (record exists, same
+# business), customer subjects are Customers of the same business (FK only), no phone/email/tax-id key in any
+# detail, no source record created during the run, pre-coverage learning still pinned.
+#
+# ONE owner session, READ ONLY by Postgres (verified before and after). Output: counts, codes, booleans —
+# never a name, value, amount or entity id. Changes nothing. Businesses are fixed to 3 and 9.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "ISO instant; only derivation runs started at or after it count (e.g. the Production deploy time)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-learning-coverage
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Learning coverage proof (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secret present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db — NOT RUN."; exit 1; fi
+          echo "Connection secret present."
+
+      - name: Validate input
+        env:
+          SINCE: ${{ inputs.since }}
+        run: |
+          set -euo pipefail
+          [[ "$SINCE" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "::error::since must be an ISO instant like 2026-10-05T00:56:30Z"; exit 2; }
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Learning coverage proof (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          SINCE: ${{ inputs.since }}
+        run: node_modules/.bin/tsx scripts/ops/learning-coverage-proof.ts --allow-host ep-flat-brook-am4bhq1y --businesses 3,9 --since "$SINCE"
