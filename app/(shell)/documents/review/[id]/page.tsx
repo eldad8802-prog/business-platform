@@ -528,7 +528,6 @@ export default function ReviewPage() {
         loading={loading}
         error={error}
         onRetry={reprocess}
-        onBack={() => router.push("/documents")}
       />
     );
   }
@@ -539,7 +538,7 @@ export default function ReviewPage() {
           1240 at the workspace breakpoint); the rest of mainStyle stays inline. */}
       <main className={reviewAdaptive.reviewMain} style={{ ...mainStyle(), maxWidth: undefined, margin: undefined }}>
         <section style={reviewTopBarStyle}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
           <div style={reviewTopTitleWrapStyle}>
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
@@ -654,7 +653,10 @@ export default function ReviewPage() {
               nextPendingDocumentId={nextPendingDocumentId}
               onNext={() =>
                 nextPendingDocumentId
-                  ? router.push(`/documents/review/${nextPendingDocumentId}`)
+                  ? // Next in the queue REPLACES this (finished) review, so back
+                    // returns to where the queue was entered, not through every
+                    // document already handled.
+                    router.replace(`/documents/review/${nextPendingDocumentId}`)
                   : router.push("/documents/inbox")
               }
               onHub={() => router.push("/documents")}
@@ -819,14 +821,12 @@ function ProcessingReviewScreen({
   loading,
   error,
   onRetry,
-  onBack,
 }: {
   status: "processing" | "failed";
   stale: boolean;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  onBack: () => void;
 }) {
   const isFailed = status === "failed";
   // A failed doc always offers retry; a "processing" doc only once it looks
@@ -837,7 +837,7 @@ function ProcessingReviewScreen({
       <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
       <main style={mainStyle()}>
         <section style={reviewTopBarStyle}>
-          <DocumentsBackButton onClick={onBack} />
+          <DocumentsBackButton />
           <div style={reviewTopTitleWrapStyle}>
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>

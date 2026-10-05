@@ -213,6 +213,7 @@ export default function InventoryUnmatchedPage() {
     <InventorySubPage intent="data"
       title="מכירות לא מזוהות"
       variant="hub"
+      hubBack
       sub={
         !loading && !error
           ? `${pendingMatches.length} מכירות מה-POS לא נמצא להן מוצר תואם`

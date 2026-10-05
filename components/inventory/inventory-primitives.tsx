@@ -87,17 +87,17 @@ export function InventoryHeader({
   title: string;
   variant: "hub" | "page";
   sub?: ReactNode;
-  /** Page variant only. Omit `href`+`onBack` to fall back to router.back(). */
+  /**
+   * Back control. Without `onBack` it returns to the screen the user actually
+   * came from; `href` is only the FALLBACK (direct link / new tab), else the
+   * route registry's parent. `onBack` = an in-screen step. On the hub variant
+   * a back control is rendered only when `back` is passed (sub-screens that
+   * use the hub look); module tab roots pass nothing.
+   */
   back?: { href?: string; onBack?: () => void; label?: string };
   action?: InventoryHeaderAction | null;
 }) {
   const router = useRouter();
-
-  const handleBack = useCallback(() => {
-    if (back?.onBack) return back.onBack();
-    if (back?.href) return router.push(back.href);
-    router.back();
-  }, [back, router]);
 
   const handleAction = useCallback(() => {
     if (!action) return;
@@ -121,6 +121,7 @@ export function InventoryHeader({
     return (
       <>
         <div className="inv-hd inv-hd--hub">
+          {back ? <BackButton onClick={back.onBack} label={back.label} fallback={back.href} /> : null}
           <h1 className="inv-hd__title-hub">{title}</h1>
           <div className="inv-hd__grow" />
           {actionBtn}
@@ -132,9 +133,8 @@ export function InventoryHeader({
 
   return (
     <header className="inv-hd inv-hd--page">
-      {/* Canonical app-wide back control (chevron + "חזרה"), start-aligned
-          (right in RTL). Callers may override the text via back.label. */}
-      <BackButton onClick={handleBack} label={back?.label ?? "חזרה"} />
+      {/* Canonical app-wide back control, start-aligned (right in RTL). */}
+      <BackButton onClick={back?.onBack} label={back?.label} fallback={back?.href} />
       <h1 className="inv-hd__title-page">{title}</h1>
       {actionBtn ?? <span className="inv-iconbtn inv-iconbtn--ghost" aria-hidden />}
     </header>

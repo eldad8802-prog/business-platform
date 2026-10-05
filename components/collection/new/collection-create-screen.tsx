@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
@@ -147,7 +147,7 @@ export function CollectionCreateScreen() {
         }
       `}</style>
         <div className="col-create__head" style={{ display: "grid", gap: 8 }}>
-          <Link href="/collection" style={{ color: W.muted, textDecoration: "none", fontSize: 14 }}>→ גבייה</Link>
+          <div><BackButton /></div>
           <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>
             {created ? "הבקשה מוכנה — איך לשלוח?" : thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
           </h1>

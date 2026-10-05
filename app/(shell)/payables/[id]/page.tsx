@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import {
   METHOD_LABEL,
   SCHEDULE_LABEL,
@@ -59,7 +59,6 @@ export default function CommitmentDetailPage({
 }) {
   const { id } = use(params);
   const commitmentId = Number(id);
-  const router = useRouter();
 
   const [detail, setDetail] = useState<CommitmentDetailApi | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +124,9 @@ export default function CommitmentDetailPage({
   if (error && !detail) {
     return (
       <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+        <div className={styles.backRow}>
+          <BackButton />
+        </div>
         <div className={styles.error}>{error}</div>
       </div>
     );
@@ -132,6 +134,9 @@ export default function CommitmentDetailPage({
   if (!detail) {
     return (
       <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+        <div className={styles.backRow}>
+          <BackButton />
+        </div>
         <div className={styles.empty}>טוען…</div>
       </div>
     );
@@ -143,13 +148,9 @@ export default function CommitmentDetailPage({
 
   return (
     <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
-      <button
-        type="button"
-        className={styles.backLink}
-        onClick={() => router.push("/payables")}
-      >
-        ← כל ההתחייבויות
-      </button>
+      <div className={styles.backRow}>
+        <BackButton />
+      </div>
 
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>

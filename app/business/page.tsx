@@ -178,8 +178,6 @@ export default function BusinessProfilePage() {
     <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
       <PageHeader
         title="העסק שלי"
-        backHref="/tools"
-        backLabel="חזרה"
         showBack
       />
       <main className={desk.main}>
@@ -382,7 +380,7 @@ export default function BusinessProfilePage() {
                 textDecoration: "none",
               }}
             >
-              ← חזרה לחשבוניות
+              למסך החשבוניות ←
             </Link>
           </div>
         )}

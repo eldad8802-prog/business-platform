@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 
@@ -59,8 +60,8 @@ function formatDate(raw: string | null | undefined): string {
 export default function SearchPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
-  const [direction, setDirection] = useState<DirectionFilter>("all");
+  const [query, setQuery] = useEntryState("query", "");
+  const [direction, setDirection] = useEntryState<DirectionFilter>("direction", "all");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [active, setActive] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");

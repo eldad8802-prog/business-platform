@@ -258,7 +258,9 @@ function SecretaryPageInner() {
   async function finishComplete(token: string, id: number) {
     await completeObligation(token, id);
     await refreshAfterMutation(token);
-    router.push("/secretary?screen=loops&id=" + id + "&loopMode=met");
+    // The result REPLACES the screen the action was taken on: back from it
+    // must not return to an item that is already completed.
+    router.replace("/secretary?screen=loops&id=" + id + "&loopMode=met");
   }
 
   function findObligation(id: number): ObligationApi | null {
@@ -344,7 +346,7 @@ function SecretaryPageInner() {
     if (!token) return;
     await releaseObligation(token, id);
     await refreshAfterMutation(token);
-    router.push("/secretary?screen=loops&id=" + id + "&loopMode=release");
+    router.replace("/secretary?screen=loops&id=" + id + "&loopMode=release");
   }
 
   const route = currentRouteState();

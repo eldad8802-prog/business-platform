@@ -1,5 +1,6 @@
 "use client";
 
+import BackButton from "@/components/ui/back-button";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RedeemScanner from "./redeem-scanner";
@@ -490,6 +491,11 @@ export default function RedeemScreen() {
           margin: "0 auto",
         }}
       >
+        {/* The scanner hides the shell chrome on phones/tablets: this is the
+            screen's only way out, so it is always present. */}
+        <div style={{ marginBottom: 12 }}>
+          <BackButton />
+        </div>
         {flowState === "scan" && (
           <div
             style={{

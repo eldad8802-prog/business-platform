@@ -608,6 +608,9 @@ export default function PricingPage() {
         {activePanel === "catalog" && (
           <div style={scrollPadStyle}>
             <header style={catalogHeadStyle}>
+              {/* Catalog = the screen's root panel; inner panels use their own
+                  in-screen back (onClick) below. */}
+              <BackButton />
               <div style={{ flex: 1 }}>
                 <h1 style={pageTitleStyle}>תמחור</h1>
                 <p style={pageSubtitleStyle}>תמחור עלות-פלוס לשירותים ומוצרים</p>

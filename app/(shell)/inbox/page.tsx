@@ -1,9 +1,11 @@
 "use client";
 
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
+import { useGoBack } from "@/components/ui/back-button";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import {
   InboxConnectionLoader,
@@ -211,14 +213,15 @@ function InboxPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const goBackFromConversation = useGoBack("/inbox");
 
   const [selectedWorkCategory, setSelectedWorkCategory] =
-    useState<InboxSidebarSelection>(INBOX_SIDEBAR_LEGACY_OPEN);
+    useEntryState<InboxSidebarSelection>("category", INBOX_SIDEBAR_LEGACY_OPEN);
   // List-internal browsing toggle (mobile only): triage ("categories") vs the
   // selected category's conversations. NOT a top-level navigation source of
   // truth — the open conversation is owned solely by the URL (see below).
   const [mobileListPhase, setMobileListPhase] =
-    useState<InboxListPhase>("categories");
+    useEntryState<InboxListPhase>("listPhase", "categories");
 
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   /** The last conversations load failed, so an empty list is not "no conversations". */
@@ -245,7 +248,7 @@ function InboxPageContent() {
   // Guards both send handlers against a double-tap reaching the server twice.
   const sendingRef = useRef(false);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<number | null>(null);
-  const [listSearchQuery, setListSearchQuery] = useState("");
+  const [listSearchQuery, setListSearchQuery] = useEntryState("listSearch", "");
   // SSR-safe scope for the Inbox layout's breakpoint CSS (framing + desktop/mobile
   // surface visibility). No hydration branch — the media query does the switching.
   const inboxScope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -339,11 +342,13 @@ function InboxPageContent() {
     setMobileListPhase("categories");
   }
 
-  // Mobile: in-app back arrow inside a conversation. Explicit navigation to the
-  // list via push — independent of history provenance, so a deep-linked or
-  // refreshed detail also lands on the list rather than exiting the app.
+  // Mobile: in-app back arrow inside a conversation. Pops the history entry the
+  // conversation was opened with (so browser Back/Forward stay consistent and
+  // the list keeps its category / scroll); a deep-linked or refreshed
+  // conversation with no verified origin falls back to the list via replace —
+  // never exits the app, never stacks a new entry.
   function handleBackToConversationList() {
-    updateConversationIdInUrl(null);
+    goBackFromConversation();
   }
 
   // Invalid-SYNTAX normalization: the param exists but is not a valid id →

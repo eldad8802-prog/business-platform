@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useCallback, useEffect, useState } from "react";
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
 import type { PlatformAdminBusinessFeaturesResponse } from "@/lib/services/feature-access/feature-access.types";
@@ -129,18 +129,9 @@ export function BusinessFeaturesSurface({
           borderBottom: `1px solid ${PA.border}`,
         }}
       >
-        <Link
-          href={`/admin/businesses/${businessId}`}
-          style={{
-            fontSize: 13,
-            color: PA.inkMuted,
-            textDecoration: "none",
-            display: "inline-block",
-            marginBottom: 8,
-          }}
-        >
-          ← פרטי עסק
-        </Link>
+        <div style={{ marginBottom: 8 }}>
+          <BackButton fallback={`/admin/businesses/${businessId}`} />
+        </div>
         {error ? (
           <PlatformAdminInlineError message={error} onRetry={() => void load()} />
         ) : data ? (

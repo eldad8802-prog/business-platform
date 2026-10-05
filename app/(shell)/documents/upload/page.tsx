@@ -112,7 +112,9 @@ export default function DocumentsUploadPage() {
       if (!response.ok || !data?.documentId) {
         throw new Error(data?.error || "Upload failed");
       }
-      router.push(`/documents/review/${data.documentId}`);
+      // The upload is done: the review replaces it, so back from the review
+      // returns to where the upload was started, not to an empty uploader.
+      router.replace(`/documents/review/${data.documentId}`);
     } catch (err) {
       setError(errorMessage(err, "לא הצלחנו להעלות את המסמך"));
       setProcessingName("");
@@ -124,7 +126,7 @@ export default function DocumentsUploadPage() {
       <PageContainer intent="focused" className="dz-upload" style={{ paddingBlock: "14px 40px" }}>
         <div className="dz-upload-desk">
         <header className="dz-upload-span" style={headStyle}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
           <h1 style={titleStyle}>העלאת קובץ</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>

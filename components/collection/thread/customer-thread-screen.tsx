@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
@@ -176,7 +177,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
         }
       `}</style>
       <div className="col-thread">
-        <Link className="col-thread__span" href="/collection" style={{ color: W.muted, textDecoration: "none", fontSize: 14 }}>→ גבייה</Link>
+        <div className="col-thread__span"><BackButton /></div>
         {error ? <WarmCard><p style={{ margin: 0 }}>{error}</p></WarmCard> : null}
         {!thread && !error ? <p style={{ color: W.muted }}>טוען…</p> : null}
         {thread ? (

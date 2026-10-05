@@ -389,24 +389,19 @@ export function SecretaryScreen({
 }
 
 /**
- * Back to the real previous screen. Uses in-app history when it exists (so a
- * detail reached from "today" returns to "today", not a fixed target), and
- * falls back to a safe secretary href on a fresh deep link / refresh so we
- * never dead-end or leave a blank screen.
+ * Back to the screen the user actually came from (verified navigation trail —
+ * a detail reached from "today" returns to "today"). Only when there is no
+ * verified origin (deep link, new tab) does it open the declared secretary
+ * fallback, labelled with its destination.
  */
 function BackControl({ fallbackHref }: { fallbackHref: string }) {
-  const router = useRouter();
-  return (
-    <BackButton
-      onClick={() => {
-        if (typeof window !== "undefined" && window.history.length > 1) {
-          router.back();
-        } else {
-          router.push(fallbackHref);
-        }
-      }}
-    />
-  );
+  return <BackButton fallback={fallbackHref} fallbackLabel={secretaryFallbackLabel(fallbackHref)} />;
+}
+
+function secretaryFallbackLabel(href: string): string {
+  if (href.includes("screen=detail")) return "לפרטי ההתחייבות";
+  if (href.includes("screen=all")) return "לכל ההתחייבויות";
+  return "למזכירה";
 }
 
 export function SecretaryAvatar() {

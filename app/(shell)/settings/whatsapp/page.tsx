@@ -37,7 +37,7 @@ export default function WhatsAppSettingsPage() {
 
   return (
     <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
-      <PageHeader title="WhatsApp Business" backHref="/tools" backLabel="חזרה" showBack />
+      <PageHeader title="WhatsApp Business" showBack />
 
       {/* Pilot: focused intent (Spec v1 §6) — the connection is a focused
           setting, and that decision lives in the DS, not a literal. From 1200

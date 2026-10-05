@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { TOKEN } from "@/lib/design/tokens";
 import { WarmButton, WarmCard, WarmPill } from "@/components/ui/warm/warm-primitives";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
@@ -48,7 +49,7 @@ export function CollectionInboxScreen() {
   const router = useRouter();
   const [inbox, setInbox] = useState<CollectionInbox | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [segment, setSegment] = useState<Segment | null>(null);
+  const [segment, setSegment] = useEntryState<Segment | null>("segment", null);
   const [notice, setNotice] = useState<string | null>(null);
   const [olderPaid, setOlderPaid] = useState<InboxPaidItem[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);

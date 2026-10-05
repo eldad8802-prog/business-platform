@@ -74,7 +74,7 @@ export default function UniformExportPage() {
     <div dir="rtl" style={pageStyle}>
       <PageContainer intent="focused" className="dz-uniform" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
           <h1 style={titleStyle}>הפקת מבנה אחיד</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>

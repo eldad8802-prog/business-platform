@@ -454,7 +454,7 @@ export default function ResultPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <BackButton href="/content/render" />
+          <BackButton />
 
           <div style={topBarTitleStyle}>הסרטון מוכן</div>
 

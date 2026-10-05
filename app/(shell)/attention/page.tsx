@@ -1,8 +1,10 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
+import BackButton from "@/components/ui/back-button";
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 
 import type {
   BusinessStatusItem,
@@ -141,7 +143,7 @@ export default function AttentionPage() {
     null
   );
   const [busyItem, setBusyItem] = useState<number | null>(null);
-  const [domainFilter, setDomainFilter] = useState<BusinessStatusItem["domain"] | "all">("all");
+  const [domainFilter, setDomainFilter] = useEntryState<BusinessStatusItem["domain"] | "all">("domain", "all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Extracted from the mount effect so a quick action can re-read the snapshot
@@ -348,6 +350,12 @@ export default function AttentionPage() {
       */}
       <PageContainer className="attn-page" intent="data" as="div" style={{ paddingBlock: "8px 12px" }}>
         <header style={{ marginBottom: 24, paddingTop: 6 }}>
+          {/* /attention is a secondary hub (not in the main nav), reached from
+              Home, notifications, the secretary and inventory: back returns
+              there; Home is the fallback. */}
+          <div style={{ marginBottom: 10 }}>
+            <BackButton />
+          </div>
           <h1
             style={{
               margin: "0 0 8px 0",

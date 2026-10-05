@@ -20,6 +20,7 @@
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { useGoBack } from "@/components/ui/back-button";
 import { ScreenModeProvider } from "@/components/ui/coupon/coupon-primitives";
 import { ConsumerJourney } from "@/components/coupon/screens/consumer-screens";
 import { CouponCreationFlow } from "@/components/coupon/screens/creation-screens";
@@ -114,6 +115,9 @@ function parseView(raw: string | null): View {
 
 function CouponFeature() {
   const router = useRouter();
+  // Leaving "my coupons" returns to where the user came from (Home, Tools,
+  // the business page…); the registry fallback (Home) covers a direct link.
+  const goBack = useGoBack();
   const params = useSearchParams();
   const view = parseView(params.get("view"));
 
@@ -229,7 +233,7 @@ function CouponFeature() {
       <MyCouponsScreen
         onCreate={() => go("create")}
         onBrowse={() => go("browse")}
-        onExit={() => router.push("/app")}
+        onExit={goBack}
       />
     </ManagementSurface>
   );

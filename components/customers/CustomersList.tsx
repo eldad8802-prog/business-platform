@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
 import {
   getCustomers,
@@ -32,10 +33,10 @@ const FILTERS: Array<{ key: CustomerLifecycleFilter; label: string }> = [
 export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
   const [customers, setCustomers] = useState<CustomerListRow[]>([]);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useEntryState("query", "");
   // Lifecycle filter (C2). The CRM surface defaults to "active"; the API/client
   // default stays "all" for Billing / legacy callers, so this only narrows the CRM.
-  const [status, setStatus] = useState<CustomerLifecycleFilter>("active");
+  const [status, setStatus] = useEntryState<CustomerLifecycleFilter>("status", "active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
