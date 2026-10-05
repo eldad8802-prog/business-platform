@@ -165,6 +165,16 @@ export async function loadHomeCollection(
     input.period === "yesterday" || input.period === "week" ? input.period : "today";
   const w = resolveWindows(period, now);
 
+  // Month bounds are pure computation: resolve them BEFORE the interactive
+  // transaction opens, so no CPU work runs on the transaction's 5000 ms clock
+  // (the P2028 of #658 was exactly that — see jerusalem-month-range.ts).
+  const monthKey = jerusalemDayKey(now).slice(0, 7);
+  const [y, m] = monthKey.split("-").map(Number);
+  const thisMonth = jerusalemMonthUtcHalfOpen(monthKey);
+  const prevMonth = jerusalemMonthUtcHalfOpen(
+    m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`
+  );
+
   // Observability marks (see home-collection-timeline.ts): they record time and
   // nothing else, and are silent when no timeline is in scope.
   markHomeCollection("T1");
@@ -177,13 +187,6 @@ export async function loadHomeCollection(
       paymentRequest: { businessId },
       createdAt: { gte: from, lt: toExclusive },
     });
-
-    const monthKey = jerusalemDayKey(now).slice(0, 7);
-    const [y, m] = monthKey.split("-").map(Number);
-    const thisMonth = jerusalemMonthUtcHalfOpen(monthKey);
-    const prevMonth = jerusalemMonthUtcHalfOpen(
-      m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`
-    );
 
     markHomeCollection("T5");
     const [currentRows, previousRows, monthAgg, prevMonthAgg] = await Promise.all([

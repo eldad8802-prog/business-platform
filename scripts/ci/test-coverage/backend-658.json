@@ -1,0 +1,14 @@
+{
+  "note": "#658 backend closure: /api/home leadsAttention tenant context (security) and the /api/home/collection P2028 root cause (product).",
+  "tests": {
+    "app/api/home/route.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: GET /api/home called with no ambient tenant context, as a NOSUPERUSER NOBYPASSRLS role, under the Lead FORCE RLS policy as migrated; proves leadsAttention.count is the session business's own count, never another tenant's, ignores a planted businessId, and keeps the narrow needsAction meaning; refuses to run as a role that bypasses RLS"
+    },
+    "lib/utils/jerusalem-month-range.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): jerusalemMonthUtcHalfOpen keeps its contract (earliest instant of the 1st, every month 2015–2035, both DST shifts) and a cold call stays far inside the 5000 ms transaction budget (the #658 P2028 root cause); not yet wired into CI (product-test debt, like its siblings lib/utils/jerusalem-day.verify.test.ts and lib/services/home/*.verify.test.ts)"
+    }
+  }
+}
