@@ -22,6 +22,7 @@ import type {
   RelationshipItem,
 } from "./snapshot.contract";
 import type { DomainState, StoredKnowledge } from "./snapshot-sources";
+import { X_CASH_01, X_CUST_01, X_REPL_01, X_RESP_01 } from "./cross-domain-brain";
 
 const DAY = 86_400_000;
 const MAX_REFS = 20;
@@ -31,7 +32,8 @@ export type CrossDomainContext = {
   readonly items: readonly KnowledgeItem[];
   readonly relationships: readonly RelationshipItem[];
   readonly domain: DomainState;
-  readonly stored: Pick<StoredKnowledge, "installments" | "actions">;
+  /** depth (bks.v2) is optional so fixtures written before it still evaluate. */
+  readonly stored: Pick<StoredKnowledge, "installments" | "actions"> & { readonly depth?: StoredKnowledge["depth"] };
 };
 
 export type CrossDomainRule = {
@@ -148,6 +150,7 @@ export const X_PARTY_01: CrossDomainRule = {
     const byParty = new Map<number, RelationshipItem[]>();
     for (const r of input.relationships) {
       if (r.status !== "ACTIVE") continue; // PROPOSED and REJECTED can never be premises
+      if (r.type !== "SAME_COUNTERPARTY" || r.via.type !== "party") continue; // identity only; record links are not identity
       const list = byParty.get(r.via.id) ?? [];
       list.push(r);
       byParty.set(r.via.id, list);
@@ -213,7 +216,7 @@ export const X_PARTY_01: CrossDomainRule = {
   },
 };
 
-export const CROSS_DOMAIN_RULES: readonly CrossDomainRule[] = [X_COLL_01, X_PARTY_01];
+export const CROSS_DOMAIN_RULES: readonly CrossDomainRule[] = [X_COLL_01, X_PARTY_01, X_CUST_01, X_CASH_01, X_REPL_01, X_RESP_01];
 
 /**
  * Every audited family and its status. Blocked families become RULE_BLOCKED gaps in the snapshot, so
@@ -226,14 +229,16 @@ export const CROSS_DOMAIN_FAMILIES = [
     note: "Only through a Party bound by owner confirmation or a valid tax id." },
   { family: "C", name: "documents / suppliers / payables", status: "READY", rule: "X-PARTY-01",
     note: "Document knowledge is keyed on a resolved Party; the same rule joins it — never a vendor string." },
-  { family: "D", name: "inventory / purchasing / suppliers", status: "BLOCKED_PRODUCT_DEFECT", rule: null,
-    note: "Stock pressure (INV-05) is corrupted by the POS held-sale defect; restock ↔ receiving is the same event seen twice, not a relationship." },
+  { family: "D", name: "inventory / purchasing / suppliers", status: "READY", rule: "X-REPL-01",
+    note: "READY for replenishment RHYTHM only: an item's restock interval next to the purchase cadence / delivery lag of the suppliers its own PO lines name (a real foreign-key relationship). Stock pressure (INV-05) stays excluded — the POS held-sale defect corrupts quantities." },
   { family: "E", name: "leads / customers / billing / revenue", status: "BLOCKED_SENSOR", rule: null,
     note: "No authoritative lead → paying-customer link (Lead.customerId is bound at creation); conversion cannot be established." },
-  { family: "F", name: "response / conversations / leads", status: "BLOCKED_SENSOR", rule: null,
-    note: "Message senderType is client-asserted and first-response has no writer (manifest PARTIAL/GAP)." },
-  { family: "G", name: "business cost / obligations / payments", status: "PARTIAL", rule: null,
-    note: "A commitments list alone is single-domain; its cross-domain half (recurring vendor + payee) is X-PARTY-01." },
+  { family: "F", name: "response / conversations / leads", status: "READY", rule: "X-RESP-01",
+    note: "READY since CONV-01/02 stopped trusting senderType: a reply is any non-failed outbound message (no autonomous send exists) and inbound counts only with a provider message id." },
+  { family: "G", name: "business cost / obligations / payments", status: "READY", rule: "X-CASH-01",
+    note: "READY as obligations-and-receivables in one window (payables due vs invoices due, side by side). No cash balance exists, so no adequacy judgement is possible or made. Cost-learning internals stay with the cost workstream." },
+  { family: "I", name: "customer / billing / payments / collection / appointments / leads", status: "READY", rule: "X-CUST-01",
+    note: "One customer's learned knowledge joined to that customer's records in other domains by customerId only; phone / email / tax id are never used for identity." },
   { family: "H", name: "document processing / financial operations", status: "NOT_JUSTIFIED", rule: null,
     note: "Filing lag and review backlog are both documents-domain; combining them is not cross-domain knowledge." },
 ] as const;

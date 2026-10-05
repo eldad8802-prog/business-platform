@@ -21,15 +21,18 @@ import { createHash } from "node:crypto";
 import type { BusinessKnowledgeSnapshot, KnowledgeItem } from "../snapshot/snapshot.contract";
 
 // v2 (M9): admits RECOMMENDATION_MEMORY, DECISION_PATTERN and OUTCOME_PATTERN, scalar fields only.
-export const CONTEXT_VERSION = "brain-context.v2";
+/** v3 (Business Brain): TEMPORAL_STATE and memory facts, and one-level flattening of cross-domain finding values. */
+export const CONTEXT_VERSION = "brain-context.v3";
 
 export const CONTEXT_BUDGET = {
-  knowledge: 60,
+  // Business Brain: 60 → 80 items and 24 KB → 32 KB, so interpreted temporal states and cross-domain premises fit
+  // beside the measures. Same provider and model; at most one shadow call per business per cooldown.
+  knowledge: 80,
   findings: 20,
   conflicts: 20,
   gaps: 30,
   /** Serialized bytes of the whole context. Knowledge is trimmed, lowest priority first, to fit. */
-  bytes: 24_000,
+  bytes: 32_000,
 } as const;
 
 export type ContextKnowledge = {
@@ -110,6 +113,21 @@ function factsOf(item: KnowledgeItem): Record<string, Scalar> {
       if (Object.keys(miss).length > 0) { put("daysSinceLastOccurrence", miss.daysSinceLast); put("typicalGapDays", miss.typicalGap); }
       break;
     }
+    // Business Brain — one interpreted state per series: direction relative to the business's OWN history.
+    case "TEMPORAL_STATE":
+      put("state", v.state); put("direction", v.direction); put("changeKind", v.changeKind); put("polarity", v.polarity);
+      put("normalSince", v.normalSince); put("historyObservations", v.historyObservations); put("recentObservations", v.recentObservations);
+      break;
+    // Business Brain memory — what USED to be known. Its caveat NOT_CURRENT_KNOWLEDGE travels with it.
+    case "HISTORICAL_MEASURE":
+      put("historicalState", v.historicalState); put("unit", v.unit); if (!money) put("value", v.value == null ? null : Number(v.value));
+      put("validUntil", v.validUntil);
+      break;
+    case "PREVIOUS_BASELINE":
+      put("unit", v.unit); put("normalFrom", v.normalFrom); put("normalUntil", v.normalUntil);
+      if (!money) put("median", inner(v.baseline).median);
+      put("observations", inner(v.baseline).n);
+      break;
     case "FACT":
       put("category", v.category); put("severity", v.severity); put("moneyImpactBand", v.moneyImpactBand); put("blocking", v.blocking);
       break;
@@ -137,6 +155,8 @@ function factsOf(item: KnowledgeItem): Record<string, Scalar> {
 }
 
 const KIND_RANK: Record<string, number> = {
+  // A TEMPORAL_STATE is the interpreted summary of its series' raw artifacts, so it leads them.
+  TEMPORAL_STATE: 0, PREVIOUS_BASELINE: 7, HISTORICAL_MEASURE: 9,
   ANOMALY: 0, MATERIAL_CHANGE: 1, TREND: 2, FACT: 3, MEASURE: 5, STABLE_PATTERN: 6, BASELINE: 7, OWNER_DECISION: 8,
   RECOMMENDATION_MEMORY: 8, DECISION_PATTERN: 8, OUTCOME_PATTERN: 8, CLAIM: 9,
 };
@@ -164,9 +184,18 @@ export function buildBrainContext(snapshot: BusinessKnowledgeSnapshot): { contex
     return subjectAlias.get(key)!;
   };
 
-  // Fresh knowledge only, in a fixed priority order.
-  const fresh = snapshot.knowledge.filter((k) => k.freshness.fresh);
-  omit("STALE_KNOWLEDGE", snapshot.knowledge.length - fresh.length);
+  // Fresh knowledge only, in a fixed priority order. Memory items are never "fresh" but ARE meant for the
+  // Brain (as the past, caveat NOT_CURRENT_KNOWLEDGE), so they are admitted explicitly.
+  const MEMORY = new Set(["HISTORICAL_MEASURE", "PREVIOUS_BASELINE"]);
+  const admitted = snapshot.knowledge.filter((k) => k.freshness.fresh || MEMORY.has(k.kind));
+  omit("STALE_KNOWLEDGE", snapshot.knowledge.length - admitted.length);
+  // A series with an interpreted TEMPORAL_STATE does not also send its raw BASELINE / STABLE_PATTERN rows: the
+  // state carries their meaning (normal since, observations). Change, trend and anomaly rows stay — they carry
+  // the numbers a finding may cite. Nothing is removed from the snapshot itself.
+  const seriesOf = (slot: string) => slot.split("|").filter((_, i) => i !== 0 && i !== 2).join("|"); // temporal|key|KIND|… → key|…
+  const summarized = new Set(admitted.filter((k) => k.kind === "TEMPORAL_STATE").map((k) => k.slot.replace(/^tstate\|/, "")));
+  const fresh = admitted.filter((k) => !((k.kind === "BASELINE" || k.kind === "STABLE_PATTERN") && summarized.has(seriesOf(k.slot))));
+  omit("SUMMARIZED_BY_TEMPORAL_STATE", admitted.length - fresh.length);
   const ordered = [...fresh].sort((a, b) => rank(a) - rank(b) || a.slot.localeCompare(b.slot));
   omit("PROPOSED_OR_REJECTED_RELATIONSHIP", snapshot.relationships.filter((r) => r.status !== "ACTIVE").length);
   omit("TRUNCATED_BY_SNAPSHOT", Object.values(snapshot.stats?.truncated ?? {}).reduce((a, b) => a + b, 0));
@@ -200,6 +229,14 @@ export function buildBrainContext(snapshot: BusinessKnowledgeSnapshot): { contex
           for (const [ek, ev] of Object.entries(val as Record<string, unknown>)) if (scalar(ev) && !MONEY_KEYS.test(ek) && typeof ev === "number") facts[`payables_${ek}`] = ev;
         } else if (key === "knowledgeByDomain" && val && typeof val === "object") {
           facts.domainsWithKnowledge = Object.keys(val).length;
+        } else if (!MONEY_KEYS.test(key) && val && typeof val === "object" && !Array.isArray(val)) {
+          // Business Brain: one level of structure (e.g. payablesDue.installments, linkedRecords.customer.invoices),
+          // numbers and booleans only, money keys excluded at both levels.
+          for (const [ek, ev] of Object.entries(val as Record<string, unknown>)) {
+            if (!MONEY_KEYS.test(ek) && (typeof ev === "number" || typeof ev === "boolean")) facts[`${key}_${ek}`] = ev;
+          }
+        } else if (Array.isArray(val) && !MONEY_KEYS.test(key)) {
+          facts[`${key}_count`] = val.length;
         }
       }
       return {

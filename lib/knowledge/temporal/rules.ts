@@ -21,6 +21,7 @@
  */
 import { calendarDays } from "../rule-kit";
 import type { KnowledgeDomain } from "../rule.contract";
+import type { Polarity } from "./interpret";
 import * as sources from "../evidence/sources";
 import type { SettlementObservation } from "../rules/payables";
 import type { MovementObservation } from "../rules/inventory";
@@ -62,6 +63,13 @@ export type TemporalRule<TObs> = {
   readonly versionLabel: string;
   /** The M4 rule whose evidence this follows over time. */
   readonly followsRule: string;
+  /**
+   * Which direction of the measured value is better FOR THE BUSINESS — declared only where that is
+   * unambiguous (customers paying sooner, a supplier delivering sooner). Absent = neutral: a cadence, an
+   * amount or the owner's own payment timing has no single "better" direction, and the interpretation
+   * then reports SHIFTED / TRENDING instead of IMPROVING / DETERIORATING.
+   */
+  readonly polarity?: Polarity;
   readonly spec: TemporalSpec;
   /** Exact action labels from docs/learning/SENSOR_COVERAGE.md. */
   readonly manifestDependencies: readonly string[];
@@ -108,6 +116,7 @@ const DOC04_SPEC: TemporalSpec = {
 
 const tDoc04: TemporalRule<sources.PaperworkWithDirection> = {
   ruleId: "T-DOC-04", temporalKey: "documents.paperwork_lag", domain: "documents",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-documents-paperwork-lag", versionLabel: "v1", followsRule: "DOC-04",
   spec: DOC04_SPEC,
   manifestDependencies: ["Owner approves a document", "Financial record created"],
@@ -293,6 +302,7 @@ const tInv02: TemporalRule<MovementObservation> = {
 
 const tInv04: TemporalRule<MovementObservation> = {
   ruleId: "T-INV-04", temporalKey: "inventory.correction_share", domain: "inventory",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-inventory-correction-share", versionLabel: "v1", followsRule: "INV-04",
   spec: INV04_SPEC,
   manifestDependencies: ["Quantity changed / manual correction"],
@@ -345,6 +355,7 @@ const tSupp01: TemporalRule<SupplierOrderObservation> = {
 
 const tSupp02: TemporalRule<SupplierDeliveryObservation> = {
   ruleId: "T-SUPP-02", temporalKey: "suppliers.delivery_lag", domain: "suppliers",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-suppliers-delivery-lag", versionLabel: "v1", followsRule: "SUPP-02",
   spec: SUPP02_SPEC,
   manifestDependencies: ["Receiving posted", "Purchase order created by approving a draft"],
@@ -397,6 +408,7 @@ const tBill01: TemporalRule<IncomeDocumentObservation> = {
 
 const tBill02: TemporalRule<IncomeDocumentObservation> = {
   ruleId: "T-BILL-02", temporalKey: "billing.payment_timing", domain: "billing",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-billing-payment-timing", versionLabel: "v1", followsRule: "BILL-02",
   spec: BILL02_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
   series(obs) {
@@ -408,6 +420,7 @@ const tBill02: TemporalRule<IncomeDocumentObservation> = {
 /** Per customer by the explicit `customerId` FK only — never an inferred identity. */
 const tCust01: TemporalRule<IncomeDocumentObservation> = {
   ruleId: "T-CUST-01", temporalKey: "customers.payment_timing", domain: "customers",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-customers-payment-timing", versionLabel: "v1", followsRule: "CUST-01",
   spec: CUST01_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
   series(obs) {
@@ -426,6 +439,7 @@ const PAY02_SPEC: TemporalSpec = {
 };
 const tPay02: TemporalRule<PaymentRequestObservation> = {
   ruleId: "T-PAY-02", temporalKey: "payments.link_time_to_pay", domain: "payments",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-payments-link-time-to-pay", versionLabel: "v1", followsRule: "PAY-02",
   spec: PAY02_SPEC, manifestDependencies: ["Payment request created / cancelled", "Provider verified a payment"],
   source: { key: "temporal.payments.requests", load: (b, asOf) => sources.loadPaymentRequests(b, asOf, loadWindow(PAY02_SPEC)) },
@@ -447,6 +461,7 @@ const LEAD01_SPEC: TemporalSpec = {
 };
 const tLead01: TemporalRule<LeadObservation> = {
   ruleId: "T-LEAD-01", temporalKey: "leads.first_handling_days", domain: "leads",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-leads-first-handling-days", versionLabel: "v1", followsRule: "LEAD-01",
   spec: LEAD01_SPEC,
   manifestDependencies: ["Lead lifecycle step (created, status changed, next action set / rescheduled / completed, value updated)"],
@@ -461,6 +476,7 @@ const tLead01: TemporalRule<LeadObservation> = {
 const CONV01_SPEC: TemporalSpec = { ...LEAD01_SPEC, materialFloor: 0.25 };
 const tConv01: TemporalRule<ConversationOpeningObservation> = {
   ruleId: "T-CONV-01", temporalKey: "conversations.first_reply_days", domain: "conversations",
+  polarity: "LOWER_IS_FAVORABLE",
   policyKey: "temporal-conversations-first-reply-days", versionLabel: "v1", followsRule: "CONV-01",
   spec: CONV01_SPEC,
   manifestDependencies: ["Inbound WhatsApp message", "Owner sends a message"],

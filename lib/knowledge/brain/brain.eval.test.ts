@@ -34,7 +34,7 @@ function item(slot: string, kind: KnowledgeItem["kind"], value: Record<string, u
 }
 function snap(over: Partial<BusinessKnowledgeSnapshot> = {}): BusinessKnowledgeSnapshot {
   return {
-    contractVersion: "bks.v1", businessId: BIZ, asOf: "2026-09-01T00:00:00.000Z",
+    contractVersion: "bks.v2", businessId: BIZ, asOf: "2026-09-01T00:00:00.000Z",
     knowledge: [], relationships: [], crossDomainFindings: [], conflicts: [], knowledgeGaps: [],
     snapshotFingerprint: "snapfp", stats: { counts: {}, truncated: {}, serializedBytes: 0, largestSection: "knowledge", queries: 9 },
     ...over,
