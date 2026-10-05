@@ -57,6 +57,9 @@ export const NAV_GROUPS: NavGroup[] = [
 /** The only search the product has: financial records by vendor / category. */
 export const SEARCH_HREF = "/search";
 
+/** The business profile — reached from the sidebar business card (and Settings). */
+export const PROFILE_HREF = "/profile";
+
 /** Active-route test — shared by every nav surface. The authenticated home is
  *  "/app"; "/" is also treated as home for the brief pre-redirect moment on
  *  non-primary hosts (on the primary domain "/" is the public site and never

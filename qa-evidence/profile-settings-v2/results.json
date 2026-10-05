@@ -12,7 +12,7 @@
   {
     "name": "logo upload: a 1600px PNG was shrunk to the server's limit",
     "ok": true,
-    "detail": "308906 chars"
+    "detail": "309266 chars"
   },
   {
     "name": "after upload: the logo shows and completion is 100%",

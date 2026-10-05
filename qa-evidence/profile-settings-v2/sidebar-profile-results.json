@@ -1,0 +1,107 @@
+[
+  {
+    "name": "desktop: the business card is a link to /profile",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: it has an accessible name",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: Home shell has no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: clicking the card opens /profile",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: on /profile the card is marked current",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: /profile has no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: on a direct load of /profile only the business card is current",
+    "ok": true,
+    "detail": "[\"/profile\"]"
+  },
+  {
+    "name": "keyboard: Tab from the brand lands on the business card",
+    "ok": true,
+    "detail": "dz-sidebar__business"
+  },
+  {
+    "name": "keyboard: the focused card shows a focus ring",
+    "ok": true,
+    "detail": "solid 2px"
+  },
+  {
+    "name": "keyboard: Enter opens /profile",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: sidebar \"שיחות\" still opens /inbox",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: sidebar \"לקוחות\" still opens /customers",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: sidebar \"הגדרות\" still opens /settings",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "desktop: on /settings the card is not marked current",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Settings → Profile (account card) still works",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "tablet: the rail is shown",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "tablet: no business card is shown (none invented)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "tablet: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "mobile: bottom bar tabs unchanged (home, chats, documents, notifications)",
+    "ok": true,
+    "detail": "[\"/app\",\"/inbox\",\"/documents\",\"/notifications\"]"
+  },
+  {
+    "name": "mobile: no business card and no new Profile entry in the bar",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "mobile: no horizontal overflow",
+    "ok": true,
+    "detail": ""
+  }
+]

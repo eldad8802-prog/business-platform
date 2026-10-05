@@ -9,6 +9,7 @@ import { ActionSheet } from "./action-sheet";
 import {
   NAV_GROUPS,
   PRIMARY_DESTINATIONS,
+  PROFILE_HREF,
   SEARCH_HREF,
   SETTINGS_DESTINATION,
   destinationsIn,
@@ -127,12 +128,18 @@ export function NavSidebar() {
         </Link>
 
         {businessName ? (
-          <div className="dz-sidebar__business">
+          <Link
+            href={PROFILE_HREF}
+            prefetch={false}
+            className="dz-sidebar__business"
+            aria-label={`פרופיל העסק — ${businessName}`}
+            aria-current={isNavActive(pathname, PROFILE_HREF) ? "page" : undefined}
+          >
             <span className="dz-sidebar__business-mark" aria-hidden>
               {businessName.trim().charAt(0)}
             </span>
             <span className="dz-sidebar__business-name">{businessName}</span>
-          </div>
+          </Link>
         ) : null}
 
         <div className="dz-sidebar__actions">

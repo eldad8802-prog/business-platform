@@ -124,7 +124,10 @@ const shellCss = `
 .dz-sidebar__business {
   display: flex; align-items: center; gap: 10px; width: 100%; height: 56px; box-sizing: border-box; flex-shrink: 0;
   padding: 0 12px; border-radius: 14px; border: 1px solid #F0E3D3; background: #FEF8F2; color: #1E2B2A;
+  text-decoration: none; transition: background 150ms ease, border-color 150ms ease;
 }
+.dz-sidebar__business:hover { background: #FBF3EA; border-color: #E8D6C0; }
+.dz-sidebar__business[aria-current="page"] { border-color: #BFD8D5; background: #EEF7F5; }
 .dz-sidebar__business-mark {
   width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #FBEEDD; color: #A0601F;
   display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px;

@@ -131,6 +131,14 @@ check("Profile resolves to /profile, and every Profile link exists", () => {
   for (const href of hrefs) assert.ok(exists(href), `Profile links to ${href}, which has no page`);
 });
 
+check("the sidebar business card is the shared-nav entry to the Profile", () => {
+  const nav = read("components/navigation/nav-destinations.tsx");
+  assert.ok(nav.includes('export const PROFILE_HREF = "/profile";'));
+  const side = read("components/navigation/side-nav.tsx");
+  assert.match(side, /href=\{PROFILE_HREF\}\s+prefetch=\{false\}\s+className="dz-sidebar__business"/);
+  assert.ok(exists("/profile"));
+});
+
 check("the Settings account card leads to the Profile", () => {
   assert.match(read("features/account/settings/SettingsHubScreen.tsx"), /href="\/profile"/);
 });
