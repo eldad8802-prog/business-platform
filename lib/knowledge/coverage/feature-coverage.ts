@@ -347,7 +347,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     reason: "Owner-confirmed identity statements/facts reach the BKS as OWNER_DECISION context; profile changes are an interpretation boundary, not a behaviour.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority"],
-    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED"], legacyEvents: [], routes: ["api/business", "page/business", "page/onboarding"],
+    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile"],
     outcome: NO_OUTCOME,
   },
   {
@@ -407,7 +407,7 @@ export const INFRASTRUCTURE = {
     "PlatformAuditEvent", "PlatformFeatureDefinition", "PlatformFeaturePolicy", "OAuthToken", "ExtractedData", "ExtractionEvidence", "MessageAnalysis",
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion"],
-  routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security",
+  routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "page/settings", "page/login", "page/register", "page/dev", "page/brand-animation-demo", "page/coupon-design", "page/test-upload", "page/upload",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */
