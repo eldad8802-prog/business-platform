@@ -1,0 +1,10 @@
+{
+  "note": "feat/m0-signup-safety: signup ends in the same full session as login. The guard pins that every product call to signAuthToken names an AuthSession.",
+  "tests": {
+    "lib/auth/session-bound-token-guard.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite: every non-test signAuthToken call passes a session id, and signup signs with the AuthSession its own account transaction wrote and sets the refresh cookie; negative control (login without sid) fails it; passed locally"
+    }
+  }
+}
