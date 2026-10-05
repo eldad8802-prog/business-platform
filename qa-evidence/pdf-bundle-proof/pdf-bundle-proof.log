@@ -1,0 +1,18 @@
+OK: PDF route trace exists (run next build first) — C:\dev\bp-trace-excl\.next\server\app\api\billing\documents\[id]\pdf\route.js.nft.json
+OK: trace carries no qa-evidence — 0
+isolated bundle: 3113 traced project files → C:\Users\84D7~1\AppData\Local\Temp\pdf-fn-bundle-JA8Eet
+OK: font is present inside the bundle (process.cwd()/public/fonts)
+OK: renderer resolves the font from the bundle
+OK: HTML/Chromium (production renderer): valid PDF header — %PDF-1.4
+OK: HTML/Chromium (production renderer): Hebrew font embedded (NotoSansHebrew)
+OK: HTML/Chromium (production renderer): document number in the text
+OK: HTML/Chromium (production renderer): Hebrew customer name in the text — חשבונית מס .פ.ח/.מ.ע 515000123 מס׳ מסמך 000007 תאריך הוצאה 15.06.2026 דוביז בע"מ לקוח לקוח בדיקה .ז.ת/.מ.ע 514000000 עיר תל אביב מוכר דוביז בע"מ .פ.ח/.מ.ע 51500
+OK: HTML/Chromium (production renderer): total 117 in the text
+OK: pdfmake (legacy renderer): valid PDF header — %PDF-1.3
+OK: pdfmake (legacy renderer): Hebrew font embedded (NotoSansHebrew)
+OK: pdfmake (legacy renderer): document number in the text
+OK: pdfmake (legacy renderer): Hebrew customer name in the text — לקוח לקוחבדיקה 514000000 ע.מ./ת.ז. תלאביב עיר מוכר דוביזבע"מ 515000123 ע.מ./ח.פ. 515000123 עוסק מורשה פירוט פריטים סה"כ מע"מ מחיר יחידה כמות תיאור מס׳ 117.00 ₪ 
+OK: pdfmake (legacy renderer): total 117 in the text
+PDFs written to qa-evidence\pdf-bundle-proof
+
+PDF renders correctly from the trimmed function bundle (both renderer families).
