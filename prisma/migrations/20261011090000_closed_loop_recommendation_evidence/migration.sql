@@ -13,6 +13,10 @@
 -- 2. Feature `owner_recommendations` — DEFAULT OFF, globally off. A business sees recommendations only when the
 --    platform admin explicitly allows it through the existing audited feature-access path.
 --
+--      - capturedAfterIssue: false for every row written at issue (the normal path). true ONLY for a row an
+--        owner-approved, one-off capture wrote later for a recommendation issued before this table existed; such
+--        a row states what the ledger showed WHEN CAPTURED, and the surface must say so. Never set by derive.
+--
 -- No backfill: the six recommendations already in Production get no evidence row from this migration.
 -- Idempotent where Prisma allows (feature rows ON CONFLICT DO NOTHING).
 
@@ -26,6 +30,7 @@ CREATE TABLE "OutcomeRecommendationEvidence" (
     "evidenceRefs" JSONB NOT NULL,
     "factFingerprint" TEXT NOT NULL,
     "capturedAt" TIMESTAMP(3) NOT NULL,
+    "capturedAfterIssue" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OutcomeRecommendationEvidence_pkey" PRIMARY KEY ("id")
