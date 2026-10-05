@@ -5,6 +5,8 @@
  * learned from activity (machine proposals, owner-adoptable), and the future landing page
  * preview (approved public material only).
  */
+import Link from "next/link";
+
 import { businessCategoryLabel } from "@/lib/business/business-categories";
 import type { BusinessIdentityContext } from "@/lib/services/identity/business-identity-context";
 import type { LandingKnowledge } from "@/lib/services/identity/landing-knowledge";
@@ -186,6 +188,9 @@ export function PreviewCard({ ctx, knowledge }: { ctx: Ctx; knowledge: LandingKn
         {(["ABOUT", "DIFFERENTIATORS", "TRUST", "CONTACT"] as const).map(body)}
       </div>
       <p className={s.fieldHint}>Dubiz עוד לא בונה או מפרסם דפי נחיתה. זו הכנה: ככל שהידע יתמלא, Dubiz יוכל להציע כמה גרסאות שונות של הדף.</p>
+      <Link href="/business/landing-strategy" className={s.inlineLink}>
+        לאילו כיווני דף נחיתה זה מוביל ←
+      </Link>
     </section>
   );
 }

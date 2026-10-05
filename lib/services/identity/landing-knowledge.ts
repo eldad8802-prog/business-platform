@@ -22,9 +22,10 @@
  * This is landing-page KNOWLEDGE, not the Profile's business-details completion (#653), not a
  * health or AI score. Publishing does not exist: `published` is always false.
  *
- * Future strategies (trust-first, conversion-first, discovery-first…) choose, order and phrase
- * these sections differently; the sections carry roles and provenance, never a layout, so a
- * strategy layer can be added on top without changing this model.
+ * Strategy is a separate layer: P3-B (lib/services/landing, LandingBusinessContext + the
+ * deterministic strategy engine) proposes 1–3 genuinely different directions (trust-first,
+ * conversion-first, discovery-first…). This model does not choose among them; its sections carry
+ * roles and provenance, never a layout, so any strategy can select, order and phrase them.
  */
 import type { BusinessIdentityContext } from "./business-identity-context";
 
