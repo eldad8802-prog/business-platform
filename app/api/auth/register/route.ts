@@ -147,6 +147,7 @@ export async function handleRegister(
       businessName: input.businessName,
       now,
       userAgent: req.headers.get("user-agent"),
+      attribution: input.attribution,
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the

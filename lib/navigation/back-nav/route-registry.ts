@@ -59,6 +59,9 @@ export const ROUTE_RULES: readonly RouteRule[] = [
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/pricing", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
+  // Setup after signup: two steps; finishing consumes them, so Back from Home
+  // never re-enters a completed setup.
+  { pattern: "/setup", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
   { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view", "cstep"] },
   { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי", identityParams: ["step"] },
   { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabel: "לקופונים" },

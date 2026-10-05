@@ -1,0 +1,14 @@
+{
+  "note": "feat/m1-setup-flow: signup consent version integrity and the setup rules (goal provenance, taxonomy validation, first action, checklist).",
+  "tests": {
+    "lib/legal/consent-version.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the consent version recorded on every new account must name the terms/privacy text the pages actually print; fails when a page date moves without the constant"
+    },
+    "lib/services/onboarding/setup-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): setup goal provenance (a default is never recorded as the owner's choice), taxonomy validation of the business answer, first action per goal and its completion, the progressive checklist; run in verify:prelaunch (auth-plane-write-ci)"
+    }
+  }
+}

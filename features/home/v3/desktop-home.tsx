@@ -57,6 +57,7 @@ import {
   waitingSentence,
   type WaitingKind,
 } from "./home-v3-model";
+import { SetupCard } from "./setup-card";
 
 /**
  * Desktop Home (≥1280) — "גרסה 3 מאובזרת", per the approved desktop reference.
@@ -68,6 +69,7 @@ export function DesktopHome({ view }: { view: HomeView }) {
     <main style={{ boxSizing: "border-box", padding: "22px clamp(16px, 2.4vw, 32px) 40px" }}>
       <div style={{ maxWidth: 1360, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
         <TopBar view={view} />
+        <SetupCard setup={view.data.setup} variant="desktop" />
         <Kpis view={view} />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>

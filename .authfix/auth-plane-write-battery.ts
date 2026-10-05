@@ -50,6 +50,12 @@ const USER_AGENT = MIG("20260913120000_authsession_user_agent");
 // does not fail for in Production.
 const SEC_C = MIG("20260926110300_sec_c_explicit_identity_grants");
 const B4 = MIG("20261006090000_business_tenant_write_rls");
+// M1: setup state on BusinessProfile, signup consent (app_auth INSERT on three
+// User columns) + tenant-pinned rename (runtime UPDATE Business.name), and the
+// case-folded email index.
+const M1_STATE = MIG("20261011090000_onboarding_setup_state");
+const M1_CONSENT = MIG("20261011090100_signup_consent_business_rename");
+const M1_CASEFOLD = MIG("20261011090200_user_email_casefold_unique");
 
 const RUNTIME_ROLE = "app_runtime_battery";
 const RUNTIME_PW = "authfix_ci_synthetic_runtime_pw";
@@ -168,7 +174,15 @@ async function main() {
   ok("shipped E4 migration applied to the lab", true);
   // Then what Production applied after it, in ledger order: sec_c's identity
   // INSERT grants, and B4's row-level security on Business.
-  for (const f of [SEC_C, B4]) {
+  // db push built the M1 columns from the models. Remove them so the shipped
+  // M1 migrations run verbatim against the shape Production has before them.
+  for (const sql of [
+    `ALTER TABLE "BusinessProfile" DROP COLUMN IF EXISTS "onboardingCompletedAt", DROP COLUMN IF EXISTS "onboardingGoal", DROP COLUMN IF EXISTS "onboardingGoalSource"`,
+    `ALTER TABLE "User" DROP COLUMN IF EXISTS "termsAcceptedAt", DROP COLUMN IF EXISTS "termsVersion", DROP COLUMN IF EXISTS "signupAttribution"`,
+  ]) {
+    await owner.$executeRawUnsafe(sql);
+  }
+  for (const f of [SEC_C, B4, M1_STATE, M1_CONSENT, M1_CASEFOLD]) {
     for (const s of statements(readFileSync(f, "utf8"))) await owner.$executeRawUnsafe(s);
   }
   {
@@ -423,7 +437,7 @@ async function main() {
         `GRANT\\s+INSERT\\s*\\(([^)]*)\\)\\s*\\n?\\s*ON\\s+(?:public\\.)?"${model}"\\s+TO\\s+app_auth\\s*;`,
         "gi"
       );
-      for (const f of [E4, SEC_C]) {
+      for (const f of [E4, SEC_C, M1_CONSENT]) {
         for (const m of readFileSync(f, "utf8").replace(/--.*$/gm, "").matchAll(re)) {
           for (const c of m[1].matchAll(/"(\w+)"/g)) out.add(c[1]);
         }
@@ -481,7 +495,14 @@ async function main() {
           // A fresh address per call: the 3-per-hour limit is not under test.
           "x-forwarded-for": `198.51.100.${++ipSeq}`,
         },
-        body: JSON.stringify({ email: address, password: PASSWORD, name: "בעלת עסק", businessName }),
+        body: JSON.stringify({
+          email: address,
+          password: PASSWORD,
+          name: "בעלת עסק",
+          businessName,
+          acceptTerms: true,
+          attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=private" },
+        }),
       })
     );
   type RegisterBody = { token?: string; user?: { id: number; businessId: number }; code?: string; error?: string };
@@ -651,11 +672,37 @@ async function main() {
       tx.$executeRawUnsafe(`UPDATE "Business" SET "archivedAt" = NULL WHERE id = ${businessA}`)
     );
     ok("...while its own row is reachable (the policy is not simply closed)", own === 1, `${own} rows`);
+    // M1: the owner may rename THEIR business — and only theirs.
+    const renamedOwn = await inTenant(businessA, (tx) =>
+      tx.$executeRawUnsafe(`UPDATE "Business" SET name = 'עסק א חדש' WHERE id = ${businessA}`)
+    );
+    ok("the runtime renames its own tenant's Business (1 row)", renamedOwn === 1, `${renamedOwn} rows`);
+    const renamedOther = await inTenant(businessA, (tx) =>
+      tx.$executeRawUnsafe(`UPDATE "Business" SET name = 'hijack' WHERE id = ${businessB}`)
+    );
+    ok("...but tenant A's context renames 0 rows of tenant B (B4)", renamedOther === 0, `${renamedOther} rows`);
+    const renamedNoTenant = await runtime.$executeRawUnsafe(`UPDATE "Business" SET name = 'nobody' WHERE id = ${businessA}`);
+    ok("...and with no tenant context renames nothing", renamedNoTenant === 0, `${renamedNoTenant} rows`);
     ok(
-      "the runtime cannot rename a Business (no UPDATE(name) grant)",
+      "the rename grant is the name column only (createdAt still refused)",
       (await refused(() =>
-        inTenant(businessA, (tx) => tx.$executeRawUnsafe(`UPDATE "Business" SET name = 'x' WHERE id = ${businessA}`))
+        inTenant(businessA, (tx) => tx.$executeRawUnsafe(`UPDATE "Business" SET "createdAt" = now() WHERE id = ${businessA}`))
       )) === "42501"
+    );
+    {
+      const names = await owner.business.findMany({
+        where: { id: { in: [businessA, businessB] } },
+        select: { id: true, name: true },
+      });
+      ok(
+        "...and the stored names are exactly A renamed, B untouched",
+        names.find((b) => b.id === businessA)?.name === "עסק א חדש" &&
+          names.find((b) => b.id === businessB)?.name === "עסק ב"
+      );
+    }
+    ok(
+      "the auth plane writes consent but cannot read it back",
+      (await refused(() => auth.$queryRawUnsafe(`SELECT "termsAcceptedAt" FROM "User" LIMIT 1`))) === "42501"
     );
     // A token for B never authenticates as A, whatever the request claims.
     const spoof = new Request(`https://lab.invalid/api/x?businessId=${businessA}`, {
@@ -664,6 +711,73 @@ async function main() {
     ok("tenant comes from the user row, never the request", (await getAuthContext(spoof))?.user.businessId === businessB);
 
     await Promise.all([runtime.$disconnect(), rogue.$disconnect(), auth.$disconnect()]);
+  }
+
+  // 6 — consent and identity recorded with the account (M1).
+  {
+    const { CURRENT_TERMS_VERSION } = await import("@/lib/legal/consent-version");
+    const row = await owner.user.findUnique({
+      where: { email: emailA },
+      select: { termsAcceptedAt: true, termsVersion: true, signupAttribution: true, createdAt: true },
+    });
+    ok("signup records when the terms were accepted", row?.termsAcceptedAt instanceof Date);
+    ok("...and which text", row?.termsVersion === CURRENT_TERMS_VERSION, String(row?.termsVersion));
+    ok(
+      "...and only sanitised attribution (labels + referrer host)",
+      JSON.stringify(row?.signupAttribution) === JSON.stringify({ utm_source: "facebook", referrerHost: "www.google.com" }),
+      JSON.stringify(row?.signupAttribution)
+    );
+    const before = await businessCount();
+    const noConsent = await registerRoute.POST(
+      new Request("https://lab.invalid/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" },
+        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק" }),
+      })
+    );
+    ok("no consent → 400 and nothing created", noConsent.status === 400 && (await businessCount()) === before);
+
+    // The database itself now refuses a second account that differs only by case,
+    // even from a writer that skips the application's folding.
+    let code: string | null = null;
+    try {
+      await owner.user.create({
+        data: { email: emailB.toUpperCase(), password: hash, name: "case", businessId: bodyB.user?.businessId ?? -1 },
+        select: { id: true },
+      });
+    } catch (e) {
+      code = (e as { code?: string }).code ?? pgCode(e);
+    }
+    ok("lower(email) is unique in the database (case variant refused)", code === "P2002", `got ${code}`);
+  }
+
+  // 7 — setup state for a brand-new business, through the real service.
+  {
+    const { loadSetupState, completeSetup, saveBusinessAnswer } = await import("@/lib/services/onboarding/setup.service");
+    const businessA = bodyA.user?.businessId ?? -1;
+    const fresh = await loadSetupState(businessA);
+    ok("a new business needs setup", fresh.needsSetup === true);
+    await saveBusinessAnswer({ businessId: businessA, userId: bodyA.user?.id ?? -1 }, {
+      category: "Beauty",
+      subCategory: "Nails",
+      businessModel: "service",
+    });
+    await completeSetup(businessA, null);
+    const afterSkip = await loadSetupState(businessA);
+    ok("skipping the goal completes setup with a DEFAULTED goal", afterSkip.needsSetup === false && afterSkip.goalSource === "DEFAULTED" && afterSkip.goal === "LEADS");
+    const stamp = (await owner.businessProfile.findUnique({ where: { businessId: businessA }, select: { onboardingCompletedAt: true } }))?.onboardingCompletedAt;
+    await completeSetup(businessA, "CONTENT");
+    const afterChoose = await loadSetupState(businessA);
+    const stamp2 = (await owner.businessProfile.findUnique({ where: { businessId: businessA }, select: { onboardingCompletedAt: true } }))?.onboardingCompletedAt;
+    ok("choosing later records OWNER_SELECTED", afterChoose.goal === "CONTENT" && afterChoose.goalSource === "OWNER_SELECTED");
+    ok("...and keeps the first completion time", stamp?.getTime() === stamp2?.getTime());
+    let checkCode: string | null = null;
+    try {
+      await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "onboardingGoal" = 'NONSENSE' WHERE "businessId" = ${businessA}`);
+    } catch (e) {
+      checkCode = pgCode(e) ?? "error";
+    }
+    ok("the database refuses an unknown goal (CHECK)", checkCode !== null, `got ${checkCode}`);
   }
 
   await owner.$disconnect();

@@ -28,6 +28,8 @@
  */
 
 import { Prisma } from "@prisma/client";
+
+import { CURRENT_TERMS_VERSION } from "@/lib/legal/consent-version";
 import bcrypt from "bcrypt";
 
 import { authDb } from "@/lib/prisma-auth";
@@ -35,7 +37,7 @@ import { issueRefreshSession } from "@/lib/auth/refresh-session";
 
 import {
   EmailAlreadyRegisteredError,
-  type NormalizedSignup,
+  type SignupAttribution,
 } from "./signup-identity";
 
 export {
@@ -48,6 +50,7 @@ export {
 } from "./signup-identity";
 export type {
   NormalizedSignup,
+  SignupAttribution,
   SignupField,
   SignupInput,
 } from "./signup-identity";
@@ -65,6 +68,8 @@ export type CreateAccountInput = {
   now: Date;
   /** Device label source. Truncated downstream, never returned to a client. */
   userAgent?: string | null;
+  /** Already sanitised by normalizeSignupAttribution — labels, naming nobody. */
+  attribution?: SignupAttribution | null;
 };
 
 export type CreatedAccount = {
@@ -115,6 +120,12 @@ export async function createAccount(
           password: input.passwordHash,
           name: input.name,
           businessId: business.id,
+          // Consent is part of the account, not a later bookkeeping write: the
+          // route refuses to reach here unless the box was ticked, and the
+          // record lands in the same transaction or not at all.
+          termsAcceptedAt: input.now,
+          termsVersion: CURRENT_TERMS_VERSION,
+          ...(input.attribution ? { signupAttribution: input.attribution } : {}),
         },
         select: { id: true, email: true, tokenVersion: true },
       });

@@ -6,6 +6,7 @@ import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-c
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
+import type { SetupView } from "@/lib/services/onboarding/setup-model";
 
 import {
   FAILED,
@@ -55,6 +56,8 @@ export type HomeData = {
   leads: Load<LeadWire[]>;
   documents: Load<{ items: DocumentWire[]; totalPendingReview: number }>;
   insight: Load<InsightView | null>;
+  /** "Your start": the first action for the owner's goal and a short checklist. */
+  setup: Load<SetupView>;
   unread: boolean;
   /* desktop only */
   pending: Load<{ amount: string; count: number }>;
@@ -73,6 +76,7 @@ const INITIAL: HomeData = {
   leads: LOADING,
   documents: LOADING,
   insight: LOADING,
+  setup: LOADING,
   unread: false,
   pending: LOADING,
   conversations: LOADING,
@@ -155,6 +159,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
       }),
     );
     settle("insight", loadInsight(), (v) => ready(v));
+    settle("setup", fetchJsonCached<SetupView>("/api/business/setup", TTL), (j) => ready(j));
 
     fetchJsonCached<{ unreadCount?: number }>("/api/notifications/unread-count", 0)
       .then((j) => {

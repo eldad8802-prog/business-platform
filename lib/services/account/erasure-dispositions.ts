@@ -125,6 +125,25 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
         "known single-control gap rather than described as a decision.",
       basis: "UNPROVEN",
     },
+    termsAcceptedAt: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "the record that the owner accepted the terms, and when. A timestamp that names " +
+        "nobody once email and name are gone.",
+      basis: "UNPROVEN",
+    },
+    termsVersion: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which terms text was accepted — a version label, naming nobody",
+      basis: "UNPROVEN",
+    },
+    signupAttribution: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "utm_* values and a referrer HOST only, sanitised and bounded at signup " +
+        "(lib/auth/signup-identity.ts) — campaign labels, naming nobody",
+      basis: "PRODUCT",
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },
@@ -178,6 +197,17 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     billingLogoDataUrl: { disposition: "ERASE" },
     billingSignatureDataUrl: { disposition: "ERASE" },
     billingPdfTemplateStyle: { disposition: "STRUCTURAL" },
+    onboardingCompletedAt: { disposition: "STRUCTURAL" },
+    onboardingGoal: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "a fixed product vocabulary (LEADS | BILLING | DOCUMENTS | CONTENT), naming nobody",
+      basis: "PRODUCT",
+    },
+    onboardingGoalSource: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "as onboardingGoal — OWNER_SELECTED | DEFAULTED",
+      basis: "PRODUCT",
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },
