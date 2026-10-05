@@ -41,7 +41,7 @@ function fact(slot: string, key: string, subject: { type: string; id: number }, 
 }
 function snap(knowledge: KnowledgeItem[], over: Partial<BusinessKnowledgeSnapshot> = {}): BusinessKnowledgeSnapshot {
   return {
-    contractVersion: "bks.v1", businessId: BIZ, asOf: T0.toISOString(), knowledge, relationships: [], crossDomainFindings: [],
+    contractVersion: "bks.v2", businessId: BIZ, asOf: T0.toISOString(), knowledge, relationships: [], crossDomainFindings: [],
     conflicts: [], knowledgeGaps: [], snapshotFingerprint: "fp", stats: { counts: {}, truncated: {}, serializedBytes: 0, largestSection: "knowledge", queries: 10 },
     ...over,
   };

@@ -198,6 +198,12 @@
       "lab": "workflow",
       "workflow": "learning-coverage-ci.yml",
       "reason": "the one rule the read-only Production proof and diagnostic use for knowledge pinned to a superseded lineage: LIVE_WRONG_PIN and HISTORICAL_STATUS_UNEXPLAINED fail, LEGITIMATE_HISTORY passes only when corroborated; no blanket SUPERSEDED exclusion; run by learning-coverage-ci.yml"
+    },
+    "lib/knowledge/snapshot/business-brain.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m0-knowledge-tenant-safety.yml",
+      "reason": "Business Brain bks.v2: temporal states only from proven engine artifacts (NEW_BEHAVIOR needs established history), memory never a premise, record links never identity, four cross-domain families non-causal with stock quantities excluded, Brain context carries no money or customer id; deterministic; run by m0-knowledge-tenant-safety.yml (real-DB tenant isolation of the new sources in .m0/m7-snapshot-battery.ts)"
     }
   }
 }

@@ -162,7 +162,8 @@ async function main(): Promise<void> {
   const claimPremise = pf?.premises.find((p) => p.provenance.some((r) => r.store === "PartyResolutionClaim"));
   check("PROVENANCE: …and → the identity claims that make it one counterparty", claimPremise?.authority === "AUTHORITATIVE_IDENTIFIER");
   check("the look-alike pair is at most a PROPOSED relationship, never ACTIVE",
-    !snapA.relationships.some((r) => r.status === "ACTIVE" && [r.left.id, r.right.id].some((id) => id === lookSupplier.id || id === lookPayee.id)));
+    // identity relationships only: the look-alike legitimately has a RECORD_LINK (its own purchase orders), which is not identity
+    !snapA.relationships.some((r) => r.type === "SAME_COUNTERPARTY" && r.status === "ACTIVE" && [r.left.id, r.right.id].some((id) => id === lookSupplier.id || id === lookPayee.id)));
 
   /* ══════════════════ K1 / K2 ══════════════════ */
   section("K1/K2 — one tenant, and no tenant means nothing");
@@ -272,6 +273,30 @@ async function main(): Promise<void> {
   check("once the payable is settled, the counterparty has knowledge in ONE domain: the finding is gone",
     !snapPaid.crossDomainFindings.some((f) => f.ruleId === "X-PARTY-01"));
   check("…and the reason is stated as a gap", snapPaid.knowledgeGaps.some((g) => g.ruleId === "X-PARTY-01"));
+
+  /* ══════════════════ Business Brain depth (bks.v2) — real SQL, restricted role ══════════════════ */
+  section("Business Brain — record links, receivables window and memory, tenant-bound");
+  const { loadStoredKnowledge } = await import("@/lib/knowledge/snapshot/snapshot-sources");
+  const cust = await owner.customer.create({ data: { businessId: bizA.id, name: "lab customer" } as never });
+  await owner.billingDocument.create({ data: { businessId: bizA.id, documentType: "TAX_INVOICE", status: "ISSUED", customerId: cust.id,
+    issuedAt: ago(10), totalAmount: 1000, currency: "ILS" } as never });
+  const depA = (await loadStoredKnowledge(bizA.id, AS_OF)).depth;
+  const depB = (await loadStoredKnowledge(bizB.id, AS_OF)).depth;
+  const supLinks = depA.links.filter((l) => l.relation === "supplier.items");
+  check("record links: A's purchase-order lines join each supplier to the item (real FK, restricted role)",
+    supLinks.length === 2 && supLinks.every((l) => l.right?.id === item.id && l.records === 4), JSON.stringify(supLinks.map((l) => [l.left.id, l.records])));
+  check("record links: the customer's issued invoice appears as customer.invoices",
+    depA.links.some((l) => l.relation === "customer.invoices" && l.left.id === cust.id && l.records === 1));
+  check("receivables window: the open invoice due inside 30 days is counted (collection-screen definitions)",
+    depA.receivablesWindow.invoices === 1 && depA.receivablesWindow.invoiceIds.length === 1);
+  check("tenant isolation: B sees none of A's links, receivables or memory",
+    depB.links.length === 0 && depB.receivablesWindow.invoices === 0 && depB.historicalMeasures.length === 0 && depB.previousBaselines.length === 0);
+  const snapDepth = await buildBusinessKnowledgeSnapshot(bizA.id, { asOf: AS_OF });
+  check("bks.v2: RECORD_LINK relationships are authoritative domain state and never identity",
+    snapDepth.relationships.filter((r) => r.type === "RECORD_LINK").every((r) => r.authority === "AUTHORITATIVE_DOMAIN_STATE")
+      && !snapDepth.crossDomainFindings.some((x) => x.ruleId === "X-PARTY-01" && x.premises.some((p) => p.slot.startsWith("rel|fk|"))));
+  check("bks.v2: contract version and no counterparty name in the richer snapshot",
+    snapDepth.contractVersion === "bks.v2" && !JSON.stringify(snapDepth).includes("lab customer") && !JSON.stringify(snapDepth).includes("Northwind"));
 
   /* ══════════════════ Cleanup ══════════════════ */
   section("Cleanup");
