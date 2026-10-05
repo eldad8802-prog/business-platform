@@ -471,3 +471,9 @@ export function findEarlierEntry(match: (url: string) => boolean): number | null
   }
   return null;
 }
+
+/** URL the current history entry was recorded with (null when unknown). */
+export function getCurrentEntryUrl(): string | null {
+  if (!installed || !currentId) return null;
+  return store[currentId]?.url ?? null;
+}

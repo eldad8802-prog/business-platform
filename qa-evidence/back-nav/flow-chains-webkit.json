@@ -1,0 +1,5646 @@
+[
+  {
+    "id": "F1-collection-steps",
+    "title": "Collection: customer → details → other customer, then back ×3",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "לקוח אחר",
+        "url": "/collection/new"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection/new?step=details",
+        "to": "/collection/new?step=details",
+        "label": "details step, amount 450 kept",
+        "checks": [
+          {
+            "name": "amount still 450",
+            "ok": true,
+            "detail": "450"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F1-collection-steps-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/collection/new?step=details",
+        "mode": "history",
+        "computed": "/collection/new",
+        "to": "/collection/new",
+        "label": "customer step (flow start)",
+        "checks": [
+          {
+            "name": "customer picker shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F1-collection-steps-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox (a root: no back control)",
+        "checks": [
+          {
+            "name": "root shows no back control",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F1-collection-steps-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F2-collection-created",
+    "title": "Collection: create request → send step, back ×1 (no second request)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "צור בקשה (POST)",
+        "url": "/collection/new?step=send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new?step=send",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox — the completed flow is left as a whole",
+        "checks": [
+          {
+            "name": "exactly one payment request POSTed",
+            "ok": true,
+            "detail": "POSTs=1"
+          },
+          {
+            "name": "no create form / send step shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F2-collection-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3-pricing-calc",
+    "title": "Pricing: catalog → calculation → result, back ×3",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "history",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3-pricing-calc-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3-pricing-calc-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3-pricing-calc-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3b-pricing-calc-browser",
+    "title": "Pricing: same chain, browser Back",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "browser",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3b-pricing-calc-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3b-pricing-calc-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F3b-pricing-calc-browser-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F4-pricing-new",
+    "title": "Pricing: new item step 1 → step 2, back ×3",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ הוספת פריט",
+        "url": "/pricing?step=new1"
+      },
+      {
+        "label": "המשך לעלויות",
+        "url": "/pricing?step=new2"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=new2",
+        "mode": "history",
+        "computed": "/pricing?step=new1",
+        "to": "/pricing?step=new1",
+        "label": "step 1, name kept",
+        "checks": [
+          {
+            "name": "item name still ייעוץ",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F4-pricing-new-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=new1",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F4-pricing-new-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "no item was created",
+            "ok": true,
+            "detail": "POSTs=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F4-pricing-new-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F5-coupon-wizard",
+    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal",
+        "url": "/revenue?view=create&cstep=direction"
+      },
+      {
+        "label": "direction הנחה",
+        "url": "/revenue?view=create&cstep=builder"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=builder",
+        "mode": "history",
+        "computed": "/revenue?view=create&cstep=direction",
+        "to": "/revenue?view=create&cstep=direction",
+        "label": "direction step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F5-coupon-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue?view=create&cstep=direction",
+        "mode": "history",
+        "computed": "/revenue?view=create",
+        "to": "/revenue?view=create",
+        "label": "goal step (first step of the flow)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F5-coupon-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue?view=create",
+        "mode": "history",
+        "computed": "/revenue",
+        "to": "/revenue",
+        "label": "my coupons — after confirming the discard prompt",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F5-coupon-wizard-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F5-coupon-wizard-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F6-redeem-error",
+    "title": "Redeem: scan → manual → wrong code (error), back ×3",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → error",
+        "url": "/revenue/redeem?step=error"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=error",
+        "mode": "history",
+        "computed": "/revenue/redeem?step=manual",
+        "to": "/revenue/redeem?step=manual",
+        "label": "manual entry, code kept",
+        "checks": [
+          {
+            "name": "code still BAD",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F6-redeem-error-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem?step=manual",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F6-redeem-error-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F6-redeem-error-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F7-redeem-done",
+    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → redeemed",
+        "url": "/revenue/redeem?step=done"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=done",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step — manual entry was replaced (completed)",
+        "checks": [
+          {
+            "name": "exactly one redemption POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F7-redeem-done-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one redemption",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F7-redeem-done-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F8-secretary",
+    "title": "Secretary: home → all → item → edit, back ×3",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item חברת החשמל",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "עריכת התחייבות",
+        "url": "/secretary?screen=update&id=41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=update&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=detail&id=41",
+        "to": "/secretary?screen=detail&id=41",
+        "label": "item detail",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F8-secretary-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=detail&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F8-secretary-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F8-secretary-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F9-documents-search",
+    "title": "Documents: hub → search (query + filter) → document, back ×2",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Documents",
+        "url": "/documents"
+      },
+      {
+        "label": "search",
+        "url": "/documents/search"
+      },
+      {
+        "label": "query דלק + filter הוצאה",
+        "url": "/documents/search"
+      },
+      {
+        "label": "open דלק 2",
+        "url": "/documents/review/502"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/documents/review/502",
+        "mode": "history",
+        "computed": "/documents/search",
+        "to": "/documents/search",
+        "label": "search, query + filter restored",
+        "checks": [
+          {
+            "name": "query still דלק",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "filter הוצאה still selected",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F9-documents-search-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/documents/search",
+        "mode": "history",
+        "computed": "/documents",
+        "to": "/documents",
+        "label": "documents hub",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F9-documents-search-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11-content",
+    "title": "Content creation: vibe → goal → direction → setup, back ×4",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "history",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step, choice kept",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11-content-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "history",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step, choice kept",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11-content-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step, choice kept",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11-content-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11-content-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11b-content-browser",
+    "title": "Content creation: same chain, browser Back",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "browser",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11b-content-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "browser",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11b-content-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11b-content-browser-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F11b-content-browser-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "close (X)",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F12-coupon-published-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F12-coupon-published-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published-browser",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "browser",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F12-coupon-published-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "browser",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F12-coupon-published-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F13-pricing-saved",
+    "title": "Pricing: save costs to the item (completed), back ×2",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר → result",
+        "url": "/pricing?step=result"
+      },
+      {
+        "label": "שמור עלויות לפריט (PATCH)",
+        "url": "/pricing?step=saved"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=saved",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — the saving step consumed",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F13-pricing-saved-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F13-pricing-saved-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F14-pricing-created-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F14-pricing-created-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created-browser",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F14-pricing-created-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F14-pricing-created-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F15-secretary-met",
+    "title": "Secretary: mark an item handled from its detail (completed), back ×2",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "סמן שטופל (POST complete)",
+        "url": "/secretary?screen=loops&id=41&loopMode=met"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=loops&id=41&loopMode=met",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations — the item's screen consumed",
+        "checks": [
+          {
+            "name": "exactly one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F15-secretary-met-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [
+          {
+            "name": "still one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F15-secretary-met-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/new/confirm",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
+        "checks": [
+          {
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F16-order-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/inventory/supplier-purchases/new/cart",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
+        "checks": [
+          {
+            "name": "קפה still in the draft",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F16-order-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/inventory/supplier-purchases/new",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F16-order-wizard-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/77/send",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
+        "checks": [
+          {
+            "name": "exactly one order created",
+            "ok": true,
+            "detail": "orders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F16b-order-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F17-content-result-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F17-content-result-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result-browser",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F17-content-result-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F17-content-result-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19a-billing-keep-then-leave",
+    "title": "Billing draft with unsaved line: back → keep editing, back → leave without saving",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing/12",
+        "label": "stays on the document (keep editing), edit intact",
+        "checks": [
+          {
+            "name": "edit still there",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F19a-billing-keep-then-leave-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list (left without saving)",
+        "checks": [
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F19a-billing-keep-then-leave-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19b-billing-save-and-continue",
+    "title": "Billing draft with unsaved line: back → save and continue",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list, after saving once",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F19b-billing-save-and-continue-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools — the real origin (fragment entry is the same screen)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F20-hash-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash-browser",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "desktop",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/payables/match/41",
+        "label": "the detail without the fragment",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F20-hash-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F20-hash-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21a-external-then-direct",
+    "title": "Entry from outside the app (prior non-app history), back stays in the app",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "outside page",
+        "url": "blank"
+      },
+      {
+        "label": "direct link",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables (never history.back out of the app)",
+        "checks": [
+          {
+            "name": "still inside the app",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F21a-external-then-direct-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21b-full-reload-navigation",
+    "title": "Entry created by a full-document navigation (location.assign): no fabricated origin",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "location.assign → detail",
+        "url": "/payables/match/42"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/42",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F21b-full-reload-navigation-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21c-lost-session-trail",
+    "title": "Trail storage lost (cleared), then refresh: no fabricated origin",
+    "viewport": "desktop",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "sessionStorage cleared + reload",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-desktop-F21c-lost-session-trail-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F1-collection-steps",
+    "title": "Collection: customer → details → other customer, then back ×3",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "לקוח אחר",
+        "url": "/collection/new"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection/new?step=details",
+        "to": "/collection/new?step=details",
+        "label": "details step, amount 450 kept",
+        "checks": [
+          {
+            "name": "amount still 450",
+            "ok": true,
+            "detail": "450"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F1-collection-steps-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/collection/new?step=details",
+        "mode": "history",
+        "computed": "/collection/new",
+        "to": "/collection/new",
+        "label": "customer step (flow start)",
+        "checks": [
+          {
+            "name": "customer picker shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F1-collection-steps-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox (a root: no back control)",
+        "checks": [
+          {
+            "name": "root shows no back control",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F1-collection-steps-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F2-collection-created",
+    "title": "Collection: create request → send step, back ×1 (no second request)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "צור בקשה (POST)",
+        "url": "/collection/new?step=send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new?step=send",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox — the completed flow is left as a whole",
+        "checks": [
+          {
+            "name": "exactly one payment request POSTed",
+            "ok": true,
+            "detail": "POSTs=1"
+          },
+          {
+            "name": "no create form / send step shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F2-collection-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3-pricing-calc",
+    "title": "Pricing: catalog → calculation → result, back ×3",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "history",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3-pricing-calc-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3-pricing-calc-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3-pricing-calc-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3b-pricing-calc-browser",
+    "title": "Pricing: same chain, browser Back",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "browser",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3b-pricing-calc-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3b-pricing-calc-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F3b-pricing-calc-browser-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F4-pricing-new",
+    "title": "Pricing: new item step 1 → step 2, back ×3",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ הוספת פריט",
+        "url": "/pricing?step=new1"
+      },
+      {
+        "label": "המשך לעלויות",
+        "url": "/pricing?step=new2"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=new2",
+        "mode": "history",
+        "computed": "/pricing?step=new1",
+        "to": "/pricing?step=new1",
+        "label": "step 1, name kept",
+        "checks": [
+          {
+            "name": "item name still ייעוץ",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F4-pricing-new-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=new1",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F4-pricing-new-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "no item was created",
+            "ok": true,
+            "detail": "POSTs=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F4-pricing-new-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F5-coupon-wizard",
+    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal",
+        "url": "/revenue?view=create&cstep=direction"
+      },
+      {
+        "label": "direction הנחה",
+        "url": "/revenue?view=create&cstep=builder"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=builder",
+        "mode": "history",
+        "computed": "/revenue?view=create&cstep=direction",
+        "to": "/revenue?view=create&cstep=direction",
+        "label": "direction step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F5-coupon-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue?view=create&cstep=direction",
+        "mode": "history",
+        "computed": "/revenue?view=create",
+        "to": "/revenue?view=create",
+        "label": "goal step (first step of the flow)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F5-coupon-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue?view=create",
+        "mode": "history",
+        "computed": "/revenue",
+        "to": "/revenue",
+        "label": "my coupons — after confirming the discard prompt",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F5-coupon-wizard-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F5-coupon-wizard-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F6-redeem-error",
+    "title": "Redeem: scan → manual → wrong code (error), back ×3",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → error",
+        "url": "/revenue/redeem?step=error"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=error",
+        "mode": "history",
+        "computed": "/revenue/redeem?step=manual",
+        "to": "/revenue/redeem?step=manual",
+        "label": "manual entry, code kept",
+        "checks": [
+          {
+            "name": "code still BAD",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F6-redeem-error-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem?step=manual",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F6-redeem-error-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F6-redeem-error-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F7-redeem-done",
+    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → redeemed",
+        "url": "/revenue/redeem?step=done"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=done",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step — manual entry was replaced (completed)",
+        "checks": [
+          {
+            "name": "exactly one redemption POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F7-redeem-done-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one redemption",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F7-redeem-done-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F8-secretary",
+    "title": "Secretary: home → all → item → edit, back ×3",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item חברת החשמל",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "עריכת התחייבות",
+        "url": "/secretary?screen=update&id=41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=update&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=detail&id=41",
+        "to": "/secretary?screen=detail&id=41",
+        "label": "item detail",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F8-secretary-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=detail&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F8-secretary-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F8-secretary-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F9-documents-search",
+    "title": "Documents: hub → search (query + filter) → document, back ×2",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Documents",
+        "url": "/documents"
+      },
+      {
+        "label": "search",
+        "url": "/documents/search"
+      },
+      {
+        "label": "query דלק + filter הוצאה",
+        "url": "/documents/search"
+      },
+      {
+        "label": "open דלק 2",
+        "url": "/documents/review/502"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/documents/review/502",
+        "mode": "history",
+        "computed": "/documents/search",
+        "to": "/documents/search",
+        "label": "search, query + filter restored",
+        "checks": [
+          {
+            "name": "query still דלק",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "filter הוצאה still selected",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F9-documents-search-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/documents/search",
+        "mode": "history",
+        "computed": "/documents",
+        "to": "/documents",
+        "label": "documents hub",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F9-documents-search-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F10a-customer-from-lead",
+    "title": "Customer card reached from a lead: leads → lead → customer, back ×2",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Leads",
+        "url": "/leads"
+      },
+      {
+        "label": "lead 3",
+        "url": "/leads/3"
+      },
+      {
+        "label": "customer chip",
+        "url": "/customers/7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/customers/7",
+        "mode": "history",
+        "computed": "/leads/3",
+        "to": "/leads/3",
+        "label": "the lead it was opened from",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F10a-customer-from-lead-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/leads/3",
+        "mode": "history",
+        "computed": "/leads",
+        "to": "/leads",
+        "label": "leads list",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F10a-customer-from-lead-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F10b-customer-from-list",
+    "title": "Same customer card reached from the customer list (search), back ×1",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Customers",
+        "url": "/customers"
+      },
+      {
+        "label": "search 'לקוח 7'",
+        "url": "/customers"
+      },
+      {
+        "label": "open",
+        "url": "/customers/7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/customers/7",
+        "mode": "history",
+        "computed": "/customers",
+        "to": "/customers",
+        "label": "customer list, search kept",
+        "checks": [
+          {
+            "name": "search still 'לקוח 7'",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F10b-customer-from-list-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11-content",
+    "title": "Content creation: vibe → goal → direction → setup, back ×4",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "history",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step, choice kept",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11-content-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "history",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step, choice kept",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11-content-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step, choice kept",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11-content-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11-content-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11b-content-browser",
+    "title": "Content creation: same chain, browser Back",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "browser",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11b-content-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "browser",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11b-content-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11b-content-browser-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F11b-content-browser-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "close (X)",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F12-coupon-published-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F12-coupon-published-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published-browser",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "browser",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F12-coupon-published-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "browser",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F12-coupon-published-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F13-pricing-saved",
+    "title": "Pricing: save costs to the item (completed), back ×2",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר → result",
+        "url": "/pricing?step=result"
+      },
+      {
+        "label": "שמור עלויות לפריט (PATCH)",
+        "url": "/pricing?step=saved"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=saved",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — the saving step consumed",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F13-pricing-saved-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F13-pricing-saved-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F14-pricing-created-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F14-pricing-created-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created-browser",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F14-pricing-created-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F14-pricing-created-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F15-secretary-met",
+    "title": "Secretary: mark an item handled from its detail (completed), back ×2",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "סמן שטופל (POST complete)",
+        "url": "/secretary?screen=loops&id=41&loopMode=met"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=loops&id=41&loopMode=met",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations — the item's screen consumed",
+        "checks": [
+          {
+            "name": "exactly one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F15-secretary-met-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [
+          {
+            "name": "still one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F15-secretary-met-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/new/confirm",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
+        "checks": [
+          {
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F16-order-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/inventory/supplier-purchases/new/cart",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
+        "checks": [
+          {
+            "name": "קפה still in the draft",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F16-order-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/inventory/supplier-purchases/new",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F16-order-wizard-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/77/send",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
+        "checks": [
+          {
+            "name": "exactly one order created",
+            "ok": true,
+            "detail": "orders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F16b-order-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F17-content-result-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F17-content-result-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result-browser",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F17-content-result-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F17-content-result-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19a-billing-keep-then-leave",
+    "title": "Billing draft with unsaved line: back → keep editing, back → leave without saving",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing/12",
+        "label": "stays on the document (keep editing), edit intact",
+        "checks": [
+          {
+            "name": "edit still there",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F19a-billing-keep-then-leave-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list (left without saving)",
+        "checks": [
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F19a-billing-keep-then-leave-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19b-billing-save-and-continue",
+    "title": "Billing draft with unsaved line: back → save and continue",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list, after saving once",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F19b-billing-save-and-continue-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools — the real origin (fragment entry is the same screen)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F20-hash-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash-browser",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "tablet",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/payables/match/41",
+        "label": "the detail without the fragment",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F20-hash-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F20-hash-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21a-external-then-direct",
+    "title": "Entry from outside the app (prior non-app history), back stays in the app",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "outside page",
+        "url": "blank"
+      },
+      {
+        "label": "direct link",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables (never history.back out of the app)",
+        "checks": [
+          {
+            "name": "still inside the app",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F21a-external-then-direct-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21b-full-reload-navigation",
+    "title": "Entry created by a full-document navigation (location.assign): no fabricated origin",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "location.assign → detail",
+        "url": "/payables/match/42"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/42",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F21b-full-reload-navigation-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21c-lost-session-trail",
+    "title": "Trail storage lost (cleared), then refresh: no fabricated origin",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "sessionStorage cleared + reload",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F21c-lost-session-trail-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F22-suppliers-list",
+    "title": "Suppliers list (phone/tablet) opened from Tools: back to Tools",
+    "viewport": "tablet",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Suppliers",
+        "url": "/suppliers"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/suppliers",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-tablet-F22-suppliers-list-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F1-collection-steps",
+    "title": "Collection: customer → details → other customer, then back ×3",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "לקוח אחר",
+        "url": "/collection/new"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection/new?step=details",
+        "to": "/collection/new?step=details",
+        "label": "details step, amount 450 kept",
+        "checks": [
+          {
+            "name": "amount still 450",
+            "ok": true,
+            "detail": "450"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F1-collection-steps-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/collection/new?step=details",
+        "mode": "history",
+        "computed": "/collection/new",
+        "to": "/collection/new",
+        "label": "customer step (flow start)",
+        "checks": [
+          {
+            "name": "customer picker shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F1-collection-steps-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/collection/new",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox (a root: no back control)",
+        "checks": [
+          {
+            "name": "root shows no back control",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F1-collection-steps-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F2-collection-created",
+    "title": "Collection: create request → send step, back ×1 (no second request)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Collection",
+        "url": "/collection"
+      },
+      {
+        "label": "גבה",
+        "url": "/collection/new"
+      },
+      {
+        "label": "pick customer",
+        "url": "/collection/new?step=details"
+      },
+      {
+        "label": "צור בקשה (POST)",
+        "url": "/collection/new?step=send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/collection/new?step=send",
+        "mode": "history",
+        "computed": "/collection",
+        "to": "/collection",
+        "label": "collection inbox — the completed flow is left as a whole",
+        "checks": [
+          {
+            "name": "exactly one payment request POSTed",
+            "ok": true,
+            "detail": "POSTs=1"
+          },
+          {
+            "name": "no create form / send step shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F2-collection-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3-pricing-calc",
+    "title": "Pricing: catalog → calculation → result, back ×3",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "history",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3-pricing-calc-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3-pricing-calc-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3-pricing-calc-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F3b-pricing-calc-browser",
+    "title": "Pricing: same chain, browser Back",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר",
+        "url": "/pricing?step=result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=result",
+        "mode": "browser",
+        "computed": "/pricing?step=calc",
+        "to": "/pricing?step=calc",
+        "label": "calc form, 123 kept",
+        "checks": [
+          {
+            "name": "material cost still 123",
+            "ok": true,
+            "detail": "123"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3b-pricing-calc-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=calc",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [
+          {
+            "name": "catalog list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3b-pricing-calc-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F3b-pricing-calc-browser-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F4-pricing-new",
+    "title": "Pricing: new item step 1 → step 2, back ×3",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ הוספת פריט",
+        "url": "/pricing?step=new1"
+      },
+      {
+        "label": "המשך לעלויות",
+        "url": "/pricing?step=new2"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=new2",
+        "mode": "history",
+        "computed": "/pricing?step=new1",
+        "to": "/pricing?step=new1",
+        "label": "step 1, name kept",
+        "checks": [
+          {
+            "name": "item name still ייעוץ",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F4-pricing-new-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing?step=new1",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F4-pricing-new-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "no item was created",
+            "ok": true,
+            "detail": "POSTs=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F4-pricing-new-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F5-coupon-wizard",
+    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal",
+        "url": "/revenue?view=create&cstep=direction"
+      },
+      {
+        "label": "direction הנחה",
+        "url": "/revenue?view=create&cstep=builder"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=builder",
+        "mode": "history",
+        "computed": "/revenue?view=create&cstep=direction",
+        "to": "/revenue?view=create&cstep=direction",
+        "label": "direction step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F5-coupon-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue?view=create&cstep=direction",
+        "mode": "history",
+        "computed": "/revenue?view=create",
+        "to": "/revenue?view=create",
+        "label": "goal step (first step of the flow)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F5-coupon-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue?view=create",
+        "mode": "history",
+        "computed": "/revenue",
+        "to": "/revenue",
+        "label": "my coupons — after confirming the discard prompt",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F5-coupon-wizard-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F5-coupon-wizard-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F6-redeem-error",
+    "title": "Redeem: scan → manual → wrong code (error), back ×3",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → error",
+        "url": "/revenue/redeem?step=error"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=error",
+        "mode": "history",
+        "computed": "/revenue/redeem?step=manual",
+        "to": "/revenue/redeem?step=manual",
+        "label": "manual entry, code kept",
+        "checks": [
+          {
+            "name": "code still BAD",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F6-redeem-error-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem?step=manual",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F6-redeem-error-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F6-redeem-error-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F7-redeem-done",
+    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Redeem",
+        "url": "/revenue/redeem"
+      },
+      {
+        "label": "הקלד קוד",
+        "url": "/revenue/redeem?step=manual"
+      },
+      {
+        "label": "אמת קופון → redeemed",
+        "url": "/revenue/redeem?step=done"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue/redeem?step=done",
+        "mode": "history",
+        "computed": "/revenue/redeem",
+        "to": "/revenue/redeem",
+        "label": "scan step — manual entry was replaced (completed)",
+        "checks": [
+          {
+            "name": "exactly one redemption POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F7-redeem-done-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue/redeem",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one redemption",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F7-redeem-done-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F8-secretary",
+    "title": "Secretary: home → all → item → edit, back ×3",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item חברת החשמל",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "עריכת התחייבות",
+        "url": "/secretary?screen=update&id=41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=update&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=detail&id=41",
+        "to": "/secretary?screen=detail&id=41",
+        "label": "item detail",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F8-secretary-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=detail&id=41",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F8-secretary-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F8-secretary-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F9-documents-search",
+    "title": "Documents: hub → search (query + filter) → document, back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Documents",
+        "url": "/documents"
+      },
+      {
+        "label": "search",
+        "url": "/documents/search"
+      },
+      {
+        "label": "query דלק + filter הוצאה",
+        "url": "/documents/search"
+      },
+      {
+        "label": "open דלק 2",
+        "url": "/documents/review/502"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/documents/review/502",
+        "mode": "history",
+        "computed": "/documents/search",
+        "to": "/documents/search",
+        "label": "search, query + filter restored",
+        "checks": [
+          {
+            "name": "query still דלק",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "filter הוצאה still selected",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F9-documents-search-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/documents/search",
+        "mode": "history",
+        "computed": "/documents",
+        "to": "/documents",
+        "label": "documents hub",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F9-documents-search-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F10a-customer-from-lead",
+    "title": "Customer card reached from a lead: leads → lead → customer, back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Leads",
+        "url": "/leads"
+      },
+      {
+        "label": "lead 3",
+        "url": "/leads/3"
+      },
+      {
+        "label": "customer chip",
+        "url": "/customers/7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/customers/7",
+        "mode": "history",
+        "computed": "/leads/3",
+        "to": "/leads/3",
+        "label": "the lead it was opened from",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F10a-customer-from-lead-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/leads/3",
+        "mode": "history",
+        "computed": "/leads",
+        "to": "/leads",
+        "label": "leads list",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F10a-customer-from-lead-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F10b-customer-from-list",
+    "title": "Same customer card reached from the customer list (search), back ×1",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Customers",
+        "url": "/customers"
+      },
+      {
+        "label": "search 'לקוח 7'",
+        "url": "/customers"
+      },
+      {
+        "label": "open",
+        "url": "/customers/7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/customers/7",
+        "mode": "history",
+        "computed": "/customers",
+        "to": "/customers",
+        "label": "customer list, search kept",
+        "checks": [
+          {
+            "name": "search still 'לקוח 7'",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F10b-customer-from-list-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11-content",
+    "title": "Content creation: vibe → goal → direction → setup, back ×4",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "history",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step, choice kept",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11-content-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "history",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step, choice kept",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11-content-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step, choice kept",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11-content-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11-content-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F11b-content-browser",
+    "title": "Content creation: same chain, browser Back",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Content",
+        "url": "/content"
+      },
+      {
+        "label": "vibe + film → המשך",
+        "url": "/content/goal"
+      },
+      {
+        "label": "goal + platform → המשך",
+        "url": "/content/archetype"
+      },
+      {
+        "label": "direction → המשך",
+        "url": "/content/setup"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/setup",
+        "mode": "browser",
+        "computed": "/content/archetype",
+        "to": "/content/archetype",
+        "label": "direction step",
+        "checks": [
+          {
+            "name": ".direction-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11b-content-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content/archetype",
+        "mode": "browser",
+        "computed": "/content/goal",
+        "to": "/content/goal",
+        "label": "goal step",
+        "checks": [
+          {
+            "name": ".goal-card choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11b-content-browser-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/content/goal",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "vibe step",
+        "checks": [
+          {
+            "name": ".vibe-tile choice restored",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11b-content-browser-back3.png"
+      },
+      {
+        "n": 4,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F11b-content-browser-back4.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "close (X)",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F12-coupon-published-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "step",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F12-coupon-published-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F12-coupon-published-browser",
+    "title": "Coupon published: back leaves the finished wizard (no second publish)",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "My coupons",
+        "url": "/revenue"
+      },
+      {
+        "label": "צור קופון חדש",
+        "url": "/revenue?view=create"
+      },
+      {
+        "label": "goal → direction → builder → terms",
+        "url": "/revenue?view=create&cstep=terms"
+      },
+      {
+        "label": "צור את הקופון (POST publish)",
+        "url": "/revenue?view=create&cstep=published"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/revenue?view=create&cstep=published",
+        "mode": "browser",
+        "computed": null,
+        "to": "/revenue",
+        "label": "my coupons — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one publish POST",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F12-coupon-published-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/revenue",
+        "mode": "browser",
+        "computed": null,
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one publish",
+            "ok": true,
+            "detail": "POSTs=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F12-coupon-published-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F13-pricing-saved",
+    "title": "Pricing: save costs to the item (completed), back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "item תספורת",
+        "url": "/pricing?step=calc"
+      },
+      {
+        "label": "חשב מחיר → result",
+        "url": "/pricing?step=result"
+      },
+      {
+        "label": "שמור עלויות לפריט (PATCH)",
+        "url": "/pricing?step=saved"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=saved",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — the saving step consumed",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F13-pricing-saved-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F13-pricing-saved-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "history",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F14-pricing-created-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F14-pricing-created-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F14-pricing-created-browser",
+    "title": "Pricing: new item created (completed), back ×2",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Pricing",
+        "url": "/pricing"
+      },
+      {
+        "label": "+ → name → step 2",
+        "url": "/pricing?step=new2"
+      },
+      {
+        "label": "צור פריט (POST)",
+        "url": "/pricing?step=created"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/pricing?step=created",
+        "mode": "browser",
+        "computed": "/pricing",
+        "to": "/pricing",
+        "label": "catalog — wizard steps consumed",
+        "checks": [
+          {
+            "name": "exactly one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F14-pricing-created-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/pricing",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one create",
+            "ok": true,
+            "detail": "creates=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F14-pricing-created-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F15-secretary-met",
+    "title": "Secretary: mark an item handled from its detail (completed), back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Secretary",
+        "url": "/secretary"
+      },
+      {
+        "label": "all",
+        "url": "/secretary?screen=all"
+      },
+      {
+        "label": "item",
+        "url": "/secretary?screen=detail&id=41"
+      },
+      {
+        "label": "סמן שטופל (POST complete)",
+        "url": "/secretary?screen=loops&id=41&loopMode=met"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/secretary?screen=loops&id=41&loopMode=met",
+        "mode": "history",
+        "computed": "/secretary?screen=all",
+        "to": "/secretary?screen=all",
+        "label": "all obligations — the item's screen consumed",
+        "checks": [
+          {
+            "name": "exactly one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F15-secretary-met-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/secretary?screen=all",
+        "mode": "history",
+        "computed": "/secretary",
+        "to": "/secretary",
+        "label": "secretary home",
+        "checks": [
+          {
+            "name": "still one complete",
+            "ok": true,
+            "detail": "completes=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F15-secretary-met-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/new/confirm",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
+        "checks": [
+          {
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F16-order-wizard-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/inventory/supplier-purchases/new/cart",
+        "mode": "history",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
+        "checks": [
+          {
+            "name": "קפה still in the draft",
+            "ok": true,
+            "detail": "qty=2"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F16-order-wizard-back2.png"
+      },
+      {
+        "n": 3,
+        "from": "/inventory/supplier-purchases/new",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F16-order-wizard-back3.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Inventory",
+        "url": "/inventory"
+      },
+      {
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
+      },
+      {
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inventory/supplier-purchases/77/send",
+        "mode": "history",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
+        "checks": [
+          {
+            "name": "exactly one order created",
+            "ok": true,
+            "detail": "orders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F16b-order-created-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "history",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F17-content-result-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F17-content-result-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F17-content-result-browser",
+    "title": "Content: step → render → result, back ×2 (no second render)",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools + flow data",
+        "url": "/tools"
+      },
+      {
+        "label": "content step",
+        "url": "/content"
+      },
+      {
+        "label": "render (POST, quota)",
+        "url": "/content/render"
+      },
+      {
+        "label": "לראות את הסרטון → result",
+        "url": "/content/result"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/content/result",
+        "mode": "browser",
+        "computed": "/content",
+        "to": "/content",
+        "label": "the step before the render (render never re-entered)",
+        "checks": [
+          {
+            "name": "exactly one render POST",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F17-content-result-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/content",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [
+          {
+            "name": "still one render",
+            "ok": true,
+            "detail": "renders=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F17-content-result-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F18-inbox-mobile",
+    "title": "Inbox (mobile): triage → category list → conversation, back ×2",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Notifications",
+        "url": "/notifications"
+      },
+      {
+        "label": "Inbox",
+        "url": "/inbox"
+      },
+      {
+        "label": "פתוחות",
+        "url": "/inbox?list=conversation_list"
+      },
+      {
+        "label": "conversation",
+        "url": "/inbox?list=conversation_list&conversationId=7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inbox?list=conversation_list&conversationId=7",
+        "mode": "step",
+        "computed": null,
+        "to": "/inbox?list=conversation_list",
+        "label": "the category's conversation list",
+        "checks": [
+          {
+            "name": "list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F18-inbox-mobile-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/inbox?list=conversation_list",
+        "mode": "step",
+        "computed": null,
+        "to": "/inbox",
+        "label": "triage (inbox root)",
+        "checks": [
+          {
+            "name": "triage shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F18-inbox-mobile-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F18-inbox-mobile-browser",
+    "title": "Inbox (mobile): triage → category list → conversation, back ×2",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Notifications",
+        "url": "/notifications"
+      },
+      {
+        "label": "Inbox",
+        "url": "/inbox"
+      },
+      {
+        "label": "פתוחות",
+        "url": "/inbox?list=conversation_list"
+      },
+      {
+        "label": "conversation",
+        "url": "/inbox?list=conversation_list&conversationId=7"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/inbox?list=conversation_list&conversationId=7",
+        "mode": "browser",
+        "computed": null,
+        "to": "/inbox?list=conversation_list",
+        "label": "the category's conversation list",
+        "checks": [
+          {
+            "name": "list shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F18-inbox-mobile-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/inbox?list=conversation_list",
+        "mode": "browser",
+        "computed": null,
+        "to": "/inbox",
+        "label": "triage (inbox root)",
+        "checks": [
+          {
+            "name": "triage shown",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F18-inbox-mobile-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19a-billing-keep-then-leave",
+    "title": "Billing draft with unsaved line: back → keep editing, back → leave without saving",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing/12",
+        "label": "stays on the document (keep editing), edit intact",
+        "checks": [
+          {
+            "name": "edit still there",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F19a-billing-keep-then-leave-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list (left without saving)",
+        "checks": [
+          {
+            "name": "nothing saved",
+            "ok": true,
+            "detail": "saves=0"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F19a-billing-keep-then-leave-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F19b-billing-save-and-continue",
+    "title": "Billing draft with unsaved line: back → save and continue",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Billing",
+        "url": "/billing"
+      },
+      {
+        "label": "draft document",
+        "url": "/billing/12"
+      },
+      {
+        "label": "edit a line (unsaved)",
+        "url": "/billing/12"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/billing/12",
+        "mode": "history",
+        "computed": "/billing",
+        "to": "/billing",
+        "label": "billing list, after saving once",
+        "checks": [
+          {
+            "name": "exactly one save",
+            "ok": true,
+            "detail": "saves=1"
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F19b-billing-save-and-continue-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools — the real origin (fragment entry is the same screen)",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F20-hash-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F20-hash-browser",
+    "title": "#fragment jump on a detail screen keeps the chain",
+    "viewport": "mobile",
+    "via": "browser",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "#lines (fragment entry)",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/payables/match/41",
+        "label": "the detail without the fragment",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F20-hash-browser-back1.png"
+      },
+      {
+        "n": 2,
+        "from": "/payables/match/41",
+        "mode": "browser",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F20-hash-browser-back2.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21a-external-then-direct",
+    "title": "Entry from outside the app (prior non-app history), back stays in the app",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "outside page",
+        "url": "blank"
+      },
+      {
+        "label": "direct link",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables (never history.back out of the app)",
+        "checks": [
+          {
+            "name": "still inside the app",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F21a-external-then-direct-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21b-full-reload-navigation",
+    "title": "Entry created by a full-document navigation (location.assign): no fabricated origin",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "location.assign → detail",
+        "url": "/payables/match/42"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/42",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F21b-full-reload-navigation-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F21c-lost-session-trail",
+    "title": "Trail storage lost (cleared), then refresh: no fabricated origin",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "detail",
+        "url": "/payables/match/41"
+      },
+      {
+        "label": "sessionStorage cleared + reload",
+        "url": "/payables/match/41"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/payables/match/41",
+        "mode": "fallback",
+        "computed": "/payables",
+        "to": "/payables",
+        "label": "labelled fallback /payables",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F21c-lost-session-trail-back1.png"
+      }
+    ],
+    "ok": true
+  },
+  {
+    "id": "F22-suppliers-list",
+    "title": "Suppliers list (phone/tablet) opened from Tools: back to Tools",
+    "viewport": "mobile",
+    "via": "button",
+    "entry": [
+      {
+        "label": "Tools",
+        "url": "/tools"
+      },
+      {
+        "label": "Suppliers",
+        "url": "/suppliers"
+      }
+    ],
+    "backs": [
+      {
+        "n": 1,
+        "from": "/suppliers",
+        "mode": "history",
+        "computed": "/tools",
+        "to": "/tools",
+        "label": "Tools",
+        "checks": [],
+        "ok": true,
+        "shot": "qa-evidence/back-nav/chains/webkit-mobile-F22-suppliers-list-back1.png"
+      }
+    ],
+    "ok": true
+  }
+]

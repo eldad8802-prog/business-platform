@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   acquireBackLock,
   getBackTarget,
+  getCurrentEntryUrl,
   getTrailVersion,
   releaseBackLock,
   subscribeTrail,
@@ -77,7 +78,12 @@ export function useBackDestination(fallback?: string, fallbackLabel?: string) {
     : declared;
   // Before the trail is known (SSR / first paint) the neutral round form is
   // rendered: never claim an origin or a fallback that is not yet verified.
-  const target = version < 0 ? null : getBackTarget();
+  // Same while a client navigation is mid-commit: Next renders the new screen
+  // before it pushes the history entry, so the current entry still belongs to
+  // the previous screen — computing now would flash the wrong destination.
+  const entryUrl = version < 0 ? null : getCurrentEntryUrl();
+  const settled = entryUrl !== null && pathnameOf(entryUrl) === pathname;
+  const target = settled ? getBackTarget() : version < 0 ? null : entryUrl === null ? getBackTarget() : null;
   return { target, fallback: fb, pathname };
 }
 

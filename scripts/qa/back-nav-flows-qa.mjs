@@ -15,6 +15,17 @@
 import { chromium, webkit } from "playwright";
 // QA_BROWSER=webkit runs the same suite on WebKit (Safari engine).
 const ENGINE = process.env.QA_BROWSER === "webkit" ? webkit : chromium;
+
+// WebKit reports same-origin fetches aborted by a reload / navigation as
+// "Fetch API cannot load … due to access control checks" (pre-existing app
+// polling, not navigation). Counted and reported separately; every other
+// error fails the check.
+const ABORTED_FETCH = /Fetch API cannot load .* due to access control checks/;
+function splitErrors(errors) {
+  const aborted = ENGINE === webkit ? errors.filter((e) => ABORTED_FETCH.test(e)) : [];
+  return { real: errors.filter((e) => !aborted.includes(e)), aborted };
+}
+
 import { mkdirSync } from "node:fs";
 import { wire, posts, resetPosts } from "./back-nav-fixtures.mjs";
 import { check, here, runChain, summary, writeEvidence } from "./back-nav-chain-lib.mjs";
@@ -809,7 +820,11 @@ try {
       } catch (e) {
         check(`${c.id} [${vp.name}] chain ran to completion`, false, String(e?.message ?? e).split(/\r?\n/)[0]);
       }
-      check(`${c.id} [${vp.name}] no page errors`, errors.length === 0, errors.slice(0, 2).join(" | "));
+      {
+        const { real, aborted } = splitErrors(errors);
+        if (aborted.length) console.log(`    (webkit: ${aborted.length} fetches aborted by reload/navigation — not navigation errors)`);
+        check(`${c.id} [${vp.name}] no page errors`, real.length === 0, real.slice(0, 2).join(" | "));
+      }
       await context.close();
     }
   }
