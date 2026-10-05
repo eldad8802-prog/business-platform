@@ -90,7 +90,9 @@ export function CashflowCard({
   const net = value ? netOf(value) : null;
   const unitWord = period === "week" ? "השבוע" : "היום";
   const bar = value?.bars[Math.min(selected, (value?.bars.length ?? 1) - 1)] ?? null;
-  const readoutLead = period === "week" ? "ביום" : "בשעה";
+  // A week column is already named "יום ב׳", so it takes no lead word — "בשעה"
+  // belongs to the hourly view only (never "ביום יום ב׳").
+  const readoutLead = period === "week" ? null : "בשעה";
 
   const header = (
     <div style={{ display: "flex", flexWrap: variant === "desktop" ? "wrap" : undefined, gap: variant === "desktop" ? 12 : undefined, alignItems: "center", justifyContent: "space-between" }}>
@@ -105,7 +107,7 @@ export function CashflowCard({
         ) : variant === "tablet" ? (
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500 }}>הכנסות והוצאות</h2>
         ) : (
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>הכנסות והוצאות</h2>
+          <h2 className="dzh-cash-title" style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>הכנסות והוצאות</h2>
         )}
         <button
           type="button"
@@ -115,6 +117,8 @@ export function CashflowCard({
           onClick={() => setInfoOpen((o) => !o)}
           style={{
             width: 44,
+            // Never squeezed below its 44px touch target, at any phone width.
+            flexShrink: 0,
             height: 44,
             margin: "-10px -6px",
             padding: 0,
@@ -192,7 +196,7 @@ export function CashflowCard({
       variant === "desktop" ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} aria-live="polite">
           <span style={{ borderRadius: 999, background: "rgba(255,255,255,0.14)", padding: "6px 14px", fontSize: 14 }}>
-            {readoutLead} <span style={{ fontWeight: 600 }}>{bar.label}</span>
+            {readoutLead ? `${readoutLead} ` : null}<span style={{ fontWeight: 600 }}>{bar.label}</span>
           </span>
           <span style={{ borderRadius: 999, background: "rgba(155,228,227,0.18)", color: "#BFF0EF", padding: "6px 14px", fontSize: 14, fontWeight: 500 }}>
             הכנסות {formatShekel(bar.income)}
@@ -217,7 +221,7 @@ export function CashflowCard({
           }}
         >
           <span style={{ paddingTop: variant === "mobile" ? 10 : 0 }}>
-            {readoutLead} <span style={{ color: "#FFFFFF", fontWeight: 600 }}>{bar.label}</span>
+            {readoutLead ? `${readoutLead} ` : null}<span style={{ color: "#FFFFFF", fontWeight: 600 }}>{bar.label}</span>
           </span>
           <span style={{ display: "flex", gap: 12, paddingTop: variant === "mobile" ? 10 : 0 }}>
             <span style={{ color: INCOME, fontWeight: 500 }}>+{formatShekel(bar.income)}</span>
@@ -356,6 +360,7 @@ function PeriodSwitch({
         return (
           <button
             key={o.key}
+            className="dzh-period-btn"
             type="button"
             aria-pressed={active}
             disabled={o.disabled}

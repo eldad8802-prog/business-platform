@@ -532,4 +532,10 @@ export const HOME_CSS = `
   outline: 2px solid #246966; outline-offset: 2px;
 }
 .dzh-root ::placeholder { color: #7A8583; }
+/* Narrow phones (under 390): the card header keeps "הכנסות והוצאות" on one
+   line by giving the period buttons a little less side padding. The info
+   button keeps its 44px target. Below 360 the title may wrap — it never
+   overflows. */
+@media (min-width: 360px) { .dzh-root .dzh-cash-title { white-space: nowrap; } }
+@media (max-width: 389.98px) { .dzh-root .dzh-period-btn { padding-left: 10px !important; padding-right: 10px !important; } }
 `;

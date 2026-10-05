@@ -107,7 +107,7 @@ export function NavSidebar() {
   const pathname = usePathname() || "/";
   const visible = useMediaQuery(SIDEBAR_QUERY);
   const hasUnread = useHasUnreadNotifications(pathname, visible);
-  const badges = useNavBadges(visible);
+  const badges = useNavBadges(visible, pathname);
   const { businessName } = useSessionIdentity(visible);
   const [sheetOpen, setSheetOpen] = useState(false);
 
