@@ -198,7 +198,14 @@ ledger pfx 171 1 1 1 1 1
 echo; echo "12. the exact set [P3A1,P3A2,M6] → all applied, nothing held"
 clone pfx_exact
 release pfx_exact "$T/rec" "$A1,$A2,$M6"
-grep -q "stays pending, NOT staged: (none)" /tmp/stage.out || fail "the exact set held something"
+# Nothing OF THE SET may be held. Migrations merged to main after M6 (Business
+# Brain W2, M1 …) are later in Prisma order and correctly stay pending — the
+# original "(none)" check assumed M6 was the newest migration in the checkout.
+held="$(grep "stays pending, NOT staged:" /tmp/stage.out || true)"
+[ -n "$held" ] || fail "the exact set: no staging line"
+for name in "$A1" "$A2" "$M6"; do
+  case "$held" in *"$name"*) fail "the exact set held $name" ;; esac
+done
 ledger pfx_exact 171 1 1 1 1 1
 
 for d in "$T"/*/; do git -C "$ROOT" worktree remove --force "$d" 2>/dev/null || true; done
