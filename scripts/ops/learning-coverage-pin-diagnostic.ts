@@ -28,6 +28,7 @@
 import { PrismaClient } from "@prisma/client";
 import { assertSafeUrl, enforceReadOnly, RefusedError, verifyReadOnly } from "./runtime-rls-evidence";
 import { catalogueDescriptors } from "@/lib/knowledge/registry";
+import { classifyPinMismatch } from "./lineage-pin-classifier";
 
 const NEW_RULE = /^(BILL|CUST|PAY|COLL|LEAD|CONV|APPT|SEC|OFF|REP)-/;
 
@@ -70,7 +71,6 @@ async function main(): Promise<void> {
             WHERE m."businessId" = $1 AND m."measureKey" = $2 AND COALESCE(m."entityType", '') = COALESCE($3, '') AND COALESCE(m."entityId", 0) = COALESCE($4, 0)
               AND p.key = $5 AND v.version = $6 LIMIT 1`, b, m.measureKey, m.entityType, m.entityId, d.policyKey, d.versionLabel);
         const exp = expectedVersion.get(d.ruleId)?.createdAt ?? null;
-        const historical = m.status === "SUPERSEDED" || m.status === "STALE";
         rows.push({
           business: `B${b}`, measureKey: m.measureKey, ruleId: d.ruleId, status: m.status, subjectLevel: m.hasSubject ? "entity" : "business",
           actualLineage: `${m.pkey}@${m.ver}`, actualLineageCreatedAt: m.verCreatedAt,
@@ -80,8 +80,9 @@ async function main(): Promise<void> {
           currentRuleUsesExpectedLineage: true, // by construction: expected = today's catalogue descriptor for this measure key
           currentSlotRow: slot ? { exists: true, status: slot.status, materializedAt: slot.materializedAt } : { exists: false },
           consumable: m.status === "ACTIVE",
-          classification: !historical ? "LIVE_WRONG_PIN"
-            : (exp !== null && m.materializedAt.getTime() < exp.getTime()) || !!slot ? "LEGITIMATE_HISTORY" : "HISTORICAL_STATUS_UNEXPLAINED",
+          // The same classifier the final proof uses (lineage-pin-classifier.ts).
+          classification: classifyPinMismatch({ status: m.status, materializedAt: m.materializedAt,
+            expectedLineageCreatedAt: exp, currentSlotStatus: slot?.status ?? null }),
         });
       }
     }

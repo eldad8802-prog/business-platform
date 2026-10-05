@@ -21,7 +21,7 @@ import {
   type IntelligenceInput,
 } from "./business-cost-intelligence";
 import { composeCostInsights } from "./business-cost-insights";
-import { baselineDailyMinor, parseCadence, type CostCommitment, type CostInstallment, type CostPayment } from "./business-cost-core";
+import { baselineDailyMinor, civilDateInZone, parseCadence, type CostCommitment, type CostInstallment, type CostPayment } from "./business-cost-core";
 
 let failures = 0;
 let total = 0;
@@ -127,6 +127,69 @@ section("2 · baseline: daily / weekly / monthly / annual");
   const loan = commitment({ title: "הלוואה", payeeKind: "LENDER", installments: [inst("2026-09-05", 200000)] });
   const withLoan = baselineViews(input("2026-09-30", [rent, loan]));
   eq("debt service is kept apart from the operating baseline", [withLoan.monthlyMinor, withLoan.debtServiceMonthlyMinor], [300000, 200000]);
+}
+
+section("2b · the owner's day cost: the monthly cost ÷ the actual days of THIS calendar month");
+{
+  // The owner's example: 9,000 rent, 4,200 arnona every 2 months, 7,200 insurance a year, 600 accountant, 200 internet, 400 software.
+  const c = [
+    commitment({ title: "שכירות", installments: [inst("2026-01-01", 900000)] }),
+    commitment({ title: "ארנונה", recurrence: "BIMONTHLY", installments: [inst("2026-01-01", 420000)] }),
+    commitment({ title: "ביטוח", recurrence: "YEARLY", installments: [inst("2026-01-01", 720000)] }),
+    commitment({ title: "רו\"ח", installments: [inst("2026-01-01", 60000)] }),
+    commitment({ title: "אינטרנט", installments: [inst("2026-01-01", 20000)] }),
+    commitment({ title: "תוכנות", installments: [inst("2026-01-01", 40000)] }),
+  ];
+  const at = (asOf: string) => baselineViews(input(asOf, c));
+  eq("monthly cost of the example = 9,000 + 2,100 + 600 + 600 + 200 + 400", at("2026-10-15").monthlyMinor, 1290000);
+  eq("arnona 4,200 every two months → 2,100 a month; insurance 7,200 a year → 600 a month", [c[1], c[2]].map((x) => at("2026-10-15").lines.find((l) => l.commitmentId === x.id)?.monthlyMinor), [210000, 60000]);
+  eq("October 2026 (31 days): 12,900 ÷ 31 = 416.13", at("2026-10-15").calendarDay, { month: "2026-10", daysInMonth: 31, dailyMinor: 41613 });
+  eq("November 2026 (30 days): 12,900 ÷ 30 = 430.00", at("2026-11-15").calendarDay, { month: "2026-11", daysInMonth: 30, dailyMinor: 43000 });
+  eq("February 2027 (28 days): 12,900 ÷ 28 = 460.71", at("2027-02-15").calendarDay, { month: "2027-02", daysInMonth: 28, dailyMinor: 46071 });
+  eq("February 2028 (leap, 29 days): 12,900 ÷ 29 = 444.83", at("2028-02-15").calendarDay, { month: "2028-02", daysInMonth: 29, dailyMinor: 44483 });
+  eq("the monthly cost is the same in all four months", ["2026-10-15", "2026-11-15", "2027-02-15", "2028-02-15"].map((d) => at(d).monthlyMinor), [1290000, 1290000, 1290000, 1290000]);
+  eq("first and last day of a month use that month's days", [at("2026-10-01").calendarDay.daysInMonth, at("2026-10-31").calendarDay.daysInMonth, at("2026-11-01").calendarDay.daysInMonth], [31, 31, 30]);
+  check("the internal mean-day rate is unchanged and separate (12,900 ÷ 30.44 ≈ 423.8)", at("2026-10-15").dailyMinor >= 42382 && at("2026-10-15").dailyMinor <= 42383, String(at("2026-10-15").dailyMinor));
+
+  // Asia/Jerusalem month boundary: the API's asOf is the business-local date of "now".
+  const dayCostAt = (now: string) => summarizeBusinessCost(input(civilDateInZone(new Date(now), "Asia/Jerusalem"), c)).baseline.calendarDay;
+  eq("2026-10-31T22:30Z is 1 Nov 00:30 in Israel (UTC+2) → November's 30 days", dayCostAt("2026-10-31T22:30:00Z"), { month: "2026-11", daysInMonth: 30, dailyMinor: 43000 });
+  eq("2026-10-31T21:59Z is still 31 Oct 23:59 in Israel → October's 31 days", dayCostAt("2026-10-31T21:59:00Z"), { month: "2026-10", daysInMonth: 31, dailyMinor: 41613 });
+  eq("2026-09-30T21:30Z is 1 Oct 00:30 in Israel (UTC+3, summer time) → October", dayCostAt("2026-09-30T21:30:00Z").month, "2026-10");
+
+  // History: rent 9,000 until September, 9,500 from October — each month with its own numerator.
+  const rent = commitment({ title: "שכירות", installments: monthlyInstallments("2026-06", 7, 900000, "01", (k) => (k >= 4 ? 950000 : 900000)) });
+  eq("August uses 9,000 ÷ 31", baselineViews(input("2026-08-15", [rent])).calendarDay, { month: "2026-08", daysInMonth: 31, dailyMinor: 29032 });
+  eq("November uses 9,500 ÷ 30", baselineViews(input("2026-11-15", [rent])).calendarDay, { month: "2026-11", daysInMonth: 30, dailyMinor: 31667 });
+
+  // Decision A: a commitment counts in the monthly cost from the day it takes effect, not before; ÷ the full month's days.
+  const base = commitment({ title: "שכירות", installments: monthlyInstallments("2026-06", 7, 1000000) });
+  const cleaning = commitment({ title: "ניקיון", installments: [inst("2026-10-15", 62000)] });
+  eq("10 Oct, before cleaning starts: 10,000 ÷ 31", baselineViews(input("2026-10-10", [base, cleaning])).calendarDay.dailyMinor, Math.round(1000000 / 31));
+  const oct15 = baselineViews(input("2026-10-15", [base, cleaning]));
+  eq("15 Oct, the day it starts: 10,620 ÷ 31", [oct15.monthlyMinor, oct15.calendarDay.dailyMinor], [1062000, Math.round(1062000 / 31)]);
+  const storage = commitment({ title: "אחסון", installments: monthlyInstallments("2026-06", 7, 30000), endDate: "2026-10-20" });
+  eq("an end date mid-month: in on 20 Oct, out on 21 Oct", [baselineViews(input("2026-10-20", [base, storage])).monthlyMinor, baselineViews(input("2026-10-21", [base, storage])).monthlyMinor], [1030000, 1000000]);
+
+  // Weekly stays normalised (365.2425 / 12 / 7 weeks a month), whatever the month holds.
+  const weekly = commitment({ title: "ניקיון שבועי", recurrence: "WEEKLY", installments: [inst("2026-10-04", 35000)] });
+  eq("weekly 350 → 350 × 30.436875 ÷ 7 a month, in any month", [baselineViews(input("2026-10-15", [weekly])).monthlyMinor, baselineViews(input("2027-02-15", [weekly])).monthlyMinor], [Math.round((35000 * 30.436875) / 7), Math.round((35000 * 30.436875) / 7)]);
+
+  // Left out, and listed: loans and one-offs.
+  const loan = commitment({ title: "הלוואה", payeeKind: "LENDER", installments: [inst("2026-10-05", 240000)] });
+  const oneOff = commitment({ title: "תיקון מזגן", scheduleKind: "ONE_OFF", recurrence: "NONE", installments: [inst("2026-10-12", 90000)] });
+  const mixed = baselineViews(input("2026-10-15", [base, loan, oneOff]));
+  eq("loan and one-off stay out of the monthly cost and the day cost", [mixed.monthlyMinor, mixed.calendarDay.dailyMinor], [1000000, Math.round(1000000 / 31)]);
+  eq("the loan is listed apart, with its monthly equivalent", mixed.debtServiceLines.map((l) => [l.title, l.monthlyMinor]), [["הלוואה", 240000]]);
+  eq("the one-off is listed apart, with its amount and reason", mixed.uncertainItems.map((u) => [u.title, u.amountMinor, u.reason]), [["תיקון מזגן", 90000, "ONE_OFF_COVERAGE_UNKNOWN"]]);
+
+  // The owner's affirmation: shown as recorded, never inferred.
+  const withAff = (asOf: string, cs: CostCommitment[], captured: boolean | null, on?: string) => baselineViews({ ...input(asOf, cs), ownerAffirmedBackboneCaptured: captured, ownerAffirmedBackboneOn: on ?? null }).affirmation;
+  eq("affirmed, with the stored date", withAff("2026-10-15", [base], true, "2026-10-02"), { affirmed: true, affirmedOn: "2026-10-02" });
+  eq("not affirmed → no date, whatever is passed", withAff("2026-10-15", [base], false, "2026-10-02"), { affirmed: false, affirmedOn: null });
+  eq("never asked → not affirmed", withAff("2026-10-15", [base], null), { affirmed: false, affirmedOn: null });
+  eq("affirmed without a stored timestamp → affirmed, no invented date", withAff("2026-10-15", [base], true), { affirmed: true, affirmedOn: null });
+  eq("adding a commitment later does not undo the affirmation", withAff("2026-10-20", [base, cleaning], true, "2026-10-02").affirmed, true);
 }
 
 section("3 · upcoming obligations: the financial schedule, not reminders");
@@ -240,8 +303,8 @@ section("8 · insights: only from DETECTED signals, every number from evidence")
   const [ins] = composeCostInsights(summarizeBusinessCost(input("2026-09-30", [raised])));
   eq("rent raised → one baseline insight", ins?.kind, "BASELINE_RECURRING_COST_CHANGED");
   check("its text states the recorded change from the evidence", (ins?.body ?? "").includes("מ־3,000 ₪ ל־3,300 ₪ החל מ־1/8/2026"), ins?.body);
-  check("…and the normalized daily cost before → after", ins?.body.includes("98.56 ₪") && ins?.body.includes("108.42 ₪"), ins?.body);
-  check("every number in the text is one of its facts", ["3000.00", "3300.00", "98.56", "108.42"].every((v) => ins.facts.some((f) => f.value === v || f.value.includes(v))));
+  check("…and the monthly cost before → after, with no second (mean-day) daily figure", ins?.body.includes("מ־3,000 ₪ ל־3,300 ₪ לחודש") && !ins?.body.includes("98.56") && !ins?.body.includes("יום פעילות"), ins?.body);
+  check("every number in the text is one of its facts", ["3000.00", "3300.00"].every((v) => ins.facts.some((f) => f.value === v || f.value.includes(v))));
   check("facts carry their source (signal or ledger row)", ins.facts.every((f) => /^(signal:|commitment:)/.test(f.sourceRef)));
   eq("it states what was compared", ins.comparedPeriod, { from: "2026-07-02", to: "2026-09-30" });
   check("…and how complete the data is", typeof ins.completeness.state === "string");

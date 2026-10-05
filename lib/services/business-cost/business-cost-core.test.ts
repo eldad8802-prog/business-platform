@@ -10,6 +10,7 @@
 import {
   addCadence,
   baselineDailyMinor,
+  calendarMonthDailyMinor,
   civilDateInZone,
   dailyShareMinor,
   deriveBusinessCostForDate,
@@ -160,6 +161,18 @@ eq("9,000 monthly → ₪295.69/day (Gregorian mean month)", baselineDailyMinor(
 eq("7,300 yearly → ₪19.99/day", baselineDailyMinor(730000, { unit: "MONTH", every: 12 }), 1999);
 eq("700 weekly → ₪100.00/day", baselineDailyMinor(70000, { unit: "WEEK", every: 1 }), 10000);
 eq("4,200 bimonthly → ₪69.00/day", baselineDailyMinor(420000, { unit: "MONTH", every: 2 }), 6900);
+
+section("owner-facing day cost: monthly ÷ the actual days of the calendar month");
+eq("12,900 in October 2026 → 31 days, ₪416.13", calendarMonthDailyMinor(1290000, "2026-10-15"), { daysInMonth: 31, dailyMinor: 41613 });
+eq("12,900 in November 2026 → 30 days, ₪430.00", calendarMonthDailyMinor(1290000, "2026-11-01"), { daysInMonth: 30, dailyMinor: 43000 });
+eq("12,900 in February 2027 → 28 days, ₪460.71", calendarMonthDailyMinor(1290000, "2027-02-28"), { daysInMonth: 28, dailyMinor: 46071 });
+eq("12,900 in February 2028 (leap) → 29 days, ₪444.83", calendarMonthDailyMinor(1290000, "2028-02-29"), { daysInMonth: 29, dailyMinor: 44483 });
+eq("February 2100 is not a leap year → 28 days", calendarMonthDailyMinor(2800, "2100-02-10"), { daysInMonth: 28, dailyMinor: 100 });
+eq("half an agora rounds up (1 ÷ 2 → 1)", calendarMonthDailyMinor(15, "2026-11-10").dailyMinor, 1); // 15 ÷ 30 = 0.5
+eq("zero monthly → zero a day", calendarMonthDailyMinor(0, "2026-10-15").dailyMinor, 0);
+check("a negative monthly amount is refused", (() => { try { calendarMonthDailyMinor(-1, "2026-10-15"); return false; } catch (e) { return e instanceof BusinessCostValidationError; } })());
+check("an invalid date is refused", (() => { try { calendarMonthDailyMinor(100, "2026-02-30"); return false; } catch (e) { return e instanceof BusinessCostValidationError; } })());
+check("…and differs from the mean-month baseline on purpose (416.13 ≠ 423.8)", calendarMonthDailyMinor(1290000, "2026-10-15").dailyMinor !== baselineDailyMinor(1290000, { unit: "MONTH", every: 1 }));
 
 /* ───────────────────────────── allocation rules ──────────────────────────── */
 

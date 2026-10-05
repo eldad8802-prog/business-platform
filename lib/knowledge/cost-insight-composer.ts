@@ -126,7 +126,6 @@ export function composeCostInsights(input: ComposerInput): InsightDraft[] {
       out.push(draft("cost.baseline_shift", `cost.baseline_shift:${d.monthlyFromMinor}:${d.monthlyToMinor}`,
         up ? "העלות הקבועה החודשית שנרשמה עלתה" : "העלות הקבועה החודשית שנרשמה ירדה", [
           line(`מ־${money(d.monthlyFromMinor as number)} לחודש (${date(d.comparedFrom as string)}) ל־${money(d.monthlyToMinor as number)} לחודש (${date(d.comparedTo as string)})`),
-          line(`עלות יום פעילות ממוצע: מ־${money(d.dailyFromMinor as number)} ל־${money(d.dailyToMinor as number)}`),
           ...drivers.map((x) => line(
             x.change === "ADDED" ? `נוספה: ${name(x.commitmentId)} (${money(x.monthlyToMinor)} לחודש)`
             : x.change === "ENDED" ? `הסתיימה: ${name(x.commitmentId)} (${money(x.monthlyFromMinor)} לחודש)`
