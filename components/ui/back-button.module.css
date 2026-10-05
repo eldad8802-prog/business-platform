@@ -11,6 +11,10 @@
   gap: 6px;
   flex-shrink: 0;
   min-width: 44px;
+  /* Never stretched by its container: a grid column (e.g. the review top
+     bar's minmax(120px, auto)) or a stretching flex column would otherwise
+     turn the round control into a wide bar. */
+  width: fit-content;
   height: 44px;
   padding: 0;
   border-radius: 999px;

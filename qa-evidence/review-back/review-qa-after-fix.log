@@ -1,0 +1,32 @@
+
+=== desktop 1440x900 ===
+  [PASS] loading state shows the back control
+  [PASS] loading back resolves to the verified origin — history
+  [PASS] back pressed DURING loading returns to the origin — /tools/money
+  [PASS] …without waiting for the document load (still held) — answered=0, 211ms
+  [PASS] after the held load completes, the user stays on the origin — /tools/money
+  [PASS] loaded review top bar has the back control
+  [PASS] back control is round 44×44 (not stretched by the grid) — 44×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+=== tablet 820x1180 ===
+  [PASS] loading state shows the back control
+  [PASS] loading back resolves to the verified origin — history
+  [PASS] back pressed DURING loading returns to the origin — /tools/money
+  [PASS] …without waiting for the document load (still held) — answered=0, 172ms
+  [PASS] after the held load completes, the user stays on the origin — /tools/money
+  [PASS] loaded review top bar has the back control
+  [PASS] back control is round 44×44 (not stretched by the grid) — 44×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+=== mobile 390x844 ===
+  [PASS] loading state shows the back control
+  [PASS] loading back resolves to the verified origin — history
+  [PASS] back pressed DURING loading returns to the origin — /tools/money
+  [PASS] …without waiting for the document load (still held) — answered=0, 438ms
+  [PASS] after the held load completes, the user stays on the origin — /tools/money
+  [PASS] loaded review top bar has the back control
+  [PASS] back control is round 44×44 (not stretched by the grid) — 44×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+24 passed, 0 failed
