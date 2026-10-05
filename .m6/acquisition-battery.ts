@@ -8,7 +8,7 @@
  * env: DATABASE_URL / DIRECT_URL = runtime, OWNER_URL = owner (setup / assertions), AUTH_TOKEN_SECRET,
  *      META_LEAD_ADS_APP_SECRET, META_LEAD_ADS_VERIFY_TOKEN, ACQUISITION_CREDENTIAL_ENCRYPTION_KEY.
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { signAuthToken } from "../lib/auth-token";
@@ -25,7 +25,9 @@ import { POST as webPOST, OPTIONS as webOPTIONS } from "../app/api/intake/acquis
 import { POST as googlePOST } from "../app/api/intake/acquisition/google/[publicId]/route";
 import { GET as metaGET, POST as metaPOST } from "../app/api/intake/acquisition/meta/route";
 import { GET as ownerGET, POST as ownerPOST } from "../app/api/integrations/acquisition/route";
-import { GET as sweepGET } from "../app/api/intake/sweep/route";
+import { GET as sweepGET, POST as sweepPOST } from "../app/api/intake/sweep/route";
+import { SWEEP_URL } from "../lib/intake/sweep-auth";
+import { SignJWT } from "jose";
 import { runIntakeSweep } from "../lib/intake/intake-sweeper";
 import { deriveEventIdentity } from "../lib/intake/core/event-identity";
 import { setMetaCodeExchangeForTests, setMetaGraphCallForTests } from "../lib/intake/acquisition/providers/meta-graph";
@@ -441,11 +443,11 @@ async function main() {
   const twin = await o.acquisitionConnection.findUnique({ where: { id: site.connection.id } });
   ok("the owner gave one site; its www twin is allowed with it",
     JSON.stringify(twin?.allowedOrigins) === JSON.stringify(["https://shop-a.example", "https://www.shop-a.example"]), JSON.stringify(twin?.allowedOrigins));
-  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string) =>
+  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string, ip = "203.0.113.9") =>
     webPOST(new NextRequest(`http://m6.local/api/intake/acquisition/web/${publicId}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml", origin,
-        ...(referer ? { referer } : {}), "x-forwarded-for": "203.0.113.9" },
+        ...(referer ? { referer } : {}), "x-forwarded-for": ip },
       body: new URLSearchParams(fields).toString(),
     }), params({ publicId }));
   const enquiry = { name: "Plain Form", phone: "053-777-1234", message: "do you work on Fridays", page_url: "https://www.shop-a.example/contact?utm_source=newsletter" };
@@ -495,6 +497,58 @@ async function main() {
   ok("…the poison receipt is dead-lettered (not retried forever), and the next sweep is healthy again",
     poison?.status === "FAILED" && poison.nextAttemptAt === null && (poison.lastErrorCode ?? "").startsWith("normalize:") &&
       (await sweepGET(sweepReq(process.env.CRON_SECRET))).status === 200, JSON.stringify({ s: poison?.status, n: poison?.nextAttemptAt, c: poison?.lastErrorCode }));
+  console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
+  process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
+  process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";
+  const qsign = async (key: string, o: { url?: string; body?: string } = {}) => {
+    const now = Math.floor(Date.now() / 1000);
+    return new SignJWT({ body: createHash("sha256").update(o.body ?? "", "utf8").digest("base64url") })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer("Upstash").setSubject(o.url ?? SWEEP_URL)
+      .setIssuedAt(now).setNotBefore(now).setExpirationTime(now + 300).setJti(randomUUID())
+      .sign(new TextEncoder().encode(key));
+  };
+  const qpost = (signature: string, body = "") =>
+    sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST", headers: { "upstash-signature": signature }, body }));
+  const receiptsBefore = await o.intakeEvent.count();
+  const qok = await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY));
+  const qokBody = (await qok.json()) as { ok?: boolean; via?: string; report?: { businesses?: number } };
+  ok("a QStash-signed sweep (current key, exact Production URL) runs for real: 200, via qstash, counts only",
+    qok.status === 200 && qokBody.ok === true && qokBody.via === "qstash" && typeof qokBody.report?.businesses === "number", JSON.stringify(qokBody));
+  ok("…signed with the NEXT key (rotation) as well", (await qpost(await qsign(process.env.QSTASH_NEXT_SIGNING_KEY))).status === 200);
+  ok("a signature for another URL → 401", (await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY, { url: "https://promaxgroup.co.il/api/payments/settlement-recovery" }))).status === 401);
+  ok("a body other than the signed one → 401", (await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY, { body: "" }), "{\"tamper\":1}")).status === 401);
+  ok("a signature made with a foreign key → 401", (await qpost(await qsign("sig_attacker_0123456789abcdefghijklmnopqrs"))).status === 401);
+  ok("a foreign signature with a valid CRON bearer alongside → still 401 (no fallback)",
+    (await sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST",
+      headers: { "upstash-signature": await qsign("sig_attacker_0123456789abcdefghijklmnopqrs"), authorization: `Bearer ${process.env.CRON_SECRET}` } }))).status === 401);
+  ok("the CRON_SECRET backstop (no signature) still sweeps", (await sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST",
+    headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }))).status === 200);
+  ok("scheduled sweeps wrote no intake receipt of their own (no side effects)", (await o.intakeEvent.count()) === receiptsBefore);
+
+  console.log("\n-- 13. ready-made form idempotency: one submission id per page load decides --");
+  const rcpts = () => o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
+  const ask = { name: "Same Text Person", phone: "053-222-3344", message: "same question twice", page_url: "https://shop-a.example/contact" };
+  const pageLoad1 = randomUUID();
+  // one visitor on one page (8 requests, under the 10/min per-IP limit, which is proven elsewhere); new page loads from a second IP
+  const V1 = "203.0.113.50", V2 = "203.0.113.51";
+  const r0 = await rcpts();
+  const d1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
+  const d2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
+  ok("double-click (same page load, same id) → ONE receipt", d1.status === 200 && d2.status === 200 && (await rcpts()) === r0 + 1);
+  await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://www.shop-a.example", undefined, V1);
+  ok("a retry / back + resubmit of that page → still ONE receipt", (await rcpts()) === r0 + 1);
+  const parallel = await Promise.all(Array.from({ length: 5 }, () => htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example")));
+  ok("5 parallel deliveries of the same id → still ONE receipt", parallel.every((r) => r.status === 200) && (await rcpts()) === r0 + 1);
+  const n1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("the identical enquiry from a NEW page load (new id) → a new receipt", n1.status === 200 && (await rcpts()) === r0 + 2);
+  const n2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("two identical same-day enquiries with two ids → two receipts (three page loads → three)", n2.status === 200 && (await rcpts()) === r0 + 3);
+  const keys = await o.intakeEvent.findMany({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId },
+    select: { externalEventId: true, dedupeBasis: true } });
+  ok("no idempotency key carries PII or the raw id (sha256 keys only)",
+    keys.length > 0 && keys.every((k) => /^sha256:[0-9a-f]{64}$/.test(k.externalEventId) && !/533222|222-3344|Same|question|[0-9a-f]{8}-[0-9a-f]{4}-/.test(k.externalEventId)));
+  ok("…and these receipts are keyed on the submission id (provider_event_id), not the content",
+    keys.filter((k) => k.dedupeBasis === "provider_event_id").length >= 3, JSON.stringify(keys.map((k) => k.dedupeBasis)));
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

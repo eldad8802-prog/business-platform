@@ -53,6 +53,8 @@ async function submit() {
     email: "visitor@rehearsal.test",
     message: "Is there an appointment this week?",
     _hp: "",
+    // what the ready-made form's script puts there: one id for this page load
+    submission_id: "3f2b8c1e-7a4d-4e9b-b1c6-2d5e8f0a9c47",
     page_url: "https://www.clinic-x.example/contact?utm_source=google&utm_medium=cpc&utm_campaign=autumn",
   };
   const post = () =>

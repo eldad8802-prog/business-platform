@@ -29,6 +29,9 @@ on:
       - "ops/evidence/m6-website-live-proof-evidence.sql"
       - "app/api/intake/sweep/**"
       - "components/settings/LeadSourcesPanel.tsx"
+      - "lib/intake/sweep-auth.ts"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/m6-acquisition-ci.yml"
   workflow_dispatch:
 
@@ -51,6 +54,34 @@ jobs:
       - run: npx tsx lib/intake/core/intake-core.test.ts
       - run: npx tsx lib/intake/identity/identity-core.test.ts
       - run: npx tsx lib/sensors/sensors.test.ts
+      - run: npx tsx lib/intake/sweep-auth.test.ts
+      - run: npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
+
+  qstash-lab:
+    name: QStash lab (official local QStash server — schedule cadence, signatures, retry, DLQ, URL binding)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Start the official QStash development server (in-memory, published dev credentials)
+        run: |
+          set -euo pipefail
+          (npx -y @upstash/qstash-cli@2.37.18 dev -port=8080 > /tmp/qstash-dev.log 2>&1 &)
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer eyJVc2VySUQiOiJkZWZhdWx0VXNlciIsIlBhc3N3b3JkIjoiZGVmYXVsdFBhc3N3b3JkIn0=" http://127.0.0.1:8080/v2/schedules | grep -q 200; then echo "up"; exit 0; fi
+            sleep 2
+          done
+          cat /tmp/qstash-dev.log; exit 1
+      - name: Real scheduler behaviour (no database, no Production)
+        env:
+          DATABASE_URL: postgresql://unused:unused@127.0.0.1:1/unused
+          DIRECT_URL: postgresql://unused:unused@127.0.0.1:1/unused
+        run: npx tsx .m6/qstash-lab.ts
 
   battery:
     name: M6 battery (PG17, Production RLS, real M6 migration, NOBYPASSRLS runtime)

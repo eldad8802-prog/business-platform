@@ -187,6 +187,12 @@
       "workflow": "learning-coverage-ci.yml",
       "reason": "every rule output reaches the BKS under its domain and the shadow Brain context with opaque subject aliases, no customer database id and no money value; run by learning-coverage-ci.yml and m0-knowledge-tenant-safety.yml"
     },
+    "lib/intake/sweep-auth.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m6-acquisition-ci.yml",
+      "reason": "M6: who may run the intake sweep — QStash signatures via the official SDK Receiver (current / next key, exact Production URL, body hash, exp / nbf, issuer, no fallback, devMode off, keys required) and the CRON_SECRET backstop; run on pull_request by m6-acquisition-ci.yml (plus .m6/qstash-lab.ts against the official local QStash server)"
+    },
     "lib/intake/acquisition/acquisition-core.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

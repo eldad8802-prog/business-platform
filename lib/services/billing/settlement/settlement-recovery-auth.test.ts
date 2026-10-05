@@ -110,8 +110,15 @@ const CRON_ROUTES = [
   walk("app");
   walk("lib");
   const code = (f: string) => fs.readFileSync(path.join(root, f), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  // The intake sweep route delegates its authority to lib/intake/sweep-auth.ts (QStash signature, else
+  // this same dual-accept decision) — so the decision's callers are the two payment routes + that module,
+  // and that module is used by the sweep route and nothing else.
+  const DECISION_CALLERS = ["app/api/payments/reconciliation/route.ts", "app/api/payments/settlement-recovery/route.ts", "lib/intake/sweep-auth.ts"];
   const cronCallers = files.filter((f) => /decideCronAuth\(/.test(code(f)) && !f.endsWith("settlement-recovery-auth.ts")).sort();
-  ok("scope: decideCronAuth is called by exactly the three cron routes", JSON.stringify(cronCallers) === JSON.stringify(CRON_ROUTES), JSON.stringify(cronCallers));
+  ok("scope: decideCronAuth is called by exactly the two payment routes and the sweep authority", JSON.stringify(cronCallers) === JSON.stringify(DECISION_CALLERS), JSON.stringify(cronCallers));
+  const sweepAuthUsers = files.filter((f) => /from "@\/lib\/intake\/sweep-auth"/.test(code(f))).sort();
+  ok("scope: the sweep authority is used by the sweep route only, which uses it",
+    JSON.stringify(sweepAuthUsers) === JSON.stringify(["app/api/intake/sweep/route.ts"]) && /authorizeSweep\(/.test(code("app/api/intake/sweep/route.ts")), JSON.stringify(sweepAuthUsers));
   ok("scope: no cron route compares CRON_SECRET itself (all go through the dual-accept)",
     CRON_ROUTES.every((f) => !/process\.env\.CRON_SECRET/.test(code(f)) && !/decideRecoveryAuth\(/.test(code(f))));
   const nextReaders = files.filter((f) => /CRON_SECRET_NEXT/.test(code(f))).sort();
