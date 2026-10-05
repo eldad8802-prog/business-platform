@@ -8,7 +8,7 @@
  * env: DATABASE_URL / DIRECT_URL = runtime, OWNER_URL = owner (setup / assertions), AUTH_TOKEN_SECRET,
  *      META_LEAD_ADS_APP_SECRET, META_LEAD_ADS_VERIFY_TOKEN, ACQUISITION_CREDENTIAL_ENCRYPTION_KEY.
  */
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { signAuthToken } from "../lib/auth-token";
@@ -25,7 +25,9 @@ import { POST as webPOST, OPTIONS as webOPTIONS } from "../app/api/intake/acquis
 import { POST as googlePOST } from "../app/api/intake/acquisition/google/[publicId]/route";
 import { GET as metaGET, POST as metaPOST } from "../app/api/intake/acquisition/meta/route";
 import { GET as ownerGET, POST as ownerPOST } from "../app/api/integrations/acquisition/route";
-import { GET as sweepGET } from "../app/api/intake/sweep/route";
+import { GET as sweepGET, POST as sweepPOST } from "../app/api/intake/sweep/route";
+import { SWEEP_URL } from "../lib/intake/sweep-auth";
+import { SignJWT } from "jose";
 import { runIntakeSweep } from "../lib/intake/intake-sweeper";
 import { deriveEventIdentity } from "../lib/intake/core/event-identity";
 import { setMetaCodeExchangeForTests, setMetaGraphCallForTests } from "../lib/intake/acquisition/providers/meta-graph";
@@ -495,6 +497,33 @@ async function main() {
   ok("…the poison receipt is dead-lettered (not retried forever), and the next sweep is healthy again",
     poison?.status === "FAILED" && poison.nextAttemptAt === null && (poison.lastErrorCode ?? "").startsWith("normalize:") &&
       (await sweepGET(sweepReq(process.env.CRON_SECRET))).status === 200, JSON.stringify({ s: poison?.status, n: poison?.nextAttemptAt, c: poison?.lastErrorCode }));
+  console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
+  process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
+  process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";
+  const qsign = async (key: string, o: { url?: string; body?: string } = {}) => {
+    const now = Math.floor(Date.now() / 1000);
+    return new SignJWT({ body: createHash("sha256").update(o.body ?? "", "utf8").digest("base64url") })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer("Upstash").setSubject(o.url ?? SWEEP_URL)
+      .setIssuedAt(now).setNotBefore(now).setExpirationTime(now + 300).setJti(randomUUID())
+      .sign(new TextEncoder().encode(key));
+  };
+  const qpost = (signature: string, body = "") =>
+    sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST", headers: { "upstash-signature": signature }, body }));
+  const receiptsBefore = await o.intakeEvent.count();
+  const qok = await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY));
+  const qokBody = (await qok.json()) as { ok?: boolean; via?: string; report?: { businesses?: number } };
+  ok("a QStash-signed sweep (current key, exact Production URL) runs for real: 200, via qstash, counts only",
+    qok.status === 200 && qokBody.ok === true && qokBody.via === "qstash" && typeof qokBody.report?.businesses === "number", JSON.stringify(qokBody));
+  ok("…signed with the NEXT key (rotation) as well", (await qpost(await qsign(process.env.QSTASH_NEXT_SIGNING_KEY))).status === 200);
+  ok("a signature for another URL → 401", (await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY, { url: "https://promaxgroup.co.il/api/payments/settlement-recovery" }))).status === 401);
+  ok("a body other than the signed one → 401", (await qpost(await qsign(process.env.QSTASH_CURRENT_SIGNING_KEY, { body: "" }), "{\"tamper\":1}")).status === 401);
+  ok("a signature made with a foreign key → 401", (await qpost(await qsign("sig_attacker_0123456789abcdefghijklmnopqrs"))).status === 401);
+  ok("a foreign signature with a valid CRON bearer alongside → still 401 (no fallback)",
+    (await sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST",
+      headers: { "upstash-signature": await qsign("sig_attacker_0123456789abcdefghijklmnopqrs"), authorization: `Bearer ${process.env.CRON_SECRET}` } }))).status === 401);
+  ok("the CRON_SECRET backstop (no signature) still sweeps", (await sweepPOST(new NextRequest("https://promaxgroup.co.il/api/intake/sweep", { method: "POST",
+    headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }))).status === 200);
+  ok("scheduled sweeps wrote no intake receipt of their own (no side effects)", (await o.intakeEvent.count()) === receiptsBefore);
 
   console.log("\n-- 13. ready-made form idempotency: one submission id per page load decides --");
   const rcpts = () => o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
