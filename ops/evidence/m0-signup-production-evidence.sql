@@ -25,7 +25,7 @@
 
 \echo '== M0 signup — Production truth — legend (n → check) =='
 \echo ' 1 L1 sec_c (20260926110300) and B4 (20261006090000) are recorded applied, finished, not rolled back'
-\echo ' 2 A1 at least one non-superuser LOGIN inherits app_auth; none of them is BYPASSRLS — observed = how many'
+\echo ' 2 A1 at least one non-superuser LOGIN (other than the evidence/migration login) inherits app_auth; none of them is BYPASSRLS — observed = how many'
 \echo ' 3 A2 every app_auth login may add Business(name, createdAt, updatedAt) — observed = logins short of it'
 \echo ' 4 A3 every app_auth login may add the nine User columns signup writes — observed = logins short of it'
 \echo ' 5 A4 every app_auth login may add the nine AuthSession columns signup writes, and use the User and Business id sequences — observed = logins short of it'
@@ -38,6 +38,7 @@
 \echo '12 E3 the unique index on User.email exists'
 \echo '13 T1 every Business has at least one User (no orphan tenant from the pre-atomic era) — observed = orphans'
 \echo '14 T2 INFO businesses with more than one User — observed = count'
+echo '15 M1 INFO the evidence/migration login itself: observed = 1 when it is BYPASSRLS and inherits app_auth (expected; it is not the signup identity)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '30s';
@@ -49,9 +50,16 @@ ledger AS (SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migra
 -- Superusers are excluded from both sets: pg_has_role is true for them against
 -- every role, and they bypass row-level security regardless (classified in
 -- business-b4-role-classification.sql). Real membership is what is measured.
+-- The login running THIS file (current_user) is the migration identity: it holds
+-- the app groups and BYPASSRLS by design, and is never the signup identity. It
+-- is excluded here exactly as business-tenant-write-rls-preflight.sql excludes
+-- it, and characterised on its own in check 15 instead of being hidden.
 auth_logins AS (SELECT r.oid, r.rolname, r.rolsuper, r.rolbypassrls FROM pg_roles r
                 WHERE r.rolcanlogin AND NOT r.rolsuper AND r.rolname <> 'app_auth'
+                  AND r.rolname <> current_user
                   AND pg_has_role(r.oid, 'app_auth', 'MEMBER')),
+evidence_login AS (SELECT r.rolbypassrls, pg_has_role(r.oid, 'app_auth', 'MEMBER') AS in_auth
+                   FROM pg_roles r WHERE r.rolname = current_user),
 runtime_logins AS (SELECT r.oid FROM pg_roles r
                    WHERE r.rolcanlogin AND NOT r.rolsuper AND r.rolname <> 'app_runtime'
                      AND pg_has_role(r.oid, 'app_runtime', 'MEMBER')
@@ -113,6 +121,7 @@ checks(n, ok, observed_count) AS (
                        0
   UNION ALL SELECT 13, NOT EXISTS (SELECT 1 FROM orphans), (SELECT count(*) FROM orphans)
   UNION ALL SELECT 14, true, (SELECT count(*) FROM shared)
+  UNION ALL SELECT 15, true, (SELECT count(*) FROM evidence_login WHERE rolbypassrls AND in_auth)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
