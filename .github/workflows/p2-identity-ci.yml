@@ -3,7 +3,8 @@ name: p2 business identity
 # P2 business identity + positioning foundation — application proofs for
 # migration 20261004090000_p2_business_identity — and the P3-A application slice
 # (trust claims, conversion, the canonical BusinessIdentityContext) on top of
-# 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims.
+# 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims — and the
+# P3-B landing strategy engine (computed, no schema) built on that context.
 #
 #   core     identity vocabulary, derived signals, the six-vertical three-strategy
 #            data-readiness matrix, and the M7 snapshot (identity items carry
@@ -30,6 +31,8 @@ on:
       - "lib/services/identity/**"
       - "lib/services/trust/**"
       - "lib/services/conversion/**"
+      - "lib/services/landing/**"
+      - "lib/services/offering/**"
       - "lib/services/business-content-profile.service.ts"
       - "lib/services/content-recommendation.service.ts"
       - "lib/storage/**"
@@ -41,6 +44,9 @@ on:
       - "app/api/business/identity/**"
       - "app/api/business/identity-context/**"
       - "app/api/business/trust-claims/**"
+      - "app/api/business/landing-strategies/**"
+      - "app/business/landing-strategy/**"
+      - "components/business/landing/**"
       - "components/business/identity/**"
       - "app/business/identity/**"
       - ".github/workflows/p2-identity-ci.yml"
@@ -69,6 +75,8 @@ jobs:
         run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
       - name: P3-A context, trust authority, conversion, AI projection, safety gates
         run: npx tsx lib/services/trust/p3a-context.verify.test.ts
+      - name: P3-B landing strategy engine (context, viability, owner authority, diversity, readiness)
+        run: npx tsx lib/services/landing/landing-strategy.verify.test.ts
 
   db:
     name: p2 identity (PG17, real RLS)

@@ -117,6 +117,12 @@
       "workflow": "p2-identity-ci.yml",
       "reason": "P2 + P3-A: replays the P2 and P3-A migrations verbatim and proves tenant isolation of BusinessIdentityStatement and BusinessTrustClaim as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE; cross-tenant context, claims and private document references refused; claims never inserted public, wording immutable, retired claims frozen); run on pull_request by p2-identity-ci.yml job db"
     },
+    "lib/services/landing/landing-strategy.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-B: pure proof of the landing strategy engine — every CTA from a usable P3-A path (PLATFORM_UNPROVEN only when owner-selected), owner objective preserved, publishable material limited to public-approved facts/statements/effective trust claims/approved assets, internal demand never public wording, foreign rows dropped, deterministic, no model call, no writes; run on pull_request by p2-identity-ci.yml job core (DB tenant isolation S16 and read-only S20 in identity.rls.db.test.ts)"
+    },
     "lib/services/trust/p3a-context.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

@@ -48,6 +48,8 @@ const READ_TABLES = [
   "OfferingDemandSignal", "ContentRun", "ContentEvent", "ContentVariant", "BusinessBot", "BusinessBotProfile",
   // P3-A context: served-customer evidence, the website form, the WhatsApp connection status.
   "Appointment", "Lead", "AcquisitionConnection", "WhatsAppConnection",
+  // P3-B landing context: asset metadata and the offering ↔ asset links.
+  "BusinessAsset", "BusinessServiceAsset", "InventoryItemAsset",
 ];
 /**
  * Business is set up exactly as in Production, never with a table-wide grant:
@@ -70,7 +72,8 @@ const BASE_RLS: Array<{ migration: string; tables: string[] }> = [
   { migration: "20260825150000_d2_p7_wave2_tenant_rls", tables: ["ContentRun", "ContentEvent", "ContentVariant", "BusinessBotProfile"] },
   { migration: "20260825200000_d2_p7_wave3_tenant_rls", tables: ["InventoryItem", "InventoryCategory"] },
   { migration: "20260831120000_d2_p7_w4eb2_billing_tenant_rls", tables: ["BusinessBot"] },
-  { migration: "20260928120000_p1_business_offering", tables: ["OfferingDemandSignal"] },
+  { migration: "20260928120000_p1_business_offering", tables: ["OfferingDemandSignal", "BusinessServiceAsset", "InventoryItemAsset"] },
+  { migration: "20260929090000_tenant_rls_closure", tables: ["BusinessAsset"] },
 ];
 const TENANT_READ_TABLES = BASE_RLS.flatMap((m) => m.tables);
 
@@ -312,6 +315,35 @@ async function child() {
   const servedA = await tenantTx(a, (tx) => trust.loadServedCustomers(a, tx));
   const servedBUnderA = await tenantTx(a, (tx) => trust.loadServedCustomers(b, tx));
 
+  // ── P3-B · landing strategy set across tenants ──
+  const { getLandingStrategySet } = await import("@/lib/services/landing/landing-strategy.service");
+  const { getLandingBusinessContext } = await import("@/lib/services/landing/landing-business-context");
+  const bServiceId = Number(process.env.P3B_B_SERVICE);
+  const bAssetId = Number(process.env.P3B_B_ASSET);
+  const aAssetId = Number(process.env.P3B_A_ASSET);
+  const aServiceIds = String(process.env.P3B_A_SERVICES).split(",").map(Number);
+  const landingBFromA = await refused(() => tenantTx(a, (tx) => getLandingStrategySet(b, tx)));
+  // S20: the whole strategy computation runs inside a READ ONLY transaction — any write would fail.
+  const readOnlyRun = await refused(() => tenantTx(a, async (tx) => { await tx.$executeRawUnsafe("SET LOCAL transaction_read_only = on"); return getLandingStrategySet(a, tx); }));
+  const readOnlyBites = await refused(() => tenantTx(a, async (tx) => { await tx.$executeRawUnsafe("SET LOCAL transaction_read_only = on"); await tx.$executeRawUnsafe(`UPDATE "BusinessIdentityStatement" SET "updatedAt" = now() WHERE "businessId" = $1`, a); }));
+  const landingSetA = await tenantTx(a, async (tx) => { await tx.$executeRawUnsafe("SET LOCAL transaction_read_only = on"); return getLandingStrategySet(a, tx); });
+  const landingCtxA = await tenantTx(a, (tx) => getLandingBusinessContext(a, tx));
+  const landingCtxB = await tenantTx(b, (tx) => getLandingBusinessContext(b, tx)); // positive control: B's own data is real
+  const landing = {
+    landingBFromA, readOnlyRun, readOnlyBites,
+    aOfferingIds: landingCtxA.offerings.active.map((o) => o.id),
+    aPublicAssets: landingCtxA.assets.publicApproved.map((x) => x.id), aNotApproved: landingCtxA.assets.notApprovedCount,
+    aDemand: landingCtxA.demand.totalSignals, aSignals: landingCtxA.supportedSignals,
+    aTrust: landingCtxA.publishable.trustClaims.map((c) => c.id),
+    aStrategies: landingSetA.strategies.map((x) => x.strategyType),
+    aStrategyOfferings: landingSetA.strategies.flatMap((x) => x.publishable.offeringRefs.map((r) => r.id)),
+    aStrategyAssets: landingSetA.strategies.flatMap((x) => x.publishable.assetIds),
+    aStrategyTrust: landingSetA.strategies.flatMap((x) => x.publishable.trustClaimIds),
+    aAuthority: [landingSetA.authority, ...landingSetA.strategies.map((x) => x.authority)],
+    bOwn: { assets: landingCtxB.assets.publicApproved.map((x) => x.id), demand: landingCtxB.demand.totalSignals, featured: landingCtxB.offerings.active.filter((o) => o.ownerFeatured).map((o) => o.id), trust: landingCtxB.publishable.trustClaims.map((c) => c.id), signals: landingCtxB.supportedSignals },
+    ids: { bServiceId, bAssetId, aAssetId, aServiceIds },
+  };
+
   console.log(
     "@@RESULT@@" +
       JSON.stringify({
@@ -348,6 +380,7 @@ async function child() {
           },
           afterRetire: { claimIds: ctxAfterRetire.trust.claims.map((c) => c.id), publicIds: ctxAfterRetire.publicUse.trustClaims.map((c) => c.id) },
           retiredFrozen, servedA, servedBUnderA,
+          landing,
           docs: {
             d1: { old: d1.oldDocument, key: afterD1.key, files: afterD1.files },
             d3: { old: d3.oldDocument, key: afterD3.key, files: afterD3.files, replacedFrom: afterD1.key },
@@ -531,6 +564,20 @@ async function main() {
       await appt(b.id, c.id, "COMPLETED");
     }
 
+    // P3-B · B: a featured service with a PUBLIC-approved image and real completed-booking demand (12 signals).
+    // A: three plain services and one UNAPPROVED asset. Nothing of B may reach A's landing context.
+    const bService = await prisma.businessService.findFirstOrThrow({ where: { businessId: b.id } });
+    await prisma.businessService.update({ where: { id: bService.id }, data: { featuredByOwner: true } });
+    const bAsset = await prisma.businessAsset.create({ data: { businessId: b.id, origin: "OWNER_UPLOAD", publicUseApproved: true } });
+    await prisma.businessServiceAsset.create({ data: { businessId: b.id, businessServiceId: bService.id, businessAssetId: bAsset.id } });
+    for (let i = 0; i < 12; i += 1) {
+      const ap = await appt(b.id, (await prisma.customer.create({ data: { businessId: b.id, name: `${tag}-cbd-${i}` } })).id, "COMPLETED");
+      await prisma.offeringDemandSignal.create({ data: { businessId: b.id, offeringKind: "SERVICE", businessServiceId: bService.id, appointmentId: ap.id, signalType: "BOOKING", source: "APPOINTMENT", idempotencyKey: `${tag}-bd-${i}` } });
+    }
+    const aServiceIds: number[] = [];
+    for (let i = 0; i < 3; i += 1) aServiceIds.push((await prisma.businessService.create({ data: { businessId: a.id, name: `${tag}-a-svc-${i}`, type: "SERVICE" } })).id);
+    const aAsset = await prisma.businessAsset.create({ data: { businessId: a.id, origin: "OWNER_UPLOAD", publicUseApproved: false } });
+
     // B's explicit content tone choices: real owner evidence — for B only.
     for (let i = 0; i < 3; i += 1) {
       await prisma.contentRun.create({ data: { businessId: b.id, inputSnapshot: { schemaVersion: 1, generatedAt: new Date().toISOString(), source: "user",
@@ -557,6 +604,10 @@ async function main() {
         P2_FACT_B: String(factBRow.id),
         P2_NAME_A: a.name,
         P3_CLAIM_B: String(claimBRow.id),
+        P3B_B_SERVICE: String(bService.id),
+        P3B_B_ASSET: String(bAsset.id),
+        P3B_A_ASSET: String(aAsset.id),
+        P3B_A_SERVICES: aServiceIds.join(","),
       },
       timeout: 180_000,
     });
@@ -649,6 +700,20 @@ async function main() {
       ok("P3-A D6: aiming the upload flow at another business's claim is refused by RLS and leaves no object anywhere",
         /TrustClaimNotFoundError/.test(d.crossTenant ?? "") && d.crossTenantFiles === 0, { crossTenant: d.crossTenant, files: d.crossTenantFiles });
       ok("P3-A: the claim returned to the route never carries the storage key or hash", !/verificationAttachmentKey|biz\/\d+\/trust|Sha256/.test(d.claimJson), d.claimJson);
+      // P3-B · S16 tenant isolation of the landing strategy set; S20 read-only.
+      const L = p.landing;
+      ok("P3-B S16: B's landing strategy set requested from A's session is refused before anything is read", /IdentityTenantMismatchError/.test(L.landingBFromA ?? ""), L.landingBFromA);
+      ok("P3-B S16 (positive control): B's own context really has a public asset, 12 demand signals, a featured service and a public trust claim",
+        L.bOwn.assets.includes(L.ids.bAssetId) && L.bOwn.demand >= 12 && L.bOwn.featured.includes(L.ids.bServiceId) && L.bOwn.trust.includes(Number(claimBRow.id)) && L.bOwn.signals.includes("BOOKING_DEMAND"), L.bOwn);
+      ok("P3-B S16: B's offerings never appear in A (context or any strategy)",
+        !L.aOfferingIds.includes(L.ids.bServiceId) && !L.aStrategyOfferings.includes(L.ids.bServiceId) && L.ids.aServiceIds.every((id: number) => L.aOfferingIds.includes(id)), { a: L.aOfferingIds, s: L.aStrategyOfferings });
+      ok("P3-B S16: B's evidence cannot influence A (no demand, no BOOKING_DEMAND signal)", L.aDemand === 0 && !L.aSignals.includes("BOOKING_DEMAND"), { d: L.aDemand, s: L.aSignals });
+      ok("P3-B S16: B's trust never appears in A", !L.aTrust.includes(Number(claimBRow.id)) && !L.aStrategyTrust.includes(Number(claimBRow.id)));
+      ok("P3-B S16: B's assets never appear in A; A's own unapproved asset is not publishable",
+        !L.aPublicAssets.includes(L.ids.bAssetId) && !L.aStrategyAssets.includes(L.ids.bAssetId) && !L.aStrategyAssets.includes(L.ids.aAssetId) && L.aNotApproved === 1, L);
+      ok("P3-B: A still gets its own strategies from its own catalog", L.aStrategies.includes("SERVICE_DISCOVERY_FIRST"), L.aStrategies);
+      ok("P3-B S20: the strategy set is computed in a READ ONLY transaction (it writes nothing) and is a MACHINE_PROPOSAL",
+        L.readOnlyRun === null && /read-only transaction/i.test(L.readOnlyBites ?? "") && L.aAuthority.every((x: string) => x === "MACHINE_PROPOSAL"), { ro: L.readOnlyRun, bites: L.readOnlyBites, auth: L.aAuthority });
       ok("P3-A T9: once retired, the claim leaves the context and public use", !p.afterRetire.claimIds.includes(p.myClaimId) && !p.afterRetire.publicIds.includes(p.myClaimId), p.afterRetire);
       ok("P3-A T9: a retired claim is frozen history (cannot be re-activated by the runtime)", p.retiredFrozen === 0, p.retiredFrozen);
       // T11 — served customers from completed work only, per tenant.
@@ -681,6 +746,9 @@ async function main() {
     ok("owner view: nothing of A's leaked into B and A's rows are all A's", aRows.every((row) => row.businessId === a.id) && aRows.length === 2, aRows.length);
   } finally {
     await prisma.businessTrustClaim.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.offeringDemandSignal.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.businessServiceAsset.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.businessAsset.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.whatsAppConnection.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.appointment.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.lead.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });

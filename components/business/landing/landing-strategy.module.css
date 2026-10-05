@@ -1,0 +1,151 @@
+/* P3-B — strategy preview. Tokens only (var(--dz-*)); phone: one column, tablet: two, desktop: three. */
+
+.wrap {
+  display: grid;
+  gap: 16px;
+}
+
+.summary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--dz-surface);
+  border: 1px solid var(--dz-border);
+  font-size: 13px;
+  color: var(--dz-text-primary);
+}
+
+.ok {
+  color: var(--dz-success-text, var(--dz-accent));
+  font-weight: 700;
+}
+
+.warnText {
+  color: var(--dz-warning-text, var(--dz-text-secondary));
+  font-weight: 700;
+}
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  background: var(--dz-surface);
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.cardHead {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--dz-surface-muted);
+  color: var(--dz-accent);
+}
+
+.h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+}
+
+.why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dz-text-secondary);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.facts div {
+  display: grid;
+  gap: 2px;
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--dz-text-muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dz-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.missing {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--dz-surface-muted);
+  font-size: 12px;
+  color: var(--dz-text-secondary);
+}
+
+.missing ul {
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+}
+
+.alert,
+.note,
+.muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.alert,
+.note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-primary);
+}
+
+.muted {
+  color: var(--dz-text-muted);
+  font-size: 12px;
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
