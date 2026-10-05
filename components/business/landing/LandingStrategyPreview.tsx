@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CHANNEL_LABELS } from "@/components/business/identity/identity-labels";
 import { STRATEGY_TITLES } from "@/lib/services/landing/landing-strategy-explain";
 import type { LandingStrategySet } from "@/lib/services/landing/landing-strategy-engine";
+import type { CompositionResult } from "@/lib/services/landing/composer/landing-composer";
+import { BlueprintPreview } from "./BlueprintPreview";
 import { MISSING_LABELS, SECTION_LABELS, SET_CONFLICT_LABELS } from "./landing-labels";
 import styles from "./landing-strategy.module.css";
 
@@ -28,11 +30,43 @@ async function fetchSet(): Promise<LandingStrategySet | null> {
   }
 }
 
+/** P3-C — send ONLY the server-issued strategy id; the server recomputes everything else. */
+async function composeDraft(strategyId: string): Promise<{ result: CompositionResult | null; error: string | null }> {
+  try {
+    const res = await fetch("/api/business/landing-blueprint", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ strategyId }),
+    });
+    if (res.status === 409) return { result: null, error: "הכיוון הזה השתנה בינתיים. רעננו את הדף ונסו שוב." };
+    if (res.status === 429) return { result: null, error: "נוצרו הרבה טיוטות בזמן קצר. נסו שוב בעוד כמה דקות." };
+    if (!res.ok) return { result: null, error: "לא הצלחנו ליצור טיוטה כרגע." };
+    return { result: ((await res.json()) as { result: CompositionResult }).result, error: null };
+  } catch {
+    return { result: null, error: "לא הצלחנו ליצור טיוטה כרגע." };
+  }
+}
+
 const label = (map: Record<string, string>, code: string) => map[code] ?? map[code.replace(/^ASSET:/, "")] ?? code;
 
 export function LandingStrategyPreview() {
   const [set, setSet] = useState<LandingStrategySet | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [composing, setComposing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ strategyId: string; result: CompositionResult | null; error: string | null } | null>(null);
+  const inFlight = useRef(false);
+
+  const onCompose = (strategyId: string) => {
+    // One request at a time from this screen (double clicks are ignored; the server also single-flights).
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setComposing(strategyId);
+    void composeDraft(strategyId).then((r) => {
+      inFlight.current = false;
+      setComposing(null);
+      setDraft({ strategyId, ...r });
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +134,9 @@ export function LandingStrategyPreview() {
                     <dd>{s.recommendedSections.filter((x) => x.required || x.dataAvailable).map((x) => SECTION_LABELS[x.section] ?? x.section).join(" ← ")}</dd>
                   </div>
                 </dl>
+                <button type="button" className={styles.compose} disabled={composing !== null} onClick={() => onCompose(s.id)}>
+                  {composing === s.id ? "יוצרים טיוטה…" : "יצירת טיוטת דף לכיוון הזה"}
+                </button>
                 {s.publication.missing.length > 0 && (
                   <div className={styles.missing}>
                     <strong>חסר כדי לפרסם</strong>
@@ -114,6 +151,12 @@ export function LandingStrategyPreview() {
             );
           })}
         </ol>
+      )}
+      {draft && (
+        <div aria-live="polite">
+          <h2 className={styles.h2}>טיוטה: {STRATEGY_TITLES[set.strategies.find((x) => x.id === draft.strategyId)?.strategyType ?? "CALL_FIRST"]}</h2>
+          {draft.error ? <p className={styles.alert}>{draft.error}</p> : draft.result && <BlueprintPreview result={draft.result} />}
+        </div>
       )}
       <p className={styles.muted}>
         אלה הצעות בלבד. שום דבר לא נשמר ולא מתפרסם; דף יוצג ללקוחות רק עם פרטים שאישרת לשימוש פומבי.

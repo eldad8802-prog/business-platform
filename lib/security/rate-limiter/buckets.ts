@@ -117,4 +117,16 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 25, windowSeconds: 24 * 60 * 60 },
     ],
   },
+  // P3-C landing blueprint composition: every admitted request may cost one (or, with the single
+  // structural repair, two) model calls. Owner-triggered from the internal preview only. Fail-CLOSED:
+  // a limiter outage must never become "unbounded model spend".
+  LANDING_COMPOSE: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 6, windowSeconds: 60 },
+      { scope: "business", limit: 30, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 100, windowSeconds: 24 * 60 * 60 },
+      { scope: "global", limit: 600, windowSeconds: 60 * 60 },
+    ],
+  },
 };

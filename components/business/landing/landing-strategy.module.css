@@ -23,12 +23,12 @@
 }
 
 .ok {
-  color: var(--dz-success-text, var(--dz-accent));
+  color: var(--dz-success);
   font-weight: 700;
 }
 
 .warnText {
-  color: var(--dz-warning-text, var(--dz-text-secondary));
+  color: var(--dz-warning);
   font-weight: 700;
 }
 
@@ -63,7 +63,7 @@
   padding: 2px 10px;
   border-radius: 999px;
   background: var(--dz-surface-muted);
-  color: var(--dz-accent);
+  color: var(--dz-brand);
 }
 
 .h2 {
@@ -136,6 +136,93 @@
 .muted {
   color: var(--dz-text-muted);
   font-size: 12px;
+}
+
+.compose {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--dz-brand);
+  background: var(--dz-surface);
+  color: var(--dz-brand);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.compose:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.blueprint {
+  display: grid;
+  gap: 12px;
+  background: var(--dz-surface);
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.bpStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+
+.bpHero,
+.bpSection {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--dz-surface-muted);
+  min-width: 0;
+}
+
+.bpEyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dz-text-muted);
+}
+
+.bpHeadline {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.bpAction {
+  justify-self: start;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--dz-brand);
+  color: var(--dz-text-on-brand);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bpSections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.bpList {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dz-text-primary);
+  overflow-wrap: anywhere;
 }
 
 @media (min-width: 768px) {
