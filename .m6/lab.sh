@@ -66,8 +66,8 @@ P2="20261004090000_p2_business_identity"
 B4="20261006090000_business_tenant_write_rls"
 P3A_FIRST="20261008090000_p3a_identity_enum_values"
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" \
-  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority" CASCADE' \
-  -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact" CASCADE'
+  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim" CASCADE' \
+  -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact", "ConversionChannel", "TrustClaimKind", "TrustClaimClass", "TrustClaimStatus", "TrustVerificationMethod" CASCADE'
 for d in "$ROOT"/prisma/migrations/*/; do
   name="$(basename "$d")"
   [[ "$name" =~ ^[0-9]{14}_ ]] || continue
