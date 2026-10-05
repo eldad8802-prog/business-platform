@@ -156,9 +156,13 @@ function nextIdle(now: Date, absoluteExpiresAt: Date): Date {
 /**
  * Issue a session. Called after a password has already been verified — this
  * function does not authenticate anyone.
+ *
+ * Accepts a transaction as well as a client: signup issues the first session
+ * inside the same transaction that creates the account, so an account can never
+ * exist without the session its owner was promised.
  */
 export async function issueRefreshSession(
-  db: PrismaClient,
+  db: Pick<PrismaClient, "authSession">,
   input: { userId: number; tokenVersion: number; now: Date; userAgent?: string | null }
 ): Promise<{ sessionId: string; credential: string; absoluteExpiresAt: Date }> {
   const secret = mintSecret();

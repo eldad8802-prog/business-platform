@@ -33,7 +33,14 @@ type Calls = {
   createAccount: number;
   hash: number;
   signToken: number;
+  signedSessionId?: string;
   bodyReads: number;
+};
+
+const FAKE_SESSION = {
+  sessionId: "0f0e0d0c-0b0a-4908-8706-050403020100",
+  credential: "0f0e0d0c-0b0a-4908-8706-050403020100.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  absoluteExpiresAt: new Date(Date.now() + 90 * 24 * 3600_000),
 };
 
 function makeDeps(
@@ -72,10 +79,12 @@ function makeDeps(
         name: input.name,
         businessName: input.businessName,
         tokenVersion: 0,
+        session: FAKE_SESSION,
       };
     },
-    signToken: () => {
+    signToken: (_userId, _tv, sessionId) => {
       calls.signToken += 1;
+      calls.signedSessionId = sessionId;
       return "signed.token.value";
     },
     // Telemetry is injected so this stays a genuinely pure test. The real
@@ -181,6 +190,17 @@ async function main() {
     ok("open -> token returned to caller", body.token === "signed.token.value");
     ok("open -> sessionId returned", typeof body.sessionId === "string" && body.sessionId.length > 0);
     ok("open -> user payload returned", body.user?.id === 99 && body.user?.businessId === 4242);
+
+    // The SAME session login issues: the token names the AuthSession row the
+    // account transaction wrote, and the refresh credential is set as login sets
+    // it — httpOnly, never in the JSON body.
+    ok("open -> token names the account's AuthSession", calls.signedSessionId === FAKE_SESSION.sessionId);
+    const cookie = res.headers.get("set-cookie") ?? "";
+    ok("open -> refresh cookie set", cookie.startsWith("dubiz_rt="));
+    ok("open -> refresh cookie carries the session credential", cookie.includes(FAKE_SESSION.credential));
+    ok("open -> refresh cookie is httpOnly", /httponly/i.test(cookie));
+    ok("open -> refresh cookie is SameSite=Strict", /samesite=strict/i.test(cookie));
+    ok("open -> refresh credential never in the body", !JSON.stringify(body).includes(FAKE_SESSION.credential));
   }
 
   // The account is created with the address FOLDED to lower case, so two
@@ -197,6 +217,7 @@ async function main() {
           name: input.name,
           businessName: input.businessName,
           tokenVersion: 0,
+          session: FAKE_SESSION,
         };
       },
     });

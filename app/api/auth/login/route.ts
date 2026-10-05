@@ -36,6 +36,14 @@ async function recordLoginFailure(input: {
  * the token is minted from, the tenant it resolves to, and the fields the
  * response echoes back.
  */
+/**
+ * A bcrypt hash at the cost signup uses (10) of a fixed string that is not, and
+ * never was, anyone's password. Compared against when no account matches, so a
+ * miss costs the same time as a hit.
+ */
+const TIMING_EQUALISER_HASH =
+  "$2b$10$zN1gFgiX48MtiTQ9xbwAjOBLnk7QFfVFoISIbd2r/jR2k.4gSTfmq";
+
 const LOGIN_USER_SELECT = {
   id: true,
   email: true,
@@ -112,6 +120,10 @@ export async function POST(req: Request) {
     }
 
     if (!user) {
+      // Spend the same bcrypt work a real account costs. Returning at once made
+      // an unknown address measurably faster than a wrong password, which told
+      // anyone timing the endpoint which addresses have an account.
+      await bcrypt.compare(password, TIMING_EQUALISER_HASH);
       await recordLoginFailure({ reason: "invalid_credentials" });
       return NextResponse.json(
         { error: "Invalid email or password" },

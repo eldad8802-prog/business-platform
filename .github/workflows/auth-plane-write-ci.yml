@@ -11,6 +11,11 @@
 # LOGIN role attached to `app_auth`, under the SHIPPED E4 grants, on PostgreSQL
 # 17 — and keeps the incident itself as a negative control.
 #
+# Signup runs under the full set Production holds — E4, sec_c's identity INSERT
+# grants and B4's forced RLS on Business — and must SUCCEED, ending in the same
+# AuthSession + refresh cookie login issues, with the tenant boundaries around
+# account creation asserted alongside it.
+#
 # Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO
 # Production.
 
@@ -35,6 +40,9 @@ on:
       - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
       - "prisma/migrations/20260908200000_auth_session_privilege_contract/**"
       - "prisma/migrations/20260913120000_authsession_user_agent/**"
+      - "prisma/migrations/20260926110300_sec_c_explicit_identity_grants/**"
+      - "prisma/migrations/20261006090000_business_tenant_write_rls/**"
+      - "app/register/**"
       - ".authfix/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
@@ -82,6 +90,13 @@ jobs:
       # seconds rather than after the lab is built.
       - name: Auth-plane write contract (source lock)
         run: npx tsx lib/auth/auth-plane-write-contract.test.ts
+
+      # Pure, no database: the signup gate, the route contract (session +
+      # refresh cookie), identity normalisation, and the guard that every
+      # product call to signAuthToken names a session. These used to run only
+      # when someone remembered `npm run verify:prelaunch`.
+      - name: Signup contract and session-bound token guard (pure)
+        run: npm run verify:prelaunch
 
       - name: Prisma validate + generate
         env:

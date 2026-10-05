@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PrimaryCta } from "@/components/ui/primary-cta";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 
 type RegisterErrors = {
   name?: string;
@@ -116,7 +117,8 @@ export default function RegisterForm() {
 
     if (field === "password") {
       if (!value.trim()) return "יש להזין סיסמה";
-      if (value.length < 6) return "הסיסמה חייבת להכיל לפחות 6 תווים";
+      if (value.length < MIN_PASSWORD_LENGTH)
+        return `הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים`;
       return "";
     }
 
@@ -252,10 +254,18 @@ export default function RegisterForm() {
         throw new Error("לא התקבל token מהשרת");
       }
 
+      // Stored exactly as login stores it; the refresh credential arrived as an
+      // httpOnly cookie on this same response and never touches JavaScript.
       localStorage.setItem("token", registerData.token);
+
+      if (registerData.sessionId) {
+        localStorage.setItem("sessionId", registerData.sessionId);
+      }
 
       if (registerData.user) {
         localStorage.setItem("user", JSON.stringify(registerData.user));
+      } else {
+        localStorage.removeItem("user");
       }
 
       router.replace("/app");
