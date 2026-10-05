@@ -26,6 +26,7 @@ export async function POST(req: Request) {
       dimension?: unknown;
       code?: unknown;
       text?: unknown;
+      channel?: unknown;
       replacesStatementId?: unknown;
     };
     const replaces = body.replacesStatementId == null ? null : Number(body.replacesStatementId);
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
           dimension: body.dimension,
           code: body.code,
           text: body.text,
+          channel: body.channel,
           source: "OWNER_INPUT",
           sourceRef: "settings",
           replacesStatementId: replaces,

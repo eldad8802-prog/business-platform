@@ -40,6 +40,52 @@ export const OBJECTIVE_CODES = [
   "LEAVE_LEAD",
 ] as const;
 
+/**
+ * P3-A — what the business DECLARES it fulfils (owner declarations of fulfilment capability, never
+ * preferences and never derived). They make a conversion path possible; they never make it public.
+ */
+export const CONVERSION_DECLARATION_CODES = [
+  "ACCEPTS_VISITS",
+  "BOOKING_BY_MESSAGE",
+  "QUOTES_ON_REQUEST",
+  "WHATSAPP_ON_PUBLIC_PHONE",
+  "EXTERNAL_SHOP",
+] as const;
+
+/** P3-A — the channel an objective is meant through (objective × channel), mirrors enum ConversionChannel. */
+export const CONVERSION_CHANNELS = [
+  "WHATSAPP_CLOUD",
+  "WHATSAPP_LINK",
+  "PHONE",
+  "IN_PERSON",
+  "EXTERNAL_LINK",
+  "EMAIL",
+  "DUBIZ_FORM",
+  "DUBIZ_BOOKING",
+  "DUBIZ_CHECKOUT",
+] as const;
+export type ConversionChannelCode = (typeof CONVERSION_CHANNELS)[number];
+
+/**
+ * Which channels make sense for which objective. DISCOVER_* are on-page and have no channel (the
+ * database CHECK BusinessIdentityStatement_channel_shape refuses one too).
+ */
+export const OBJECTIVE_CHANNELS: Record<(typeof OBJECTIVE_CODES)[number], readonly ConversionChannelCode[]> = {
+  BOOK: ["PHONE", "WHATSAPP_CLOUD", "WHATSAPP_LINK", "EMAIL", "DUBIZ_BOOKING"],
+  BUY: ["IN_PERSON", "EXTERNAL_LINK", "DUBIZ_CHECKOUT"],
+  CALL: ["PHONE"],
+  WHATSAPP: ["WHATSAPP_CLOUD", "WHATSAPP_LINK"],
+  REQUEST_QUOTE: ["PHONE", "WHATSAPP_CLOUD", "WHATSAPP_LINK", "EMAIL", "DUBIZ_FORM"],
+  VISIT_STORE: ["IN_PERSON"],
+  DISCOVER_SERVICES: [],
+  DISCOVER_PRODUCTS: [],
+  LEAVE_LEAD: ["DUBIZ_FORM", "EMAIL", "PHONE", "WHATSAPP_CLOUD", "WHATSAPP_LINK"],
+};
+
+export function isConversionChannel(value: unknown): value is ConversionChannelCode {
+  return typeof value === "string" && (CONVERSION_CHANNELS as readonly string[]).includes(value);
+}
+
 export const TONE_CODES = ["PROFESSIONAL", "WARM", "FRIENDLY_CASUAL", "ENERGETIC", "PREMIUM"] as const;
 
 export const POSITIONING_CODES = [
@@ -70,6 +116,7 @@ export const DIMENSION_RULES: Record<BusinessIdentityDimension, DimensionRule> =
   SECONDARY_OBJECTIVE: { kind: "CODED", codes: OBJECTIVE_CODES, single: false, maxActive: 2, publicUseEligible: false },
   TONE: { kind: "CODED", codes: TONE_CODES, single: true, maxActive: 1, publicUseEligible: false },
   POSITIONING: { kind: "CODED", codes: POSITIONING_CODES, single: false, maxActive: 3, publicUseEligible: false },
+  CONVERSION_DECLARATION: { kind: "CODED", codes: CONVERSION_DECLARATION_CODES, single: false, maxActive: 5, publicUseEligible: false },
 };
 
 export const IDENTITY_DIMENSIONS = Object.keys(DIMENSION_RULES) as BusinessIdentityDimension[];
@@ -120,4 +167,40 @@ export function normalizeStatementValue(
     throw new IdentityInputError("Contact details and links are not part of an identity statement");
   }
   return { code: null, text };
+}
+
+/**
+ * P3-A — an objective's channel. Only PRIMARY / SECONDARY objectives take one, only from that
+ * objective's channels; null means "no channel stated".
+ */
+export function normalizeObjectiveChannel(dimension: BusinessIdentityDimension, code: string | null, channel: unknown): ConversionChannelCode | null {
+  if (channel === undefined || channel === null) return null;
+  if (dimension !== "PRIMARY_OBJECTIVE" && dimension !== "SECONDARY_OBJECTIVE") {
+    throw new IdentityInputError("Only an objective can name a channel");
+  }
+  if (!isConversionChannel(channel)) throw new IdentityInputError("Unknown channel");
+  const allowed = OBJECTIVE_CHANNELS[code as (typeof OBJECTIVE_CODES)[number]] ?? [];
+  if (!allowed.includes(channel)) throw new IdentityInputError("This channel does not fit this objective");
+  return channel;
+}
+
+/**
+ * P3-A — CLAIM-LIKE text in a free-text identity statement. Deterministic (no AI): a statement that
+ * reads like a trust claim ("licensed", "since 1998", "number 1", "guarantee") must not be approved
+ * for public use as plain text — it belongs to a governed trust claim (or is not allowed at all).
+ * Existing approved rows are FLAGGED for owner review, never withdrawn or converted automatically.
+ */
+export type ClaimLikeMatch = { kind: "FOUNDED_YEAR" | "SERVED_CUSTOMERS" | "LICENSED" | "CERTIFIED" | "AUTHORIZED_DEALER" | "GUARANTEE" | "PROHIBITED_SUPERLATIVE" };
+const CLAIM_LIKE: { kind: ClaimLikeMatch["kind"]; re: RegExp }[] = [
+  { kind: "FOUNDED_YEAR", re: /(\bsince\b|\byears?\b|מאז|שנים|שנות ניסיון|ותק)/i },
+  { kind: "SERVED_CUSTOMERS", re: /(\d[\d,.]*\s*\+?\s*(לקוחות|customers|clients))|((לקוחות|customers|clients)\s*(מרוצים)?\s*\d)/i },
+  { kind: "LICENSED", re: /(\blicen[cs]ed?\b|רישיון|רשיון|מורשה|מורשית)/i },
+  { kind: "CERTIFIED", re: /(\bcertifi(ed|cate|cation)\b|מוסמך|מוסמכת|מוסמכים|הוסמך|הסמכה|תעודה|תעודת)/i },
+  { kind: "AUTHORIZED_DEALER", re: /(authori[sz]ed\s+(dealer|reseller|distributor)|יבואן|משווק מורשה|מפיץ מורשה|סוכן מורשה)/i },
+  { kind: "GUARANTEE", re: /(\bguarantee[ds]?\b|\bwarrant(y|ies)\b|אחריות|מובטח|מובטחת|הבטחת)/i },
+  { kind: "PROHIBITED_SUPERLATIVE", re: /(number\s*(1|one)|#\s*1\b|\bleading\b|\bbest\b|\bfastest\b|most trusted|\brecommended\b|מספר\s*1|מספר אחת|המוביל|מובילה|הכי\s|הטוב ביותר|הטובה ביותר|הזול ביותר|המהיר ביותר|מומלץ|מומלצת)/i },
+];
+export function claimLikeMatches(text: string | null | undefined): ClaimLikeMatch[] {
+  if (!text) return [];
+  return CLAIM_LIKE.filter((c) => c.re.test(text)).map((c) => ({ kind: c.kind }));
 }

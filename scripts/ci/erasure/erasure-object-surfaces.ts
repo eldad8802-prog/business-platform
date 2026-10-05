@@ -133,6 +133,16 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
 
   // ── Open debt: the object survives an account deletion ───────────────────
   {
+    model: "BusinessTrustClaim",
+    field: "verificationAttachmentKey",
+    kind: "STORAGE_KEY",
+    domain: "trust",
+    state: "OPEN",
+    reason:
+      "P3-A: an owner's PRIVATE supporting document for a licence / certification / dealership claim (private \"trust\" storage domain, never a URL). The claim row is kept as authority history and no trust-document delete is wired into account erasure yet, so the bytes survive an account deletion — recorded debt, like the other owner uploads",
+    target: "S8-IMAGES",
+  },
+  {
     model: "BusinessAsset",
     field: "storageKey",
     kind: "STORAGE_KEY",
