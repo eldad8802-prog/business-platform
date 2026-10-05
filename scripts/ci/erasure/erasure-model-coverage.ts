@@ -302,6 +302,10 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // P2. No value is stored, but valueHash is a sha256 of the owner's own phone / email / address
   // when designated as public contact — a low-entropy fingerprint of personal data.
   BusinessIdentityFactAuthority: unmanaged("valueHash (sha256 of the confirmed fact value, incl. a designated phone/email/address), plus confirmedBy/publicUseApprovedBy/retiredBy user ids"),
+  // P3-A. Owner trust claims: structured parameters an owner typed (a licence type, an issuer, a brand,
+  // guarantee terms) can name the owner, plus confirmedBy/publicUseApprovedBy/retiredBy user ids and the
+  // key + sha256 of a private supporting document. Same E2 position as the P2 identity tables.
+  BusinessTrustClaim: unmanaged("owner-entered claim parameters and wording, the private supporting document key + sha256, plus confirmedBy/publicUseApprovedBy/retiredBy user ids"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
   AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
   InboundEmailMessage: unmanaged(

@@ -1072,5 +1072,18 @@ export function getBusinessContentProfile(
   const withGoal = applyGoalAdjustments(withOffer, input.primaryGoal);
   const withTone = applyBrandToneAdjustments(withGoal, input.brandTone);
 
-  return withTone;
+  return gateUnsourcedTestimonialStyle(withTone);
+}
+
+/**
+ * P3-A testimonial safety: "testimonial" content is not generated until a SOURCED testimonial / review
+ * system exists (none does) — generic business content must never be turned into customer quotes or
+ * "social proof". The single choke point: every consumer of the content profile goes through
+ * getBusinessContentProfile, so the style is replaced here by "demonstration" (showing the real work,
+ * no claims about what customers said). Historical runs are untouched.
+ */
+export const TESTIMONIAL_STYLE_AVAILABLE = false;
+export function gateUnsourcedTestimonialStyle(profile: BusinessContentProfile): BusinessContentProfile {
+  if (profile.contentStyle !== "testimonial" || TESTIMONIAL_STYLE_AVAILABLE) return profile;
+  return { ...profile, contentStyle: "demonstration" };
 }

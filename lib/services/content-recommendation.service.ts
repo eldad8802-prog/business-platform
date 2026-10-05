@@ -29,11 +29,7 @@ export function getFormatRecommendations(
         score: 10,
       });
 
-      recommendations.push({
-        format: "testimonial",
-        reasoning: "הוכחה חברתית מחזקת סגירה",
-        score: 8,
-      });
+      // P3-A testimonial safety: no "testimonial" format until a sourced testimonial system exists.
     }
 
     if (contentAngle === "show_difference") {

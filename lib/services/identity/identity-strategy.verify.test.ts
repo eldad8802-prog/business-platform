@@ -257,7 +257,7 @@ function inputsFor(v: Vertical): IdentityInputs {
     source: "OWNER_INPUT", sourceRef: "settings", status: "ACTIVE", confirmedByUserId: 1,
     publicUseApproved: s.publicUseApproved === true, publicUseApprovedAt: s.publicUseApproved ? now : null, createdAt: now,
   }));
-  const factValues = { BUSINESS_NAME: null, CITY: null, OPENING_HOURS: null, PUBLIC_PHONE: null, PUBLIC_EMAIL: null, PUBLIC_ADDRESS: null } as IdentityInputs["factValues"];
+  const factValues = { BUSINESS_NAME: null, CITY: null, OPENING_HOURS: null, PUBLIC_PHONE: null, PUBLIC_EMAIL: null, PUBLIC_ADDRESS: null, PUBLIC_WHATSAPP: null } as IdentityInputs["factValues"];
   const factAuthorities: FactAuthorityRow[] = [];
   for (const f of v.facts) {
     factValues[f.fact] = f.value;

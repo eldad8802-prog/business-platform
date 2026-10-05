@@ -64,11 +64,14 @@ const prod = (id: number, category: string | null = null) => ({ id, active: true
   ok("the audience list has no person-trait code (age, family, religion, ethnicity, health, politics, orientation)",
     !TARGET_AUDIENCE_CODES.some((c) => /AGE|YOUNG|SENIOR|PARENT|FAMIL|RELIG|ETHN|HEALTH|POLIT|GENDER|ORIENT|WOMEN|MEN\b/.test(c)));
   ok("the migration's coded/text CHECK lists match the vocabulary", (() => {
+    // P3-A replaced the value-shape CHECK with a superset (CONVERSION_DECLARATION is CODED): the latest
+    // migration is the authority for the coded/text lists; the single-valued list is still P2's.
     const sql = readFileSync(join(process.cwd(), "prisma/migrations/20261004090000_p2_business_identity/migration.sql"), "utf8");
+    const p3a = readFileSync(join(process.cwd(), "prisma/migrations/20261008090100_p3a_trust_claims/migration.sql"), "utf8");
     const coded = Object.entries(DIMENSION_RULES).filter(([, r]) => r.kind === "CODED").map(([d]) => `'${d}'`).join(", ");
     const text = Object.entries(DIMENSION_RULES).filter(([, r]) => r.kind === "TEXT").map(([d]) => `'${d}'`).join(", ");
     const single = Object.entries(DIMENSION_RULES).filter(([, r]) => r.single).map(([d]) => `'${d}'`).join(", ");
-    return sql.includes(`IN (${coded})`) && sql.includes(`IN (${text})`) && sql.includes(`IN (${single})`);
+    return p3a.includes(`IN (${coded})`) && p3a.includes(`IN (${text})`) && sql.includes(`IN (${single})`);
   })());
 }
 
@@ -101,15 +104,18 @@ const prod = (id: number, category: string | null = null) => ({ id, active: true
   ok("…suggests nothing, and carries the not-a-popularity-claim caveat",
     conc!.suggestions.length === 0 && conc!.caveats.some((c) => /not evidence for a 'most popular' claim/.test(c)) && conc!.caveats.includes("does not set featuredByOwner"));
 
-  const one = deriveIdentitySignals({ ...empty, services: [svc(1)], demand: [{ offeringKind: "SERVICE", offeringId: 1, signalType: "BOOKING" }] });
+  const one = deriveIdentitySignals({ ...empty, services: [svc(1)], demand: [{ offeringKind: "SERVICE", offeringId: 1, signalType: "BOOKING", appointmentStatus: "COMPLETED" }] });
   ok("one booking suggests nothing (not 'fast', not 'appointment customers')",
     one.every((s) => s.suggestions.length === 0) && one.some((s) => s.kind === "BOOKING_DEMAND" && s.status === "INSUFFICIENT_EVIDENCE"));
 
-  const booked = deriveIdentitySignals({ ...empty, services: [svc(1)], demand: Array.from({ length: 12 }, () => ({ offeringKind: "SERVICE" as const, offeringId: 1, signalType: "BOOKING" })) });
-  ok("sustained real bookings suggest APPOINTMENT_CUSTOMERS and BOOK", (() => {
+  const booked = deriveIdentitySignals({ ...empty, services: [svc(1)], demand: Array.from({ length: 12 }, () => ({ offeringKind: "SERVICE" as const, offeringId: 1, signalType: "BOOKING", appointmentStatus: "COMPLETED" })) });
+  ok("sustained COMPLETED bookings suggest APPOINTMENT_CUSTOMERS only — demand is not booking capability, never BOOK", (() => {
     const b = booked.find((s) => s.kind === "BOOKING_DEMAND");
-    return b?.status === "SUPPORTED" && b.suggestions.some((x) => x.code === "APPOINTMENT_CUSTOMERS") && b.suggestions.some((x) => x.code === "BOOK");
+    return b?.status === "SUPPORTED" && b.suggestions.some((x) => x.code === "APPOINTMENT_CUSTOMERS") && !b.suggestions.some((x) => x.code === "BOOK")
+      && b.caveats.some((c) => /not booking capability/.test(c));
   })());
+  const requested = deriveIdentitySignals({ ...empty, services: [svc(1)], demand: Array.from({ length: 12 }, (_, i) => ({ offeringKind: "SERVICE" as const, offeringId: 1, signalType: "BOOKING", appointmentStatus: ["PROPOSED", "CONFIRMED", "CANCELED", "NO_SHOW"][i % 4] })) });
+  ok("proposed / confirmed / cancelled / no-show bookings are not booking evidence", requested.every((s) => s.kind !== "BOOKING_DEMAND" || s.suggestions.length === 0));
 
   const unspecified = deriveIdentitySignals({ ...empty, services: [svc(1), svc(2), svc(3)] });
   ok("UNSPECIFIED fulfillment is not evidence of anything", !unspecified.some((s) => s.kind === "FULFILLMENT_MODE"));

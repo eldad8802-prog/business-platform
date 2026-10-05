@@ -11,6 +11,7 @@
  *   6. gaps are normalised (one per rule and reason), blocked families are stated
  *   7. everything is ordered by slot, bounded, and fingerprinted over its SEMANTIC content only
  */
+import { evaluateTrustClaim } from "@/lib/services/trust/trust-claim.service";
 import { createHash } from "node:crypto";
 import {
   PREMISE_MAX_AGE_DAYS,
@@ -191,6 +192,7 @@ export function assembleSnapshot(
       value: {
         dimension: s.dimension,
         ...(s.code !== null ? { code: s.code } : { hasText: true }),
+        ...(s.channel ? { channel: s.channel } : {}),
         status: s.status,
         source: s.source,
         sourceRef: s.sourceRef,
@@ -217,6 +219,35 @@ export function assembleSnapshot(
       freshness: { ageDays: ageDays(asOf, f.confirmedAt), fresh: true },
       evidence: { fingerprint: null, refCount: null }, caveats: [],
       provenance: [{ store: "BusinessIdentityFactAuthority", id: f.id }],
+    });
+  }
+
+  /* ── 1d·P3-A. Owner trust claims ── OWNER_CONFIRMED items carrying the claim's kind, class and authority
+   * flags with a stable provenance reference. Never the wording, the parameters or the private
+   * document. A claim with an open lapse (expired, re-confirmation due, evidence no longer supporting
+   * it) is NOT active owner-confirmed knowledge and stays out; a verification-required claim still
+   * waiting for its document enters as unverified. Derived evidence never enters as a claim. */
+  for (const c of stored.trustClaims ?? []) {
+    const view = evaluateTrustClaim(c, { now: asOf, servedCustomers: stored.servedCustomers ?? null });
+    if (view.issues.some((i) => i !== "NEEDS_DOCUMENT")) continue;
+    drafts.push({
+      slot: `trust|${c.claimKind}|${c.scopeKey}`, kind: "OWNER_DECISION", domain: "trust", subject: { type: "trust-claim", id: c.id },
+      key: `trust.claim.${c.claimKind.toLowerCase()}`, ruleId: c.evidenceRuleId ?? null, ruleVersion: c.evidenceRuleVersion ?? null, authority: "OWNER_CONFIRMED",
+      value: {
+        claimKind: c.claimKind,
+        claimClass: c.claimClass,
+        ownerConfirmed: true,
+        confirmedByUserId: c.confirmedByUserId,
+        verificationRequired: view.verification.required,
+        providedByBusiness: view.verification.provided,
+        externallyVerified: false,
+        publicUseApproved: c.publicUseApproved,
+        publicEffective: view.publicEffective,
+      },
+      observationCount: null, window: null, status: "ACTIVE",
+      freshness: { ageDays: ageDays(asOf, c.confirmedAt), fresh: true },
+      evidence: { fingerprint: null, refCount: null }, caveats: view.verification.required ? ["provided by the business — not externally verified"] : [],
+      provenance: [{ store: "BusinessTrustClaim", id: c.id }],
     });
   }
 

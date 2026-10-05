@@ -127,7 +127,7 @@ export async function loadIdentityEvidence(businessId: number, tx: Tx, asOf = ne
     }),
     tx.offeringDemandSignal.findMany({
       where: { businessId, createdAt: { gte: since, lte: asOf } },
-      select: { offeringKind: true, businessServiceId: true, inventoryItemId: true, signalType: true },
+      select: { offeringKind: true, businessServiceId: true, inventoryItemId: true, signalType: true, appointment: { select: { status: true } } },
     }),
     tx.contentEvent.findMany({
       where: { businessId, eventType: "VARIANT_SELECTED", createdAt: { gte: since, lte: asOf }, contentVariantId: { not: null } },
@@ -154,7 +154,7 @@ export async function loadIdentityEvidence(businessId: number, tx: Tx, asOf = ne
     products: products.map((p) => ({ id: p.id, active: p.isActive, category: p.category?.name ?? null })),
     demand: demand.flatMap((d) => {
       const id = d.offeringKind === "SERVICE" ? d.businessServiceId : d.inventoryItemId;
-      return id === null ? [] : [{ offeringKind: d.offeringKind, offeringId: id, signalType: d.signalType }];
+      return id === null ? [] : [{ offeringKind: d.offeringKind, offeringId: id, signalType: d.signalType, appointmentStatus: d.appointment?.status ?? null }];
     }),
     variantSelections: selections.flatMap((e) => (e.contentVariant ? [e.contentVariant.variantKey] : [])),
     bot: bot?.profile

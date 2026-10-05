@@ -129,12 +129,18 @@ async function main() {
     ok("an unknown dimension is refused", (await errorOf(() => tx((t) => svc.createIdentityStatement({ ...base, dimension: "MISSION", text: "x" }, t))))?.startsWith("IdentityInputError") === true);
 
     console.log("\n4 · public-use authority");
-    const d1 = await tx((t) => svc.createIdentityStatement({ ...base, dimension: "DIFFERENTIATOR", text: "אחריות לשנה" }, t));
+    // P3-A: a guarantee / licence / "since 1998" is a governed trust claim, never plain approved text.
+    const claimLike = await tx((t) => svc.createIdentityStatement({ ...base, dimension: "DIFFERENTIATOR", text: "אחריות לשנה על כל עבודה" }, t));
+    ok("claim-like text can be stated but not approved for public use as plain text",
+      /reads like a trust claim/.test((await errorOf(() => tx((t) => svc.setIdentityPublicUse({ businessId: a.id, userId: user.id, statementId: claimLike.id, approved: true }, t)))) ?? "") &&
+      (await prisma.businessIdentityStatement.findUniqueOrThrow({ where: { id: claimLike.id } })).publicUseApproved === false);
+    await tx((t) => svc.retireIdentityStatement({ businessId: a.id, userId: user.id, statementId: claimLike.id }, t));
+    const d1 = await tx((t) => svc.createIdentityStatement({ ...base, dimension: "DIFFERENTIATOR", text: "מענה גם במוצאי שבת" }, t));
     ok("a new statement is INTERNAL (not approved) by default", d1.publicUseApproved === false && d1.publicUseApprovedAt === null);
     const d1ok = await tx((t) => svc.setIdentityPublicUse({ businessId: a.id, userId: user.id, statementId: d1.id, approved: true }, t));
     const d1row = await prisma.businessIdentityStatement.findUniqueOrThrow({ where: { id: d1.id } });
     ok("approval is explicit and records who and when", d1ok.publicUseApproved && d1row.publicUseApprovedByUserId === user.id && d1row.publicUseApprovedAt !== null);
-    const d2 = await tx((t) => svc.createIdentityStatement({ ...base, dimension: "DIFFERENTIATOR", text: "אחריות לשנתיים", replacesStatementId: d1.id }, t));
+    const d2 = await tx((t) => svc.createIdentityStatement({ ...base, dimension: "DIFFERENTIATOR", text: "מענה גם בשישי ובמוצאי שבת", replacesStatementId: d1.id }, t));
     ok("replacing approved text does NOT carry approval over to the new text", d2.publicUseApproved === false);
     ok("…and the approved old text is retired, not deleted", (await prisma.businessIdentityStatement.findUniqueOrThrow({ where: { id: d1.id } })).status === "RETIRED");
     ok("public use on an internal directive is refused by the service",
@@ -244,7 +250,7 @@ async function main() {
       JSON.stringify(factItems.map((k) => [(k.value as { fact: string }).fact, (k.value as { publicUseApproved: boolean }).publicUseApproved]).sort()) === JSON.stringify([["CITY", true], ["PUBLIC_PHONE", false]]));
     const json = JSON.stringify(snap);
     ok("no statement text and no fact value is duplicated into memory",
-      !json.includes("אחריות לשנתיים") && !json.includes("חיפה") && !json.includes("04-8123456") && !json.includes("office@example.test"));
+      !json.includes("מענה גם בשישי ובמוצאי שבת") && !json.includes("חיפה") && !json.includes("04-8123456") && !json.includes("office@example.test"));
     ok("a reference to a retired statement still resolves (history), marked RETIRED",
       (await tx((t) => resolveIdentityProvenance(a.id, { store: "BusinessIdentityStatement", id: t2.id }, t)))?.row.status === "RETIRED");
     ok("an unknown store resolves to nothing", (await tx((t) => resolveIdentityProvenance(a.id, { store: "KnowledgeMeasure", id: t2.id }, t))) === null);
