@@ -11,7 +11,7 @@ type ShellChromeProps = {
 };
 
 /** Routes drawn in the warm language — see `[data-dz-ground]` in dubiz-mist.css. */
-const WARM_GROUND_PATHS = new Set(["/profile", "/settings"]);
+const WARM_GROUND_PATHS = new Set(["/profile", "/settings", "/business/identity"]);
 
 /**
  * Adaptive App Shell chrome — one shell, three device tiers, switched purely in

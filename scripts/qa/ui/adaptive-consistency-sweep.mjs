@@ -32,7 +32,7 @@ const ROUTES = [
   "/secretary", "/inbox",
   "/content", "/content/goal", "/content/setup", "/content/generate", "/content/result",
   "/business", "/business/bot-settings",
-  "/onboarding", "/pricing", "/posts", "/tools", "/search",
+  "/onboarding", "/pricing", "/posts", "/tools/money", "/search",
 ];
 
 const rows = [];

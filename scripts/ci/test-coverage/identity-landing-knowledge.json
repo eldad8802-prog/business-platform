@@ -1,0 +1,9 @@
+{
+  "note": "feat/identity-landing-knowledge: the /business/identity redesign's read model over BusinessIdentityContext — chapters, approved-only landing preview, learned signals. Pure; tenant isolation of the context it reads is proven by lib/services/identity/identity.rls.db.test.ts.",
+  "tests": {
+    "lib/services/identity/landing-knowledge.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): deterministic chapter states, readiness as a count (no percentage), preview filled only from context.publicUse, learned = SUPPORTED signals not yet adopted, the screen writes only through existing endpoints; run on pull_request by p2-identity-ci.yml job core"
+    }
+  }
+}

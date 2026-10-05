@@ -134,6 +134,7 @@
     "verify:notification-policy": "npx tsx lib/notifications/notification-policy.verify.test.ts",
     "verify:data-transfer-format": "npx tsx lib/data-transfer/format/format.verify.test.ts",
     "verify:financial-records-csv": "npx tsx lib/reports/financial-records-csv.verify.test.ts",
+    "verify:landing-knowledge": "npx tsx lib/services/identity/landing-knowledge.verify.test.ts",
     "verify:import-export-foundation": "npx tsx lib/data-transfer/import-export-foundation.verify.test.ts",
     "verify:profile-settings": "npx tsx lib/services/profile/profile-settings.verify.test.ts",
     "qa:import-export-foundation": "node scripts/qa/ui/import-export-foundation.mjs",

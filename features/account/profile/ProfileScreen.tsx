@@ -297,8 +297,8 @@ function IdentityLink() {
     <Link href="/business/identity" className={`${s.rowCard} ${s.area_identity}`}>
       <WarmTile tone="violet" icon="🪪" />
       <span className={s.cardText}>
-        <span className={s.cardTitle}>איך העסק מוצג</span>
-        <span className={s.cardSubtitle}>תיאור, התמחות, קהל יעד וטון</span>
+        <span className={s.cardTitle}>הנוכחות הדיגיטלית</span>
+        <span className={s.cardSubtitle}>מה Dubiz לומד לקראת דף הנחיתה של העסק</span>
       </span>
       <ChevronGlyph className={s.rowChevron} />
     </Link>

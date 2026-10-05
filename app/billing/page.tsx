@@ -342,7 +342,7 @@ export default function BillingHubPage() {
           boxSizing: "border-box",
         }}
       >
-        <BackButton href="/tools" />
+        <BackButton href="/app" />
       </header>
 
       <main

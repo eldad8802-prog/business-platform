@@ -15,11 +15,10 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  HOME_ROUTES,
   TOOLS,
   TOOL_GROUPS,
   allMappedHrefs,
-  groupHref,
+  categoryHref,
   toolsInGroup,
 } from "./home-routes";
 
@@ -115,11 +114,11 @@ for (const tool of TOOLS) {
   check(tool.label.trim().length > 0, `tool has a label: ${tool.key}`);
 }
 
-// 4. Every group has tools and a resolvable anchor target.
+// 4. Every group has tools and its own family screen.
 for (const group of TOOL_GROUPS) {
   const members = toolsInGroup(group.key);
   check(members.length > 0, `group is not empty: ${group.key}`);
-  check(groupHref(group).startsWith(`${HOME_ROUTES.tools}#`), `group anchors into /tools: ${group.key}`);
+  check(categoryHref(group) === `/tools/${group.slug}`, `group has its family screen: ${group.key}`);
   check(group.domains.length > 0, `group speaks for at least one status domain: ${group.key}`);
 }
 
