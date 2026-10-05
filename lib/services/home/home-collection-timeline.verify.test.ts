@@ -359,19 +359,20 @@ async function main() {
     ok("F: still fail-closed with no tenant context", failClosed);
   }
 
-  // G (last: it leaves the garbage). The service's own work between set_config
-  // resolving and the reads being submitted — the interval Production could not
-  // see into. For a month this process has not computed yet, the Jerusalem month
-  // bounds are built from scratch inside it; the timeline must show that as a
-  // long T4→T5 span with the loop ACTIVE, and set_config itself as quick.
+  // G (last). The service's own work between set_config resolving and the reads
+  // being submitted (T4→T5). This interval used to hold the Jerusalem month
+  // bounds, built from scratch for a month the process had not computed yet:
+  // 5–6 s of busy event loop in Production, past the 5000 ms transaction
+  // timeout — the P2028 root cause (#658). The bounds are now O(1) and resolved
+  // BEFORE the transaction opens, so even for an uncomputed month the interval
+  // must stay short. A regression (a scan, or work moved back inside the
+  // transaction) fails here.
   {
     stubPrisma({ setConfig: "fast", reads: "p2028" }, fresh());
     const lines: string[] = [];
     await route((l) => lines.push(l), new Date("2027-03-15T09:30:00.000Z"));
     const t = JSON.parse(lines[0]).timeline;
-    const span = t.spans.find((x: { span: string }) => x.span === "T4-T5");
-    ok("G: resolved→submitted is the long interval for an uncomputed month", t.setConfigResolvedToReadsSubmittedMs >= 500);
-    ok("G: and the loop was busy for it", span.loopActiveMs >= span.ms * 0.8);
+    ok("G: resolved→submitted stays short even for an uncomputed month", t.setConfigResolvedToReadsSubmittedMs < 100);
     ok("G: set_config itself was quick", t.setConfigMs < 100);
   }
 
