@@ -48,6 +48,7 @@ import {
   CHANNEL_LABEL,
   SOURCE_LABEL,
   buildStockRows,
+  buildUpcomingRows,
   countText,
   dateChip,
   formatShekel,
@@ -570,7 +571,7 @@ function ObligationsPanel({ view }: { view: HomeView }) {
   if (c.state === "loading") body = <PanelSkeleton />;
   else if (c.state === "failed") body = <Note>לא הצלחנו לטעון את ההתחייבויות.</Note>;
   else {
-    const items = [...c.value.upcoming.overdue.items, ...c.value.upcoming.next30Days.items].slice(0, 3);
+    const items = buildUpcomingRows(c.value, 3);
     body =
       items.length === 0 ? (
         <Note>אין תשלומים ב-30 הימים הקרובים.</Note>
@@ -579,14 +580,28 @@ function ObligationsPanel({ view }: { view: HomeView }) {
           {items.map((it, i) => {
             const chip = dateChip(it.dueDate);
             const amount = toNumber(it.amount);
+            // A date already past must not look like one still ahead: a solid
+            // chip and an explicit "באיחור" tag (the urgent tag of the design).
+            const chipBg = it.overdue ? "#C24A33" : "#FDF0EC";
+            const chipInk = it.overdue ? "#FFFFFF" : "#8E3A28";
             return (
-              <Link key={`${it.dueDate}:${i}`} href="/payables" prefetch={false} className="dzh-row" style={rowStyle}>
-                <span style={{ width: 44, flexShrink: 0, borderRadius: 10, background: "#FDF0EC", padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <span style={{ fontSize: 10, color: "#8E3A28" }}>{chip?.month ?? ""}</span>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#8E3A28" }}>{chip?.day ?? ""}</span>
+              <Link
+                key={`${it.dueDate}:${i}`}
+                href="/payables"
+                prefetch={false}
+                className="dzh-row"
+                style={rowStyle}
+                data-overdue={it.overdue ? "1" : undefined}
+              >
+                <span style={{ width: 44, flexShrink: 0, borderRadius: 10, background: chipBg, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <span style={{ fontSize: 10, color: chipInk }}>{chip?.month ?? ""}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: chipInk }}>{chip?.day ?? ""}</span>
                 </span>
                 <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-                  <span style={titleStyle}>{it.title}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={titleStyle}>{it.title}</span>
+                    {it.overdue ? <span style={tagStyle("#FFFFFF", "#C24A33")}>באיחור</span> : null}
+                  </span>
                   <span style={subStyle}>{amount !== null ? formatShekel(amount) : ""}</span>
                 </span>
               </Link>

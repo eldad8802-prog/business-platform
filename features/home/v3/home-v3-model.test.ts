@@ -18,7 +18,9 @@ import {
   buildActivity,
   buildDaySeries,
   buildStockRows,
+  buildUpcomingRows,
   buildWaiting,
+  leadsWaitingClaim,
   buildWeekSeries,
   chartAxis,
   countText,
@@ -140,6 +142,43 @@ const manyWaiting = Array.from({ length: 200 }, (_, i) => ({ ...waitingRow, requ
 ok("collection at the 200 read cap is not exact", !buildWaiting({ briefing, status: [], collectionWaiting: manyWaiting, now }).byKind.collection.exact);
 ok("a failed source makes the total inexact", !buildWaiting({ briefing: null, status: [], collectionWaiting: [], now }).total.exact);
 ok("nothing waiting, proven", waitingSentence(buildWaiting({ briefing: { ...briefing, attention: [] } as BriefingApi, status: [], collectionWaiting: [], now })) === "אין כרגע דברים שמחכים לך");
+
+/* ------------------------------------------- one lead count, everywhere -- */
+// The sidebar's לידים badge and "מה מחכה" must say the same thing: both read
+// /api/business-status's lead items through leadsWaitingClaim().
+const leadItems = [
+  statusItem("leads:new_unhandled:1", "leads", "א — ליד חדש שלא טופל"),
+  statusItem("leads:followup_overdue:2", "leads", "ב — מעקב באיחור"),
+  statusItem("leads:customer_wrote:3", "leads", "ג — הלקוח כתב"),
+];
+const withLeads = [...status, ...leadItems.slice(1)];
+const badgeClaim = leadsWaitingClaim(withLeads);
+const panelClaim = buildWaiting({ briefing, status: withLeads, collectionWaiting: [], now }).byKind.lead;
+ok("badge and 'מה מחכה' count the same leads", badgeClaim.n === panelClaim.n && badgeClaim.exact === panelClaim.exact && badgeClaim.n === 3, { badgeClaim, panelClaim });
+ok("every lead reason counts, not only 'new'", leadsWaitingClaim(leadItems).n === 3);
+ok("an unreadable source is never a confident 0", !leadsWaitingClaim(null).exact);
+ok("the leads cap makes the badge N+", countText(leadsWaitingClaim(manyLeads)) === "8+" && countText(buildWaiting({ briefing, status: manyLeads, collectionWaiting: [], now }).byKind.lead) === "8+");
+
+/* --------------------------------------------------- upcoming payments -- */
+const upcoming = buildUpcomingRows(
+  {
+    asOf: "2026-10-05",
+    upcoming: {
+      overdue: { items: [{ title: "גולן טלקום", dueDate: "2026-09-10", amount: "15" }] },
+      next30Days: {
+        items: [
+          { title: "דירה", dueDate: "2026-10-05", amount: "3500" },
+          { title: "ביטוח", dueDate: "2026-10-20", amount: "820" },
+        ],
+      },
+    },
+  },
+  3,
+);
+ok("a payment past its date is marked overdue", upcoming[0].overdue === true && upcoming[0].title === "גולן טלקום");
+ok("due today is not overdue", upcoming[1].overdue === false);
+ok("a future payment is not overdue", upcoming[2].overdue === false);
+ok("overdue payments come first", upcoming.map((r) => r.title).join(",") === "גולן טלקום,דירה,ביטוח");
 
 /* -------------------------------------------------------------- activity -- */
 const activity = buildActivity({

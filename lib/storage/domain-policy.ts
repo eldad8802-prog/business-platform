@@ -8,6 +8,7 @@ const DOMAIN_DEFAULT_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   inventory: "public",
   offers: "public",
   crm: "private",
+  trust: "private",
 };
 
 const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
@@ -17,6 +18,7 @@ const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   inventory: "public",
   offers: "public",
   crm: "private",
+  trust: "private",
 };
 
 export function getDefaultVisibility(domain: StorageDomain): StorageVisibility {

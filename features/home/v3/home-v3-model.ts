@@ -374,7 +374,6 @@ export function buildWaiting(input: {
   let payablesOverdue = 0;
   let payablesDueSoon = 0;
   let stockCount = 0;
-  let leadCount = 0;
 
   for (const s of input.status ?? []) {
     if (s.domain === "payables") {
@@ -409,7 +408,6 @@ export function buildWaiting(input: {
         rank: critical ? 1 : 3,
       });
     } else if (s.domain === "leads") {
-      leadCount++;
       const fresh = leadReason(s.itemId) === "new_unhandled";
       items.push({
         id: s.itemId,
@@ -462,13 +460,27 @@ export function buildWaiting(input: {
       n: count("collection"),
       exact: input.collectionWaiting !== null && input.collectionWaiting.length < COLLECTION_WAITING_CAP,
     },
-    lead: { n: count("lead"), exact: statusComplete && leadCount < STATUS_CAPS.leads },
+    lead: leadsWaitingClaim(input.status),
   };
   const total: CountClaim = {
     n: ordered.length,
     exact: Object.values(byKind).every((c) => c.exact),
   };
   return { items: ordered, total, byKind };
+}
+
+/**
+ * Leads waiting for the owner — the ONE definition the Home uses everywhere
+ * ("מה מחכה" chips and cards, and the sidebar's לידים badge): the lead items of
+ * /api/business-status, which the canonical `evaluateLeadAttention` produces
+ * (follow-up overdue / due today, new and untouched, customer wrote, awaiting
+ * an owner decision, quote with no activity, stalled). Exact only when neither
+ * the leads cap nor the global cap could have cut the list.
+ */
+export function leadsWaitingClaim(status: BusinessStatusItem[] | null): CountClaim {
+  if (status === null) return { n: 0, exact: false };
+  const n = status.filter((s) => s.domain === "leads").length;
+  return { n, exact: status.length < STATUS_CAPS.global && n < STATUS_CAPS.leads };
 }
 
 /** "5" when the count is proven whole, "5+" when a source may have cut it. */
@@ -595,6 +607,30 @@ export function buildActivity(input: {
     .filter((a) => !Number.isNaN(new Date(a.at).getTime()))
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
     .slice(0, input.limit);
+}
+
+/* ----------------------------------------------------- upcoming payments -- */
+
+export type UpcomingWire = { title: string; dueDate: string; amount: string };
+
+export type UpcomingRow = UpcomingWire & {
+  /** Due before the cost engine's own "today" (asOf) and still unpaid. */
+  overdue: boolean;
+};
+
+/**
+ * "התחייבויות קרובות" — still-unpaid payments already past their date first
+ * (the engine's `overdue` window: recorded, due before asOf), then the next 30
+ * days. Overdue is read from the data that already exists — the window it came
+ * from and its date against the engine's asOf — never re-derived or stored.
+ */
+export function buildUpcomingRows(
+  cost: { asOf: string; upcoming: { overdue: { items: UpcomingWire[] }; next30Days: { items: UpcomingWire[] } } },
+  limit: number,
+): UpcomingRow[] {
+  const overdue = cost.upcoming.overdue.items.map((i) => ({ ...i, overdue: true }));
+  const coming = cost.upcoming.next30Days.items.map((i) => ({ ...i, overdue: i.dueDate < cost.asOf }));
+  return [...overdue, ...coming].slice(0, limit);
 }
 
 /* ------------------------------------------------------------ inventory -- */
