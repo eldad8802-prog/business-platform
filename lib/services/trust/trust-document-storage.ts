@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { getStorageService } from "@/lib/storage";
+import { getStorageService, type StorageService } from "@/lib/storage";
 import { assertSafeStorageKey } from "@/lib/storage/key-validation";
 import { TrustClaimInputError } from "./trust-claim-catalogue";
 
@@ -39,18 +39,125 @@ export function prepareTrustDocument(input: { businessId: number; claimId: numbe
   return { storageKey: key, sha256, mimeType: mime };
 }
 
-export async function putTrustDocument(input: { businessId: number; storageKey: string; body: Buffer; mimeType: string }): Promise<void> {
-  if (!input.storageKey.startsWith(`biz/${input.businessId}/trust/`)) throw new TrustClaimInputError("Invalid document");
-  await getStorageService().putObject({
-    key: assertSafeStorageKey(input.storageKey),
+/** The storage operations this module needs (the real StorageService, or a test double). */
+export type TrustDocumentStorage = Pick<StorageService, "putObject" | "getObject" | "deleteObject">;
+
+function ownKey(businessId: number, storageKey: string): string {
+  if (!storageKey.startsWith(`biz/${businessId}/trust/`)) throw new TrustClaimInputError("Invalid document");
+  return assertSafeStorageKey(storageKey);
+}
+
+export async function putTrustDocument(
+  input: { businessId: number; storageKey: string; body: Buffer; mimeType: string },
+  storage: TrustDocumentStorage = getStorageService(),
+): Promise<void> {
+  await storage.putObject({
+    key: ownKey(input.businessId, input.storageKey),
     body: input.body,
     contentType: input.mimeType,
     metadata: { businessId: input.businessId, domain: "trust", visibility: "private" },
   });
 }
 
-export async function readTrustDocument(input: { businessId: number; storageKey: string }): Promise<{ body: Buffer; contentType: string }> {
-  if (!input.storageKey.startsWith(`biz/${input.businessId}/trust/`)) throw new TrustClaimInputError("Invalid document");
-  const result = await getStorageService().getObject(assertSafeStorageKey(input.storageKey));
+export async function readTrustDocument(
+  input: { businessId: number; storageKey: string },
+  storage: TrustDocumentStorage = getStorageService(),
+): Promise<{ body: Buffer; contentType: string }> {
+  const result = await storage.getObject(ownKey(input.businessId, input.storageKey));
   return { body: result.body, contentType: result.metadata.contentType };
+}
+
+/** Delete one of THIS business's trust documents. A key outside its private prefix is refused. */
+export async function deleteTrustDocument(
+  input: { businessId: number; storageKey: string },
+  storage: TrustDocumentStorage = getStorageService(),
+): Promise<void> {
+  await storage.deleteObject(ownKey(input.businessId, input.storageKey));
+}
+
+/**
+ * A storage-lifecycle failure that left an object behind. It is never silent: the default sink is a
+ * structured server error log (keys stay server-side; nothing here reaches a client).
+ *   NEW_OBJECT_AFTER_FAILED_ATTACH   the attach failed and the just-stored object could not be deleted
+ *   OLD_OBJECT_AFTER_REPLACEMENT     the replacement is canonical, but the replaced object could not be deleted
+ *   ATTACH_OUTCOME_AMBIGUOUS         the attach reported failure, yet the claim already points at the new
+ *                                    object (e.g. commit acknowledged late) — it is kept, not deleted
+ */
+export type TrustDocumentLeak = {
+  event: "trust_document_cleanup_failed";
+  phase: "NEW_OBJECT_AFTER_FAILED_ATTACH" | "OLD_OBJECT_AFTER_REPLACEMENT" | "ATTACH_OUTCOME_AMBIGUOUS";
+  businessId: number;
+  claimId: number;
+  storageKey: string;
+  error: string;
+};
+
+function logLeak(leak: TrustDocumentLeak): void {
+  console.error(JSON.stringify(leak));
+}
+
+const message = (error: unknown) => (error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+
+/**
+ * Store a claim's private document with a safe lifecycle:
+ *
+ *   validate bytes → store NEW → attach in the database (row locked, returns the replaced key)
+ *     attach FAILS     → delete NEW, rethrow the ORIGINAL error (a cleanup failure is reported, never hidden)
+ *     attach SUCCEEDS  → delete the replaced OLD object; if that fails the request still succeeds — the
+ *                        database already points at NEW and is never rolled back — and the leak is reported
+ *
+ * The database (attachVerificationDocument, under RLS) is the authority for whether the claim may take
+ * the document; the route's earlier ownership read only avoids storing bytes for an obviously wrong id.
+ */
+export async function storeVerificationDocument<C>(
+  input: { businessId: number; claimId: number; mimeType: unknown; body: Buffer },
+  deps: {
+    attach: (doc: { storageKey: string; sha256: string; mimeType: string }) => Promise<{ claim: C; previousDocumentRef: { storageKey: string } | null }>;
+    /** Re-reads the key the claim points at, to resolve an attach whose outcome is unknown. */
+    currentKey?: () => Promise<string | null>;
+    storage?: TrustDocumentStorage;
+    onLeak?: (leak: TrustDocumentLeak) => void;
+  },
+): Promise<{ claim: C; oldDocument: "NONE" | "DELETED" | "DELETE_FAILED" }> {
+  const storage = deps.storage ?? getStorageService();
+  const onLeak = deps.onLeak ?? logLeak;
+  const doc = prepareTrustDocument(input);
+  const leak = (phase: TrustDocumentLeak["phase"], storageKey: string, error: unknown) =>
+    onLeak({ event: "trust_document_cleanup_failed", phase, businessId: input.businessId, claimId: input.claimId, storageKey, error: message(error) });
+
+  await putTrustDocument({ businessId: input.businessId, storageKey: doc.storageKey, body: input.body, mimeType: doc.mimeType }, storage);
+
+  let attached: Awaited<ReturnType<typeof deps.attach>>;
+  try {
+    attached = await deps.attach({ storageKey: doc.storageKey, sha256: doc.sha256, mimeType: doc.mimeType });
+  } catch (attachError) {
+    let canonical = false;
+    if (deps.currentKey) {
+      try {
+        canonical = (await deps.currentKey()) === doc.storageKey;
+      } catch {
+        canonical = false; // cannot prove the database points at it → it is an orphan; delete it
+      }
+    }
+    if (canonical) {
+      leak("ATTACH_OUTCOME_AMBIGUOUS", doc.storageKey, attachError);
+    } else {
+      try {
+        await deleteTrustDocument({ businessId: input.businessId, storageKey: doc.storageKey }, storage);
+      } catch (cleanupError) {
+        leak("NEW_OBJECT_AFTER_FAILED_ATTACH", doc.storageKey, cleanupError);
+      }
+    }
+    throw attachError;
+  }
+
+  const previous = attached.previousDocumentRef;
+  if (!previous || previous.storageKey === doc.storageKey) return { claim: attached.claim, oldDocument: "NONE" };
+  try {
+    await deleteTrustDocument({ businessId: input.businessId, storageKey: previous.storageKey }, storage);
+    return { claim: attached.claim, oldDocument: "DELETED" };
+  } catch (cleanupError) {
+    leak("OLD_OBJECT_AFTER_REPLACEMENT", previous.storageKey, cleanupError);
+    return { claim: attached.claim, oldDocument: "DELETE_FAILED" };
+  }
 }

@@ -225,8 +225,13 @@ export function identityContextForAi(ctx: BusinessIdentityContext) {
       objectives: ctx.conversion.preference.map((p) => ({ role: p.role, objective: p.objective, channel: p.channel })),
       fulfilmentDeclarations: codes("CONVERSION_DECLARATION"),
     },
+    // Customer-facing material, complete: approved facts, approved owner statements and effective trust
+    // claims. Statements come ONLY from the canonical public inventory (ctx.publicUse.statements), and an
+    // approved statement that reads like a trust claim (needsOwnerReview) is held back until the owner
+    // reviews it — its P2 approval is untouched in the database and still shown to the owner.
     publicApproved: {
       facts: ctx.publicUse.facts.map((f) => ({ fact: f.key, value: f.value })),
+      statements: ctx.publicUse.statements.filter((s) => !s.needsOwnerReview).map((s) => ({ dimension: s.key, text: s.value })),
       trustClaims: ctx.publicUse.trustClaims.map((c) => ({ wording: c.wording, providedByBusiness: c.label === "PROVIDED_BY_BUSINESS" })),
     },
     knownButNotPublic: ctx.identity.facts.filter((f) => f.state === "KNOWN" || f.state === "OWNER_CONFIRMED").map((f) => f.fact),
@@ -241,7 +246,7 @@ export function identityContextForAi(ctx: BusinessIdentityContext) {
       fallback: ctx.conversion.fallback,
     },
     rules: [
-      "Use only publicApproved items in anything a customer will see.",
+      "Use only publicApproved items (facts, statements, trustClaims) in anything a customer will see; ownerConfirmed text that is not in publicApproved is background only.",
       "Never invent testimonials, reviews, ratings, customer counts, years in business, licences or guarantees.",
       "Never use superlatives such as number 1, leading, the best, fastest, most trusted, recommended.",
       "A licence or certification is provided by the business, not externally verified — say so if it is mentioned.",

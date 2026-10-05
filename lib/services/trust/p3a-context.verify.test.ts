@@ -9,8 +9,12 @@
  * records what would reach the database. Tenant isolation at the database (T1 / T16 / T17) is proven
  * by lib/services/identity/identity.rls.db.test.ts and lib/services/trust/trust-claim.db.test.ts.
  */
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { BusinessIdentityDimension, BusinessIdentityFact, Prisma } from "@prisma/client";
 import { assembleSnapshot } from "@/lib/knowledge/snapshot/assemble";
+import { LocalFsStorageService } from "@/lib/storage";
 import type { DomainState, StoredKnowledge } from "@/lib/knowledge/snapshot/snapshot-sources";
 import { getBusinessContentProfile, gateUnsourcedTestimonialStyle, TESTIMONIAL_STYLE_AVAILABLE } from "@/lib/services/business-content-profile.service";
 import { getFormatRecommendations } from "@/lib/services/content-recommendation.service";
@@ -30,10 +34,20 @@ import {
   loadServedCustomers,
   setTrustClaimPublicUse,
   TRUST_CLAIM_SELECT,
+  TrustClaimNotFoundError,
   verificationDocumentRef,
   type TrustClaimRow,
 } from "./trust-claim.service";
-import { MAX_TRUST_DOCUMENT_BYTES, prepareTrustDocument, putTrustDocument, readTrustDocument } from "./trust-document-storage";
+import {
+  deleteTrustDocument,
+  MAX_TRUST_DOCUMENT_BYTES,
+  prepareTrustDocument,
+  putTrustDocument,
+  readTrustDocument,
+  storeVerificationDocument,
+  type TrustDocumentLeak,
+  type TrustDocumentStorage,
+} from "./trust-document-storage";
 
 let failed = 0;
 let passed = 0;
@@ -286,12 +300,28 @@ async function main(): Promise<void> {
     await rejects(() => setTrustClaimPublicUse({ businessId: 1, userId: 1, claimId: lic.id, approved: "yes" }, fakeTx({}).tx, NOW), TrustClaimInputError));
 
   const approvedCert = claimRow("CERTIFIED", { certificationName: "x", issuer: "y" }, { approved: true, verified: true });
-  const { tx: tx4, calls: calls4 } = fakeTx({ "businessTrustClaim.findFirst": approvedCert, "businessTrustClaim.updateMany": { count: 1 } });
-  await attachVerificationDocument({ businessId: 1, userId: 1, claimId: approvedCert.id, storageKey: "biz/1/trust/claim-1/doc-1-a.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" }, tx4, NOW);
+  const { tx: tx4, calls: calls4 } = fakeTx({
+    $queryRaw: [{ claimKind: "CERTIFIED", publicUseApproved: true, verificationAttachmentKey: "biz/1/trust/claim-1/doc-0-old.pdf" }],
+    "businessTrustClaim.findFirst": approvedCert, "businessTrustClaim.updateMany": { count: 1 },
+  });
+  const attachedCert = await attachVerificationDocument({ businessId: 1, userId: 1, claimId: approvedCert.id, storageKey: "biz/1/trust/claim-1/doc-1-a.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" }, tx4, NOW);
   const docData = (calls4.find((c) => c.op === "updateMany")!.args as { data: Record<string, unknown> }).data;
   ok("T7 replacing the document withdraws public use (approval was for the previous evidence)", docData.publicUseApproved === false && docData.verificationMethod === "OWNER_DOCUMENT");
+  ok("D3 the attach returns the replaced document's reference, read under the row lock (FOR UPDATE) before the write",
+    attachedCert.previousDocumentRef?.storageKey === "biz/1/trust/claim-1/doc-0-old.pdf" &&
+    /FOR UPDATE/.test((calls4[0].args as { sql: string }).sql) && calls4[0].model === "$queryRaw" && calls4.findIndex((c) => c.op === "updateMany") > 0);
   ok("T7 a document cannot be attached to a kind that takes none",
-    await rejects(() => attachVerificationDocument({ businessId: 1, userId: 1, claimId: founded.id, storageKey: "biz/1/trust/x.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" }, fakeTx({ "businessTrustClaim.findFirst": founded }).tx, NOW), TrustClaimInputError));
+    await rejects(() => attachVerificationDocument({ businessId: 1, userId: 1, claimId: founded.id, storageKey: "biz/1/trust/x.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" },
+      fakeTx({ $queryRaw: [{ claimKind: "FOUNDED_YEAR", publicUseApproved: true, verificationAttachmentKey: null }] }).tx, NOW), TrustClaimInputError));
+  ok("D5 a claim retired / gone / another tenant's at attach time (no locked row) is NOT FOUND and nothing is written",
+    await (async () => {
+      const { tx, calls } = fakeTx({ $queryRaw: [], "businessTrustClaim.updateMany": { count: 1 } });
+      const refused = await rejects(() => attachVerificationDocument({ businessId: 1, userId: 1, claimId: 9, storageKey: "biz/1/trust/claim-9/d.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" }, tx, NOW), TrustClaimNotFoundError);
+      return refused && !calls.some((c) => c.op === "updateMany");
+    })());
+  ok("D6 a previous key outside the business's private prefix is never offered for deletion",
+    (await attachVerificationDocument({ businessId: 1, userId: 1, claimId: 9, storageKey: "biz/1/trust/claim-9/new.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" },
+      fakeTx({ $queryRaw: [{ claimKind: "LICENSED", publicUseApproved: false, verificationAttachmentKey: "biz/2/trust/claim-9/theirs.pdf" }], "businessTrustClaim.updateMany": { count: 1 }, "businessTrustClaim.findFirst": approvedCert }).tx, NOW)).previousDocumentRef === null);
 
   const { tx: tx5, calls: calls5 } = fakeTx({ "businessTrustClaim.findFirst": null, "businessTrustClaim.create": founded });
   await confirmTrustClaim({ businessId: 1, userId: 1, kind: "FOUNDED_YEAR", params: { foundedYear: 2010 } }, tx5, NOW);
@@ -433,9 +463,209 @@ async function main(): Promise<void> {
     await rejects(() => putTrustDocument({ businessId: 1, storageKey: doc.storageKey, body: pdf, mimeType: "application/pdf" }), TrustClaimInputError));
   ok("T17 attaching a key outside the business's trust prefix is refused",
     await rejects(() => attachVerificationDocument({ businessId: 1, userId: 1, claimId: 5, storageKey: "biz/3/trust/claim-9/doc.pdf", sha256: "0".repeat(64), mimeType: "application/pdf" },
-      fakeTx({ "businessTrustClaim.findFirst": claimRow("LICENSED", { licenseType: "a", issuer: "b" }) }).tx, NOW), TrustClaimInputError));
+      fakeTx({ $queryRaw: [{ claimKind: "LICENSED", publicUseApproved: false, verificationAttachmentKey: null }] }).tx, NOW), TrustClaimInputError));
   const { tx } = fakeTx({ "businessTrustClaim.findFirst": { verificationAttachmentKey: "biz/3/trust/claim-9/doc.pdf", verificationAttachmentMimeType: "application/pdf" } });
   ok("T17 a stored reference outside the business's prefix is never served", (await verificationDocumentRef({ businessId: 1, claimId: 9 }, tx)) === null);
+}
+
+/* ─── D1–D6 · trust document storage lifecycle (real local-FS adapter on a temp root) ────────── */
+{
+  const root = await mkdtemp(join(tmpdir(), "p3a-trust-docs-"));
+  const local = new LocalFsStorageService({ provider: "local", localRoot: root, signedUrlTtlSeconds: 60 });
+  const failDelete = new Set<string>();
+  const deleted: string[] = [];
+  const storage: TrustDocumentStorage = {
+    putObject: (i) => local.putObject(i),
+    getObject: (k) => local.getObject(k),
+    deleteObject: async (k) => {
+      if (failDelete.has(k)) throw new Error("simulated storage outage");
+      deleted.push(k);
+      return local.deleteObject(k);
+    },
+  };
+  const exists = async (key: string) => { try { await local.getObject(key); return true; } catch { return false; } };
+  const objectsUnder = async (prefix: string) => {
+    const dir = join(root, ...prefix.split("/"));
+    try { return (await readdir(dir)).filter((f) => !f.endsWith(".meta.json") && !f.endsWith(".json")).length; } catch { return 0; }
+  };
+  const pdf = (tag: string) => Buffer.concat([Buffer.from(`%PDF-1.7\n${tag}\n`), Buffer.alloc(64)]);
+  const leaks: TrustDocumentLeak[] = [];
+  const onLeak = (l: TrustDocumentLeak) => leaks.push(l);
+
+  // D1 — upload + attach succeed: the new object exists and is the one the database was given.
+  let k1 = "";
+  const r1 = await storeVerificationDocument({ businessId: 1, claimId: 7, mimeType: "application/pdf", body: pdf("one") }, {
+    storage, onLeak, attach: async (doc) => { k1 = doc.storageKey; return { claim: "C1", previousDocumentRef: null }; },
+  });
+  ok("D1 upload + attach succeed → the new object exists, is canonical, nothing else deleted",
+    r1.claim === "C1" && r1.oldDocument === "NONE" && k1.startsWith("biz/1/trust/claim-7/") && (await exists(k1)) && deleted.length === 0);
+  ok("D1 the object is stored private in the trust domain", (await local.getObject(k1)).metadata.visibility === "private");
+
+  // D2 — attach fails: the new object is deleted and the ORIGINAL error is rethrown.
+  const dbError = new TrustClaimNotFoundError();
+  let k2 = "";
+  let thrown: unknown = null;
+  try {
+    await storeVerificationDocument({ businessId: 1, claimId: 8, mimeType: "application/pdf", body: pdf("two") }, {
+      storage, onLeak, attach: async (doc) => { k2 = doc.storageKey; throw dbError; }, currentKey: async () => null,
+    });
+  } catch (error) { thrown = error; }
+  ok("D2 attach failure → the new object is deleted", k2 !== "" && !(await exists(k2)) && deleted.includes(k2) && (await objectsUnder("biz/1/trust/claim-8")) === 0);
+  ok("D2 …and the original attach error is what the caller sees", thrown === dbError);
+  ok("D2 …with no leak reported (cleanup succeeded)", leaks.length === 0);
+
+  // D2b — attach fails AND the cleanup fails: original error preserved, the leak is reported, not hidden.
+  let k2b = "";
+  thrown = null;
+  const failingStorage: TrustDocumentStorage = { ...storage, deleteObject: async () => { throw new Error("simulated storage outage"); } };
+  try {
+    await storeVerificationDocument({ businessId: 1, claimId: 9, mimeType: "application/pdf", body: pdf("2b") }, {
+      storage: failingStorage, onLeak, attach: async (doc) => { k2b = doc.storageKey; throw dbError; },
+    });
+  } catch (error) { thrown = error; }
+  ok("D2 a failed cleanup does not replace the original error", thrown === dbError);
+  ok("D2 …and is reported explicitly (NEW_OBJECT_AFTER_FAILED_ATTACH, with the key, server-side)",
+    leaks.length === 1 && leaks[0].phase === "NEW_OBJECT_AFTER_FAILED_ATTACH" && leaks[0].storageKey === k2b && leaks[0].claimId === 9 && /outage/.test(leaks[0].error));
+  await local.deleteObject(k2b);
+  leaks.length = 0;
+
+  // D2c — the attach reported failure but the claim already points at the new object (late commit ack):
+  // the canonical document is kept, and the ambiguity is reported.
+  let k2c = "";
+  thrown = null;
+  try {
+    await storeVerificationDocument({ businessId: 1, claimId: 10, mimeType: "application/pdf", body: pdf("2c") }, {
+      storage, onLeak, attach: async (doc) => { k2c = doc.storageKey; throw new Error("connection reset after commit"); }, currentKey: async () => k2c,
+    });
+  } catch (error) { thrown = error; }
+  ok("D2 an attach whose commit actually landed keeps the canonical object (never deletes what the DB points at)",
+    thrown instanceof Error && (await exists(k2c)) && leaks.length === 1 && leaks[0].phase === "ATTACH_OUTCOME_AMBIGUOUS");
+  leaks.length = 0;
+
+  // D3 — replacement: the database points at NEW, OLD is deleted.
+  let k3 = "";
+  const r3 = await storeVerificationDocument({ businessId: 1, claimId: 7, mimeType: "application/pdf", body: pdf("three") }, {
+    storage, onLeak, attach: async (doc) => { k3 = doc.storageKey; return { claim: "C3", previousDocumentRef: { storageKey: k1 } }; },
+  });
+  ok("D3 replacement → NEW exists and is canonical, OLD is deleted",
+    r3.oldDocument === "DELETED" && (await exists(k3)) && !(await exists(k1)) && (await objectsUnder("biz/1/trust/claim-7")) === 1);
+
+  // D4 — OLD cannot be deleted after a successful attach: no rollback, request succeeds, leak observable.
+  let k4 = "";
+  let attachCalls = 0;
+  failDelete.add(k3);
+  const r4 = await storeVerificationDocument({ businessId: 1, claimId: 7, mimeType: "application/pdf", body: pdf("four") }, {
+    storage, onLeak, attach: async (doc) => { attachCalls += 1; k4 = doc.storageKey; return { claim: "C4", previousDocumentRef: { storageKey: k3 } }; },
+  });
+  ok("D4 OLD delete failure → the request still succeeds with the NEW claim (attach ran once, never re-pointed to OLD)",
+    r4.claim === "C4" && r4.oldDocument === "DELETE_FAILED" && attachCalls === 1 && (await exists(k4)));
+  ok("D4 …the NEW object is untouched and the OLD one is reported, not silently ignored",
+    !deleted.includes(k4) && leaks.length === 1 && leaks[0].phase === "OLD_OBJECT_AFTER_REPLACEMENT" && leaks[0].storageKey === k3);
+  ok("D4 …the default sink is a structured server error log", await (async () => {
+    const original = console.error;
+    const lines: string[] = [];
+    console.error = (...a: unknown[]) => { lines.push(a.map(String).join(" ")); };
+    try {
+      await storeVerificationDocument({ businessId: 1, claimId: 7, mimeType: "application/pdf", body: pdf("4b") }, {
+        storage, attach: async () => ({ claim: "C4b", previousDocumentRef: { storageKey: k3 } }),
+      });
+    } finally {
+      console.error = original;
+    }
+    return lines.some((l) => /"event":"trust_document_cleanup_failed"/.test(l) && /OLD_OBJECT_AFTER_REPLACEMENT/.test(l));
+  })());
+  failDelete.clear();
+  leaks.length = 0;
+
+  // D5 — concurrent replacements serialise on the row lock: each sees the other's key as its predecessor.
+  // Modelled with a mutex standing in for SELECT … FOR UPDATE; a stale (retired) claim leaves nothing.
+  let current: string | null = null;
+  let lock = Promise.resolve();
+  const lockedAttach = (doc: { storageKey: string }) => {
+    const run = lock.then(async () => {
+      const previous: string | null = current;
+      await new Promise((r) => setTimeout(r, 5));
+      current = doc.storageKey;
+      return { claim: doc.storageKey, previousDocumentRef: previous ? { storageKey: previous } : null };
+    });
+    lock = run.then(() => undefined, () => undefined);
+    return run;
+  };
+  await Promise.all(Array.from({ length: 4 }, (_, i) =>
+    storeVerificationDocument({ businessId: 1, claimId: 11, mimeType: "application/pdf", body: pdf(`race-${i}`) }, { storage, onLeak, attach: lockedAttach })));
+  ok("D5 four concurrent replacements leave exactly ONE object — the canonical one — and no leak",
+    (await objectsUnder("biz/1/trust/claim-11")) === 1 && current !== null && (await exists(current)) && leaks.length === 0);
+  thrown = null;
+  try {
+    await storeVerificationDocument({ businessId: 1, claimId: 12, mimeType: "application/pdf", body: pdf("stale") }, {
+      storage, onLeak, attach: async () => { throw new TrustClaimNotFoundError(); }, currentKey: async () => null,
+    });
+  } catch (error) { thrown = error; }
+  ok("D5 a claim retired between the route's check and the attach leaves no orphan", thrown instanceof TrustClaimNotFoundError && (await objectsUnder("biz/1/trust/claim-12")) === 0);
+
+  // D6 — another business's document can be neither read nor deleted through this module.
+  const theirs = prepareTrustDocument({ businessId: 2, claimId: 5, mimeType: "application/pdf", body: pdf("theirs") }).storageKey;
+  await putTrustDocument({ businessId: 2, storageKey: theirs, body: pdf("theirs"), mimeType: "application/pdf" }, storage);
+  ok("D6 business 1 cannot read or delete business 2's trust document",
+    (await rejects(() => readTrustDocument({ businessId: 1, storageKey: theirs }, storage), TrustClaimInputError)) &&
+    (await rejects(() => deleteTrustDocument({ businessId: 1, storageKey: theirs }, storage), TrustClaimInputError)) && (await exists(theirs)));
+  const r6 = await storeVerificationDocument({ businessId: 1, claimId: 13, mimeType: "application/pdf", body: pdf("six") }, {
+    storage, onLeak, attach: async () => ({ claim: "C6", previousDocumentRef: { storageKey: theirs } }),
+  });
+  ok("D6 even a forged 'previous' key of another business is never deleted", r6.oldDocument === "DELETE_FAILED" && (await exists(theirs)) && !deleted.includes(theirs));
+  ok("D6 a key outside the business's prefix cannot be stored either",
+    await rejects(() => putTrustDocument({ businessId: 1, storageKey: theirs, body: pdf("x"), mimeType: "application/pdf" }, storage), TrustClaimInputError));
+  await rm(root, { recursive: true, force: true });
+}
+
+/* ─── A1–A8 · the AI projection's customer-facing material is complete and still governed ────── */
+{
+  const ctx = ctxFor({
+    facts: [{ fact: "BUSINESS_NAME", value: "סטודיו נועה", authority: "PUBLIC" }, { fact: "PUBLIC_PHONE", value: "04-8123456" }],
+    statements: [
+      { dimension: "DESCRIPTION", text: "סטודיו שכונתי לצבע ועיצוב שיער", publicUseApproved: true },
+      { dimension: "SPECIALIZATION", text: "צבע לשיער", publicUseApproved: true },
+      { dimension: "SPECIALIZATION", text: "תסרוקות כלה" },
+      { dimension: "DIFFERENTIATOR", text: "קולוריסטית מוסמכת מאז 2012", publicUseApproved: true },
+      { dimension: "DIFFERENTIATOR", text: "מענה גם במוצאי שבת", publicUseApproved: true },
+      { dimension: "SERVICE_AREA", text: "חיפה והקריות", publicUseApproved: true },
+      { dimension: "TONE", code: "WARM" },
+    ],
+    claims: [
+      claimRow("FOUNDED_YEAR", { foundedYear: 2012 }, { approved: true }),
+      claimRow("CERTIFIED", { certificationName: "קולוריסטית", issuer: "משרד הכלכלה" }, { approved: true, verified: true }),
+      claimRow("LICENSED", { licenseType: "סוד-פרמטר", issuer: "משרד" }, { approved: true }),
+    ],
+    served: 80,
+  });
+  const ai = identityContextForAi(ctx);
+  const pub = ai.publicApproved.statements;
+  const has = (dimension: string, text: string) => pub.some((s) => s.dimension === dimension && s.text === text);
+  ok("A1 a public-approved DESCRIPTION is in publicApproved.statements", has("DESCRIPTION", "סטודיו שכונתי לצבע ועיצוב שיער"));
+  const internalOnly = identityContextForAi(ctxFor({ statements: [{ dimension: "DESCRIPTION", text: "תיאור פנימי בלבד" }] }));
+  ok("A2 an owner-confirmed but non-public DESCRIPTION is not (it stays in ownerConfirmed only)",
+    internalOnly.publicApproved.statements.length === 0 && internalOnly.ownerConfirmed.description[0]?.text === "תיאור פנימי בלבד");
+  ok("A3 a public-approved SPECIALIZATION is in; the unapproved one is not", has("SPECIALIZATION", "צבע לשיער") && !pub.some((s) => s.text === "תסרוקות כלה"));
+  ok("A4 a claim-like approved DIFFERENTIATOR (needsOwnerReview) is NOT in AI publicApproved.statements",
+    !pub.some((s) => s.text.includes("מוסמכת")) && ctx.publicUse.statements.some((s) => s.value.includes("מוסמכת") && s.needsOwnerReview));
+  ok("A4 …while the owner-facing context still shows its historical approval (nothing withdrawn)",
+    ctx.identity.statements.find((s) => s.text?.includes("מוסמכת"))?.publicUseApproved === true && ctx.trust.claimLikeStatements.length === 1);
+  ok("A5 a safe public DIFFERENTIATOR and SERVICE_AREA are in", has("DIFFERENTIATOR", "מענה גם במוצאי שבת") && has("SERVICE_AREA", "חיפה והקריות"));
+  ok("A5 statements are sourced only from ctx.publicUse.statements (exactly the reviewed-safe subset)",
+    JSON.stringify(pub) === JSON.stringify(ctx.publicUse.statements.filter((s) => !s.needsOwnerReview).map((s) => ({ dimension: s.key, text: s.value }))) && pub.length === 4);
+  ok("A5 coded directives (tone) never enter publicApproved.statements", !pub.some((s) => s.dimension === "TONE"));
+  ok("A6 public facts are unchanged (approved only)",
+    JSON.stringify(ai.publicApproved.facts) === JSON.stringify([{ fact: "BUSINESS_NAME", value: "סטודיו נועה" }]) && ai.knownButNotPublic.includes("PUBLIC_PHONE"));
+  ok("A6 public trust claims are unchanged (effective only; the undocumented licence stays blocked)",
+    ai.publicApproved.trustClaims.length === 2 && ai.unverifiedOrBlockedClaims.some((c) => c.kind === "LICENSED" && c.issues.includes("NEEDS_DOCUMENT")));
+  const json = JSON.stringify(ai);
+  ok("A7 no private document data, parameters or evidence internals enter the AI projection",
+    !/verificationAttachment|biz\/\d+\/trust|sha256|"params"|"scopeKey"|"evidence"|"gte"|סוד-פרמטר/.test(json) && !json.includes("\"count\""));
+  ok("A7 the authority classes are still separate keys",
+    ["ownerConfirmed", "publicApproved", "knownButNotPublic", "unverifiedOrBlockedClaims", "derived", "conversion"].every((k) => k in ai) &&
+    JSON.stringify(Object.keys(ai.publicApproved)) === JSON.stringify(["facts", "statements", "trustClaims"]));
+  ok("A8 the customer-facing rule still restricts customer content to publicApproved",
+    ai.rules[0].startsWith("Use only publicApproved items") && /statements/.test(ai.rules[0]));
 }
 
 /* ─── T18 · AI / Business-Memory context keeps authority classes apart ───────────────────────── */

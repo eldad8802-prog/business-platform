@@ -266,7 +266,47 @@ async function child() {
   const myDocRef = await tenantTx(a, (tx) => trust.verificationDocumentRef({ businessId: a, claimId: myClaim.id }, tx));
   const ctxA = await tenantTx(a, (tx) => getBusinessIdentityContext(a, tx));
   const aiA = identityContextForAi(ctxA);
+
+  // Document lifecycle against the REAL database (row lock, RLS) and a real local storage root.
+  const { storeVerificationDocument } = await import("@/lib/services/trust/trust-document-storage");
+  const { LocalFsStorageService } = await import("@/lib/storage");
+  const { mkdtemp, readdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const docRoot = await mkdtemp(path.join(tmpdir(), "p3a-rls-docs-"));
+  const storage = new LocalFsStorageService({ provider: "local", localRoot: docRoot, signedUrlTtlSeconds: 60 });
+  const leaks: unknown[] = [];
+  const pdf = (tag: string) => Buffer.concat([Buffer.from(`%PDF-1.7\n${tag}\n`), Buffer.alloc(32)]);
+  const store = (businessId: number, claimId: number, tag: string) =>
+    storeVerificationDocument({ businessId, claimId, mimeType: "application/pdf", body: pdf(tag) }, {
+      storage,
+      onLeak: (l) => leaks.push(l),
+      attach: (doc) => tenantTx(businessId, (tx) => trust.attachVerificationDocument({ businessId, userId: userA, claimId, ...doc }, tx)),
+      currentKey: () => tenantTx(businessId, (tx) => trust.currentVerificationDocumentKey({ businessId, claimId }, tx)),
+    });
+  const objects = async (businessId: number, claimId: number) => {
+    try {
+      return (await readdir(path.join(docRoot, "biz", String(businessId), "trust", `claim-${claimId}`))).filter((f) => !f.endsWith(".meta.json"));
+    } catch {
+      return [];
+    }
+  };
+  const dbKey = () => tenantTx(a, (tx) => trust.currentVerificationDocumentKey({ businessId: a, claimId: myClaim.id }, tx));
+  const d1 = await store(a, myClaim.id, "d1");
+  const afterD1 = { key: await dbKey(), files: await objects(a, myClaim.id) };
+  const d3 = await store(a, myClaim.id, "d3");
+  const afterD3 = { key: await dbKey(), files: await objects(a, myClaim.id) };
+  const raced = await Promise.allSettled([1, 2, 3, 4].map((i) => store(a, myClaim.id, `race-${i}`)));
+  const afterRace = { key: await dbKey(), files: await objects(a, myClaim.id), fulfilled: raced.filter((r) => r.status === "fulfilled").length };
+  // Cross-tenant: A's session aims the whole flow at B's claim id (skipping the route's ownership read).
+  const crossTenant = await refused(() => store(a, claimB, "cross"));
+  const crossTenantFiles = (await objects(a, claimB)).length + (await objects(b, claimB)).length;
+
   await tenantTx(a, (tx) => trust.retireTrustClaim({ businessId: a, userId: userA, claimId: myClaim.id }, tx));
+  // Stale: the claim was retired after any earlier ownership check — the attach refuses, nothing is left.
+  const staleFilesBefore = (await objects(a, myClaim.id)).length;
+  const stale = await refused(() => store(a, myClaim.id, "stale"));
+  const staleFilesAfter = (await objects(a, myClaim.id)).length;
+  await rm(docRoot, { recursive: true, force: true });
   const ctxAfterRetire = await tenantTx(a, (tx) => getBusinessIdentityContext(a, tx));
   const retiredFrozen = await tenantTx(a, (tx) => tx.$executeRawUnsafe(`UPDATE "${TRUST_TABLE}" SET "status" = 'ACTIVE', "retiredAt" = NULL, "retiredByUserId" = NULL WHERE "id" = $1`, myClaim.id));
   const servedA = await tenantTx(a, (tx) => trust.loadServedCustomers(a, tx));
@@ -308,6 +348,15 @@ async function child() {
           },
           afterRetire: { claimIds: ctxAfterRetire.trust.claims.map((c) => c.id), publicIds: ctxAfterRetire.publicUse.trustClaims.map((c) => c.id) },
           retiredFrozen, servedA, servedBUnderA,
+          docs: {
+            d1: { old: d1.oldDocument, key: afterD1.key, files: afterD1.files },
+            d3: { old: d3.oldDocument, key: afterD3.key, files: afterD3.files, replacedFrom: afterD1.key },
+            race: afterRace,
+            crossTenant, crossTenantFiles,
+            stale, staleFilesBefore, staleFilesAfter,
+            leaks: leaks.length,
+            claimJson: JSON.stringify(d3.claim),
+          },
           myClaimId: myClaim.id,
         },
       }) +
@@ -586,6 +635,20 @@ async function main() {
       ok("P3-A: claims cannot be deleted by the runtime role", /permission denied/i.test(p.claimDelete ?? ""), p.claimDelete);
       ok("P3-A T10: with its document, A's claim is approved and appears in A's public read model",
         p.myApproved.business === a.id && p.myApproved.approved === true && p.ctxA.publicIds.includes(p.myClaimId), p);
+      // Document lifecycle against the real database (row lock + RLS) and real local storage.
+      const d = p.docs;
+      const fileOf = (key: string | null) => (key ?? "").split("/").pop();
+      ok("P3-A D1: upload + attach → the database points at the one stored object",
+        d.d1.files.length === 1 && d.d1.files[0] === fileOf(d.d1.key) && d.d1.key?.startsWith(`biz/${a.id}/trust/claim-${p.myClaimId}/`), d.d1);
+      ok("P3-A D3: replacement → the database points at NEW, OLD is deleted (one object left)",
+        d.d3.old === "DELETED" && d.d3.key !== d.d3.replacedFrom && d.d3.files.length === 1 && d.d3.files[0] === fileOf(d.d3.key), d.d3);
+      ok("P3-A D5: four concurrent replacements serialise on the row lock — exactly one object survives, it is the canonical one, no leak",
+        d.race.fulfilled === 4 && d.race.files.length === 1 && d.race.files[0] === fileOf(d.race.key) && d.leaks === 0, d.race);
+      ok("P3-A D5: a claim retired before the attach is refused and leaves no orphan",
+        /TrustClaimNotFoundError/.test(d.stale ?? "") && d.staleFilesAfter === d.staleFilesBefore, { stale: d.stale, before: d.staleFilesBefore, after: d.staleFilesAfter });
+      ok("P3-A D6: aiming the upload flow at another business's claim is refused by RLS and leaves no object anywhere",
+        /TrustClaimNotFoundError/.test(d.crossTenant ?? "") && d.crossTenantFiles === 0, { crossTenant: d.crossTenant, files: d.crossTenantFiles });
+      ok("P3-A: the claim returned to the route never carries the storage key or hash", !/verificationAttachmentKey|biz\/\d+\/trust|Sha256/.test(d.claimJson), d.claimJson);
       ok("P3-A T9: once retired, the claim leaves the context and public use", !p.afterRetire.claimIds.includes(p.myClaimId) && !p.afterRetire.publicIds.includes(p.myClaimId), p.afterRetire);
       ok("P3-A T9: a retired claim is frozen history (cannot be re-activated by the runtime)", p.retiredFrozen === 0, p.retiredFrozen);
       // T11 — served customers from completed work only, per tenant.

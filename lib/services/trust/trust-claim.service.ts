@@ -252,22 +252,40 @@ export async function retireTrustClaim(input: { businessId: number; userId: numb
   await retireRow(input.businessId, input.userId, row.id, tx);
 }
 
+/** A stored document reference. Server-side only: never returned to a client. */
+export type TrustDocumentRef = { storageKey: string };
+
 /**
  * Record the owner's PRIVATE supporting document on a verification-required claim (the object is
- * already stored under biz/{businessId}/trust/… by the route). Replacing a document withdraws public
+ * already stored under biz/{businessId}/trust/… by the caller). Replacing a document withdraws public
  * use: the approval was given for the previous evidence.
+ *
+ * The claim row is locked (SELECT … FOR UPDATE) before anything is read, so the document it pointed at
+ * BEFORE this write — `previousDocumentRef` — is exactly the one this write replaces: two concurrent
+ * replacements serialise, and each sees the other's key as its predecessor (nothing is orphaned). A
+ * claim that is gone, retired, another tenant's (RLS) or not verification-required throws; the caller
+ * then deletes the object it just stored. The previous ref is returned only if it lies under this
+ * business's private trust prefix — anything else is never offered for deletion.
  */
 export async function attachVerificationDocument(
   input: { businessId: number; userId: number; claimId: number; storageKey: string; sha256: string; mimeType: string },
   tx: Tx,
   now = new Date(),
-): Promise<TrustClaimRow> {
+): Promise<{ claim: TrustClaimRow; previousDocumentRef: TrustDocumentRef | null }> {
   assertActor(input.businessId, input.userId);
-  const row = await activeClaim(input.businessId, input.claimId, tx);
+  if (!Number.isInteger(input.claimId) || input.claimId <= 0) throw new TrustClaimNotFoundError();
+  const prefix = `biz/${input.businessId}/trust/`;
+  if (!input.storageKey.startsWith(prefix)) throw new TrustClaimInputError("Invalid document");
+  const locked = await tx.$queryRaw<Array<{ claimKind: TrustClaimKind; publicUseApproved: boolean; verificationAttachmentKey: string | null }>>`
+    SELECT "claimKind", "publicUseApproved", "verificationAttachmentKey"
+      FROM "BusinessTrustClaim"
+     WHERE "id" = ${input.claimId} AND "businessId" = ${input.businessId} AND "status" = 'ACTIVE'
+       FOR UPDATE`;
+  const row = locked[0];
+  if (!row) throw new TrustClaimNotFoundError();
   if (!isVerificationRequired(row.claimKind)) throw new TrustClaimInputError("This kind of claim does not take a supporting document");
-  if (!input.storageKey.startsWith(`biz/${input.businessId}/trust/`)) throw new TrustClaimInputError("Invalid document");
   const res = await tx.businessTrustClaim.updateMany({
-    where: { id: row.id, businessId: input.businessId, status: "ACTIVE" },
+    where: { id: input.claimId, businessId: input.businessId, status: "ACTIVE" },
     data: {
       verificationMethod: "OWNER_DOCUMENT",
       verificationAttachmentKey: input.storageKey,
@@ -278,7 +296,20 @@ export async function attachVerificationDocument(
     },
   });
   if (res.count !== 1) throw new TrustClaimNotFoundError();
-  return activeClaim(input.businessId, row.id, tx);
+  const previous = row.verificationAttachmentKey;
+  return {
+    claim: await activeClaim(input.businessId, input.claimId, tx),
+    previousDocumentRef: previous && previous !== input.storageKey && previous.startsWith(prefix) ? { storageKey: previous } : null,
+  };
+}
+
+/** The key a claim currently points at (server-side only) — used to resolve an ambiguous attach outcome. */
+export async function currentVerificationDocumentKey(input: { businessId: number; claimId: number }, tx: Tx): Promise<string | null> {
+  const row = await tx.businessTrustClaim.findFirst({
+    where: { id: input.claimId, businessId: input.businessId },
+    select: { verificationAttachmentKey: true },
+  });
+  return row?.verificationAttachmentKey ?? null;
 }
 
 /** The private document's storage reference — server-side only, for the owner's own download route. */
