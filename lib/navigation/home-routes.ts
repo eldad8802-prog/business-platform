@@ -82,8 +82,8 @@ export const HOME_ROUTES = {
   attention: "/attention",
   /** The bell. */
   notifications: "/notifications",
-  /** The owner's initial / "אני". */
-  profile: "/settings/team",
+  /** The owner's initial / "אני" — the business profile. */
+  profile: "/profile",
   /** מרכז הגבייה. */
   collectionCenter: "/collection",
   /** The documents review queue (renders needs_review only). */

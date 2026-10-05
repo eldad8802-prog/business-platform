@@ -55,4 +55,5 @@ export const IMPORT_EXPORT_SETTINGS_CATEGORY: SettingsCategory = {
   title: "ייבוא וייצוא",
   description: "העבר מידע ממערכת אחרת, או הורד עותק של המידע שלך",
   icon: "🔄",
+  group: "account",
 };

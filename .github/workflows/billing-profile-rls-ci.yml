@@ -32,6 +32,11 @@ on:
       - "app/api/customers/**"
       - "app/api/customer/**"
       - "app/api/business/profile/**"
+      - "app/api/profile/**"
+      - "app/api/settings/**"
+      - "app/api/profile-settings.rls.integration.test.ts"
+      - "lib/services/profile/**"
+      - "lib/services/connections/**"
       - "app/api/video/plan/**"
       - "app/api/rls-tenant-scoped-routes.integration.test.ts"
       - "lib/services/billing/receipt/billing-settlement-state.service.ts"
@@ -126,6 +131,17 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/rls-tenant-scoped-routes.integration.test.ts
+
+      # Profile + Settings v2: the Profile summary (identity, metrics, completion)
+      # and the Settings connections count, each read for the signed-in business
+      # only, with the metric and "active connection" rules pinned on real rows.
+      - name: Profile + Settings read APIs under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/profile-settings.rls.integration.test.ts
 
       - name: Billing customer picker under FORCE RLS
         env:

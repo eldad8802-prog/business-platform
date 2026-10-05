@@ -10,6 +10,9 @@ type ShellChromeProps = {
   children: ReactNode;
 };
 
+/** Routes drawn in the warm language — see `[data-dz-ground]` in dubiz-mist.css. */
+const WARM_GROUND_PATHS = new Set(["/profile", "/settings"]);
+
 /**
  * Adaptive App Shell chrome — one shell, three device tiers, switched purely in
  * CSS (SSR-safe, no `window.innerWidth`, no hydration branch):
@@ -121,7 +124,10 @@ const shellCss = `
 .dz-sidebar__business {
   display: flex; align-items: center; gap: 10px; width: 100%; height: 56px; box-sizing: border-box; flex-shrink: 0;
   padding: 0 12px; border-radius: 14px; border: 1px solid #F0E3D3; background: #FEF8F2; color: #1E2B2A;
+  text-decoration: none; transition: background 150ms ease, border-color 150ms ease;
 }
+.dz-sidebar__business:hover { background: #FBF3EA; border-color: #E8D6C0; }
+.dz-sidebar__business[aria-current="page"] { border-color: #BFD8D5; background: #EEF7F5; }
 .dz-sidebar__business-mark {
   width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #FBEEDD; color: #A0601F;
   display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px;
@@ -175,6 +181,13 @@ export function ShellChrome({ children }: ShellChromeProps) {
    */
   const isHome = pathname === "/app";
 
+  /**
+   * Screens drawn in the warm language paint their own cream canvas; the shell
+   * ground around and below them must match or a Mist band shows under the
+   * content. Exact paths only — the Settings sub-pages are still Mist screens.
+   */
+  const isWarmGround = WARM_GROUND_PATHS.has(pathname);
+
   return (
     <div
       dir="rtl"
@@ -182,6 +195,7 @@ export function ShellChrome({ children }: ShellChromeProps) {
       data-shell-root
       data-chrome={chromeHidden ? "off" : "on"}
       data-dz-home={isHome ? "1" : undefined}
+      data-dz-ground={isWarmGround ? "warm" : undefined}
       style={{ background: "var(--dz-shell-ground)" }}
     >
       <style>{shellCss}</style>

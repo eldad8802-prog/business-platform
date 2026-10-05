@@ -2,7 +2,7 @@
  * הגדרות → ייבוא וייצוא — the hub.
  *
  * Composed ENTIRELY from the existing Settings primitives (`SettingsSection` +
- * `SettingsRow`), in the same shape `SettingsNav` uses. That is the whole
+ * `SettingsRow`), the shape the Settings sub-pages share. That is the whole
  * design decision: no new card, no new spacing scale, no new interaction. The
  * screen inherits Dubiz Mist tokens, RTL, the 44px touch target, the hover and
  * active states and the chevron direction for free, and it cannot drift from
