@@ -109,6 +109,7 @@ export function assembleSnapshot(
   }
 
   /* ── 1b. temporal knowledge ── */
+  const ruleCaveats = new Map(temporalCatalogue().map((r) => [r.temporalKey, [...(r.caveats ?? [])].sort()]));
   for (const t of stored.temporal) {
     const subject = t.entityType ? { type: t.entityType, id: t.entityId ?? 0 } : null;
     if (t.status === "STALE") continue; // read by the temporal interpretation below (GONE_QUIET)
@@ -131,7 +132,7 @@ export function assembleSnapshot(
       observationCount: t.historyCount + t.recentCount,
       window: { start: t.historyStart.toISOString(), end: (t.recentEnd ?? t.asOf).toISOString() },
       status: "ACTIVE", freshness: { ageDays: age, fresh: age <= PREMISE_MAX_AGE_DAYS },
-      evidence: { fingerprint: t.evidenceFingerprint, refCount: t.historyCount + t.recentCount }, caveats: [],
+      evidence: { fingerprint: t.evidenceFingerprint, refCount: t.historyCount + t.recentCount }, caveats: [...(ruleCaveats.get(t.temporalKey) ?? [])],
       provenance: [{ store: "TemporalKnowledge", id: t.id }],
     });
   }
@@ -164,7 +165,7 @@ export function assembleSnapshot(
         historyObservations: st.historyObservations, recentObservations: st.recentObservations },
       observationCount: st.historyObservations + st.recentObservations, window: null, status: "ACTIVE",
       freshness: { ageDays: age, fresh: age <= PREMISE_MAX_AGE_DAYS && st.state !== "GONE_QUIET" },
-      evidence: { fingerprint: null, refCount: st.basedOn.length }, caveats: [],
+      evidence: { fingerprint: null, refCount: st.basedOn.length }, caveats: [...(ruleCaveats.get(first.temporalKey) ?? [])],
       provenance: st.basedOn.map((id) => ({ store: "TemporalKnowledge" as const, id })),
     });
   }

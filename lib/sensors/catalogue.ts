@@ -252,7 +252,7 @@ export const SENSORS = {
     payloadKeys: ["kind", "format", "rowCount"],
     describes: "The owner exported business data out of Dubiz; which kind and how much.",
     timeSemantics: "ACTION_TIME",
-    learning: { role: "OBSERVATION_SOURCE", consumedBy: ["REP-01"] },
+    learning: { role: "OBSERVATION_SOURCE", consumedBy: ["REP-01", "T-REP-01"] },
   }),
 
   /* ─────────────────────────────── conversations ─────────────────────────────── */

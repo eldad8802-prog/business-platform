@@ -30,7 +30,7 @@ import type { ReviewObservation, VendorDocumentObservation } from "../rules/docu
 import type { NumericPoint, RatePoint, TemporalSpec } from "./temporal.contract";
 import type { IncomeDocumentObservation, PaymentRequestObservation } from "../rules/income";
 import type { ConversationOpeningObservation, LeadObservation } from "../rules/funnel";
-import type { AppointmentObservation } from "../rules/operations";
+import type { ActObservation, AppointmentObservation, DemandSignalObservation, ObligationObservation } from "../rules/operations";
 
 /** One series the engine will assess, and where it belongs. */
 export type TemporalSeries =
@@ -70,6 +70,12 @@ export type TemporalRule<TObs> = {
    * then reports SHIFTED / TRENDING instead of IMPROVING / DETERIORATING.
    */
   readonly polarity?: Polarity;
+  /**
+   * Epistemic labels this rule's temporal knowledge inherits from its evidence (e.g. OWNER_ASSERTED when
+   * the series is built from the owner's own closure claims). The snapshot attaches them to every temporal
+   * item and state of the rule, so the label travels into the Brain context with the knowledge.
+   */
+  readonly caveats?: readonly string[];
   readonly spec: TemporalSpec;
   /** Exact action labels from docs/learning/SENSOR_COVERAGE.md. */
   readonly manifestDependencies: readonly string[];
@@ -510,10 +516,135 @@ const tAppt03: TemporalRule<AppointmentObservation> = {
         .map((a) => ({ at: a.createdAt, value: fractionalDays(a.createdAt, a.startsAt as Date), recordId: a.recordId, evidenceKind: "appointment" })) }];
   },
 };
+
+/* ──────────────── Business Brain W2 — temporal memory for the domains that had none ──────────────── */
+
+/** Per customer, by the explicit customerId FK only: the rhythm at which this business invoices each customer. */
+const CUST02_SPEC: TemporalSpec = { ...SUPP01_SPEC };
+const tCust02: TemporalRule<IncomeDocumentObservation> = {
+  ruleId: "T-CUST-02", temporalKey: "customers.invoicing_cadence", domain: "customers",
+  policyKey: "temporal-customers-invoicing-cadence", versionLabel: "v1", followsRule: "CUST-02",
+  spec: CUST02_SPEC, manifestDependencies: INCOME_DEPENDENCIES, source: INCOME_SOURCE,
+  series(obs) {
+    return [...byEntity(obs, (o) => o.customerId)].map(([customerId, rows]) => {
+      const g = gaps(rows.map((r) => ({ at: r.issuedAt, recordId: r.recordId })), "billing-document");
+      return { kind: "numeric" as const, entityType: "customer", entityId: customerId, contextKey: "", points: g.points, lastEventAt: g.last };
+    });
+  },
+};
+
+/** Days after the due day at which the owner first reminds (owner behaviour; no business polarity). */
+const COLL01_SPEC: TemporalSpec = {
+  valueKind: "duration", unit: "days", historyDays: 365, recentDays: 90,
+  minHistory: 8, minSpanDays: 90, minRecent: 3,
+  materialFloor: 3, stableRelativeSpread: 0.5,
+  trendPeriods: 4, minPerPeriod: 2, staleAfterDays: 150,
+};
+const tColl01: TemporalRule<IncomeDocumentObservation> = {
+  ruleId: "T-COLL-01", temporalKey: "collection.reminder_timing", domain: "collection",
+  policyKey: "temporal-collection-reminder-timing", versionLabel: "v1", followsRule: "COLL-01",
+  spec: COLL01_SPEC, manifestDependencies: [...INCOME_DEPENDENCIES, "Owner initiated a collection reminder"], source: INCOME_SOURCE,
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((o) => o.docType === "TAX_INVOICE" && o.firstReminderAt !== null && o.expectedAt !== null)
+        .map((o) => ({ at: o.firstReminderAt as Date, value: calendarDays(o.expectedAt as Date, o.firstReminderAt as Date), recordId: o.recordId, evidenceKind: "billing-document" })) }];
+  },
+};
+
+/** Owner-asserted closure vs the due day (legacy secretary). Closing later than due is unfavourable. */
+const SEC02_SPEC: TemporalSpec = { ...AP01_SPEC };
+const tSec02: TemporalRule<ObligationObservation> = {
+  ruleId: "T-SEC-02", temporalKey: "secretary.obligation_closure_timing", domain: "secretary",
+  policyKey: "temporal-secretary-obligation-closure-timing", versionLabel: "v1", followsRule: "SEC-02",
+  polarity: "LOWER_IS_FAVORABLE",
+  caveats: ["OWNER_ASSERTED"],
+  spec: SEC02_SPEC, manifestDependencies: ["Legacy obligation created / edited / snoozed / completed / released / oriented"],
+  source: { key: "temporal.secretary.obligations", load: (b, asOf) => sources.loadMetObligations(b, asOf, loadWindow(SEC02_SPEC)) },
+  series(obs) {
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
+      points: obs.map((o) => ({ at: o.metAt, value: calendarDays(o.dueAt, o.metAt), recordId: o.recordId, evidenceKind: "business-obligation" })) }];
+  },
+};
+
+/** Per offered service: the rhythm of its demand signals (bookings). */
+const OFF01_SPEC: TemporalSpec = { ...SUPP01_SPEC };
+const tOff01: TemporalRule<DemandSignalObservation> = {
+  ruleId: "T-OFF-01", temporalKey: "offering.demand_cadence", domain: "offering",
+  policyKey: "temporal-offering-demand-cadence", versionLabel: "v1", followsRule: "OFF-01",
+  spec: OFF01_SPEC, manifestDependencies: ["Offering demand recorded (booking / sale)"],
+  source: { key: "temporal.offering.demand", load: (b, asOf) => sources.loadServiceDemandSignals(b, asOf, loadWindow(OFF01_SPEC)) },
+  series(obs) {
+    return [...byEntity(obs, (o) => o.businessServiceId)].map(([serviceId, rows]) => {
+      const g = gaps(rows.map((r) => ({ at: r.at, recordId: r.recordId })), "offering-demand-signal");
+      return { kind: "numeric" as const, entityType: "business-service", entityId: serviceId, contextKey: "", points: g.points, lastEventAt: g.last };
+    });
+  },
+};
+
+/** The owner's accountant-export rhythm (the only record of an export is the DATA_EXPORTED observation sensor). */
+const REP01_SPEC: TemporalSpec = {
+  valueKind: "cadence", unit: "days", historyDays: 365, recentDays: 120,
+  minHistory: 5, minSpanDays: 120, minRecent: 2,
+  materialFloor: 7, stableRelativeSpread: 0.3,
+  trendPeriods: 3, minPerPeriod: 2, staleAfterDays: 150,
+};
+const tRep01: TemporalRule<ActObservation> = {
+  ruleId: "T-REP-01", temporalKey: "reports.accountant_export_cadence", domain: "reports",
+  evidenceSensors: ["DATA_EXPORTED"],
+  policyKey: "temporal-reports-accountant-export-cadence", versionLabel: "v1", followsRule: "REP-01",
+  spec: REP01_SPEC, manifestDependencies: ["Data exported (tabular, documents, reports, accountant pack, uniform file)"],
+  source: { key: "temporal.reports.exports", load: (b, asOf) => sources.loadAccountantExports(b, asOf, loadWindow(REP01_SPEC)) },
+  series(obs) {
+    const g = gaps(obs.map((r) => ({ at: r.at, recordId: r.recordId })), "learning-event:DATA_EXPORTED");
+    return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "", points: g.points, lastEventAt: g.last }];
+  },
+};
+
+/** No-show share of the appointments that were due to happen. Fewer no-shows is favourable. */
+const APPT01_SPEC: TemporalSpec = {
+  valueKind: "rate", unit: "ratio", historyDays: 365, recentDays: 90,
+  minHistory: 30, minSpanDays: 90, minRecent: 15,
+  materialFloor: 0.1, stableRelativeSpread: 0,
+  trendPeriods: 4, minPerPeriod: 8, staleAfterDays: 120,
+};
+const tAppt01: TemporalRule<AppointmentObservation> = {
+  ruleId: "T-APPT-01", temporalKey: "appointments.no_show_share", domain: "appointments",
+  policyKey: "temporal-appointments-no-show-share", versionLabel: "v1", followsRule: "APPT-01",
+  polarity: "LOWER_IS_FAVORABLE",
+  spec: APPT01_SPEC, manifestDependencies: ["Appointment status changed (confirmed / completed / cancelled / no-show)"],
+  source: { key: "temporal.appointments.appointments.rate", load: (b, asOf) => sources.loadAppointments(b, asOf, loadWindow(APPT01_SPEC)) },
+  series(obs) {
+    return [{ kind: "rate", entityType: null, entityId: null, contextKey: "",
+      // Pure: the engine windows points by asOf, so a future start never enters.
+      points: obs.filter((a) => a.startsAt !== null && (a.status === "COMPLETED" || a.status === "NO_SHOW"))
+        .map((a) => ({ at: a.startsAt as Date, hit: a.status === "NO_SHOW", recordId: a.recordId, evidenceKind: "appointment" })) }];
+  },
+};
+
+/** Win share of closed leads. A higher win share is favourable. */
+const LEAD02_SPEC: TemporalSpec = {
+  valueKind: "rate", unit: "ratio", historyDays: 365, recentDays: 90,
+  minHistory: 15, minSpanDays: 90, minRecent: 6,
+  materialFloor: 0.15, stableRelativeSpread: 0,
+  trendPeriods: 3, minPerPeriod: 4, staleAfterDays: 150,
+};
+const tLead02: TemporalRule<LeadObservation> = {
+  ruleId: "T-LEAD-02", temporalKey: "leads.win_share", domain: "leads",
+  policyKey: "temporal-leads-win-share", versionLabel: "v1", followsRule: "LEAD-02",
+  polarity: "HIGHER_IS_FAVORABLE",
+  spec: LEAD02_SPEC, manifestDependencies: ["Lead marked WON", "Lead marked LOST", "Lead status changed / reopened / dropped"],
+  source: { key: "temporal.leads.leads.rate", load: (b, asOf) => sources.loadLeads(b, asOf, loadWindow(LEAD02_SPEC)) },
+  series(obs) {
+    return [{ kind: "rate", entityType: null, entityId: null, contextKey: "",
+      points: obs.filter((l) => l.closedAt !== null && (l.status === "WON" || l.status === "LOST" || l.status === "DROPPED"))
+        .map((l) => ({ at: l.closedAt as Date, hit: l.status === "WON", recordId: l.recordId, evidenceKind: "lead" })) }];
+  },
+};
 /** Built per call, like the M4 catalogue: nothing is constructed at import time. */
 export function temporalCatalogue(): AnyTemporalRule[] {
   return [
     tDoc04, tDoc05, tDoc02, tDoc06, tAp01, tAp04, tInv02, tInv04, tSupp01, tSupp02,
     tBill01, tBill02, tCust01, tPay02, tLead01, tConv01, tAppt03,
+    tCust02, tColl01, tSec02, tOff01, tRep01, tAppt01, tLead02,
   ] as unknown as AnyTemporalRule[];
 }
