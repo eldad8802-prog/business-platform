@@ -34,6 +34,11 @@ const HOME = readFileSync(join(REPO_ROOT, "app", "(shell)", "app", "page.tsx"), 
 // asserted where the behaviour now is, rather than where it used to be.
 const BAR = readFileSync(join(REPO_ROOT, "components", "navigation", "bottom-bar.tsx"), "utf8");
 const NAV = readFileSync(join(REPO_ROOT, "components", "navigation", "nav-destinations.tsx"), "utf8");
+// HOME v3 reads the briefing through the shared cached GET, which builds its
+// Authorization header with buildClientAuthHeaders.
+const HOME_DATA = readFileSync(join(REPO_ROOT, "features", "home", "v3", "use-home-data.ts"), "utf8");
+const CACHED_JSON = readFileSync(join(REPO_ROOT, "lib", "ui", "cached-json.ts"), "utf8");
+const CLIENT_SESSION = readFileSync(join(REPO_ROOT, "lib", "client-session.ts"), "utf8");
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -237,8 +242,13 @@ console.log("\nEvery notification request is authenticated");
     [...centerCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => m[1] === "token") &&
     [...barCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => m[1] === "token") &&
     [...homeCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => ["sessionToken", "currentToken", "token"].includes(m[1])));
-  check("the Home briefing token cannot be null by type",
-    /function fetchBriefing\(token: string\)/.test(HOME));
+  // The guarantee: the Home briefing read never sends "Bearer null". It goes
+  // through fetchJsonCached, whose header comes from buildClientAuthHeaders,
+  // which adds Authorization only when a token exists.
+  check("the Home briefing read never sends a null token",
+    /fetchJsonCached<BriefingApi>\("\/api\/obligations\/briefing"/.test(HOME_DATA) &&
+    /headers: buildClientAuthHeaders\(\)/.test(CACHED_JSON) &&
+    /\.\.\.\(token \? \{ Authorization: `Bearer \$\{token\}` \} : \{\}\)/.test(CLIENT_SESSION));
 
   check("the token is read the way the rest of the app reads it",
     /window\.localStorage\.getItem\("token"\)/.test(CENTER));
