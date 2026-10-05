@@ -60,7 +60,7 @@ Proven in CI (`m6-acquisition-ci.yml` step 5) on a clean PG17 database through t
 |---|---|---|---|
 | 1 | Owner names the business | — | owner |
 | 2 | Explicit approval, in the owner's words, for that business only | — | owner |
-| 3 | Set `FEATURE_ACCESS_MUTATIONS_ENABLED=true` in Vercel Production (redeploy) — today absent | Production config | owner |
+| 3 | Make sure `FEATURE_ACCESS_MUTATIONS_ENABLED=true` in Vercel Production (redeploy if changed). Note 2026-10-05: the variable already EXISTS in Production (added 2026-10-03, value not read) — confirm its value and who set it before activation | Production config | owner |
 | 4 | Platform admin: `PATCH /api/platform-admin/businesses/<id>/features/acquisition_web_forms` `{state:"ENABLED", reason:"M6 website live proof — owner approval <link>"}` | one `BusinessFeatureAccess` row (audited) | owner (platform admin) |
 | 5 | Unset `FEATURE_ACCESS_MUTATIONS_ENABLED` again (back to read-only) | Production config | owner |
 | 6 | Verify every other business stays OFF: `ops/evidence/m6-operational-evidence.sql` → expect exactly check 6 = 1 (that business) and everything else PASS; or the live-proof evidence checks 2–3 | read-only | Claude (gate approval) |
