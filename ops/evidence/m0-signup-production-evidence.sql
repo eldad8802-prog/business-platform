@@ -38,7 +38,7 @@
 \echo '12 E3 the unique index on User.email exists'
 \echo '13 T1 every Business has at least one User (no orphan tenant from the pre-atomic era) — observed = orphans'
 \echo '14 T2 INFO businesses with more than one User — observed = count'
-echo '15 M1 INFO the evidence/migration login itself: observed = 1 when it is BYPASSRLS and inherits app_auth (expected; it is not the signup identity)'
+\echo '15 M1 INFO the evidence/migration login itself: observed = 1 when it is BYPASSRLS and inherits app_auth (expected; it is not the signup identity)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '30s';
