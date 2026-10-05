@@ -52,6 +52,9 @@ const shellCss = `
   [data-shell-root] .shell-nav-sidebar { display: block; }
 }
 
+/* The references use the browser default line height, not the app's 1.5. */
+.dz-rail, .dz-sidebar, [data-component="shell-bottom-bar"] { line-height: normal; }
+
 /* ---- mobile bottom bar (reference: mobile.html) ---- */
 .dz-bottom__item {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
