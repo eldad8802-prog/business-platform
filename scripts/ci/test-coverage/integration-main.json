@@ -117,6 +117,12 @@
       "workflow": "p2-identity-ci.yml",
       "reason": "P2 + P3-A: replays the P2 and P3-A migrations verbatim and proves tenant isolation of BusinessIdentityStatement and BusinessTrustClaim as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE; cross-tenant context, claims and private document references refused; claims never inserted public, wording immutable, retired claims frozen); run on pull_request by p2-identity-ci.yml job db"
     },
+    "lib/services/landing/renderer/landing-renderer.verify.test.tsx": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-D: deterministic landing renderer on REAL rendered markup — fail-closed on unknown versions / sections / forged or foreign refs / actions on SURFACE_ONLY, no HTML-injection surface, owner preview never performs an action (no tel/mailto/wa.me/form), CTA destinations only from approved facts, approved-only assets by ref (no keys), generated assets illustrative, canonical trust wording, strategy-aware visual diversity; run on pull_request by p2-identity-ci.yml job core (tenant isolation in identity.rls.db.test.ts)"
+    },
     "lib/services/landing/composer/landing-composer.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

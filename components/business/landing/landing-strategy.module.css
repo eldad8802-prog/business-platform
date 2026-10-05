@@ -151,6 +151,12 @@
   cursor: pointer;
 }
 
+a.compose {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .compose:disabled {
   opacity: 0.6;
   cursor: progress;

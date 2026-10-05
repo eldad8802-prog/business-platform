@@ -47,6 +47,9 @@ on:
       - "app/api/business/trust-claims/**"
       - "app/api/business/landing-strategies/**"
       - "app/api/business/landing-blueprint/**"
+      - "app/api/business/landing-preview/**"
+      - "app/business/landing-preview/**"
+      - "components/landing-renderer/**"
       - "lib/security/rate-limiter/**"
       - "app/business/landing-strategy/**"
       - "components/business/landing/**"
@@ -84,6 +87,8 @@ jobs:
         run: npx tsx lib/services/landing/landing-strategy.verify.test.ts
       - name: P3-C composer + blueprint validator (fake models; adversarial T1–T20; no real model call)
         run: npx tsx lib/services/landing/composer/landing-composer.verify.test.ts
+      - name: P3-D deterministic landing renderer (real rendered markup; fail-closed; owner preview only)
+        run: npx tsx lib/services/landing/renderer/landing-renderer.verify.test.tsx
 
   db:
     name: p2 identity (PG17, real RLS)
