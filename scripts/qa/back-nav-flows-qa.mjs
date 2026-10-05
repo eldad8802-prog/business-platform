@@ -300,8 +300,10 @@ function chains(vp) {
         // Phone/tablet: the card opens the document. Desktop: the row selects
         // it and the inspector's "פתח מסמך" opens it.
         await p.locator("text=דלק 2 >> visible=true").first().click();
-        await p.waitForTimeout(400);
-        if (!here(p).startsWith("/documents/review/")) await p.getByRole("button", { name: "פתח מסמך" }).click();
+        // A card opens the document itself (phone/tablet); give that navigation
+        // time before falling back to the desktop inspector's (visible) button.
+        await p.waitForURL((u) => u.pathname.startsWith("/documents/review/"), { timeout: 2000 }).catch(() => {});
+        if (!here(p).startsWith("/documents/review/")) await p.getByRole("button", { name: "פתח מסמך" }).filter({ visible: true }).first().click();
         await waitUrl(p, (u) => u.startsWith("/documents/review/"));
       }),
     ],

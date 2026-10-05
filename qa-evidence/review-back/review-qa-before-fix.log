@@ -1,0 +1,20 @@
+
+=== desktop 1440x900 ===
+  [FAIL] loading state shows the back control
+  [PASS] loaded review top bar has the back control
+  [FAIL] back control is round 44×44 (not stretched by the grid) — 120×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+=== tablet 820x1180 ===
+  [FAIL] loading state shows the back control
+  [PASS] loaded review top bar has the back control
+  [FAIL] back control is round 44×44 (not stretched by the grid) — 120×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+=== mobile 390x844 ===
+  [FAIL] loading state shows the back control
+  [PASS] loaded review top bar has the back control
+  [FAIL] back control is round 44×44 (not stretched by the grid) — 120×44
+  [PASS] back from the review returns to the origin — /tools/money
+
+6 passed, 6 failed

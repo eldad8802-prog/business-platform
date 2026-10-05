@@ -1,0 +1,1157 @@
+
+=== desktop 1440x900 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [desktop] (back button)
+    → Tools: /tools/money
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1 landed on the computed target — computed=/collection/new?step=details landed=/collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2 landed on the computed target — computed=/collection/new landed=/collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [desktop] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, back ×1 (no second request) [desktop] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → collection inbox — the completed flow is left as a whole — /collection/new?step=send ⇒ /collection
+    [PASS] F2-collection-created back #1 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created [desktop] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [desktop] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1 landed on the computed target — computed=/pricing?step=calc landed=/pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3-pricing-calc back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F3-pricing-calc [desktop] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [desktop] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3b-pricing-calc-browser [desktop] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [desktop] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1 landed on the computed target — computed=/pricing?step=new1 landed=/pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F4-pricing-new back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [desktop] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [desktop] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #1 landed on the computed target — computed=/revenue?view=create&cstep=direction landed=/revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #2 landed on the computed target — computed=/revenue?view=create landed=/revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #3 landed on the computed target — computed=/revenue landed=/revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F5-coupon-wizard [desktop] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [desktop] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1 landed on the computed target — computed=/revenue/redeem?step=manual landed=/revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #2 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F6-redeem-error back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F6-redeem-error [desktop] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [desktop] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F7-redeem-done back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [desktop] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [desktop] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #1 landed on the computed target — computed=/secretary?screen=detail&id=41 landed=/secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #2 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary back #3 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F8-secretary [desktop] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [desktop] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1 landed on the computed target — computed=/documents/search landed=/documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search back #2 landed on the computed target — computed=/documents landed=/documents
+    [PASS] F9-documents-search [desktop] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [desktop] (back button)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1 landed on the computed target — computed=/content/archetype landed=/content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2 landed on the computed target — computed=/content/goal landed=/content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3 landed on the computed target — computed=/content landed=/content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F11-content back #4 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F11-content [desktop] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [desktop] (browser Back)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F11b-content-browser [desktop] no page errors
+
+  ■ F12-coupon-published — Coupon published: back leaves the finished wizard (no second publish) [desktop] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published back #1 (close (X)) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published back #2 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published [desktop] no page errors
+
+  ■ F12-coupon-published-browser — Coupon published: back leaves the finished wizard (no second publish) [desktop] (browser Back)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published-browser back #1 (browser) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published-browser back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published-browser back #2 (browser) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published-browser back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published-browser [desktop] no page errors
+
+  ■ F13-pricing-saved — Pricing: save costs to the item (completed), back ×2 [desktop] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר → result: /pricing?step=result
+    → שמור עלויות לפריט (PATCH): /pricing?step=saved
+    [PASS] F13-pricing-saved back #1 (history) → catalog — the saving step consumed — /pricing?step=saved ⇒ /pricing
+    [PASS] F13-pricing-saved back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F13-pricing-saved back #1: exactly one save — saves=1
+    [PASS] F13-pricing-saved back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F13-pricing-saved back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F13-pricing-saved back #2: still one save — saves=1
+    [PASS] F13-pricing-saved [desktop] no page errors
+
+  ■ F14-pricing-created — Pricing: new item created (completed), back ×2 [desktop] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created back #1 (history) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F14-pricing-created back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F14-pricing-created back #2: still one create — creates=1
+    [PASS] F14-pricing-created [desktop] no page errors
+
+  ■ F14-pricing-created-browser — Pricing: new item created (completed), back ×2 [desktop] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created-browser back #1 (browser) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created-browser back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created-browser back #2 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created-browser back #2: still one create — creates=1
+    [PASS] F14-pricing-created-browser [desktop] no page errors
+
+  ■ F15-secretary-met — Secretary: mark an item handled from its detail (completed), back ×2 [desktop] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item: /secretary?screen=detail&id=41
+    → סמן שטופל (POST complete): /secretary?screen=loops&id=41&loopMode=met
+    [PASS] F15-secretary-met back #1 (history) → all obligations — the item's screen consumed — /secretary?screen=loops&id=41&loopMode=met ⇒ /secretary?screen=all
+    [PASS] F15-secretary-met back #1 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F15-secretary-met back #1: exactly one complete — completes=1
+    [PASS] F15-secretary-met back #2 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F15-secretary-met back #2 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F15-secretary-met back #2: still one complete — completes=1
+    [PASS] F15-secretary-met [desktop] no page errors
+
+  ■ F16-order-wizard — Supplier order wizard: products → cart → confirm, back ×3 (cart kept) [desktop] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    [PASS] F16-order-wizard back #1 (history) → cart, quantities kept — /inventory/supplier-purchases/new/confirm ⇒ /inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1 landed on the computed target — computed=/inventory/supplier-purchases/new/cart landed=/inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1: קפה quantity kept in the draft (added, then +1 in cart) — qty=2
+    [PASS] F16-order-wizard back #2 (history) → products step, cart kept — /inventory/supplier-purchases/new/cart ⇒ /inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2 landed on the computed target — computed=/inventory/supplier-purchases/new landed=/inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2: קפה still in the draft — qty=2
+    [PASS] F16-order-wizard back #3 (history) → inventory (where the wizard was opened) — /inventory/supplier-purchases/new ⇒ /inventory
+    [PASS] F16-order-wizard back #3 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16-order-wizard [desktop] no page errors
+
+  ■ F16b-order-created — Supplier order created (completed): back leaves the wizard (no second order) [desktop] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    → צור הזמנה (POST create): /inventory/supplier-purchases/77/send
+    [PASS] F16b-order-created back #1 (history) → inventory — products/cart steps consumed — /inventory/supplier-purchases/77/send ⇒ /inventory
+    [PASS] F16b-order-created back #1 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16b-order-created back #1: exactly one order created — orders=1
+    [PASS] F16b-order-created [desktop] no page errors
+
+  ■ F17-content-result — Content: step → render → result, back ×2 (no second render) [desktop] (back button)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result back #1 (history) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result back #1 landed on the computed target — computed=/content landed=/content
+    [PASS] F17-content-result back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result back #2 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F17-content-result back #2: still one render — renders=1
+    [PASS] F17-content-result [desktop] no page errors
+
+  ■ F17-content-result-browser — Content: step → render → result, back ×2 (no second render) [desktop] (browser Back)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result-browser back #1 (browser) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result-browser back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result-browser back #2 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result-browser back #2: still one render — renders=1
+    [PASS] F17-content-result-browser [desktop] no page errors
+
+  ■ F19a-billing-keep-then-leave — Billing draft with unsaved line: back → keep editing, back → leave without saving [desktop] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1 (history) → stays on the document (keep editing), edit intact — /billing/12 ⇒ /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1: edit still there
+    [PASS] F19a-billing-keep-then-leave back #1: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave back #2 (history) → billing list (left without saving) — /billing/12 ⇒ /billing
+    [PASS] F19a-billing-keep-then-leave back #2 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19a-billing-keep-then-leave back #2: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave [desktop] no page errors
+
+  ■ F19b-billing-save-and-continue — Billing draft with unsaved line: back → save and continue [desktop] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19b-billing-save-and-continue back #1 (history) → billing list, after saving once — /billing/12 ⇒ /billing
+    [PASS] F19b-billing-save-and-continue back #1 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19b-billing-save-and-continue back #1: exactly one save — saves=1
+    [PASS] F19b-billing-save-and-continue [desktop] no page errors
+
+  ■ F20-hash — #fragment jump on a detail screen keeps the chain [desktop] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash back #1 (history) → Tools — the real origin (fragment entry is the same screen) — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash back #1 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F20-hash [desktop] no page errors
+
+  ■ F20-hash-browser — #fragment jump on a detail screen keeps the chain [desktop] (browser Back)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash-browser back #1 (browser) → the detail without the fragment — /payables/match/41 ⇒ /payables/match/41
+    [PASS] F20-hash-browser back #2 (browser) → Tools — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash-browser [desktop] no page errors
+
+  ■ F21a-external-then-direct — Entry from outside the app (prior non-app history), back stays in the app [desktop] (back button)
+    → outside page: blank
+    → direct link: /payables/match/41
+    [PASS] F21a-external-then-direct back #1 (fallback) → labelled fallback /payables (never history.back out of the app) — /payables/match/41 ⇒ /payables
+    [PASS] F21a-external-then-direct back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21a-external-then-direct back #1: still inside the app
+    [PASS] F21a-external-then-direct [desktop] no page errors
+
+  ■ F21b-full-reload-navigation — Entry created by a full-document navigation (location.assign): no fabricated origin [desktop] (back button)
+    → Tools: /tools/money
+    → location.assign → detail: /payables/match/42
+    [PASS] F21b-full-reload-navigation back #1 (fallback) → labelled fallback /payables — /payables/match/42 ⇒ /payables
+    [PASS] F21b-full-reload-navigation back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21b-full-reload-navigation [desktop] no page errors
+
+  ■ F21c-lost-session-trail — Trail storage lost (cleared), then refresh: no fabricated origin [desktop] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → sessionStorage cleared + reload: /payables/match/41
+    [PASS] F21c-lost-session-trail back #1 (fallback) → labelled fallback /payables — /payables/match/41 ⇒ /payables
+    [PASS] F21c-lost-session-trail back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21c-lost-session-trail [desktop] no page errors
+
+=== tablet 820x1180 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [tablet] (back button)
+    → Tools: /tools/money
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1 landed on the computed target — computed=/collection/new?step=details landed=/collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2 landed on the computed target — computed=/collection/new landed=/collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [tablet] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, back ×1 (no second request) [tablet] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → collection inbox — the completed flow is left as a whole — /collection/new?step=send ⇒ /collection
+    [PASS] F2-collection-created back #1 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created [tablet] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [tablet] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1 landed on the computed target — computed=/pricing?step=calc landed=/pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3-pricing-calc back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F3-pricing-calc [tablet] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [tablet] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3b-pricing-calc-browser [tablet] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [tablet] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1 landed on the computed target — computed=/pricing?step=new1 landed=/pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F4-pricing-new back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [tablet] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [tablet] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #1 landed on the computed target — computed=/revenue?view=create&cstep=direction landed=/revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #2 landed on the computed target — computed=/revenue?view=create landed=/revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #3 landed on the computed target — computed=/revenue landed=/revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F5-coupon-wizard [tablet] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [tablet] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1 landed on the computed target — computed=/revenue/redeem?step=manual landed=/revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #2 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F6-redeem-error back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F6-redeem-error [tablet] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [tablet] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F7-redeem-done back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [tablet] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [tablet] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #1 landed on the computed target — computed=/secretary?screen=detail&id=41 landed=/secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #2 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary back #3 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F8-secretary [tablet] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [tablet] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1 landed on the computed target — computed=/documents/search landed=/documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search back #2 landed on the computed target — computed=/documents landed=/documents
+    [PASS] F9-documents-search [tablet] no page errors
+
+  ■ F10a-customer-from-lead — Customer card reached from a lead: leads → lead → customer, back ×2 [tablet] (back button)
+    → Leads: /leads
+    → lead 3: /leads/3
+    → customer chip: /customers/7
+    [PASS] F10a-customer-from-lead back #1 (history) → the lead it was opened from — /customers/7 ⇒ /leads/3
+    [PASS] F10a-customer-from-lead back #1 landed on the computed target — computed=/leads/3 landed=/leads/3
+    [PASS] F10a-customer-from-lead back #2 (history) → leads list — /leads/3 ⇒ /leads
+    [PASS] F10a-customer-from-lead back #2 landed on the computed target — computed=/leads landed=/leads
+    [PASS] F10a-customer-from-lead [tablet] no page errors
+
+  ■ F10b-customer-from-list — Same customer card reached from the customer list (search), back ×1 [tablet] (back button)
+    → Customers: /customers
+    → search 'לקוח 7': /customers
+    → open: /customers/7
+    [PASS] F10b-customer-from-list back #1 (history) → customer list, search kept — /customers/7 ⇒ /customers
+    [PASS] F10b-customer-from-list back #1 landed on the computed target — computed=/customers landed=/customers
+    [PASS] F10b-customer-from-list back #1: search still 'לקוח 7'
+    [PASS] F10b-customer-from-list [tablet] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [tablet] (back button)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1 landed on the computed target — computed=/content/archetype landed=/content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2 landed on the computed target — computed=/content/goal landed=/content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3 landed on the computed target — computed=/content landed=/content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F11-content back #4 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F11-content [tablet] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [tablet] (browser Back)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F11b-content-browser [tablet] no page errors
+
+  ■ F12-coupon-published — Coupon published: back leaves the finished wizard (no second publish) [tablet] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published back #1 (close (X)) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published back #2 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published [tablet] no page errors
+
+  ■ F12-coupon-published-browser — Coupon published: back leaves the finished wizard (no second publish) [tablet] (browser Back)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published-browser back #1 (browser) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published-browser back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published-browser back #2 (browser) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published-browser back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published-browser [tablet] no page errors
+
+  ■ F13-pricing-saved — Pricing: save costs to the item (completed), back ×2 [tablet] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר → result: /pricing?step=result
+    → שמור עלויות לפריט (PATCH): /pricing?step=saved
+    [PASS] F13-pricing-saved back #1 (history) → catalog — the saving step consumed — /pricing?step=saved ⇒ /pricing
+    [PASS] F13-pricing-saved back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F13-pricing-saved back #1: exactly one save — saves=1
+    [PASS] F13-pricing-saved back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F13-pricing-saved back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F13-pricing-saved back #2: still one save — saves=1
+    [PASS] F13-pricing-saved [tablet] no page errors
+
+  ■ F14-pricing-created — Pricing: new item created (completed), back ×2 [tablet] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created back #1 (history) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F14-pricing-created back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F14-pricing-created back #2: still one create — creates=1
+    [PASS] F14-pricing-created [tablet] no page errors
+
+  ■ F14-pricing-created-browser — Pricing: new item created (completed), back ×2 [tablet] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created-browser back #1 (browser) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created-browser back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created-browser back #2 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created-browser back #2: still one create — creates=1
+    [PASS] F14-pricing-created-browser [tablet] no page errors
+
+  ■ F15-secretary-met — Secretary: mark an item handled from its detail (completed), back ×2 [tablet] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item: /secretary?screen=detail&id=41
+    → סמן שטופל (POST complete): /secretary?screen=loops&id=41&loopMode=met
+    [PASS] F15-secretary-met back #1 (history) → all obligations — the item's screen consumed — /secretary?screen=loops&id=41&loopMode=met ⇒ /secretary?screen=all
+    [PASS] F15-secretary-met back #1 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F15-secretary-met back #1: exactly one complete — completes=1
+    [PASS] F15-secretary-met back #2 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F15-secretary-met back #2 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F15-secretary-met back #2: still one complete — completes=1
+    [PASS] F15-secretary-met [tablet] no page errors
+
+  ■ F16-order-wizard — Supplier order wizard: products → cart → confirm, back ×3 (cart kept) [tablet] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    [PASS] F16-order-wizard back #1 (history) → cart, quantities kept — /inventory/supplier-purchases/new/confirm ⇒ /inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1 landed on the computed target — computed=/inventory/supplier-purchases/new/cart landed=/inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1: קפה quantity kept in the draft (added, then +1 in cart) — qty=2
+    [PASS] F16-order-wizard back #2 (history) → products step, cart kept — /inventory/supplier-purchases/new/cart ⇒ /inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2 landed on the computed target — computed=/inventory/supplier-purchases/new landed=/inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2: קפה still in the draft — qty=2
+    [PASS] F16-order-wizard back #3 (history) → inventory (where the wizard was opened) — /inventory/supplier-purchases/new ⇒ /inventory
+    [PASS] F16-order-wizard back #3 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16-order-wizard [tablet] no page errors
+
+  ■ F16b-order-created — Supplier order created (completed): back leaves the wizard (no second order) [tablet] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    → צור הזמנה (POST create): /inventory/supplier-purchases/77/send
+    [PASS] F16b-order-created back #1 (history) → inventory — products/cart steps consumed — /inventory/supplier-purchases/77/send ⇒ /inventory
+    [PASS] F16b-order-created back #1 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16b-order-created back #1: exactly one order created — orders=1
+    [PASS] F16b-order-created [tablet] no page errors
+
+  ■ F17-content-result — Content: step → render → result, back ×2 (no second render) [tablet] (back button)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result back #1 (history) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result back #1 landed on the computed target — computed=/content landed=/content
+    [PASS] F17-content-result back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result back #2 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F17-content-result back #2: still one render — renders=1
+    [PASS] F17-content-result [tablet] no page errors
+
+  ■ F17-content-result-browser — Content: step → render → result, back ×2 (no second render) [tablet] (browser Back)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result-browser back #1 (browser) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result-browser back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result-browser back #2 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result-browser back #2: still one render — renders=1
+    [PASS] F17-content-result-browser [tablet] no page errors
+
+  ■ F19a-billing-keep-then-leave — Billing draft with unsaved line: back → keep editing, back → leave without saving [tablet] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1 (history) → stays on the document (keep editing), edit intact — /billing/12 ⇒ /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1: edit still there
+    [PASS] F19a-billing-keep-then-leave back #1: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave back #2 (history) → billing list (left without saving) — /billing/12 ⇒ /billing
+    [PASS] F19a-billing-keep-then-leave back #2 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19a-billing-keep-then-leave back #2: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave [tablet] no page errors
+
+  ■ F19b-billing-save-and-continue — Billing draft with unsaved line: back → save and continue [tablet] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19b-billing-save-and-continue back #1 (history) → billing list, after saving once — /billing/12 ⇒ /billing
+    [PASS] F19b-billing-save-and-continue back #1 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19b-billing-save-and-continue back #1: exactly one save — saves=1
+    [PASS] F19b-billing-save-and-continue [tablet] no page errors
+
+  ■ F20-hash — #fragment jump on a detail screen keeps the chain [tablet] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash back #1 (history) → Tools — the real origin (fragment entry is the same screen) — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash back #1 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F20-hash [tablet] no page errors
+
+  ■ F20-hash-browser — #fragment jump on a detail screen keeps the chain [tablet] (browser Back)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash-browser back #1 (browser) → the detail without the fragment — /payables/match/41 ⇒ /payables/match/41
+    [PASS] F20-hash-browser back #2 (browser) → Tools — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash-browser [tablet] no page errors
+
+  ■ F21a-external-then-direct — Entry from outside the app (prior non-app history), back stays in the app [tablet] (back button)
+    → outside page: blank
+    → direct link: /payables/match/41
+    [PASS] F21a-external-then-direct back #1 (fallback) → labelled fallback /payables (never history.back out of the app) — /payables/match/41 ⇒ /payables
+    [PASS] F21a-external-then-direct back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21a-external-then-direct back #1: still inside the app
+    [PASS] F21a-external-then-direct [tablet] no page errors
+
+  ■ F21b-full-reload-navigation — Entry created by a full-document navigation (location.assign): no fabricated origin [tablet] (back button)
+    → Tools: /tools/money
+    → location.assign → detail: /payables/match/42
+    [PASS] F21b-full-reload-navigation back #1 (fallback) → labelled fallback /payables — /payables/match/42 ⇒ /payables
+    [PASS] F21b-full-reload-navigation back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21b-full-reload-navigation [tablet] no page errors
+
+  ■ F21c-lost-session-trail — Trail storage lost (cleared), then refresh: no fabricated origin [tablet] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → sessionStorage cleared + reload: /payables/match/41
+    [PASS] F21c-lost-session-trail back #1 (fallback) → labelled fallback /payables — /payables/match/41 ⇒ /payables
+    [PASS] F21c-lost-session-trail back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21c-lost-session-trail [tablet] no page errors
+
+  ■ F22-suppliers-list — Suppliers list (phone/tablet) opened from Tools: back to Tools [tablet] (back button)
+    → Tools: /tools/money
+    → Suppliers: /suppliers
+    [PASS] F22-suppliers-list back #1 (browser) → Tools — /suppliers ⇒ /tools/money
+    [PASS] F22-suppliers-list [tablet] no page errors
+
+=== mobile 390x844 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [mobile] (back button)
+    → Tools: /tools/money
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1 landed on the computed target — computed=/collection/new?step=details landed=/collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2 landed on the computed target — computed=/collection/new landed=/collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [mobile] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, back ×1 (no second request) [mobile] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → collection inbox — the completed flow is left as a whole — /collection/new?step=send ⇒ /collection
+    [PASS] F2-collection-created back #1 landed on the computed target — computed=/collection landed=/collection
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created [mobile] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [mobile] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1 landed on the computed target — computed=/pricing?step=calc landed=/pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3-pricing-calc back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F3-pricing-calc [mobile] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [mobile] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F3b-pricing-calc-browser [mobile] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [mobile] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1 landed on the computed target — computed=/pricing?step=new1 landed=/pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #2 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F4-pricing-new back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [mobile] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [mobile] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #1 landed on the computed target — computed=/revenue?view=create&cstep=direction landed=/revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #2 landed on the computed target — computed=/revenue?view=create landed=/revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #3 landed on the computed target — computed=/revenue landed=/revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F5-coupon-wizard [mobile] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [mobile] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1 landed on the computed target — computed=/revenue/redeem?step=manual landed=/revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #2 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F6-redeem-error back #3 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F6-redeem-error [mobile] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [mobile] (back button)
+    → Tools: /tools/money
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1 landed on the computed target — computed=/revenue/redeem landed=/revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools/money
+    [PASS] F7-redeem-done back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [mobile] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [mobile] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #1 landed on the computed target — computed=/secretary?screen=detail&id=41 landed=/secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #2 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary back #3 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F8-secretary [mobile] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [mobile] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1 landed on the computed target — computed=/documents/search landed=/documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search back #2 landed on the computed target — computed=/documents landed=/documents
+    [PASS] F9-documents-search [mobile] no page errors
+
+  ■ F10a-customer-from-lead — Customer card reached from a lead: leads → lead → customer, back ×2 [mobile] (back button)
+    → Leads: /leads
+    → lead 3: /leads/3
+    → customer chip: /customers/7
+    [PASS] F10a-customer-from-lead back #1 (history) → the lead it was opened from — /customers/7 ⇒ /leads/3
+    [PASS] F10a-customer-from-lead back #1 landed on the computed target — computed=/leads/3 landed=/leads/3
+    [PASS] F10a-customer-from-lead back #2 (history) → leads list — /leads/3 ⇒ /leads
+    [PASS] F10a-customer-from-lead back #2 landed on the computed target — computed=/leads landed=/leads
+    [PASS] F10a-customer-from-lead [mobile] no page errors
+
+  ■ F10b-customer-from-list — Same customer card reached from the customer list (search), back ×1 [mobile] (back button)
+    → Customers: /customers
+    → search 'לקוח 7': /customers
+    → open: /customers/7
+    [PASS] F10b-customer-from-list back #1 (history) → customer list, search kept — /customers/7 ⇒ /customers
+    [PASS] F10b-customer-from-list back #1 landed on the computed target — computed=/customers landed=/customers
+    [PASS] F10b-customer-from-list back #1: search still 'לקוח 7'
+    [PASS] F10b-customer-from-list [mobile] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [mobile] (back button)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1 landed on the computed target — computed=/content/archetype landed=/content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2 landed on the computed target — computed=/content/goal landed=/content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3 landed on the computed target — computed=/content landed=/content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F11-content back #4 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F11-content [mobile] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [mobile] (browser Back)
+    → Tools: /tools/money
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F11b-content-browser [mobile] no page errors
+
+  ■ F12-coupon-published — Coupon published: back leaves the finished wizard (no second publish) [mobile] (back button)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published back #1 (close (X)) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published back #2 (step) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published [mobile] no page errors
+
+  ■ F12-coupon-published-browser — Coupon published: back leaves the finished wizard (no second publish) [mobile] (browser Back)
+    → Tools: /tools/money
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal → direction → builder → terms: /revenue?view=create&cstep=terms
+    → צור את הקופון (POST publish): /revenue?view=create&cstep=published
+    [PASS] F12-coupon-published-browser back #1 (browser) → my coupons — wizard steps consumed — /revenue?view=create&cstep=published ⇒ /revenue
+    [PASS] F12-coupon-published-browser back #1: exactly one publish POST — POSTs=1
+    [PASS] F12-coupon-published-browser back #2 (browser) → Tools — /revenue ⇒ /tools/money
+    [PASS] F12-coupon-published-browser back #2: still one publish — POSTs=1
+    [PASS] F12-coupon-published-browser [mobile] no page errors
+
+  ■ F13-pricing-saved — Pricing: save costs to the item (completed), back ×2 [mobile] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר → result: /pricing?step=result
+    → שמור עלויות לפריט (PATCH): /pricing?step=saved
+    [PASS] F13-pricing-saved back #1 (history) → catalog — the saving step consumed — /pricing?step=saved ⇒ /pricing
+    [PASS] F13-pricing-saved back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F13-pricing-saved back #1: exactly one save — saves=1
+    [PASS] F13-pricing-saved back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F13-pricing-saved back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F13-pricing-saved back #2: still one save — saves=1
+    [PASS] F13-pricing-saved [mobile] no page errors
+
+  ■ F14-pricing-created — Pricing: new item created (completed), back ×2 [mobile] (back button)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created back #1 (history) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created back #1 landed on the computed target — computed=/pricing landed=/pricing
+    [PASS] F14-pricing-created back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created back #2 (history) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F14-pricing-created back #2: still one create — creates=1
+    [PASS] F14-pricing-created [mobile] no page errors
+
+  ■ F14-pricing-created-browser — Pricing: new item created (completed), back ×2 [mobile] (browser Back)
+    → Tools: /tools/money
+    → Pricing: /pricing
+    → + → name → step 2: /pricing?step=new2
+    → צור פריט (POST): /pricing?step=created
+    [PASS] F14-pricing-created-browser back #1 (browser) → catalog — wizard steps consumed — /pricing?step=created ⇒ /pricing
+    [PASS] F14-pricing-created-browser back #1: exactly one create — creates=1
+    [PASS] F14-pricing-created-browser back #2 (browser) → Tools — /pricing ⇒ /tools/money
+    [PASS] F14-pricing-created-browser back #2: still one create — creates=1
+    [PASS] F14-pricing-created-browser [mobile] no page errors
+
+  ■ F15-secretary-met — Secretary: mark an item handled from its detail (completed), back ×2 [mobile] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item: /secretary?screen=detail&id=41
+    → סמן שטופל (POST complete): /secretary?screen=loops&id=41&loopMode=met
+    [PASS] F15-secretary-met back #1 (history) → all obligations — the item's screen consumed — /secretary?screen=loops&id=41&loopMode=met ⇒ /secretary?screen=all
+    [PASS] F15-secretary-met back #1 landed on the computed target — computed=/secretary?screen=all landed=/secretary?screen=all
+    [PASS] F15-secretary-met back #1: exactly one complete — completes=1
+    [PASS] F15-secretary-met back #2 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F15-secretary-met back #2 landed on the computed target — computed=/secretary landed=/secretary
+    [PASS] F15-secretary-met back #2: still one complete — completes=1
+    [PASS] F15-secretary-met [mobile] no page errors
+
+  ■ F16-order-wizard — Supplier order wizard: products → cart → confirm, back ×3 (cart kept) [mobile] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    [PASS] F16-order-wizard back #1 (history) → cart, quantities kept — /inventory/supplier-purchases/new/confirm ⇒ /inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1 landed on the computed target — computed=/inventory/supplier-purchases/new/cart landed=/inventory/supplier-purchases/new/cart
+    [PASS] F16-order-wizard back #1: קפה quantity kept in the draft (added, then +1 in cart) — qty=2
+    [PASS] F16-order-wizard back #2 (history) → products step, cart kept — /inventory/supplier-purchases/new/cart ⇒ /inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2 landed on the computed target — computed=/inventory/supplier-purchases/new landed=/inventory/supplier-purchases/new
+    [PASS] F16-order-wizard back #2: קפה still in the draft — qty=2
+    [PASS] F16-order-wizard back #3 (history) → inventory (where the wizard was opened) — /inventory/supplier-purchases/new ⇒ /inventory
+    [PASS] F16-order-wizard back #3 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16-order-wizard [mobile] no page errors
+
+  ■ F16b-order-created — Supplier order created (completed): back leaves the wizard (no second order) [mobile] (back button)
+    → Tools: /tools/money
+    → Inventory: /inventory
+    → order wizard: /inventory/supplier-purchases/new
+    → add קפה ×2 → cart: /inventory/supplier-purchases/new/cart
+    → +1 in cart → confirm: /inventory/supplier-purchases/new/confirm
+    → צור הזמנה (POST create): /inventory/supplier-purchases/77/send
+    [PASS] F16b-order-created back #1 (history) → inventory — products/cart steps consumed — /inventory/supplier-purchases/77/send ⇒ /inventory
+    [PASS] F16b-order-created back #1 landed on the computed target — computed=/inventory landed=/inventory
+    [PASS] F16b-order-created back #1: exactly one order created — orders=1
+    [PASS] F16b-order-created [mobile] no page errors
+
+  ■ F17-content-result — Content: step → render → result, back ×2 (no second render) [mobile] (back button)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result back #1 (history) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result back #1 landed on the computed target — computed=/content landed=/content
+    [PASS] F17-content-result back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result back #2 (history) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result back #2 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F17-content-result back #2: still one render — renders=1
+    [PASS] F17-content-result [mobile] no page errors
+
+  ■ F17-content-result-browser — Content: step → render → result, back ×2 (no second render) [mobile] (browser Back)
+    → Tools + flow data: /tools/money
+    → content step: /content
+    → render (POST, quota): /content/render
+    → לראות את הסרטון → result: /content/result
+    [PASS] F17-content-result-browser back #1 (browser) → the step before the render (render never re-entered) — /content/result ⇒ /content
+    [PASS] F17-content-result-browser back #1: exactly one render POST — renders=1
+    [PASS] F17-content-result-browser back #2 (browser) → Tools — /content ⇒ /tools/money
+    [PASS] F17-content-result-browser back #2: still one render — renders=1
+    [PASS] F17-content-result-browser [mobile] no page errors
+
+  ■ F18-inbox-mobile — Inbox (mobile): triage → category list → conversation, back ×2 [mobile] (back button)
+    → Notifications: /notifications
+    → Inbox: /inbox
+    → פתוחות: /inbox?list=conversation_list
+    → conversation: /inbox?list=conversation_list&conversationId=7
+    [PASS] F18-inbox-mobile back #1 (step) → the category's conversation list — /inbox?list=conversation_list&conversationId=7 ⇒ /inbox?list=conversation_list
+    [PASS] F18-inbox-mobile back #1: list shown
+    [PASS] F18-inbox-mobile back #2 (step) → triage (inbox root) — /inbox?list=conversation_list ⇒ /inbox
+    [PASS] F18-inbox-mobile back #2: triage shown
+    [PASS] F18-inbox-mobile [mobile] no page errors
+
+  ■ F18-inbox-mobile-browser — Inbox (mobile): triage → category list → conversation, back ×2 [mobile] (browser Back)
+    → Notifications: /notifications
+    → Inbox: /inbox
+    → פתוחות: /inbox?list=conversation_list
+    → conversation: /inbox?list=conversation_list&conversationId=7
+    [PASS] F18-inbox-mobile-browser back #1 (browser) → the category's conversation list — /inbox?list=conversation_list&conversationId=7 ⇒ /inbox?list=conversation_list
+    [PASS] F18-inbox-mobile-browser back #1: list shown
+    [PASS] F18-inbox-mobile-browser back #2 (browser) → triage (inbox root) — /inbox?list=conversation_list ⇒ /inbox
+    [PASS] F18-inbox-mobile-browser back #2: triage shown
+    [PASS] F18-inbox-mobile-browser [mobile] no page errors
+
+  ■ F19a-billing-keep-then-leave — Billing draft with unsaved line: back → keep editing, back → leave without saving [mobile] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1 (history) → stays on the document (keep editing), edit intact — /billing/12 ⇒ /billing/12
+    [PASS] F19a-billing-keep-then-leave back #1: edit still there
+    [PASS] F19a-billing-keep-then-leave back #1: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave back #2 (history) → billing list (left without saving) — /billing/12 ⇒ /billing
+    [PASS] F19a-billing-keep-then-leave back #2 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19a-billing-keep-then-leave back #2: nothing saved — saves=0
+    [PASS] F19a-billing-keep-then-leave [mobile] no page errors
+
+  ■ F19b-billing-save-and-continue — Billing draft with unsaved line: back → save and continue [mobile] (back button)
+    → Billing: /billing
+    → draft document: /billing/12
+    → edit a line (unsaved): /billing/12
+    [PASS] F19b-billing-save-and-continue back #1 (history) → billing list, after saving once — /billing/12 ⇒ /billing
+    [PASS] F19b-billing-save-and-continue back #1 landed on the computed target — computed=/billing landed=/billing
+    [PASS] F19b-billing-save-and-continue back #1: exactly one save — saves=1
+    [PASS] F19b-billing-save-and-continue [mobile] no page errors
+
+  ■ F20-hash — #fragment jump on a detail screen keeps the chain [mobile] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash back #1 (history) → Tools — the real origin (fragment entry is the same screen) — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash back #1 landed on the computed target — computed=/tools/money landed=/tools/money
+    [PASS] F20-hash [mobile] no page errors
+
+  ■ F20-hash-browser — #fragment jump on a detail screen keeps the chain [mobile] (browser Back)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → #lines (fragment entry): /payables/match/41
+    [PASS] F20-hash-browser back #1 (browser) → the detail without the fragment — /payables/match/41 ⇒ /payables/match/41
+    [PASS] F20-hash-browser back #2 (browser) → Tools — /payables/match/41 ⇒ /tools/money
+    [PASS] F20-hash-browser [mobile] no page errors
+
+  ■ F21a-external-then-direct — Entry from outside the app (prior non-app history), back stays in the app [mobile] (back button)
+    → outside page: blank
+    → direct link: /payables/match/41
+    [PASS] F21a-external-then-direct back #1 (fallback) → labelled fallback /payables (never history.back out of the app) — /payables/match/41 ⇒ /payables
+    [PASS] F21a-external-then-direct back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21a-external-then-direct back #1: still inside the app
+    [PASS] F21a-external-then-direct [mobile] no page errors
+
+  ■ F21b-full-reload-navigation — Entry created by a full-document navigation (location.assign): no fabricated origin [mobile] (back button)
+    → Tools: /tools/money
+    → location.assign → detail: /payables/match/42
+    [PASS] F21b-full-reload-navigation back #1 (fallback) → labelled fallback /payables — /payables/match/42 ⇒ /payables
+    [PASS] F21b-full-reload-navigation back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21b-full-reload-navigation [mobile] no page errors
+
+  ■ F21c-lost-session-trail — Trail storage lost (cleared), then refresh: no fabricated origin [mobile] (back button)
+    → Tools: /tools/money
+    → detail: /payables/match/41
+    → sessionStorage cleared + reload: /payables/match/41
+    [PASS] F21c-lost-session-trail back #1 (fallback) → labelled fallback /payables — /payables/match/41 ⇒ /payables
+    [PASS] F21c-lost-session-trail back #1 landed on the computed target — computed=/payables landed=/payables
+    [PASS] F21c-lost-session-trail [mobile] no page errors
+
+  ■ F22-suppliers-list — Suppliers list (phone/tablet) opened from Tools: back to Tools [mobile] (back button)
+    → Tools: /tools/money
+    → Suppliers: /suppliers
+    [PASS] F22-suppliers-list back #1 (browser) → Tools — /suppliers ⇒ /tools/money
+    [PASS] F22-suppliers-list [mobile] no page errors
+
+584 passed, 0 failed
