@@ -26,6 +26,9 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261009090000_m6_acquisition_connections/**"
       - ".m6/**"
+      - "ops/evidence/m6-website-live-proof-evidence.sql"
+      - "app/api/intake/sweep/**"
+      - "components/settings/LeadSourcesPanel.tsx"
       - ".github/workflows/m6-acquisition-ci.yml"
   workflow_dispatch:
 
@@ -118,8 +121,34 @@ jobs:
       - name: 3. Production row-level security, replayed verbatim from the migrations
         run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections
 
+      - name: 3b. A clean copy of this database for the live-proof rehearsal (before the battery writes anything)
+        run: psql "postgresql://m6_owner:m6_ci_synthetic_owner_pw@localhost:5432/postgres" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE dubiz_live TEMPLATE dubiz_m6"
+
       - name: 4. M6 acquisition battery — real routes, real intake, M4 identity, M5 lifecycle, Secretary, isolation
         env:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/acquisition-battery.ts
+
+      - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
+        env:
+          LIVE_OWNER: postgresql://m6_owner:m6_ci_synthetic_owner_pw@localhost:5432/dubiz_live
+          LIVE_RUNTIME: postgresql://app_runtime:m6_ci_synthetic_runtime_pw@localhost:5432/dubiz_live
+        run: |
+          set -euo pipefail
+          EV=ops/evidence/m6-website-live-proof-evidence.sql
+          rehearse() { OWNER_URL="$LIVE_OWNER" DATABASE_URL="$LIVE_RUNTIME" DIRECT_URL="$LIVE_RUNTIME" npx tsx .m6/live-proof-rehearsal.ts "$1"; }
+          evidence() { psql "$LIVE_OWNER" -X -v ON_ERROR_STOP=1 -f "$EV" > /tmp/ev.out; grep -E '^ +[0-9]+ \| (PASS|FAIL)' /tmp/ev.out; }
+          fails() { { grep -E '^ +[0-9]+ \| FAIL' /tmp/ev.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          echo "== enabled for one business and connected, no enquiry yet: the chain checks must fail (not vacuous)"
+          rehearse enable; evidence
+          test "$(fails)" = "4 9 12 13 " || { echo "before any enquiry: expected 4 9 12 13 to fail, got: $(fails)"; exit 1; }
+          echo "== one genuine-shaped enquiry + the same enquiry resubmitted: 17/17"
+          rehearse submit; evidence
+          test -z "$(fails)" || { echo "after the enquiry: expected no FAIL, got: $(fails)"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "17" || { echo "expected 17 PASS"; exit 1; }
+          test "$(psql "$LIVE_OWNER" -Atc "SELECT count(*) FROM \"IntakeEvent\" WHERE \"sourceKey\" = 'web.form'")" = "1" || { echo "the resubmitted enquiry made a second receipt"; exit 1; }
+          echo "== a second business enabled: the one-business check must fail"
+          rehearse widen; evidence
+          test "$(fails)" = "2 " || { echo "widened: expected only 2 to fail, got: $(fails)"; exit 1; }
+          echo "live-proof evidence: not vacuous before, 17/17 on the real chain, refuses a second enabled business"

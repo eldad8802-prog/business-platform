@@ -10,6 +10,11 @@
  *   5. cross-domain rules run over the deduplicated, fresh premises
  *   6. gaps are normalised (one per rule and reason), blocked families are stated
  *   7. everything is ordered by slot, bounded, and fingerprinted over its SEMANTIC content only
+ *
+ * Business Brain (bks.v2) adds, without new statistics or thresholds:
+ *   1b' TEMPORAL_STATE — one interpreted state per temporal series (temporal/interpret.ts)
+ *   1g  memory — HISTORICAL_MEASURE / PREVIOUS_BASELINE: what used to be known; never fresh, never a premise
+ *   4'  RECORD_LINK relationships — what the product's own foreign keys assert, aggregated per entity
  */
 import { evaluateTrustClaim } from "@/lib/services/trust/trust-claim.service";
 import { createHash } from "node:crypto";
@@ -29,6 +34,11 @@ import {
 import { CROSS_DOMAIN_FAMILIES, CROSS_DOMAIN_RULES } from "./cross-domain";
 import type { DomainState, StoredKnowledge } from "./snapshot-sources";
 import { learnFromOutcomes } from "../outcomes/learn";
+import { interpretSeries, type SeriesRow } from "../temporal/interpret";
+import { temporalCatalogue } from "../temporal/rules";
+
+/** Depth inputs are optional so stored-knowledge fixtures written before bks.v2 still assemble. */
+const NO_DEPTH = { historicalMeasures: [], previousBaselines: [], links: [], receivablesWindow: null } as const;
 
 const DAY = 86_400_000;
 
@@ -99,8 +109,10 @@ export function assembleSnapshot(
   }
 
   /* ── 1b. temporal knowledge ── */
+  const ruleCaveats = new Map(temporalCatalogue().map((r) => [r.temporalKey, [...(r.caveats ?? [])].sort()]));
   for (const t of stored.temporal) {
     const subject = t.entityType ? { type: t.entityType, id: t.entityId ?? 0 } : null;
+    if (t.status === "STALE") continue; // read by the temporal interpretation below (GONE_QUIET)
     if (t.status !== "ACTIVE") {
       const r = (t.reason ?? {}) as { code?: string; have?: number; need?: number; needSpanDays?: number };
       gapsRaw.push({
@@ -120,10 +132,91 @@ export function assembleSnapshot(
       observationCount: t.historyCount + t.recentCount,
       window: { start: t.historyStart.toISOString(), end: (t.recentEnd ?? t.asOf).toISOString() },
       status: "ACTIVE", freshness: { ageDays: age, fresh: age <= PREMISE_MAX_AGE_DAYS },
-      evidence: { fingerprint: t.evidenceFingerprint, refCount: t.historyCount + t.recentCount }, caveats: [],
+      evidence: { fingerprint: t.evidenceFingerprint, refCount: t.historyCount + t.recentCount }, caveats: [...(ruleCaveats.get(t.temporalKey) ?? [])],
       provenance: [{ store: "TemporalKnowledge", id: t.id }],
     });
   }
+
+  /* ── 1b'. temporal STATE per series (interpretation only; the engine already proved every input) ── */
+  const meta = new Map(temporalCatalogue().map((r) => [r.temporalKey, { polarity: r.polarity ?? null, minRecent: r.spec.minRecent }]));
+  const series = new Map<string, typeof stored.temporal>();
+  for (const t of stored.temporal) {
+    const k = `${t.temporalKey}|${t.entityType ?? ""}|${t.entityId ?? ""}|${t.contextKey}`;
+    series.set(k, [...(series.get(k) ?? []), t]);
+  }
+  const hasBaseline = (rows: typeof stored.temporal) =>
+    rows.some((t) => t.knowledgeType === "BASELINE" && (t.status === "ACTIVE" || t.status === "STALE"));
+  for (const [k, rows] of [...series.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const first = rows[0];
+    const m = meta.get(first.temporalKey);
+    if (!m) continue; // a stored key no current rule produces: it is history, not a current state
+    // "established history for this key" must come from ANOTHER subject of the same rule, never from this series
+    const keyEstablished = [...series.entries()].some(([k2, r2]) => k2 !== k && r2[0].temporalKey === first.temporalKey && hasBaseline(r2));
+    const st = interpretSeries(rows as unknown as SeriesRow[], m.polarity, m.minRecent, keyEstablished);
+    if (!st || st.state === "INSUFFICIENT_HISTORY") continue; // already stated as a gap above
+    const used = rows.filter((t) => st.basedOn.includes(t.id));
+    const confirmed = used.reduce((mx, t) => Math.max(mx, t.confirmedAt.getTime()), 0);
+    const age = ageDays(asOf, new Date(confirmed || asOf.getTime()));
+    drafts.push({
+      slot: `tstate|${k}`, kind: "TEMPORAL_STATE", domain: first.domain,
+      subject: first.entityType ? { type: first.entityType, id: first.entityId ?? 0 } : null, key: first.temporalKey,
+      ruleId: first.policyVersion.policy.key, ruleVersion: first.policyVersion.version, authority: "TEMPORAL_DERIVATION",
+      value: { state: st.state, direction: st.direction, changeKind: st.changeKind, polarity: st.polarity, normalSince: st.normalSince,
+        historyObservations: st.historyObservations, recentObservations: st.recentObservations },
+      observationCount: st.historyObservations + st.recentObservations, window: null, status: "ACTIVE",
+      freshness: { ageDays: age, fresh: age <= PREMISE_MAX_AGE_DAYS && st.state !== "GONE_QUIET" },
+      evidence: { fingerprint: null, refCount: st.basedOn.length }, caveats: [...(ruleCaveats.get(first.temporalKey) ?? [])],
+      provenance: st.basedOn.map((id) => ({ store: "TemporalKnowledge" as const, id })),
+    });
+  }
+
+  /* ── 1g. memory: what Dubiz USED to know. Never fresh (never a premise), never authoritative now. ── */
+  const depth = stored.depth ?? NO_DEPTH;
+  const memory: Draft[] = [];
+  const seenHist = new Set<string>();
+  for (const h of depth.historicalMeasures) { // newest first
+    const subj = `${h.entityType ?? ""}|${h.entityId ?? ""}`;
+    const k = `hist|${h.measureKey}|${subj}|${h.status}`;
+    if (seenHist.has(k)) continue;
+    seenHist.add(k);
+    const rowsOf = depth.historicalMeasures.filter((x) =>
+      x.measureKey === h.measureKey && `${x.entityType ?? ""}|${x.entityId ?? ""}` === subj && x.status === h.status).length;
+    memory.push({
+      slot: k, kind: "HISTORICAL_MEASURE", domain: h.measureKey.split(".")[0],
+      subject: h.entityType ? { type: h.entityType, id: h.entityId ?? 0 } : null, key: h.measureKey,
+      ruleId: h.policyVersion.policy.key, ruleVersion: h.policyVersion.version, authority: "KNOWLEDGE_MEASURE",
+      // A STALE measure keeps its value: it was this rule's own answer until the subject went quiet. A
+      // SUPERSEDED one does not: a different rule version's number is not comparable with today's.
+      value: h.status === "STALE"
+        ? { historicalState: "STALE", value: h.valueNumeric.toString(), unit: h.valueUnit, validUntil: h.windowEnd.toISOString(), rows: rowsOf }
+        : { historicalState: "SUPERSEDED", unit: h.valueUnit, validUntil: h.windowEnd.toISOString(), rows: rowsOf },
+      observationCount: h.observationCount, window: { start: h.windowStart.toISOString(), end: h.windowEnd.toISOString() },
+      status: "ACTIVE", freshness: { ageDays: ageDays(asOf, h.windowEnd), fresh: false },
+      evidence: { fingerprint: h.evidenceFingerprint, refCount: h.observationCount }, caveats: ["NOT_CURRENT_KNOWLEDGE"],
+      provenance: [{ store: "KnowledgeMeasure", id: h.id }],
+    });
+  }
+  const seenBase = new Set<string>();
+  for (const b of depth.previousBaselines) { // newest first: the most recent previous "normal" per series
+    const k = `prevbase|${b.temporalKey}|${b.entityType ?? ""}|${b.entityId ?? ""}|${b.contextKey}`;
+    if (seenBase.has(k)) continue;
+    seenBase.add(k);
+    memory.push({
+      slot: k, kind: "PREVIOUS_BASELINE", domain: b.domain,
+      subject: b.entityType ? { type: b.entityType, id: b.entityId ?? 0 } : null, key: b.temporalKey,
+      ruleId: b.policyVersion.policy.key, ruleVersion: b.policyVersion.version, authority: "TEMPORAL_DERIVATION",
+      value: { valueKind: b.valueKind, unit: b.unit, contextKey: b.contextKey, baseline: b.baseline,
+        normalFrom: b.historyStart.toISOString(), normalUntil: (b.supersededAt ?? b.historyEnd).toISOString() },
+      observationCount: b.historyCount, window: { start: b.historyStart.toISOString(), end: b.historyEnd.toISOString() },
+      status: "ACTIVE", freshness: { ageDays: ageDays(asOf, b.supersededAt ?? b.historyEnd), fresh: false },
+      evidence: { fingerprint: b.evidenceFingerprint, refCount: b.historyCount }, caveats: ["NOT_CURRENT_KNOWLEDGE"],
+      provenance: [{ store: "TemporalKnowledge", id: b.id }],
+    });
+  }
+  // Memory has its own cap, newest first, so years of history can never crowd out current knowledge.
+  const memoryKept = memory.slice(0, SNAPSHOT_BOUNDS.memory);
+  const memoryDropped = memory.length - memoryKept.length;
+  drafts.push(...memoryKept);
 
   /* ── 1c. derived claims (and their conflicts) ── */
   const conflicts: ConflictItem[] = [];
@@ -344,7 +437,20 @@ export function assembleSnapshot(
       });
     }
   }
-  relationships.sort((a, b) => a.slot.localeCompare(b.slot));
+  /* ── 4'. RECORD_LINK — what the product's own foreign keys assert, one edge per entity and relation ── */
+  for (const l of depth.links) {
+    const right = l.right ?? { type: "records", id: l.relation };
+    relationships.push({
+      slot: `rel|fk|${l.relation}|${l.left.type}:${l.left.id}|${right.type}:${right.id}`, type: "RECORD_LINK",
+      left: { type: l.left.type, id: l.left.id }, right, via: { type: "foreign-key", relation: l.relation },
+      records: l.records, lastAt: l.lastAt ? l.lastAt.toISOString() : null,
+      status: "ACTIVE", authority: "AUTHORITATIVE_DOMAIN_STATE",
+      provenance: [{ store: "DomainRecordLink", id: `${l.relation}:${l.left.type}:${l.left.id}${l.right ? `:${l.right.type}:${l.right.id}` : ""}` }],
+    });
+  }
+  // Identity relationships first, then record links, each by slot: a bound cuts the most numerous (links) last.
+  relationships.sort((a, b) =>
+    (a.type === "SAME_COUNTERPARTY" ? 0 : 1) - (b.type === "SAME_COUNTERPARTY" ? 0 : 1) || a.slot.localeCompare(b.slot));
 
   /* ── 5. cross-domain rules ── */
   const findings: CrossDomainFinding[] = [];
@@ -413,7 +519,7 @@ export function assembleSnapshot(
   return {
     ...body,
     snapshotFingerprint: sha(stable(semantic)),
-    truncated: { knowledge: k.dropped, relationships: r.dropped, crossDomainFindings: f.dropped, conflicts: c.dropped, knowledgeGaps: g.dropped },
+    truncated: { memory: memoryDropped, knowledge: k.dropped, relationships: r.dropped, crossDomainFindings: f.dropped, conflicts: c.dropped, knowledgeGaps: g.dropped },
   };
 }
 

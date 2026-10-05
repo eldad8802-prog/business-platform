@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
 import { BusinessIdentityEditor } from "@/components/business/identity/BusinessIdentityEditor";
 import { TrustConversionPanel } from "@/components/business/identity/TrustConversionPanel";
@@ -17,6 +18,9 @@ export default function BusinessIdentityPage() {
         <p className={styles.intro}>
           כמה דברים שרק אתה יודע על העסק — כדי ש-Dubiz ידבר בשמו נכון. הכול אופציונלי, ואפשר לשנות בכל רגע.
           שום דבר לא יוצג ללקוחות בלי שסימנת &quot;מאושר לשימוש פומבי&quot;.
+        </p>
+        <p className={styles.intro}>
+          <Link href="/business/landing-strategy">לאילו כיווני דף נחיתה זה מוביל ←</Link>
         </p>
         <div className={styles.layout}>
           <div className={styles.column}>

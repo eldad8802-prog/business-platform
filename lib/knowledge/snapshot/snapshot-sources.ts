@@ -12,7 +12,10 @@
  * engines (L0 facts, awaiting-payment) — a fixed number, independent of how much history exists.
  */
 import { loadServedCustomers, TRUST_CLAIM_SELECT } from "@/lib/services/trust/trust-claim.service";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { computeEconomicRemaining } from "@/lib/services/billing/domain/billing-invoice-economic-remaining";
+import { authoritativeAllocationWhere, authoritativeCreditNoteWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
+import { computeExpectedPaymentDate, resolveCustomerPaymentTermsDays } from "@/lib/services/billing/collection/payment-terms";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
@@ -37,7 +40,8 @@ export async function loadStoredKnowledge(businessId: number, asOf: Date) {
     });
 
     const temporal = await tx.temporalKnowledge.findMany({
-      where: { businessId, status: { in: ["ACTIVE", "INSUFFICIENT_HISTORY"] } },
+      // STALE baselines too: "this subject has gone quiet" is knowledge (temporal interpretation).
+      where: { businessId, status: { in: ["ACTIVE", "INSUFFICIENT_HISTORY", "STALE"] } },
       select: {
         id: true, temporalKey: true, domain: true, knowledgeType: true, status: true,
         entityType: true, entityId: true, contextKey: true, valueKind: true, unit: true, asOf: true,
@@ -123,8 +127,10 @@ export async function loadStoredKnowledge(businessId: number, asOf: Date) {
 
     const { identityStatements, identityFacts } = await loadIdentityKnowledge(tx, businessId, asOf);
     const { trustClaims, servedCustomers } = await loadTrustKnowledge(tx, businessId, asOf);
+    // Business Brain depth: memory, record links and the receivables window (same transaction).
+    const depth = await loadDepth(tx, businessId, asOf);
 
-    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes, identityStatements, identityFacts, trustClaims, servedCustomers };
+    return { depth, measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes, identityStatements, identityFacts, trustClaims, servedCustomers };
   });
 }
 
@@ -209,3 +215,143 @@ export async function loadDomainState(businessId: number, asOf: Date) {
 }
 
 export type DomainState = Awaited<ReturnType<typeof loadDomainState>>;
+
+/* ══════════════════════ Business Brain · DEPTH ══════════════════════ */
+
+/**
+ * Business Brain · the DEPTH producers the snapshot reads — memory, record links and the receivables
+ * window. Called INSIDE the snapshot's tenant transaction (`loadStoredKnowledge`), so every read is ONE
+ * business's, with `businessId` named in every predicate as well.
+ *
+ * Nothing here is raw evidence or free text: aggregated counts, dates, statuses, typed ids and (for the
+ * receivables window) one sum. A fixed number of queries, bounded by `take` where history can grow.
+ *
+ *   MEMORY        what Dubiz USED to know: STALE measures ("true until the subject went quiet") and
+ *                 SUPERSEDED versions (replaced by a newer rule version), plus superseded temporal
+ *                 baselines ("what normal used to be"). History is kept, never authoritative.
+ *   RECORD LINKS  relationships the product's own foreign keys assert — customer ↔ invoices / payment
+ *                 links / reminders / appointments / leads, service ↔ appointments, supplier ↔ item
+ *                 (purchase-order lines). Never inferred from a name, phone, email or tax id.
+ *   RECEIVABLES   issued invoices still owed whose due day falls in the next 30 days — the collection
+ *                 screen's own definitions of "due" and "remaining", imported rather than restated.
+ */
+export const LINK_WINDOW_DAYS = 365;
+export const RECEIVABLES_WINDOW_DAYS = 30;
+const MEMORY_TAKE = 2000;
+const BASELINE_TAKE = 500;
+
+export type RecordLink = {
+  /** What the foreign key says: e.g. "customer.invoices" = BillingDocument.customerId. */
+  readonly relation: string;
+  readonly left: { readonly type: string; readonly id: number };
+  readonly right: { readonly type: string; readonly id: number } | null; // null = the domain records themselves
+  readonly records: number;
+  readonly lastAt: Date | null;
+};
+
+export async function loadDepth(tx: Prisma.TransactionClient, businessId: number, asOf: Date) {
+  const since = new Date(asOf.getTime() - LINK_WINDOW_DAYS * DAY);
+  const version = { select: { version: true, policy: { select: { key: true } } } } as const;
+
+  /* MEMORY */
+  const historicalMeasures = await tx.knowledgeMeasure.findMany({
+    where: { businessId, status: { in: ["STALE", "SUPERSEDED"] }, windowEnd: { lte: asOf } },
+    select: {
+      id: true, measureKey: true, entityType: true, entityId: true, status: true, valueNumeric: true, valueUnit: true,
+      observationCount: true, windowStart: true, windowEnd: true, evidenceFingerprint: true, policyVersion: version,
+    },
+    orderBy: [{ windowEnd: "desc" }, { id: "desc" }],
+    take: MEMORY_TAKE,
+  });
+  const previousBaselines = await tx.temporalKnowledge.findMany({
+    where: { businessId, knowledgeType: "BASELINE", status: "SUPERSEDED", supersededAt: { lte: asOf } },
+    select: {
+      id: true, temporalKey: true, domain: true, entityType: true, entityId: true, contextKey: true, valueKind: true, unit: true,
+      historyStart: true, historyEnd: true, historyCount: true, baseline: true, supersededAt: true, evidenceFingerprint: true, policyVersion: version,
+    },
+    orderBy: [{ supersededAt: "desc" }, { id: "desc" }],
+    take: BASELINE_TAKE,
+  });
+
+  /* RECORD LINKS — aggregated per entity, FK only */
+  const links: RecordLink[] = [];
+  const push = (relation: string, leftType: string, rows: { key: number | null; n: number; last: Date | null }[]) => {
+    for (const r of rows) if (r.key !== null && r.n > 0) links.push({ relation, left: { type: leftType, id: r.key }, right: null, records: r.n, lastAt: r.last });
+  };
+  const invoices = await tx.billingDocument.groupBy({
+    by: ["customerId"],
+    where: { businessId, customerId: { not: null }, status: "ISSUED", documentType: { in: ["TAX_INVOICE", "TAX_INVOICE_RECEIPT"] }, issuedAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { issuedAt: true },
+  });
+  push("customer.invoices", "customer", invoices.map((g) => ({ key: g.customerId, n: g._count._all, last: g._max.issuedAt })));
+  const requests = await tx.paymentRequest.groupBy({
+    by: ["customerId"], where: { businessId, customerId: { not: null }, createdAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { createdAt: true },
+  });
+  push("customer.payment_links", "customer", requests.map((g) => ({ key: g.customerId, n: g._count._all, last: g._max.createdAt })));
+  const reminders = await tx.collectionAction.groupBy({
+    by: ["customerId"], where: { businessId, customerId: { not: null }, occurredAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { occurredAt: true },
+  });
+  push("customer.reminders", "customer", reminders.map((g) => ({ key: g.customerId, n: g._count._all, last: g._max.occurredAt })));
+  const appts = await tx.appointment.groupBy({
+    by: ["customerId"], where: { businessId, customerId: { not: null }, createdAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { createdAt: true },
+  });
+  push("customer.appointments", "customer", appts.map((g) => ({ key: g.customerId, n: g._count._all, last: g._max.createdAt })));
+  const leads = await tx.lead.groupBy({
+    by: ["customerId"], where: { businessId, customerId: { not: null }, createdAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { createdAt: true },
+  });
+  push("customer.leads", "customer", leads.map((g) => ({ key: g.customerId, n: g._count._all, last: g._max.createdAt })));
+  const serviceAppts = await tx.appointment.groupBy({
+    by: ["businessServiceId"], where: { businessId, businessServiceId: { not: null }, createdAt: { gte: since, lte: asOf } },
+    _count: { _all: true }, _max: { createdAt: true },
+  });
+  push("business-service.appointments", "business-service", serviceAppts.map((g) => ({ key: g.businessServiceId, n: g._count._all, last: g._max.createdAt })));
+  // supplier ↔ inventory item, as the business's own purchase orders state it (drafts and cancellations excluded)
+  const supplied = await tx.$queryRaw<{ supplierId: number; itemId: number; n: number; last: Date | null }[]>`
+    SELECT po."supplierId" AS "supplierId", l."itemId" AS "itemId", count(*)::int AS n, max(coalesce(po."orderDate", po."createdAt")) AS last
+      FROM "PurchaseOrderLine" l JOIN "PurchaseOrder" po ON po."id" = l."purchaseOrderId"
+     WHERE po."businessId" = ${businessId} AND po."supplierId" IS NOT NULL AND l."itemId" IS NOT NULL
+       AND po."status" NOT IN ('DRAFT', 'CANCELLED') AND coalesce(po."orderDate", po."createdAt") BETWEEN ${since} AND ${asOf}
+     GROUP BY 1, 2 ORDER BY 1, 2 LIMIT 2000`;
+  for (const s of supplied) {
+    links.push({ relation: "supplier.items", left: { type: "supplier", id: Number(s.supplierId) }, right: { type: "inventory-item", id: Number(s.itemId) }, records: Number(s.n), lastAt: s.last });
+  }
+  links.sort((a, b) => a.relation.localeCompare(b.relation) || a.left.id - b.left.id || (a.right?.id ?? 0) - (b.right?.id ?? 0));
+
+  /* RECEIVABLES — due within the next 30 days, still owed */
+  const profile = await tx.businessProfile.findUnique({ where: { businessId }, select: { billingPaymentTermsDays: true } });
+  const open = await tx.billingDocument.findMany({
+    where: { businessId, status: "ISSUED", documentType: "TAX_INVOICE", issuedAt: { gte: new Date(asOf.getTime() - 400 * DAY), lte: asOf } },
+    select: {
+      id: true, issuedAt: true, totalAmount: true, currency: true,
+      customer: { select: { paymentTermsDays: true } },
+      paymentAllocationsAsInvoice: { where: { businessId, ...authoritativeAllocationWhere(businessId) }, select: { allocatedAmount: true } },
+      creditNotes: { where: { businessId, ...authoritativeCreditNoteWhere() }, select: { totalAmount: true } },
+    },
+    orderBy: [{ id: "asc" }],
+    take: 5000,
+  });
+  const horizon = asOf.getTime() + RECEIVABLES_WINDOW_DAYS * DAY;
+  let dueCount = 0;
+  let dueSum = 0;
+  let currency: string | null = null;
+  const dueIds: number[] = [];
+  for (const d of open) {
+    const allocated = d.paymentAllocationsAsInvoice.reduce((s, a) => s.plus(a.allocatedAmount), new Prisma.Decimal(0));
+    const credited = d.creditNotes.reduce((s, c) => s.plus(c.totalAmount), new Prisma.Decimal(0));
+    const remaining = computeEconomicRemaining(d.totalAmount, allocated, credited);
+    if (remaining.lessThanOrEqualTo(0)) continue;
+    const due = computeExpectedPaymentDate(d.issuedAt, resolveCustomerPaymentTermsDays(d.customer?.paymentTermsDays ?? null, profile?.billingPaymentTermsDays ?? null));
+    if (!due || due.getTime() < asOf.getTime() || due.getTime() > horizon) continue;
+    dueCount += 1;
+    dueSum += Number(remaining.toString());
+    currency = currency ?? d.currency;
+    dueIds.push(d.id);
+  }
+  const receivablesWindow = { days: RECEIVABLES_WINDOW_DAYS, invoices: dueCount, amount: Math.round(dueSum * 100) / 100, currency, invoiceIds: dueIds };
+
+  return { historicalMeasures, previousBaselines, links, receivablesWindow };
+}

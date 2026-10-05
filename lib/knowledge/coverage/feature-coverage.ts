@@ -172,14 +172,14 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "collection", name: "Collection (receivables, reminders)", coverage: "LEARNS",
-    rules: ["COLL-01", "COLL-02"], temporalRules: [], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
+    rules: ["COLL-01", "COLL-02"], temporalRules: ["T-COLL-01"], otherUnits: ["cross-domain:X-COLL-01"], l0: [],
     models: ["CollectionAction"], sensors: [], legacyEvents: [], routes: ["api/collection", "page/collection"],
     target: { coverage: "LEARNS", plan: "Reminder timing relative to due date, reminder → payment sequence (sequence, never cause), share of overdue receivables collected." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH", note: "Currently excluded from M9 (no invoice link on a reminder, refunds not netted)." },
   },
   {
     key: "customers", name: "Customers (CRM card)", coverage: "LEARNS",
-    rules: ["CUST-01", "CUST-02", "CUST-03"], temporalRules: ["T-CUST-01"], otherUnits: [], l0: [],
+    rules: ["CUST-01", "CUST-02", "CUST-03"], temporalRules: ["T-CUST-01", "T-CUST-02"], otherUnits: [], l0: [],
     models: ["Customer", "CrmNote", "CrmAttachment"],
     sensors: ["CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_ARCHIVED", "CUSTOMER_REACTIVATED", "CUSTOMER_TAX_IDENTITY_CHANGED"],
     legacyEvents: [], routes: ["api/customers", "api/customer", "api/crm", "page/customers"],
@@ -190,7 +190,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   /* ─────────────────────────── other business features ─────────────────────────── */
   {
     key: "leads", name: "Leads", coverage: "LEARNS",
-    rules: ["LEAD-01", "LEAD-02", "LEAD-03", "LEAD-04"], temporalRules: ["T-LEAD-01"], otherUnits: [], l0: ["leads-attention"],
+    rules: ["LEAD-01", "LEAD-02", "LEAD-03", "LEAD-04"], temporalRules: ["T-LEAD-01", "T-LEAD-02"], otherUnits: [], l0: ["leads-attention"],
     models: ["Lead", "LeadLifecycleEvent"],
     sensors: ["LEAD_LIFECYCLE_STARTED", "LEAD_STAGE_CHANGED", "LEAD_OUTCOME_RECORDED", "LEAD_NEXT_ACTION_SCHEDULED", "LEAD_NEXT_ACTION_COMPLETED",
       "LEAD_FIRST_HANDLED", "LEAD_VALUE_RECORDED"],
@@ -221,14 +221,14 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "appointments", name: "Appointments", coverage: "LEARNS",
-    rules: ["APPT-01", "APPT-02", "APPT-03", "APPT-04"], temporalRules: ["T-APPT-03"], otherUnits: [], l0: [],
+    rules: ["APPT-01", "APPT-02", "APPT-03", "APPT-04"], temporalRules: ["T-APPT-03", "T-APPT-01"], otherUnits: [], l0: [],
     models: ["Appointment"], sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments"],
     target: { coverage: "LEARNS", plan: "No-show and cancellation rate, booking lead time, reschedule rate — status history from the observation sensors (Appointment keeps no history)." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
   },
   {
     key: "secretary", name: "Payment Secretary (obligations)", coverage: "LEARNS",
-    rules: ["SEC-01", "SEC-02"], temporalRules: [], otherUnits: [], l0: [],
+    rules: ["SEC-01", "SEC-02"], temporalRules: ["T-SEC-02"], otherUnits: [], l0: [],
     models: ["BusinessObligation", "BusinessObligationOrientation", "InstallmentWorkflow", "Task"],
     sensors: ["OBLIGATION_CHANGED"], legacyEvents: [], routes: ["api/obligations", "page/secretary"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): lag between 'handled' and the real payment, snooze habit (InstallmentWorkflow) — handled ≠ paid." },
@@ -247,7 +247,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "offering", name: "Offering / services catalogue", coverage: "LEARNS",
-    rules: ["OFF-01"], temporalRules: [], otherUnits: [], l0: [],
+    rules: ["OFF-01"], temporalRules: ["T-OFF-01"], otherUnits: [], l0: [],
     models: ["BusinessService", "BusinessServiceAsset", "BusinessAsset", "OfferingDemandSignal", "ServiceCostProfile"], sensors: [], legacyEvents: [],
     routes: [],
     target: { coverage: "LEARNS", plan: "Demand per offering (booking/purchase signals) — cadence and change over time." },
@@ -263,7 +263,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "reports", name: "Reports / accountant export", coverage: "LEARNS",
-    rules: ["REP-01"], temporalRules: [], otherUnits: [], l0: [],
+    rules: ["REP-01"], temporalRules: ["T-REP-01"], otherUnits: [], l0: [],
     models: [], sensors: ["DATA_EXPORTED"], legacyEvents: [], routes: ["api/reports", "page/dashboard"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): accountant-pack export cadence — the only record is the DATA_EXPORTED observation sensor." },
     outcome: { observableAction: true, observableOutcome: false, ownerDecisionRelevant: false, recommendationPotential: "LOW" },

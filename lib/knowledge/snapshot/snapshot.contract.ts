@@ -22,7 +22,12 @@
  *     provider payloads or error strings. Subjects are typed ids.
  */
 
-export const SNAPSHOT_CONTRACT_VERSION = "bks.v1";
+/**
+ * bks.v2 (Business Brain): adds TEMPORAL_STATE (one interpreted state per series), HISTORICAL_MEASURE and
+ * PREVIOUS_BASELINE (memory: what Dubiz used to know, never authoritative), RECORD_LINK relationships
+ * (what the product's own foreign keys assert) and four cross-domain finding types.
+ */
+export const SNAPSHOT_CONTRACT_VERSION = "bks.v2";
 
 /** The taxonomy, kept apart on purpose — a measure is not a baseline, a baseline is not a finding. */
 export type KnowledgeKind =
@@ -40,7 +45,14 @@ export type KnowledgeKind =
   /** M9 — observable owner behaviour per recommendation type (counts and timings, never traits). */
   | "DECISION_PATTERN"
   /** M9 — what was observed after recommendations of one type (sequence counts, never effects). */
-  | "OUTCOME_PATTERN";
+  | "OUTCOME_PATTERN"
+  /** Business Brain — one interpreted state per temporal series (lib/knowledge/temporal/interpret.ts). */
+  | "TEMPORAL_STATE"
+  /** Business Brain memory — a measure that WAS true until its window ended (STALE) or was replaced by a newer
+   *  rule version (SUPERSEDED). Knowledge about the past: never a premise for a current finding. */
+  | "HISTORICAL_MEASURE"
+  /** Business Brain memory — what "normal" used to be for a series before its baseline was superseded. */
+  | "PREVIOUS_BASELINE";
 
 /**
  * WHO vouches for an item. A reasoning layer must be able to tell "the ledger says" from "Dubiz
@@ -91,7 +103,11 @@ export type ProvenanceRef = {
     /** P2 — the owner's confirmation / public-use approval of an identity fact (never its value). */
     | "BusinessIdentityFactAuthority"
     /** P3-A — an owner-governed trust claim (kind, class and authority flags; never wording, params or documents). */
-    | "BusinessTrustClaim";
+    | "BusinessTrustClaim"
+    /** Business Brain — an aggregate of records joined by a product foreign key (relation:type:id). */
+    | "DomainRecordLink"
+    /** Business Brain — issued invoices still owed with a due day inside the receivables window. */
+    | "ReceivablesWindow";
   readonly id: number | string;
 };
 
@@ -130,11 +146,19 @@ export type KnowledgeItem = {
 
 export type RelationshipItem = {
   readonly slot: string;
-  readonly type: "SAME_COUNTERPARTY";
+  /**
+   * SAME_COUNTERPARTY  two records are one counterparty (owner confirmation or a valid tax id, via a Party)
+   * RECORD_LINK        the product's own foreign keys join these records (e.g. invoices whose customerId is
+   *                    this customer). Never inferred from a name, phone, email or tax id.
+   */
+  readonly type: "SAME_COUNTERPARTY" | "RECORD_LINK";
   readonly left: NonNullable<Subject>;
   readonly right: NonNullable<Subject>;
-  /** The shared identity anchor. */
-  readonly via: { readonly type: "party"; readonly id: number };
+  /** The shared identity anchor, or the foreign key that asserts the link. */
+  readonly via: { readonly type: "party"; readonly id: number } | { readonly type: "foreign-key"; readonly relation: string };
+  /** RECORD_LINK only: how many records the key joins, and the latest of them (inside the link window). */
+  readonly records?: number;
+  readonly lastAt?: string | null;
   /** ACTIVE = usable; PROPOSED = a machine suggestion, NOT usable; REJECTED = the owner said no. */
   readonly status: "ACTIVE" | "PROPOSED" | "REJECTED";
   readonly authority: AuthorityClass;
@@ -144,7 +168,15 @@ export type RelationshipItem = {
 /** What a cross-domain finding may assert. None of these is a cause, a driver or an impact. */
 export type FindingType =
   | "EXPOSURE_WITH_RECORDED_ACTIVITY"
-  | "LINKED_COUNTERPARTY_CONDITION";
+  | "LINKED_COUNTERPARTY_CONDITION"
+  /** X-CUST-01 — what several domains know about ONE customer, joined by customerId. */
+  | "CUSTOMER_CROSS_DOMAIN_PROFILE"
+  /** X-CASH-01 — obligations due and receivables due inside the same window, side by side (no adequacy judgement). */
+  | "OBLIGATIONS_AND_RECEIVABLES_IN_WINDOW"
+  /** X-REPL-01 — an item's restock rhythm next to its suppliers' purchase / delivery behaviour (PO-line link). */
+  | "REPLENISHMENT_PROFILE"
+  /** X-RESP-01 — the owner's responsiveness to inbound demand measured in more than one domain. */
+  | "INBOUND_RESPONSIVENESS_PROFILE";
 
 export type CrossDomainFinding = {
   readonly slot: string;
@@ -215,6 +247,8 @@ export type BusinessKnowledgeSnapshot = {
 /** Explicit bounds. Everything is ordered deterministically before a bound applies; cuts are counted. */
 export const SNAPSHOT_BOUNDS = {
   knowledge: 400,
+  /** Memory items (HISTORICAL_MEASURE, PREVIOUS_BASELINE) — counted inside knowledge, capped separately first. */
+  memory: 120,
   relationships: 200,
   crossDomainFindings: 100,
   conflicts: 100,

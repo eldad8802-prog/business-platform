@@ -117,6 +117,12 @@
       "workflow": "p2-identity-ci.yml",
       "reason": "P2 + P3-A: replays the P2 and P3-A migrations verbatim and proves tenant isolation of BusinessIdentityStatement and BusinessTrustClaim as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE; cross-tenant context, claims and private document references refused; claims never inserted public, wording immutable, retired claims frozen); run on pull_request by p2-identity-ci.yml job db"
     },
+    "lib/services/landing/landing-strategy.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-B: pure proof of the landing strategy engine — every CTA from a usable P3-A path (PLATFORM_UNPROVEN only when owner-selected), owner objective preserved, publishable material limited to public-approved facts/statements/effective trust claims/approved assets, internal demand never public wording, foreign rows dropped, deterministic, no model call, no writes; run on pull_request by p2-identity-ci.yml job core (DB tenant isolation S16 and read-only S20 in identity.rls.db.test.ts)"
+    },
     "lib/services/trust/p3a-context.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",
@@ -198,6 +204,12 @@
       "lab": "workflow",
       "workflow": "learning-coverage-ci.yml",
       "reason": "the one rule the read-only Production proof and diagnostic use for knowledge pinned to a superseded lineage: LIVE_WRONG_PIN and HISTORICAL_STATUS_UNEXPLAINED fail, LEGITIMATE_HISTORY passes only when corroborated; no blanket SUPERSEDED exclusion; run by learning-coverage-ci.yml"
+    },
+    "lib/knowledge/snapshot/business-brain.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m0-knowledge-tenant-safety.yml",
+      "reason": "Business Brain bks.v2: temporal states only from proven engine artifacts (NEW_BEHAVIOR needs established history), memory never a premise, record links never identity, four cross-domain families non-causal with stock quantities excluded, Brain context carries no money or customer id; deterministic; run by m0-knowledge-tenant-safety.yml (real-DB tenant isolation of the new sources in .m0/m7-snapshot-battery.ts)"
     }
   }
 }

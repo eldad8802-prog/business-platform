@@ -63,7 +63,8 @@ export async function ingestAcquisition(input: {
 
   const eventIds = accepted.recorded.filter((r) => r.isNew).map((r) => r.id);
   const work = async () => {
-    if (!eventIds.length) return;
+    // Even a pure re-delivery drains: drainIntake also picks up this business's DUE retries, so any
+    // inbound for a business is a recovery opportunity for its own stuck receipts (tenant-scoped).
     await runTenantJob({ businessId: accepted.businessId }, () =>
       drainIntake(intakeRegistry, accepted.businessId, { eventIds })
     ).then(() => undefined, () => undefined);

@@ -44,8 +44,8 @@ psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/202609081
 # and let migrate deploy build it the way Production has it. The same holds for M6's table once the
 # code models it: a pushed AcquisitionConnection is removed so M6 stays genuinely pending here.
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" \
-  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "AcquisitionConnection" CASCADE' \
-  -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact" CASCADE' \
+  -c 'DROP TABLE IF EXISTS "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "AcquisitionConnection", "BusinessTrustClaim" CASCADE' \
+  -c 'DROP TYPE IF EXISTS "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact", "ConversionChannel", "TrustClaimKind", "TrustClaimClass", "TrustClaimStatus", "TrustVerificationMethod" CASCADE' \
   -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name > '20261003090000_control_plane_production_privileges'"
 
 deploy_upto() {  # deploy_upto <last-migration-name> [<migration that fails on its last statement>]

@@ -83,8 +83,16 @@ const ticket = context.knowledge.find((k) => k.key === "customers.ticket_size");
 ok("a per-customer ticket size reaches the Brain WITHOUT its amount", !!ticket && !("value" in ticket.facts) && ticket.facts.unit === "currency", ticket);
 ok("no money value anywhere in the context", !serialized.includes("1234.56"));
 ok("relationships are not serialized to the Brain", !("relationships" in context));
-const caveatOf = (key: string) => context.knowledge.find((k) => k.key === key)?.caveats ?? null;
-ok("SEC-02 reaches the Brain labelled OWNER_ASSERTED", JSON.stringify(caveatOf("secretary.obligation_closure_timing")) === '["OWNER_ASSERTED"]');
+const caveatOf = (key: string) => context.knowledge.find((k) => k.key === key && k.kind === "MEASURE")?.caveats ?? null;
+// The label travels with the item: on the BKS item always, and on the Brain item whenever the byte budget admits it
+// (this fixture makes EVERY rule ACTIVE at once, so the lowest-priority tail may be trimmed — and counted in omitted).
+const secBks = snap.knowledge.find((k) => k.key === "secretary.obligation_closure_timing" && k.kind === "MEASURE");
+ok("SEC-02 is labelled OWNER_ASSERTED in the BKS", JSON.stringify(secBks?.caveats) === '["OWNER_ASSERTED"]');
+ok("…and in the Brain context whenever admitted (never without the label)",
+  caveatOf("secretary.obligation_closure_timing") === null || JSON.stringify(caveatOf("secretary.obligation_closure_timing")) === '["OWNER_ASSERTED"]');
+const secState = snap.knowledge.find((k) => k.key === "secretary.obligation_closure_timing" && k.kind === "TEMPORAL_STATE");
+ok("…and its temporal state inherits OWNER_ASSERTED (built from the same owner claims)", !secState || JSON.stringify(secState.caveats) === '["OWNER_ASSERTED"]');
+ok("anything trimmed by the Brain budget is counted, never silent", context.knowledge.length + Object.values(context.omitted).reduce((a, b) => a + b, 0) >= snap.knowledge.filter((k) => k.freshness.fresh).length - 1);
 ok("an unknown detail label is never promoted to a caveat", JSON.stringify(caveatOf("billing.invoicing_cadence")) === "[]");
 
 console.log(`\nRULES → BKS: ${rules.length} measures + ${temporal.length} temporal; BRAIN DOMAINS: ${[...domainsIn].sort().join(", ")}`);

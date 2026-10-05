@@ -30,8 +30,16 @@ async function handle(req: NextRequest) {
   }
   try {
     const report = await runIntakeSweep();
-    const unhealthy = report.businessErrors > 0;
-    return NextResponse.json({ ok: !unhealthy, report }, { status: unhealthy ? 500 : 200 });
+    // "The sweep ran" is not "the receipts were processed": a business that could not be swept, or
+    // any receipt that failed again (retryable) or went to dead letter during this run, makes the run
+    // unhealthy — the scheduler goes red. Counts only; no content.
+    const reasons = [
+      ...(report.businessErrors > 0 ? ["business_errors"] : []),
+      ...(report.events.failed > 0 ? ["failed_receipts"] : []),
+    ];
+    const unhealthy = reasons.length > 0;
+    if (unhealthy) console.error("[intake-sweep] unhealthy", { reasons, businessErrors: report.businessErrors, failed: report.events.failed });
+    return NextResponse.json({ ok: !unhealthy, ...(unhealthy ? { reasons } : {}), report }, { status: unhealthy ? 500 : 200 });
   } catch (error) {
     console.error("[intake-sweep] run failed", {
       error: error instanceof Error ? error.name : "unknown",
