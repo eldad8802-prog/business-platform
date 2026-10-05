@@ -37,22 +37,31 @@ try {
     const ctx = await browser.newContext({ locale: "he-IL", viewport: { width: vp.width, height: vp.height } });
     await ctx.addInitScript((t) => localStorage.setItem("token", t), TOKEN);
     await ctx.route("**/api/**", (r) => r.fulfill(json({ error: "qa-not-mocked" }, 404)));
-    let release;
-    const held = new Promise((r) => (release = r));
+    // The document fetch is HELD until `release()` — the screen stays in its
+    // loading state for as long as the test needs.
+    let release = () => {};
+    let held = Promise.resolve();
+    const hold = () => {
+      held = new Promise((r) => (release = r));
+    };
+    let fetchesAnswered = 0;
     await ctx.route(/\/api\/documents\/77$/, async (r) => {
-      await held; // keep the screen in its loading state until we have looked
+      await held;
+      fetchesAnswered += 1;
       await r.fulfill(json({
         document: { id: 77, status: "processing", originalName: "קבלה.jpg", mimeType: "image/jpeg", createdAt: NOW, updatedAt: NOW },
         outputProfile: null,
         extracted: null,
-      }));
+      })).catch(() => {});
     });
     const p = await ctx.newPage();
     await p.goto(`${BASE}/tools/money`, { waitUntil: "networkidle" });
+
+    // 1. Loading state (fetch held): the back control is already there, and
+    //    pressing it returns to the origin WITHOUT waiting for the load.
+    hold();
     await p.evaluate(() => window.next.router.push("/documents/review/77"));
     await p.waitForURL("**/documents/review/77");
-
-    // 1. Loading state (fetch held): the back control is already there.
     const backVisible = await p
       .locator("[data-dz-back]:visible")
       .first()
@@ -63,9 +72,24 @@ try {
     if (backVisible) {
       const mode = await p.locator("[data-dz-back]:visible").first().getAttribute("data-dz-back");
       check("loading back resolves to the verified origin", mode === "history", mode ?? "");
+      const t0 = Date.now();
+      await p.locator("[data-dz-back]:visible").first().click();
+      const left = await p
+        .waitForURL((u) => u.pathname === "/tools/money", { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      const ms = Date.now() - t0;
+      check("back pressed DURING loading returns to the origin", left, new URL(p.url()).pathname);
+      check("…without waiting for the document load (still held)", left && fetchesAnswered === 0, `answered=${fetchesAnswered}, ${ms}ms`);
     }
+    release(); // let the abandoned request finish; it must not drag the user back
+    await p.waitForTimeout(800);
+    check("after the held load completes, the user stays on the origin", new URL(p.url()).pathname === "/tools/money", new URL(p.url()).pathname);
 
-    // 2. Loaded (processing top bar): round 44×44, not stretched.
+    // 2. A fresh entry, loaded (processing top bar): round 44×44, not stretched.
+    hold();
+    await p.evaluate(() => window.next.router.push("/documents/review/77"));
+    await p.waitForURL("**/documents/review/77");
     release();
     await p.waitForLoadState("networkidle").catch(() => {});
     await p.waitForTimeout(800);
