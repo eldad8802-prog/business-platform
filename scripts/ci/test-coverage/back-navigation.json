@@ -1,0 +1,11 @@
+{
+  "note": "feat/back-navigation (#656): the app-wide back control's pure logic.",
+  "tests": {
+    "lib/navigation/back-nav/back-nav.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "back-nav-ci.yml",
+      "reason": "back-target validation is a redirect boundary: rejects external / protocol-relative / scheme / auth / API targets, never walks into another account's history entries, and fails when a page route has no declared fallback; pure (no DB/network); run by back-nav-ci.yml on pull_request"
+    }
+  }
+}
