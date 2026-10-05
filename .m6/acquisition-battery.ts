@@ -441,11 +441,11 @@ async function main() {
   const twin = await o.acquisitionConnection.findUnique({ where: { id: site.connection.id } });
   ok("the owner gave one site; its www twin is allowed with it",
     JSON.stringify(twin?.allowedOrigins) === JSON.stringify(["https://shop-a.example", "https://www.shop-a.example"]), JSON.stringify(twin?.allowedOrigins));
-  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string) =>
+  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string, ip = "203.0.113.9") =>
     webPOST(new NextRequest(`http://m6.local/api/intake/acquisition/web/${publicId}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml", origin,
-        ...(referer ? { referer } : {}), "x-forwarded-for": "203.0.113.9" },
+        ...(referer ? { referer } : {}), "x-forwarded-for": ip },
       body: new URLSearchParams(fields).toString(),
     }), params({ publicId }));
   const enquiry = { name: "Plain Form", phone: "053-777-1234", message: "do you work on Fridays", page_url: "https://www.shop-a.example/contact?utm_source=newsletter" };
@@ -500,18 +500,20 @@ async function main() {
   const rcpts = () => o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
   const ask = { name: "Same Text Person", phone: "053-222-3344", message: "same question twice", page_url: "https://shop-a.example/contact" };
   const pageLoad1 = randomUUID();
+  // one visitor on one page (8 requests, under the 10/min per-IP limit, which is proven elsewhere); new page loads from a second IP
+  const V1 = "203.0.113.50", V2 = "203.0.113.51";
   const r0 = await rcpts();
-  const d1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example");
-  const d2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example");
+  const d1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
+  const d2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
   ok("double-click (same page load, same id) → ONE receipt", d1.status === 200 && d2.status === 200 && (await rcpts()) === r0 + 1);
-  await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://www.shop-a.example");
+  await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://www.shop-a.example", undefined, V1);
   ok("a retry / back + resubmit of that page → still ONE receipt", (await rcpts()) === r0 + 1);
   const parallel = await Promise.all(Array.from({ length: 5 }, () => htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example")));
   ok("5 parallel deliveries of the same id → still ONE receipt", parallel.every((r) => r.status === 200) && (await rcpts()) === r0 + 1);
-  await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example");
-  ok("the identical enquiry from a NEW page load (new id) → a new receipt", (await rcpts()) === r0 + 2);
-  await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example");
-  ok("two identical same-day enquiries with two ids → two receipts (three page loads → three)", (await rcpts()) === r0 + 3);
+  const n1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("the identical enquiry from a NEW page load (new id) → a new receipt", n1.status === 200 && (await rcpts()) === r0 + 2);
+  const n2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("two identical same-day enquiries with two ids → two receipts (three page loads → three)", n2.status === 200 && (await rcpts()) === r0 + 3);
   const keys = await o.intakeEvent.findMany({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId },
     select: { externalEventId: true, dedupeBasis: true } });
   ok("no idempotency key carries PII or the raw id (sha256 keys only)",
