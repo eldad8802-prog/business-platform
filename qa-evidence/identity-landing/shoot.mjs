@@ -53,6 +53,9 @@ for (const tenant of ["partial", "empty"]) {
       check("partial: internal guarantee claim is NOT in the preview", !(await p.locator('[aria-label="תצוגה מקדימה, לא פורסמה"]').textContent()).includes("7 ימים"));
       check("partial: call-to-action is the usable CALL path", await p.isVisible('[aria-label="תצוגה מקדימה, לא פורסמה"] >> text=להתקשר'));
       check("partial: learned suggestions come from real services", await p.isVisible("text=שירות עד הבית"));
+      const strategyHref = await p.getAttribute('a:has-text("לאילו כיווני דף נחיתה")', "href");
+      const strategyRes = await p.request.get(`${BASE}${strategyHref}`);
+      check("preview links to the P3-B strategy directions page", strategyHref === "/business/landing-strategy" && strategyRes.status() === 200, `${strategyHref} ${strategyRes.status()}`);
     }
     if (w === 390 && tenant === "empty") {
       check("empty: 0 of 4 chapters", (await p.textContent('section[aria-labelledby="identity-orient"]')).includes("0 מתוך 4"));

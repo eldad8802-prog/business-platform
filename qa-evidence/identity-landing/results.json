@@ -45,6 +45,11 @@
     "detail": ""
   },
   {
+    "name": "preview links to the P3-B strategy directions page",
+    "ok": true,
+    "detail": "/business/landing-strategy 200"
+  },
+  {
     "name": "partial 768: no horizontal overflow",
     "ok": true,
     "detail": ""
