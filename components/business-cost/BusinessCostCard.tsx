@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import {
   affirmRecurringCostsRecorded,
@@ -154,12 +154,8 @@ export function BusinessCostCard() {
         <Figure
           label={`עלות ליום ב${monthName(b.calendarDay.month)}`}
           value={ils(b.calendarDay.daily)}
-          hint={
-            <>
-              {/* The arithmetic reads left-to-right as one unit, never split or reordered by the RTL line. */}
-              <bdi dir="ltr" style={{ whiteSpace: "nowrap" }}>{`${ils(b.monthly)} ÷ ${b.calendarDay.daysInMonth}`}</bdi> ימי החודש
-            </>
-          }
+          // "חלקי", not "÷": a neutral symbol between two numbers is reordered by the RTL line; a Hebrew word is not.
+          hint={`${ils(b.monthly)} חלקי ${b.calendarDay.daysInMonth} ימי החודש`}
         />
       </div>
       {notIncluded.length > 0 ? (
@@ -240,7 +236,7 @@ export function BusinessCostCard() {
 }
 
 /** One of the two headline answers: a label, the number, and how it was reached. */
-function Figure({ label, value, hint }: { label: string; value: string; hint: ReactNode }) {
+function Figure({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div style={{ flex: "1 1 150px", minWidth: 0, background: DS.surface2, borderRadius: 12, padding: "10px 12px" }}>
       <div style={{ color: DS.muted, fontSize: 13 }}>{label}</div>
