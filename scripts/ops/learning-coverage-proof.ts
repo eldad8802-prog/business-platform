@@ -19,7 +19,11 @@
  *   CUSTOMER     customer-keyed measures point at a Customer of the same business (the FK, nothing else);
  *                no measure or temporal detail carries a phone / email / tax-id key
  *   SYNTHETIC    no source record of the coverage domains was created inside the derivation run window
- *   EXISTING     the pre-coverage rules still have their measures, pinned to registered lineages
+ *   EXISTING     every pre-coverage measure is pinned to its rule's current lineage, OR is proven
+ *                LEGITIMATE_HISTORY by the shared classifier (lineage-pin-classifier.ts): out of circulation
+ *                (SUPERSEDED / STALE) AND corroborated (materialized before the expected lineage existed, or a live
+ *                row under the expected lineage exists for the same slot). LIVE_WRONG_PIN and
+ *                HISTORICAL_STATUS_UNEXPLAINED fail. No blanket exclusion of SUPERSEDED; no rule or business is named.
  *   BRAIN        run row: brain requested / allowed / invoked, accepted count, prompt version
  *
  * Exit: 0 PASS · 1 FAIL (any check false) · 3 REFUSED · 2 usage.
@@ -29,6 +33,7 @@ import { assertSafeUrl, enforceReadOnly, RefusedError, verifyReadOnly } from "./
 import { catalogueDescriptors } from "@/lib/knowledge/registry";
 import { temporalCatalogue } from "@/lib/knowledge/temporal/rules";
 import { COVERAGE_DOMAINS, COVERAGE_EVIDENCE_STORES } from "@/lib/knowledge/coverage/evidence-kinds";
+import { classifyPinMismatch, type PinClass } from "./lineage-pin-classifier";
 
 const NEW_RULE = /^(BILL|CUST|PAY|COLL|LEAD|CONV|APPT|SEC|OFF|REP)-/;
 const NEW_TEMPORAL = /^T-(BILL|CUST|PAY|LEAD|CONV|APPT)-/;
@@ -95,8 +100,8 @@ async function main(): Promise<void> {
         promptVersion: run.versions?.brainPrompt ?? null };
 
       /* MEASURES */
-      const measures = await q<{ id: number; measureKey: string; status: string; entityType: string | null; entityId: number | null; pkey: string; ver: string; pii: boolean }>(
-        `SELECT m.id, m."measureKey", m.status::text AS status, m."entityType", m."entityId", p.key AS pkey, v.version AS ver,
+      const measures = await q<{ id: number; measureKey: string; status: string; entityType: string | null; entityId: number | null; materializedAt: Date; pkey: string; ver: string; pii: boolean }>(
+        `SELECT m.id, m."measureKey", m.status::text AS status, m."entityType", m."entityId", m."materializedAt", p.key AS pkey, v.version AS ver,
                 (m.detail::text ~* $2) AS pii
            FROM "KnowledgeMeasure" m JOIN "DerivationPolicyVersion" v ON v.id = m."rulePolicyVersionId" JOIN "DerivationPolicy" p ON p.id = v."policyId"
           WHERE m."businessId" = $1`, b, PII_KEYS.source);
@@ -165,9 +170,24 @@ async function main(): Promise<void> {
 
       /* EXISTING */
       const oldWithRows = oldRules.filter((d) => measures.some((m) => m.measureKey === d.measureKey)).length;
-      const oldPinnedWrong = measures.filter((m) => oldRules.some((d) => d.measureKey === m.measureKey && d.policyKey !== m.pkey)).length;
-      out.existing = { preCoverageRules: oldRules.length, withRows: oldWithRows };
-      check(`B${b}: existing learning — pre-coverage measures stay pinned to their own lineages`, oldPinnedWrong === 0, oldPinnedWrong);
+      const pinClasses: Record<PinClass, number> = { LEGITIMATE_HISTORY: 0, HISTORICAL_STATUS_UNEXPLAINED: 0, LIVE_WRONG_PIN: 0 };
+      for (const m of measures) {
+        const d = oldRules.find((x) => x.measureKey === m.measureKey);
+        if (!d || d.policyKey === m.pkey) continue;
+        const [exp] = await q<{ createdAt: Date }>(
+          `SELECT v."createdAt" FROM "DerivationPolicyVersion" v JOIN "DerivationPolicy" p ON p.id = v."policyId" WHERE p.key = $1 AND v.version = $2`,
+          d.policyKey, d.versionLabel);
+        const [slot] = await q<{ status: string }>(
+          `SELECT m.status::text AS status FROM "KnowledgeMeasure" m
+             JOIN "DerivationPolicyVersion" v ON v.id = m."rulePolicyVersionId" JOIN "DerivationPolicy" p ON p.id = v."policyId"
+            WHERE m."businessId" = $1 AND m."measureKey" = $2 AND COALESCE(m."entityType", '') = COALESCE($3, '') AND COALESCE(m."entityId", 0) = COALESCE($4, 0)
+              AND p.key = $5 AND v.version = $6 LIMIT 1`, b, m.measureKey, m.entityType, m.entityId, d.policyKey, d.versionLabel);
+        pinClasses[classifyPinMismatch({ status: m.status, materializedAt: m.materializedAt,
+          expectedLineageCreatedAt: exp?.createdAt ?? null, currentSlotStatus: slot?.status ?? null })] += 1;
+      }
+      out.existing = { preCoverageRules: oldRules.length, withRows: oldWithRows, lineageMismatches: pinClasses };
+      check(`B${b}: existing learning — every pre-coverage measure is on its current lineage or proven LEGITIMATE_HISTORY`,
+        pinClasses.LIVE_WRONG_PIN === 0 && pinClasses.HISTORICAL_STATUS_UNEXPLAINED === 0, pinClasses);
 
       perBusiness[`B${b}`] = out;
     }
