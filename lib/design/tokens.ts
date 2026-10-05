@@ -450,8 +450,8 @@ export type AvatarColor = keyof typeof TOKEN.avatar;
  * a screen picks a PageIntent (via PageContainer), a split picks a scale
  * breakpoint (via WorkspaceLayout), an overlay picks a variant.
  *
- * Breakpoints align 1:1 with ShellChrome's existing tiers (768 rail /
- * 1024 sidebar) and with Tailwind v4 defaults (md/lg/xl) — deliberately.
+ * Breakpoints align 1:1 with ShellChrome's tiers (768 rail /
+ * 1280 sidebar) and with Tailwind v4 defaults (md/lg/xl) — deliberately.
  */
 export const LAYOUT = {
   /** compact <768 · medium 768–1023 · expanded 1024–1279 · wide ≥1280 */
@@ -468,7 +468,7 @@ export const LAYOUT = {
   /** Horizontal page gutters per tier (consumed via clamp in PageContainer). */
   gutter: { compact: 16, medium: 24, expanded: 32 },
   /** Mirrors ShellChrome's fixed chrome — single source for offsets. */
-  shell: { rail: 76, sidebar: 248, bottomClearance: 100 },
+  shell: { rail: 100, sidebar: 264, bottomClearance: 100 },
   /** Canonical z tiers — ends the ad-hoc 100/101/2147483000 escalation. */
   z: { nav: 100, fab: 110, overlay: 1300, toast: 1400 },
 } as const;

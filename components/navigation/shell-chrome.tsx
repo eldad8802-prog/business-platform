@@ -3,26 +3,27 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { BottomBar } from "./bottom-bar";
-import { SideNav } from "./side-nav";
+import { NavRail, NavSidebar } from "./side-nav";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
 
 type ShellChromeProps = {
   children: ReactNode;
 };
 
-
 /**
  * Adaptive App Shell chrome — one shell, three device tiers, switched purely in
  * CSS (SSR-safe, no `window.innerWidth`, no hydration branch):
- *   mobile  (<768)      → fixed BottomBar + FAB (unchanged)
- *   tablet  (768–1023)  → compact SideNav rail (76px)
- *   desktop (≥1024)     → full SideNav sidebar (248px)
+ *   mobile  (<768)      → fixed BottomBar with the raised "+"
+ *   tablet  (768–1279)  → NavRail (100px)
+ *   desktop (≥1280)     → NavSidebar (264px)
  *
- * All three read the SAME nav source (nav-destinations) — the nav list is never
- * duplicated. Exactly one nav surface is visible at any width (mutually
- * exclusive `.shell-nav-*` display rules). The content reserves the matching
- * inline-start padding (RTL → right) for the rail/sidebar and the bottom padding
- * for the mobile bar.
+ * The tiers and every measurement below come from the approved Home
+ * references (mobile 390 / tablet 1194 / desktop 1440). All three surfaces read
+ * the SAME nav source (nav-destinations) — the nav list is never duplicated.
+ * Exactly one nav surface is visible at any width (mutually exclusive
+ * `.shell-nav-*` display rules). The content reserves the matching inline-start
+ * padding (RTL → right) for the rail/sidebar and the bottom padding for the
+ * mobile bar.
  *
  * A single visibility signal (`useShellChromeHidden`) removes ALL nav chrome for
  * full-workspace screens (secretary / billing detail / revenue / bot) and drops
@@ -31,10 +32,10 @@ type ShellChromeProps = {
 const shellCss = `
 [data-shell-root] .shell-content { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
 @media (min-width: 768px) {
-  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: 32px; padding-inline-start: 76px; }
+  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: 32px; padding-inline-start: 100px; }
 }
-@media (min-width: 1024px) {
-  [data-shell-root][data-chrome="on"] .shell-content { padding-inline-start: 248px; }
+@media (min-width: 1280px) {
+  [data-shell-root][data-chrome="on"] .shell-content { padding-inline-start: 264px; }
 }
 [data-shell-root][data-chrome="off"] .shell-content { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding-inline-start: 0; }
 
@@ -46,60 +47,113 @@ const shellCss = `
   [data-shell-root] .shell-nav-mobile { display: none; }
   [data-shell-root] .shell-nav-rail { display: block; }
 }
-@media (min-width: 1024px) {
+@media (min-width: 1280px) {
   [data-shell-root] .shell-nav-rail { display: none; }
   [data-shell-root] .shell-nav-sidebar { display: block; }
 }
 
-/* SideNav (rail + sidebar) — DS v1 warm; fixed to the inline-start (right in RTL). */
-.shell-sidenav {
-  position: fixed;
-  inset-block: 0;
-  inset-inline-start: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  background: var(--dz-nav-sidebar-surface);
-  border-inline-end: 1px solid var(--dz-nav-sidebar-border);
-  box-shadow: var(--dz-nav-sidebar-shadow);
-  overflow-y: auto;
-  overflow-x: hidden;
+/* The references use the browser default line height, not the app's 1.5. */
+.dz-rail, .dz-sidebar, [data-component="shell-bottom-bar"] { line-height: normal; }
+
+/* ---- mobile bottom bar (reference: mobile.html) ---- */
+.dz-bottom__item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-height: 48px; justify-content: center;
+  color: #5E6B69; font-size: 11px; font-weight: 500; text-decoration: none;
+  touch-action: manipulation;
+}
+.dz-bottom__item[data-active] { color: #1D5552; font-weight: 600; }
+.dz-bottom__icon { position: relative; height: 30px; display: flex; align-items: center; justify-content: center; }
+.dz-bottom__item[data-active] .dz-bottom__icon { width: 56px; border-radius: 999px; background: #E3F2F0; }
+.dz-bottom__dot { position: absolute; top: 4px; left: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
+.dz-bottom__item[data-active] .dz-bottom__dot { left: 16px; }
+.dz-bottom__new {
+  width: 58px; height: 58px; margin-top: -30px; border-radius: 999px;
+  border: 4px solid #FEF8F2; background: #246966; color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  box-shadow: 0 8px 18px -8px rgba(29,85,82,0.7);
+  touch-action: manipulation;
+}
+
+/* ---- tablet rail (reference: tablet.html) ---- */
+.dz-rail {
+  position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 40;
+  width: 100px; box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
+  background: #FFFDFA; border-inline-end: 1px solid #F0E3D3;
+  padding: 24px 10px; display: flex; flex-direction: column; align-items: center; gap: 14px;
   direction: rtl;
 }
-.shell-sidenav--full { width: 248px; padding: 18px 14px; }
-.shell-sidenav--rail { width: 76px; padding: 18px 10px; align-items: center; }
+.dz-rail__logo {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 14px;
+  background: linear-gradient(150deg, #246966, #3D9C9A); color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 22px; text-decoration: none;
+}
+.dz-rail__new {
+  width: 56px; height: 56px; flex-shrink: 0; margin: 6px 0 10px; border-radius: 18px; border: 0;
+  background: #246966; color: #FFFFFF; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0; box-shadow: 0 8px 18px -8px rgba(29,85,82,0.7);
+}
+.dz-rail__item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0;
+  color: #5E6B69; font-size: 12px; font-weight: 500; text-decoration: none;
+}
+.dz-rail__item[data-active] { color: #1D5552; font-weight: 600; }
+.dz-rail__icon { position: relative; height: 34px; display: flex; align-items: center; justify-content: center; }
+.dz-rail__item[data-active] .dz-rail__icon { width: 60px; border-radius: 999px; background: #E3F2F0; }
+.dz-rail__dot { position: absolute; top: 5px; left: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
+.dz-rail__item[data-active] .dz-rail__dot { left: 18px; }
 
-.shell-brand { display: flex; align-items: center; height: 44px; margin-bottom: 14px; padding-inline-start: 8px; }
-.shell-sidenav--rail .shell-brand { justify-content: center; padding: 0; }
-.shell-brand__word { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; color: var(--dz-nav-brand-word); }
-.shell-brand__mark { width: 34px; height: 34px; border-radius: 10px; background: var(--dz-nav-brand-mark-bg); color: var(--dz-nav-brand-word); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
-
-.shell-navlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; width: 100%; }
-.shell-navitem {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 12px;
-  border-radius: 12px;
-  color: var(--dz-nav-sidebar-item);
-  text-decoration: none;
-  font-size: 14.5px;
-  font-weight: 500;
+/* ---- desktop sidebar (reference: desktop.html) ---- */
+.dz-sidebar {
+  position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 40;
+  width: 264px; box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
+  background: #FFFDFA; border-inline-end: 1px solid #F0E3D3;
+  padding: 22px 14px; display: flex; flex-direction: column; gap: 14px;
+  color: #1E2B2A; direction: rtl;
+}
+.dz-sidebar__brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; text-decoration: none; }
+.dz-sidebar__mark {
+  width: 36px; height: 36px; border-radius: 11px; background: linear-gradient(150deg, #246966, #3D9C9A);
+  color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 19px;
+}
+.dz-sidebar__word { font-size: 25px; font-weight: 600; color: #246966; letter-spacing: -0.5px; }
+.dz-sidebar__business {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 56px; box-sizing: border-box; flex-shrink: 0;
+  padding: 0 12px; border-radius: 14px; border: 1px solid #F0E3D3; background: #FEF8F2; color: #1E2B2A;
+}
+.dz-sidebar__business-mark {
+  width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #FBEEDD; color: #A0601F;
+  display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px;
+}
+.dz-sidebar__business-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dz-sidebar__actions { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 8px; }
+.dz-sidebar__new {
+  height: 44px; border-radius: 12px; border: 0; background: #246966; color: #FFFFFF;
+  font-family: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; box-shadow: 0 8px 18px -10px rgba(29,85,82,0.7);
+}
+.dz-sidebar__search {
+  height: 44px; border-radius: 12px; border: 1px solid #F0E3D3; background: #FEF8F2; color: #1E2B2A;
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+}
+.dz-sidebar__group { display: flex; flex-direction: column; gap: 1px; }
+.dz-sidebar__group-title { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 11px; font-weight: 600; color: #5E6B69; letter-spacing: 0.2px; }
+.dz-sidebar__item {
+  display: flex; align-items: center; gap: 12px; height: 40px; flex-shrink: 0; padding: 0 12px; border-radius: 11px;
+  color: #3B4544; text-decoration: none; font-size: 14px; font-weight: 400;
   transition: background 150ms ease, color 150ms ease;
 }
-.shell-sidenav--rail .shell-navitem { justify-content: center; width: 52px; height: 52px; padding: 0; margin-inline: auto; gap: 0; }
-.shell-navitem__icon { display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; flex-shrink: 0; }
-.shell-navitem:hover { background: var(--dz-nav-item-hover-bg); color: var(--dz-nav-item-hover-ink); }
-.shell-navitem[aria-current="page"] { background: var(--dz-nav-item-active-bg); color: var(--dz-nav-item-active); font-weight: 600; }
-.shell-navitem[aria-current="page"]::before {
-  content: ""; position: absolute; inset-inline-start: 0; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 22px; border-radius: 999px; background: var(--dz-nav-item-active);
+.dz-sidebar__item:hover { background: #FBF3EA; color: #1D5552; }
+.dz-sidebar__item[data-active] { background: #E3F2F0; color: #1D5552; font-weight: 600; }
+.dz-sidebar__badge { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; }
+
+.dz-rail a:focus-visible, .dz-rail button:focus-visible,
+.dz-sidebar a:focus-visible, .dz-sidebar button:focus-visible,
+[data-component="shell-bottom-bar"] a:focus-visible, [data-component="shell-bottom-bar"] button:focus-visible {
+  outline: 2px solid #246966; outline-offset: 2px;
 }
-.shell-sidenav--rail .shell-navitem[aria-current="page"]::before { height: 26px; }
-.shell-navitem:focus-visible { outline: 2px solid var(--dz-nav-item-active); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .shell-navitem { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .dz-sidebar__item { transition: none; } }
 `;
 
 /**
@@ -113,11 +167,8 @@ export function ShellChrome({ children }: ShellChromeProps) {
   /**
    * Home exclusion (Dubiz Mist §12). The authenticated Dubiz home is `/app` —
    * `app/(shell)/page.tsx` redirects `/` there, so `/app` is the only pathname
-   * that ever renders it. The screen itself is self-scoped under `.dzhome` and
-   * reads no platform token, so the ONLY shared surfaces that paint on it are
-   * the nav chrome below. Flagging the route here restores their pre-Mist
-   * values through the `[data-dz-home]` block in `app/dubiz-mist.css`, which is
-   * what makes the Home guarantee pixel-exact rather than approximate.
+   * that ever renders it. Flagging the route lets `app/dubiz-mist.css` paint the
+   * shell ground in the Home canvas colour, so nothing shows behind the screen.
    *
    * `usePathname` resolves during SSR in the App Router, so the attribute is
    * present on the very first paint — no flash, no hydration branch.
@@ -148,10 +199,10 @@ export function ShellChrome({ children }: ShellChromeProps) {
             <BottomBar />
           </div>
           <div className="shell-nav-rail">
-            <SideNav compact />
+            <NavRail />
           </div>
           <div className="shell-nav-sidebar">
-            <SideNav />
+            <NavSidebar />
           </div>
         </>
       )}

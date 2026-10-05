@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import "./crm.css";
 import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
@@ -41,7 +41,22 @@ export default function CustomersLayout({ children }: { children: ReactNode }) {
     <div className="crm-scope" dir="rtl" data-page-intent={SURFACE_INTENT}>
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <WorkspaceLayout
-        start={<CustomersList selectedId={selectedId} />}
+        start={
+          // CustomersList reads ?new= (Home's "לקוח חדש" deep link), and
+          // useSearchParams needs a Suspense boundary or the route cannot be
+          // prerendered. The fallback mirrors the list's own loading skeleton.
+          <Suspense
+            fallback={
+              <div className="crm-page">
+                <div className="crm-skel" />
+                <div className="crm-skel" />
+                <div className="crm-skel" />
+              </div>
+            }
+          >
+            <CustomersList selectedId={selectedId} />
+          </Suspense>
+        }
         end={children}
         startWidth={380}
         breakpointStep={TWO_PANE_MIN}
