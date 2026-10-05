@@ -14,6 +14,8 @@ import { hashKey, newPublicId, newSharedKey, PUBLIC_ID_PATTERN, safeEqual } from
 import { deriveLeadArrivals, leadSourceGroup } from "@/lib/services/crm/lead-briefing";
 import type { ClaimedIntakeEvent } from "@/lib/intake/core/contract";
 import { HANDLE_TTL_MS, openConnectHandle, sealConnectHandle } from "./connect-handle";
+import { WEB_FORM_SCRIPT, webFormSnippet } from "./web-form-snippet";
+import vm from "node:vm";
 
 let n = 0;
 function t(name: string, fn: () => void) {
@@ -170,6 +172,53 @@ t("web form without submission_id: same enquiry the same day = one receipt; the 
   assert.notEqual(at("2026-10-06T09:00:00.120Z"), first, "the same enquiry the next day is new");
   assert.notEqual(at("2026-10-05T09:00:00.120Z", { message: "a different question" }), first, "different content is new");
   assert.notEqual(at("2026-10-05T09:00:00.120Z", { submission_id: "s-42" }), first, "a form-supplied submission id wins");
+});
+
+t("ready-made form: the real script gives ONE submission id per page load; a restored value is kept", () => {
+  const snippet = webFormSnippet("https://promaxgroup.co.il/api/intake/acquisition/web/abc");
+  assert.ok(snippet.includes(`<input type="hidden" name="submission_id">`) && snippet.includes("data-dubiz-form") && snippet.includes(WEB_FORM_SCRIPT));
+  // A page = one form with its hidden inputs; running the script = loading the page.
+  const page = (restoredId = "") => {
+    const inputs: Record<string, { value: string }> = { submission_id: { value: restoredId }, page_url: { value: "" } };
+    const form = { querySelector: (sel: string) => inputs[/name="([^"]+)"/.exec(sel)![1]] ?? null };
+    return { inputs, ctx: vm.createContext({
+      document: { querySelectorAll: () => [form] },
+      location: { href: "https://www.site.example/contact?utm_source=google" },
+      self: { crypto: { randomUUID: () => crypto.randomUUID() } },
+      crypto: { randomUUID: () => crypto.randomUUID() },
+      Date, Math,
+    }) };
+  };
+  const load = (p: ReturnType<typeof page>) => { vm.runInContext(WEB_FORM_SCRIPT, p.ctx); return p.inputs; };
+  const first = load(page());
+  assert.match(first.submission_id.value, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.equal(first.page_url.value, "https://www.site.example/contact?utm_source=google");
+  // Double-click / retry / back + resubmit: the same page, the script ran again on a restored field.
+  const restored = page(first.submission_id.value);
+  assert.equal(load(restored).submission_id.value, first.submission_id.value, "a restored id is never replaced");
+  // A new page load (a new enquiry) gets a new id.
+  assert.notEqual(load(page()).submission_id.value, first.submission_id.value);
+});
+
+t("receipt key: the submission id decides — same id = one receipt whatever the time; two ids = two, even for identical text", () => {
+  const lead = (extra: Record<string, string>, iso: string) => {
+    const p = parseWebForm(flattenFields({ name: "Noa Levi", phone: "050-1234567", email: "noa@example.test", message: "quote please", ...extra })!);
+    assert.ok(p.ok);
+    if (!p.ok) throw new Error("parse");
+    return acquisitionReceipt({ ...p.lead, submittedAt: iso }, "pub1");
+  };
+  const idA = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b", idB = "0a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c3d";
+  const a1 = lead({ submission_id: idA }, "2026-10-05T09:00:00.000Z");
+  assert.equal(lead({ submission_id: idA }, "2026-10-05T09:00:00.400Z").externalEventId, a1.externalEventId, "double-click");
+  assert.equal(lead({ submission_id: idA }, "2026-10-06T00:00:01.000Z").externalEventId, a1.externalEventId, "a retry after midnight UTC");
+  assert.notEqual(lead({ submission_id: idB }, "2026-10-05T09:00:00.000Z").externalEventId, a1.externalEventId, "identical text, new page load");
+  assert.equal(a1.dedupeBasis, "provider_event_id");
+  const fallback = lead({}, "2026-10-05T09:00:00.000Z");
+  assert.equal(fallback.dedupeBasis, "content_fingerprint", "no id: the documented fallback");
+  for (const r of [a1, fallback]) {
+    assert.match(r.externalEventId, /^sha256:[0-9a-f]{64}$/);
+    for (const pii of ["Noa", "Levi", "0501234567", "050-1234567", "noa@example.test", "quote", idA]) assert.ok(!r.externalEventId.includes(pii), `no ${pii} in the key`);
+  }
 });
 
 t("Meta connect handle: opens only for the same business, unexpired and untampered; never shows the token", () => {

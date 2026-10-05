@@ -31,7 +31,7 @@ The live proof itself needs a separate owner decision (§5).
 
 ## 2. Changes in this milestone
 
-- **Idempotency:** website receipts without `submission_id` are keyed on content + UTC day, so a double-click, a back + resubmit or a network retry is one receipt and one Lead; the same enquiry tomorrow is new.
+- **Idempotency:** the ready-made form gives each page load ONE `submission_id` (`crypto.randomUUID()`, kept when the browser restores the field): a double-click, a retry or a back + resubmit is one receipt; a new page load is a new enquiry — even with identical text. Without an id (custom forms, blocked script) the fallback is content + UTC day — documented tradeoff: two genuine identical enquiries from the same person on the same UTC day collapse (same person, same open Lead; only the repeat signal is lost).
 - **Plain HTML form:** a browser form post from the owner's site gets a short Hebrew page (thank-you / missing contact / try again) with a link back to the site, `CSP default-src 'none'`, nothing the visitor typed echoed. API clients still get JSON.
 - **Origins:** the owner types one site; its `www.` / bare twin is allowed with it.
 - **Recovery on inbound:** any inbound for a business drains that business's due retries — also on a pure re-delivery.
@@ -60,14 +60,14 @@ Proven in CI (`m6-acquisition-ci.yml` step 5) on a clean PG17 database through t
 |---|---|---|---|
 | 1 | Owner names the business | — | owner |
 | 2 | Explicit approval, in the owner's words, for that business only | — | owner |
-| 3 | Set `FEATURE_ACCESS_MUTATIONS_ENABLED=true` in Vercel Production (redeploy) — today absent | Production config | owner |
+| 3 | Make sure `FEATURE_ACCESS_MUTATIONS_ENABLED=true` in Vercel Production (redeploy if changed). Note 2026-10-05: the variable already EXISTS in Production (added 2026-10-03, value not read) — confirm its value and who set it before activation | Production config | owner |
 | 4 | Platform admin: `PATCH /api/platform-admin/businesses/<id>/features/acquisition_web_forms` `{state:"ENABLED", reason:"M6 website live proof — owner approval <link>"}` | one `BusinessFeatureAccess` row (audited) | owner (platform admin) |
 | 5 | Unset `FEATURE_ACCESS_MUTATIONS_ENABLED` again (back to read-only) | Production config | owner |
 | 6 | Verify every other business stays OFF: `ops/evidence/m6-operational-evidence.sql` → expect exactly check 6 = 1 (that business) and everything else PASS; or the live-proof evidence checks 2–3 | read-only | Claude (gate approval) |
 | 7 | Business owner: הגדרות → חיבורים → מקורות לידים → טופס באתר → site address → "חיבור טופס" | one `AcquisitionConnection` | the business owner |
 | 8 | Paste the ready-made form into the site's contact page (or the developer uses the key) | the site | the business owner |
 | 9 | One GENUINE enquiry arrives from the real site | intake → Lead (the real chain) | a real visitor (or the owner using the public form as a customer would) |
-| 10 | The same enquiry resubmitted naturally (back + resubmit) | none expected | the same person |
+| 10 | The same submission resubmitted naturally (back + resubmit / double-click on the same page) | none expected (same submission id) | the same person |
 | 11 | Run `ops/evidence/m6-website-live-proof-evidence.sql` read-only → **17/17** | read-only | Claude (gate approval) |
 | 12 | Website = LIVE-PROVEN | — | declared on 17/17 |
 

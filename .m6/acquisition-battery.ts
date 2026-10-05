@@ -8,7 +8,7 @@
  * env: DATABASE_URL / DIRECT_URL = runtime, OWNER_URL = owner (setup / assertions), AUTH_TOKEN_SECRET,
  *      META_LEAD_ADS_APP_SECRET, META_LEAD_ADS_VERIFY_TOKEN, ACQUISITION_CREDENTIAL_ENCRYPTION_KEY.
  */
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { signAuthToken } from "../lib/auth-token";
@@ -441,11 +441,11 @@ async function main() {
   const twin = await o.acquisitionConnection.findUnique({ where: { id: site.connection.id } });
   ok("the owner gave one site; its www twin is allowed with it",
     JSON.stringify(twin?.allowedOrigins) === JSON.stringify(["https://shop-a.example", "https://www.shop-a.example"]), JSON.stringify(twin?.allowedOrigins));
-  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string) =>
+  const htmlPost = (publicId: string, fields: Record<string, string>, origin: string, referer?: string, ip = "203.0.113.9") =>
     webPOST(new NextRequest(`http://m6.local/api/intake/acquisition/web/${publicId}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml", origin,
-        ...(referer ? { referer } : {}), "x-forwarded-for": "203.0.113.9" },
+        ...(referer ? { referer } : {}), "x-forwarded-for": ip },
       body: new URLSearchParams(fields).toString(),
     }), params({ publicId }));
   const enquiry = { name: "Plain Form", phone: "053-777-1234", message: "do you work on Fridays", page_url: "https://www.shop-a.example/contact?utm_source=newsletter" };
@@ -495,6 +495,31 @@ async function main() {
   ok("…the poison receipt is dead-lettered (not retried forever), and the next sweep is healthy again",
     poison?.status === "FAILED" && poison.nextAttemptAt === null && (poison.lastErrorCode ?? "").startsWith("normalize:") &&
       (await sweepGET(sweepReq(process.env.CRON_SECRET))).status === 200, JSON.stringify({ s: poison?.status, n: poison?.nextAttemptAt, c: poison?.lastErrorCode }));
+
+  console.log("\n-- 13. ready-made form idempotency: one submission id per page load decides --");
+  const rcpts = () => o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
+  const ask = { name: "Same Text Person", phone: "053-222-3344", message: "same question twice", page_url: "https://shop-a.example/contact" };
+  const pageLoad1 = randomUUID();
+  // one visitor on one page (8 requests, under the 10/min per-IP limit, which is proven elsewhere); new page loads from a second IP
+  const V1 = "203.0.113.50", V2 = "203.0.113.51";
+  const r0 = await rcpts();
+  const d1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
+  const d2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example", undefined, V1);
+  ok("double-click (same page load, same id) → ONE receipt", d1.status === 200 && d2.status === 200 && (await rcpts()) === r0 + 1);
+  await htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://www.shop-a.example", undefined, V1);
+  ok("a retry / back + resubmit of that page → still ONE receipt", (await rcpts()) === r0 + 1);
+  const parallel = await Promise.all(Array.from({ length: 5 }, () => htmlPost(site.connection.publicId, { ...ask, submission_id: pageLoad1 }, "https://shop-a.example")));
+  ok("5 parallel deliveries of the same id → still ONE receipt", parallel.every((r) => r.status === 200) && (await rcpts()) === r0 + 1);
+  const n1 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("the identical enquiry from a NEW page load (new id) → a new receipt", n1.status === 200 && (await rcpts()) === r0 + 2);
+  const n2 = await htmlPost(site.connection.publicId, { ...ask, submission_id: randomUUID() }, "https://shop-a.example", undefined, V2);
+  ok("two identical same-day enquiries with two ids → two receipts (three page loads → three)", n2.status === 200 && (await rcpts()) === r0 + 3);
+  const keys = await o.intakeEvent.findMany({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId },
+    select: { externalEventId: true, dedupeBasis: true } });
+  ok("no idempotency key carries PII or the raw id (sha256 keys only)",
+    keys.length > 0 && keys.every((k) => /^sha256:[0-9a-f]{64}$/.test(k.externalEventId) && !/533222|222-3344|Same|question|[0-9a-f]{8}-[0-9a-f]{4}-/.test(k.externalEventId)));
+  ok("…and these receipts are keyed on the submission id (provider_event_id), not the content",
+    keys.filter((k) => k.dedupeBasis === "provider_event_id").length >= 3, JSON.stringify(keys.map((k) => k.dedupeBasis)));
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }
