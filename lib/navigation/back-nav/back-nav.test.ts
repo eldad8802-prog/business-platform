@@ -156,6 +156,23 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
   const t3 = resolve(["/inbox", "/inbox?conversationId=3"]);
   ok("conversation → back to the list (pop, not push)", t3.kind === "history" && t3.url === "/inbox" && t3.delta === -1);
 }
+// In-screen flow steps (useFlowStep: ?step= / ?cstep= / ?list= are identity params).
+{
+  const t = resolve(["/tools", "/pricing", "/pricing?step=calc", "/pricing?step=result"]);
+  ok("pricing result → calc step (one step back)", t.kind === "history" && t.url === "/pricing?step=calc" && t.delta === -1);
+  const t2 = resolve(["/tools", "/pricing", "/pricing?step=calc"]);
+  ok("pricing calc → catalog", t2.kind === "history" && t2.url === "/pricing" && t2.delta === -1);
+  const t3 = resolve(["/collection", "/collection/new", "/collection/new?step=details", "/collection/new"]);
+  ok("collection: 'other customer' step → back to details actually taken", t3.kind === "history" && t3.url === "/collection/new?step=details");
+  const t4 = resolve(["/revenue", "/revenue?view=create", "/revenue?view=create&cstep=direction"]);
+  ok("coupon direction → goal step", t4.kind === "history" && t4.url === "/revenue?view=create");
+  const t5 = resolve(["/tools", "/revenue/redeem", "/revenue/redeem?step=manual", "/revenue/redeem?step=error"]);
+  ok("redeem error → manual entry", t5.kind === "history" && t5.url === "/revenue/redeem?step=manual");
+  const t6 = resolve(["/inbox", "/inbox?list=conversation_list", "/inbox?list=conversation_list&conversationId=7"]);
+  ok("inbox conversation → that category's list → (then) triage", t6.kind === "history" && t6.url === "/inbox?list=conversation_list");
+  ok("non-identity params still collapse", screenKeyOf("/pricing?step=calc&x=1") === "/pricing?step=calc");
+}
+
 // Store hygiene.
 {
   ok("parseStore rejects junk", Object.keys(parseStore("{\"a\":{\"id\":\"b\"}}")).length === 0 && Object.keys(parseStore("nope")).length === 0 && Object.keys(parseStore("[1]")).length === 0);

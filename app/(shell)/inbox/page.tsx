@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
+import { useFlowStep } from "@/hooks/useFlowStep";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
@@ -217,11 +218,15 @@ function InboxPageContent() {
 
   const [selectedWorkCategory, setSelectedWorkCategory] =
     useEntryState<InboxSidebarSelection>("category", INBOX_SIDEBAR_LEGACY_OPEN);
-  // List-internal browsing toggle (mobile only): triage ("categories") vs the
-  // selected category's conversations. NOT a top-level navigation source of
-  // truth — the open conversation is owned solely by the URL (see below).
-  const [mobileListPhase, setMobileListPhase] =
-    useEntryState<InboxListPhase>("listPhase", "categories");
+  // Mobile triage → a category's conversations is a real history step
+  // (?list=conversation_list): back — the button or the browser — returns to
+  // the triage screen in the order taken; the conversation itself is a further
+  // entry (?conversationId), so back from it returns to this list first.
+  const listFlow = useFlowStep<InboxListPhase>({
+    param: "list",
+    steps: ["categories", "conversation_list"],
+  });
+  const mobileListPhase = listFlow.step;
 
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   /** The last conversations load failed, so an empty list is not "no conversations". */
@@ -329,7 +334,7 @@ function InboxPageContent() {
       target = resolveInboxCategoryPick(category, byId);
     }
     setSelectedWorkCategory(target);
-    setMobileListPhase("conversation_list");
+    listFlow.go("conversation_list");
   }
 
   function handlePickDesktopCategory(category: InboxSidebarSelection) {
@@ -339,7 +344,9 @@ function InboxPageContent() {
   // Mobile: back from a category's conversations to the triage screen. Pure
   // list-internal browsing — no URL/history change (category is not URL-backed).
   function handleBackToCategories() {
-    setMobileListPhase("categories");
+    // Pops to the triage entry the list was opened from (replace on a deep
+    // link) — never leaves the inbox, never stacks a duplicate.
+    listFlow.backTo("categories");
   }
 
   // Mobile: in-app back arrow inside a conversation. Pops the history entry the
@@ -528,7 +535,7 @@ function InboxPageContent() {
       }
 
       setSelectedWorkCategory("active");
-      setMobileListPhase("conversation_list");
+      listFlow.replaceStep("conversation_list");
 
       await loadConversations();
       updateConversationIdInUrl(data.conversation.id);
@@ -825,7 +832,7 @@ function InboxPageContent() {
       }
 
       updateConversationIdInUrl(null);
-      setMobileListPhase("conversation_list");
+      listFlow.replaceStep("conversation_list");
       setMessages([]);
       setSuggestions([]);
       setInput("");

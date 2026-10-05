@@ -21,6 +21,7 @@ import { Suspense, useCallback, useEffect, useState, type ReactNode } from "reac
 import { useRouter, useSearchParams } from "next/navigation";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { useGoBack } from "@/components/ui/back-button";
+import { findEarlierEntry } from "@/lib/navigation/back-nav/trail-runtime";
 import { ScreenModeProvider } from "@/components/ui/coupon/coupon-primitives";
 import { ConsumerJourney } from "@/components/coupon/screens/consumer-screens";
 import { CouponCreationFlow } from "@/components/coupon/screens/creation-screens";
@@ -174,18 +175,33 @@ function CouponFeature() {
     });
   };
 
+  const confirmDiscard = () =>
+    !draftDirty || window.confirm("לצאת מהיצירה? הקופון עדיין לא פורסם והפרטים יימחקו.");
+
+  // Close (X) / "done": return to the "my coupons" entry the flow was opened
+  // from by popping history (no duplicate entry, so back from there keeps
+  // leaving to wherever the owner came from). Direct link → replace.
   const leaveCreate = (published: boolean) => {
-    if (!published && draftDirty && !window.confirm("לצאת מהיצירה? הקופון עדיין לא פורסם והפרטים יימחקו.")) {
-      return;
-    }
+    if (!published && !confirmDiscard()) return;
     setDraftDirty(false);
-    go("mine", true);
+    const delta = findEarlierEntry((url) => {
+      const u = new URL(url, window.location.origin);
+      return u.pathname === "/revenue" && parseView(u.searchParams.get("view")) === "mine";
+    });
+    if (delta !== null) window.history.go(delta);
+    else go("mine", true);
   };
 
   if (view === "create") {
     return (
       <ManagementSurface intent="focused" desk>
       <CouponCreationFlow
+        historySteps
+        onBeforeLeaveFlow={(proceed) => {
+          if (!confirmDiscard()) return;
+          setDraftDirty(false);
+          proceed();
+        }}
         startAtBeat={false}
         publish={publishDraft}
         onDirty={() => setDraftDirty(true)}

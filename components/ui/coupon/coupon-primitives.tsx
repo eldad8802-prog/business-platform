@@ -158,7 +158,15 @@ export function ScreenHeader({
   );
 }
 
-export function BackButton({ onClick }: { onClick?: () => void }) {
+export function BackButton({
+  onClick,
+  onBeforeLeave,
+}: {
+  onClick?: () => void;
+  /** History mode only: intercept before leaving (e.g. unsaved draft). */
+  onBeforeLeave?: (proceed: () => void) => void;
+}) {
+  if (onBeforeLeave && !onClick) return <CanonicalBackButton onBeforeLeave={onBeforeLeave} />;
   return <BackText onClick={onClick} />;
 }
 /** Dismiss (X) — distinct from back: closing a flow is not "going back". */

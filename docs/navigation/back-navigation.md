@@ -47,6 +47,63 @@ history entry changes. One press moves one screen.
 - `useConsumeQueryFlag("new")` strips one-shot flags such as `?new=1`, so
   returning to a screen does not reopen its create form.
 
+## Steps inside a screen
+
+A wizard or panel sequence held only in React state is invisible to back.
+`useFlowStep({ steps, canShow })` (`hooks/useFlowStep.ts`) makes every step a
+real history entry on the same route (`?step=…`, declared in the route's
+`identityParams`). The screen stays mounted, so the data the user entered stays.
+Back, from the button or the browser, walks the steps in the order actually
+taken, then leaves the flow to wherever it was entered from.
+
+- `go(step)`: the next step (push).
+- `backTo(step)`: "return to X", for cancel or "back to catalog". It pops to
+  the nearest earlier entry showing X, so no duplicate is stacked.
+- `replaceStep(step)`: only after a completed action (see below).
+- `canShow(step)`: a refresh or deep link into a step whose data is gone falls
+  back to the first step.
+
+Flows using it:
+
+| Flow | Steps |
+|---|---|
+| `/collection/new` | customer → details → send |
+| `/pricing` | catalog → calc → result / saved; catalog → new1 → new2 → created |
+| `/revenue?view=create` | goal → direction → builder → terms → published |
+| `/revenue/redeem` | scan → manual → error / done |
+| `/inbox` (mobile) | triage → category list (→ conversation) |
+
+## What back deliberately skips, and why
+
+Each case below is proven in the browser to land on the right step and to
+issue no second commit (`qa-evidence/back-nav/flow-chains.md`).
+
+**Steps that follow a completed action, and replace the step that did it.**
+Returning to that step would offer the same commit again.
+
+| After | Replaced step | Reason |
+|---|---|---|
+| Payment request created | collection details | The form would create a duplicate request |
+| Coupon published | coupon terms | It would publish a second coupon |
+| Coupon redeemed | redeem manual entry | It would redeem again |
+| Item costs saved | pricing calc form | The save is done; the result screen is shown |
+| Pricing item created | pricing new item step | It would create the item twice |
+| Obligation met or released | secretary detail / update (only when the action was taken there) | That screen offers the same action (a second payment) for an item that has left the open list. From "Today" the result is a normal step |
+
+**Technical and transient screens that are never a back target.**
+
+| Screen | Reason |
+|---|---|
+| `/login`, `/register`, `/onboarding`, `/api`, `/_next`, static files | Not screens to return to |
+| `/payments`, `/payments/new`, `/payments/[id]` | Redirect stubs with no UI |
+| `/content/render` | Starts a new, quota-consuming render on every visit |
+| `/business/bot/setup/success` | The completion screen of an activation that already happened |
+
+Every other step is a real step, and back returns to it. Examples:
+- the previous review after "next document";
+- the uploader after an upload;
+- "Today" after completing from it.
+
 ## Adding a screen
 
 - **Root** (main-nav destination): add `{ pattern, root: true }`. It gets no
@@ -74,4 +131,6 @@ missing from the registry.
 - Logic: `npx tsx lib/navigation/back-nav/back-nav.test.ts`
 - Real browser (desktop 1440, tablet 820, mobile 390): build, run
   `npx next start -p 3527`, then
-  `node scripts/qa/back-nav-runtime-qa.mjs`.
+  `node scripts/qa/back-nav-runtime-qa.mjs` (control, origin and fallback rules)
+  and `node scripts/qa/back-nav-flows-qa.mjs` (real multi-step flow chains;
+  writes `qa-evidence/back-nav/flow-chains.md`).

@@ -3,6 +3,7 @@
 import BackButton from "@/components/ui/back-button";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useFlowStep } from "@/hooks/useFlowStep";
 import { TOKEN } from "@/lib/design/tokens";
 import { WarmButton, WarmCard, warmInputStyle } from "@/components/ui/warm/warm-primitives";
 import type { CustomerFinancialThread } from "@/lib/services/billing/collection/customer-financial-thread.service";
@@ -53,6 +54,18 @@ export function CollectionCreateScreen() {
   const [created, setCreated] = useState<Created | null>(null);
   const [channelNote, setChannelNote] = useState<string | null>(null);
 
+  // The flow's steps are real history entries (?step=…): back — the button or
+  // the browser — walks them in the order the user took them, and the data
+  // entered stays (this screen stays mounted). Entered with ?customerId (from a
+  // customer thread / the inbox) the flow starts at the details step.
+  const [enteredWithCustomer] = useState(() => customerId !== null);
+  // ?invoiceId preselects an invoice for the customer the flow was entered with.
+  const [entryInvoiceId] = useState(() => Number(params.get("invoiceId")));
+  const flow = useFlowStep<"customer" | "details" | "send">({
+    steps: enteredWithCustomer ? ["details", "customer", "send"] : ["customer", "details", "send"],
+    canShow: (st) => (st === "details" ? customerId !== null : st === "send" ? created !== null : true),
+  });
+
   useEffect(() => {
     collectionFetch<CollectionReadiness>("/api/collection/readiness")
       .then(setReadiness)
@@ -66,7 +79,7 @@ export function CollectionCreateScreen() {
       .then((t) => {
         if (cancelled) return;
         setThread(t);
-        const wanted = Number(params.get("invoiceId"));
+        const wanted = entryInvoiceId;
         const chosen = t.openInvoices.find((i) => i.id === wanted) ?? (t.openInvoices.length === 1 ? t.openInvoices[0] : null);
         if (chosen) {
           setTarget(String(chosen.id));
@@ -81,7 +94,10 @@ export function CollectionCreateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [customerId, params]);
+    // Only a CHANGE OF CUSTOMER reloads and re-defaults the target/amount.
+    // Depending on the search params would re-run on every step change and
+    // overwrite what the owner typed when they come back to this step.
+  }, [customerId, entryInvoiceId]);
 
   const invoice = useMemo(
     () => (target && target !== AD_HOC ? thread?.openInvoices.find((i) => String(i.id) === target) ?? null : null),
@@ -116,6 +132,10 @@ export function CollectionCreateScreen() {
         }
       );
       setCreated({ id: res.id, paymentUrl: res.paymentUrl, amount: res.amount, currency: res.currency });
+      // COMPLETED ACTION: the request now exists. "send" REPLACES the details
+      // step, so back can never return into the filled form and create a
+      // duplicate request; back from "send" goes to the step before details.
+      flow.replaceStep("send");
     } catch (e) {
       setError(e instanceof Error ? e.message : "לא הצלחנו ליצור בקשת תשלום");
     } finally {
@@ -149,7 +169,7 @@ export function CollectionCreateScreen() {
         <div className="col-create__head" style={{ display: "grid", gap: 8 }}>
           <div><BackButton /></div>
           <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>
-            {created ? "הבקשה מוכנה — איך לשלוח?" : thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
+            {flow.step === "send" && created ? "הבקשה מוכנה — איך לשלוח?" : flow.step === "details" && thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
           </h1>
         </div>
 
@@ -170,7 +190,7 @@ export function CollectionCreateScreen() {
           </div>
         ) : !readiness ? (
           <p className="col-create__span" style={{ color: W.muted }}>בודק…</p>
-        ) : created ? (
+        ) : flow.step === "send" && created ? (
           <>
           <WarmCard>
             <p style={{ margin: 0, color: W.ink, fontSize: 16 }}>
@@ -238,16 +258,23 @@ export function CollectionCreateScreen() {
             </p>
           </aside>
           </>
-        ) : !thread ? (
+        ) : flow.step === "customer" ? (
           <>
           <WarmCard>
-            <CustomerPicker onPick={(c) => setCustomerId(c.id)} />
+            <CustomerPicker
+              onPick={(c) => {
+                setCustomerId(c.id);
+                flow.go("details");
+              }}
+            />
           </WarmCard>
           <aside className="col-create__aside">
             <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>מה רואים לפני יצירה</h2>
             <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>הלקוח, החשבוניות הפתוחות, והסכום. הבקשה נוצרת רק אחרי לחיצה מפורשת.</p>
           </aside>
           </>
+        ) : !thread ? (
+          <p className="col-create__span" style={{ color: W.muted }}>טוען…</p>
         ) : (
           <>
           <WarmCard>
@@ -302,7 +329,9 @@ export function CollectionCreateScreen() {
               <WarmButton disabled={!target || !amount || !!amountError || creating} onClick={() => void create()}>
                 {creating ? "יוצר בקשה…" : amount && !amountError ? `צור בקשה על ${money(amount, currency)}` : "צור בקשת תשלום"}
               </WarmButton>
-              <WarmButton variant="text" onClick={() => { setCustomerId(null); setTarget(null); setAmount(""); }}>לקוח אחר</WarmButton>
+              {/* Forward to the customer step (an entry), not a reset: back from
+                  it returns to this customer with what was entered. */}
+              <WarmButton variant="text" onClick={() => flow.go("customer")}>לקוח אחר</WarmButton>
             </div>
           </WarmCard>
           </>

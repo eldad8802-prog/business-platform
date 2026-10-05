@@ -1,0 +1,481 @@
+
+=== desktop 1440x900 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [desktop] (back button)
+    → Tools: /tools
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [desktop] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, then back ×2 (no second request) [desktop] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → customer step — the filled form was replaced (completed action) — /collection/new?step=send ⇒ /collection/new
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created back #2 (history) → collection inbox — /collection/new ⇒ /collection
+    [PASS] F2-collection-created back #2: still one POST — POSTs=1
+    [PASS] F2-collection-created [desktop] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [desktop] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F3-pricing-calc [desktop] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [desktop] (browser Back)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools
+    [PASS] F3b-pricing-calc-browser [desktop] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [desktop] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [desktop] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [desktop] (back button)
+    → Tools: /tools
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools
+    [PASS] F5-coupon-wizard [desktop] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [desktop] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F6-redeem-error [desktop] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [desktop] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [desktop] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [desktop] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary [desktop] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [desktop] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search [desktop] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [desktop] (back button)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools
+    [PASS] F11-content [desktop] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [desktop] (browser Back)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools
+    [PASS] F11b-content-browser [desktop] no page errors
+
+=== tablet 820x1180 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [tablet] (back button)
+    → Tools: /tools
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [tablet] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, then back ×2 (no second request) [tablet] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → customer step — the filled form was replaced (completed action) — /collection/new?step=send ⇒ /collection/new
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created back #2 (history) → collection inbox — /collection/new ⇒ /collection
+    [PASS] F2-collection-created back #2: still one POST — POSTs=1
+    [PASS] F2-collection-created [tablet] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [tablet] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F3-pricing-calc [tablet] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [tablet] (browser Back)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools
+    [PASS] F3b-pricing-calc-browser [tablet] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [tablet] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [tablet] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [tablet] (back button)
+    → Tools: /tools
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools
+    [PASS] F5-coupon-wizard [tablet] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [tablet] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F6-redeem-error [tablet] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [tablet] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [tablet] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [tablet] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary [tablet] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [tablet] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search [tablet] no page errors
+
+  ■ F10a-customer-from-lead — Customer card reached from a lead: leads → lead → customer, back ×2 [tablet] (back button)
+    → Leads: /leads
+    → lead 3: /leads/3
+    → customer chip: /customers/7
+    [PASS] F10a-customer-from-lead back #1 (history) → the lead it was opened from — /customers/7 ⇒ /leads/3
+    [PASS] F10a-customer-from-lead back #2 (history) → leads list — /leads/3 ⇒ /leads
+    [PASS] F10a-customer-from-lead [tablet] no page errors
+
+  ■ F10b-customer-from-list — Same customer card reached from the customer list (search), back ×1 [tablet] (back button)
+    → Customers: /customers
+    → search 'לקוח 7': /customers
+    → open: /customers/7
+    [PASS] F10b-customer-from-list back #1 (history) → customer list, search kept — /customers/7 ⇒ /customers
+    [PASS] F10b-customer-from-list back #1: search still 'לקוח 7'
+    [PASS] F10b-customer-from-list [tablet] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [tablet] (back button)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools
+    [PASS] F11-content [tablet] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [tablet] (browser Back)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools
+    [PASS] F11b-content-browser [tablet] no page errors
+
+=== mobile 390x844 ===
+
+  ■ F1-collection-steps — Collection: customer → details → other customer, then back ×3 [mobile] (back button)
+    → Tools: /tools
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → לקוח אחר: /collection/new
+    [PASS] F1-collection-steps back #1 (history) → details step, amount 450 kept — /collection/new ⇒ /collection/new?step=details
+    [PASS] F1-collection-steps back #1: amount still 450 — 450
+    [PASS] F1-collection-steps back #2 (history) → customer step (flow start) — /collection/new?step=details ⇒ /collection/new
+    [PASS] F1-collection-steps back #2: customer picker shown
+    [PASS] F1-collection-steps back #3 (history) → collection inbox (a root: no back control) — /collection/new ⇒ /collection
+    [PASS] F1-collection-steps back #3: root shows no back control
+    [PASS] F1-collection-steps [mobile] no page errors
+
+  ■ F2-collection-created — Collection: create request → send step, then back ×2 (no second request) [mobile] (back button)
+    → Collection: /collection
+    → גבה: /collection/new
+    → pick customer: /collection/new?step=details
+    → צור בקשה (POST): /collection/new?step=send
+    [PASS] F2-collection-created back #1 (history) → customer step — the filled form was replaced (completed action) — /collection/new?step=send ⇒ /collection/new
+    [PASS] F2-collection-created back #1: exactly one payment request POSTed — POSTs=1
+    [PASS] F2-collection-created back #1: no create form / send step shown
+    [PASS] F2-collection-created back #2 (history) → collection inbox — /collection/new ⇒ /collection
+    [PASS] F2-collection-created back #2: still one POST — POSTs=1
+    [PASS] F2-collection-created [mobile] no page errors
+
+  ■ F3-pricing-calc — Pricing: catalog → calculation → result, back ×3 [mobile] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3-pricing-calc back #1 (history) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3-pricing-calc back #1: material cost still 123 — 123
+    [PASS] F3-pricing-calc back #2 (history) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3-pricing-calc back #2: catalog list shown
+    [PASS] F3-pricing-calc back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F3-pricing-calc [mobile] no page errors
+
+  ■ F3b-pricing-calc-browser — Pricing: same chain, browser Back [mobile] (browser Back)
+    → Tools: /tools
+    → Pricing: /pricing
+    → item תספורת: /pricing?step=calc
+    → חשב מחיר: /pricing?step=result
+    [PASS] F3b-pricing-calc-browser back #1 (browser) → calc form, 123 kept — /pricing?step=result ⇒ /pricing?step=calc
+    [PASS] F3b-pricing-calc-browser back #1: material cost still 123 — 123
+    [PASS] F3b-pricing-calc-browser back #2 (browser) → catalog — /pricing?step=calc ⇒ /pricing
+    [PASS] F3b-pricing-calc-browser back #2: catalog list shown
+    [PASS] F3b-pricing-calc-browser back #3 (browser) → Tools — /pricing ⇒ /tools
+    [PASS] F3b-pricing-calc-browser [mobile] no page errors
+
+  ■ F4-pricing-new — Pricing: new item step 1 → step 2, back ×3 [mobile] (back button)
+    → Tools: /tools
+    → Pricing: /pricing
+    → + הוספת פריט: /pricing?step=new1
+    → המשך לעלויות: /pricing?step=new2
+    [PASS] F4-pricing-new back #1 (history) → step 1, name kept — /pricing?step=new2 ⇒ /pricing?step=new1
+    [PASS] F4-pricing-new back #1: item name still ייעוץ
+    [PASS] F4-pricing-new back #2 (history) → catalog — /pricing?step=new1 ⇒ /pricing
+    [PASS] F4-pricing-new back #3 (history) → Tools — /pricing ⇒ /tools
+    [PASS] F4-pricing-new back #3: no item was created — POSTs=0
+    [PASS] F4-pricing-new [mobile] no page errors
+
+  ■ F5-coupon-wizard — Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard) [mobile] (back button)
+    → Tools: /tools
+    → My coupons: /revenue
+    → צור קופון חדש: /revenue?view=create
+    → goal: /revenue?view=create&cstep=direction
+    → direction הנחה: /revenue?view=create&cstep=builder
+    [PASS] F5-coupon-wizard back #1 (history) → direction step — /revenue?view=create&cstep=builder ⇒ /revenue?view=create&cstep=direction
+    [PASS] F5-coupon-wizard back #2 (history) → goal step (first step of the flow) — /revenue?view=create&cstep=direction ⇒ /revenue?view=create
+    [PASS] F5-coupon-wizard back #3 (history) → my coupons — after confirming the discard prompt — /revenue?view=create ⇒ /revenue
+    [PASS] F5-coupon-wizard back #4 (step) → Tools — /revenue ⇒ /tools
+    [PASS] F5-coupon-wizard [mobile] no page errors
+
+  ■ F6-redeem-error — Redeem: scan → manual → wrong code (error), back ×3 [mobile] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → error: /revenue/redeem?step=error
+    [PASS] F6-redeem-error back #1 (history) → manual entry, code kept — /revenue/redeem?step=error ⇒ /revenue/redeem?step=manual
+    [PASS] F6-redeem-error back #1: code still BAD
+    [PASS] F6-redeem-error back #2 (history) → scan step — /revenue/redeem?step=manual ⇒ /revenue/redeem
+    [PASS] F6-redeem-error back #3 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F6-redeem-error [mobile] no page errors
+
+  ■ F7-redeem-done — Redeem: manual → redeemed (completed), back ×2 (no second redemption) [mobile] (back button)
+    → Tools: /tools
+    → Redeem: /revenue/redeem
+    → הקלד קוד: /revenue/redeem?step=manual
+    → אמת קופון → redeemed: /revenue/redeem?step=done
+    [PASS] F7-redeem-done back #1 (history) → scan step — manual entry was replaced (completed) — /revenue/redeem?step=done ⇒ /revenue/redeem
+    [PASS] F7-redeem-done back #1: exactly one redemption POST — POSTs=1
+    [PASS] F7-redeem-done back #2 (history) → Tools — /revenue/redeem ⇒ /tools
+    [PASS] F7-redeem-done back #2: still one redemption — POSTs=1
+    [PASS] F7-redeem-done [mobile] no page errors
+
+  ■ F8-secretary — Secretary: home → all → item → edit, back ×3 [mobile] (back button)
+    → Secretary: /secretary
+    → all: /secretary?screen=all
+    → item חברת החשמל: /secretary?screen=detail&id=41
+    → עריכת התחייבות: /secretary?screen=update&id=41
+    [PASS] F8-secretary back #1 (history) → item detail — /secretary?screen=update&id=41 ⇒ /secretary?screen=detail&id=41
+    [PASS] F8-secretary back #2 (history) → all obligations — /secretary?screen=detail&id=41 ⇒ /secretary?screen=all
+    [PASS] F8-secretary back #3 (history) → secretary home — /secretary?screen=all ⇒ /secretary
+    [PASS] F8-secretary [mobile] no page errors
+
+  ■ F9-documents-search — Documents: hub → search (query + filter) → document, back ×2 [mobile] (back button)
+    → Documents: /documents
+    → search: /documents/search
+    → query דלק + filter הוצאה: /documents/search
+    → open דלק 2: /documents/review/502
+    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
+    [PASS] F9-documents-search back #1: query still דלק
+    [PASS] F9-documents-search back #1: filter הוצאה still selected
+    [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
+    [PASS] F9-documents-search [mobile] no page errors
+
+  ■ F10a-customer-from-lead — Customer card reached from a lead: leads → lead → customer, back ×2 [mobile] (back button)
+    → Leads: /leads
+    → lead 3: /leads/3
+    → customer chip: /customers/7
+    [PASS] F10a-customer-from-lead back #1 (history) → the lead it was opened from — /customers/7 ⇒ /leads/3
+    [PASS] F10a-customer-from-lead back #2 (history) → leads list — /leads/3 ⇒ /leads
+    [PASS] F10a-customer-from-lead [mobile] no page errors
+
+  ■ F10b-customer-from-list — Same customer card reached from the customer list (search), back ×1 [mobile] (back button)
+    → Customers: /customers
+    → search 'לקוח 7': /customers
+    → open: /customers/7
+    [PASS] F10b-customer-from-list back #1 (history) → customer list, search kept — /customers/7 ⇒ /customers
+    [PASS] F10b-customer-from-list back #1: search still 'לקוח 7'
+    [PASS] F10b-customer-from-list [mobile] no page errors
+
+  ■ F11-content — Content creation: vibe → goal → direction → setup, back ×4 [mobile] (back button)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11-content back #1 (history) → direction step, choice kept — /content/setup ⇒ /content/archetype
+    [PASS] F11-content back #1: .direction-card choice restored
+    [PASS] F11-content back #2 (history) → goal step, choice kept — /content/archetype ⇒ /content/goal
+    [PASS] F11-content back #2: .goal-card choice restored
+    [PASS] F11-content back #3 (history) → vibe step, choice kept — /content/goal ⇒ /content
+    [PASS] F11-content back #3: .vibe-tile choice restored
+    [PASS] F11-content back #4 (history) → Tools — /content ⇒ /tools
+    [PASS] F11-content [mobile] no page errors
+
+  ■ F11b-content-browser — Content creation: same chain, browser Back [mobile] (browser Back)
+    → Tools: /tools
+    → Content: /content
+    → vibe + film → המשך: /content/goal
+    → goal + platform → המשך: /content/archetype
+    → direction → המשך: /content/setup
+    [PASS] F11b-content-browser back #1 (browser) → direction step — /content/setup ⇒ /content/archetype
+    [PASS] F11b-content-browser back #1: .direction-card choice restored
+    [PASS] F11b-content-browser back #2 (browser) → goal step — /content/archetype ⇒ /content/goal
+    [PASS] F11b-content-browser back #2: .goal-card choice restored
+    [PASS] F11b-content-browser back #3 (browser) → vibe step — /content/goal ⇒ /content
+    [PASS] F11b-content-browser back #3: .vibe-tile choice restored
+    [PASS] F11b-content-browser back #4 (browser) → Tools — /content ⇒ /tools
+    [PASS] F11b-content-browser [mobile] no page errors
+
+225 passed, 0 failed

@@ -360,3 +360,27 @@ export function acquireBackLock(): boolean {
 }
 
 export { releaseLock as releaseBackLock };
+
+/**
+ * Distance (negative) to the nearest EARLIER entry in the verified chain whose
+ * URL satisfies `match`, or null. Same boundaries as back: recorded entries
+ * only, same account, bounded walk. Used by flows to "return to step X" by
+ * popping history instead of stacking a duplicate entry.
+ */
+export function findEarlierEntry(match: (url: string) => boolean): number | null {
+  if (!installed || !currentId) return null;
+  const scope = readScope();
+  const seen = new Set<string>([currentId]);
+  let cursor = store[currentId]?.prev ?? null;
+  let steps = 0;
+  while (cursor && steps < 50) {
+    if (seen.has(cursor)) return null;
+    seen.add(cursor);
+    const e = store[cursor];
+    if (!e || e.scope !== scope) return null;
+    steps += 1;
+    if (match(e.url)) return -steps;
+    cursor = e.prev;
+  }
+  return null;
+}

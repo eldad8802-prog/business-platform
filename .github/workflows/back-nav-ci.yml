@@ -17,6 +17,7 @@ on:
       - "components/navigation/**"
       - "lib/navigation/**"
       - "hooks/useEntryState.ts"
+      - "hooks/useFlowStep.ts"
       - ".github/workflows/back-nav-ci.yml"
   workflow_dispatch:
 

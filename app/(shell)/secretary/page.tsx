@@ -255,12 +255,26 @@ function SecretaryPageInner() {
     return created;
   }
 
+  /**
+   * Opens the result of a COMPLETED action (met / released). When the action
+   * was taken on that item's own screen (detail / update), the result REPLACES
+   * it: that screen offers the same action again (a second payment) for an
+   * item that has already left the open list, so back must not return into
+   * it. From "Today" the result is a normal step (push): Today has moved on to
+   * the next item, and back returns there.
+   */
+  function showResult(url: string, actedOnId: number) {
+    const sp = new URLSearchParams(window.location.search);
+    const onItemScreen =
+      (sp.get("screen") === "detail" || sp.get("screen") === "update") && sp.get("id") === String(actedOnId);
+    if (onItemScreen) router.replace(url);
+    else router.push(url);
+  }
+
   async function finishComplete(token: string, id: number) {
     await completeObligation(token, id);
     await refreshAfterMutation(token);
-    // The result REPLACES the screen the action was taken on: back from it
-    // must not return to an item that is already completed.
-    router.replace("/secretary?screen=loops&id=" + id + "&loopMode=met");
+    showResult("/secretary?screen=loops&id=" + id + "&loopMode=met", id);
   }
 
   function findObligation(id: number): ObligationApi | null {
@@ -346,7 +360,7 @@ function SecretaryPageInner() {
     if (!token) return;
     await releaseObligation(token, id);
     await refreshAfterMutation(token);
-    router.replace("/secretary?screen=loops&id=" + id + "&loopMode=release");
+    showResult("/secretary?screen=loops&id=" + id + "&loopMode=release", id);
   }
 
   const route = currentRouteState();

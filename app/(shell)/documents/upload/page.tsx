@@ -112,9 +112,7 @@ export default function DocumentsUploadPage() {
       if (!response.ok || !data?.documentId) {
         throw new Error(data?.error || "Upload failed");
       }
-      // The upload is done: the review replaces it, so back from the review
-      // returns to where the upload was started, not to an empty uploader.
-      router.replace(`/documents/review/${data.documentId}`);
+      router.push(`/documents/review/${data.documentId}`);
     } catch (err) {
       setError(errorMessage(err, "לא הצלחנו להעלות את המסמך"));
       setProcessingName("");

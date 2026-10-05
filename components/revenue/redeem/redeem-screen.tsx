@@ -2,6 +2,7 @@
 
 import BackButton from "@/components/ui/back-button";
 import { useEffect, useRef, useState } from "react";
+import { useFlowStep } from "@/hooks/useFlowStep";
 import { useSearchParams } from "next/navigation";
 import RedeemScanner from "./redeem-scanner";
 import { TOKEN } from "@/lib/design/tokens";
@@ -387,12 +388,29 @@ function mapRedeemError(data: any) {
 export default function RedeemScreen() {
   const searchParams = useSearchParams();
 
-  const [flowState, setFlowState] = useState<FlowState>("scan");
   const [tokenInput, setTokenInput] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [result, setResult] = useState<RedeemResult | null>(null);
-  const [isScanning, setIsScanning] = useState(true);
   const [autoTriggered, setAutoTriggered] = useState(false);
+  const [validating, setValidating] = useState(false);
+
+  // Steps are real history entries (?step=…): back walks scan → manual →
+  // error in the order taken, keeping the typed code. "done" follows a
+  // COMPLETED action (the coupon was redeemed) and REPLACES the step that did
+  // it, so back cannot return to a screen that would redeem it again.
+  const flow = useFlowStep<"scan" | "manual" | "done" | "error">({
+    steps: ["scan", "manual", "done", "error"],
+    canShow: (st) => (st === "done" ? result !== null : st === "error" ? errorMessage !== "" : true),
+  });
+  const flowState: FlowState = validating
+    ? "validating"
+    : flow.step === "manual"
+      ? "idle"
+      : flow.step === "done"
+        ? "success"
+        : flow.step === "error"
+          ? "error"
+          : "scan";
   const redeemInFlightRef = useRef(false);
 
   const authToken =
@@ -405,20 +423,19 @@ export default function RedeemScreen() {
 
     if (!finalToken) {
       setErrorMessage("יש להזין קוד קופון");
-      setFlowState("error");
+      flow.go("error");
       return;
     }
 
     if (!authToken) {
       setErrorMessage("אין הרשאה לבצע מימוש. התחבר מחדש");
-      setFlowState("error");
+      flow.go("error");
       return;
     }
 
     try {
       redeemInFlightRef.current = true;
-      setIsScanning(false);
-      setFlowState("validating");
+      setValidating(true);
       setErrorMessage("");
 
       const res = await fetch(`/api/coupons/${finalToken}/redeem`, {
@@ -435,10 +452,12 @@ export default function RedeemScreen() {
       }
 
       setResult(data);
-      setFlowState("success");
+      setValidating(false);
+      flow.replaceStep("done");
     } catch (err: any) {
       setErrorMessage(err?.message || "שגיאה לא ידועה");
-      setFlowState("error");
+      setValidating(false);
+      flow.go("error");
       redeemInFlightRef.current = false;
     }
   };
@@ -457,24 +476,22 @@ export default function RedeemScreen() {
 
   const handleReset = () => {
     redeemInFlightRef.current = false;
-    setFlowState("scan");
+    // Next coupon: return to the scan entry (pop), not a stacked new one.
+    flow.backTo("scan");
     setTokenInput("");
     setErrorMessage("");
     setResult(null);
-    setIsScanning(true);
     setAutoTriggered(false);
   };
 
   const handleOpenManual = () => {
-    setFlowState("idle");
-    setIsScanning(false);
+    flow.go("manual");
     setErrorMessage("");
   };
 
   const handleBackToScan = () => {
-    setFlowState("scan");
+    flow.backTo("scan");
     setErrorMessage("");
-    setIsScanning(true);
   };
 
   return (
@@ -543,7 +560,9 @@ export default function RedeemScreen() {
             </div>
 
             <RedeemScanner
-              isActive={isScanning}
+              // The camera runs exactly while the scan step is shown — also
+              // after returning to it with back (button or browser).
+              isActive={flowState === "scan"}
               onDetected={(scannedToken) => handleRedeem(scannedToken)}
             />
 

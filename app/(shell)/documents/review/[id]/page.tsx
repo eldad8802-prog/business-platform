@@ -653,10 +653,7 @@ export default function ReviewPage() {
               nextPendingDocumentId={nextPendingDocumentId}
               onNext={() =>
                 nextPendingDocumentId
-                  ? // Next in the queue REPLACES this (finished) review, so back
-                    // returns to where the queue was entered, not through every
-                    // document already handled.
-                    router.replace(`/documents/review/${nextPendingDocumentId}`)
+                  ? router.push(`/documents/review/${nextPendingDocumentId}`)
                   : router.push("/documents/inbox")
               }
               onHub={() => router.push("/documents")}

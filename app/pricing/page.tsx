@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import { chipActionStyle, glassActionStyle, iconActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 import BackButton from "@/components/ui/back-button";
+import { useFlowStep } from "@/hooks/useFlowStep";
 
 type PricingItem = {
   id: number;
@@ -71,6 +72,9 @@ type Result = {
     insights: string[];
   };
 };
+
+const PRICING_STEPS = ["catalog", "calc", "result", "saved", "new1", "new2", "created"] as const;
+type PricingStep = (typeof PRICING_STEPS)[number];
 
 type ActivePanel = "catalog" | "calculate" | "create";
 type CalculateView = "form" | "loading" | "result" | "save_success";
@@ -185,10 +189,6 @@ export default function PricingPage() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
-  const [activePanel, setActivePanel] = useState<ActivePanel>("catalog");
-  const [calculateView, setCalculateView] = useState<CalculateView>("form");
-  const [createView, setCreateView] = useState<CreateView>("wizard");
-  const [createStep, setCreateStep] = useState(1);
 
   const [bootLoading, setBootLoading] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -215,6 +215,33 @@ export default function PricingPage() {
   const [newLaborMinutes, setNewLaborMinutes] = useState("");
   const [newHourlyRate, setNewHourlyRate] = useState("");
   const [newOverheadPercent, setNewOverheadPercent] = useState("10");
+
+  // Panels and their inner views are flow steps — real history entries
+  // (?step=…), so back (button or browser) walks them in the order taken and
+  // the entered costs stay. Steps after a COMPLETED action ("saved" after the
+  // costs were stored, "created" after the item was created) REPLACE the step
+  // that performed it: back cannot return into a form that would repeat it.
+  const flow = useFlowStep<PricingStep>({
+    steps: PRICING_STEPS,
+    canShow: (st) => {
+      if (st === "calc" || st === "saved") return selectedItemId !== null;
+      if (st === "result") return selectedItemId !== null && result !== null;
+      if (st === "new2") return newItemName.trim() !== "";
+      if (st === "created") return selectedItemId !== null;
+      return true;
+    },
+  });
+  const activePanel: ActivePanel =
+    flow.step === "calc" || flow.step === "result" || flow.step === "saved"
+      ? "calculate"
+      : flow.step === "new1" || flow.step === "new2" || flow.step === "created"
+        ? "create"
+        : "catalog";
+  const calculateView: CalculateView =
+    flow.step === "result" ? "result" : flow.step === "saved" ? "save_success" : loadingCalculation ? "loading" : "form";
+  const createView: CreateView = flow.step === "created" ? "success" : "wizard";
+  const createStep = flow.step === "new2" ? 2 : 1;
+
 
   useEffect(() => {
     const run = async () => {
@@ -261,10 +288,6 @@ export default function PricingPage() {
 
     run();
   }, [router]);
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [activePanel, calculateView, createView, createStep]);
 
   useEffect(() => {
     if (calculateView !== "result" || !result) return;
@@ -367,27 +390,25 @@ export default function PricingPage() {
   const hasMarketInput =
     calcMarketLow.trim() !== "" && calcMarketHigh.trim() !== "";
 
+  // "חזרה לקטלוג" / "ביטול": return to the catalog entry the sub-flow started
+  // from (pops history; no duplicate catalog is stacked).
   const openCatalog = () => {
-    setActivePanel("catalog");
-    setCalculateView("form");
+    flow.backTo("catalog");
     setError(null);
   };
 
   const openCalculate = (itemId: number) => {
     setSelectedItemId(itemId);
     setResult(null);
-    setCalculateView("form");
     setDetailsOpen(false);
     setMarketOpen(false);
     setError(null);
-    setActivePanel("calculate");
+    flow.go("calc");
   };
 
   const openCreate = () => {
-    setCreateView("wizard");
-    setCreateStep(1);
     setCreateError(null);
-    setActivePanel("create");
+    flow.go("new1");
   };
 
   const handleSaveProfileDefaults = async () => {
@@ -424,7 +445,8 @@ export default function PricingPage() {
       }
 
       await loadItems(token);
-      setCalculateView("save_success");
+      // COMPLETED ACTION (costs stored): replaces the form step.
+      flow.replaceStep("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בשמירת הנתונים");
     } finally {
@@ -437,7 +459,6 @@ export default function PricingPage() {
 
     try {
       setLoadingCalculation(true);
-      setCalculateView("loading");
       setError(null);
       setResult(null);
       setDetailsOpen(false);
@@ -477,9 +498,10 @@ export default function PricingPage() {
       }
 
       setResult(data);
-      setCalculateView("result");
+      // A calculation stores nothing: the result is a normal step, and back
+      // returns to the form with the entered costs.
+      flow.go("result");
     } catch (err) {
-      setCalculateView("form");
       setError(err instanceof Error ? err.message : "שגיאה בחישוב המחיר");
     } finally {
       setLoadingCalculation(false);
@@ -529,7 +551,9 @@ export default function PricingPage() {
         setSelectedItemId(data.profile.id);
       }
 
-      setCreateView("success");
+      // COMPLETED ACTION (item created): replaces the wizard step, so back can
+      // not return into the filled wizard and create the item twice.
+      flow.replaceStep("created");
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "שגיאה ביצירת הפריט");
     } finally {
@@ -690,15 +714,7 @@ export default function PricingPage() {
           <>
             {calculateView !== "loading" && calculateView !== "save_success" ? (
               <div style={detailHeadStyle}>
-                <BackButton
-                  onClick={() => {
-                    if (calculateView === "result") {
-                      setCalculateView("form");
-                      return;
-                    }
-                    openCatalog();
-                  }}
-                />
+                <BackButton />
                 <div style={detailTitleStyle}>
                   {calculateView === "result" ? "תוצאת תמחור" : "חישוב מחיר"}
                   <small style={detailSubStyle}>{selectedItem.name}</small>
@@ -1004,15 +1020,7 @@ export default function PricingPage() {
         {activePanel === "create" && createView === "wizard" && (
           <>
             <div style={detailHeadStyle}>
-              <BackButton
-                onClick={() => {
-                  if (createStep > 1) {
-                    setCreateStep(1);
-                    return;
-                  }
-                  openCatalog();
-                }}
-              />
+              <BackButton />
               <div style={detailTitleStyle}>פריט חדש</div>
               <div style={iconBtnSpacerStyle} />
             </div>
@@ -1115,7 +1123,7 @@ export default function PricingPage() {
                       return;
                     }
                     setCreateError(null);
-                    setCreateStep(2);
+                    flow.go("new2");
                     return;
                   }
                   void handleCreateItem();

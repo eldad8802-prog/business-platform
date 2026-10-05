@@ -38,7 +38,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   // ---- roots (main navigation destinations and entry points) -------------
   { pattern: "/app", root: true },
   { pattern: "/", root: true, transient: true },
-  { pattern: "/inbox", root: true, identityParams: ["conversationId"] },
+  { pattern: "/inbox", root: true, identityParams: ["conversationId", "list"] },
   { pattern: "/documents", root: true },
   { pattern: "/notifications", root: true },
   { pattern: "/search", root: true },
@@ -57,9 +57,9 @@ export const ROUTE_RULES: readonly RouteRule[] = [
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/tools", parent: "/app", parentLabel: "לבית" },
-  { pattern: "/pricing", parent: "/app", parentLabel: "לבית" },
-  { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view"] },
-  { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי" },
+  { pattern: "/pricing", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
+  { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view", "cstep"] },
+  { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי", identityParams: ["step"] },
   { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabel: "לקופונים" },
 
   // ---- content creation flow (each step's fallback = the step before) ----
@@ -106,7 +106,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/payables/bank", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
   { pattern: "/payables/cheques", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
   { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
-  { pattern: "/collection/new", parent: "/collection", parentLabel: "לגבייה" },
+  { pattern: "/collection/new", parent: "/collection", parentLabel: "לגבייה", identityParams: ["step"] },
   { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabel: "לגבייה" },
 
   // ---- CRM ------------------------------------------------------------------
