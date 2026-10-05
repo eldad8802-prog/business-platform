@@ -28,15 +28,56 @@
  * foreign, a decision actor from another business, an observation on another recommendation's action, a
  * non-vocabulary attribution, or BKS memory that differs from what learn.ts's own rule predicts.
  *
+ * READ ONLY IS ENFORCED PER CONNECTION, not asserted. Every connection either pool opens carries
+ * `options=-c default_transaction_read_only=on`, so the database itself makes each new connection read-only.
+ * The pools are small and bounded (POOL_LIMIT) because the application's own snapshot code opens tenant
+ * transactions in parallel (business-status → paperwork insight); a single connection made the second one
+ * time out (P2028, run 37382271323). Before any query, POOL_LIMIT parallel transactions prove every pooled
+ * connection reports read-only, and an attempted write is proven to be REJECTED by PostgreSQL.
+ *
+ * A failure building one business's snapshot is reported as an ERROR row for that business and FAILS the run;
+ * the report is still printed. An error never becomes a pass.
+ *
  * Exit: 0 PASS · 1 FAIL · 3 REFUSED · 2 usage.
  */
 import { PrismaClient } from "@prisma/client";
-import { assertSafeUrl, enforceReadOnly, RefusedError, verifyReadOnly, verifyRuntimeIdentity } from "./runtime-rls-evidence";
+import { assertSafeUrl, RefusedError, verifyReadOnly, verifyRuntimeIdentity } from "./runtime-rls-evidence";
 
 const DAY = 86_400_000;
 const ATTRIBUTIONS = new Set(["NOT_ASSESSABLE", "NO_OUTCOME_OBSERVED", "OBSERVED_SEQUENCE"]);
 const STORE_TABLE: Record<string, string> = { ReviewEvent: "ReviewEvent", PaymentAllocation: "PaymentAllocation", Document: "Document", Installment: "Installment" };
 const RUN_MARGIN_MS = 60_000;
+/** Small and bounded: enough for the snapshot code's parallel tenant transactions to each get a connection. */
+const POOL_LIMIT = 5;
+
+/** A Production-checked URL whose EVERY pooled connection starts read-only (database-enforced). */
+function readOnlyPoolUrl(label: string, raw: string | undefined, allowHost: string | null): string {
+  const u = new URL(assertSafeUrl(label, raw, allowHost)); // refuses non-Production hosts and poolers first
+  u.searchParams.set("connection_limit", String(POOL_LIMIT));
+  const existing = u.searchParams.get("options");
+  u.searchParams.set("options", [existing, "-c default_transaction_read_only=on"].filter(Boolean).join(" "));
+  return u.toString();
+}
+
+/** Proves, on POOL_LIMIT concurrent connections, that each one is read-only, and that a write is rejected. */
+async function provePoolReadOnly(db: PrismaClient, label: string): Promise<{ connections: number; allReadOnly: boolean; writeRejected: boolean }> {
+  const probes = await Promise.all(Array.from({ length: POOL_LIMIT }, () =>
+    db.$transaction(async (tx) => {
+      const [r] = await tx.$queryRawUnsafe<{ ro: string; pid: number }[]>("SELECT current_setting('default_transaction_read_only') AS ro, pg_backend_pid() AS pid");
+      await tx.$queryRawUnsafe("SELECT 1 AS held FROM pg_sleep(0.2)"); // hold the connection so the probes spread over the pool
+      return r;
+    }, { maxWait: 20_000, timeout: 20_000 })));
+  const pids = new Set(probes.map((p) => Number(p.pid)));
+  let writeRejected = false;
+  try {
+    // A TEMP table: even if it were allowed, it would touch nothing but this session. It must be refused.
+    await db.$executeRawUnsafe("CREATE TEMP TABLE zz_readonly_probe (x int)");
+  } catch (e) {
+    writeRejected = /read-only|25006/i.test(String((e as Error).message ?? e));
+  }
+  if (!probes.every((p) => p.ro === "on")) throw new RefusedError(`${label} pool has a connection that is not read-only`);
+  return { connections: pids.size, allReadOnly: probes.every((p) => p.ro === "on"), writeRejected };
+}
 
 type Check = { name: string; pass: boolean; detail?: unknown };
 const tally = <T,>(xs: readonly T[], f: (x: T) => string) => xs.reduce<Record<string, number>>((a, x) => { const k = f(x); a[k] = (a[k] ?? 0) + 1; return a; }, {});
@@ -48,14 +89,21 @@ async function main(): Promise<void> {
   const runtimeUser = arg("--runtime-user") ?? "";
   if (!runtimeUser) { console.error("usage: --allow-host <host> --runtime-user <role>"); process.exit(2); }
   const checks: Check[] = [];
+  // The application code under test may reject a parallel promise after another one already failed; record it
+  // (and fail the run) instead of letting it kill the process before the report.
+  const unhandled: string[] = [];
+  process.on("unhandledRejection", (e) => { unhandled.push(`${e instanceof Error ? e.name : "Error"} ${(e as { code?: string })?.code ?? ""}`.trim()); });
   const check = (name: string, pass: boolean, detail?: unknown) => checks.push({ name, pass, detail });
   let owner: PrismaClient | undefined;
   let rt: PrismaClient | undefined;
   try {
-    owner = new PrismaClient({ datasourceUrl: assertSafeUrl("OWNER_DATABASE_URL", process.env.OWNER_DATABASE_URL, allowHost) });
-    rt = new PrismaClient({ datasourceUrl: assertSafeUrl("RUNTIME_DATABASE_URL", process.env.RUNTIME_DATABASE_URL, allowHost) });
-    await enforceReadOnly(owner, "owner");
-    await enforceReadOnly(rt, "runtime");
+    owner = new PrismaClient({ datasourceUrl: readOnlyPoolUrl("OWNER_DATABASE_URL", process.env.OWNER_DATABASE_URL, allowHost) });
+    rt = new PrismaClient({ datasourceUrl: readOnlyPoolUrl("RUNTIME_DATABASE_URL", process.env.RUNTIME_DATABASE_URL, allowHost) });
+    const ownerRo = await provePoolReadOnly(owner, "owner");
+    const rtRo = await provePoolReadOnly(rt, "runtime");
+    check("read-only: every pooled connection starts read-only (database-enforced), owner and runtime",
+      ownerRo.allReadOnly && rtRo.allReadOnly, { owner: ownerRo.connections, runtime: rtRo.connections });
+    check("read-only: an attempted write is rejected by PostgreSQL, owner and runtime", ownerRo.writeRejected && rtRo.writeRejected);
     const id = await verifyRuntimeIdentity(rt, runtimeUser);
     check("runtime login is NOSUPERUSER + NOBYPASSRLS", !id.superuser && !id.bypassRls);
     const q = <T>(sql: string, ...p: unknown[]) => owner!.$queryRawUnsafe<T[]>(sql, ...p);
@@ -113,8 +161,18 @@ async function main(): Promise<void> {
     const memorySlots = new Map<number, Set<string>>();
     let memoryMismatch = 0;
     let patterns = { DECISION_PATTERN: 0, OUTCOME_PATTERN: 0 };
+    const snapshotErrors: Record<string, string> = {};
     for (const b of businesses) {
-      const snap = await buildBusinessKnowledgeSnapshot(b, { asOf });
+      let snap: Awaited<ReturnType<typeof buildBusinessKnowledgeSnapshot>>;
+      try {
+        snap = await buildBusinessKnowledgeSnapshot(b, { asOf });
+      } catch (e) {
+        // Reported, never swallowed: this business has no BKS measurement and the run FAILS.
+        snapshotErrors[`B${b}`] = `${e instanceof Error ? e.name : "Error"} ${(e as { code?: string })?.code ?? ""}`.trim();
+        bks[`B${b}`] = { ERROR: snapshotErrors[`B${b}`] };
+        memoryMismatch += 1;
+        continue;
+      }
       const mem = snap.knowledge.filter((k) => k.kind === "RECOMMENDATION_MEMORY");
       const dp = snap.knowledge.filter((k) => k.kind === "DECISION_PATTERN").length;
       const op = snap.knowledge.filter((k) => k.kind === "OUTCOME_PATTERN").length;
@@ -132,7 +190,9 @@ async function main(): Promise<void> {
         patternGaps: snap.knowledgeGaps.filter((g) => g.key.startsWith("outcomes.")).map((g) => `${g.kind}:${g.reason}`).sort(),
       };
     }
+    check("BKS: every business's snapshot was built (no ERROR)", Object.keys(snapshotErrors).length === 0, snapshotErrors);
     check("BKS: RECOMMENDATION_MEMORY in each snapshot equals what learn.ts's rule predicts from the database", memoryMismatch === 0, memoryMismatch);
+    check("harness: no unhandled rejection from the application code under test", unhandled.length === 0, unhandled);
 
     /* ── chains ── */
     const chainOf = (r: (typeof recs)[number]) => {
@@ -155,6 +215,7 @@ async function main(): Promise<void> {
 
     const report = {
       asOf: asOf.toISOString(),
+      readOnlyPool: { limit: POOL_LIMIT, ownerConnectionsProbed: ownerRo.connections, runtimeConnectionsProbed: rtRo.connections, writeRejected: ownerRo.writeRejected && rtRo.writeRejected },
       businessesWithRecommendations: businesses.map((b) => `B${b}`),
       OutcomeRecommendation: {
         total: recs.length, byBusiness: tally(recs, (r) => `B${r.b}`), byType: tally(recs, (r) => r.type), byStatus: tally(recs, (r) => r.status),
