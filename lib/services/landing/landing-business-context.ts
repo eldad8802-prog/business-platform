@@ -32,6 +32,10 @@ export type LandingOffering = {
   kind: "SERVICE" | "PRODUCT";
   id: number;
   name: string;
+  /** Owner catalog material (P3-C renders it as entered; never AI-written). */
+  description: string | null;
+  priceAmount: string | null;
+  priceMax: string | null;
   category: string | null;
   priceMode: string | null;
   fulfillment: string | null;
@@ -142,6 +146,9 @@ export function assembleLandingBusinessContext(input: LandingContextInputs): Lan
       kind: o.kind,
       id: o.canonicalId,
       name: o.name,
+      description: o.description,
+      priceAmount: o.priceAmount,
+      priceMax: o.priceMax,
       category: o.category,
       priceMode: o.priceMode,
       fulfillment: o.fulfillment,

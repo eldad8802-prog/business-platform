@@ -117,6 +117,12 @@
       "workflow": "p2-identity-ci.yml",
       "reason": "P2 + P3-A: replays the P2 and P3-A migrations verbatim and proves tenant isolation of BusinessIdentityStatement and BusinessTrustClaim as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE; cross-tenant context, claims and private document references refused; claims never inserted public, wording immutable, retired claims frozen); run on pull_request by p2-identity-ci.yml job db"
     },
+    "lib/services/landing/composer/landing-composer.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-C: AI composer + blueprint validator with deterministic fake models — public-only composer context (no demand / private trust / non-public text), adversarial T1–T20 (invented / foreign / unapproved refs, counts, superlatives, testimonials, CTA channel changes, CTA on SURFACE_ONLY, checkout / booking CTAs, URLs, strengthened licence wording, out-of-vocabulary sections, non-public text, popularity) all fail closed, structural-only single repair, authority copied by code; run on pull_request by p2-identity-ci.yml job core (server revalidation, cross-tenant composition and single-flight in identity.rls.db.test.ts)"
+    },
     "lib/services/landing/landing-strategy.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

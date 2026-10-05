@@ -344,6 +344,27 @@ async function child() {
     ids: { bServiceId, bAssetId, aAssetId, aServiceIds },
   };
 
+  // ── P3-C · blueprint composition: server-recomputed strategy, tenant-scoped, single-flight ──
+  const { composeLandingBlueprintForBusiness, resetComposerCacheForTests } = await import("@/lib/services/landing/composer/landing-blueprint.service");
+  const { fakeModel, goodDraft } = await import("@/lib/services/landing/__fixtures__/composer-fakes");
+  const setB = await tenantTx(b, (tx) => getLandingStrategySet(b, tx));
+  const aIds = landingSetA.strategies.map((x) => x.id);
+  const bOnlyId = setB.strategies.map((x) => x.id).find((id) => !aIds.includes(id)) ?? null;
+  const counting = fakeModel((c) => goodDraft(c));
+  resetComposerCacheForTests();
+  const [c1, c2] = await Promise.all([
+    composeLandingBlueprintForBusiness(a, aIds[0], { model: counting }),
+    composeLandingBlueprintForBusiness(a, aIds[0], { model: counting }),
+  ]);
+  const composeBOnly = bOnlyId ? await refused(() => composeLandingBlueprintForBusiness(a, bOnlyId, { model: counting })) : "NO_B_ONLY_ID";
+  const composeForged = await refused(() => composeLandingBlueprintForBusiness(a, "p3b.strategy.v1:CHECKOUT_FIRST:BUY:DUBIZ_CHECKOUT", { model: counting }));
+  const composeObject = await refused(() => composeLandingBlueprintForBusiness(a, { strategyType: "TRUST_AUTHORITY_FIRST", publishable: { trustClaimIds: [claimB] } }, { model: counting }));
+  const composer = {
+    calls: counting.calls, same: c1 === c2, status: c1.compositionStatus, bOnlyId, composeBOnly, composeForged, composeObject,
+    refs: c1.blueprint ? { offerings: c1.blueprint.offeringRefs, trust: c1.blueprint.trustClaimRefs, assets: c1.blueprint.assetRefs, business: c1.blueprint.businessId } : null,
+    promptHasB: counting.prompts.some((pr) => pr.includes(`offering:SERVICE:${bServiceId}`) || pr.includes(`asset:${bAssetId}`) || pr.includes(`trust:${claimB}`)),
+  };
+
   console.log(
     "@@RESULT@@" +
       JSON.stringify({
@@ -380,7 +401,7 @@ async function child() {
           },
           afterRetire: { claimIds: ctxAfterRetire.trust.claims.map((c) => c.id), publicIds: ctxAfterRetire.publicUse.trustClaims.map((c) => c.id) },
           retiredFrozen, servedA, servedBUnderA,
-          landing,
+          landing, composer,
           docs: {
             d1: { old: d1.oldDocument, key: afterD1.key, files: afterD1.files },
             d3: { old: d3.oldDocument, key: afterD3.key, files: afterD3.files, replacedFrom: afterD1.key },
@@ -714,6 +735,15 @@ async function main() {
       ok("P3-B: A still gets its own strategies from its own catalog", L.aStrategies.includes("SERVICE_DISCOVERY_FIRST"), L.aStrategies);
       ok("P3-B S20: the strategy set is computed in a READ ONLY transaction (it writes nothing) and is a MACHINE_PROPOSAL",
         L.readOnlyRun === null && /read-only transaction/i.test(L.readOnlyBites ?? "") && L.aAuthority.every((x: string) => x === "MACHINE_PROPOSAL"), { ro: L.readOnlyRun, bites: L.readOnlyBites, auth: L.aAuthority });
+      // P3-C · composition is server-revalidated and tenant-scoped.
+      const C = p.composer;
+      ok("P3-C: A composes from its own recomputed strategy (COMPOSED, blueprint bound to A)", C.status === "COMPOSED" && C.refs?.business === a.id, C);
+      ok("P3-C: two simultaneous identical requests share ONE model call (single-flight)", C.calls === 1 && C.same === true, { calls: C.calls });
+      ok("P3-C T17/S30: B's strategy id (absent from A's recomputed set) cannot be composed under A",
+        C.bOnlyId !== null && /LandingStrategyNotAvailableError/.test(C.composeBOnly ?? ""), { id: C.bOnlyId, r: C.composeBOnly });
+      ok("P3-C T17: a forged strategy id and a client-built strategy object are refused", /LandingStrategyNotAvailableError/.test(C.composeForged ?? "") && /LandingStrategyNotAvailableError/.test(C.composeObject ?? ""), C);
+      ok("P3-C S30: A's blueprint and prompts never reference B's offerings, assets or trust claims",
+        !C.promptHasB && !(C.refs?.offerings ?? []).includes(`offering:SERVICE:${L.ids.bServiceId}`) && !(C.refs?.assets ?? []).includes(`asset:${L.ids.bAssetId}`) && !(C.refs?.trust ?? []).includes(`trust:${claimBRow.id}`), C.refs);
       ok("P3-A T9: once retired, the claim leaves the context and public use", !p.afterRetire.claimIds.includes(p.myClaimId) && !p.afterRetire.publicIds.includes(p.myClaimId), p.afterRetire);
       ok("P3-A T9: a retired claim is frozen history (cannot be re-activated by the runtime)", p.retiredFrozen === 0, p.retiredFrozen);
       // T11 — served customers from completed work only, per tenant.

@@ -28,7 +28,8 @@ export type BucketName =
   | "ACQUISITION_WEB_PUBLIC"
   | "CRM_ATTACHMENT_UPLOAD"
   | "DATA_TRANSFER_IMPORT_EXECUTE"
-  | "DATA_TRANSFER_DOCUMENTS_IMPORT";
+  | "DATA_TRANSFER_DOCUMENTS_IMPORT"
+  | "LANDING_COMPOSE";
 
 export type BucketConfig = {
   failMode: FailMode;

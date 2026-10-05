@@ -44,3 +44,15 @@ export const SET_CONFLICT_LABELS: Record<string, string> = {
   OWNER_SELECTED_PLATFORM_UNPROVEN: "בחרת ב-WhatsApp העסקי. הוא נשאר בכיוון המומלץ, אבל עדיין לא הוכח במלואו ב-Dubiz.",
   CLAIM_LIKE_TEXT_NEEDS_REVIEW: "יש טקסט שנשמע כמו טענת אמון — הוא לא ייכנס לדף עד שתבדוק אותו במסך \"איך העסק מוצג\".",
 };
+
+export const COMPOSITION_STATUS_LABELS: Record<string, string> = {
+  COMPOSED: "הטיוטה מוכנה",
+  REJECTED: "הטיוטה שנוצרה לא עברה את בדיקות הבטיחות של דוביז, ולכן לא תוצג. אפשר לנסות שוב.",
+  UNAVAILABLE: "יצירת טיוטות דף עדיין לא הופעלה בחשבון הזה.",
+  FAILED: "לא הצלחנו ליצור טיוטה כרגע. אפשר לנסות שוב בעוד רגע.",
+};
+
+export const BLUEPRINT_MISSING_LABELS: Record<string, string> = {
+  ...MISSING_LABELS,
+  PUBLIC_APPROVED_ASSET: "לפחות תמונה אחת מאושרת לפרסום",
+};
