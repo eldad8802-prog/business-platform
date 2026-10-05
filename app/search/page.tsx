@@ -66,7 +66,12 @@ export default function SearchPage() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
-    const id = window.setTimeout(() => inputRef.current?.focus(), 0);
+    const id = window.setTimeout(() => {
+      // `/search?q=` — the Home search field hands its query over on arrival.
+      const initial = new URLSearchParams(window.location.search).get("q")?.trim();
+      if (initial) setQuery(initial);
+      inputRef.current?.focus();
+    }, 0);
     return () => window.clearTimeout(id);
   }, []);
 
