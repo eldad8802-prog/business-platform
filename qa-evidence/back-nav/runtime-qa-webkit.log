@@ -14,7 +14,29 @@
   [PASS] /payables/match/41 from /settings → back to /settings — /settings
   [PASS] /payables/match/41 from /customers: back mode = history
   [PASS] /payables/match/41 from /customers → back to /customers — /customers
-  [FAIL] desktop aborted — page.reload: Frame load interrupted
+  [PASS] after refresh: back still knows the origin
+  [PASS] after refresh: back → /tools
+  [PASS] 4 rapid clicks → exactly one screen back — /payables/match/41
+  [PASS] double-click → exactly one screen back — /settings
+  [PASS] accessible name present — חזרה
+  [PASS] Enter on focused back navigates back
+  [PASS] mouse long-press → exactly one screen back — /payables/match/41
+  [PASS] tap target ≥ 44×44 — {"x":1104,"y":16,"width":44,"height":44}
+  [PASS] round (border-radius ≥ 22px)
+  [PASS] RTL: arrow drawn pointing right, not mirrored — {"d":"M5 12h14M13 6l6 6-6 6","transform":"none"}
+  [PASS] placed on the start (right) side of its row — {"left":1104,"right":1148,"vw":1440} startGap=292
+  [PASS] exactly one back control on the screen
+  [PASS] no horizontal overflow — overflow=0
+  [PASS] after account switch: no back into the other account's screens
+  [PASS] no page errors
+  [PASS] direct link: fallback mode
+  [PASS] direct link: visible destination label (not 'חזרה') — לכל ההתחייבויות
+  [PASS] direct link: fallback → /payables
+  [PASS] fallback used replace (history.length unchanged)
+  [PASS] root /payables: no back control
+  [PASS] suppliers list, direct link: no back control (no verified origin)
+  [PASS] suppliers list from Tools at ≥1280 (two-pane): back hidden — visible=0
+  [PASS] nested fallback walks up without loops — /inventory/supplier-purchases/new/cart → /inventory/supplier-purchases/new → /inventory/supplier-purchases
 
 === tablet 820x1180 ===
   [PASS] root /customers shows no back control
@@ -100,6 +122,4 @@
   [PASS] new tab: fallback → /customers
   [PASS] nested fallback walks up without loops — /inventory/supplier-purchases/new/cart → /inventory/supplier-purchases/new → /inventory/supplier-purchases
 
-94 passed, 1 failed
-FAILED:
- - desktop: aborted — page.reload: Frame load interrupted
+117 passed, 0 failed

@@ -635,8 +635,8 @@
       {
         "n": 1,
         "from": "/documents/review/502",
-        "mode": "history",
-        "computed": "/documents/search",
+        "mode": "browser",
+        "computed": null,
         "to": "/documents/search",
         "label": "search, query + filter restored",
         "checks": [

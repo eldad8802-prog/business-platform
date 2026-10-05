@@ -148,3 +148,8 @@ id_rsa.*
 
 # homepage candidate QA evidence (scripts/qa/ui/homepage-candidate.mjs)
 /.homepage-qa-*/
+
+# Back-nav chain QA writes a screenshot per back press (hundreds). Only a
+# representative few are committed: the full set would be traced into the
+# serverless bundle (whole-project tracing) and exceed the function size limit.
+qa-evidence/back-nav/chains/*.png

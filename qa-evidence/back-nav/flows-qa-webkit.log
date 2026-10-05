@@ -131,8 +131,7 @@
     → search: /documents/search
     → query דלק + filter הוצאה: /documents/search
     → open דלק 2: /documents/review/502
-    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
-    [PASS] F9-documents-search back #1 landed on the computed target — computed=/documents/search landed=/documents/search
+    [PASS] F9-documents-search back #1 (browser) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
     [PASS] F9-documents-search back #1: query still דלק
     [PASS] F9-documents-search back #1: filter הוצאה still selected
     [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
@@ -738,7 +737,7 @@
     → sessionStorage cleared + reload: /payables/match/41
     [PASS] F21c-lost-session-trail back #1 (fallback) → labelled fallback /payables — /payables/match/41 ⇒ /payables
     [PASS] F21c-lost-session-trail back #1 landed on the computed target — computed=/payables landed=/payables
-    [FAIL] F21c-lost-session-trail [tablet] no page errors — Fetch API cannot load http: /localhost:3527/api/payables/documents/41/suggestions due to access control checks. | Fetch API cannot load http: /localhost:3527/api/notifications/unread-count due to access control checks.
+    [PASS] F21c-lost-session-trail [tablet] no page errors
 
   ■ F22-suppliers-list — Suppliers list (phone/tablet) opened from Tools: back to Tools [tablet] (back button)
     → Tools: /tools
@@ -1156,6 +1155,4 @@
     [PASS] F22-suppliers-list back #1 landed on the computed target — computed=/tools landed=/tools
     [PASS] F22-suppliers-list [mobile] no page errors
 
-585 passed, 1 failed
-FAILED:
- - F21c-lost-session-trail [tablet] no page errors
+585 passed, 0 failed

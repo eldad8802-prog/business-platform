@@ -131,8 +131,7 @@
     → search: /documents/search
     → query דלק + filter הוצאה: /documents/search
     → open דלק 2: /documents/review/502
-    [PASS] F9-documents-search back #1 (history) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
-    [PASS] F9-documents-search back #1 landed on the computed target — computed=/documents/search landed=/documents/search
+    [PASS] F9-documents-search back #1 (browser) → search, query + filter restored — /documents/review/502 ⇒ /documents/search
     [PASS] F9-documents-search back #1: query still דלק
     [PASS] F9-documents-search back #1: filter הוצאה still selected
     [PASS] F9-documents-search back #2 (history) → documents hub — /documents/search ⇒ /documents
@@ -1156,4 +1155,4 @@
     [PASS] F22-suppliers-list back #1 landed on the computed target — computed=/tools landed=/tools
     [PASS] F22-suppliers-list [mobile] no page errors
 
-586 passed, 0 failed
+585 passed, 0 failed

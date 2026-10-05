@@ -97,7 +97,7 @@ Mode: `history` = verified origin (history.go), `fallback` = no verified origin 
 
 | # | from | mode | computed target | landed on | expected | state checks |
 |---|---|---|---|---|---|---|
-| 1 | `/documents/review/502` | history | `/documents/search` | `/documents/search` | ✓ search, query + filter restored | ✓ query still דלק<br>✓ filter הוצאה still selected |
+| 1 | `/documents/review/502` | browser | — (root / in-screen step control) | `/documents/search` | ✓ search, query + filter restored | ✓ query still דלק<br>✓ filter הוצאה still selected |
 | 2 | `/documents/search` | history | `/documents` | `/documents` | ✓ documents hub | — |
 
 ## F11-content — Content creation: vibe → goal → direction → setup, back ×4 · desktop · back button · PASS
