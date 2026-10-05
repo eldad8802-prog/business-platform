@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import {
   CONFIDENCE_LABEL,
   attachBankLine,
@@ -45,7 +45,6 @@ const STATE_TEXT: Record<BankLineApi["state"], string> = {
  * amount alone. There is no bank feed — lines arrive only from the owner.
  */
 export default function BankLinesPage() {
-  const router = useRouter();
   const [lines, setLines] = useState<BankLineApi[] | null>(null);
   const [accounts, setAccounts] = useState<BankAccountApi[]>([]);
   const [scope, setScope] = useState<"open" | "all">("open");
@@ -77,9 +76,9 @@ export default function BankLinesPage() {
 
   return (
     <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
-      <button type="button" className={styles.backLink} onClick={() => router.push("/payables")}>
-        ← כל ההתחייבויות
-      </button>
+      <div className={styles.backRow}>
+        <BackButton />
+      </div>
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
           <h1 className={styles.title}>תנועות בנק</h1>

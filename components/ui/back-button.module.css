@@ -1,0 +1,86 @@
+/*
+ * Canonical Dubiz back control — an arrow inside a round button (44px tap
+ * target on every device). In fallback mode (no verified previous screen) the
+ * same control widens into a pill that names its destination, e.g.
+ * "לרשימת המסמכים", so a parent link is never mistaken for "where I came from".
+ */
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--dz-border, #f0e3d3);
+  background: var(--dz-surface-raised-flat, #fffdfa);
+  color: var(--dz-text-primary, #1e2b2a);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 120ms ease;
+}
+
+.root:hover {
+  background: var(--dz-brand-soft, #e3f2f0);
+  border-color: var(--dz-brand-border, #bfd7d2);
+  color: var(--dz-brand, #246966);
+}
+
+.root:active {
+  transform: scale(0.94);
+}
+
+.root:focus-visible {
+  outline: 2px solid var(--dz-brand, #246966);
+  outline-offset: 2px;
+}
+
+.withLabel {
+  padding-inline-end: 16px;
+  color: var(--dz-brand, #246966);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+}
+
+.withLabel .icon {
+  width: 36px;
+  margin-inline-start: 3px;
+}
+
+/* The arrow is drawn pointing right — "back" in RTL. LTR mirrors it. */
+.icon svg:dir(ltr) {
+  transform: scaleX(-1);
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46vw;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+  .root:active {
+    transform: none;
+  }
+}

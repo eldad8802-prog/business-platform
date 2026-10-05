@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import {
   createInventoryCategory,
   getInventoryCategories,
@@ -244,6 +245,7 @@ export default function ProductDetailView({
   const tone = item ? getStockTone(item) : "ok";
   const unit = item ? UNIT_LABELS[item.unitType] || item.unitType : "";
 
+  const router = useRouter();
   const caption = useMemo(() => {
     if (!item) return "";
     if (tone === "critical") {
@@ -320,7 +322,9 @@ export default function ProductDetailView({
                   <circle cx="17" cy="18.5" r="1.6" stroke="var(--inv-on-accent)" strokeWidth="1.8" />
                 </svg>
               ),
-              onClick: () => (window.location.href = "/inventory/supplier-purchases/new"),
+              // Client navigation (was a full reload): keeps the history trail,
+              // so back from the order wizard returns to this product.
+              onClick: () => router.push("/inventory/supplier-purchases/new"),
             },
             {
               label: "הוסף",

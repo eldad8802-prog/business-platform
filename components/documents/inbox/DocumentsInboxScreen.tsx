@@ -163,7 +163,7 @@ export default function DocumentsInboxScreen({
           the width it was built for instead of a 760px column. */}
       <PageContainer intent="data" as="main" className="docs-inbox-page" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
-          <BackButton href="/documents" />
+          <BackButton />
           <div style={{ minWidth: 0, textAlign: "center" }}>
             <h1 style={titleStyle}>תור אימות</h1>
             <div style={subtitleStyle}>{viewedMonthName}</div>

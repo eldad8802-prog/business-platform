@@ -268,7 +268,7 @@ export default function ShotDirectionPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <BackButton href="/content/creator-plan" />
+          <BackButton />
           <div style={topBarTitleStyle}>כיוון לפני הצילום</div>
           <div style={topBarSpacerStyle} />
         </div>

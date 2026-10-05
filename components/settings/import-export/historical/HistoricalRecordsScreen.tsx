@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import {
@@ -122,11 +123,11 @@ export function HistoricalRecordsScreen({
   importHref,
   recordsBase,
 }: Props) {
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [filters, setFilters] = useEntryState<Filters>("filters", NO_FILTERS);
   // What the CURRENT result was fetched with, so the controls can be edited
   // without the list changing underneath the owner mid-typing.
-  const [applied, setApplied] = useState<Filters>(NO_FILTERS);
-  const [page, setPage] = useState(1);
+  const [applied, setApplied] = useEntryState<Filters>("applied", NO_FILTERS);
+  const [page, setPage] = useEntryState("page", 1);
   const [data, setData] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

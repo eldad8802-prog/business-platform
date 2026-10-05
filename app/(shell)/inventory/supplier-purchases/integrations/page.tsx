@@ -37,6 +37,7 @@ export default function SupplierPurchasesIntegrationsPage() {
     <InventorySubPage intent="standard"
       title="אינטגרציות"
       variant="hub"
+      hubBack
       sub="חברו קופה או ספק לעדכון מלאי אוטומטי"
       bottomNav="orders"
     >

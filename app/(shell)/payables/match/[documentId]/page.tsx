@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import {
   CONFIDENCE_LABEL,
   attachEvidence,
@@ -31,7 +31,6 @@ export default function MatchDocumentPage({
 }) {
   const { documentId } = use(params);
   const docId = Number(documentId);
-  const router = useRouter();
 
   const [data, setData] = useState<SuggestionApi | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +74,9 @@ export default function MatchDocumentPage({
   if (error && !data) {
     return (
       <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+        <div className={styles.backRow}>
+          <BackButton />
+        </div>
         <div className={styles.error}>{error}</div>
       </div>
     );
@@ -82,6 +84,9 @@ export default function MatchDocumentPage({
   if (!data) {
     return (
       <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+        <div className={styles.backRow}>
+          <BackButton />
+        </div>
         <div className={styles.empty}>טוען…</div>
       </div>
     );
@@ -89,13 +94,9 @@ export default function MatchDocumentPage({
 
   return (
     <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
-      <button
-        type="button"
-        className={styles.backLink}
-        onClick={() => router.push("/payables")}
-      >
-        ← כל ההתחייבויות
-      </button>
+      <div className={styles.backRow}>
+        <BackButton />
+      </div>
 
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>

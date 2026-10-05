@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
 import type {
@@ -184,7 +185,7 @@ export function BusinessDetailSurface({
         />
         <p style={{ marginTop: 16 }}>
           <Link href="/admin" style={{ color: PA.info.accent, fontSize: 14 }}>
-            חזרה ללוח בקרה
+            ללוח הבקרה
           </Link>
         </p>
       </main>
@@ -212,18 +213,9 @@ export function BusinessDetailSurface({
         }}
       >
         <div>
-          <Link
-            href="/admin"
-            style={{
-              fontSize: 13,
-              color: PA.inkMuted,
-              textDecoration: "none",
-              display: "inline-block",
-              marginBottom: 8,
-            }}
-          >
-            ← לוח בקרה
-          </Link>
+          <div style={{ marginBottom: 8 }}>
+            <BackButton fallback="/admin" />
+          </div>
           {error ? (
             <PlatformAdminInlineError message={error} onRetry={() => void load()} />
           ) : detail ? (

@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import { useFlowStep } from "@/hooks/useFlowStep";
 import { TOKEN } from "@/lib/design/tokens";
 import { COUPON } from "@/lib/design/coupon-consumer";
 import {
@@ -167,6 +168,8 @@ export function CouponCreationFlow({
   startAtBeat = true,
   publish,
   onDirty,
+  historySteps = false,
+  onBeforeLeaveFlow,
 }: {
   /** Called on abandon (no arg) or on finish (the created draft). */
   onExit?: (created?: CouponDraft) => void;
@@ -176,8 +179,16 @@ export function CouponCreationFlow({
   publish?: (draft: CouponDraft) => Promise<PublishOutcome>;
   /** Fires once the owner has invested real input — lets the host guard the exit. */
   onDirty?: () => void;
+  /**
+   * Steps as real history entries (?cstep=…): back — the button or the
+   * browser — walks the steps in the order taken, then leaves the flow. Off for
+   * the design gallery, which renders the flow without owning the URL.
+   */
+  historySteps?: boolean;
+  /** History mode: guard for leaving the flow from its first step. */
+  onBeforeLeaveFlow?: (proceed: () => void) => void;
 }) {
-  const [step, setStep] = useState<Step>(startAtBeat ? "intro" : "goal");
+  const [localStep, setLocalStep] = useState<Step>(startAtBeat ? "intro" : "goal");
   const [draft, setDraft] = useState<CouponDraft>(initialDraft);
   const patch = (p: Partial<CouponDraft>) => {
     // Business identity arrives from the API, not from the owner — loading it
@@ -190,6 +201,23 @@ export function CouponCreationFlow({
   const [published, setPublished] = useState<PublishedCoupon | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>([]);
+
+  const flowStep = useFlowStep<Step>({
+    param: "cstep",
+    steps: startAtBeat
+      ? ["intro", "goal", "direction", "builder", "terms", "published"]
+      : ["goal", "direction", "builder", "terms", "published"],
+    // A refresh / deep link into a later step without its choices falls back
+    // to the start instead of a half-filled step.
+    canShow: (st) =>
+      st === "direction" ? !!draft.goal
+      : st === "builder" || st === "terms" ? !!draft.direction
+      : st === "published" ? published !== null
+      : true,
+  });
+  const step: Step = historySteps ? flowStep.step : localStep;
+  const setStep = (next: Step) => (historySteps ? flowStep.go(next) : setLocalStep(next));
+  const firstStep: Step = startAtBeat ? "intro" : "goal";
 
   /**
    * Real business identity for the live preview (COUPON-04 / F-1).
@@ -240,7 +268,7 @@ export function CouponCreationFlow({
 
     if (!publish) {
       // Demo mode (the /coupon-design gallery) — no backend, no claim of saving.
-      setStep("published");
+      setLocalStep("published");
       return;
     }
 
@@ -259,13 +287,31 @@ export function CouponCreationFlow({
     }
 
     setPublished(outcome.coupon);
-    setStep("published");
+    // COMPLETED (coupon published): the success step replaces terms and the
+    // earlier wizard steps are consumed — back leaves the finished wizard to
+    // where it was opened from, never into a filled draft that would publish
+    // a second coupon.
+    if (historySteps)
+      flowStep.complete("published", ["intro", "goal", "direction", "builder", "terms"], (u) => u.searchParams.get("view") === "create");
+    else setLocalStep("published");
   };
 
   const header = (back: Step | null, close = false) => (
     <ScreenHeader
       title={close ? undefined : "קופון חדש"}
-      action={close ? <CloseButton onClick={onExit} /> : back ? <BackButton onClick={() => setStep(back)} /> : undefined}
+      action={
+        close ? (
+          // Close on the success step: the coupon IS published — tell the host,
+          // so it never asks to "discard" a draft that no longer exists.
+          <CloseButton onClick={() => onExit?.(published ? draft : undefined)} />
+        ) : historySteps ? (
+          // History mode: back = the previous step actually taken; from the
+          // first step it leaves the flow (through the host's draft guard).
+          <BackButton onBeforeLeave={step === firstStep ? onBeforeLeaveFlow ?? ((go) => go()) : (go) => go()} />
+        ) : back ? (
+          <BackButton onClick={() => setStep(back)} />
+        ) : undefined
+      }
     />
   );
 
@@ -361,7 +407,7 @@ export function CouponCreationFlow({
         onCreate={doCreate}
         busy={busy}
         error={error}
-        onBackToBuilder={() => setStep("builder")}
+        onBackToBuilder={() => (historySteps ? flowStep.backTo("builder") : setLocalStep("builder"))}
       />
       </Composer>
     );

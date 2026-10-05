@@ -466,15 +466,11 @@
   margin: 4px 0 0;
 }
 
-.backLink {
-  font-size: 13px;
-  color: var(--pay-accent);
-  background: none;
-  border: none;
-  padding: 6px 0;
-  cursor: pointer;
-  text-align: start;
-  min-height: 44px;
+/* Row holding the canonical round BackButton (components/ui/back-button). */
+.backRow {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 /* The tap target is the whole LABEL, not the 20px box. A checkbox drawn at 44px

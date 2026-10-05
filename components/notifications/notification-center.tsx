@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 
 /**
  * The notification centre.
@@ -154,7 +155,7 @@ export function NotificationCenter() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [cursor, setCursor] = useState<number | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useEntryState<Filter>("filter", "all");
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadingMore, setLoadingMore] = useState(false);
   const [now, setNow] = useState(() => Date.now());

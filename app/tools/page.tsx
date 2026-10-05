@@ -6,7 +6,6 @@ import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
 import { EntityIcon } from "@/components/ui/entity/entity-icon";
 import {
-  HOME_ROUTES,
   TOOL_GROUPS,
   toolsInGroup,
   type Tool,
@@ -184,7 +183,7 @@ export default function ToolsPage() {
 
       <div className="dztools">
         <header className="thead">
-          <BackButton href={HOME_ROUTES.home} label="לבית" />
+          <BackButton />
           <div className="thead-tx">
             <h1>כל הכלים</h1>
             <p>כל היכולות, לפי תחום</p>

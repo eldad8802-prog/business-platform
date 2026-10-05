@@ -251,7 +251,7 @@ export default function Dashboard() {
     <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
       <PageContainer intent="data" className="dz-report" style={{ paddingBlock: "14px 40px" }}>
         <div style={{ marginBottom: 12 }}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
         </div>
         <section style={{ textAlign: "center", padding: "4px 0 2px" }}>
           <h1

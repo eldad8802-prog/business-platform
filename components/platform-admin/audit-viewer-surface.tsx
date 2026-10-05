@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
 import type { PlatformAdminAuditResponse } from "@/lib/services/platform-admin/platform-audit-list.types";
 import {
@@ -59,7 +60,7 @@ function SummaryTile({ label, value }: { label: string; value: string | number }
 export function AuditViewerSurface({ session }: AuditViewerSurfaceProps) {
   const [data, setData] = useState<PlatformAdminAuditResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useEntryState("page", 1);
   const [loading, setLoading] = useState(true);
   const [pageLoading, setPageLoading] = useState(false);
   const hasLoadedOnce = useRef(false);

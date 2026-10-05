@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import BackButton from "@/components/ui/back-button";
 import {
-  HOME_ROUTES,
   TOOL_GROUPS,
   toolsInGroup,
   type ToolGroupKey,
@@ -77,7 +76,7 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
 
       <div className="cwrap">
         <div className="cback">
-          <BackButton href={HOME_ROUTES.home} label="לבית" />
+          <BackButton />
         </div>
 
         <header className="chero">

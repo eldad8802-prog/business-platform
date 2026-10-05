@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -90,9 +92,9 @@ export default function SupplierCardPage() {
 
   return (
     <div className="crm-page crm-reading">
-      <a className="crm-hd__back" href="/suppliers">
-        › חזרה לספקים
-      </a>
+      <div className="crm-hd__back">
+        <BackButton />
+      </div>
 
       {loading ? (
         <div>
@@ -103,9 +105,9 @@ export default function SupplierCardPage() {
         <div className="crm-panel">
           <p className="crm-panel__title">הספק לא נמצא</p>
           <p className="crm-panel__body">ייתכן שהספק הוסר או שאין לך גישה אליו.</p>
-          <a className="crm-btn crm-btn--ghost" href="/suppliers">
-            חזרה לספקים
-          </a>
+          <Link className="crm-btn crm-btn--ghost" href="/suppliers">
+            לרשימת הספקים
+          </Link>
         </div>
       ) : error ? (
         <div className="crm-panel crm-panel--error">

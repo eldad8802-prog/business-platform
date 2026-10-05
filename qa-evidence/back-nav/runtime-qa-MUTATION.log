@@ -1,0 +1,43 @@
+
+=== desktop 1440x900 ===
+  [PASS] root /customers shows no back control
+  [PASS] list rendered — rows=80
+  [PASS] two-pane: detail back hidden (list visible beside it)
+  [PASS] back lands on the list — /customers
+  [PASS] search text restored
+  [PASS] filter restored (הכול)
+  [PASS] two-pane: list still scrolled — after=3334
+  [PASS] browser Forward/Back returns to the same list
+  [FAIL] /payables/match/41 from /tools: back mode = history
+  [FAIL] desktop aborted — page.waitForURL: Timeout 30000ms exceeded.
+
+=== tablet 820x1180 ===
+  [PASS] root /customers shows no back control
+  [PASS] list rendered — rows=80
+  [FAIL] detail back resolves to the verified origin
+  [PASS] back lands on the list — /customers
+  [PASS] search text restored
+  [PASS] filter restored (הכול)
+  [FAIL] scroll restored on return — before=3194 (scrolled 1400) after=0
+  [FAIL] tablet aborted — page.waitForURL: Timeout 30000ms exceeded.
+
+=== mobile 390x844 ===
+  [PASS] root /customers shows no back control
+  [PASS] list rendered — rows=80
+  [FAIL] detail back resolves to the verified origin
+  [PASS] back lands on the list — /customers
+  [PASS] search text restored
+  [PASS] filter restored (הכול)
+  [FAIL] scroll restored on return — before=3362 (scrolled 1400) after=0
+  [FAIL] mobile aborted — page.waitForURL: Timeout 30000ms exceeded.
+
+18 passed, 8 failed
+FAILED:
+ - /payables/match/41 from /tools: back mode = history
+ - desktop: aborted — page.waitForURL: Timeout 30000ms exceeded.
+ - detail back resolves to the verified origin
+ - scroll restored on return
+ - tablet: aborted — page.waitForURL: Timeout 30000ms exceeded.
+ - detail back resolves to the verified origin
+ - scroll restored on return
+ - mobile: aborted — page.waitForURL: Timeout 30000ms exceeded.

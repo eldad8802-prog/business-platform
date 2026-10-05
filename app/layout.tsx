@@ -3,6 +3,7 @@ import { Heebo, Rubik } from "next/font/google";
 import "./globals.css";
 import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
 import { NativeShellInit } from "@/components/native/NativeShellInit";
+import { NavTrailInit } from "@/components/navigation/nav-trail-init";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
 // (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
@@ -55,6 +56,8 @@ export default function RootLayout({
       className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
+        {/* First, so the history trail is installed before any screen effect. */}
+        <NavTrailInit />
         {children}
         <NativeShellInit />
         <AccessibilityFab />

@@ -578,6 +578,7 @@ export function InventorySubPage({
   variant = "page",
   backHref,
   backText,
+  hubBack = false,
   sub,
   headerAction,
   progressLabel,
@@ -588,10 +589,13 @@ export function InventorySubPage({
   children,
 }: {
   title: string;
-  /** "page" → chevron-start back (default). "hub" → big title, no back. */
+  /** "page" → back control (default). "hub" → big title, no back unless `hubBack`. */
   variant?: "hub" | "page";
-  /** Page variant only. */
+  /** Hub look on a SUB-screen: also render the back control. */
+  hubBack?: boolean;
+  /** Fallback parent for the back control (direct link / new tab only). */
   backHref?: string;
+  /** @deprecated ignored — the back control names its own fallback destination. */
   backLabel?: string;
   /** Opt-in: labeled back control (chevron + this text) instead of icon-only. */
   backText?: string;
@@ -630,7 +634,7 @@ export function InventorySubPage({
       <style>{inventoryLayoutCss}</style>
       <style>{inventoryPrimitivesCss}</style>
       {variant === "hub" ? (
-        <InventorySubheader title={title} showBack={false} action={headerAction} />
+        <InventorySubheader title={title} showBack={hubBack} hub backHref={backHref} action={headerAction} />
       ) : (
         <InventorySubheader title={title} backHref={backHref} backText={backText} action={headerAction} />
       )}

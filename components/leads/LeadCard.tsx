@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import {
   getLeadCard,
@@ -139,9 +140,9 @@ export function LeadCard() {
 
   return (
     <div className="crm-page crm-reading">
-      <Link className="crm-hd__back" href="/leads">
-        › חזרה ללידים
-      </Link>
+      <div className="crm-hd__back">
+        <BackButton />
+      </div>
 
       {state.status === "loading" ? (
         <div>
@@ -154,7 +155,7 @@ export function LeadCard() {
           <p className="crm-panel__title">הליד לא נמצא</p>
           <p className="crm-panel__body">ייתכן שהליד נמחק או שאין לך גישה אליו.</p>
           <Link className="crm-btn crm-btn--ghost" href="/leads">
-            חזרה ללידים
+            לרשימת הלידים
           </Link>
         </div>
       ) : state.status === "error" ? (

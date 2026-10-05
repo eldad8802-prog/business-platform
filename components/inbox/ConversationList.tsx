@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { resolveConversationDisplayTitle } from "@/lib/inbox-view/conversation-display-title";
 import {
@@ -642,23 +643,7 @@ export function ConversationList(props: {
             gap: 12,
           }}
         >
-          <button
-            type="button"
-            onClick={() => onBackFromList?.()}
-            style={{
-              background: "rgba(52, 60, 50, 0.05)",
-              border: "none",
-              borderRadius: 12,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 700,
-              color: "var(--dz-text-secondary)",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            →
-          </button>
+          <BackButton onClick={() => onBackFromList?.()} label="חזרה לקטגוריות" />
           <div>
             <div
               style={{ fontSize: 17, fontWeight: 900, color: "var(--dz-text-primary)", lineHeight: 1.2 }}

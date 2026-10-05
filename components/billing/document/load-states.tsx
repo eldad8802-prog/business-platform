@@ -118,7 +118,7 @@ export function NotFoundCard() {
           textDecoration: "none",
         }}
       >
-        חזרה לרשימת המסמכים
+        לרשימת המסמכים
       </Link>
     </div>
   );

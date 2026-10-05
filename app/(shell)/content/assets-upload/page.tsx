@@ -153,7 +153,7 @@ export default function AssetsUploadPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <BackButton href="/content/shot-direction" />
+          <BackButton />
 
           <div style={topBarTitleStyle}>מחברים את מה שצילמתם</div>
 
