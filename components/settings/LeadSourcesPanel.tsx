@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { loadFacebookSdk } from "@/components/whatsapp/facebook-sdk";
+import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
 
 /**
  * Settings → Connections → "מקורות לידים" (M6).
@@ -124,26 +125,6 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-/**
- * The ready-made contact form an owner pastes into their own site (Wix / WordPress "HTML embed").
- * It carries NO secret: it posts from the browser, so the endpoint accepts it only from the site
- * address the owner gave, behind the honeypot and the rate limits. The one-line script records the
- * page the visitor was on (campaign tags included) for attribution.
- */
-function formSnippet(url: string): string {
-  return [
-    `<form action="${url}" method="post" accept-charset="UTF-8" dir="rtl" style="display:grid;gap:8px;max-width:420px">`,
-    `  <input name="name" placeholder="שם" autocomplete="name">`,
-    `  <input name="phone" type="tel" placeholder="טלפון" autocomplete="tel" required>`,
-    `  <input name="email" type="email" placeholder="אימייל (לא חובה)" autocomplete="email">`,
-    `  <textarea name="message" rows="4" placeholder="במה נוכל לעזור?"></textarea>`,
-    `  <input name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-5000px">`,
-    `  <input type="hidden" name="page_url">`,
-    `  <button type="submit">שליחה</button>`,
-    `</form>`,
-    `<script>document.querySelectorAll('input[name="page_url"]').forEach(function(i){i.value=location.href});</script>`,
-  ].join("\n");
-}
 
 function WebFormInstall({ url }: { url: string }) {
   return (
@@ -154,7 +135,7 @@ function WebFormInstall({ url }: { url: string }) {
         <li>מכאן כל פנייה מהטופס נכנסת ישר לרשימת הלידים, עם העמוד והקמפיין שממנו הגיעה.</li>
       </ol>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Copy text={formSnippet(url)} label="העתקת הטופס המוכן" />
+        <Copy text={webFormSnippet(url)} label="העתקת הטופס המוכן" />
       </div>
     </div>
   );

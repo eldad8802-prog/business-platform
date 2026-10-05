@@ -4,7 +4,8 @@
 -- Read-only Production evidence for the Website acquisition LIVE PROOF, to be run
 -- after the owner enabled acquisition_web_forms for ONE business, that business
 -- connected its site, and at least one GENUINE enquiry arrived from its real form
--- (then the same enquiry resubmitted naturally, e.g. back + resubmit).
+-- (then the same submission resubmitted naturally, e.g. back + resubmit on the same page: the
+-- ready-made form keeps its submission id, so it must stay one receipt).
 --
 -- Proves the whole chain, by counts only:
 --   one business, one live website connection, nothing else enabled
