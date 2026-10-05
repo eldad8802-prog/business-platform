@@ -1,0 +1,9 @@
+{
+  "note": "feat/home-redesign (HOME v3): the Home view-model test. Product behaviour of the Home screen, not a security control.",
+  "tests": {
+    "features/home/v3/home-v3-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network, no I/O): the HOME v3 view-model's truth rules — exact vs capped (N+) counts, net only from real income and expenses, no invented hourly expenses, week only with all seven days, threshold-scaled stock bar; run with npx tsx; not yet wired into CI (product-test debt, like its sibling features/home/lib/home-model.test.ts)"
+    }
+  }
+}
