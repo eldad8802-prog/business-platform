@@ -1,0 +1,60 @@
+name: Prod Read-Only Evidence (M9 closed-loop baseline)
+
+# M9 — READ-ONLY Production CLOSED-LOOP BASELINE, before the product changes. scripts/ops/closed-loop-baseline.ts:
+# exact counts of OutcomeRecommendation / Decision / ActionEvent / Observation / Assessment (by business, type, status,
+# kind, attribution), origin only where stored fields prove it (else UNKNOWN), per-recommendation chains, and the
+# learning artifacts in each business's REAL snapshot built as the least-privilege runtime login. Two sessions, both
+# READ ONLY by Postgres (verified before and after). No model call, no derive. Counts and codes only — never a name,
+# amount, document text or target list. Changes nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-closed-loop-baseline
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Closed-loop baseline (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secrets present and distinct (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          for v in DIRECT_URL RUNTIME_DATABASE_URL; do
+            if [ -z "${!v:-}" ]; then echo "::error::$v is not set in production-db — NOT RUN."; exit 1; fi
+          done
+          if [ "$DIRECT_URL" = "$RUNTIME_DATABASE_URL" ]; then echo "::error::owner and runtime URLs are identical — two identities are required."; exit 1; fi
+          echo "Connection secrets present and distinct."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Closed-loop baseline (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/closed-loop-baseline.ts --allow-host ep-flat-brook-am4bhq1y --runtime-user app_runtime_prod
