@@ -26,7 +26,9 @@
  *
  * Run: build, `npx next start -p 3527`, then `node scripts/qa/back-nav-runtime-qa.mjs`.
  */
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
+// QA_BROWSER=webkit runs the same suite on WebKit (Safari engine).
+const ENGINE = process.env.QA_BROWSER === "webkit" ? webkit : chromium;
 
 const BASE = process.env.QA_BASE ?? "http://localhost:3527";
 const VIEWPORTS = [
@@ -220,6 +222,52 @@ async function scenario(browser, vp) {
   await page.waitForURL((u) => u.pathname === "/settings");
   check("Enter on focused back navigates back", new URL(page.url()).pathname === "/settings");
 
+  /* ---- 8b. long press ---------------------------------------------------- */
+  // Mouse: button held 900ms, then released → exactly one screen back.
+  await pushTo(page, "/settings");
+  await pushTo(page, "/payables/match/41");
+  await pushTo(page, "/payables/match/42");
+  {
+    const box = await visibleBack(page).first().boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(900);
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    check("mouse long-press → exactly one screen back", path(page) === "/payables/match/41", path(page));
+  }
+  // Touch: a real touch held 900ms through the browser's input pipeline
+  // (Chromium CDP). A long press may or may not count as a tap — either way it
+  // must never move more than one screen.
+  if (ENGINE === chromium) {
+    const tctx = await browser.newContext({ locale: "he-IL", viewport: { width: vp.width, height: vp.height }, hasTouch: true, isMobile: vp.width < 768 });
+    await wire(tctx);
+    const tp = await tctx.newPage();
+    await tp.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+    await pushTo(tp, "/settings");
+    await pushTo(tp, "/payables/match/41");
+    await pushTo(tp, "/payables/match/42");
+    const tb = await visibleBack(tp).first().boundingBox();
+    const cdp = await tctx.newCDPSession(tp);
+    const pt = [{ x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt });
+    await tp.waitForTimeout(900);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await tp.waitForTimeout(1500);
+    const after = path(tp);
+    check(
+      "touch long-press → at most one screen back (never two)",
+      after === "/payables/match/42" || after === "/payables/match/41",
+      `landed=${after}`,
+    );
+    // And a normal tap right after still works (no stuck lock).
+    const before2 = path(tp);
+    await visibleBack(tp).first().tap();
+    await tp.waitForTimeout(1200);
+    check("tap after the long-press still moves one screen", path(tp) !== before2, `${before2} → ${path(tp)}`);
+    await tctx.close();
+  }
+
   /* ---- 9. geometry / RTL ------------------------------------------------- */
   await pushTo(page, DETAIL);
   const box = await visibleBack(page).first().boundingBox();
@@ -270,6 +318,19 @@ async function scenario(browser, vp) {
   check("fallback used replace (history.length unchanged)", (await fresh.evaluate(() => history.length)) === len0);
   check("root /payables: no back control", (await visibleBack(fresh).count()) === 0);
 
+  // Suppliers list: back only with a verified origin, never in the desktop
+  // two-pane workspace.
+  await fresh.goto(`${BASE}/suppliers`, { waitUntil: "networkidle" });
+  await fresh.waitForTimeout(400);
+  check("suppliers list, direct link: no back control (no verified origin)", (await visibleBack(fresh).count()) === 0);
+  await fresh.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+  await fresh.evaluate(() => window.next.router.push("/suppliers"));
+  await fresh.waitForURL("**/suppliers");
+  await fresh.waitForTimeout(600);
+  const supBack = await visibleBack(fresh).count();
+  if (vp.width >= 1280) check("suppliers list from Tools at ≥1280 (two-pane): back hidden", supBack === 0, `visible=${supBack}`);
+  else check("suppliers list from Tools (phone/tablet): back shown", supBack === 1, `visible=${supBack}`);
+
   // New tab opened from an in-app page: no inherited history → fallback.
   await fresh.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
   const [tab] = await Promise.all([
@@ -303,7 +364,7 @@ async function scenario(browser, vp) {
   await ctx2.close();
 }
 
-const browser = await chromium.launch();
+const browser = await ENGINE.launch();
 try {
   for (const vp of VIEWPORTS) {
     try {

@@ -18,8 +18,8 @@
  *    the pathname plus any identity params the route registry declares — e.g.
  *    a filter change that pushed, or the detail page re-pushed after an edit)
  *    — back always leaves the current screen;
- *  - skip transient / technical screens (login, redirects, completed flow
- *    steps registered as transient);
+ *  - skip transient / technical screens (login, redirects) and the steps of
+ *    a COMPLETED flow (`done`, set when the flow commits);
  *  - never more than MAX_WALK steps.
  * When nothing qualifies the caller uses the screen's declared fallback.
  */
@@ -36,6 +36,11 @@ export type TrailEntry = {
   scope: string | null;
   /** Last-touched time (ms) — used for pruning only. */
   t: number;
+  /**
+   * A step of a flow that has been COMPLETED (its commit happened later in the
+   * flow). Never a back target: returning to it would offer the commit again.
+   */
+  done?: boolean;
 };
 
 export type TrailStore = Record<string, TrailEntry>;
@@ -88,6 +93,7 @@ export function resolveBackTarget({
       !safe ||
       screenKey(entry.url) === currentKey ||
       isTechnicalPath(path) ||
+      entry.done === true ||
       (isTransient?.(path) ?? false);
     if (!skippable && safe) {
       return { kind: "history", delta: -steps, url: safe };
@@ -129,7 +135,7 @@ export function parseStore(raw: string | null): TrailStore {
         (v.scope === null || typeof v.scope === "string") &&
         typeof v.t === "number"
       ) {
-        out[id] = { id, url: v.url, prev: v.prev, scope: v.scope, t: v.t };
+        out[id] = { id, url: v.url, prev: v.prev, scope: v.scope, t: v.t, ...(v.done === true ? { done: true } : {}) };
       }
     }
     return out;

@@ -1,7 +1,7 @@
 [
   {
-    "id": "F1-collection-steps",
-    "title": "Collection: customer → details → other customer, then back ×3",
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
     "viewport": "desktop",
     "via": "button",
     "entry": [
@@ -10,141 +10,74 @@
         "url": "/tools"
       },
       {
-        "label": "Collection",
-        "url": "/collection"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "גבה",
-        "url": "/collection/new"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
       },
       {
-        "label": "לקוח אחר",
-        "url": "/collection/new"
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new/confirm",
         "mode": "history",
-        "to": "/collection/new?step=details",
-        "label": "details step, amount 450 kept",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
         "checks": [
           {
-            "name": "amount still 450",
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
             "ok": true,
-            "detail": "450"
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F1-collection-steps-back1.png"
+        "shot": "qa-evidence/back-nav/chains/desktop-F16-order-wizard-back1.png"
       },
       {
         "n": 2,
-        "from": "/collection/new?step=details",
+        "from": "/inventory/supplier-purchases/new/cart",
         "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step (flow start)",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
         "checks": [
           {
-            "name": "customer picker shown",
+            "name": "קפה still in the draft",
             "ok": true,
-            "detail": ""
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F1-collection-steps-back2.png"
+        "shot": "qa-evidence/back-nav/chains/desktop-F16-order-wizard-back2.png"
       },
       {
         "n": 3,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new",
         "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox (a root: no back control)",
-        "checks": [
-          {
-            "name": "root shows no back control",
-            "ok": true,
-            "detail": ""
-          }
-        ],
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F1-collection-steps-back3.png"
+        "shot": "qa-evidence/back-nav/chains/desktop-F16-order-wizard-back3.png"
       }
     ],
     "ok": true
   },
   {
-    "id": "F2-collection-created",
-    "title": "Collection: create request → send step, then back ×2 (no second request)",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Collection",
-        "url": "/collection"
-      },
-      {
-        "label": "גבה",
-        "url": "/collection/new"
-      },
-      {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
-      },
-      {
-        "label": "צור בקשה (POST)",
-        "url": "/collection/new?step=send"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/collection/new?step=send",
-        "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step — the filled form was replaced (completed action)",
-        "checks": [
-          {
-            "name": "exactly one payment request POSTed",
-            "ok": true,
-            "detail": "POSTs=1"
-          },
-          {
-            "name": "no create form / send step shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F2-collection-created-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/collection/new",
-        "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox",
-        "checks": [
-          {
-            "name": "still one POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F2-collection-created-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F3-pricing-calc",
-    "title": "Pricing: catalog → calculation → result, back ×3",
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
     "viewport": "desktop",
     "via": "button",
     "entry": [
@@ -153,691 +86,50 @@
         "url": "/tools"
       },
       {
-        "label": "Pricing",
-        "url": "/pricing"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/pricing?step=result",
+        "from": "/inventory/supplier-purchases/77/send",
         "mode": "history",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
         "checks": [
           {
-            "name": "material cost still 123",
+            "name": "exactly one order created",
             "ok": true,
-            "detail": "123"
+            "detail": "orders=1"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3-pricing-calc-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3-pricing-calc-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3-pricing-calc-back3.png"
+        "shot": "qa-evidence/back-nav/chains/desktop-F16b-order-created-back1.png"
       }
     ],
     "ok": true
   },
   {
-    "id": "F3b-pricing-calc-browser",
-    "title": "Pricing: same chain, browser Back",
-    "viewport": "desktop",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
-      },
-      {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=result",
-        "mode": "browser",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
-        "checks": [
-          {
-            "name": "material cost still 123",
-            "ok": true,
-            "detail": "123"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3b-pricing-calc-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "browser",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3b-pricing-calc-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F3b-pricing-calc-browser-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F4-pricing-new",
-    "title": "Pricing: new item step 1 → step 2, back ×3",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "+ הוספת פריט",
-        "url": "/pricing?step=new1"
-      },
-      {
-        "label": "המשך לעלויות",
-        "url": "/pricing?step=new2"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=new2",
-        "mode": "history",
-        "to": "/pricing?step=new1",
-        "label": "step 1, name kept",
-        "checks": [
-          {
-            "name": "item name still ייעוץ",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F4-pricing-new-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=new1",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F4-pricing-new-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "no item was created",
-            "ok": true,
-            "detail": "POSTs=0"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F4-pricing-new-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F5-coupon-wizard",
-    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "My coupons",
-        "url": "/revenue"
-      },
-      {
-        "label": "צור קופון חדש",
-        "url": "/revenue?view=create"
-      },
-      {
-        "label": "goal",
-        "url": "/revenue?view=create&cstep=direction"
-      },
-      {
-        "label": "direction הנחה",
-        "url": "/revenue?view=create&cstep=builder"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue?view=create&cstep=builder",
-        "mode": "history",
-        "to": "/revenue?view=create&cstep=direction",
-        "label": "direction step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F5-coupon-wizard-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue?view=create&cstep=direction",
-        "mode": "history",
-        "to": "/revenue?view=create",
-        "label": "goal step (first step of the flow)",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F5-coupon-wizard-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue?view=create",
-        "mode": "history",
-        "to": "/revenue",
-        "label": "my coupons — after confirming the discard prompt",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F5-coupon-wizard-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/revenue",
-        "mode": "step",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F5-coupon-wizard-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F6-redeem-error",
-    "title": "Redeem: scan → manual → wrong code (error), back ×3",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → error",
-        "url": "/revenue/redeem?step=error"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=error",
-        "mode": "history",
-        "to": "/revenue/redeem?step=manual",
-        "label": "manual entry, code kept",
-        "checks": [
-          {
-            "name": "code still BAD",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F6-redeem-error-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem?step=manual",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F6-redeem-error-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F6-redeem-error-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F7-redeem-done",
-    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → redeemed",
-        "url": "/revenue/redeem?step=done"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=done",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step — manual entry was replaced (completed)",
-        "checks": [
-          {
-            "name": "exactly one redemption POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F7-redeem-done-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "still one redemption",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F7-redeem-done-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F8-secretary",
-    "title": "Secretary: home → all → item → edit, back ×3",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Secretary",
-        "url": "/secretary"
-      },
-      {
-        "label": "all",
-        "url": "/secretary?screen=all"
-      },
-      {
-        "label": "item חברת החשמל",
-        "url": "/secretary?screen=detail&id=41"
-      },
-      {
-        "label": "עריכת התחייבות",
-        "url": "/secretary?screen=update&id=41"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/secretary?screen=update&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=detail&id=41",
-        "label": "item detail",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F8-secretary-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/secretary?screen=detail&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=all",
-        "label": "all obligations",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F8-secretary-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/secretary?screen=all",
-        "mode": "history",
-        "to": "/secretary",
-        "label": "secretary home",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F8-secretary-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F9-documents-search",
-    "title": "Documents: hub → search (query + filter) → document, back ×2",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Documents",
-        "url": "/documents"
-      },
-      {
-        "label": "search",
-        "url": "/documents/search"
-      },
-      {
-        "label": "query דלק + filter הוצאה",
-        "url": "/documents/search"
-      },
-      {
-        "label": "open דלק 2",
-        "url": "/documents/review/502"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/documents/review/502",
-        "mode": "history",
-        "to": "/documents/search",
-        "label": "search, query + filter restored",
-        "checks": [
-          {
-            "name": "query still דלק",
-            "ok": true,
-            "detail": ""
-          },
-          {
-            "name": "filter הוצאה still selected",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F9-documents-search-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/documents/search",
-        "mode": "history",
-        "to": "/documents",
-        "label": "documents hub",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F9-documents-search-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11-content",
-    "title": "Content creation: vibe → goal → direction → setup, back ×4",
-    "viewport": "desktop",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "history",
-        "to": "/content/archetype",
-        "label": "direction step, choice kept",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11-content-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "history",
-        "to": "/content/goal",
-        "label": "goal step, choice kept",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11-content-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "history",
-        "to": "/content",
-        "label": "vibe step, choice kept",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11-content-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11-content-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11b-content-browser",
-    "title": "Content creation: same chain, browser Back",
-    "viewport": "desktop",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "browser",
-        "to": "/content/archetype",
-        "label": "direction step",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11b-content-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "browser",
-        "to": "/content/goal",
-        "label": "goal step",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11b-content-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "browser",
-        "to": "/content",
-        "label": "vibe step",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11b-content-browser-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/desktop-F11b-content-browser-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F1-collection-steps",
-    "title": "Collection: customer → details → other customer, then back ×3",
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
     "viewport": "tablet",
     "via": "button",
     "entry": [
@@ -846,141 +138,74 @@
         "url": "/tools"
       },
       {
-        "label": "Collection",
-        "url": "/collection"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "גבה",
-        "url": "/collection/new"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
       },
       {
-        "label": "לקוח אחר",
-        "url": "/collection/new"
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new/confirm",
         "mode": "history",
-        "to": "/collection/new?step=details",
-        "label": "details step, amount 450 kept",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
         "checks": [
           {
-            "name": "amount still 450",
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
             "ok": true,
-            "detail": "450"
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F1-collection-steps-back1.png"
+        "shot": "qa-evidence/back-nav/chains/tablet-F16-order-wizard-back1.png"
       },
       {
         "n": 2,
-        "from": "/collection/new?step=details",
+        "from": "/inventory/supplier-purchases/new/cart",
         "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step (flow start)",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
         "checks": [
           {
-            "name": "customer picker shown",
+            "name": "קפה still in the draft",
             "ok": true,
-            "detail": ""
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F1-collection-steps-back2.png"
+        "shot": "qa-evidence/back-nav/chains/tablet-F16-order-wizard-back2.png"
       },
       {
         "n": 3,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new",
         "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox (a root: no back control)",
-        "checks": [
-          {
-            "name": "root shows no back control",
-            "ok": true,
-            "detail": ""
-          }
-        ],
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F1-collection-steps-back3.png"
+        "shot": "qa-evidence/back-nav/chains/tablet-F16-order-wizard-back3.png"
       }
     ],
     "ok": true
   },
   {
-    "id": "F2-collection-created",
-    "title": "Collection: create request → send step, then back ×2 (no second request)",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Collection",
-        "url": "/collection"
-      },
-      {
-        "label": "גבה",
-        "url": "/collection/new"
-      },
-      {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
-      },
-      {
-        "label": "צור בקשה (POST)",
-        "url": "/collection/new?step=send"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/collection/new?step=send",
-        "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step — the filled form was replaced (completed action)",
-        "checks": [
-          {
-            "name": "exactly one payment request POSTed",
-            "ok": true,
-            "detail": "POSTs=1"
-          },
-          {
-            "name": "no create form / send step shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F2-collection-created-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/collection/new",
-        "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox",
-        "checks": [
-          {
-            "name": "still one POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F2-collection-created-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F3-pricing-calc",
-    "title": "Pricing: catalog → calculation → result, back ×3",
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
     "viewport": "tablet",
     "via": "button",
     "entry": [
@@ -989,773 +214,50 @@
         "url": "/tools"
       },
       {
-        "label": "Pricing",
-        "url": "/pricing"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/pricing?step=result",
+        "from": "/inventory/supplier-purchases/77/send",
         "mode": "history",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
         "checks": [
           {
-            "name": "material cost still 123",
+            "name": "exactly one order created",
             "ok": true,
-            "detail": "123"
+            "detail": "orders=1"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3-pricing-calc-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3-pricing-calc-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3-pricing-calc-back3.png"
+        "shot": "qa-evidence/back-nav/chains/tablet-F16b-order-created-back1.png"
       }
     ],
     "ok": true
   },
   {
-    "id": "F3b-pricing-calc-browser",
-    "title": "Pricing: same chain, browser Back",
-    "viewport": "tablet",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
-      },
-      {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=result",
-        "mode": "browser",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
-        "checks": [
-          {
-            "name": "material cost still 123",
-            "ok": true,
-            "detail": "123"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3b-pricing-calc-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "browser",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3b-pricing-calc-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F3b-pricing-calc-browser-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F4-pricing-new",
-    "title": "Pricing: new item step 1 → step 2, back ×3",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "+ הוספת פריט",
-        "url": "/pricing?step=new1"
-      },
-      {
-        "label": "המשך לעלויות",
-        "url": "/pricing?step=new2"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=new2",
-        "mode": "history",
-        "to": "/pricing?step=new1",
-        "label": "step 1, name kept",
-        "checks": [
-          {
-            "name": "item name still ייעוץ",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F4-pricing-new-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=new1",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F4-pricing-new-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "no item was created",
-            "ok": true,
-            "detail": "POSTs=0"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F4-pricing-new-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F5-coupon-wizard",
-    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "My coupons",
-        "url": "/revenue"
-      },
-      {
-        "label": "צור קופון חדש",
-        "url": "/revenue?view=create"
-      },
-      {
-        "label": "goal",
-        "url": "/revenue?view=create&cstep=direction"
-      },
-      {
-        "label": "direction הנחה",
-        "url": "/revenue?view=create&cstep=builder"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue?view=create&cstep=builder",
-        "mode": "history",
-        "to": "/revenue?view=create&cstep=direction",
-        "label": "direction step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F5-coupon-wizard-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue?view=create&cstep=direction",
-        "mode": "history",
-        "to": "/revenue?view=create",
-        "label": "goal step (first step of the flow)",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F5-coupon-wizard-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue?view=create",
-        "mode": "history",
-        "to": "/revenue",
-        "label": "my coupons — after confirming the discard prompt",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F5-coupon-wizard-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/revenue",
-        "mode": "step",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F5-coupon-wizard-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F6-redeem-error",
-    "title": "Redeem: scan → manual → wrong code (error), back ×3",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → error",
-        "url": "/revenue/redeem?step=error"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=error",
-        "mode": "history",
-        "to": "/revenue/redeem?step=manual",
-        "label": "manual entry, code kept",
-        "checks": [
-          {
-            "name": "code still BAD",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F6-redeem-error-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem?step=manual",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F6-redeem-error-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F6-redeem-error-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F7-redeem-done",
-    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → redeemed",
-        "url": "/revenue/redeem?step=done"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=done",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step — manual entry was replaced (completed)",
-        "checks": [
-          {
-            "name": "exactly one redemption POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F7-redeem-done-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "still one redemption",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F7-redeem-done-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F8-secretary",
-    "title": "Secretary: home → all → item → edit, back ×3",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Secretary",
-        "url": "/secretary"
-      },
-      {
-        "label": "all",
-        "url": "/secretary?screen=all"
-      },
-      {
-        "label": "item חברת החשמל",
-        "url": "/secretary?screen=detail&id=41"
-      },
-      {
-        "label": "עריכת התחייבות",
-        "url": "/secretary?screen=update&id=41"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/secretary?screen=update&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=detail&id=41",
-        "label": "item detail",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F8-secretary-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/secretary?screen=detail&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=all",
-        "label": "all obligations",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F8-secretary-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/secretary?screen=all",
-        "mode": "history",
-        "to": "/secretary",
-        "label": "secretary home",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F8-secretary-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F9-documents-search",
-    "title": "Documents: hub → search (query + filter) → document, back ×2",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Documents",
-        "url": "/documents"
-      },
-      {
-        "label": "search",
-        "url": "/documents/search"
-      },
-      {
-        "label": "query דלק + filter הוצאה",
-        "url": "/documents/search"
-      },
-      {
-        "label": "open דלק 2",
-        "url": "/documents/review/502"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/documents/review/502",
-        "mode": "history",
-        "to": "/documents/search",
-        "label": "search, query + filter restored",
-        "checks": [
-          {
-            "name": "query still דלק",
-            "ok": true,
-            "detail": ""
-          },
-          {
-            "name": "filter הוצאה still selected",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F9-documents-search-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/documents/search",
-        "mode": "history",
-        "to": "/documents",
-        "label": "documents hub",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F9-documents-search-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F10a-customer-from-lead",
-    "title": "Customer card reached from a lead: leads → lead → customer, back ×2",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Leads",
-        "url": "/leads"
-      },
-      {
-        "label": "lead 3",
-        "url": "/leads/3"
-      },
-      {
-        "label": "customer chip",
-        "url": "/customers/7"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/customers/7",
-        "mode": "history",
-        "to": "/leads/3",
-        "label": "the lead it was opened from",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F10a-customer-from-lead-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/leads/3",
-        "mode": "history",
-        "to": "/leads",
-        "label": "leads list",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F10a-customer-from-lead-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F10b-customer-from-list",
-    "title": "Same customer card reached from the customer list (search), back ×1",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Customers",
-        "url": "/customers"
-      },
-      {
-        "label": "search 'לקוח 7'",
-        "url": "/customers"
-      },
-      {
-        "label": "open",
-        "url": "/customers/7"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/customers/7",
-        "mode": "history",
-        "to": "/customers",
-        "label": "customer list, search kept",
-        "checks": [
-          {
-            "name": "search still 'לקוח 7'",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F10b-customer-from-list-back1.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11-content",
-    "title": "Content creation: vibe → goal → direction → setup, back ×4",
-    "viewport": "tablet",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "history",
-        "to": "/content/archetype",
-        "label": "direction step, choice kept",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11-content-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "history",
-        "to": "/content/goal",
-        "label": "goal step, choice kept",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11-content-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "history",
-        "to": "/content",
-        "label": "vibe step, choice kept",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11-content-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11-content-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11b-content-browser",
-    "title": "Content creation: same chain, browser Back",
-    "viewport": "tablet",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "browser",
-        "to": "/content/archetype",
-        "label": "direction step",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11b-content-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "browser",
-        "to": "/content/goal",
-        "label": "goal step",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11b-content-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "browser",
-        "to": "/content",
-        "label": "vibe step",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11b-content-browser-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/tablet-F11b-content-browser-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F1-collection-steps",
-    "title": "Collection: customer → details → other customer, then back ×3",
+    "id": "F16-order-wizard",
+    "title": "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
     "viewport": "mobile",
     "via": "button",
     "entry": [
@@ -1764,141 +266,74 @@
         "url": "/tools"
       },
       {
-        "label": "Collection",
-        "url": "/collection"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "גבה",
-        "url": "/collection/new"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
       },
       {
-        "label": "לקוח אחר",
-        "url": "/collection/new"
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new/confirm",
         "mode": "history",
-        "to": "/collection/new?step=details",
-        "label": "details step, amount 450 kept",
+        "computed": "/inventory/supplier-purchases/new/cart",
+        "to": "/inventory/supplier-purchases/new/cart",
+        "label": "cart, quantities kept",
         "checks": [
           {
-            "name": "amount still 450",
+            "name": "קפה quantity kept in the draft (added, then +1 in cart)",
             "ok": true,
-            "detail": "450"
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F1-collection-steps-back1.png"
+        "shot": "qa-evidence/back-nav/chains/mobile-F16-order-wizard-back1.png"
       },
       {
         "n": 2,
-        "from": "/collection/new?step=details",
+        "from": "/inventory/supplier-purchases/new/cart",
         "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step (flow start)",
+        "computed": "/inventory/supplier-purchases/new",
+        "to": "/inventory/supplier-purchases/new",
+        "label": "products step, cart kept",
         "checks": [
           {
-            "name": "customer picker shown",
+            "name": "קפה still in the draft",
             "ok": true,
-            "detail": ""
+            "detail": "qty=2"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F1-collection-steps-back2.png"
+        "shot": "qa-evidence/back-nav/chains/mobile-F16-order-wizard-back2.png"
       },
       {
         "n": 3,
-        "from": "/collection/new",
+        "from": "/inventory/supplier-purchases/new",
         "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox (a root: no back control)",
-        "checks": [
-          {
-            "name": "root shows no back control",
-            "ok": true,
-            "detail": ""
-          }
-        ],
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory (where the wizard was opened)",
+        "checks": [],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F1-collection-steps-back3.png"
+        "shot": "qa-evidence/back-nav/chains/mobile-F16-order-wizard-back3.png"
       }
     ],
     "ok": true
   },
   {
-    "id": "F2-collection-created",
-    "title": "Collection: create request → send step, then back ×2 (no second request)",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Collection",
-        "url": "/collection"
-      },
-      {
-        "label": "גבה",
-        "url": "/collection/new"
-      },
-      {
-        "label": "pick customer",
-        "url": "/collection/new?step=details"
-      },
-      {
-        "label": "צור בקשה (POST)",
-        "url": "/collection/new?step=send"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/collection/new?step=send",
-        "mode": "history",
-        "to": "/collection/new",
-        "label": "customer step — the filled form was replaced (completed action)",
-        "checks": [
-          {
-            "name": "exactly one payment request POSTed",
-            "ok": true,
-            "detail": "POSTs=1"
-          },
-          {
-            "name": "no create form / send step shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F2-collection-created-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/collection/new",
-        "mode": "history",
-        "to": "/collection",
-        "label": "collection inbox",
-        "checks": [
-          {
-            "name": "still one POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F2-collection-created-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F3-pricing-calc",
-    "title": "Pricing: catalog → calculation → result, back ×3",
+    "id": "F16b-order-created",
+    "title": "Supplier order created (completed): back leaves the wizard (no second order)",
     "viewport": "mobile",
     "via": "button",
     "entry": [
@@ -1907,766 +342,43 @@
         "url": "/tools"
       },
       {
-        "label": "Pricing",
-        "url": "/pricing"
+        "label": "Inventory",
+        "url": "/inventory"
       },
       {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
+        "label": "order wizard",
+        "url": "/inventory/supplier-purchases/new"
       },
       {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
+        "label": "add קפה ×2 → cart",
+        "url": "/inventory/supplier-purchases/new/cart"
+      },
+      {
+        "label": "+1 in cart → confirm",
+        "url": "/inventory/supplier-purchases/new/confirm"
+      },
+      {
+        "label": "צור הזמנה (POST create)",
+        "url": "/inventory/supplier-purchases/77/send"
       }
     ],
     "backs": [
       {
         "n": 1,
-        "from": "/pricing?step=result",
+        "from": "/inventory/supplier-purchases/77/send",
         "mode": "history",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
+        "computed": "/inventory",
+        "to": "/inventory",
+        "label": "inventory — products/cart steps consumed",
         "checks": [
           {
-            "name": "material cost still 123",
+            "name": "exactly one order created",
             "ok": true,
-            "detail": "123"
+            "detail": "orders=1"
           }
         ],
         "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3-pricing-calc-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3-pricing-calc-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3-pricing-calc-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F3b-pricing-calc-browser",
-    "title": "Pricing: same chain, browser Back",
-    "viewport": "mobile",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "item תספורת",
-        "url": "/pricing?step=calc"
-      },
-      {
-        "label": "חשב מחיר",
-        "url": "/pricing?step=result"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=result",
-        "mode": "browser",
-        "to": "/pricing?step=calc",
-        "label": "calc form, 123 kept",
-        "checks": [
-          {
-            "name": "material cost still 123",
-            "ok": true,
-            "detail": "123"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3b-pricing-calc-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=calc",
-        "mode": "browser",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [
-          {
-            "name": "catalog list shown",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3b-pricing-calc-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F3b-pricing-calc-browser-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F4-pricing-new",
-    "title": "Pricing: new item step 1 → step 2, back ×3",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Pricing",
-        "url": "/pricing"
-      },
-      {
-        "label": "+ הוספת פריט",
-        "url": "/pricing?step=new1"
-      },
-      {
-        "label": "המשך לעלויות",
-        "url": "/pricing?step=new2"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/pricing?step=new2",
-        "mode": "history",
-        "to": "/pricing?step=new1",
-        "label": "step 1, name kept",
-        "checks": [
-          {
-            "name": "item name still ייעוץ",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F4-pricing-new-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/pricing?step=new1",
-        "mode": "history",
-        "to": "/pricing",
-        "label": "catalog",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F4-pricing-new-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/pricing",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "no item was created",
-            "ok": true,
-            "detail": "POSTs=0"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F4-pricing-new-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F5-coupon-wizard",
-    "title": "Coupons: my coupons → create → goal → direction → builder, back ×5 (draft guard)",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "My coupons",
-        "url": "/revenue"
-      },
-      {
-        "label": "צור קופון חדש",
-        "url": "/revenue?view=create"
-      },
-      {
-        "label": "goal",
-        "url": "/revenue?view=create&cstep=direction"
-      },
-      {
-        "label": "direction הנחה",
-        "url": "/revenue?view=create&cstep=builder"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue?view=create&cstep=builder",
-        "mode": "history",
-        "to": "/revenue?view=create&cstep=direction",
-        "label": "direction step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F5-coupon-wizard-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue?view=create&cstep=direction",
-        "mode": "history",
-        "to": "/revenue?view=create",
-        "label": "goal step (first step of the flow)",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F5-coupon-wizard-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue?view=create",
-        "mode": "history",
-        "to": "/revenue",
-        "label": "my coupons — after confirming the discard prompt",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F5-coupon-wizard-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/revenue",
-        "mode": "step",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F5-coupon-wizard-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F6-redeem-error",
-    "title": "Redeem: scan → manual → wrong code (error), back ×3",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → error",
-        "url": "/revenue/redeem?step=error"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=error",
-        "mode": "history",
-        "to": "/revenue/redeem?step=manual",
-        "label": "manual entry, code kept",
-        "checks": [
-          {
-            "name": "code still BAD",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F6-redeem-error-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem?step=manual",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F6-redeem-error-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F6-redeem-error-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F7-redeem-done",
-    "title": "Redeem: manual → redeemed (completed), back ×2 (no second redemption)",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Redeem",
-        "url": "/revenue/redeem"
-      },
-      {
-        "label": "הקלד קוד",
-        "url": "/revenue/redeem?step=manual"
-      },
-      {
-        "label": "אמת קופון → redeemed",
-        "url": "/revenue/redeem?step=done"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/revenue/redeem?step=done",
-        "mode": "history",
-        "to": "/revenue/redeem",
-        "label": "scan step — manual entry was replaced (completed)",
-        "checks": [
-          {
-            "name": "exactly one redemption POST",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F7-redeem-done-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/revenue/redeem",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [
-          {
-            "name": "still one redemption",
-            "ok": true,
-            "detail": "POSTs=1"
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F7-redeem-done-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F8-secretary",
-    "title": "Secretary: home → all → item → edit, back ×3",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Secretary",
-        "url": "/secretary"
-      },
-      {
-        "label": "all",
-        "url": "/secretary?screen=all"
-      },
-      {
-        "label": "item חברת החשמל",
-        "url": "/secretary?screen=detail&id=41"
-      },
-      {
-        "label": "עריכת התחייבות",
-        "url": "/secretary?screen=update&id=41"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/secretary?screen=update&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=detail&id=41",
-        "label": "item detail",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F8-secretary-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/secretary?screen=detail&id=41",
-        "mode": "history",
-        "to": "/secretary?screen=all",
-        "label": "all obligations",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F8-secretary-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/secretary?screen=all",
-        "mode": "history",
-        "to": "/secretary",
-        "label": "secretary home",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F8-secretary-back3.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F9-documents-search",
-    "title": "Documents: hub → search (query + filter) → document, back ×2",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Documents",
-        "url": "/documents"
-      },
-      {
-        "label": "search",
-        "url": "/documents/search"
-      },
-      {
-        "label": "query דלק + filter הוצאה",
-        "url": "/documents/search"
-      },
-      {
-        "label": "open דלק 2",
-        "url": "/documents/review/502"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/documents/review/502",
-        "mode": "history",
-        "to": "/documents/search",
-        "label": "search, query + filter restored",
-        "checks": [
-          {
-            "name": "query still דלק",
-            "ok": true,
-            "detail": ""
-          },
-          {
-            "name": "filter הוצאה still selected",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F9-documents-search-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/documents/search",
-        "mode": "history",
-        "to": "/documents",
-        "label": "documents hub",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F9-documents-search-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F10a-customer-from-lead",
-    "title": "Customer card reached from a lead: leads → lead → customer, back ×2",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Leads",
-        "url": "/leads"
-      },
-      {
-        "label": "lead 3",
-        "url": "/leads/3"
-      },
-      {
-        "label": "customer chip",
-        "url": "/customers/7"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/customers/7",
-        "mode": "history",
-        "to": "/leads/3",
-        "label": "the lead it was opened from",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F10a-customer-from-lead-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/leads/3",
-        "mode": "history",
-        "to": "/leads",
-        "label": "leads list",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F10a-customer-from-lead-back2.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F10b-customer-from-list",
-    "title": "Same customer card reached from the customer list (search), back ×1",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Customers",
-        "url": "/customers"
-      },
-      {
-        "label": "search 'לקוח 7'",
-        "url": "/customers"
-      },
-      {
-        "label": "open",
-        "url": "/customers/7"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/customers/7",
-        "mode": "history",
-        "to": "/customers",
-        "label": "customer list, search kept",
-        "checks": [
-          {
-            "name": "search still 'לקוח 7'",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F10b-customer-from-list-back1.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11-content",
-    "title": "Content creation: vibe → goal → direction → setup, back ×4",
-    "viewport": "mobile",
-    "via": "button",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "history",
-        "to": "/content/archetype",
-        "label": "direction step, choice kept",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11-content-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "history",
-        "to": "/content/goal",
-        "label": "goal step, choice kept",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11-content-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "history",
-        "to": "/content",
-        "label": "vibe step, choice kept",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11-content-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "history",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11-content-back4.png"
-      }
-    ],
-    "ok": true
-  },
-  {
-    "id": "F11b-content-browser",
-    "title": "Content creation: same chain, browser Back",
-    "viewport": "mobile",
-    "via": "browser",
-    "entry": [
-      {
-        "label": "Tools",
-        "url": "/tools"
-      },
-      {
-        "label": "Content",
-        "url": "/content"
-      },
-      {
-        "label": "vibe + film → המשך",
-        "url": "/content/goal"
-      },
-      {
-        "label": "goal + platform → המשך",
-        "url": "/content/archetype"
-      },
-      {
-        "label": "direction → המשך",
-        "url": "/content/setup"
-      }
-    ],
-    "backs": [
-      {
-        "n": 1,
-        "from": "/content/setup",
-        "mode": "browser",
-        "to": "/content/archetype",
-        "label": "direction step",
-        "checks": [
-          {
-            "name": ".direction-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11b-content-browser-back1.png"
-      },
-      {
-        "n": 2,
-        "from": "/content/archetype",
-        "mode": "browser",
-        "to": "/content/goal",
-        "label": "goal step",
-        "checks": [
-          {
-            "name": ".goal-card choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11b-content-browser-back2.png"
-      },
-      {
-        "n": 3,
-        "from": "/content/goal",
-        "mode": "browser",
-        "to": "/content",
-        "label": "vibe step",
-        "checks": [
-          {
-            "name": ".vibe-tile choice restored",
-            "ok": true,
-            "detail": ""
-          }
-        ],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11b-content-browser-back3.png"
-      },
-      {
-        "n": 4,
-        "from": "/content",
-        "mode": "browser",
-        "to": "/tools",
-        "label": "Tools",
-        "checks": [],
-        "ok": true,
-        "shot": "qa-evidence/back-nav/chains/mobile-F11b-content-browser-back4.png"
+        "shot": "qa-evidence/back-nav/chains/mobile-F16b-order-created-back1.png"
       }
     ],
     "ok": true

@@ -65,21 +65,49 @@ export async function runChain(page, { id, title, viewport, entry, backs, shots 
     const before = here(page);
     beforeEachBack?.(i);
     let mode = "browser";
+    // The target the back control computed for this screen (if a control
+    // is shown) — every press must land exactly there.
+    let computed = null;
+    let buttonMode = null;
+    if ((await visibleBack(page).count()) > 0) {
+      const m = await backMode(page);
+      buttonMode = m;
+      const t = await visibleBack(page).first().getAttribute("data-dz-back-target");
+      if (m !== "step" && t) computed = decodeURIComponent(t);
+      if (via !== "browser") mode = m;
+    }
     if (via === "browser") {
       await page.goBack().catch(() => {});
+    } else if (b.press) {
+      // The screen's own exit control (e.g. close X on a success screen).
+      mode = b.pressLabel ?? "custom";
+      computed = null;
+      await b.press(page);
     } else {
-      mode = await backMode(page);
       await visibleBack(page).first().click();
     }
-    await page
-      .waitForFunction((prev) => decodeURIComponent(location.pathname + location.search) !== prev, before, { timeout: 15000 })
-      .catch(() => {});
+    // e.g. answer the unsaved-changes dialog the press opened.
+    if (b.afterPress) await b.afterPress(page);
+    if (!b.stays) {
+      await page
+        .waitForFunction((prev) => decodeURIComponent(location.pathname + location.search) !== prev, before, { timeout: 15000 })
+        .catch(() => {});
+    }
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(500);
     const now = here(page);
-    const row = { n: i + 1, from: before, mode, to: now, label: b.label, checks: [] };
+    const row = { n: i + 1, from: before, mode, computed, to: now, label: b.label, checks: [] };
     const okUrl = check(`${id} back #${i + 1} (${mode}) → ${b.label}`, b.expect(now), `${before} ⇒ ${now}`);
-    row.ok = okUrl;
+    // Browser Back follows real history; it must match the computed target
+    // whenever the control resolved a VERIFIED origin (history mode).
+    // Browser Back moves ONE entry; the button deliberately skips same-screen
+    // and consumed entries — so the computed target is asserted for button
+    // presses; browser presses are asserted against the expected order.
+    const compare = computed && !b.stays && via !== "browser";
+    const okTarget = compare
+      ? check(`${id} back #${i + 1} landed on the computed target`, now === computed, `computed=${computed} landed=${now}`)
+      : true;
+    row.ok = okUrl && okTarget;
     if (b.checks) {
       for (const [name, cond, detail] of await b.checks(page)) {
         const ok = check(`${id} back #${i + 1}: ${name}`, cond, detail ?? "");
@@ -113,11 +141,12 @@ export function writeEvidence(path = "qa-evidence/back-nav/flow-chains.md") {
     lines.push("");
     lines.push(`**Entry path:** ${r.entry.map((e) => `${e.label} \`${e.url}\``).join(" → ")}`);
     lines.push("");
-    lines.push("| # | from | mode | landed on | expected | state checks |");
-    lines.push("|---|---|---|---|---|---|");
+    lines.push("| # | from | mode | computed target | landed on | expected | state checks |");
+    lines.push("|---|---|---|---|---|---|---|");
     for (const b of r.backs) {
       const checks = b.checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}${c.detail ? ` (${c.detail})` : ""}`).join("<br>");
-      lines.push(`| ${b.n} | \`${b.from}\` | ${b.mode} | \`${b.to}\` | ${b.ok ? "✓" : "✗"} ${b.label} | ${checks || "—"} |`);
+      const computed = b.computed ? `\`${b.computed}\`` : "— (root / in-screen step control)";
+      lines.push(`| ${b.n} | \`${b.from}\` | ${b.mode} | ${computed} | \`${b.to}\` | ${b.ok ? "✓" : "✗"} ${b.label} | ${checks || "—"} |`);
     }
     lines.push("");
   }

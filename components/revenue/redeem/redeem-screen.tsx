@@ -453,7 +453,9 @@ export default function RedeemScreen() {
 
       setResult(data);
       setValidating(false);
-      flow.replaceStep("done");
+      // COMPLETED (coupon redeemed): "done" replaces the entry step and any
+      // earlier entry/error steps are consumed; back returns to the scanner.
+      flow.complete("done", ["manual", "error"]);
     } catch (err: any) {
       setErrorMessage(err?.message || "שגיאה לא ידועה");
       setValidating(false);

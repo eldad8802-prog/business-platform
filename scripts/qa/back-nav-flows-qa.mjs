@@ -12,7 +12,9 @@
  * Output: qa-evidence/back-nav/flow-chains.md (+ .json, screenshots per step).
  * Run: build, `npx next start -p 3527`, then `node scripts/qa/back-nav-flows-qa.mjs`.
  */
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
+// QA_BROWSER=webkit runs the same suite on WebKit (Safari engine).
+const ENGINE = process.env.QA_BROWSER === "webkit" ? webkit : chromium;
 import { mkdirSync } from "node:fs";
 import { wire, posts, resetPosts } from "./back-nav-fixtures.mjs";
 import { check, here, runChain, summary, writeEvidence } from "./back-nav-chain-lib.mjs";
@@ -35,6 +37,9 @@ async function pushTo(page, url) {
 const at = (path) => (url) => url === path;
 const startsAt = (path) => (url) => url.split("?")[0] === path;
 const step = (label, act) => ({ label, act });
+async function clickVisible(page, locator) {
+  return locator.filter({ visible: true }).first().click();
+}
 const waitUrl = (page, pred) =>
   page.waitForFunction(
     (src) => new Function("u", `return (${src})(u)`)(decodeURIComponent(location.pathname + location.search)),
@@ -85,7 +90,7 @@ function chains(vp) {
   /* F2 — Collection: completed action is not re-triggered ----------------- */
   list.push({
     id: "F2-collection-created",
-    title: "Collection: create request → send step, then back ×2 (no second request)",
+    title: "Collection: create request → send step, back ×1 (no second request)",
     before: () => resetPosts(),
     entry: [
       step("Collection", (p) => p.goto(`${BASE}/collection`, { waitUntil: "networkidle" })),
@@ -105,13 +110,11 @@ function chains(vp) {
       }),
     ],
     backs: [
-      { label: "customer step — the filled form was replaced (completed action)", expect: at("/collection/new"),
+      { label: "collection inbox — the completed flow is left as a whole", expect: at("/collection"),
         checks: async (p) => [
           ["exactly one payment request POSTed", posts.paymentRequest === 1, `POSTs=${posts.paymentRequest}`],
           ["no create form / send step shown", (await p.getByRole("button", { name: /צור בקשה/ }).count()) === 0 && (await p.getByRole("button", { name: "שליחה בוואטסאפ" }).count()) === 0],
         ] },
-      { label: "collection inbox", expect: at("/collection"),
-        checks: async () => [["still one POST", posts.paymentRequest === 1, `POSTs=${posts.paymentRequest}`]] },
     ],
   });
 
@@ -394,12 +397,389 @@ function chains(vp) {
     ],
   });
 
+  /* ============ completed actions: every commit counted ================= */
+
+  const couponToTerms = [
+    step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+    step("My coupons", (p) => pushTo(p, "/revenue")),
+    step("צור קופון חדש", async (p) => {
+      await p.getByRole("button", { name: "צור קופון חדש" }).first().click();
+      await waitUrl(p, (u) => u === "/revenue?view=create");
+    }),
+    step("goal → direction → builder → terms", async (p) => {
+      await p.getByRole("button", { name: /להביא לקוחות חדשים/ }).click();
+      await waitUrl(p, (u) => u.endsWith("cstep=direction"));
+      await p.getByRole("button", { name: /^הנחה/ }).click();
+      await waitUrl(p, (u) => u.endsWith("cstep=builder"));
+      await p.getByRole("button", { name: "המשך" }).click();
+      await waitUrl(p, (u) => u.endsWith("cstep=terms"));
+    }),
+    step("צור את הקופון (POST publish)", async (p) => {
+      await p.getByRole("button", { name: "צור את הקופון" }).click();
+      await waitUrl(p, (u) => u.endsWith("cstep=published"));
+    }),
+  ];
+  for (const via of ["button", "browser"]) {
+    list.push({
+      id: `F12-coupon-published${via === "browser" ? "-browser" : ""}`,
+      title: "Coupon published: back leaves the finished wizard (no second publish)",
+      before: () => resetPosts(),
+      via,
+      entry: couponToTerms,
+      backs: [
+        { label: "my coupons — wizard steps consumed", expect: at("/revenue"),
+          ...(via === "button" ? { press: (p) => p.getByRole("button", { name: "סגירה" }).click(), pressLabel: "close (X)" } : {}),
+          checks: async () => [["exactly one publish POST", posts.couponPublish === 1, `POSTs=${posts.couponPublish}`]] },
+        { label: "Tools", expect: at("/tools"),
+          checks: async () => [["still one publish", posts.couponPublish === 1, `POSTs=${posts.couponPublish}`]] },
+      ],
+    });
+  }
+
+  list.push({
+    id: "F13-pricing-saved",
+    title: "Pricing: save costs to the item (completed), back ×2",
+    before: () => resetPosts(),
+    entry: [
+      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("Pricing", (p) => pushTo(p, "/pricing")),
+      step("item תספורת", async (p) => {
+        await p.getByRole("button", { name: /תספורת/ }).click();
+        await waitUrl(p, (u) => u === "/pricing?step=calc");
+        await p.locator("#calc-material").fill("77");
+      }),
+      step("חשב מחיר → result", async (p) => {
+        await p.getByRole("button", { name: "חשב מחיר" }).click();
+        await waitUrl(p, (u) => u === "/pricing?step=result");
+      }),
+      step("שמור עלויות לפריט (PATCH)", async (p) => {
+        await p.getByRole("button", { name: "שמור עלויות לפריט" }).click();
+        await waitUrl(p, (u) => u === "/pricing?step=saved");
+      }),
+    ],
+    backs: [
+      { label: "catalog — the saving step consumed", expect: at("/pricing"),
+        checks: async () => [["exactly one save", posts.pricingSave === 1, `saves=${posts.pricingSave}`]] },
+      { label: "Tools", expect: at("/tools"),
+        checks: async () => [["still one save", posts.pricingSave === 1, `saves=${posts.pricingSave}`]] },
+    ],
+  });
+
+  for (const via of ["button", "browser"]) {
+    list.push({
+      id: `F14-pricing-created${via === "browser" ? "-browser" : ""}`,
+      title: "Pricing: new item created (completed), back ×2",
+      before: () => resetPosts(),
+      via,
+      entry: [
+        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("Pricing", (p) => pushTo(p, "/pricing")),
+        step("+ → name → step 2", async (p) => {
+          await p.getByRole("button", { name: "הוספת פריט" }).first().click();
+          await waitUrl(p, (u) => u === "/pricing?step=new1");
+          await p.getByPlaceholder("לדוגמה: ייעוץ אסטרטגי").fill("ייעוץ");
+          await p.getByRole("button", { name: "המשך לעלויות" }).click();
+          await waitUrl(p, (u) => u === "/pricing?step=new2");
+        }),
+        step("צור פריט (POST)", async (p) => {
+          await p.getByRole("button", { name: "צור פריט" }).click();
+          await waitUrl(p, (u) => u === "/pricing?step=created");
+        }),
+      ],
+      backs: [
+        { label: "catalog — wizard steps consumed", expect: at("/pricing"),
+          checks: async () => [["exactly one create", posts.pricingCreate === 1, `creates=${posts.pricingCreate}`]] },
+        { label: "Tools", expect: at("/tools"),
+          checks: async () => [["still one create", posts.pricingCreate === 1, `creates=${posts.pricingCreate}`]] },
+      ],
+    });
+  }
+
+  list.push({
+    id: "F15-secretary-met",
+    title: "Secretary: mark an item handled from its detail (completed), back ×2",
+    before: () => resetPosts(),
+    entry: [
+      step("Secretary", (p) => p.goto(`${BASE}/secretary`, { waitUntil: "networkidle" })),
+      step("all", (p) => pushTo(p, "/secretary?screen=all")),
+      step("item", async (p) => {
+        await p.getByRole("button", { name: /חברת החשמל/ }).first().click();
+        if (vp.width >= 1200) await p.getByRole("link", { name: "הפעולה הבאה" }).click();
+        await waitUrl(p, (u) => u === "/secretary?screen=detail&id=41");
+      }),
+      step("סמן שטופל (POST complete)", async (p) => {
+        await p.getByRole("button", { name: "סמן שטופל" }).click();
+        await waitUrl(p, (u) => u.startsWith("/secretary?screen=loops&id=41"));
+      }),
+    ],
+    backs: [
+      { label: "all obligations — the item's screen consumed", expect: at("/secretary?screen=all"),
+        checks: async () => [["exactly one complete", posts.obligationComplete === 1, `completes=${posts.obligationComplete}`]] },
+      { label: "secretary home", expect: at("/secretary"),
+        checks: async () => [["still one complete", posts.obligationComplete === 1, `completes=${posts.obligationComplete}`]] },
+    ],
+  });
+
+  /* ============ supplier order wizard with products in the cart ========= */
+  const draftQty = async (p) =>
+    p.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem("inventory:supplierPurchases:newDraft:v1") ?? "{}")?.order?.["1"] ?? null;
+      } catch {
+        return null;
+      }
+    });
+  const wizardToConfirm = [
+    step("Tools", async (p) => {
+      await p.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+      await p.evaluate(() => localStorage.removeItem("inventory:supplierPurchases:newDraft:v1"));
+    }),
+    step("Inventory", (p) => pushTo(p, "/inventory")),
+    step("order wizard", (p) => pushTo(p, "/inventory/supplier-purchases/new")),
+    step("add קפה ×2 → cart", async (p) => {
+      const add = p.getByRole("button", { name: /^הוסף( קפה)?$/ });
+      await clickVisible(p, add);
+      await p.waitForTimeout(200);
+      await clickVisible(p, p.getByRole("button", { name: /המשך לעגלה/ }));
+      await waitUrl(p, (u) => u === "/inventory/supplier-purchases/new/cart");
+    }),
+    step("+1 in cart → confirm", async (p) => {
+      // Cart increment: "הוסף" (phone/tablet) / "הוספה" (desktop).
+      await clickVisible(p, p.getByRole("button", { name: /^(הוסף|הוספה)$/ }));
+      await p.waitForTimeout(300);
+      await clickVisible(p, p.getByRole("button", { name: "המשך לאישור" }));
+      await waitUrl(p, (u) => u === "/inventory/supplier-purchases/new/confirm");
+    }),
+  ];
+  list.push({
+    id: "F16-order-wizard",
+    title: "Supplier order wizard: products → cart → confirm, back ×3 (cart kept)",
+    entry: wizardToConfirm,
+    backs: [
+      { label: "cart, quantities kept", expect: at("/inventory/supplier-purchases/new/cart"),
+        checks: async (p) => { const q = await draftQty(p); return [["קפה quantity kept in the draft (added, then +1 in cart)", Number(q) >= 2, `qty=${q}`]]; } },
+      { label: "products step, cart kept", expect: at("/inventory/supplier-purchases/new"),
+        checks: async (p) => { const q = await draftQty(p); return [["קפה still in the draft", Number(q) >= 1, `qty=${q}`]]; } },
+      { label: "inventory (where the wizard was opened)", expect: at("/inventory") },
+    ],
+  });
+  list.push({
+    id: "F16b-order-created",
+    title: "Supplier order created (completed): back leaves the wizard (no second order)",
+    before: () => resetPosts(),
+    entry: [
+      ...wizardToConfirm,
+      step("צור הזמנה (POST create)", async (p) => {
+        await clickVisible(p, p.getByRole("button", { name: "צור הזמנה" }));
+        // The confirm modal: "אישור ושליחה" commits the order.
+        await clickVisible(p, p.getByRole("button", { name: "אישור ושליחה" }));
+        await waitUrl(p, (u) => u === "/inventory/supplier-purchases/77/send");
+      }),
+    ],
+    backs: [
+      { label: "inventory — products/cart steps consumed", expect: at("/inventory"),
+        checks: async () => [["exactly one order created", posts.orderCreate === 1, `orders=${posts.orderCreate}`]] },
+    ],
+  });
+
+  /* ============ content: back from the result, no new render ============= */
+  const seedContent = async (p) =>
+    p.evaluate(() => {
+      localStorage.setItem("content_flow", JSON.stringify({ mode: "ai", goal: "trust", contentAngle: "story", selectedDirection: "d1", selectedFormat: "reel", selectedPlatform: "instagram", vibe: "warm_personal", canFilm: false }));
+      localStorage.setItem("content_result", JSON.stringify({ selectedVariant: { script: { scriptText: "טקסט", caption: "כיתוב", shots: [] } } }));
+      localStorage.setItem("content_ai_assets", JSON.stringify({ "1": "https://cdn.example.test/a.png" }));
+      localStorage.removeItem("content_render_output");
+      localStorage.removeItem("content_render_job");
+    });
+  for (const via of ["button", "browser"]) {
+    list.push({
+      id: `F17-content-result${via === "browser" ? "-browser" : ""}`,
+      title: "Content: step → render → result, back ×2 (no second render)",
+      before: () => resetPosts(),
+      via,
+      entry: [
+        step("Tools + flow data", async (p) => {
+          await p.goto(`${BASE}/tools`, { waitUntil: "networkidle" });
+          await seedContent(p);
+        }),
+        step("content step", (p) => pushTo(p, "/content")),
+        step("render (POST, quota)", async (p) => {
+          await pushTo(p, "/content/render");
+          await p.getByRole("button", { name: "לראות את הסרטון" }).waitFor({ timeout: 15000 });
+        }),
+        step("לראות את הסרטון → result", async (p) => {
+          await p.getByRole("button", { name: "לראות את הסרטון" }).click();
+          await waitUrl(p, (u) => u === "/content/result");
+        }),
+      ],
+      backs: [
+        { label: "the step before the render (render never re-entered)", expect: at("/content"),
+          checks: async () => [["exactly one render POST", posts.contentRender === 1, `renders=${posts.contentRender}`]] },
+        { label: "Tools", expect: at("/tools"),
+          checks: async () => [["still one render", posts.contentRender === 1, `renders=${posts.contentRender}`]] },
+      ],
+    });
+  }
+
+  /* ============ inbox on mobile: triage → list → conversation ============ */
+  if (vp.width <= 768) {
+    for (const via of ["button", "browser"]) {
+      list.push({
+        id: `F18-inbox-mobile${via === "browser" ? "-browser" : ""}`,
+        title: "Inbox (mobile): triage → category list → conversation, back ×2",
+        via,
+        entry: [
+          step("Notifications", (p) => p.goto(`${BASE}/notifications`, { waitUntil: "networkidle" })),
+          step("Inbox", (p) => pushTo(p, "/inbox")),
+          step("פתוחות", async (p) => {
+            await p.getByRole("button", { name: /^פתוחות/ }).click();
+            await waitUrl(p, (u) => u === "/inbox?list=conversation_list");
+          }),
+          step("conversation", async (p) => {
+            await p.locator("button:visible", { hasText: "לקוח חדש" }).first().click();
+            await waitUrl(p, (u) => u.includes("conversationId="));
+          }),
+        ],
+        backs: [
+          { label: "the category's conversation list", expect: at("/inbox?list=conversation_list"),
+            checks: async (p) => [["list shown", await p.getByRole("button", { name: "חזרה לקטגוריות" }).isVisible()]] },
+          { label: "triage (inbox root)", expect: at("/inbox"),
+            checks: async (p) => [["triage shown", await p.getByRole("button", { name: /^פתוחות/ }).isVisible()]] },
+        ],
+      });
+    }
+  }
+
+  /* ============ billing: every unsaved-changes dialog answer ============= */
+  const billingDirty = [
+    step("Billing", (p) => p.goto(`${BASE}/billing`, { waitUntil: "networkidle" })),
+    step("draft document", (p) => pushTo(p, "/billing/12")),
+    step("edit a line (unsaved)", async (p) => {
+      const inp = p.locator('input[placeholder="תיאור פריט"]');
+      await inp.first().waitFor({ state: "attached" });
+      if (!(await inp.filter({ visible: true }).count())) {
+        // Open the collapsed editing section, as a user does.
+        for (const name of [/פריטים נוספים/, /עריכה נוספת/]) {
+          const sum = p.locator("summary", { hasText: name });
+          if (await sum.count()) await sum.first().click();
+          if (await inp.filter({ visible: true }).count()) break;
+        }
+      }
+      await inp.filter({ visible: true }).first().fill("שירות מעודכן");
+    }),
+  ];
+  const dialogBtn = (name) => async (p) => {
+    await p.getByRole("button", { name }).click();
+  };
+  list.push({
+    id: "F19a-billing-keep-then-leave",
+    title: "Billing draft with unsaved line: back → keep editing, back → leave without saving",
+    before: () => resetPosts(),
+    entry: billingDirty,
+    backs: [
+      { label: "stays on the document (keep editing), edit intact", expect: at("/billing/12"), stays: true, afterPress: dialogBtn("המשך עריכה"),
+        checks: async (p) => [
+          ["edit still there", (await p.locator('input[placeholder="תיאור פריט"]').first().inputValue()) === "שירות מעודכן"],
+          ["nothing saved", posts.billingLinesSave === 0, `saves=${posts.billingLinesSave}`],
+        ] },
+      { label: "billing list (left without saving)", expect: at("/billing"), afterPress: dialogBtn("צא בלי לשמור"),
+        checks: async () => [["nothing saved", posts.billingLinesSave === 0, `saves=${posts.billingLinesSave}`]] },
+    ],
+  });
+  list.push({
+    id: "F19b-billing-save-and-continue",
+    title: "Billing draft with unsaved line: back → save and continue",
+    before: () => resetPosts(),
+    entry: billingDirty,
+    backs: [
+      { label: "billing list, after saving once", expect: at("/billing"), afterPress: dialogBtn("שמור והמשך"),
+        checks: async () => [["exactly one save", posts.billingLinesSave === 1, `saves=${posts.billingLinesSave}`]] },
+    ],
+  });
+
+  /* ============ #hash and history entries not made by the mechanism ===== */
+  for (const via of ["button", "browser"]) {
+    list.push({
+      id: `F20-hash${via === "browser" ? "-browser" : ""}`,
+      title: "#fragment jump on a detail screen keeps the chain",
+      via,
+      entry: [
+        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("detail", (p) => pushTo(p, "/payables/match/41")),
+        step("#lines (fragment entry)", async (p) => {
+          await p.evaluate(() => {
+            location.hash = "lines";
+          });
+          await p.waitForTimeout(400);
+        }),
+      ],
+      backs:
+        via === "button"
+          ? [{ label: "Tools — the real origin (fragment entry is the same screen)", expect: at("/tools") }]
+          : [
+              { label: "the detail without the fragment", expect: at("/payables/match/41") },
+              { label: "Tools", expect: at("/tools") },
+            ],
+    });
+  }
+  list.push({
+    id: "F21a-external-then-direct",
+    title: "Entry from outside the app (prior non-app history), back stays in the app",
+    entry: [
+      step("outside page", (p) => p.goto("about:blank")),
+      step("direct link", (p) => p.goto(`${BASE}/payables/match/41`, { waitUntil: "networkidle" })),
+    ],
+    backs: [
+      { label: "labelled fallback /payables (never history.back out of the app)", expect: at("/payables"),
+        checks: async (p) => [["still inside the app", new URL(p.url()).origin === new URL(BASE).origin]] },
+    ],
+  });
+  list.push({
+    id: "F21b-full-reload-navigation",
+    title: "Entry created by a full-document navigation (location.assign): no fabricated origin",
+    entry: [
+      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("location.assign → detail", async (p) => {
+        await p.evaluate(() => location.assign("/payables/match/42"));
+        await p.waitForURL("**/payables/match/42");
+        await settle(p);
+      }),
+    ],
+    backs: [{ label: "labelled fallback /payables", expect: at("/payables") }],
+  });
+  list.push({
+    id: "F21c-lost-session-trail",
+    title: "Trail storage lost (cleared), then refresh: no fabricated origin",
+    entry: [
+      step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+      step("detail", (p) => pushTo(p, "/payables/match/41")),
+      step("sessionStorage cleared + reload", async (p) => {
+        await p.evaluate(() => sessionStorage.clear());
+        await p.reload({ waitUntil: "networkidle" });
+      }),
+    ],
+    backs: [{ label: "labelled fallback /payables", expect: at("/payables") }],
+  });
+
+  /* ============ suppliers list: back only with a verified origin ========= */
+  if (vp.width < 1280) {
+    list.push({
+      id: "F22-suppliers-list",
+      title: "Suppliers list (phone/tablet) opened from Tools: back to Tools",
+      entry: [
+        step("Tools", (p) => p.goto(`${BASE}/tools`, { waitUntil: "networkidle" })),
+        step("Suppliers", (p) => pushTo(p, "/suppliers")),
+      ],
+      backs: [{ label: "Tools", expect: at("/tools") }],
+    });
+  }
+
   return list.filter((c) => !ONLY || ONLY.has(c.id));
 }
 
 /* ================================================================== run == */
 
-const browser = await chromium.launch();
+const browser = await ENGINE.launch();
 try {
   for (const vp of VIEWPORTS) {
     console.log(`\n=== ${vp.name} ${vp.width}x${vp.height} ===`);

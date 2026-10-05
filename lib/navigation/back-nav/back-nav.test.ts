@@ -173,6 +173,25 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
   ok("non-identity params still collapse", screenKeyOf("/pricing?step=calc&x=1") === "/pricing?step=calc");
 }
 
+// Completed flows: consumed (done) steps are never a target.
+{
+  const store = chain(["/tools", "/pricing", "/pricing?step=new1", "/pricing?step=created"]);
+  store.e2.done = true;
+  const t = resolveBackTarget({ store, currentId: "e3", scope: S, isTransient: isTransientPath, screenKey: screenKeyOf });
+  ok("created → catalog, skipping the consumed wizard step", t.kind === "history" && t.url === "/pricing" && t.delta === -2);
+  const s2 = chain(["/inventory", "/inventory/supplier-purchases/new", "/inventory/supplier-purchases/new/cart", "/inventory/supplier-purchases/7/send"]);
+  s2.e1.done = true;
+  s2.e2.done = true;
+  const t2 = resolveBackTarget({ store: s2, currentId: "e3", scope: S, isTransient: isTransientPath, screenKey: screenKeyOf });
+  ok("order sent → where the wizard was opened (cart/products consumed)", t2.kind === "history" && t2.url === "/inventory" && t2.delta === -3);
+  ok("done survives parse", parseStore(JSON.stringify(s2)).e1?.done === true && parseStore(JSON.stringify(s2)).e0?.done === undefined);
+}
+// #hash continuation: same URL (hash dropped) → same screen → skipped.
+{
+  const t = resolve(["/tools", "/payables/match/41", "/payables/match/41"]);
+  ok("#fragment entry on the detail → back reaches the real origin", t.kind === "history" && t.url === "/tools" && t.delta === -2);
+}
+
 // Store hygiene.
 {
   ok("parseStore rejects junk", Object.keys(parseStore("{\"a\":{\"id\":\"b\"}}")).length === 0 && Object.keys(parseStore("nope")).length === 0 && Object.keys(parseStore("[1]")).length === 0);

@@ -390,7 +390,7 @@ export default function PricingPage() {
   const hasMarketInput =
     calcMarketLow.trim() !== "" && calcMarketHigh.trim() !== "";
 
-  // "חזרה לקטלוג" / "ביטול": return to the catalog entry the sub-flow started
+  // "לקטלוג" / "ביטול": return to the catalog entry the sub-flow started
   // from (pops history; no duplicate catalog is stacked).
   const openCatalog = () => {
     flow.backTo("catalog");
@@ -445,8 +445,9 @@ export default function PricingPage() {
       }
 
       await loadItems(token);
-      // COMPLETED ACTION (costs stored): replaces the form step.
-      flow.replaceStep("saved");
+      // COMPLETED (costs stored): "saved" replaces the step that saved, and the
+      // item's calc/result steps are consumed — back returns to the catalog.
+      flow.complete("saved", ["calc", "result"]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בשמירת הנתונים");
     } finally {
@@ -551,9 +552,10 @@ export default function PricingPage() {
         setSelectedItemId(data.profile.id);
       }
 
-      // COMPLETED ACTION (item created): replaces the wizard step, so back can
-      // not return into the filled wizard and create the item twice.
-      flow.replaceStep("created");
+      // COMPLETED (item created): "created" replaces step 2 and step 1 is
+      // consumed — back returns to the catalog, never into the filled wizard
+      // that would create the item twice.
+      flow.complete("created", ["new1", "new2"]);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "שגיאה ביצירת הפריט");
     } finally {
@@ -976,7 +978,7 @@ export default function PricingPage() {
                     className="pricing-pressable"
                     onClick={openCatalog}
                   >
-                    חזרה לקטלוג
+                    לקטלוג
                   </button>
                 </div>
               </>
@@ -984,6 +986,11 @@ export default function PricingPage() {
 
             {calculateView === "save_success" && (
               <div style={centerStyle}>
+                {/* Success of a completed step: back returns to the catalog
+                    (the flow's earlier steps are consumed). */}
+                <div style={{ alignSelf: "flex-start" }}>
+                  <BackButton />
+                </div>
                 <div style={successCircleStyle}>
                   <CheckIcon size={44} color={TOKEN.semantic.success.ink} />
                 </div>
@@ -1008,7 +1015,7 @@ export default function PricingPage() {
                     className="pricing-pressable"
                     onClick={openCatalog}
                   >
-                    חזרה לקטלוג
+                    לקטלוג
                   </button>
                 </div>
               </div>
@@ -1145,6 +1152,9 @@ export default function PricingPage() {
 
         {activePanel === "create" && createView === "success" && (
           <div style={centerStyle}>
+            <div style={{ alignSelf: "flex-start" }}>
+              <BackButton />
+            </div>
             <div style={successCircleStyle}>
               <CheckIcon size={44} color={TOKEN.semantic.success.ink} />
             </div>
@@ -1168,7 +1178,7 @@ export default function PricingPage() {
                 className="pricing-pressable"
                 onClick={openCatalog}
               >
-                חזרה לקטלוג
+                לקטלוג
               </button>
             </div>
           </div>

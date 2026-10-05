@@ -9,7 +9,12 @@ export const json = (body, status = 200) => ({ status, contentType: "application
 const b64url = (s) => Buffer.from(s).toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 export const tokenFor = (sub) => `v1.${b64url(JSON.stringify({ sub, iat: 1, exp: 4102444800 }))}.qa`;
 
-export const posts = { paymentRequest: 0, pricingCalc: 0, pricingCreate: 0, couponPublish: 0, redeem: 0, obligationComplete: 0 };
+import { wireMore } from "./back-nav-fixtures-more.mjs";
+
+export const posts = {
+  paymentRequest: 0, pricingCalc: 0, pricingCreate: 0, pricingSave: 0, couponPublish: 0, redeem: 0,
+  obligationComplete: 0, billingLinesSave: 0, billingPatch: 0, orderCreate: 0, contentRender: 0,
+};
 export function resetPosts() {
   for (const k of Object.keys(posts)) posts[k] = 0;
 }
@@ -91,7 +96,11 @@ const SEARCH = [1, 2, 3].map((i) => ({
 
 export async function wire(context, { sub = 9 } = {}) {
   await context.addInitScript((t) => {
-    if (!localStorage.getItem("token")) localStorage.setItem("token", t);
+    try {
+      if (!localStorage.getItem("token")) localStorage.setItem("token", t);
+    } catch {
+      /* about:blank / data: pages have no app storage */
+    }
   }, tokenFor(sub));
   const r = (pattern, fn) => context.route(pattern, fn);
   // Unknown APIs: a quiet 404 (never 401 — that would bounce to /login).
@@ -154,4 +163,6 @@ export async function wire(context, { sub = 9 } = {}) {
 
   // Documents search
   await r(/\/api\/search(\?.*)?$/, (x) => x.fulfill(json({ results: SEARCH })));
+
+  await wireMore(context, { posts, json });
 }

@@ -344,7 +344,10 @@ export default function RenderPage() {
 
   function handleContinue() {
     if (!isReady) return;
-    router.push("/content/result");
+    // The render step starts a new, quota-consuming render on every visit, so
+    // the result REPLACES it: neither the back control nor the browser's Back
+    // can return into it — back from the result goes to the step before.
+    router.replace("/content/result");
   }
 
   return (

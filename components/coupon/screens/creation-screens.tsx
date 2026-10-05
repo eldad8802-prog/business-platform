@@ -287,9 +287,12 @@ export function CouponCreationFlow({
     }
 
     setPublished(outcome.coupon);
-    // COMPLETED ACTION (coupon published): the success step REPLACES terms, so
-    // back can never return into the terms step and publish a second coupon.
-    if (historySteps) flowStep.replaceStep("published");
+    // COMPLETED (coupon published): the success step replaces terms and the
+    // earlier wizard steps are consumed — back leaves the finished wizard to
+    // where it was opened from, never into a filled draft that would publish
+    // a second coupon.
+    if (historySteps)
+      flowStep.complete("published", ["intro", "goal", "direction", "builder", "terms"], (u) => u.searchParams.get("view") === "create");
     else setLocalStep("published");
   };
 
@@ -298,7 +301,9 @@ export function CouponCreationFlow({
       title={close ? undefined : "קופון חדש"}
       action={
         close ? (
-          <CloseButton onClick={onExit} />
+          // Close on the success step: the coupon IS published — tell the host,
+          // so it never asks to "discard" a draft that no longer exists.
+          <CloseButton onClick={() => onExit?.(published ? draft : undefined)} />
         ) : historySteps ? (
           // History mode: back = the previous step actually taken; from the
           // first step it leaves the flow (through the host's draft guard).

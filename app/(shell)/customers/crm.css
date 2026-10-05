@@ -68,6 +68,10 @@
   display: flex;
   margin-bottom: 12px;
 }
+/* No verified origin (hideWithoutOrigin rendered nothing): no empty gap. */
+.crm-hd__back:empty {
+  display: none;
+}
 
 /* Buttons */
 .crm-btn {

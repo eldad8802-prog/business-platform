@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { acquireBackLock, findEarlierEntry, subscribeTrail } from "@/lib/navigation/back-nav/trail-runtime";
+import {
+  acquireBackLock,
+  consumeFlowEntries,
+  findEarlierEntry,
+  subscribeTrail,
+} from "@/lib/navigation/back-nav/trail-runtime";
 
 /**
  * In-screen flow steps as REAL history entries.
@@ -109,5 +114,25 @@ export function useFlowStep<S extends string>({
     [urlFor, param, first],
   );
 
-  return useMemo(() => ({ step, go, replaceStep, backTo }), [step, go, replaceStep, backTo]);
+  /**
+   * The flow COMMITTED (created / published / redeemed…). Shows `next` in
+   * place of the step that committed (replace), and marks the flow's earlier
+   * steps listed in `consume` as done: back — button or browser — then leaves
+   * the completed flow to where it was entered, never into a filled step that
+   * would offer the same commit again. `also` narrows which entries belong to
+   * this flow when the route hosts other views (e.g. ?view=create).
+   */
+  const complete = useCallback(
+    (next: S, consume: readonly S[], also?: (u: URL) => boolean) => {
+      window.history.replaceState(null, "", urlFor(next));
+      consumeFlowEntries((url) => {
+        const u = new URL(url, window.location.origin);
+        const st = (u.searchParams.get(param) ?? first) as S;
+        return u.pathname === pathname && consume.includes(st) && (also ? also(u) : true);
+      });
+    },
+    [urlFor, param, first, pathname],
+  );
+
+  return useMemo(() => ({ step, go, replaceStep, backTo, complete }), [step, go, replaceStep, backTo, complete]);
 }

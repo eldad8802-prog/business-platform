@@ -148,6 +148,10 @@ export default function BackButton({
       aria-label={accessibleName}
       title={accessibleName}
       data-dz-back={mode}
+      // The destination this press will go to (verified origin, or the
+      // fallback) — an in-app path; lets QA prove every press lands on the
+      // target that was computed.
+      data-dz-back-target={onClick ? undefined : target?.kind === "history" ? target.url : target ? fb.url : undefined}
       data-dz-back-path={pathname}
       className={[styles.root, showFallbackLabel ? styles.withLabel : "", className ?? ""].join(" ").trim()}
       style={style}

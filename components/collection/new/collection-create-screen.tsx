@@ -132,10 +132,11 @@ export function CollectionCreateScreen() {
         }
       );
       setCreated({ id: res.id, paymentUrl: res.paymentUrl, amount: res.amount, currency: res.currency });
-      // COMPLETED ACTION: the request now exists. "send" REPLACES the details
-      // step, so back can never return into the filled form and create a
-      // duplicate request; back from "send" goes to the step before details.
-      flow.replaceStep("send");
+      // COMPLETED FLOW: the request now exists. "send" replaces the details
+      // step and the flow's earlier steps are consumed, so back leaves the
+      // finished flow to where it was entered — never into a filled form that
+      // would create a duplicate request.
+      flow.complete("send", ["customer", "details"]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "לא הצלחנו ליצור בקשת תשלום");
     } finally {

@@ -59,7 +59,9 @@ taken, then leaves the flow to wherever it was entered from.
 - `go(step)`: the next step (push).
 - `backTo(step)`: "return to X", for cancel or "back to catalog". It pops to
   the nearest earlier entry showing X, so no duplicate is stacked.
-- `replaceStep(step)`: only after a completed action (see below).
+- `complete(step, consumeSteps)`: the flow committed. `step` replaces the
+  step that committed, and the earlier flow steps are marked consumed (see
+  below).
 - `canShow(step)`: a refresh or deep link into a step whose data is gone falls
   back to the first step.
 
@@ -72,37 +74,63 @@ Flows using it:
 | `/revenue?view=create` | goal → direction → builder → terms → published |
 | `/revenue/redeem` | scan → manual → error / done |
 | `/inbox` (mobile) | triage → category list (→ conversation) |
+| `/inventory/supplier-purchases/new` (routes) | products → cart → confirm → send |
 
 ## What back deliberately skips, and why
 
-Each case below is proven in the browser to land on the right step and to
-issue no second commit (`qa-evidence/back-nav/flow-chains.md`).
+Every case below is proven in a real browser. Each chain checks:
+- the page each press lands on;
+- that the page is the target the control computed;
+- the number of committing requests (`qa-evidence/back-nav/flow-chains.md`).
 
-**Steps that follow a completed action, and replace the step that did it.**
-Returning to that step would offer the same commit again.
+**A completed flow is left as a whole.** When a flow commits, its result
+screen replaces the step that committed. The flow's earlier steps are marked
+*consumed* in the trail (`consumeFlowEntries`), so:
+- the back control skips them;
+- browser Back / Forward landing on one keeps moving the same way;
+- back from the result returns to where the flow was entered, never into a
+  filled step that would offer the same commit again.
 
-| After | Replaced step | Reason |
+| Commit (counted in the browser) | Back from the result goes to | Consumed |
 |---|---|---|
-| Payment request created | collection details | The form would create a duplicate request |
-| Coupon published | coupon terms | It would publish a second coupon |
-| Coupon redeemed | redeem manual entry | It would redeem again |
-| Item costs saved | pricing calc form | The save is done; the result screen is shown |
-| Pricing item created | pricing new item step | It would create the item twice |
-| Obligation met or released | secretary detail / update (only when the action was taken there) | That screen offers the same action (a second payment) for an item that has left the open list. From "Today" the result is a normal step |
+| Payment request created | where `/collection/new` was opened | customer, details |
+| Coupon published (also close X) | my coupons | goal, direction, builder, terms |
+| Coupon redeemed | the scanner | manual / error entries |
+| Item costs saved | the pricing catalog | calc, result |
+| Pricing item created | the pricing catalog | new item steps 1–2 |
+| Obligation met / released on the item's own screen | the list it was opened from | that item's detail / update |
+| Supplier order created | where the wizard was opened | products, cart (confirm replaced) |
 
-**Technical and transient screens that are never a back target.**
+"Today" in the Secretary is not consumed: after completing from it, Today
+moves on to the next item and stays a real step.
 
-| Screen | Reason |
+**Technical and transient screens are never a back target.**
+
+| Screen | Why |
 |---|---|
 | `/login`, `/register`, `/onboarding`, `/api`, `/_next`, static files | Not screens to return to |
 | `/payments`, `/payments/new`, `/payments/[id]` | Redirect stubs with no UI |
-| `/content/render` | Starts a new, quota-consuming render on every visit |
-| `/business/bot/setup/success` | The completion screen of an activation that already happened |
+| `/content/render` | Starts a new, quota-consuming render on every visit. The result *replaces* it, so it leaves history for the browser too |
+| `/business/bot/setup/success` | Completion screen of an activation that already happened |
 
-Every other step is a real step, and back returns to it. Examples:
+**Active steps are never skipped.** Examples:
 - the previous review after "next document";
 - the uploader after an upload;
-- "Today" after completing from it.
+- a coupon or pricing step before the commit;
+- "Today".
+
+**History entries the mechanism did not create.**
+- A `#fragment` jump on the same screen is stamped as a continuation of the
+  entry it came from (it carries that page's Next.js state). The back control
+  treats it as the same screen and still reaches the real origin. Browser
+  Back first removes the fragment.
+- An entry nothing recorded has no verified chain, so back shows the
+  labelled fallback (with `replace`). It never steps out of the app. This
+  covers:
+  - a direct link after non-app history;
+  - a full-document navigation (`location.assign`);
+  - a lost or cleared session trail;
+  - a new tab.
 
 ## Adding a screen
 

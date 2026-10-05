@@ -21,6 +21,7 @@ import {
   type UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { recordPayment } from "@/lib/payables/payables-client";
 import { PaidQuestionSheet, type PaidDetails } from "./paid-question";
 import {
@@ -267,8 +268,14 @@ function SecretaryPageInner() {
     const sp = new URLSearchParams(window.location.search);
     const onItemScreen =
       (sp.get("screen") === "detail" || sp.get("screen") === "update") && sp.get("id") === String(actedOnId);
-    if (onItemScreen) router.replace(url);
-    else router.push(url);
+    if (onItemScreen) {
+      router.replace(url);
+      // The item's other screens below (detail ← update) are consumed too.
+      consumeFlowEntries((u) => {
+        const q = new URL(u, window.location.origin).searchParams;
+        return (q.get("screen") === "detail" || q.get("screen") === "update") && q.get("id") === String(actedOnId);
+      });
+    } else router.push(url);
   }
 
   async function finishComplete(token: string, id: number) {

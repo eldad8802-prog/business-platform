@@ -46,6 +46,17 @@ let currentId: string | null = null;
 let version = 0;
 let lockedUntil = 0;
 let restoringId: string | null = null;
+/** Next.js's own keys of the current entry's state (for stamping #hash entries). */
+let lastNextState: Record<string, unknown> | null = null;
+
+function rememberNextState(): void {
+  const st = window.history.state as Record<string, unknown> | null;
+  if (st && st.__NA) {
+    const copy: Record<string, unknown> = { ...st };
+    delete copy[STATE_FIELD];
+    lastNextState = copy;
+  }
+}
 const listeners = new Set<() => void>();
 
 /* ------------------------------------------------------------- helpers -- */
@@ -223,6 +234,43 @@ function restoreScrollFor(id: string): void {
   window.requestAnimationFrame(tick);
 }
 
+/** True when `earlier` is in the recorded chain below `from`. */
+function isEarlier(earlier: string, from: string): boolean {
+  const seen = new Set<string>();
+  let c: string | null = store[from]?.prev ?? null;
+  while (c && !seen.has(c) && seen.size < 60) {
+    if (c === earlier) return true;
+    seen.add(c);
+    c = store[c]?.prev ?? null;
+  }
+  return false;
+}
+
+/**
+ * A flow just COMMITTED (request created, coupon published, order sent…):
+ * mark its earlier step entries — the contiguous run directly below the
+ * current entry for which `inFlow(url)` holds — as done. Back (button and
+ * browser) then leaves the completed flow as a whole instead of returning to
+ * a filled step that would offer the same commit again. Returns how many.
+ */
+export function consumeFlowEntries(inFlow: (url: string) => boolean): number {
+  if (!installed || !currentId) return 0;
+  const seen = new Set<string>();
+  let n = 0;
+  let cursor = store[currentId]?.prev ?? null;
+  while (cursor && !seen.has(cursor) && n < 50) {
+    seen.add(cursor);
+    const e = store[cursor];
+    if (!e || !inFlow(e.url)) break;
+    e.done = true;
+    n += 1;
+    cursor = e.prev;
+  }
+  persist();
+  emit();
+  return n;
+}
+
 /* ------------------------------------------------------------- install -- */
 
 export function installNavTrail(): void {
@@ -277,6 +325,7 @@ export function installNavTrail(): void {
     const id = recordNew(nextUrl, currentId);
     origPush(withId(data, id), unused, url);
     currentId = id;
+    rememberNextState();
     releaseLock();
     persist();
     emit();
@@ -287,6 +336,7 @@ export function installNavTrail(): void {
     const before = store[id]?.url;
     origReplace(withId(data, id), unused, url);
     currentId = id;
+    rememberNextState();
     const after = urlToAppPath(url);
     touchCurrent(after);
     if (before !== after) releaseLock();
@@ -295,23 +345,60 @@ export function installNavTrail(): void {
   } as History["replaceState"];
 
   window.addEventListener("popstate", (event) => {
+    const previous = currentId;
     const id = stateId(event.state);
+    let freshFragment = false;
     if (id && store[id]) {
       currentId = id;
       touchCurrent(urlToAppPath(null));
     } else if (id) {
       store[id] = { id, url: urlToAppPath(null), prev: null, scope: readScope(), t: Date.now() };
       currentId = id;
+    } else if (
+      previous &&
+      store[previous] &&
+      store[previous].url === urlToAppPath(null) &&
+      lastNextState
+    ) {
+      // A #fragment jump on the same screen creates a state-less entry. Stamp
+      // it as the continuation of the entry it was made from (same page, so it
+      // carries that page's Next.js state); the resolver treats it as the
+      // same screen, so back still reaches the real origin.
+      const nid = recordNew(urlToAppPath(null), previous);
+      origReplace({ ...lastNextState, [STATE_FIELD]: nid }, "", window.location.href);
+      currentId = nid;
+      freshFragment = true;
     } else {
-      // An entry we never stamped (e.g. a #hash jump): unknown chain.
+      // An entry nothing recorded (pre-dating this tab's trail, or written
+      // outside the app): unknown chain — back uses the labelled fallback.
       currentId = null;
     }
     releaseLock();
     persist();
     emit();
-    if (currentId) restoreScrollFor(currentId);
+    // Browser Back / Forward onto a step of a COMPLETED flow: keep moving the
+    // same way past the consumed steps (the in-app back never lands here —
+    // the resolver skips them), so the browser cannot re-open a finished form.
+    if (currentId && store[currentId]?.done) {
+      if (previous && isEarlier(currentId, previous)) {
+        let k = 0;
+        let c: string | null = currentId;
+        while (c && store[c]?.done && k < 50) {
+          k += 1;
+          c = store[c].prev;
+        }
+        window.history.go(-k);
+      } else {
+        window.history.forward();
+      }
+      return;
+    }
+    rememberNextState();
+    // A fresh #fragment jump scrolls to its anchor (browser); never override it.
+    if (currentId && !freshFragment) restoreScrollFor(currentId);
   });
 
+  rememberNextState();
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("pagehide", saveScroll);
 
