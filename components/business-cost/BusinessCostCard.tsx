@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import {
   affirmRecurringCostsRecorded,
@@ -154,11 +154,24 @@ export function BusinessCostCard() {
         <Figure
           label={`עלות ליום ב${monthName(b.calendarDay.month)}`}
           value={ils(b.calendarDay.daily)}
-          hint={`${ils(b.monthly)} ÷ ${b.calendarDay.daysInMonth} ימי החודש`}
+          hint={
+            <>
+              {/* The arithmetic reads left-to-right as one unit, never split or reordered by the RTL line. */}
+              <bdi dir="ltr" style={{ whiteSpace: "nowrap" }}>{`${ils(b.monthly)} ÷ ${b.calendarDay.daysInMonth}`}</bdi> ימי החודש
+            </>
+          }
         />
       </div>
       {notIncluded.length > 0 ? (
-        <div style={{ marginTop: 6, color: DS.muted, fontSize: 13 }}>לא כולל: {notIncluded.join(" · ")}</div>
+        <div style={{ marginTop: 6, color: DS.muted, fontSize: 13 }}>
+          לא כולל:{" "}
+          {notIncluded.map((t, k) => (
+            <span key={t} style={{ whiteSpace: "nowrap" }}>
+              {k > 0 ? " · " : ""}
+              {t}
+            </span>
+          ))}
+        </div>
       ) : null}
       <button type="button" onClick={() => setShowBreakdown((v) => !v)} aria-expanded={showBreakdown} style={linkButton}>
         {showBreakdown ? "הסתר פירוט" : "ממה זה מורכב"}
@@ -227,7 +240,7 @@ export function BusinessCostCard() {
 }
 
 /** One of the two headline answers: a label, the number, and how it was reached. */
-function Figure({ label, value, hint }: { label: string; value: string; hint: string }) {
+function Figure({ label, value, hint }: { label: string; value: string; hint: ReactNode }) {
   return (
     <div style={{ flex: "1 1 150px", minWidth: 0, background: DS.surface2, borderRadius: 12, padding: "10px 12px" }}>
       <div style={{ color: DS.muted, fontSize: 13 }}>{label}</div>
