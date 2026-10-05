@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
+import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
   EmailAlreadyRegisteredError,
   SignupValidationError,
@@ -48,14 +49,23 @@ export const dynamic = "force-dynamic";
  * and then call /api/auth/login separately; when that second call failed the
  * account existed but the owner was told "שגיאה בהתחברות", and retrying said the
  * user already existed — a dead end with no way out. There is no second call.
+ *
+ * And it is the SAME session login returns: an AuthSession row written in the
+ * account's own transaction, an access token that names it, and the httpOnly
+ * refresh cookie. A new owner is refreshable, listed among their devices and
+ * revocable on their own — there is one kind of authenticated user, not two.
  */
 export type RegisterDeps = {
   isSignupEnabled: () => boolean;
   rateLimit: typeof consumeRateLimit;
   hashPassword: (plain: string) => Promise<string>;
-  /** Atomic. Throws EmailAlreadyRegisteredError when the unique index rejects. */
+  /**
+   * Atomic: Business, User and the first AuthSession, or nothing. Throws
+   * EmailAlreadyRegisteredError when the unique index rejects.
+   */
   createAccount: (input: CreateAccountInput) => Promise<CreatedAccount>;
-  signToken: (userId: number, tokenVersion: number) => string;
+  /** The session id is required: a token that names no session is never minted. */
+  signToken: (userId: number, tokenVersion: number, sessionId: string) => string;
   /**
    * Usage telemetry. Injected so the route stays testable without a database —
    * the real implementation swallows its own errors, but it still opens a
@@ -129,16 +139,25 @@ export async function handleRegister(
     const input = normalizeSignupInput(body as never);
     const passwordHash = await deps.hashPassword(input.password);
 
+    const now = new Date();
     const account = await deps.createAccount({
       email: input.email,
       passwordHash,
       name: input.name,
       businessName: input.businessName,
+      now,
+      userAgent: req.headers.get("user-agent"),
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the
-    // owner the session they just earned.
-    const token = deps.signToken(account.userId, account.tokenVersion);
+    // owner the session they just earned. It names the session row, exactly as
+    // login's token does.
+    const token = deps.signToken(
+      account.userId,
+      account.tokenVersion,
+      account.session.sessionId
+    );
+    // Telemetry correlation id, as in login — NOT the AuthSession id.
     const sessionId = randomUUID();
 
     await deps.recordUsage({
@@ -150,7 +169,7 @@ export async function handleRegister(
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       // Retained from the previous contract so an older client build keeps
       // working through a rolling deploy.
@@ -166,6 +185,14 @@ export async function handleRegister(
         businessName: account.businessName,
       },
     });
+
+    // The same httpOnly refresh credential login sets, with the same lifetime.
+    setRefreshCookie(res, account.session.credential, {
+      now,
+      absoluteExpiresAt: account.session.absoluteExpiresAt,
+    });
+
+    return res;
   } catch (error) {
     if (error instanceof SignupValidationError) {
       await recordSignupFailure(deps, `invalid_${error.field}`);

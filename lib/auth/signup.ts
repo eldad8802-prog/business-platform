@@ -11,10 +11,17 @@
  * A business and its first owner are not two facts. They are one fact with two
  * rows, so they are written in one transaction or not at all.
  *
- * SCOPE BOUNDARY: this module creates the account and nothing else. It does not
- * decide whether registration is OPEN — that is the public-signup gate, checked
- * first in the route — and it does not mint sessions, send mail or raise events.
- * Those are separate concerns with separate failure modes.
+ * The account's first SESSION belongs to the same fact. Signup used to mint a
+ * bare token with no session row behind it: no refresh, no device entry, no way
+ * to revoke that one device, and a hard sign-out after 24 hours. A new owner was
+ * a second, weaker kind of authenticated user. The session row is now written in
+ * the same transaction, through the same `issueRefreshSession` login uses, so
+ * signup ends exactly where login ends — or nothing is written at all.
+ *
+ * SCOPE BOUNDARY: this module creates the account and its first session, and
+ * nothing else. It does not decide whether registration is OPEN — that is the
+ * public-signup gate, checked first in the route — and it does not mint tokens,
+ * set cookies, send mail or raise events.
  *
  * The rules about what an identity IS live in ./signup-identity.ts, which has no
  * dependencies and is therefore testable without a database.
@@ -24,6 +31,7 @@ import { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
 
 import { authDb } from "@/lib/prisma-auth";
+import { issueRefreshSession } from "@/lib/auth/refresh-session";
 
 import {
   EmailAlreadyRegisteredError,
@@ -53,6 +61,10 @@ export type CreateAccountInput = {
   passwordHash: string;
   name: string;
   businessName: string;
+  /** The one instant every session timestamp is derived from (see issueRefreshSession). */
+  now: Date;
+  /** Device label source. Truncated downstream, never returned to a client. */
+  userAgent?: string | null;
 };
 
 export type CreatedAccount = {
@@ -66,6 +78,8 @@ export type CreatedAccount = {
    * to be 0, so the caller mints a token that matches what was actually written.
    */
   tokenVersion: number;
+  /** The first session — the same row, credential and expiry login issues. */
+  session: { sessionId: string; credential: string; absoluteExpiresAt: Date };
 };
 
 export function hashSignupPassword(plain: string): Promise<string> {
@@ -105,6 +119,16 @@ export async function createAccount(
         select: { id: true, email: true, tokenVersion: true },
       });
 
+      // Last, so a failure here rolls back the account with it: the visitor
+      // gets an error and can simply try again, instead of an account they can
+      // only reach by guessing that they should go and log in.
+      const session = await issueRefreshSession(tx, {
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        now: input.now,
+        userAgent: input.userAgent ?? null,
+      });
+
       return {
         userId: user.id,
         businessId: business.id,
@@ -112,12 +136,14 @@ export async function createAccount(
         name: input.name,
         businessName: business.name,
         tokenVersion: user.tokenVersion,
+        session,
       };
     });
   } catch (error) {
-    // P2002 = unique constraint violation. The only unique constraint reachable
-    // from this transaction is User.email, so this is a duplicate signup — the
-    // Business insert is rolled back with it, leaving nothing orphaned.
+    // P2002 = unique constraint violation. The only unique constraint a caller
+    // can collide with in this transaction is User.email (the session id is a
+    // generated uuid), so this is a duplicate signup — the Business insert is
+    // rolled back with it, leaving nothing orphaned.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"

@@ -173,10 +173,12 @@ export async function getAuthContext(req: Request) {
     // line at all. The window closes on its own; there is no date in this file
     // to get wrong, and nothing to clean up.
     //
-    // Nothing in this codebase mints one any more: login fails closed if the
-    // session cannot be created, and refresh only mints after a rotation. The
-    // follow-up PR deletes this branch outright rather than leaving it
-    // unreachable.
+    // No PRODUCT path mints one: login fails closed if the session cannot be
+    // created, signup writes its session in the account transaction, and refresh
+    // only mints after a rotation. `lib/auth/session-bound-token-guard.test.ts`
+    // fails the build if any non-test call site of `signAuthToken` omits the
+    // session id. What still mints sid-less tokens is test and QA harnesses;
+    // once they issue real sessions, this branch is deleted outright.
     else {
       console.log(JSON.stringify({ event: "auth_sidless_token_accepted", userId: user.id }));
     }

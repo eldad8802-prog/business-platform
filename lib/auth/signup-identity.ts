@@ -13,7 +13,9 @@
  * all is decided earlier, in the route.
  */
 
-export const MIN_PASSWORD_LENGTH = 6;
+// Applies to NEW passwords only. Login never re-validates length, so an existing
+// owner with a shorter password is not locked out by this rule.
+export const MIN_PASSWORD_LENGTH = 8;
 export const MIN_NAME_LENGTH = 2;
 
 /**
