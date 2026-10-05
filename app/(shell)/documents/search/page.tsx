@@ -2,6 +2,7 @@
 import { PageContainer } from "@/components/ui/page-container";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
@@ -64,8 +65,8 @@ export default function DocumentsSearchPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [authHeader, setAuthHeader] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const [query, setQuery] = useEntryState("query", "");
+  const [filter, setFilter] = useEntryState<FilterKey>("filter", "all");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -133,7 +134,7 @@ export default function DocumentsSearchPage() {
   if (!mounted || !authHeader) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>          <Header onBack={() => router.push("/documents")} />
+        <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>          <Header />
           <div style={emptyStyle}>טוען...</div>
         </PageContainer>
       </div>
@@ -142,7 +143,7 @@ export default function DocumentsSearchPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>        <Header onBack={() => router.push("/documents")} />
+      <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>        <Header />
 
         <label style={searchStyle}>
           <SearchIcon />
@@ -283,10 +284,10 @@ function SearchInspector({
   );
 }
 
-function Header({ onBack }: { onBack: () => void }) {
+function Header() {
   return (
     <header style={headStyle}>
-      <DocumentsBackButton onClick={onBack} />
+      <DocumentsBackButton />
       <h1 style={titleStyle}>חיפוש מסמכים</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>

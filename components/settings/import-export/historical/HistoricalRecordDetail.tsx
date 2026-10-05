@@ -245,7 +245,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
           href={recordsBase}
           className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
         >
-          חזרה לרשימה
+          לרשימת הרשומות
         </Link>
       </SettingsSection>
     );

@@ -3,7 +3,6 @@ import { PageContainer } from "@/components/ui/page-container";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   scoreAttachments,
   type EmailAttachmentUiStatus,
@@ -61,7 +60,6 @@ function formatSentAt(raw: string | null): string {
 }
 
 export default function EmailDocumentsPage() {
-  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [authHeader, setAuthHeader] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -313,7 +311,7 @@ export default function EmailDocumentsPage() {
     return (
       <div dir="rtl" style={pageStyle}>
         <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
-          <Header onBack={() => router.push("/documents")} />
+          <Header />
           <div style={emptyStyle}>טוען...</div>
         </PageContainer>
       </div>
@@ -324,7 +322,7 @@ export default function EmailDocumentsPage() {
     return (
       <div dir="rtl" style={pageStyle}>
         <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
-          <Header onBack={() => router.push("/documents")} />
+          <Header />
           <section style={emptyStyle}>
             צריך להתחבר כדי לייבא מסמכים מהמייל.
             <Link href="/login" style={loginLinkStyle}>
@@ -346,7 +344,7 @@ export default function EmailDocumentsPage() {
         className={connected ? "dz-doc-wide" : "dz-email-off"}
         style={{ paddingBlock: "14px 40px" }}
       >
-        <Header onBack={() => router.push("/documents")} />
+        <Header />
 
         <div className={connected ? "dz-email-desk" : "dz-email-connect"}>
         <div className="dz-email-side">
@@ -617,10 +615,10 @@ export default function EmailDocumentsPage() {
   );
 }
 
-function Header({ onBack }: { onBack: () => void }) {
+function Header() {
   return (
     <header style={headStyle}>
-      <DocumentsBackButton onClick={onBack} />
+      <DocumentsBackButton />
       <h1 style={titleStyle}>קליטה מ-Gmail</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>

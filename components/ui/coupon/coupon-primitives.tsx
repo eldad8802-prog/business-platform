@@ -9,7 +9,7 @@
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { COUPON } from "@/lib/design/coupon-consumer";
-import CanonicalBackButton from "@/components/ui/back-button";
+import CanonicalBackButton, { CloseButton as CanonicalCloseButton } from "@/components/ui/back-button";
 
 const W = TOKEN.warm;
 
@@ -158,11 +158,20 @@ export function ScreenHeader({
   );
 }
 
-export function BackButton({ onClick }: { onClick?: () => void }) {
+export function BackButton({
+  onClick,
+  onBeforeLeave,
+}: {
+  onClick?: () => void;
+  /** History mode only: intercept before leaving (e.g. unsaved draft). */
+  onBeforeLeave?: (proceed: () => void) => void;
+}) {
+  if (onBeforeLeave && !onClick) return <CanonicalBackButton onBeforeLeave={onBeforeLeave} />;
   return <BackText onClick={onClick} />;
 }
+/** Dismiss (X) — distinct from back: closing a flow is not "going back". */
 export function CloseButton({ onClick }: { onClick?: () => void }) {
-  return <BackText onClick={onClick} />;
+  return <CanonicalCloseButton onClick={() => onClick?.()} />;
 }
 
 /* ------------------------------------------------------------ FlowIntro --- */

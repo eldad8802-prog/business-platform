@@ -1,3 +1,4 @@
+import BackButton from "@/components/ui/back-button";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
@@ -8,11 +9,13 @@ export function AreaHeader({
   title,
   subtitle,
   backHref,
-  backLabel = "חזרה",
+  // backLabel is accepted for compatibility; the round BackButton names its
+  // own fallback destination.
 }: {
   title: string;
   subtitle?: string;
   backHref: string;
+  /** @deprecated ignored. */
   backLabel?: string;
 }) {
   return (
@@ -26,26 +29,7 @@ export function AreaHeader({
           minHeight: 42,
         }}
       >
-        <Link
-          href={backHref}
-          aria-label={backLabel}
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: TOKEN.radius.pill,
-            background: TOKEN.surface.inset,
-            border: `1px solid ${TOKEN.border.DEFAULT}`,
-            color: TOKEN.ink.primary,
-            display: "grid",
-            placeItems: "center",
-            textDecoration: "none",
-            fontSize: TOKEN.font.display,
-            lineHeight: 1,
-            boxSizing: "border-box",
-          }}
-        >
-          ›
-        </Link>
+        <BackButton fallback={backHref} />
         <div
           style={{
             textAlign: "center",

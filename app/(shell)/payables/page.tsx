@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
+import { useConsumeQueryFlag } from "@/hooks/useConsumeQueryFlag";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
@@ -49,9 +51,10 @@ export default function PayablesPage() {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<CommitmentListApi[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scope, setScope] = useState<"open" | "all">("open");
+  const [scope, setScope] = useEntryState<"open" | "all">("scope", "open");
   // Arriving from "+" opens the form the label promised.
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
+  useConsumeQueryFlag("new");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const desk = useMediaQuery("(min-width: 1200px)");
 

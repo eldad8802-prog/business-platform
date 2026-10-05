@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
@@ -112,7 +113,7 @@ function getDisplayDate(doc: BillingDocumentListItem): string {
 
 export default function BillingHubPage() {
   const router = useRouter();
-  const [filter, setFilter] = useState<FilterView>("ALL");
+  const [filter, setFilter] = useEntryState<FilterView>("filter", "ALL");
   const [docs, setDocs] = useState<BillingDocumentListItem[]>([]);
   const [totals, setTotals] = useState<DocumentTotals | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -136,9 +137,9 @@ export default function BillingHubPage() {
   const [pendingCreateType, setPendingCreateType] = useState<
     "TAX_INVOICE" | "QUOTE"
   >("TAX_INVOICE");
-  const [searchInput, setSearchInput] = useState<string>("");
-  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
-  const [visibleDocsCount, setVisibleDocsCount] = useState<number>(5);
+  const [searchInput, setSearchInput] = useEntryState<string>("search", "");
+  const [debouncedSearch, setDebouncedSearch] = useEntryState<string>("searchApplied", "");
+  const [visibleDocsCount, setVisibleDocsCount] = useEntryState<number>("visible", 5);
 
   useEffect(() => {
     const t = window.setTimeout(
@@ -342,7 +343,10 @@ export default function BillingHubPage() {
           boxSizing: "border-box",
         }}
       >
-        <BackButton href="/app" />
+        {/* /billing is a main-nav root: back only when the user came from a
+            verified in-app screen (e.g. Home / Tools on mobile). */}
+        <BackButton hideWithoutOrigin />
+        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: TOKEN.ink.primary }}>חשבוניות</h1>
       </header>
 
       <main

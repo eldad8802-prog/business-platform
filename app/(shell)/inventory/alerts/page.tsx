@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   FilterChipRow,
@@ -134,7 +135,7 @@ export default function InventoryAlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cat, setCat] = useState<Category>("all");
+  const [cat, setCat] = useEntryState<Category>("category", "all");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -182,6 +183,7 @@ export default function InventoryAlertsPage() {
     <InventorySubPage intent="data"
       title="התראות"
       variant="hub"
+      hubBack
       sub={!loading && !error ? `${alerts.length} פתוחות · נוצרות אוטומטית מתנועות המלאי` : undefined}
       bottomNav="home"
     >

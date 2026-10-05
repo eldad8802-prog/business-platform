@@ -1,9 +1,12 @@
 "use client";
 
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
+import { useFlowStep } from "@/hooks/useFlowStep";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
+import { useGoBack } from "@/components/ui/back-button";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import {
   InboxConnectionLoader,
@@ -211,14 +214,19 @@ function InboxPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const goBackFromConversation = useGoBack("/inbox");
 
   const [selectedWorkCategory, setSelectedWorkCategory] =
-    useState<InboxSidebarSelection>(INBOX_SIDEBAR_LEGACY_OPEN);
-  // List-internal browsing toggle (mobile only): triage ("categories") vs the
-  // selected category's conversations. NOT a top-level navigation source of
-  // truth — the open conversation is owned solely by the URL (see below).
-  const [mobileListPhase, setMobileListPhase] =
-    useState<InboxListPhase>("categories");
+    useEntryState<InboxSidebarSelection>("category", INBOX_SIDEBAR_LEGACY_OPEN);
+  // Mobile triage → a category's conversations is a real history step
+  // (?list=conversation_list): back — the button or the browser — returns to
+  // the triage screen in the order taken; the conversation itself is a further
+  // entry (?conversationId), so back from it returns to this list first.
+  const listFlow = useFlowStep<InboxListPhase>({
+    param: "list",
+    steps: ["categories", "conversation_list"],
+  });
+  const mobileListPhase = listFlow.step;
 
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   /** The last conversations load failed, so an empty list is not "no conversations". */
@@ -245,7 +253,7 @@ function InboxPageContent() {
   // Guards both send handlers against a double-tap reaching the server twice.
   const sendingRef = useRef(false);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<number | null>(null);
-  const [listSearchQuery, setListSearchQuery] = useState("");
+  const [listSearchQuery, setListSearchQuery] = useEntryState("listSearch", "");
   // SSR-safe scope for the Inbox layout's breakpoint CSS (framing + desktop/mobile
   // surface visibility). No hydration branch — the media query does the switching.
   const inboxScope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -326,7 +334,7 @@ function InboxPageContent() {
       target = resolveInboxCategoryPick(category, byId);
     }
     setSelectedWorkCategory(target);
-    setMobileListPhase("conversation_list");
+    listFlow.go("conversation_list");
   }
 
   function handlePickDesktopCategory(category: InboxSidebarSelection) {
@@ -336,14 +344,18 @@ function InboxPageContent() {
   // Mobile: back from a category's conversations to the triage screen. Pure
   // list-internal browsing — no URL/history change (category is not URL-backed).
   function handleBackToCategories() {
-    setMobileListPhase("categories");
+    // Pops to the triage entry the list was opened from (replace on a deep
+    // link) — never leaves the inbox, never stacks a duplicate.
+    listFlow.backTo("categories");
   }
 
-  // Mobile: in-app back arrow inside a conversation. Explicit navigation to the
-  // list via push — independent of history provenance, so a deep-linked or
-  // refreshed detail also lands on the list rather than exiting the app.
+  // Mobile: in-app back arrow inside a conversation. Pops the history entry the
+  // conversation was opened with (so browser Back/Forward stay consistent and
+  // the list keeps its category / scroll); a deep-linked or refreshed
+  // conversation with no verified origin falls back to the list via replace —
+  // never exits the app, never stacks a new entry.
   function handleBackToConversationList() {
-    updateConversationIdInUrl(null);
+    goBackFromConversation();
   }
 
   // Invalid-SYNTAX normalization: the param exists but is not a valid id →
@@ -523,7 +535,7 @@ function InboxPageContent() {
       }
 
       setSelectedWorkCategory("active");
-      setMobileListPhase("conversation_list");
+      listFlow.replaceStep("conversation_list");
 
       await loadConversations();
       updateConversationIdInUrl(data.conversation.id);
@@ -820,7 +832,7 @@ function InboxPageContent() {
       }
 
       updateConversationIdInUrl(null);
-      setMobileListPhase("conversation_list");
+      listFlow.replaceStep("conversation_list");
       setMessages([]);
       setSuggestions([]);
       setInput("");

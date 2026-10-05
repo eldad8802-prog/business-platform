@@ -578,7 +578,7 @@ export default function OpportunitiesPage() {
               </p>
             </div>
 
-            <BackButton href="/app" label="חזרה לבית" />
+            <BackButton />
           </div>
 
           <div style={summaryRowStyle}>

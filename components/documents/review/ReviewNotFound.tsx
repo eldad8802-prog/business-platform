@@ -1,10 +1,16 @@
 import { TOKEN } from "@/lib/design/documents-theme";
+import BackButton from "@/components/ui/back-button";
 import { basePageStyle, mainStyle, primaryDarkButton, reviewCard } from "./review-ui";
 
 export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
   return (
     <div dir="rtl" style={basePageStyle()}>
       <main style={mainStyle()}>
+        {/* Back = the screen the document was opened from (search, inbox,
+            home…); the CTA below is an explicit link to the documents hub. */}
+        <div style={{ marginBottom: 12 }}>
+          <BackButton />
+        </div>
         <div style={{ ...reviewCard, maxWidth: 560, width: "100%", margin: "40px auto 0" }}>
           <div
             style={{
@@ -26,11 +32,11 @@ export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
               lineHeight: 1.6,
             }}
           >
-            נסה לחזור למסמכים ולפתוח את המסמך שוב.
+            אפשר לחזור ולפתוח את המסמך שוב.
           </div>
           <div style={{ marginTop: 20 }}>
             <button type="button" style={primaryDarkButton(false)} onClick={onBack}>
-              חזרה למסמכים
+              למסמכים
             </button>
           </div>
         </div>

@@ -1,0 +1,498 @@
+OK: plain path accepted
+OK: query kept, hash dropped
+OK: rejected: "//evil.com"
+OK: rejected: "//evil.com/documents"
+OK: rejected: "/\\evil.com"
+OK: rejected: "\\\\evil.com"
+OK: rejected: "https://evil.com"
+OK: rejected: "http:/evil.com"
+OK: rejected: "javascript:alert(1)"
+OK: rejected: "documents"
+OK: rejected: ""
+OK: rejected: "   "
+OK: rejected: "/%2F%2Fevil.com"
+OK: rejected: "/documents\nSet-Cookie:x"
+OK: rejected: "/login"
+OK: rejected: "/login?next=/app"
+OK: rejected: "/register"
+OK: rejected: "/api/documents"
+OK: rejected: "/_next/static/x.js"
+OK: rejected: "/onboarding"
+OK: rejected: "/favicon.ico"
+OK: rejected: "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+OK: non-string rejected
+OK: isTechnicalPath(/api/x)
+OK: isTechnicalPath(/apix) false
+OK: review opened from /app → back to it
+OK: review opened from /documents?tab=x → back to it
+OK: review opened from /search → back to it
+OK: review opened from /documents/search?q=חשבונית → back to it
+OK: lead opened from a conversation → back to the conversation
+OK: back keeps the latest list state
+OK: a different screen in between is a real origin
+OK: same pathname (filter push) skipped → leaves the screen
+OK: login entry is never a target
+OK: redirect stub skipped
+OK: content render (re-POSTs) skipped from result
+OK: first entry (direct link / new tab) → none
+OK: unknown current id → none
+OK: null current id → none
+OK: signed-out scope → none
+OK: never crosses into another account's entries
+OK: current entry recorded under another account → none
+OK: missing link ends the walk (no blind steps)
+OK: cyclic chain terminates
+OK: walk is bounded
+OK: unsafe recorded url never targeted
+OK: secretary detail → back to the list screen
+OK: secretary detail from home → home
+OK: conversation → back to the list (pop, not push)
+OK: pricing result → calc step (one step back)
+OK: pricing calc → catalog
+OK: collection: 'other customer' step → back to details actually taken
+OK: coupon direction → goal step
+OK: redeem error → manual entry
+OK: inbox conversation → that category's list → (then) triage
+OK: non-identity params still collapse
+OK: created → catalog, skipping the consumed wizard step
+OK: order sent → where the wizard was opened (cart/products consumed)
+OK: done survives parse
+OK: #fragment entry on the detail → back reaches the real origin
+OK: parseStore rejects junk
+OK: parseStore keeps valid entries
+OK: prune caps size and keeps protected
+OK: found page routes
+OK: classified: /
+OK: classified: /about
+OK: classified: /admin
+OK: classified: /admin/audit
+OK: classified: /admin/businesses/[id]
+OK: classified: /admin/businesses/[id]/features
+OK: classified: /app
+OK: classified: /attention
+OK: classified: /billing
+OK: classified: /billing/[id]
+OK: classified: /brand-animation-demo
+OK: classified: /business
+OK: classified: /business/bot
+OK: classified: /business/bot-settings
+OK: classified: /business/bot-settings/[area]
+OK: classified: /business/bot/setup/success
+OK: classified: /business/identity
+OK: classified: /business/landing-strategy
+OK: classified: /collection
+OK: classified: /collection/c/[customerId]
+OK: classified: /collection/new
+OK: classified: /contact
+OK: classified: /content
+OK: classified: /content/ai-assets
+OK: classified: /content/ai-brief
+OK: classified: /content/archetype
+OK: classified: /content/assets
+OK: classified: /content/assets-upload
+OK: classified: /content/context
+OK: classified: /content/create
+OK: classified: /content/creator-plan
+OK: classified: /content/direction
+OK: classified: /content/flow
+OK: classified: /content/format
+OK: classified: /content/generate
+OK: classified: /content/goal
+OK: classified: /content/intent
+OK: classified: /content/mode
+OK: classified: /content/render
+OK: classified: /content/result
+OK: classified: /content/setup
+OK: classified: /content/shot-direction
+OK: classified: /content/style
+OK: classified: /content/summary
+OK: classified: /content/value
+OK: classified: /coupon-design
+OK: classified: /customers
+OK: classified: /customers/[id]
+OK: classified: /dashboard
+OK: classified: /data-deletion
+OK: classified: /dev/content-test
+OK: classified: /dev/debug-ocr
+OK: classified: /dev/learning-center
+OK: classified: /documents
+OK: classified: /documents/accountant-pack
+OK: classified: /documents/dashboard
+OK: classified: /documents/email
+OK: classified: /documents/inbox
+OK: classified: /documents/review/[id]
+OK: classified: /documents/search
+OK: classified: /documents/uniform-export
+OK: classified: /documents/upload
+OK: classified: /home
+OK: classified: /home-prototype
+OK: classified: /inbox
+OK: classified: /inventory
+OK: classified: /inventory/alerts
+OK: classified: /inventory/count
+OK: classified: /inventory/drafts
+OK: classified: /inventory/items
+OK: classified: /inventory/items/[id]
+OK: classified: /inventory/items/create
+OK: classified: /inventory/sales
+OK: classified: /inventory/sales/create
+OK: classified: /inventory/supplier-purchases
+OK: classified: /inventory/supplier-purchases/[id]/receive
+OK: classified: /inventory/supplier-purchases/[id]/send
+OK: classified: /inventory/supplier-purchases/history
+OK: classified: /inventory/supplier-purchases/import
+OK: classified: /inventory/supplier-purchases/integrations
+OK: classified: /inventory/supplier-purchases/new
+OK: classified: /inventory/supplier-purchases/new/cart
+OK: classified: /inventory/supplier-purchases/new/confirm
+OK: classified: /inventory/supplier-purchases/pending
+OK: classified: /inventory/unmatched
+OK: classified: /leads
+OK: classified: /leads/[id]
+OK: classified: /login
+OK: classified: /notifications
+OK: classified: /offers
+OK: classified: /offers/create
+OK: classified: /onboarding
+OK: classified: /opportunities
+OK: classified: /payables
+OK: classified: /payables/[id]
+OK: classified: /payables/bank
+OK: classified: /payables/cheques
+OK: classified: /payables/match/[documentId]
+OK: classified: /payments
+OK: classified: /payments/[id]
+OK: classified: /payments/new
+OK: classified: /posts
+OK: classified: /pricing
+OK: classified: /privacy
+OK: classified: /profile
+OK: classified: /promotions
+OK: classified: /promotions/coupons
+OK: classified: /register
+OK: classified: /revenue
+OK: classified: /revenue/coupons/[id]
+OK: classified: /revenue/issue
+OK: classified: /revenue/redeem
+OK: classified: /search
+OK: classified: /secretary
+OK: classified: /settings
+OK: classified: /settings/account
+OK: classified: /settings/business
+OK: classified: /settings/connections
+OK: classified: /settings/import-export
+OK: classified: /settings/import-export/documents
+OK: classified: /settings/import-export/export
+OK: classified: /settings/import-export/historical
+OK: classified: /settings/import-export/historical/records
+OK: classified: /settings/import-export/historical/records/[id]
+OK: classified: /settings/import-export/import
+OK: classified: /settings/import-export/templates
+OK: classified: /settings/inbound-email
+OK: classified: /settings/security
+OK: classified: /settings/team
+OK: classified: /settings/whatsapp
+OK: classified: /settings/workspace
+OK: classified: /suppliers
+OK: classified: /suppliers/[id]
+OK: classified: /terms
+OK: classified: /test-upload
+OK: classified: /tools
+OK: classified: /tools/[category]
+OK: classified: /upload
+OK: fallback is a safe in-app path: /admin/businesses/[id]
+OK: fallback has a destination label: /admin/businesses/[id]
+OK: fallback chain reaches a root without loops: /admin/businesses/[id]
+OK: fallback is a safe in-app path: /admin/businesses/[id]/features
+OK: fallback has a destination label: /admin/businesses/[id]/features
+OK: fallback chain reaches a root without loops: /admin/businesses/[id]/features
+OK: fallback is a safe in-app path: /tools
+OK: fallback has a destination label: /tools
+OK: fallback chain reaches a root without loops: /tools
+OK: fallback is a safe in-app path: /pricing
+OK: fallback has a destination label: /pricing
+OK: fallback chain reaches a root without loops: /pricing
+OK: fallback is a safe in-app path: /revenue
+OK: fallback has a destination label: /revenue
+OK: fallback chain reaches a root without loops: /revenue
+OK: fallback is a safe in-app path: /revenue/redeem
+OK: fallback has a destination label: /revenue/redeem
+OK: fallback chain reaches a root without loops: /revenue/redeem
+OK: fallback is a safe in-app path: /revenue/coupons/[id]
+OK: fallback has a destination label: /revenue/coupons/[id]
+OK: fallback chain reaches a root without loops: /revenue/coupons/[id]
+OK: fallback is a safe in-app path: /content
+OK: fallback has a destination label: /content
+OK: fallback chain reaches a root without loops: /content
+OK: fallback is a safe in-app path: /content/goal
+OK: fallback has a destination label: /content/goal
+OK: fallback chain reaches a root without loops: /content/goal
+OK: fallback is a safe in-app path: /content/archetype
+OK: fallback has a destination label: /content/archetype
+OK: fallback chain reaches a root without loops: /content/archetype
+OK: fallback is a safe in-app path: /content/setup
+OK: fallback has a destination label: /content/setup
+OK: fallback chain reaches a root without loops: /content/setup
+OK: fallback is a safe in-app path: /content/creator-plan
+OK: fallback has a destination label: /content/creator-plan
+OK: fallback chain reaches a root without loops: /content/creator-plan
+OK: fallback is a safe in-app path: /content/shot-direction
+OK: fallback has a destination label: /content/shot-direction
+OK: fallback chain reaches a root without loops: /content/shot-direction
+OK: fallback is a safe in-app path: /content/assets-upload
+OK: fallback has a destination label: /content/assets-upload
+OK: fallback chain reaches a root without loops: /content/assets-upload
+OK: fallback is a safe in-app path: /content/ai-assets
+OK: fallback has a destination label: /content/ai-assets
+OK: fallback chain reaches a root without loops: /content/ai-assets
+OK: fallback is a safe in-app path: /content/render
+OK: fallback has a destination label: /content/render
+OK: fallback chain reaches a root without loops: /content/render
+OK: fallback is a safe in-app path: /content/result
+OK: fallback has a destination label: /content/result
+OK: fallback chain reaches a root without loops: /content/result
+OK: fallback is a safe in-app path: /content/ai-brief
+OK: fallback has a destination label: /content/ai-brief
+OK: fallback chain reaches a root without loops: /content/ai-brief
+OK: fallback is a safe in-app path: /content/assets
+OK: fallback has a destination label: /content/assets
+OK: fallback chain reaches a root without loops: /content/assets
+OK: fallback is a safe in-app path: /content/context
+OK: fallback has a destination label: /content/context
+OK: fallback chain reaches a root without loops: /content/context
+OK: fallback is a safe in-app path: /content/create
+OK: fallback has a destination label: /content/create
+OK: fallback chain reaches a root without loops: /content/create
+OK: fallback is a safe in-app path: /content/direction
+OK: fallback has a destination label: /content/direction
+OK: fallback chain reaches a root without loops: /content/direction
+OK: fallback is a safe in-app path: /content/flow
+OK: fallback has a destination label: /content/flow
+OK: fallback chain reaches a root without loops: /content/flow
+OK: fallback is a safe in-app path: /content/format
+OK: fallback has a destination label: /content/format
+OK: fallback chain reaches a root without loops: /content/format
+OK: fallback is a safe in-app path: /content/generate
+OK: fallback has a destination label: /content/generate
+OK: fallback chain reaches a root without loops: /content/generate
+OK: fallback is a safe in-app path: /content/intent
+OK: fallback has a destination label: /content/intent
+OK: fallback chain reaches a root without loops: /content/intent
+OK: fallback is a safe in-app path: /content/mode
+OK: fallback has a destination label: /content/mode
+OK: fallback chain reaches a root without loops: /content/mode
+OK: fallback is a safe in-app path: /content/style
+OK: fallback has a destination label: /content/style
+OK: fallback chain reaches a root without loops: /content/style
+OK: fallback is a safe in-app path: /content/summary
+OK: fallback has a destination label: /content/summary
+OK: fallback chain reaches a root without loops: /content/summary
+OK: fallback is a safe in-app path: /content/value
+OK: fallback has a destination label: /content/value
+OK: fallback chain reaches a root without loops: /content/value
+OK: fallback is a safe in-app path: /payments
+OK: fallback has a destination label: /payments
+OK: fallback chain reaches a root without loops: /payments
+OK: fallback is a safe in-app path: /payments/new
+OK: fallback has a destination label: /payments/new
+OK: fallback chain reaches a root without loops: /payments/new
+OK: fallback is a safe in-app path: /payments/[id]
+OK: fallback has a destination label: /payments/[id]
+OK: fallback chain reaches a root without loops: /payments/[id]
+OK: fallback is a safe in-app path: /business/bot/setup/success
+OK: fallback has a destination label: /business/bot/setup/success
+OK: fallback chain reaches a root without loops: /business/bot/setup/success
+OK: fallback is a safe in-app path: /attention
+OK: fallback has a destination label: /attention
+OK: fallback chain reaches a root without loops: /attention
+OK: fallback is a safe in-app path: /documents/inbox
+OK: fallback has a destination label: /documents/inbox
+OK: fallback chain reaches a root without loops: /documents/inbox
+OK: fallback is a safe in-app path: /documents/review/[id]
+OK: fallback has a destination label: /documents/review/[id]
+OK: fallback chain reaches a root without loops: /documents/review/[id]
+OK: fallback is a safe in-app path: /documents/search
+OK: fallback has a destination label: /documents/search
+OK: fallback chain reaches a root without loops: /documents/search
+OK: fallback is a safe in-app path: /documents/upload
+OK: fallback has a destination label: /documents/upload
+OK: fallback chain reaches a root without loops: /documents/upload
+OK: fallback is a safe in-app path: /documents/email
+OK: fallback has a destination label: /documents/email
+OK: fallback chain reaches a root without loops: /documents/email
+OK: fallback is a safe in-app path: /documents/accountant-pack
+OK: fallback has a destination label: /documents/accountant-pack
+OK: fallback chain reaches a root without loops: /documents/accountant-pack
+OK: fallback is a safe in-app path: /documents/dashboard
+OK: fallback has a destination label: /documents/dashboard
+OK: fallback chain reaches a root without loops: /documents/dashboard
+OK: fallback is a safe in-app path: /documents/uniform-export
+OK: fallback has a destination label: /documents/uniform-export
+OK: fallback chain reaches a root without loops: /documents/uniform-export
+OK: fallback is a safe in-app path: /billing/[id]
+OK: fallback has a destination label: /billing/[id]
+OK: fallback chain reaches a root without loops: /billing/[id]
+OK: fallback is a safe in-app path: /payables/[id]
+OK: fallback has a destination label: /payables/[id]
+OK: fallback chain reaches a root without loops: /payables/[id]
+OK: fallback is a safe in-app path: /payables/bank
+OK: fallback has a destination label: /payables/bank
+OK: fallback chain reaches a root without loops: /payables/bank
+OK: fallback is a safe in-app path: /payables/cheques
+OK: fallback has a destination label: /payables/cheques
+OK: fallback chain reaches a root without loops: /payables/cheques
+OK: fallback is a safe in-app path: /payables/match/[documentId]
+OK: fallback has a destination label: /payables/match/[documentId]
+OK: fallback chain reaches a root without loops: /payables/match/[documentId]
+OK: fallback is a safe in-app path: /collection/new
+OK: fallback has a destination label: /collection/new
+OK: fallback chain reaches a root without loops: /collection/new
+OK: fallback is a safe in-app path: /collection/c/[customerId]
+OK: fallback has a destination label: /collection/c/[customerId]
+OK: fallback chain reaches a root without loops: /collection/c/[customerId]
+OK: fallback is a safe in-app path: /customers/[id]
+OK: fallback has a destination label: /customers/[id]
+OK: fallback chain reaches a root without loops: /customers/[id]
+OK: fallback is a safe in-app path: /leads/[id]
+OK: fallback has a destination label: /leads/[id]
+OK: fallback chain reaches a root without loops: /leads/[id]
+OK: fallback is a safe in-app path: /suppliers
+OK: fallback has a destination label: /suppliers
+OK: fallback chain reaches a root without loops: /suppliers
+OK: fallback is a safe in-app path: /suppliers/[id]
+OK: fallback has a destination label: /suppliers/[id]
+OK: fallback chain reaches a root without loops: /suppliers/[id]
+OK: fallback is a safe in-app path: /inventory/items
+OK: fallback has a destination label: /inventory/items
+OK: fallback chain reaches a root without loops: /inventory/items
+OK: fallback is a safe in-app path: /inventory/items/create
+OK: fallback has a destination label: /inventory/items/create
+OK: fallback chain reaches a root without loops: /inventory/items/create
+OK: fallback is a safe in-app path: /inventory/items/[id]
+OK: fallback has a destination label: /inventory/items/[id]
+OK: fallback chain reaches a root without loops: /inventory/items/[id]
+OK: fallback is a safe in-app path: /inventory/count
+OK: fallback has a destination label: /inventory/count
+OK: fallback chain reaches a root without loops: /inventory/count
+OK: fallback is a safe in-app path: /inventory/alerts
+OK: fallback has a destination label: /inventory/alerts
+OK: fallback chain reaches a root without loops: /inventory/alerts
+OK: fallback is a safe in-app path: /inventory/drafts
+OK: fallback has a destination label: /inventory/drafts
+OK: fallback chain reaches a root without loops: /inventory/drafts
+OK: fallback is a safe in-app path: /inventory/unmatched
+OK: fallback has a destination label: /inventory/unmatched
+OK: fallback chain reaches a root without loops: /inventory/unmatched
+OK: fallback is a safe in-app path: /inventory/sales
+OK: fallback has a destination label: /inventory/sales
+OK: fallback chain reaches a root without loops: /inventory/sales
+OK: fallback is a safe in-app path: /inventory/sales/create
+OK: fallback has a destination label: /inventory/sales/create
+OK: fallback chain reaches a root without loops: /inventory/sales/create
+OK: fallback is a safe in-app path: /inventory/supplier-purchases
+OK: fallback has a destination label: /inventory/supplier-purchases
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/history
+OK: fallback has a destination label: /inventory/supplier-purchases/history
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/history
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/import
+OK: fallback has a destination label: /inventory/supplier-purchases/import
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/import
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/integrations
+OK: fallback has a destination label: /inventory/supplier-purchases/integrations
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/integrations
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/pending
+OK: fallback has a destination label: /inventory/supplier-purchases/pending
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/pending
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/new
+OK: fallback has a destination label: /inventory/supplier-purchases/new
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/new
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/new/cart
+OK: fallback has a destination label: /inventory/supplier-purchases/new/cart
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/new/cart
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/new/confirm
+OK: fallback has a destination label: /inventory/supplier-purchases/new/confirm
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/new/confirm
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/[id]/send
+OK: fallback has a destination label: /inventory/supplier-purchases/[id]/send
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/[id]/send
+OK: fallback is a safe in-app path: /inventory/supplier-purchases/[id]/receive
+OK: fallback has a destination label: /inventory/supplier-purchases/[id]/receive
+OK: fallback chain reaches a root without loops: /inventory/supplier-purchases/[id]/receive
+OK: fallback is a safe in-app path: /settings/whatsapp
+OK: fallback has a destination label: /settings/whatsapp
+OK: fallback chain reaches a root without loops: /settings/whatsapp
+OK: fallback is a safe in-app path: /settings/account
+OK: fallback has a destination label: /settings/account
+OK: fallback chain reaches a root without loops: /settings/account
+OK: fallback is a safe in-app path: /settings/business
+OK: fallback has a destination label: /settings/business
+OK: fallback chain reaches a root without loops: /settings/business
+OK: fallback is a safe in-app path: /settings/connections
+OK: fallback has a destination label: /settings/connections
+OK: fallback chain reaches a root without loops: /settings/connections
+OK: fallback is a safe in-app path: /settings/inbound-email
+OK: fallback has a destination label: /settings/inbound-email
+OK: fallback chain reaches a root without loops: /settings/inbound-email
+OK: fallback is a safe in-app path: /settings/security
+OK: fallback has a destination label: /settings/security
+OK: fallback chain reaches a root without loops: /settings/security
+OK: fallback is a safe in-app path: /settings/team
+OK: fallback has a destination label: /settings/team
+OK: fallback chain reaches a root without loops: /settings/team
+OK: fallback is a safe in-app path: /settings/workspace
+OK: fallback has a destination label: /settings/workspace
+OK: fallback chain reaches a root without loops: /settings/workspace
+OK: fallback is a safe in-app path: /settings/import-export
+OK: fallback has a destination label: /settings/import-export
+OK: fallback chain reaches a root without loops: /settings/import-export
+OK: fallback is a safe in-app path: /settings/import-export/documents
+OK: fallback has a destination label: /settings/import-export/documents
+OK: fallback chain reaches a root without loops: /settings/import-export/documents
+OK: fallback is a safe in-app path: /settings/import-export/export
+OK: fallback has a destination label: /settings/import-export/export
+OK: fallback chain reaches a root without loops: /settings/import-export/export
+OK: fallback is a safe in-app path: /settings/import-export/import
+OK: fallback has a destination label: /settings/import-export/import
+OK: fallback chain reaches a root without loops: /settings/import-export/import
+OK: fallback is a safe in-app path: /settings/import-export/templates
+OK: fallback has a destination label: /settings/import-export/templates
+OK: fallback chain reaches a root without loops: /settings/import-export/templates
+OK: fallback is a safe in-app path: /settings/import-export/historical
+OK: fallback has a destination label: /settings/import-export/historical
+OK: fallback chain reaches a root without loops: /settings/import-export/historical
+OK: fallback is a safe in-app path: /settings/import-export/historical/records
+OK: fallback has a destination label: /settings/import-export/historical/records
+OK: fallback chain reaches a root without loops: /settings/import-export/historical/records
+OK: fallback is a safe in-app path: /settings/import-export/historical/records/[id]
+OK: fallback has a destination label: /settings/import-export/historical/records/[id]
+OK: fallback chain reaches a root without loops: /settings/import-export/historical/records/[id]
+OK: fallback is a safe in-app path: /tools/[category]
+OK: fallback has a destination label: /tools/[category]
+OK: fallback chain reaches a root without loops: /tools/[category]
+OK: fallback is a safe in-app path: /business
+OK: fallback has a destination label: /business
+OK: fallback chain reaches a root without loops: /business
+OK: fallback is a safe in-app path: /business/identity
+OK: fallback has a destination label: /business/identity
+OK: fallback chain reaches a root without loops: /business/identity
+OK: fallback is a safe in-app path: /business/landing-strategy
+OK: fallback has a destination label: /business/landing-strategy
+OK: fallback chain reaches a root without loops: /business/landing-strategy
+OK: fallback is a safe in-app path: /business/bot
+OK: fallback has a destination label: /business/bot
+OK: fallback chain reaches a root without loops: /business/bot
+OK: fallback is a safe in-app path: /business/bot-settings
+OK: fallback has a destination label: /business/bot-settings
+OK: fallback chain reaches a root without loops: /business/bot-settings
+OK: fallback is a safe in-app path: /business/bot-settings/[area]
+OK: fallback has a destination label: /business/bot-settings/[area]
+OK: fallback chain reaches a root without loops: /business/bot-settings/[area]
+OK: roots have no fallback parent
+OK: unregistered path → Home fallback
+OK: dynamic match
+OK: literal beats dynamic
+OK: screenKey ignores non-identity params
+OK: screenKey keeps identity params
+
+496 passed, 0 failed

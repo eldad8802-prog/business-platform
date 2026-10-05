@@ -6,6 +6,7 @@ type Props = {
   title: string;
   showBack?: boolean;
   backHref?: string;
+  /** @deprecated ignored — the back control names its own fallback destination. */
   backLabel?: string;
 };
 
@@ -13,7 +14,6 @@ export default function PageHeader({
   title,
   showBack = true,
   backHref,
-  backLabel = "חזרה",
 }: Props) {
   return (
     <div
@@ -57,7 +57,7 @@ export default function PageHeader({
             transform: "translateY(-50%)",
           }}
         >
-          <BackButton href={backHref} label={backLabel} />
+          <BackButton fallback={backHref} />
         </div>
       ) : null}
     </div>

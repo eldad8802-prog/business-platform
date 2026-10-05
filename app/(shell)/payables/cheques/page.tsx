@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import {
   fetchBankAccounts,
   fetchCheques,
@@ -20,7 +20,6 @@ import styles from "../payables.module.css";
  * settled either way (cleared, cancelled, replaced).
  */
 export default function ChequesPage() {
-  const router = useRouter();
   const [accounts, setAccounts] = useState<BankAccountApi[] | null>(null);
   const [configured, setConfigured] = useState(true);
   const [cheques, setCheques] = useState<ChequeApi[] | null>(null);
@@ -57,9 +56,9 @@ export default function ChequesPage() {
 
   return (
     <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
-      <button type="button" className={styles.backLink} onClick={() => router.push("/payables")}>
-        ← כל ההתחייבויות
-      </button>
+      <div className={styles.backRow}>
+        <BackButton />
+      </div>
 
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>

@@ -1,0 +1,40 @@
+name: back navigation
+
+# The app-wide back control (components/ui/back-button.tsx) and its navigation
+# trail (lib/navigation/back-nav). Pure logic only: target safety (no external /
+# auth / technical destinations), origin resolution over the recorded history
+# chain, account boundaries, loop-free fallbacks, and that EVERY page route is
+# classified in the route registry (a new screen without a fallback fails here).
+#
+# The real-browser proof (desktop / tablet / mobile) is
+# scripts/qa/back-nav-runtime-qa.mjs against a built app.
+
+on:
+  pull_request:
+    paths:
+      - "app/**/page.tsx"
+      - "components/ui/back-button.tsx"
+      - "components/navigation/**"
+      - "lib/navigation/**"
+      - "hooks/useEntryState.ts"
+      - "hooks/useFlowStep.ts"
+      - ".github/workflows/back-nav-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  back-nav:
+    name: Back navigation (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/navigation/back-nav/back-nav.test.ts
+      - run: npx tsx components/navigation/nav-destinations.test.tsx

@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, type ComponentProps } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
-import BackButton from "@/components/ui/back-button";
+import { CloseButton } from "@/components/ui/back-button";
 
 /**
  * Shared inventory barcode scanner.
@@ -196,7 +196,8 @@ function BarcodeScannerBody({
             gap: 12,
           }}
         >
-          <BackButton onClick={onClose} />
+          {/* Dismisses the scanner overlay — a close, not a back. */}
+          <CloseButton onClick={onClose} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--inv-text)" }}>{title}</div>
             {hint ? (

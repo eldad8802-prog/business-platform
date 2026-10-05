@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
@@ -74,10 +75,10 @@ function InventoryItemsListPageContent() {
   const { counts: inboxCounts } = useInventoryInboxCounts();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [query, setQuery] = useState(() => searchParams.get("q") || "");
+  const [query, setQuery] = useEntryState("query", () => searchParams.get("q") || "");
   const statusParam = searchParams.get("status") || "";
   const missingDataMode = statusParam === "missing-data";
-  const [toneFilter, setToneFilter] = useState<ToneFilter>(
+  const [toneFilter, setToneFilter] = useEntryState<ToneFilter>("tone",
     statusParam === "low" ? "low" : "all"
   );
   const [loading, setLoading] = useState(true);

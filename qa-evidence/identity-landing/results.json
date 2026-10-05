@@ -175,13 +175,18 @@
     "detail": "http://localhost:3030/app#group-money"
   },
   {
-    "name": "billing back goes to Home, not /tools",
+    "name": "billing (root) shows no back control without an origin",
     "ok": true,
-    "detail": "http://localhost:3030/app"
+    "detail": ""
   },
   {
-    "name": "business back goes to Settings, not /tools",
+    "name": "business back falls back to Settings, not /tools",
     "ok": true,
     "detail": "http://localhost:3030/settings"
+  },
+  {
+    "name": "/tools/money renders with no link to the retired /tools root",
+    "ok": true,
+    "detail": ""
   }
 ]

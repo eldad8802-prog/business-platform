@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import {
   getInventoryCategories,
   getInventoryItems,
@@ -618,6 +619,10 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       const draftId = extractCreatedDraftId(payload);
       if (draftId !== null) {
         clearLocalDraft();
+        // COMPLETED (order created): send replaces confirm, and the wizard's
+        // earlier steps (products, cart) are consumed — back leaves the
+        // finished wizard to where it was opened from, not into an emptied cart.
+        consumeFlowEntries((u) => new URL(u, window.location.origin).pathname.startsWith("/inventory/supplier-purchases/new"));
         router.replace(`/inventory/supplier-purchases/${draftId}/send`);
         return;
       }

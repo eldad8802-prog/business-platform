@@ -105,20 +105,27 @@ for (const tenant of ["partial", "empty"]) {
   await p.goto(`${BASE}/tools#group-money`);
   await p.waitForURL(/\/app/, { timeout: 30000 });
   check("an old /tools#group-* link lands on Home", new URL(p.url()).pathname === "/app", p.url());
+  // Back navigation is flow-aware (#656). /billing is a main-nav root: with no verified origin it
+  // shows no back control at all — never one that points at /tools.
   await p.goto(`${BASE}/billing`);
   await p.waitForTimeout(1500);
-  const billingBack = p.locator('button[aria-label="חזרה"]').first();
-  if (await billingBack.count()) {
-    await Promise.all([p.waitForURL(/\/app$/, { timeout: 20000 }), billingBack.click()]);
-    check("billing back goes to Home, not /tools", p.url().endsWith("/app"), p.url());
-  }
+  check("billing (root) shows no back control without an origin", (await p.locator("header button[aria-label]").filter({ hasText: /לכלים/ }).count()) === 0 && !(await p.content()).includes("לכלים"));
+  // /business with no origin falls back to its registry parent, Settings.
   await p.goto(`${BASE}/business`);
   await p.waitForTimeout(1500);
-  const businessBack = p.locator('a[href="/settings"], button[aria-label="חזרה"]').first();
+  const businessBack = p.getByRole("button", { name: /להגדרות/ }).first();
   if (await businessBack.count()) {
     await Promise.all([p.waitForURL(/\/settings$/, { timeout: 20000 }), businessBack.click()]);
-    check("business back goes to Settings, not /tools", p.url().endsWith("/settings"), p.url());
+    check("business back falls back to Settings, not /tools", p.url().endsWith("/settings"), p.url());
+  } else {
+    check("business back falls back to Settings, not /tools", false, "no back control found");
   }
+  // From Home → a family screen, back returns to the real origin (Home).
+  await p.goto(`${BASE}/app`);
+  await p.waitForTimeout(1500);
+  await p.goto(`${BASE}/tools/money`);
+  await p.waitForTimeout(1500);
+  check("/tools/money renders with no link to the retired /tools root", (await p.locator('a[href="/tools"]').count()) === 0);
   await p.context().close();
 }
 

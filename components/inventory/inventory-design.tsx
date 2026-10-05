@@ -871,9 +871,12 @@ export function InventorySubheader({
   onBack,
   backText,
   action,
+  hub = false,
 }: {
   title: string;
   showBack?: boolean;
+  /** Hub look (big title) WITH a back control — sub-screens styled as hubs. */
+  hub?: boolean;
   backHref?: string;
   /** @deprecated chevron has no text label; kept so callers don't break. */
   backLabel?: string;
@@ -885,6 +888,9 @@ export function InventorySubheader({
 }) {
   if (!showBack) {
     return <InventoryHeader title={title} variant="hub" action={action} />;
+  }
+  if (hub) {
+    return <InventoryHeader title={title} variant="hub" back={{ href: backHref, onBack }} action={action} />;
   }
   return (
     <InventoryHeader

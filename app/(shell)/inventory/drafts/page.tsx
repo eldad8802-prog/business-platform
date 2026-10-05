@@ -232,6 +232,7 @@ export default function InventoryDraftsPage() {
     <InventorySubPage intent="data"
       title="טיוטות מוצר"
       variant="hub"
+      hubBack
       sub={!loading && !error ? "זוהו אוטומטית — ממתינות לאישור לפני כניסה למלאי" : undefined}
       bottomNav="home"
     >

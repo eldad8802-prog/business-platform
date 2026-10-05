@@ -8,6 +8,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "verify:back-nav": "npx tsx lib/navigation/back-nav/back-nav.test.ts",
     "verify:collection": "npm run verify:collection-terms && npm run verify:collection-awaiting && npm run verify:collection-message && npm run verify:collection-display && npm run verify:collection-serializer",
     "verify:allocation-authority": "npx tsx lib/services/billing/domain/billing-allocation-authority.test.ts",
     "verify:receipt-issuance-integrity": "npx tsx lib/services/billing/receipt/billing-receipt-issuance-integrity.test.ts",

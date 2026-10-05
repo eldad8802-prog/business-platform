@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import type {
   PlatformAdminAttentionResponse,
   PlatformAdminBusinessesResponse,
@@ -53,7 +54,7 @@ const initialLoadState: LoadState = {
 
 export function AdminControlSurface({ session }: AdminControlSurfaceProps) {
   const [loadState, setLoadState] = useState<LoadState>(initialLoadState);
-  const [businessPage, setBusinessPage] = useState(1);
+  const [businessPage, setBusinessPage] = useEntryState("businessPage", 1);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [businessesLoading, setBusinessesLoading] = useState(false);

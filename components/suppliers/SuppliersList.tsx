@@ -1,6 +1,8 @@
 "use client";
 
+import BackButton from "@/components/ui/back-button";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
 import {
   getSuppliers,
@@ -59,8 +61,8 @@ const FILTERS: Array<{ key: SupplierStatusFilter; label: string }> = [
 export function SuppliersList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
   const [suppliers, setSuppliers] = useState<SupplierListRow[]>([]);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<SupplierStatusFilter>("active");
+  const [query, setQuery] = useEntryState("query", "");
+  const [status, setStatus] = useEntryState<SupplierStatusFilter>("status", "active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -113,6 +115,12 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
 
   return (
     <div className="crm-page">
+      {/* Phone / tablet: back to the screen the list was opened from (Tools,
+          the order center…), shown only when that origin is verified. Hidden
+          in the ≥1280 two-pane workspace by .crm-scope .crm-hd__back. */}
+      <div className="crm-hd__back">
+        <BackButton hideWithoutOrigin />
+      </div>
       <div className="crm-hd">
         <div>
           <h1 className="crm-hd__title">ספקים</h1>

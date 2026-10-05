@@ -86,7 +86,18 @@ type LoadState =
 
 
 
-type PendingNavigation = { href: string } | null;
+// Either a link target, or the back control's own continuation (history back
+// to the real origin / validated fallback) — both pass through the same
+// unsaved-changes dialog.
+type PendingNavigation = { href: string } | { proceed: () => void } | null;
+
+function continuePendingNavigation(
+  pending: Exclude<PendingNavigation, null>,
+  push: (href: string) => void,
+): void {
+  if ("proceed" in pending) pending.proceed();
+  else push(pending.href);
+}
 
 
 
@@ -862,15 +873,6 @@ export default function BillingDocumentWorkspacePage() {
     }
   }
 
-  function requestNavigation(href: string) {
-    if (hasUnsavedDraftChanges) {
-      setLeavingError(null);
-      setPendingNavigation({ href });
-      return;
-    }
-    router.push(href);
-  }
-
   async function handleSaveAndContinueNavigation() {
     if (!pendingNavigation || leavingSaveBusy) return;
     setLeavingSaveBusy(true);
@@ -886,9 +888,9 @@ export default function BillingDocumentWorkspacePage() {
         setLeavingError("לא הצלחנו לשמור את הפריטים. אפשר להמשיך לערוך ולנסות שוב.");
         return;
       }
-      const href = pendingNavigation.href;
+      const pending = pendingNavigation;
       setPendingNavigation(null);
-      router.push(href);
+      continuePendingNavigation(pending, router.push);
     } finally {
       setLeavingSaveBusy(false);
     }
@@ -926,7 +928,16 @@ export default function BillingDocumentWorkspacePage() {
             marginBottom: 16,
           }}
         >
-          <BackButton onClick={() => requestNavigation("/billing")} />
+          <BackButton
+            onBeforeLeave={(proceed) => {
+              if (hasUnsavedDraftChanges) {
+                setLeavingError(null);
+                setPendingNavigation({ proceed });
+                return;
+              }
+              proceed();
+            }}
+          />
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1
               style={{
@@ -1050,9 +1061,9 @@ export default function BillingDocumentWorkspacePage() {
           errorMessage={leavingError}
           onSaveAndContinue={() => void handleSaveAndContinueNavigation()}
           onLeaveWithoutSaving={() => {
-            const href = pendingNavigation.href;
+            const pending = pendingNavigation;
             setPendingNavigation(null);
-            router.push(href);
+            continuePendingNavigation(pending, router.push);
           }}
           onKeepEditing={() => {
             if (leavingSaveBusy) return;

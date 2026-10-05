@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEntryState } from "@/hooks/useEntryState";
+import { useConsumeQueryFlag } from "@/hooks/useConsumeQueryFlag";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   getLeads,
@@ -59,8 +61,8 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const initialFilter: FilterKey =
     searchParams?.get("view") === "needsAction" ? "needsAction" : "open";
   const [leads, setLeads] = useState<LeadListRow[]>([]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterKey>(initialFilter);
+  const [query, setQuery] = useEntryState("query", "");
+  const [filter, setFilter] = useEntryState<FilterKey>("filter", initialFilter);
   // How much the server is willing to claim about the order it returned. When
   // it is only "best-effort" the list must stop implying "this is THE most
   // urgent lead" — see the note rendered above the rows.
@@ -68,6 +70,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
+  useConsumeQueryFlag("new");
   const searchedOnce = useRef(false);
 
   // Returns the result; never sets state — so the effect updates state only

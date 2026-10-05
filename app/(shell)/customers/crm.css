@@ -63,17 +63,14 @@
   color: var(--crm-muted);
   margin-top: 4px;
 }
+/* Holds the canonical round BackButton (components/ui/back-button). */
 .crm-hd__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--crm-muted);
-  text-decoration: none;
+  display: flex;
   margin-bottom: 12px;
 }
-.crm-hd__back:hover {
-  color: var(--crm-ink);
+/* No verified origin (hideWithoutOrigin rendered nothing): no empty gap. */
+.crm-hd__back:empty {
+  display: none;
 }
 
 /* Buttons */

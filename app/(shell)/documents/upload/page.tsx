@@ -124,7 +124,7 @@ export default function DocumentsUploadPage() {
       <PageContainer intent="focused" className="dz-upload" style={{ paddingBlock: "14px 40px" }}>
         <div className="dz-upload-desk">
         <header className="dz-upload-span" style={headStyle}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
           <h1 style={titleStyle}>העלאת קובץ</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>

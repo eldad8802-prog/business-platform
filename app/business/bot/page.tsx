@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/bot-theme";
 import BackButton from "@/components/ui/back-button";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
@@ -57,6 +58,7 @@ export default function BusinessBotHubPage() {
   const profile = useBotProfileState();
   const knowledge = useKnowledgeState();
   const learning = useLearningState();
+  const router = useRouter();
   const [payload, setPayload] = useState<HubPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +118,9 @@ export default function BusinessBotHubPage() {
       const result = await act.json().catch(() => null);
       if (!act.ok) { setActivateError((result && result.error) || "ההפעלה נכשלה."); return; }
       try { window.sessionStorage.setItem("botSetupActivationResult", JSON.stringify(result)); } catch { /* ignore */ }
-      window.location.href = "/business/bot/setup/success";
+      // Client navigation keeps the history trail (the success page is
+      // transient: back from the bot skips it).
+      router.push("/business/bot/setup/success");
     } catch {
       setActivateError("שגיאת רשת. נסה שוב.");
     } finally {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import {
   getCustomerCard,
@@ -203,9 +204,9 @@ export function CustomerCard() {
 
   return (
     <div className="crm-page crm-reading">
-      <Link className="crm-hd__back" href="/customers">
-        › חזרה ללקוחות
-      </Link>
+      <div className="crm-hd__back">
+        <BackButton />
+      </div>
 
       {state.status === "loading" ? (
         <div>
@@ -218,7 +219,7 @@ export function CustomerCard() {
           <p className="crm-panel__title">הלקוח לא נמצא</p>
           <p className="crm-panel__body">ייתכן שהלקוח נמחק או שאין לך גישה אליו.</p>
           <Link className="crm-btn crm-btn--ghost" href="/customers">
-            חזרה ללקוחות
+            לרשימת הלקוחות
           </Link>
         </div>
       ) : state.status === "error" ? (

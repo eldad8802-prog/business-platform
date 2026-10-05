@@ -119,7 +119,7 @@ export default function AccountantPackPage() {
       <PageContainer intent="standard" className="dz-pack" style={{ paddingBlock: "14px 40px" }}>
         <div className="dz-pack-desk">
         <header className="dz-pack-span" style={headStyle}>
-          <DocumentsBackButton onClick={() => router.push("/documents")} />
+          <DocumentsBackButton />
           <h1 style={titleStyle}>חבילת רו״ח</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>

@@ -13,7 +13,6 @@
  * Data: GET /api/business/identity-context (canonical), interpreted by buildLandingKnowledge.
  */
 import { useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import BackButton from "@/components/ui/back-button";
 import { WarmPill, WarmTile, warmStyles } from "@/components/ui/warm-surface/warm-surface";
@@ -30,7 +29,6 @@ const CHAPTER_BODY = { who: ChapterWho, audience: ChapterAudience, why: ChapterW
 const STATE_TONE = { COMPLETE: "mint", IN_PROGRESS: "sand", MISSING: "neutral" } as const;
 
 export function IdentityScreen() {
-  const router = useRouter();
   const { load, busy, error, clearError, actions } = useIdentityContext();
   const knowledge = useMemo(() => (load.state === "ready" ? buildLandingKnowledge(load.ctx) : null), [load]);
   const [open, setOpen] = useState<ChapterKey | null>(null);
@@ -44,12 +42,10 @@ export function IdentityScreen() {
     requestAnimationFrame(() => chapterRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
-  const back = () => (window.history.length > 1 ? router.back() : router.push("/profile"));
-
   return (
     <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
       <div className={s.topBar}>
-        <BackButton onClick={back} />
+        <BackButton />
       </div>
       <header className={s.heading}>
         <h1 className={s.title}>הנוכחות הדיגיטלית של העסק</h1>
