@@ -8,7 +8,7 @@ import {
   looseSectionTypes,
   type ComposerDraft,
 } from "./blueprint-schema";
-import { copyViolations, looseTexts, REPAIRABLE_ONLY, structuralViolations, validateDraft, type ValidatorGuard, type Violation } from "./blueprint-validator";
+import { copyViolations, ctaCopyViolations, looseTexts, REPAIRABLE_ONLY, structuralViolations, validateDraft, type ValidatorGuard, type Violation } from "./blueprint-validator";
 import { buildComposerContext, COMPOSER_CONTEXT_VERSION, type LandingComposerContext } from "./composer-context";
 import { assembleBlueprint, type LandingBlueprint } from "./blueprint-assembly";
 
@@ -113,7 +113,10 @@ function check(raw: string, ctx: LandingComposerContext, guard: ValidatorGuard):
     // Structurally broken: still scan every string for claim / authority violations, so they fail
     // closed instead of being "repaired" together with the structure.
     let loose: Violation[] = [];
-    try { loose = copyViolations(looseTexts(JSON.parse(raw)), guard).filter((x) => x.class !== "STRUCTURAL_REPAIRABLE"); } catch { /* not JSON: structural only */ }
+    try {
+      const texts = looseTexts(JSON.parse(raw));
+      loose = [...copyViolations(texts, guard), ...ctaCopyViolations(texts, ctx.strategy.primaryAction, ctx.strategy.secondaryAction)].filter((x) => x.class !== "STRUCTURAL_REPAIRABLE");
+    } catch { /* not JSON: structural only */ }
     return { draft: null, violations: [...unknown, ...loose, ...structural] };
   }
   return { draft: parsed.draft, violations: validateDraft(parsed.draft, ctx, guard) };

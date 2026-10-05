@@ -51,6 +51,61 @@ const CTA_LEXICON: { pattern: RegExp; allowed: (objective: string, channel: stri
   { pattern: /(הצעת\s+מחיר|\bquote\b)/i, allowed: (o) => o === "REQUEST_QUOTE", code: "CTA_OBJECTIVE_MISMATCH" },
 ];
 
+/* ─── actionable wording ANYWHERE in the copy (not only the label) ───
+ * Each intent is an imperative / call-to-act phrase (never a plain noun such as "הצעת מחיר" or an
+ * informational "למידע נוסף"). Any match must be compatible with the deterministic primary OR secondary
+ * action; on SURFACE_ONLY (no action) every match is rejected. Authority class: never repaired. */
+
+type Action = LandingComposerContext["strategy"]["primaryAction"];
+type ActionIntent = "CONTACT" | "PHONE" | "MESSAGE" | "WHATSAPP" | "EMAIL" | "BOOK" | "QUOTE" | "LEAD" | "VISIT" | "CHECKOUT";
+
+export const ACTION_INTENTS: { intent: ActionIntent; pattern: RegExp }[] = [
+  { intent: "CHECKOUT", pattern: /(לרכישה|קנו\s+(?:עכשיו|אצלנו|כאן|אונליין)|קנה\s+עכשיו|הוסיפו\s+לסל|הוסף\s+לסל|לקופה|הזמינו\s+(?:עכשיו|אונליין)|להזמנה\s+אונליין|\bbuy\s+(?:now|online|here)\b|\badd\s+to\s+cart\b|\bcheck\s?out\b|\border\s+(?:now|online)\b|\bshop\s+now\b)/i },
+  { intent: "BOOK", pattern: /(קבעו\s+(?:תור|פגישה|מועד)|הזמינו\s+(?:תור|פגישה)|שריינו\s+(?:תור|מקום|מועד)|לקביעת\s+(?:תור|פגישה)|\bbook\s+(?:now|online|an?\b|your\b|a\s+slot)|\bschedule\s+(?:an?\b|your\b|now\b)|\bmake\s+an\s+appointment\b)/i },
+  { intent: "QUOTE", pattern: /((?:בקשו|קבלו|לקבלת|קבל|בקש)\s+(?:את\s+)?הצעת\s+מחיר|\brequest\s+a\s+quote\b|\bget\s+(?:a|your)\s+(?:free\s+)?quote\b)/i },
+  { intent: "LEAD", pattern: /(השאירו\s+(?:את\s+)?(?:ה)?פרטים|השאירו\s+פרטים|מלאו\s+(?:את\s+)?(?:ה)?(?:פרטים|טופס)|שלחו\s+(?:לנו\s+)?(?:את\s+)?(?:ה)?פרטים|\bleave\s+your\s+details\b|\bsubmit\s+your\s+details\b|\bfill\s+(?:in|out)\s+the\s+form\b)/i },
+  { intent: "WHATSAPP", pattern: /(וואטסאפ|ווטסאפ|ואטסאפ|\bwhats\s?app\b)/i },
+  { intent: "EMAIL", pattern: /((?:שלחו|כתבו)\s+(?:לנו\s+)?(?:ב)?(?:מייל|אימייל|דוא"ל|דוא״ל)|\bemail\s+us\b|\bsend\s+(?:us\s+)?an\s+email\b)/i },
+  { intent: "MESSAGE", pattern: /(שלחו\s+(?:לנו\s+)?הודעה|כתבו\s+לנו|\bmessage\s+us\b|\bsend\s+(?:us\s+)?a\s+message\b|\btext\s+us\b)/i },
+  { intent: "PHONE", pattern: /(התקשרו|התקשר\b|תתקשרו|חייגו|חייג\b|דברו\s+איתנו\s+בטלפון|\bcall\s+(?:us|now|today)\b|\bgive\s+us\s+a\s+call\b|\bphone\s+us\b)/i },
+  { intent: "VISIT", pattern: /(בואו\s+(?:לבקר|אלינו)|הגיעו\s+אלינו|בקרו\s+(?:אצלנו|אותנו|בחנות|בעסק)|קפצו\s+אלינו|\bvisit\s+us\b|\bcome\s+(?:visit|by|in)\b|\bstop\s+by\b)/i },
+  { intent: "CONTACT", pattern: /(צרו\s+(?:איתנו\s+)?קשר|צור\s+קשר|ליצירת\s+קשר|פנו\s+אלינו|דברו\s+איתנו|\bcontact\s+us\b|\bget\s+in\s+touch\b|\breach\s+out\b)/i },
+];
+
+function intentAllowed(intent: ActionIntent, a: Action): boolean {
+  if (a.kind === "NONE") return false;
+  switch (intent) {
+    case "CHECKOUT": return false; // DUBIZ_CHECKOUT is not supported and no shop-link authority exists
+    case "CONTACT": return true;
+    case "PHONE": return a.channel === "PHONE";
+    case "WHATSAPP": return a.channel === "WHATSAPP_LINK" || a.channel === "WHATSAPP_CLOUD";
+    case "EMAIL": return a.channel === "EMAIL";
+    case "MESSAGE": return a.channel === "WHATSAPP_LINK" || a.channel === "WHATSAPP_CLOUD" || a.channel === "EMAIL" || a.channel === "DUBIZ_FORM";
+    case "BOOK": return a.objective === "BOOK";
+    case "QUOTE": return a.objective === "REQUEST_QUOTE";
+    case "LEAD": return a.channel === "DUBIZ_FORM" || a.objective === "LEAVE_LEAD";
+    case "VISIT": return a.channel === "IN_PERSON";
+  }
+}
+const OBJECTIVE_INTENTS: ActionIntent[] = ["BOOK", "QUOTE", "LEAD"];
+
+/** Actionable wording in ANY AI-written string must fit the strategy's deterministic action(s). */
+export function ctaCopyViolations(texts: { path: string; text: string }[], primary: Action, secondary: Action): Violation[] {
+  const v: Violation[] = [];
+  const surfaceOnly = primary.kind === "NONE" && secondary.kind === "NONE";
+  for (const { path, text } of texts) {
+    for (const { intent, pattern } of ACTION_INTENTS) {
+      if (!pattern.test(text)) continue;
+      if (intent === "CHECKOUT") v.push({ class: "AUTHORITY_VIOLATION", code: "CTA_COPY_UNSUPPORTED_CHECKOUT", path });
+      else if (surfaceOnly) v.push({ class: "AUTHORITY_VIOLATION", code: "CTA_COPY_ON_SURFACE_ONLY", path });
+      else if (!intentAllowed(intent, primary) && !intentAllowed(intent, secondary)) {
+        v.push({ class: "AUTHORITY_VIOLATION", code: OBJECTIVE_INTENTS.includes(intent) ? "CTA_COPY_OBJECTIVE_MISMATCH" : "CTA_COPY_CHANNEL_MISMATCH", path });
+      }
+    }
+  }
+  return v;
+}
+
 /** Every AI-written string in the draft, with its path. */
 function textsOf(draft: ComposerDraft): { path: string; text: string }[] {
   const out: { path: string; text: string }[] = [
@@ -148,6 +203,8 @@ export function validateDraft(draft: ComposerDraft, ctx: LandingComposerContext,
 
   // ── copy: claims only via refs; nothing invented, strengthened or leaked ──
   v.push(...copyViolations(textsOf(draft), guard));
+  // ── actionable wording anywhere in the copy must fit the deterministic action(s); none on SURFACE_ONLY ──
+  v.push(...ctaCopyViolations(textsOf(draft), strat.primaryAction, strat.secondaryAction));
 
   return v;
 }

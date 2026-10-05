@@ -244,6 +244,93 @@ async function main(): Promise<void> {
     ok("LOG violations are codes + paths only (no offending copy)", !JSON.stringify(rM.violations).includes("המובילים"));
   }
 
+  /* ─── C1–C12 · actionable wording anywhere in the copy (not only the label) ─── */
+  {
+    const surfLanding = ctxFor({ facts: [NAME, { fact: "PUBLIC_PHONE", value: "03-1" }], services: svcs(4) });
+    const surf = buildLandingStrategySet(surfLanding).strategies[0];
+    const callLanding = ctxFor({ facts: [NAME, PHONE], services: svcs(3), statements: [{ dimension: "PRIMARY_OBJECTIVE", code: "CALL" }] });
+    const call = buildLandingStrategySet(callLanding).strategies[0];
+    const waLanding = ctxFor({ facts: [NAME, PHONE], services: svcs(3), statements: [{ dimension: "CONVERSION_DECLARATION", code: "WHATSAPP_ON_PUBLIC_PHONE" }, { dimension: "PRIMARY_OBJECTIVE", code: "WHATSAPP" }] });
+    const wa = buildLandingStrategySet(waLanding).strategies[0];
+    const quoteLanding = ctxFor(RICH);
+    const quote = buildLandingStrategySet(quoteLanding).strategies[0];
+    const bookLanding = ctxFor({ facts: [NAME, PHONE], services: svcs(5), demand: [{ kind: "SERVICE", id: 2, type: "BOOKING", n: 14, status: "COMPLETED" }],
+      statements: [{ dimension: "CONVERSION_DECLARATION", code: "BOOKING_BY_MESSAGE" }, { dimension: "TARGET_AUDIENCE", code: "APPOINTMENT_CUSTOMERS" }] });
+    const book = buildLandingStrategySet(bookLanding).strategies[0];
+    ok("C setup: SURFACE_ONLY / PHONE / WHATSAPP / REQUEST_QUOTE / BOOK strategies",
+      surf.primaryConversion.kind === "SURFACE_ONLY" && (call.primaryConversion as { channel: string }).channel === "PHONE" &&
+      wa.strategyType === "WHATSAPP_FIRST" && (wa.primaryConversion as { channel: string }).channel === "WHATSAPP_LINK" &&
+      quote.strategyType === "REQUEST_QUOTE_FIRST" && book.strategyType === "BOOKING_FIRST",
+      [surf.strategyType, call.strategyType, wa.strategyType, quote.strategyType, book.strategyType]);
+    const offeringIntro = (d: ComposerDraft, text: string) => { (d.sections.find((s) => "intro" in s) as { intro: string }).intro = text; };
+    const failClosed = (r: CompositionResult, code: string, pathPart: string, m: { calls: number }) =>
+      r.compositionStatus === "REJECTED" && r.blueprint === null && !r.repairUsed && m.calls === 1 && r.violations.some((v) => v.code === code && v.class === "AUTHORITY_VIOLATION" && v.path.includes(pathPart));
+
+    const c: [string, LandingBusinessContext, LandingStrategy, (d: ComposerDraft) => void, string, string][] = [
+      ["C1 SURFACE_ONLY + hero 'צרו קשר'", surfLanding, surf, (d) => { d.hero.headline = "צרו קשר ונשמח לעזור"; }, "CTA_COPY_ON_SURFACE_ONLY", "hero.headline"],
+      ["C2 SURFACE_ONLY + body 'שלחו הודעה'", surfLanding, surf, (d) => offeringIntro(d, "שלחו לנו הודעה ונחזור אליכם"), "CTA_COPY_ON_SURFACE_ONLY", "intro"],
+      ["C3 SURFACE_ONLY + step 'קבעו תור'", surfLanding, surf, (d) => { d.sections.push({ sectionType: "BOOKING_INFO", heading: "איך זה עובד", steps: ["בוחרים שירות", "קבעו תור עוד היום"] }); }, "CTA_COPY_ON_SURFACE_ONLY", "steps[1]"],
+      ["C4 SURFACE_ONLY + meta 'בקשו הצעת מחיר'", surfLanding, surf, (d) => { d.metaDescription = "בקשו הצעת מחיר לשיפוץ"; }, "CTA_COPY_ON_SURFACE_ONLY", "metaDescription"],
+      ["C5 SURFACE_ONLY + English 'contact us'", surfLanding, surf, (d) => { d.pageIntent = "Contact us for more"; }, "CTA_COPY_ON_SURFACE_ONLY", "pageIntent"],
+      ["C5b SURFACE_ONLY + offering blurb 'התקשרו'", surfLanding, surf, (d) => { (d.sections.find((s) => "items" in s) as { items: { blurb: string }[] }).items[0].blurb = "התקשרו לפרטים"; }, "CTA_COPY_ON_SURFACE_ONLY", "blurb"],
+      ["C5c SURFACE_ONLY + subheadline 'בואו לבקר'", surfLanding, surf, (d) => { d.hero.subheadline = "בואו לבקר אותנו"; }, "CTA_COPY_ON_SURFACE_ONLY", "subheadline"],
+      ["C6 PHONE strategy + hero 'שלחו הודעה בוואטסאפ'", callLanding, call, (d) => { d.hero.headline = "שלחו לנו הודעה בוואטסאפ"; }, "CTA_COPY_CHANNEL_MISMATCH", "hero.headline"],
+      ["C7 WHATSAPP strategy + body 'התקשרו עכשיו'", waLanding, wa, (d) => offeringIntro(d, "התקשרו עכשיו לפרטים"), "CTA_COPY_CHANNEL_MISMATCH", "intro"],
+      ["C8 REQUEST_QUOTE strategy + booking CTA in copy", quoteLanding, quote, (d) => { d.hero.subheadline = "קבעו תור עוד היום"; }, "CTA_COPY_OBJECTIVE_MISMATCH", "subheadline"],
+      ["C9 BOOK strategy + purchase / checkout wording", bookLanding, book, (d) => offeringIntro(d, "לרכישה עכשיו באתר"), "CTA_COPY_UNSUPPORTED_CHECKOUT", "intro"],
+      ["C9b BOOK strategy + English 'buy now'", bookLanding, book, (d) => { d.metaTitle = "Buy now"; }, "CTA_COPY_UNSUPPORTED_CHECKOUT", "metaTitle"],
+      ["C9c REQUEST_QUOTE via form + 'התקשרו עכשיו' (formal label is valid)", quoteLanding, quote, (d) => { d.hero.subheadline = "התקשרו עכשיו"; }, "CTA_COPY_CHANNEL_MISMATCH", "subheadline"],
+    ];
+    for (const [name, l, s, fn, code, pathPart] of c) {
+      const m = mutate(fn);
+      const r = await compose(l, s, m);
+      ok(`${name} → REJECTED ${code} (authority, fail closed, no repair)`, failClosed(r, code, pathPart, m), { status: r.compositionStatus, repair: r.repairUsed, calls: m.calls, v: r.violations });
+    }
+
+    // C10–C12: compatible or purely informational copy still passes.
+    const r10 = await compose(callLanding, call, mutate((d) => { d.hero.headline = "מוסך שכונתי בחיפה"; d.hero.subheadline = "התקשרו עכשיו ונשמח לעזור"; }));
+    ok("C10 PHONE strategy: neutral hero + phone wording in copy + valid phone label → COMPOSED", r10.compositionStatus === "COMPOSED" && r10.blueprint?.primaryAction?.channel === "PHONE", r10.violations);
+    const r11 = await compose(surfLanding, surf, mutate((d) => { d.hero.headline = "הכירו את השירותים שלנו"; offeringIntro(d, "מבחר השירותים של העסק"); }));
+    ok("C11 SURFACE_ONLY informational copy without action language → COMPOSED (no action)", r11.compositionStatus === "COMPOSED" && r11.blueprint?.primaryAction === null, r11.violations);
+    const r12 = await compose(surfLanding, surf, mutate((d) => { d.hero.subheadline = "למידע נוסף על השירותים — גללו למטה"; d.pageIntent = "Learn more about our services"; d.metaDescription = "לשירותים שלנו ולפרטים על העסק"; }));
+    ok("C12 'למידע נוסף' / 'לשירותים שלנו' / 'learn more' navigation → COMPOSED", r12.compositionStatus === "COMPOSED", r12.violations);
+    const rWaOk = await compose(waLanding, wa, mutate((d) => { d.hero.subheadline = "שלחו לנו הודעה בוואטסאפ ונחזור אליכם"; }));
+    ok("C10b WHATSAPP strategy: WhatsApp wording in copy matches the channel → COMPOSED", rWaOk.compositionStatus === "COMPOSED", rWaOk.violations);
+    const rQuoteOk = await compose(quoteLanding, quote, mutate((d) => { d.hero.subheadline = "השאירו פרטים וקבלו הצעת מחיר מסודרת"; }));
+    ok("C10c REQUEST_QUOTE via form: 'השאירו פרטים' / 'קבלו הצעת מחיר' match → COMPOSED", rQuoteOk.compositionStatus === "COMPOSED", rQuoteOk.violations);
+
+    // Every phrase from the required list is caught on SURFACE_ONLY, in any copy field.
+    const phrases = [
+      "צרו קשר", "פנו אלינו", "דברו איתנו", "contact us", "get in touch",
+      "התקשרו", "חייגו", "דברו איתנו בטלפון", "call us", "phone us",
+      "שלחו הודעה", "כתבו לנו", "דברו איתנו בוואטסאפ", "message us", "send a message", "WhatsApp us",
+      "קבעו תור", "הזמינו תור", "שריינו תור", "book now", "schedule an appointment",
+      "בקשו הצעת מחיר", "קבלו הצעת מחיר", "לקבלת הצעת מחיר", "request a quote", "get a quote",
+      "השאירו פרטים", "מלאו פרטים", "שלחו פרטים", "leave your details", "submit your details",
+      "בואו לבקר", "הגיעו אלינו", "בקרו אצלנו", "visit us", "come visit",
+    ];
+    const missed: string[] = [];
+    for (const phrase of phrases) {
+      const m = mutate((d) => { d.hero.subheadline = `${phrase} היום`; });
+      const r = await compose(surfLanding, surf, m);
+      if (!(r.compositionStatus === "REJECTED" && r.violations.some((v) => v.code === "CTA_COPY_ON_SURFACE_ONLY") && !r.repairUsed)) missed.push(phrase);
+    }
+    ok(`C sweep: all ${phrases.length} required Hebrew + English action phrases are rejected on SURFACE_ONLY`, missed.length === 0, missed);
+    const informational = ["הכירו את השירותים שלנו", "למידע נוסף", "לשירותים שלנו", "פרטים נוספים בהמשך", "מה אפשר לקבל אצלנו", "Learn more", "Our services", "המחירים לפי הצעת מחיר"];
+    const flagged: string[] = [];
+    for (const text of informational) {
+      const r = await compose(surfLanding, surf, mutate((d) => { d.hero.subheadline = text; }));
+      if (r.compositionStatus !== "COMPOSED") flagged.push(text);
+    }
+    ok("C sweep: informational copy (incl. the noun 'הצעת מחיר') is not mistaken for an action", flagged.length === 0, flagged);
+
+    // A structurally broken draft that also carries a CTA on SURFACE_ONLY is rejected without a repair.
+    const broken = fakeModel((ctx) => ({ ...goodDraft(ctx), metaTitle: "", hero: { ...goodDraft(ctx).hero, headline: "התקשרו עכשיו" } }));
+    const rB = await compose(surfLanding, surf, broken);
+    ok("C fail-closed: CTA-on-SURFACE_ONLY inside a structurally broken draft is never 'repaired'",
+      rB.compositionStatus === "REJECTED" && !rB.repairUsed && broken.calls === 1 && rB.violations.some((v) => v.code === "CTA_COPY_ON_SURFACE_ONLY"), rB.violations);
+  }
+
   /* ─── T17 (pure part) + static boundaries ─── */
   {
     ok("T17 only server-issued strategy ids are accepted (shape)",
