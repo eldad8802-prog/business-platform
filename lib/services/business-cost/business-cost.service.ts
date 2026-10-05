@@ -169,7 +169,7 @@ export async function loadBusinessCostInputs(input: {
 
     const orientation = await tx.businessObligationOrientation.findFirst({
       where: { businessId },
-      select: { oriented: true },
+      select: { oriented: true, orientedAt: true },
     });
 
     return { commitments, obligations, payments, orientation };
@@ -253,6 +253,8 @@ export async function loadBusinessCostInputs(input: {
     commitments: [...fromLedger, ...fromSecretary],
     payments,
     ownerAffirmedBackboneCaptured: facts.orientation ? facts.orientation.oriented : null,
+    ownerAffirmedBackboneOn:
+      facts.orientation?.oriented && facts.orientation.orientedAt ? civilDateInZone(facts.orientation.orientedAt, timeZone) : null,
   };
 }
 
