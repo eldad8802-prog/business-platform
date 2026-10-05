@@ -401,9 +401,10 @@ section("PATTERN insights · deterministic, comparison only, no meaning");
   const by = (k: string) => drafts.find((d) => d.insightKey === k)!;
   ok("three PATTERN insights", drafts.length === 3, drafts.map((d) => d.insightKey));
   ok("baseline: what changed, compared with what, which record", by("cost.baseline_shift")?.factLines.map((f) => f.text).join(" | ") ===
-    "מ־3,000 ₪ לחודש (3/7/2026) ל־3,300 ₪ לחודש (1/10/2026) | עלות יום פעילות ממוצע: מ־98.56 ₪ ל־108.42 ₪ | שכירות: מ־3,000 ₪ ל־3,300 ₪ לחודש | הרמה החדשה נשמרת לפחות 30 יום", by("cost.baseline_shift")?.factLines.map((f) => f.text));
+    "מ־3,000 ₪ לחודש (3/7/2026) ל־3,300 ₪ לחודש (1/10/2026) | שכירות: מ־3,000 ₪ ל־3,300 ₪ לחודש | הרמה החדשה נשמרת לפחות 30 יום", by("cost.baseline_shift")?.factLines.map((f) => f.text));
   ok("upcoming: the owner's own allowed sentence shape", by("cost.upcoming_concentration")?.factLines[0].text === "28,300 ₪ רשומים לתשלום עד 30/10/2026" && by("cost.upcoming_concentration").factLines.some((f) => f.text === "הגבוה ביותר ב־12 תקופות קודמות של 30 יום שנבדקו: 3,300 ₪"), by("cost.upcoming_concentration")?.factLines.map((f) => f.text));
   ok("cash out: amounts and the largest payment, no judgement", by("cost.cash_out_above_range")?.factLines.some((f) => f.text === "התשלום הגדול ביותר בתקופה: 20,000 ₪"));
+  ok("no insight speaks of an 'operating day' — the owner's day cost is per calendar day of the month", !composeCostInsights(input).some((d) => [d.title, ...d.factLines.map((f) => f.text)].join(" ").includes("יום פעילות")));
   ok("PATTERN level on the rule, FACT on the COST-08 gate, never MEANING",
     drafts.every((d) => d.contributingRules[0].level === "PATTERN" && d.contributingRules.slice(1).every((r) => r.level === "FACT") && d.contributingRules.every((r) => r.level !== "MEANING")));
   ok("no interpretation, no recommendation", drafts.every((d) => d.interpretation === null && d.suggestedActions.length === 0));

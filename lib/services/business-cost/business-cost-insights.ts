@@ -60,8 +60,6 @@ export function composeCostInsights(summary: BusinessCostSummary): CostInsight[]
     const facts: CostInsightFact[] = [
       { label: "עלות קבועה חודשית — לפני", value: fromMinorUnits(b.monthlyFromMinor), sourceRef: `signal:baselineChange.monthlyFrom@${b.from}` },
       { label: "עלות קבועה חודשית — עכשיו", value: fromMinorUnits(b.monthlyToMinor), sourceRef: `signal:baselineChange.monthlyTo@${b.to}` },
-      { label: "עלות יומית ממוצעת — לפני", value: fromMinorUnits(b.dailyFromMinor), sourceRef: `signal:baselineChange.dailyFrom@${b.from}` },
-      { label: "עלות יומית ממוצעת — עכשיו", value: fromMinorUnits(b.dailyToMinor), sourceRef: `signal:baselineChange.dailyTo@${b.to}` },
       ...b.drivers.map((d) => ({
         label: `${d.title} (${d.change === "ADDED" ? "נוסף" : d.change === "ENDED" ? "הסתיים" : "השתנה"})`,
         value: `${fromMinorUnits(d.monthlyFromMinor)} → ${fromMinorUnits(d.monthlyToMinor)}`,
@@ -85,9 +83,9 @@ export function composeCostInsights(summary: BusinessCostSummary): CostInsight[]
       kind: "BASELINE_RECURRING_COST_CHANGED",
       title: up ? `העלות הקבועה עלתה ב־${ils(delta)} לחודש` : `העלות הקבועה ירדה ב־${ils(delta)} לחודש`,
       body:
+        // Monthly only: the owner's day cost depends on the month's own length, so a mean-day figure here would be a second, different "daily".
         `העלות הקבועה הידועה של העסק ${up ? "עלתה" : "ירדה"} מ־${ils(b.monthlyFromMinor)} ל־${ils(b.monthlyToMinor)} לחודש. ` +
-        mainLine +
-        `כך עלות יום פעילות ממוצע ${up ? "עולה" : "יורדת"} מ־${ils(b.dailyFromMinor)} ל־${ils(b.dailyToMinor)}.`,
+        mainLine.trimEnd(),
       facts,
       comparedPeriod: { from: b.from, to: b.to },
       completeness,

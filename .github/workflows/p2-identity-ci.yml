@@ -1,7 +1,9 @@
 name: p2 business identity
 
 # P2 business identity + positioning foundation — application proofs for
-# migration 20261002090000_p2_business_identity.
+# migration 20261004090000_p2_business_identity — and the P3-A application slice
+# (trust claims, conversion, the canonical BusinessIdentityContext) on top of
+# 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims.
 #
 #   core     identity vocabulary, derived signals, the six-vertical three-strategy
 #            data-readiness matrix, and the M7 snapshot (identity items carry
@@ -23,13 +25,24 @@ on:
     paths:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261004090000_p2_business_identity/**"
+      - "prisma/migrations/20261008090000_p3a_identity_enum_values/**"
+      - "prisma/migrations/20261008090100_p3a_trust_claims/**"
       - "lib/services/identity/**"
+      - "lib/services/trust/**"
+      - "lib/services/conversion/**"
+      - "lib/services/business-content-profile.service.ts"
+      - "lib/services/content-recommendation.service.ts"
+      - "lib/storage/**"
       - "lib/knowledge/snapshot/**"
       - "lib/features/content/choice-provenance.ts"
       - "lib/services/content-plan-persistence-v1.service.ts"
       - "app/(shell)/content/**"
       - "app/api/video/plan/**"
       - "app/api/business/identity/**"
+      - "app/api/business/identity-context/**"
+      - "app/api/business/trust-claims/**"
+      - "components/business/identity/**"
+      - "app/business/identity/**"
       - ".github/workflows/p2-identity-ci.yml"
   workflow_dispatch:
 
@@ -54,6 +67,8 @@ jobs:
         run: npx tsx lib/services/identity/identity-strategy.verify.test.ts
       - name: M7 snapshot incl. owner identity items
         run: npx tsx lib/knowledge/snapshot/snapshot.test.ts
+      - name: P3-A context, trust authority, conversion, AI projection, safety gates
+        run: npx tsx lib/services/trust/p3a-context.verify.test.ts
 
   db:
     name: p2 identity (PG17, real RLS)
@@ -87,9 +102,9 @@ jobs:
         run: npx prisma db push --skip-generate
       - name: Generate the client
         run: npx prisma generate
-      - name: Replay the P2 migration; tenant isolation as app_runtime
+      - name: Replay the P2 + P3-A migrations; tenant isolation as app_runtime
         run: npx tsx lib/services/identity/identity.rls.db.test.ts
-      - name: No drift between the P2 migration and schema.prisma
+      - name: No drift between the P2 + P3-A migrations and schema.prisma
         run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Constraints, history, public-use authority, adoption, concurrency
         run: npx tsx lib/services/identity/identity.db.test.ts
