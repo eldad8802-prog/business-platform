@@ -101,7 +101,8 @@ export function CashflowCard({
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>הכנסות והוצאות</h2>
             <div style={{ fontSize: 13, color: "#CFE3E2" }}>
-              {value?.expenseByBar || period === "day" ? "לחיצה על עמודה מציגה את פירוט השעה" : null}
+              {/* Hours only in the day view; a week's columns are days. */}
+              {period === "week" ? "לחיצה על עמודה מציגה את פירוט היום" : "לחיצה על עמודה מציגה את פירוט השעה"}
             </div>
           </div>
         ) : variant === "tablet" ? (
