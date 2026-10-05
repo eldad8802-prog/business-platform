@@ -184,16 +184,19 @@ export const ACQUISITION_EVENT_TYPE = "lead.submitted";
 /**
  * The receipt for one canonical lead. `accountScope` is the trusted connection's provider-side
  * reference (Page id / endpoint id) so provider ids are unique per connection. A lead with no
- * provider id is keyed by a NAMED fingerprint (form + time + contact), so a re-delivery of the same
- * submission still collapses.
+ * provider id is keyed by a NAMED fingerprint (form + UTC day + contact + answers), so a re-delivery
+ * of the same submission still collapses.
  */
 export function acquisitionReceipt(lead: AcquisitionLeadV1, accountScope: string): IntakeReceiptDraft {
+  // Without a provider id (a plain website form), the receipt key is the CONTENT of the submission and
+  // its UTC day — never the server's arrival time. A double-click, a browser resubmit or a network
+  // retry of the same enquiry is then one receipt; the same person asking again tomorrow is a new one.
   const identity = lead.providerLeadId
     ? deriveEventIdentity({ providerEventId: lead.providerLeadId, accountScope })
     : deriveEventIdentity({
         fingerprint: [
           lead.context.formId ?? null,
-          lead.submittedAt,
+          lead.submittedAt ? lead.submittedAt.slice(0, 10) : null,
           lead.contact.email?.toLowerCase() ?? null,
           lead.contact.phone?.replace(/\D/g, "") ?? null,
           lead.answers.map((a) => `${a.key}=${a.value}`).join("|") || null,

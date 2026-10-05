@@ -8,6 +8,8 @@
  * Answers: 202 {ok:true} once durably recorded (or a duplicate / honeypot, silently);
  * 400 malformed / no contact; 401 bad key; 403 origin not allowed; 404 unknown / disabled endpoint;
  * 413 too large; 429 rate-limited; 503 store unavailable (retry).
+ * A plain HTML form post from an allowed site (browser mode, Accept: text/html) gets the same outcome
+ * as a short Hebrew page (200 on success) with a link back to the site, instead of JSON.
  */
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -24,6 +26,66 @@ function cors(origin: string | null, allowed: boolean): Record<string, string> {
   return allowed && origin
     ? { "access-control-allow-origin": origin, vary: "origin", "access-control-allow-methods": "POST, OPTIONS", "access-control-allow-headers": "content-type" }
     : { vary: "origin" };
+}
+
+/**
+ * A plain HTML form (no script) navigates the visitor's browser to this endpoint. It gets a short
+ * Hebrew page — never JSON — with a way back to the business's own site. Only for browser mode,
+ * only for a form post that asks for HTML; the back link is the referring page when it belongs to
+ * an allowed origin, else that origin. Nothing the visitor typed is echoed.
+ */
+function wantsHtml(req: Request, browser: boolean): boolean {
+  if (!browser) return false;
+  const ct = (req.headers.get("content-type") ?? "").toLowerCase();
+  const accept = (req.headers.get("accept") ?? "").toLowerCase();
+  return ct.includes("application/x-www-form-urlencoded") && accept.includes("text/html");
+}
+
+const PAGE_TEXT: Record<string, [string, string]> = {
+  ok: ["תודה! הפנייה התקבלה", "נחזור אליך בהקדם."],
+  no_contact: ["חסרים פרטי קשר", "כדי שנוכל לחזור אליך, צריך למלא טלפון או אימייל."],
+  malformed: ["לא הצלחנו לקרוא את הטופס", "אפשר לנסות לשלוח שוב."],
+  too_large: ["הפנייה ארוכה מדי", "אפשר לקצר את ההודעה ולשלוח שוב."],
+  rate_limited: ["נשלחו הרבה פניות ברגע", "אפשר לנסות שוב בעוד דקה."],
+  unavailable: ["משהו השתבש אצלנו", "הפנייה לא נשמרה — אפשר לנסות שוב בעוד רגע."],
+};
+
+function backLink(req: Request, allowed: string[]): string | null {
+  const ref = req.headers.get("referer");
+  try {
+    if (ref) {
+      const u = new URL(ref);
+      if (allowed.includes(u.origin) && (u.protocol === "https:" || u.protocol === "http:")) return u.toString();
+    }
+  } catch {
+    /* fall through */
+  }
+  const origin = req.headers.get("origin");
+  return origin && allowed.includes(origin) ? origin : null;
+}
+
+function htmlPage(code: keyof typeof PAGE_TEXT, status: number, back: string | null): NextResponse {
+  const [title, line] = PAGE_TEXT[code] ?? PAGE_TEXT.unavailable;
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const link = back ? `<p><a href="${esc(back)}">חזרה לאתר</a></p>` : "";
+  const body =
+    `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>` +
+    `<style>body{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;margin:0;padding:48px 16px;` +
+    `background:#f7f7f8;color:#1f2328;text-align:center}main{max-width:420px;margin:0 auto;background:#fff;` +
+    `border-radius:16px;padding:28px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08)}h1{font-size:20px;margin:0 0 8px}` +
+    `p{margin:8px 0;line-height:1.5}a{color:#0b57d0}</style></head>` +
+    `<body><main><h1>${esc(title)}</h1><p>${esc(line)}</p>${link}</main></body></html>`;
+  return new NextResponse(body, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+      "cache-control": "no-store",
+    },
+  });
 }
 
 function bearer(req: Request): string | null {
@@ -48,6 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
 
   let conn: { connectionId: number; businessId: number } | null;
   let browser = false;
+  let allowedOrigins: string[] = [];
   try {
     if (key) {
       conn = await resolveKeyedConnection(WEB_FORM_SOURCE, publicId, key);
@@ -60,11 +123,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
       }
       conn = pub;
       browser = true;
+      allowedOrigins = pub.allowedOrigins;
     }
   } catch {
     return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503 });
   }
   const headers = cors(origin, browser);
+  const html = wantsHtml(req, browser);
+  const reply = (code: keyof typeof PAGE_TEXT, status: number, extra: Record<string, string> = {}) =>
+    html
+      ? htmlPage(code, status, backLink(req, allowedOrigins))
+      : NextResponse.json(code === "ok" ? { ok: true } : { ok: false, error: code }, { status, headers: { ...headers, ...extra } });
 
   const limit = await checkRateLimit(
     browser
@@ -72,22 +141,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
       : { bucket: "ACQUISITION_INTAKE", business: conn.businessId }
   );
   if (!limit.allowed && limit.outcome === "rate_limited") {
-    return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429, headers: { ...headers, "retry-after": String(limit.retryAfterSeconds) } });
+    return reply("rate_limited", 429, { "retry-after": String(limit.retryAfterSeconds) });
   }
 
   let raw: string;
   try {
     raw = await readBodyLimited(req, BODY_LIMITS["web.form"]);
   } catch (e) {
-    if (e instanceof BodyTooLargeError) return NextResponse.json({ ok: false, error: "too_large" }, { status: 413, headers });
+    if (e instanceof BodyTooLargeError) return reply("too_large", 413);
     throw e;
   }
   const fields = flattenFields(parseBody(raw, req.headers.get("content-type")));
-  if (!fields) return NextResponse.json({ ok: false, error: "malformed" }, { status: 400, headers });
+  if (!fields) return reply("malformed", 400);
   const parsed = parseWebForm(fields);
-  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.code }, { status: 400, headers });
+  if (!parsed.ok) return reply(parsed.code === "no_contact" ? "no_contact" : "malformed", 400);
   // A bot filled the honeypot: answer like a success, record nothing.
-  if (parsed.honeypot) return NextResponse.json({ ok: true }, { status: 202, headers });
+  if (parsed.honeypot) return reply("ok", html ? 200 : 202);
 
   try {
     const out = await ingestAcquisition({
@@ -97,9 +166,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
       connectionId: conn.connectionId,
       receipts: [acquisitionReceipt(parsed.lead, publicId)],
     });
-    if (out.status === "refused") return NextResponse.json({ ok: false, error: "not_found" }, { status: 404, headers });
-    return NextResponse.json({ ok: true }, { status: 202, headers });
+    if (out.status === "refused") return html ? reply("unavailable", 404) : NextResponse.json({ ok: false, error: "not_found" }, { status: 404, headers });
+    return reply("ok", html ? 200 : 202);
   } catch {
-    return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503, headers });
+    return reply("unavailable", 503);
   }
 }
