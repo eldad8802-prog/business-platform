@@ -86,6 +86,8 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIdentityStatement", why: "E2" },
   // P2. A fact authority's valueHash fingerprints the owner's designated phone / email / address.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIdentityFactAuthority", why: "E2" },
+  // P3-A. Owner trust-claim parameters can name the owner; the row also references a private document.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessTrustClaim", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
   // Payables Phase 1a. Commitment and Installment are what BusinessObligation
@@ -175,6 +177,9 @@ const EXTERNAL_OBJECTS: DebtEntry[] = [
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryItem.imageUrl", why: "S8-IMAGES" },
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "BusinessAsset.storageKey", why: "S8-IMAGES" },
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryDraft.imageUrl", why: "S8-IMAGES" },
+  // P3-A. A private trust-claim supporting document (licence / certificate scan) in the private "trust"
+  // domain: no trust-document delete is wired into account erasure yet (deliberate deferral, recorded).
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "BusinessTrustClaim.verificationAttachmentKey", why: "S8-IMAGES" },
   // Objects on models whose own classification is still NEEDS_OWNER_DECISION.
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "Offer.imageUrl", why: "C13-OFFER" },
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ContentRender.outputUrl", why: "C13-CONTENT" },

@@ -1,0 +1,14 @@
+{
+  "note": "feat/profile-settings-v2: the Profile summary and Settings connections-summary read APIs (tenant isolation under FORCE RLS) and the redesign's truth rules (navigation, no invented capability, completion / quote / version rules).",
+  "tests": {
+    "app/api/profile-settings.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: two tenants, runs as a NOSUPERUSER NOBYPASSRLS login role with no ambient tenant context and refuses to run otherwise; cross-tenant zero, 401 without/with a forged token, query businessId ignored; also run by billing-profile-rls-ci.yml; passed locally (31/31)"
+    },
+    "lib/services/profile/profile-settings.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): every hub row / Profile link resolves to a page, no invented capability or wording, completion / quote-expiry / subscription / version rules, data-deletion paths; run by ci-1-prisma-centralization.yml"
+    }
+  }
+}

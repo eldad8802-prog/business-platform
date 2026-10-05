@@ -50,6 +50,8 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/secretary", root: true, identityParams: ["screen", "today", "id", "loopMode"] },
   { pattern: "/payables", root: true },
   { pattern: "/settings", root: true },
+  // Sidebar business card (desktop / tablet) and the Settings hub.
+  { pattern: "/profile", root: true },
   { pattern: "/admin", root: true },
   { pattern: "/admin/audit", root: true },
   { pattern: "/admin/businesses/[id]", parent: "/admin", parentLabel: "ללוח הבקרה" },

@@ -205,6 +205,27 @@ export function baselineDailyMinor(amountMinor: number, cadence: Cadence): numbe
   return roundHalfUp(BigInt(amountMinor) * den, num);
 }
 
+/**
+ * The owner-facing day cost: a monthly amount spread over the ACTUAL days of
+ * the calendar month containing `date` — 28, 29, 30 or 31 — rounded half-up to
+ * an agora. 12,900 ₪ a month is 416.13 ₪ a day in October and 430 ₪ in
+ * November.
+ *
+ * Deliberately NOT `baselineDailyMinor`, which divides by the MEAN period (a
+ * 30.436875-day month) and stays the internal normalised rate that
+ * history-relative rules compare. `date` is a civil date in the business's
+ * time zone, so the month boundary is the business's, never UTC's.
+ */
+export function calendarMonthDailyMinor(monthlyMinor: number, date: CivilDate): { daysInMonth: number; dailyMinor: number } {
+  if (!Number.isSafeInteger(monthlyMinor) || monthlyMinor < 0) {
+    throw new BusinessCostValidationError("monthly amount must be a non-negative integer of minor units");
+  }
+  toDayNumber(date); // validates the civil date
+  const [y, m] = date.split("-").map(Number);
+  const days = daysInMonth(y, m);
+  return { daysInMonth: days, dailyMinor: roundHalfUp(BigInt(monthlyMinor), BigInt(days)) };
+}
+
 export type NormalUnit = "DAY" | "WEEK" | "MONTH" | "YEAR";
 
 /**
@@ -317,6 +338,11 @@ export type BusinessCostInput = {
    * "complete" can only ever mean "complete over what Dubiz was told".
    */
   ownerAffirmedBackboneCaptured: boolean | null;
+  /**
+   * The business-local date of that affirmation (`orientedAt`), when stored.
+   * Shown to the owner; never an input to any calculation.
+   */
+  ownerAffirmedBackboneOn?: CivilDate | null;
 };
 
 /* ─────────────────────────────────── outputs ─────────────────────────────── */

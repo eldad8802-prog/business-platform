@@ -473,7 +473,7 @@ const tConv01: TemporalRule<ConversationOpeningObservation> = {
   series(obs) {
     return [{ kind: "numeric", entityType: null, entityId: null, contextKey: "",
       points: obs.filter((c) => c.firstReplyAt !== null)
-        .map((c) => ({ at: c.firstReplyAt as Date, value: fractionalDays(c.firstInboundAt, c.firstReplyAt as Date), recordId: c.recordId, evidenceKind: "message" })) }];
+        .map((c) => ({ at: c.firstReplyAt as Date, value: fractionalDays(c.firstInboundAt, c.firstReplyAt as Date), recordId: c.recordId, evidenceKind: "conversation" })) }];
   },
 };
 

@@ -5,7 +5,7 @@ import styles from "../settings-desk.module.css";
 export default function SettingsBusinessPage() {
   return (
     <div className={styles.focused}>
-      <SettingsSubPageHeader title="העסק שלי" />
+      <SettingsSubPageHeader title="פרטי העסק" />
       <BusinessSummaryCard />
     </div>
   );

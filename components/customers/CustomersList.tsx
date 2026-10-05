@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getCustomers,
   createCustomer,
@@ -32,6 +32,7 @@ const FILTERS: Array<{ key: CustomerLifecycleFilter; label: string }> = [
  */
 export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [customers, setCustomers] = useState<CustomerListRow[]>([]);
   const [query, setQuery] = useEntryState("query", "");
   // Lifecycle filter (C2). The CRM surface defaults to "active"; the API/client
@@ -39,7 +40,9 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const [status, setStatus] = useEntryState<CustomerLifecycleFilter>("status", "active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  // `/customers?new=1` opens the create form on arrival — the same deep link
+  // the leads list honours with `/leads?new=1` (Home's "לקוח חדש" shortcut).
+  const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
   const searchedOnce = useRef(false);
 
   // Returns the result; never sets state — so the effect updates state only

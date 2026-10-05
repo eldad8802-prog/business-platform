@@ -1,5 +1,5 @@
 /**
- * P2 · Identity statements — tenant isolation under real RLS.
+ * P2 · Identity statements + P3-A trust claims — tenant isolation under real RLS.
  *   TEST_DATABASE_URL="postgres://…test…" npx tsx lib/services/identity/identity.rls.db.test.ts
  *
  * The lab schema comes from `prisma db push` (the migration chain cannot be replayed from an empty
@@ -36,11 +36,18 @@ const ROLE = "app_runtime";
 const P2_TABLE = "BusinessIdentityStatement";
 const FACT_TABLE = "BusinessIdentityFactAuthority";
 const P2_TABLES = [P2_TABLE, FACT_TABLE];
-const P2_TYPES = ["BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact"];
+/** P3-A: the trust-claim table, created and granted by the P3-A migration replayed after P2. */
+const TRUST_TABLE = "BusinessTrustClaim";
+const P2_TYPES = [
+  "BusinessIdentityDimension", "BusinessIdentitySource", "BusinessIdentityStatus", "BusinessIdentityFact",
+  "ConversionChannel", "TrustClaimKind", "TrustClaimClass", "TrustClaimStatus", "TrustVerificationMethod",
+];
 /** Base tables the identity read model reads. Their runtime grants come from ops scripts in Production. */
 const READ_TABLES = [
   "BusinessProfile", "BusinessService", "InventoryItem", "InventoryCategory",
   "OfferingDemandSignal", "ContentRun", "ContentEvent", "ContentVariant", "BusinessBot", "BusinessBotProfile",
+  // P3-A context: served-customer evidence, the website form, the WhatsApp connection status.
+  "Appointment", "Lead", "AcquisitionConnection", "WhatsAppConnection",
 ];
 /**
  * Business is set up exactly as in Production, never with a table-wide grant:
@@ -53,8 +60,12 @@ const BUSINESS_COLUMN_GRANT_MIGRATION = "20260908180000_d2_user_business_privile
 const B4_MIGRATION = "20261006090000_business_tenant_write_rls";
 
 const P2_MIGRATION = "20261004090000_p2_business_identity";
+/** P3-A, replayed verbatim after P2 (enum labels first: they must commit before the CHECKs name them). */
+const P3A_MIGRATIONS = ["20261008090000_p3a_identity_enum_values", "20261008090100_p3a_trust_claims"];
 const BASE_RLS: Array<{ migration: string; tables: string[] }> = [
-  { migration: "20260824210000_d2_p7_wave1_tenant_rls", tables: ["BusinessService"] },
+  { migration: "20260824210000_d2_p7_wave1_tenant_rls", tables: ["BusinessService", "Lead"] },
+  { migration: "20260902120000_d2_cutover2b_pilot_tenant_rls", tables: ["Appointment"] },
+  { migration: "20261009090000_m6_acquisition_connections", tables: ["AcquisitionConnection"] },
   { migration: "20260825120000_d2_p7_wave1_businessprofile_rls", tables: ["BusinessProfile"] },
   { migration: "20260825150000_d2_p7_wave2_tenant_rls", tables: ["ContentRun", "ContentEvent", "ContentVariant", "BusinessBotProfile"] },
   { migration: "20260825200000_d2_p7_wave3_tenant_rls", tables: ["InventoryItem", "InventoryCategory"] },
@@ -221,6 +232,86 @@ async function child() {
   const resolveBFact = await tenantTx(a, (tx) => resolveIdentityProvenance(a, { store: "BusinessIdentityFactAuthority", id: factB }, tx));
   const resolveOwn = await tenantTx(a, (tx) => resolveIdentityProvenance(a, { store: "BusinessIdentityStatement", id: statementA }, tx));
 
+  // ── P3-A · trust claims, private evidence and the canonical context across tenants ──
+  const claimB = Number(process.env.P3_CLAIM_B);
+  const trust = await import("@/lib/services/trust/trust-claim.service");
+  const { getBusinessIdentityContext, identityContextForAi } = await import("./business-identity-context");
+  const { loadTrustKnowledge } = await import("@/lib/knowledge/snapshot/snapshot-sources");
+  const trustNoContext = Number((await prisma.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*)::bigint AS n FROM "${TRUST_TABLE}"`))[0].n);
+  const ctxBFromA = await refused(() => tenantTx(a, (tx) => getBusinessIdentityContext(b, tx)));
+  const claimsBUnderA = (await tenantTx(a, (tx) => trust.listActiveTrustClaims(b, tx))).length;
+  const withdrawBClaim = await refused(() => tenantTx(a, (tx) => trust.setTrustClaimPublicUse({ businessId: a, userId: userA, claimId: claimB, approved: false }, tx)));
+  const withdrawBClaimAsB = await refused(() => tenantTx(a, (tx) => trust.setTrustClaimPublicUse({ businessId: b, userId: userA, claimId: claimB, approved: false }, tx)));
+  const retireBClaim = await refused(() => tenantTx(a, (tx) => trust.retireTrustClaim({ businessId: b, userId: userA, claimId: claimB }, tx)));
+  const confirmForB = await refused(() => tenantTx(a, (tx) => trust.confirmTrustClaim({ businessId: b, userId: userA, kind: "FOUNDED_YEAR", params: { foundedYear: 2000 } }, tx)));
+  const rawUpdateBClaim = await tenantTx(a, (tx) => tx.$executeRawUnsafe(`UPDATE "${TRUST_TABLE}" SET "publicUseApproved" = false, "publicUseApprovedAt" = NULL, "publicUseApprovedByUserId" = NULL WHERE "id" = $1`, claimB));
+  const attachToB = await refused(() => tenantTx(a, (tx) => trust.attachVerificationDocument(
+    { businessId: a, userId: userA, claimId: claimB, storageKey: `biz/${a}/trust/claim-${claimB}/doc-1-x.pdf`, sha256: "c".repeat(64), mimeType: "application/pdf" }, tx)));
+  const docRefB = await tenantTx(a, (tx) => trust.verificationDocumentRef({ businessId: a, claimId: claimB }, tx));
+  const docRefBAsB = await tenantTx(a, (tx) => trust.verificationDocumentRef({ businessId: b, claimId: claimB }, tx));
+  const docKeyRowsB = (await tenantTx(a, (tx) => tx.$queryRawUnsafe<unknown[]>(`SELECT "verificationAttachmentKey" FROM "${TRUST_TABLE}" WHERE "id" = $1`, claimB))).length;
+  const trustMemoryBUnderA = (await tenantTx(a, (tx) => loadTrustKnowledge(tx, b, new Date()))).trustClaims.length;
+
+  // A's own flow under RLS: confirm → approval refused without the document → attach → approve → retire.
+  const myClaim = await tenantTx(a, (tx) => trust.confirmTrustClaim({ businessId: a, userId: userA, kind: "LICENSED", params: { licenseType: "קבלן שיפוצים", issuer: "רשם הקבלנים" } }, tx));
+  const approveEarly = await refused(() => tenantTx(a, (tx) => trust.setTrustClaimPublicUse({ businessId: a, userId: userA, claimId: myClaim.id, approved: true }, tx)));
+  const rawPublicInsert = await refused(() => tenantTx(a, (tx) => tx.$executeRawUnsafe(
+    `INSERT INTO "${TRUST_TABLE}" ("businessId","claimKind","claimClass","params","wording","wordingHash","confirmedByUserId","publicUseApproved","publicUseApprovedAt","publicUseApprovedByUserId","updatedAt")
+     VALUES ($1,'FOUNDED_YEAR','OWNER_ASSERTED','{}','x',encode(sha256(convert_to('x','UTF8')),'hex'),$2,true,now(),$2,now())`, a, userA)));
+  const rawWordingUpdate = await refused(() => tenantTx(a, (tx) => tx.$executeRawUnsafe(`UPDATE "${TRUST_TABLE}" SET "wording" = 'y' WHERE "id" = $1`, myClaim.id)));
+  const claimDelete = await refused(() => tenantTx(a, (tx) => tx.$executeRawUnsafe(`DELETE FROM "${TRUST_TABLE}" WHERE "businessId" = $1`, a)));
+  await tenantTx(a, (tx) => trust.attachVerificationDocument(
+    { businessId: a, userId: userA, claimId: myClaim.id, storageKey: `biz/${a}/trust/claim-${myClaim.id}/doc-1-abc.pdf`, sha256: "b".repeat(64), mimeType: "application/pdf" }, tx));
+  const myApproved = await tenantTx(a, (tx) => trust.setTrustClaimPublicUse({ businessId: a, userId: userA, claimId: myClaim.id, approved: true }, tx));
+  const myDocRef = await tenantTx(a, (tx) => trust.verificationDocumentRef({ businessId: a, claimId: myClaim.id }, tx));
+  const ctxA = await tenantTx(a, (tx) => getBusinessIdentityContext(a, tx));
+  const aiA = identityContextForAi(ctxA);
+
+  // Document lifecycle against the REAL database (row lock, RLS) and a real local storage root.
+  const { storeVerificationDocument } = await import("@/lib/services/trust/trust-document-storage");
+  const { LocalFsStorageService } = await import("@/lib/storage");
+  const { mkdtemp, readdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const docRoot = await mkdtemp(path.join(tmpdir(), "p3a-rls-docs-"));
+  const storage = new LocalFsStorageService({ provider: "local", localRoot: docRoot, signedUrlTtlSeconds: 60 });
+  const leaks: unknown[] = [];
+  const pdf = (tag: string) => Buffer.concat([Buffer.from(`%PDF-1.7\n${tag}\n`), Buffer.alloc(32)]);
+  const store = (businessId: number, claimId: number, tag: string) =>
+    storeVerificationDocument({ businessId, claimId, mimeType: "application/pdf", body: pdf(tag) }, {
+      storage,
+      onLeak: (l) => leaks.push(l),
+      attach: (doc) => tenantTx(businessId, (tx) => trust.attachVerificationDocument({ businessId, userId: userA, claimId, ...doc }, tx)),
+      currentKey: () => tenantTx(businessId, (tx) => trust.currentVerificationDocumentKey({ businessId, claimId }, tx)),
+    });
+  const objects = async (businessId: number, claimId: number) => {
+    try {
+      return (await readdir(path.join(docRoot, "biz", String(businessId), "trust", `claim-${claimId}`))).filter((f) => !f.endsWith(".meta.json"));
+    } catch {
+      return [];
+    }
+  };
+  const dbKey = () => tenantTx(a, (tx) => trust.currentVerificationDocumentKey({ businessId: a, claimId: myClaim.id }, tx));
+  const d1 = await store(a, myClaim.id, "d1");
+  const afterD1 = { key: await dbKey(), files: await objects(a, myClaim.id) };
+  const d3 = await store(a, myClaim.id, "d3");
+  const afterD3 = { key: await dbKey(), files: await objects(a, myClaim.id) };
+  const raced = await Promise.allSettled([1, 2, 3, 4].map((i) => store(a, myClaim.id, `race-${i}`)));
+  const afterRace = { key: await dbKey(), files: await objects(a, myClaim.id), fulfilled: raced.filter((r) => r.status === "fulfilled").length };
+  // Cross-tenant: A's session aims the whole flow at B's claim id (skipping the route's ownership read).
+  const crossTenant = await refused(() => store(a, claimB, "cross"));
+  const crossTenantFiles = (await objects(a, claimB)).length + (await objects(b, claimB)).length;
+
+  await tenantTx(a, (tx) => trust.retireTrustClaim({ businessId: a, userId: userA, claimId: myClaim.id }, tx));
+  // Stale: the claim was retired after any earlier ownership check — the attach refuses, nothing is left.
+  const staleFilesBefore = (await objects(a, myClaim.id)).length;
+  const stale = await refused(() => store(a, myClaim.id, "stale"));
+  const staleFilesAfter = (await objects(a, myClaim.id)).length;
+  await rm(docRoot, { recursive: true, force: true });
+  const ctxAfterRetire = await tenantTx(a, (tx) => getBusinessIdentityContext(a, tx));
+  const retiredFrozen = await tenantTx(a, (tx) => tx.$executeRawUnsafe(`UPDATE "${TRUST_TABLE}" SET "status" = 'ACTIVE', "retiredAt" = NULL, "retiredByUserId" = NULL WHERE "id" = $1`, myClaim.id));
+  const servedA = await tenantTx(a, (tx) => trust.loadServedCustomers(a, tx));
+  const servedBUnderA = await tenantTx(a, (tx) => trust.loadServedCustomers(b, tx));
+
   console.log(
     "@@RESULT@@" +
       JSON.stringify({
@@ -242,6 +333,32 @@ async function child() {
         adoptBEvidence, adoptAsB,
         mine: { business: mine.businessId, approved: mineApproved.publicUseApproved },
         deleteRefused,
+        p3a: {
+          trustNoContext, ctxBFromA, claimsBUnderA, withdrawBClaim, withdrawBClaimAsB, retireBClaim, confirmForB, rawUpdateBClaim, attachToB,
+          docRefB, docRefBAsB, docKeyRowsB, trustMemoryBUnderA,
+          approveEarly, rawPublicInsert, rawWordingUpdate, claimDelete,
+          myApproved: { business: myApproved.businessId, approved: myApproved.publicUseApproved },
+          myDocRef,
+          ctxA: {
+            claimIds: ctxA.trust.claims.map((c) => c.id),
+            publicIds: ctxA.publicUse.trustClaims.map((c) => c.id),
+            served: ctxA.trust.servedCustomers.count,
+            whatsapp: ctxA.conversion.channels.find((c) => c.channel === "WHATSAPP_CLOUD")?.state,
+            json: JSON.stringify(ctxA) + JSON.stringify(aiA),
+          },
+          afterRetire: { claimIds: ctxAfterRetire.trust.claims.map((c) => c.id), publicIds: ctxAfterRetire.publicUse.trustClaims.map((c) => c.id) },
+          retiredFrozen, servedA, servedBUnderA,
+          docs: {
+            d1: { old: d1.oldDocument, key: afterD1.key, files: afterD1.files },
+            d3: { old: d3.oldDocument, key: afterD3.key, files: afterD3.files, replacedFrom: afterD1.key },
+            race: afterRace,
+            crossTenant, crossTenantFiles,
+            stale, staleFilesBefore, staleFilesAfter,
+            leaks: leaks.length,
+            claimJson: JSON.stringify(d3.claim),
+          },
+          myClaimId: myClaim.id,
+        },
       }) +
       "@@END@@\n",
   );
@@ -260,7 +377,7 @@ async function main() {
       CREATE ROLE ${ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
     END IF; END $$`);
   await prisma.$executeRawUnsafe(`ALTER ROLE ${ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT PASSWORD '${password}'`);
-  for (const table of P2_TABLES) await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}" CASCADE`);
+  for (const table of [...P2_TABLES, TRUST_TABLE]) await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}" CASCADE`);
   for (const type of P2_TYPES) await prisma.$executeRawUnsafe(`DROP TYPE IF EXISTS "${type}" CASCADE`);
   let applied = 0;
   const p2Statements = migrationStatements(P2_MIGRATION);
@@ -269,6 +386,15 @@ async function main() {
     applied += 1;
   }
   ok(`applied all ${applied} statements of the P2 migration verbatim, none tolerated`, applied === p2Statements.length && applied >= 25, applied);
+  for (const migration of P3A_MIGRATIONS) {
+    const statements = migrationStatements(migration);
+    let n = 0;
+    for (const statement of statements) {
+      await prisma.$executeRawUnsafe(statement);
+      n += 1;
+    }
+    ok(`applied all ${n} statements of ${migration} verbatim, none tolerated`, n === statements.length && n >= 2, n);
+  }
   // Some base-table policies are granted TO the env-neutral NOLOGIN `app_admin` group, which
   // Production has (20260825090000_d2_p7_w2gate_admin_read). Created here exactly as that migration
   // does; app_runtime is not a member, so it changes nothing about the runtime's isolation.
@@ -308,6 +434,24 @@ async function main() {
     ok(`${table}: the migration's own grants are SELECT / INSERT / UPDATE, never DELETE or TRUNCATE`,
       ["SELECT", "INSERT", "UPDATE"].every((p) => grants.some((g) => g.privilege_type === p)) &&
       !grants.some((g) => g.privilege_type === "DELETE" || g.privilege_type === "TRUNCATE"), grants);
+  }
+
+  {
+    const rls = await prisma.$queryRawUnsafe<Array<{ rls: boolean; forced: boolean }>>(
+      `SELECT relrowsecurity AS rls, relforcerowsecurity AS forced FROM pg_class WHERE relname = $1 AND relkind = 'r'`, TRUST_TABLE);
+    const policies = await prisma.$queryRawUnsafe<Array<{ cmd: string; expr: string }>>(
+      `SELECT cmd::text, (coalesce(qual, '') || ' ' || coalesce(with_check, ''))::text AS expr FROM pg_policies WHERE tablename = $1 ORDER BY cmd`, TRUST_TABLE);
+    const tableGrants = await prisma.$queryRawUnsafe<Array<{ privilege_type: string }>>(
+      `SELECT privilege_type::text FROM information_schema.role_table_grants WHERE grantee = $1 AND table_name = $2 ORDER BY 1`, ROLE, TRUST_TABLE);
+    const updateCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+      `SELECT column_name::text FROM information_schema.column_privileges WHERE grantee = $1 AND table_name = $2 AND privilege_type = 'UPDATE' ORDER BY 1`, ROLE, TRUST_TABLE);
+    ok(`${TRUST_TABLE}: RLS enabled and FORCED`, rls.length === 1 && rls[0].rls && rls[0].forced, rls);
+    ok(`${TRUST_TABLE}: SELECT / INSERT / UPDATE policies on app.current_business_id; no ALL, no DELETE`,
+      JSON.stringify(policies.map((p) => p.cmd)) === JSON.stringify(["INSERT", "SELECT", "UPDATE"]) && policies.every((p) => p.expr.includes("app.current_business_id")), policies);
+    ok(`${TRUST_TABLE}: the migration grants SELECT + INSERT table-wide, never DELETE / TRUNCATE / a table-wide UPDATE`,
+      JSON.stringify(tableGrants.map((g) => g.privilege_type)) === JSON.stringify(["INSERT", "SELECT"]), tableGrants);
+    ok(`${TRUST_TABLE}: UPDATE is column-scoped to approval, verification and retirement — kind, wording, parameters, evidence, tenant are immutable`,
+      updateCols.length > 0 && !updateCols.some((c) => ["businessId", "claimKind", "claimClass", "scopeKey", "params", "wording", "wordingHash", "evidenceCondition", "confirmedAt", "validUntil"].includes(c.column_name)), updateCols);
   }
 
   // Base tables: read-only grants, as the Production ops scripts give (none of them is P2's to grant).
@@ -357,6 +501,36 @@ async function main() {
     const factBRow = await prisma.businessIdentityFactAuthority.create({
       data: { businessId: b.id, fact: "CITY", sourceField: "BusinessProfile.city", valueHash: factValueHash("חיפה"), publicUseApproved: true, publicUseApprovedAt: new Date() },
     });
+    // P3-A · B holds a documented, public licence claim and a connected WhatsApp; A has billing-like
+    // customer rows of which only two were really served (COMPLETED appointment ∪ WON lead).
+    const { normalizeTrustClaim, wordingHash } = await import("@/lib/services/trust/trust-claim-catalogue");
+    const licB = normalizeTrustClaim("LICENSED", { licenseType: "חשמלאי", issuer: "משרד העבודה" }, { now: new Date(), servedCustomers: null });
+    const claimBRow = await prisma.businessTrustClaim.create({
+      data: {
+        businessId: b.id, claimKind: licB.kind, claimClass: licB.claimClass, scopeKey: licB.scopeKey, params: licB.params, wording: licB.wording,
+        wordingHash: wordingHash(licB.wording), confirmedByUserId: userA.id,
+        verificationMethod: "OWNER_DOCUMENT", verificationAttachmentKey: `biz/${b.id}/trust/claim-1/doc-1-secret.pdf`, verificationAttachmentSha256: "a".repeat(64),
+        verificationAttachmentMimeType: "application/pdf", verifiedAt: new Date(),
+        publicUseApproved: true, publicUseApprovedAt: new Date(), publicUseApprovedByUserId: userA.id,
+      },
+    });
+    await prisma.whatsAppConnection.create({
+      data: { businessId: b.id, phoneNumberId: `${tag}-pn`, displayPhoneNumber: "+972500000000", wabaId: `${tag}-waba`, accessTokenEncrypted: "x", accessTokenIv: "x", accessTokenTag: "x" },
+    });
+    const appt = (businessId: number, customerId: number, status: "COMPLETED" | "PROPOSED") =>
+      prisma.appointment.create({ data: { businessId, customerId, status, createdByActor: "OWNER", sourceChannel: "INBOX_WEB", createdByUserId: userA.id } });
+    const customersA = [];
+    for (let i = 0; i < 12; i += 1) customersA.push(await prisma.customer.create({ data: { businessId: a.id, name: `${tag}-ca-${i}` } }));
+    await appt(a.id, customersA[0].id, "COMPLETED");
+    await appt(a.id, customersA[1].id, "COMPLETED");
+    await appt(a.id, customersA[2].id, "PROPOSED");
+    await prisma.lead.create({ data: { businessId: a.id, customerId: customersA[1].id, status: "WON" } });
+    await prisma.lead.create({ data: { businessId: a.id, customerId: customersA[2].id, status: "LOST" } });
+    for (let i = 0; i < 5; i += 1) {
+      const c = await prisma.customer.create({ data: { businessId: b.id, name: `${tag}-cb-${i}` } });
+      await appt(b.id, c.id, "COMPLETED");
+    }
+
     // B's explicit content tone choices: real owner evidence — for B only.
     for (let i = 0; i < 3; i += 1) {
       await prisma.contentRun.create({ data: { businessId: b.id, inputSnapshot: { schemaVersion: 1, generatedAt: new Date().toISOString(), source: "user",
@@ -382,6 +556,7 @@ async function main() {
         P2_TEXT_STATEMENT_B: String(txtB.id),
         P2_FACT_B: String(factBRow.id),
         P2_NAME_A: a.name,
+        P3_CLAIM_B: String(claimBRow.id),
       },
       timeout: 180_000,
     });
@@ -431,7 +606,59 @@ async function main() {
       ok("MEMORY REFERENCE: B's statement id cannot be resolved from A's session, even claiming B", r.resolveBStatementAsB === null && r.resolveBStatementAsA === null);
       ok("MEMORY REFERENCE: B's fact-authority id cannot be resolved from A's session", r.resolveBFact === null);
       ok("MEMORY REFERENCE: A's own reference resolves to A's row", r.resolveOwn?.id === Number(stA.id) && r.resolveOwn?.business === a.id, r.resolveOwn);
+
+      const p = r.p3a;
+      // T1 — a business sees only its own identity / trust context.
+      ok("P3-A T1: no tenant context → zero trust claims", p.trustNoContext === 0, p.trustNoContext);
+      ok("P3-A T1: B's canonical context asked for from A's session is refused before anything is read", /IdentityTenantMismatchError/.test(p.ctxBFromA ?? ""), p.ctxBFromA);
+      ok("P3-A T1: A's context holds only A's claims (B's public claim is absent)", !p.ctxA.claimIds.includes(Number(claimBRow.id)) && p.ctxA.claimIds.includes(p.myClaimId), p.ctxA.claimIds);
+      ok("P3-A T1: A's context does not see B's WhatsApp connection", p.ctxA.whatsapp === "NOT_CONFIGURED", p.ctxA.whatsapp);
+      ok("P3-A T1: nothing of B (wording, document key) appears in A's context or AI projection",
+        !p.ctxA.json.includes(licB.wording) && !p.ctxA.json.includes(`biz/${b.id}/`) && !p.ctxA.json.includes("verificationAttachmentKey"));
+      // T16 — cross-tenant claim access denied.
+      ok("P3-A T16: B's claims listed under A → empty", p.claimsBUnderA === 0, p.claimsBUnderA);
+      ok("P3-A T16: withdrawing B's claim as A → not found", /TrustClaimNotFoundError/.test(p.withdrawBClaim ?? ""), p.withdrawBClaim);
+      ok("P3-A T16: withdrawing B's claim claiming B from A's session → not found (RLS)", /TrustClaimNotFoundError/.test(p.withdrawBClaimAsB ?? ""), p.withdrawBClaimAsB);
+      ok("P3-A T16: retiring B's claim from A's session → not found", /TrustClaimNotFoundError/.test(p.retireBClaim ?? ""), p.retireBClaim);
+      ok("P3-A T16: creating a claim for B from A's session is refused by RLS", /row-level security/i.test(p.confirmForB ?? ""), p.confirmForB);
+      ok("P3-A T16: a raw UPDATE of B's claim under A touches nothing", p.rawUpdateBClaim === 0, p.rawUpdateBClaim);
+      ok("P3-A T16: B's claims loaded into Business Memory under A → empty", p.trustMemoryBUnderA === 0, p.trustMemoryBUnderA);
+      // T17 — private evidence / document access cross-tenant denied.
+      ok("P3-A T17: B's document reference is not served to A (as A or claiming B)", p.docRefB === null && p.docRefBAsB === null, { a: p.docRefB, b: p.docRefBAsB });
+      ok("P3-A T17: B's document key is unreadable under A even by raw SQL", p.docKeyRowsB === 0, p.docKeyRowsB);
+      ok("P3-A T17: A cannot attach a document to B's claim", /TrustClaimNotFoundError/.test(p.attachToB ?? ""), p.attachToB);
+      ok("P3-A T17: A's own document reference resolves under A's private prefix", p.myDocRef?.storageKey?.startsWith(`biz/${a.id}/trust/`) && p.myDocRef?.mimeType === "application/pdf", p.myDocRef);
+      // Authority rules enforced by the database under the runtime role.
+      ok("P3-A T7: approval without the private document is refused (NEEDS_DOCUMENT)", /NEEDS_DOCUMENT/.test(p.approveEarly ?? ""), p.approveEarly);
+      ok("P3-A T6: a claim can never be INSERTed already public, even by raw SQL (RLS)", /row-level security/i.test(p.rawPublicInsert ?? ""), p.rawPublicInsert);
+      ok("P3-A: a claim's wording is immutable for the runtime (column-scoped UPDATE)", /permission denied/i.test(p.rawWordingUpdate ?? ""), p.rawWordingUpdate);
+      ok("P3-A: claims cannot be deleted by the runtime role", /permission denied/i.test(p.claimDelete ?? ""), p.claimDelete);
+      ok("P3-A T10: with its document, A's claim is approved and appears in A's public read model",
+        p.myApproved.business === a.id && p.myApproved.approved === true && p.ctxA.publicIds.includes(p.myClaimId), p);
+      // Document lifecycle against the real database (row lock + RLS) and real local storage.
+      const d = p.docs;
+      const fileOf = (key: string | null) => (key ?? "").split("/").pop();
+      ok("P3-A D1: upload + attach → the database points at the one stored object",
+        d.d1.files.length === 1 && d.d1.files[0] === fileOf(d.d1.key) && d.d1.key?.startsWith(`biz/${a.id}/trust/claim-${p.myClaimId}/`), d.d1);
+      ok("P3-A D3: replacement → the database points at NEW, OLD is deleted (one object left)",
+        d.d3.old === "DELETED" && d.d3.key !== d.d3.replacedFrom && d.d3.files.length === 1 && d.d3.files[0] === fileOf(d.d3.key), d.d3);
+      ok("P3-A D5: four concurrent replacements serialise on the row lock — exactly one object survives, it is the canonical one, no leak",
+        d.race.fulfilled === 4 && d.race.files.length === 1 && d.race.files[0] === fileOf(d.race.key) && d.leaks === 0, d.race);
+      ok("P3-A D5: a claim retired before the attach is refused and leaves no orphan",
+        /TrustClaimNotFoundError/.test(d.stale ?? "") && d.staleFilesAfter === d.staleFilesBefore, { stale: d.stale, before: d.staleFilesBefore, after: d.staleFilesAfter });
+      ok("P3-A D6: aiming the upload flow at another business's claim is refused by RLS and leaves no object anywhere",
+        /TrustClaimNotFoundError/.test(d.crossTenant ?? "") && d.crossTenantFiles === 0, { crossTenant: d.crossTenant, files: d.crossTenantFiles });
+      ok("P3-A: the claim returned to the route never carries the storage key or hash", !/verificationAttachmentKey|biz\/\d+\/trust|Sha256/.test(d.claimJson), d.claimJson);
+      ok("P3-A T9: once retired, the claim leaves the context and public use", !p.afterRetire.claimIds.includes(p.myClaimId) && !p.afterRetire.publicIds.includes(p.myClaimId), p.afterRetire);
+      ok("P3-A T9: a retired claim is frozen history (cannot be re-activated by the runtime)", p.retiredFrozen === 0, p.retiredFrozen);
+      // T11 — served customers from completed work only, per tenant.
+      ok("P3-A T11: served customers = DISTINCT COMPLETED-appointment ∪ WON-lead customers (2), not the 12 customer rows",
+        p.servedA === 2 && p.ctxA.served === 2, { servedA: p.servedA, ctx: p.ctxA.served });
+      ok("P3-A T11: B's served customers are invisible under A", p.servedBUnderA === 0, p.servedBUnderA);
     }
+    const bClaim = await prisma.businessTrustClaim.findUniqueOrThrow({ where: { id: claimBRow.id } });
+    ok("owner view: B's trust claim is untouched (ACTIVE, public, document kept)",
+      bClaim.status === "ACTIVE" && bClaim.publicUseApproved && bClaim.verificationAttachmentKey === claimBRow.verificationAttachmentKey, bClaim);
     const bFacts = await prisma.businessIdentityFactAuthority.findMany({ where: { businessId: b.id } });
     ok("owner view: B's fact authority is untouched (one ACTIVE, still public)", bFacts.length === 1 && bFacts[0].status === "ACTIVE" && bFacts[0].publicUseApproved, bFacts);
     const bBusiness = await prisma.business.findUniqueOrThrow({ where: { id: b.id }, select: { name: true } });
@@ -453,6 +680,11 @@ async function main() {
     const aRows = await prisma.businessIdentityStatement.findMany({ where: { businessId: a.id } });
     ok("owner view: nothing of A's leaked into B and A's rows are all A's", aRows.every((row) => row.businessId === a.id) && aRows.length === 2, aRows.length);
   } finally {
+    await prisma.businessTrustClaim.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.whatsAppConnection.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.appointment.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.lead.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
+    await prisma.customer.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.contentRun.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.businessIdentityFactAuthority.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });
     await prisma.businessIdentityStatement.deleteMany({ where: { businessId: { in: [a.id, b.id] } } });

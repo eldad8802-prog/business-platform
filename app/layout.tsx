@@ -20,10 +20,11 @@ const heebo = Heebo({
 // screen (per the approved home mockup): it renders figures and the greeting /
 // day-state lines. Body copy stays Heebo — Rubik is exposed as --font-rubik and
 // opted into only where the design calls for it. Hebrew + Latin so numbers and
-// Hebrew headings share one voice.
+// Hebrew headings share one voice. Weight 400 is the body weight of the warm
+// screens (Profile, the Settings hub), which are set in Rubik throughout.
 const rubik = Rubik({
   subsets: ["hebrew", "latin"],
-  weight: ["500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-rubik",
   display: "swap",
 });

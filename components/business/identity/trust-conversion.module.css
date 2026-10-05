@@ -1,0 +1,276 @@
+/* P3-A — trust + conversion panel. Tokens only (var(--dz-*)); layout in CSS, never in JS. */
+
+.panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.card {
+  background: var(--dz-surface);
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+}
+
+.h3 {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--dz-text-primary);
+}
+
+.hint,
+.muted,
+.sub {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dz-text-muted);
+}
+
+.sub {
+  display: block;
+  margin: 4px 0 0;
+}
+
+.alert,
+.warn,
+.note {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.alert,
+.warn {
+  background: var(--dz-warning-bg, var(--dz-surface-muted));
+  color: var(--dz-warning-text, var(--dz-text-primary));
+  border: 1px solid var(--dz-warning-border, var(--dz-border));
+}
+
+.note {
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-secondary);
+  border: 1px solid var(--dz-border);
+}
+
+.ok {
+  color: var(--dz-success-text, var(--dz-accent));
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.warnText {
+  color: var(--dz-warning-text, var(--dz-text-secondary));
+  font-size: 12px;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.readiness,
+.channels,
+.list,
+.claims {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.readiness li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--dz-surface-muted);
+}
+
+.readyOk span {
+  color: var(--dz-success-text, var(--dz-accent));
+  font-weight: 700;
+}
+
+.readyMissing span {
+  color: var(--dz-text-secondary);
+}
+
+.declarations {
+  display: grid;
+  gap: 8px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--dz-text-primary);
+  min-height: 44px;
+}
+
+.check input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.check span {
+  display: grid;
+  gap: 2px;
+}
+
+.check small {
+  color: var(--dz-text-muted);
+  font-size: 12px;
+}
+
+.row {
+  margin-top: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dz-text-primary);
+}
+
+.field input,
+.field select,
+.addClaim select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--dz-border);
+  border-radius: 10px;
+  background: var(--dz-surface);
+  color: var(--dz-text-primary);
+  font-size: 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.row select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--dz-border);
+  border-radius: 10px;
+  background: var(--dz-surface);
+  color: var(--dz-text-primary);
+  font-size: 14px;
+}
+
+.channels li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--dz-border);
+  font-size: 13px;
+}
+
+.channels li:last-child {
+  border-bottom: 0;
+}
+
+.channels small {
+  grid-column: 1 / -1;
+  color: var(--dz-text-muted);
+  font-size: 12px;
+}
+
+.list li {
+  font-size: 13px;
+  color: var(--dz-text-secondary);
+  line-height: 1.6;
+}
+
+.claim {
+  padding: 12px;
+  border: 1px solid var(--dz-border);
+  border-radius: 12px;
+}
+
+.claimHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.wording {
+  margin: 6px 0 10px;
+  font-size: 14px;
+  color: var(--dz-text-primary);
+  line-height: 1.6;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions button,
+.addClaim > button,
+.upload {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--dz-accent);
+  background: var(--dz-surface);
+  color: var(--dz-accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.actions .quiet {
+  border-color: var(--dz-border);
+  color: var(--dz-text-muted);
+}
+
+.upload input {
+  display: none;
+}
+
+.addClaim {
+  display: grid;
+  gap: 10px;
+}
+
+.addClaim > button {
+  justify-self: start;
+}
+
+/* Tablet: the page is wider; keep one column but give the panel room. */
+@media (min-width: 768px) {
+  .declarations {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Desktop composition lives in the page layout (identity-page.module.css); the panel only tightens. */
+@media (min-width: 1024px) {
+  .panel {
+    margin-top: 0;
+  }
+}

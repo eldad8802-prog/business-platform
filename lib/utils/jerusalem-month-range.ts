@@ -2,6 +2,8 @@
  * Month boundaries in Asia/Jerusalem for API filtering (half-open: [from, toExclusive)).
  */
 
+import { startOfJerusalemDayUtc } from "./jerusalem-day";
+
 const TZ = "Asia/Jerusalem";
 
 export function dateKeyJerusalem(d: Date): string {
@@ -45,33 +47,19 @@ function pad2(n: number): string {
 
 /**
  * Earliest UTC instant where local Jerusalem calendar date is exactly `ymd` (YYYY-MM-DD).
+ *
+ * That instant is the start of the Israeli day, which `startOfJerusalemDayUtc`
+ * resolves in O(1) with one shared formatter (Israel's DST shifts happen at
+ * 02:00 local, never at midnight, so local midnight always exists).
+ *
+ * It used to be found by scanning ±96 h minute by minute, constructing a fresh
+ * Intl.DateTimeFormat per minute: ~46,000 constructions for one month range,
+ * 2–6 s of synchronous CPU on the first call per process. Inside an open
+ * interactive transaction (/api/home/collection) that alone outlived Prisma's
+ * 5000 ms timeout — the root cause of the intermittent P2028 (#658).
  */
 function findFirstUtcForJerusalemDate(ymd: string): Date {
-  const [yy, mm, dd] = ymd.split("-").map(Number);
-  const start = Date.UTC(yy, mm - 1, dd) - 96 * 3600 * 1000;
-  const end = Date.UTC(yy, mm - 1, dd) + 96 * 3600 * 1000;
-
-  let minMinute = Infinity;
-  for (let t = start; t <= end; t += 60 * 1000) {
-    if (dateKeyJerusalem(new Date(t)) === ymd) {
-      minMinute = Math.min(minMinute, t);
-    }
-  }
-  if (!Number.isFinite(minMinute)) {
-    throw new Error(`jerusalem_date_not_found:${ymd}`);
-  }
-
-  let lo = minMinute - 120 * 1000;
-  let hi = minMinute + 120 * 1000;
-  while (hi - lo > 1) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (dateKeyJerusalem(new Date(mid)) === ymd) {
-      hi = mid;
-    } else {
-      lo = mid;
-    }
-  }
-  return new Date(hi);
+  return startOfJerusalemDayUtc(ymd);
 }
 
 /**

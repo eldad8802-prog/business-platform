@@ -1,0 +1,650 @@
+/*
+ * Profile — three compositions of one screen.
+ *
+ *   < 768        mobile   the approved 390px reference, value for value
+ *   768 – 1279   tablet   wider hero, contacts in two columns, completion
+ *                         checklist open, paired feature cards
+ *   ≥ 1280       desktop  identity band (details · metrics · logo) over a
+ *                         two-column workspace
+ *
+ * Tiers follow the App Shell (768 rail / 1280 desktop in the approved shell).
+ * Colours are `--dz-warm-*` tokens only.
+ */
+
+/* ======================================================= mobile (base) == */
+
+.page {
+  min-height: 100%;
+  background: var(--dz-warm-canvas);
+  padding: 20px 0 32px;
+  box-sizing: border-box;
+}
+
+.heading {
+  padding: 0 20px 4px;
+}
+
+.layout {
+  display: block;
+}
+
+/* ---- hero -------------------------------------------------------------- */
+.hero {
+  position: relative;
+  margin: 14px 16px 0;
+  border-radius: 24px;
+  padding: 16px 16px 14px;
+  background: var(--dz-warm-surface-hero);
+  border: 1px solid var(--dz-warm-border-hero);
+  box-shadow: var(--dz-warm-hero-shadow);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity logo"
+    "metrics metrics";
+  column-gap: 14px;
+  row-gap: 14px;
+  align-items: center;
+}
+
+.editPill {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--dz-warm-pill);
+  color: var(--dz-warm-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  z-index: 1;
+}
+/* 30px visual, 44px touch target. */
+.editPill::after {
+  content: "";
+  position: absolute;
+  inset: -7px -4px;
+}
+.editPill:hover {
+  color: var(--dz-warm-teal-900);
+}
+.editPill:focus-visible {
+  outline: 2px solid var(--dz-warm-teal);
+  outline-offset: 2px;
+}
+
+.heroIdentity {
+  grid-area: identity;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* The reference aligns name, category and contacts toward the logo. */
+  align-items: flex-end;
+  gap: 6px;
+  padding-top: 34px;
+}
+
+.businessName {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  line-height: 1.15;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.category {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--dz-warm-teal);
+}
+
+.contacts {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--dz-warm-ink-3);
+}
+.contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.contact > svg {
+  flex-shrink: 0;
+}
+.contactText {
+  min-width: 128px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.addContacts {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dz-warm-teal);
+  padding: 10px 0;
+}
+
+.heroLogo {
+  grid-area: logo;
+  align-self: start;
+  margin-top: 4px;
+}
+.logoPlaceholder {
+  display: block;
+  width: 124px;
+  height: 124px;
+  border-radius: 999px;
+  background: var(--dz-warm-divider);
+}
+
+/* ---- metrics ------------------------------------------------------------ */
+.metrics {
+  grid-area: metrics;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--dz-warm-border-hero);
+  padding-top: 12px;
+}
+.metric {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+.metric + .metric {
+  border-inline-start: 1px solid var(--dz-warm-border-hero);
+}
+.metricValue {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.metricLabel {
+  font-size: 11px;
+  color: var(--dz-warm-ink-2);
+}
+
+/* ---- cards ------------------------------------------------------------- */
+.cards {
+  margin: 16px 20px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 10px;
+  grid-template-areas:
+    "completion completion"
+    "signature subscription"
+    "identity identity";
+}
+.area_completion { grid-area: completion; }
+.area_signature { grid-area: signature; }
+.area_subscription { grid-area: subscription; }
+.area_identity { grid-area: identity; }
+
+.cardText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cardTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+.cardSubtitle {
+  font-size: 12px;
+  color: var(--dz-warm-ink-2);
+}
+
+/* completion */
+.completion {
+  border-radius: 20px;
+  padding: 16px;
+  background: var(--dz-warm-sand-bg);
+  border: 1px solid var(--dz-warm-sand-border);
+  min-width: 0;
+}
+.completionHead {
+  text-decoration: none;
+  color: var(--dz-warm-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 12px;
+}
+.completionHead:focus-visible {
+  outline: 2px solid var(--dz-warm-teal);
+  outline-offset: 4px;
+}
+.completionTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.completionPercent {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--dz-warm-sand-ink);
+  font-variant-numeric: tabular-nums;
+}
+.progress {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dz-warm-sand-track);
+  overflow: hidden;
+}
+.progressFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dz-warm-teal);
+}
+
+/* The checklist is the tablet / desktop use of the extra space. */
+.checklist {
+  display: none;
+}
+.checklistTitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dz-warm-ink-2);
+}
+.checklistItems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 16px;
+}
+.checkItem {
+  min-width: 0;
+}
+.checkDone,
+.checkMissing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 13px;
+  color: var(--dz-warm-ink);
+}
+.checkMissing {
+  text-decoration: none;
+  border-radius: 10px;
+}
+.checkMissing:hover .checkAction {
+  text-decoration: underline;
+}
+.checkMissing:focus-visible {
+  outline: 2px solid var(--dz-warm-teal);
+  outline-offset: 2px;
+}
+.checkMark {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--dz-warm-teal);
+  color: var(--dz-warm-on-teal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.checkEmpty {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1.5px dashed var(--dz-warm-sand-ink);
+}
+.checkLabel {
+  flex: 1;
+  min-width: 0;
+}
+.checkAction {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dz-warm-teal);
+  white-space: nowrap;
+}
+
+/* feature cards (signature · subscription) */
+.featureCard {
+  border-radius: 20px;
+  padding: 14px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-areas:
+    "tile pill"
+    "title title"
+    "text text"
+    "gap gap"
+    "action action";
+  row-gap: 8px;
+  align-items: center;
+}
+.featureMint {
+  background: var(--dz-warm-mint-bg);
+  border: 1px solid var(--dz-warm-mint-border);
+}
+.featureSand {
+  background: var(--dz-warm-sand-bg);
+  border: 1px solid var(--dz-warm-sand-border);
+}
+.fTile { grid-area: tile; }
+.fPill {
+  grid-area: pill;
+  justify-self: end;
+}
+.fTitle { grid-area: title; }
+.fText {
+  grid-area: text;
+  align-self: start;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dz-warm-ink-2);
+}
+.fAction { grid-area: action; }
+
+.featureButton {
+  position: relative;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--dz-warm-teal);
+  color: var(--dz-warm-on-teal);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+}
+/* 38px visual, 44px touch target. */
+.featureButton::after {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
+.featureButton:hover {
+  background: var(--dz-warm-teal-900);
+}
+.featureButton:focus-visible {
+  outline: 2px solid var(--dz-warm-teal);
+  outline-offset: 2px;
+}
+.featureNote {
+  height: 38px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1.5px dashed var(--dz-warm-sand-border);
+  color: var(--dz-warm-sand-ink);
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 8px;
+}
+
+/* identity row card */
+.rowCard {
+  text-decoration: none;
+  color: var(--dz-warm-ink);
+  border-radius: 20px;
+  background: var(--dz-warm-surface);
+  border: 1px solid var(--dz-warm-border);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.rowCard:hover .cardTitle {
+  color: var(--dz-warm-teal-900);
+}
+.rowCard:focus-visible {
+  outline: 2px solid var(--dz-warm-teal);
+  outline-offset: 2px;
+}
+.rowChevron {
+  flex-shrink: 0;
+  color: var(--dz-warm-ink-2);
+}
+
+/* load failure */
+.loadError {
+  margin: 16px 20px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--dz-warm-danger-bg);
+  border: 1px solid var(--dz-warm-danger-border);
+  color: var(--dz-warm-danger-ink);
+  font-size: 14px;
+}
+.retry {
+  background: none;
+  border: 0;
+  padding: 10px 4px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--dz-warm-danger-ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ============================================================ tablet ===== */
+
+@media (min-width: 768px) {
+  .page {
+    padding: 28px 32px 48px;
+    max-width: 1040px;
+    margin: 0 auto;
+  }
+  .heading {
+    padding: 0;
+  }
+  .loadError {
+    margin: 20px 0 0;
+  }
+
+  .hero {
+    margin: 20px 0 0;
+    padding: 22px 24px 18px;
+    column-gap: 28px;
+    row-gap: 18px;
+  }
+  .heroIdentity {
+    padding-top: 40px;
+    gap: 8px;
+  }
+  .businessName {
+    font-size: 28px;
+  }
+  /* Two columns, read right-to-left (address, then phone), kept toward the logo. */
+  .contacts {
+    direction: rtl;
+    display: grid;
+    grid-template-columns: repeat(2, max-content);
+    justify-content: end;
+    column-gap: 32px;
+    row-gap: 8px;
+    margin-top: 6px;
+  }
+  .contactText {
+    min-width: 0;
+    text-align: start;
+  }
+
+  .metrics {
+    padding-top: 16px;
+  }
+  .metricValue {
+    font-size: 24px;
+  }
+  .metricLabel {
+    font-size: 12px;
+  }
+
+  .cards {
+    margin: 20px 0 0;
+    gap: 16px;
+  }
+  .completion {
+    padding: 18px 20px;
+  }
+  .checklist {
+    display: block;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--dz-warm-sand-border);
+  }
+  .featureCard {
+    padding: 18px;
+  }
+}
+
+/* =========================================================== desktop ===== */
+
+@media (min-width: 1280px) {
+  .page {
+    padding: 32px 40px 56px;
+    max-width: 1240px;
+  }
+
+  /* One identity band: details · metrics · logo. */
+  .hero {
+    margin-top: 24px;
+    padding: 24px 28px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "edit metrics logo"
+      "identity metrics logo";
+    column-gap: 36px;
+    row-gap: 10px;
+  }
+  .editPill {
+    position: relative;
+    top: auto;
+    right: auto;
+    grid-area: edit;
+    justify-self: start;
+  }
+  .heroIdentity {
+    padding-top: 0;
+    align-items: flex-start;
+    align-self: start;
+  }
+  .businessName {
+    text-align: start;
+    font-size: 30px;
+  }
+  .contacts {
+    justify-content: start;
+    margin-top: 10px;
+  }
+  .heroLogo {
+    align-self: center;
+    margin-top: 0;
+  }
+
+  .metrics {
+    border-top: 0;
+    padding: 0 32px;
+    align-self: stretch;
+    align-content: center;
+    border-inline: 1px solid var(--dz-warm-border-hero);
+    grid-template-columns: repeat(3, minmax(112px, auto));
+  }
+  .metric + .metric {
+    border-inline-start: 1px solid var(--dz-warm-border-hero);
+  }
+  .metricValue {
+    font-size: 30px;
+    letter-spacing: -0.5px;
+  }
+  .metricLabel {
+    font-size: 13px;
+  }
+
+  /* Workspace: completion is the main column, the rest stand beside it. */
+  .cards {
+    margin-top: 24px;
+    gap: 20px;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    grid-template-areas:
+      "completion signature"
+      "completion subscription"
+      "completion identity";
+    align-items: stretch;
+  }
+  .completion {
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .checklist {
+    flex: 1;
+  }
+  .checklistItems {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Side cards become horizontal rows: tile · text · status / action. */
+  .featureCard {
+    padding: 16px 18px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "tile title pill"
+      "tile text text"
+      ". action action";
+    column-gap: 14px;
+    row-gap: 4px;
+  }
+  .fTile {
+    align-self: start;
+  }
+  .fAction {
+    margin-top: 10px;
+    justify-self: start;
+    min-width: 168px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .page {
+    max-width: 1400px;
+  }
+}

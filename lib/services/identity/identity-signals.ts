@@ -23,7 +23,8 @@ import type { BusinessIdentityDimension } from "@prisma/client";
  * `<version>|<signal key>><dimension>:<code>` so the exact rule that proposed it is named.
  */
 
-export const SIGNAL_RULES_VERSION = "p2.signals.v2";
+/** v3 (P3-A): BOOKING_DEMAND counts only COMPLETED appointments and no longer suggests a BOOK objective. */
+export const SIGNAL_RULES_VERSION = "p2.signals.v3";
 
 export const SIGNAL_WINDOW_DAYS = 180;
 
@@ -31,7 +32,7 @@ export type IdentityEvidence = {
   services: { id: number; active: boolean; categoryLabel: string | null; fulfillment: string; priceMode: string | null }[];
   products: { id: number; active: boolean; category: string | null }[];
   /** OfferingDemandSignal rows inside the window. Ids and types only. */
-  demand: { offeringKind: "SERVICE" | "PRODUCT"; offeringId: number; signalType: string }[];
+  demand: { offeringKind: "SERVICE" | "PRODUCT"; offeringId: number; signalType: string; appointmentStatus?: string | null }[];
   /** ContentVariant.variantKey of VARIANT_SELECTED events inside the window. */
   variantSelections: string[];
   /** The owner's explicit bot-builder choices, already allow-listed. Null when there is no bot profile. */
@@ -183,12 +184,16 @@ export function deriveIdentitySignals(evidence: IdentityEvidence): IdentitySigna
     out.push(signal("QUOTE_PRICING", "SUPPORTED", { quoteRequired: quoted, priced: priced.length }, { source: "service price modes", observations: priced.length, need: null }, [{ dimension: "SECONDARY_OBJECTIVE", code: "REQUEST_QUOTE" }]));
   }
 
-  // BOOKING_DEMAND — real appointments with an explicitly selected service.
-  const bookings = evidence.demand.filter((d) => d.signalType === "BOOKING").length;
+  // BOOKING_DEMAND — appointments that were actually COMPLETED with an explicitly selected service.
+  // A booking signal is written when an appointment is PROPOSED; a proposal is not demand that was
+  // served, so only signals whose appointment reached COMPLETED count (P3-A). The signal describes the
+  // audience; it never suggests BOOK as an objective — whether booking is a usable conversion path is a
+  // capability question answered by the conversion resolver, not by demand.
+  const bookings = evidence.demand.filter((d) => d.signalType === "BOOKING" && d.appointmentStatus === "COMPLETED").length;
   if (bookings >= THRESHOLDS.bookingDemand) {
-    out.push(signal("BOOKING_DEMAND", "SUPPORTED", { bookings }, { source: `booking signals, ${SIGNAL_WINDOW_DAYS}d`, observations: bookings, need: null }, [{ dimension: "TARGET_AUDIENCE", code: "APPOINTMENT_CUSTOMERS" }, { dimension: "SECONDARY_OBJECTIVE", code: "BOOK" }]));
+    out.push(signal("BOOKING_DEMAND", "SUPPORTED", { bookings }, { source: `completed bookings, ${SIGNAL_WINDOW_DAYS}d`, observations: bookings, need: null }, [{ dimension: "TARGET_AUDIENCE", code: "APPOINTMENT_CUSTOMERS" }], ["booking demand is not booking capability"]));
   } else if (bookings > 0) {
-    out.push(signal("BOOKING_DEMAND", "INSUFFICIENT_EVIDENCE", {}, { source: `booking signals, ${SIGNAL_WINDOW_DAYS}d`, observations: bookings, need: THRESHOLDS.bookingDemand }));
+    out.push(signal("BOOKING_DEMAND", "INSUFFICIENT_EVIDENCE", {}, { source: `completed bookings, ${SIGNAL_WINDOW_DAYS}d`, observations: bookings, need: THRESHOLDS.bookingDemand }));
   }
 
   // DEMAND_CONCENTRATION — internal offering emphasis input. Never a popularity claim, never sets

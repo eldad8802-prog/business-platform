@@ -8,9 +8,12 @@
  *   periods     what actually left (Cash Out) and what the period economically
  *               cost (Allocated Business Cost) — today, yesterday, this week,
  *               this month, the last 30 days, or a custom range
- *   baseline    the normalised recurring operating cost: daily (= the engine's
- *               baseline), weekly, monthly, annual — operating only, uncertain
- *               amounts never added
+ *   baseline    the normalised recurring operating cost: monthly (the owner's
+ *               "what the business costs a month", valid on the date asked),
+ *               the owner-facing day cost of THAT calendar month (monthly ÷ its
+ *               actual 28–31 days), and the internal mean-day rate, weekly and
+ *               annual equivalents — operating only; uncertain amounts and debt
+ *               service are never added, each is listed apart
  *   upcoming    the FINANCIAL schedule: what is still to pay in the next 7 / 30
  *               days and this month, plus what is overdue. Stored occurrences
  *               (RECORDED) and the projection of running recurring commitments
@@ -30,6 +33,7 @@
  */
 import {
   addCadence,
+  calendarMonthDailyMinor,
   deriveBusinessCostForDate,
   fromDayNumber,
   natureOf,
@@ -141,7 +145,17 @@ export function standardPeriods(input: IntelligenceInput, cache: DayCache) {
 
 export type BaselineViews = {
   asOf: CivilDate;
+  /**
+   * INTERNAL normalised rate: the monthly cost over a MEAN day (a month of
+   * 365.2425 / 12 days). History-relative rules compare it; it is not the
+   * owner's day cost — that is `calendarDay`.
+   */
   dailyMinor: number;
+  /**
+   * The owner-facing day cost: `monthlyMinor` ÷ the actual days of the calendar
+   * month containing `asOf` (28/29/30/31). The month is the business's own.
+   */
+  calendarDay: { month: string; daysInMonth: number; dailyMinor: number };
   weeklyMinor: number;
   monthlyMinor: number;
   annualMinor: number;
@@ -158,7 +172,13 @@ export type BaselineViews = {
   }>;
   /** Recorded amounts the engine could not place in time — never in the totals. */
   uncertainMinor: number;
+  /** Recorded amounts left out of the monthly cost because their cost period is unknown (one-offs, payment plans…). */
+  uncertainItems: Array<{ commitmentId: number; title: string; reason: string; amountMinor: number; dueDate: CivilDate | null }>;
   debtServiceMonthlyMinor: number;
+  /** Loan repayments (payee kind LENDER) — kept out of the operating cost, listed apart. */
+  debtServiceLines: Array<{ commitmentId: number; title: string; recurrence: string; periodAmountMinor: number; monthlyMinor: number }>;
+  /** The owner's own affirmation that every recurring cost is recorded — never inferred from the data. */
+  affirmation: { affirmed: boolean; affirmedOn: CivilDate | null };
   completeness: BusinessCostDay["completeness"];
 };
 
@@ -168,12 +188,17 @@ export function baselineViews(input: IntelligenceInput, date: CivilDate = input.
     line.cadence ? normalizedEquivalentMinor(line.periodAmountMinor, line.cadence, unit) : 0;
   const lines = day.allocatedCost.lines.filter((l) => l.cadence);
   const sum = (unit: "DAY" | "WEEK" | "MONTH" | "YEAR") => lines.reduce((s, l) => s + eq(l, unit), 0);
+  const monthlyMinor = sum("MONTH");
+  // The month total first, then ÷ its days: 12,900 ₪ in October is 416.13 ₪, not a sum of rounded line shares.
+  const { daysInMonth, dailyMinor: calendarDailyMinor } = calendarMonthDailyMinor(monthlyMinor, date);
+  const affirmed = input.ownerAffirmedBackboneCaptured === true;
   return {
     asOf: date,
     // Per line, then summed — identical to the engine's own baseline total.
     dailyMinor: day.baselineDailyCost.totalMinor,
+    calendarDay: { month: date.slice(0, 7), daysInMonth, dailyMinor: calendarDailyMinor },
     weeklyMinor: sum("WEEK"),
-    monthlyMinor: sum("MONTH"),
+    monthlyMinor,
     annualMinor: sum("YEAR"),
     lines: lines.map((l) => ({
       seriesKey: l.seriesKey,
@@ -186,7 +211,16 @@ export function baselineViews(input: IntelligenceInput, date: CivilDate = input.
       monthlyMinor: eq(l, "MONTH"),
     })),
     uncertainMinor: day.uncertain.totalMinor,
+    uncertainItems: day.uncertain.items.map((u) => ({ commitmentId: u.commitmentId, title: u.title, reason: u.reason, amountMinor: u.amountMinor, dueDate: u.dueDate })),
     debtServiceMonthlyMinor: day.debtService.lines.reduce((s, l) => s + eq(l, "MONTH"), 0),
+    debtServiceLines: day.debtService.lines.map((l) => ({
+      commitmentId: l.commitmentId,
+      title: l.title,
+      recurrence: l.recurrence,
+      periodAmountMinor: l.periodAmountMinor,
+      monthlyMinor: eq(l, "MONTH"),
+    })),
+    affirmation: { affirmed, affirmedOn: affirmed ? (input.ownerAffirmedBackboneOn ?? null) : null },
     completeness: day.completeness,
   };
 }

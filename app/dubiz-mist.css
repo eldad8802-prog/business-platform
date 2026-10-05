@@ -255,6 +255,59 @@
   --dz-fab-trigger-border: transparent;
   --dz-fab-trigger-shadow: 0 10px 28px -10px rgba(47, 97, 92, 0.40);
   --dz-fab-trigger-bg-hover: var(--dz-action-primary-hover);
+
+  /* --- Warm language (approved Home / Profile / Settings references) -----
+   * The cream-and-teal language of the approved references. Declared once
+   * here so every screen that adopts it reads the same values instead of
+   * copying hex. A screen opts in by reading these tokens and, for the shell
+   * backdrop, by `data-dz-ground="warm"` (see the end of this file).
+   * Contrast on the canvas: ink 13.9:1, ink-2 5.2:1, teal 6.2:1. */
+  --dz-warm-canvas: #fef8f2;
+  --dz-warm-surface: #fffdfa;
+  --dz-warm-surface-hero: #ffffff;
+  --dz-warm-border: #f0e3d3;
+  --dz-warm-border-hero: #f1e7da;
+  --dz-warm-divider: #f3e8da;
+  --dz-warm-ink: #1e2b2a;
+  --dz-warm-ink-2: #5e6b69;
+  --dz-warm-ink-3: #3b4544;
+  --dz-warm-on-teal: #ffffff;
+  --dz-warm-on-teal-muted: #cfe3e2;
+  --dz-warm-teal-900: #1d5552;
+  --dz-warm-teal: #246966;
+  --dz-warm-teal-600: #2d7a77;
+  --dz-warm-teal-200: #9be4e3;
+  --dz-warm-teal-gradient: linear-gradient(160deg, #1d5552 0%, #246966 55%, #2d7a77 100%);
+  --dz-warm-teal-shadow: 0 12px 28px -16px rgba(29, 85, 82, 0.55);
+  --dz-warm-hero-shadow: 0 6px 20px -12px rgba(60, 40, 20, 0.25);
+  --dz-warm-pill: #edf4f2;
+  --dz-warm-mint-bg: #eef7f5;
+  --dz-warm-mint-border: #d4e9e5;
+  --dz-warm-sand-bg: #fdf4e7;
+  --dz-warm-sand-border: #f1dfc4;
+  --dz-warm-sand-track: #f3e2c8;
+  --dz-warm-sand-ink: #8a4f16;
+  --dz-warm-sand-pill: #f6e0c2;
+  --dz-warm-logo-bg: #0e3a37;
+  --dz-warm-logo-ink: #d9b88a;
+  --dz-warm-logo-bg-soft: #0f3836;
+  --dz-warm-logo-ink-soft: #e8c9a0;
+  --dz-warm-alert: #d2553d;
+  --dz-warm-danger-bg: #fdf0ec;
+  --dz-warm-danger-border: #f4d8ce;
+  --dz-warm-danger-ink: #b4432f;
+  --dz-warm-dash: #bfd8d5;
+  /* Group tones: icon tile background + ink, and the group heading dot. */
+  --dz-warm-tone-teal: #246966;
+  --dz-warm-tone-teal-bg: #e3f2f0;
+  --dz-warm-tone-violet: #5b4fa8;
+  --dz-warm-tone-violet-bg: #ece9f7;
+  --dz-warm-tone-amber: #a0601f;
+  --dz-warm-tone-amber-bg: #fbeedd;
+  --dz-warm-tone-blue: #3a6a93;
+  --dz-warm-tone-blue-bg: #e6eef6;
+  --dz-warm-tone-stone: #3b4544;
+  --dz-warm-tone-stone-bg: #efece6;
 }
 
 /* --------------------------------------------------------------------------
@@ -279,7 +332,7 @@
  * the path is `/app`) — but measure it on the page first.
  * ---------------------------------------------------------------------- */
 [data-dz-home="1"] {
-  --dz-shell-ground: #ffffff;
+  --dz-shell-ground: #FEF8F2;
   --dz-nav-surface: rgba(255, 255, 255, 0.76);
   --dz-nav-border: rgba(15, 23, 42, 0.06);
   --dz-nav-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset,
@@ -424,4 +477,15 @@
   [data-dz-home="1"] {
     --dz-nav-surface: #ffffff;
   }
+}
+
+/* --------------------------------------------------------------------------
+ * Warm ground. Screens built in the warm language (Profile, the Settings hub)
+ * set `data-dz-ground="warm"` on the shell root (ShellChrome decides by path),
+ * so the band the shell paints around and below the content is the same cream
+ * as the screen instead of a Mist strip under it. Only the ground moves; the
+ * navigation keeps its own tokens.
+ * ---------------------------------------------------------------------- */
+[data-dz-ground="warm"] {
+  --dz-shell-ground: var(--dz-warm-canvas);
 }

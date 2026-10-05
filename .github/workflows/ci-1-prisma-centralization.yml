@@ -153,6 +153,13 @@ jobs:
       - name: Import/Export foundation (six-domain scope + no dead navigation)
         run: npx tsx lib/data-transfer/import-export-foundation.verify.test.ts
 
+      # Profile + Settings v2: every hub row and Profile link opens a real page,
+      # nothing the product cannot do is offered, and the completion / quote /
+      # version rules hold. Pure: no DB, no network, no rendering.
+      # Local equivalent: npm run verify:profile-settings
+      - name: Profile + Settings (no dead navigation, no invented capability)
+        run: npx tsx lib/services/profile/profile-settings.verify.test.ts
+
       - name: I-2 negative proof (release and Settings listing drifting apart must be caught)
         run: |
           F="components/settings/settings-categories.ts"

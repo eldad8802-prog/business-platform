@@ -2,7 +2,9 @@ import { Prisma, type BusinessIdentityDimension, type BusinessIdentitySource } f
 import {
   DIMENSION_RULES,
   IdentityInputError,
+  claimLikeMatches,
   isIdentityDimension,
+  normalizeObjectiveChannel,
   normalizeStatementValue,
 } from "./identity-vocabulary";
 
@@ -39,6 +41,7 @@ export const STATEMENT_SELECT = {
   text: true,
   source: true,
   sourceRef: true,
+  channel: true,
   status: true,
   confirmedByUserId: true,
   publicUseApproved: true,
@@ -59,6 +62,8 @@ export type CreateIdentityStatementInput = {
   dimension: unknown;
   code?: unknown;
   text?: unknown;
+  /** P3-A: the channel an objective is meant through (PRIMARY / SECONDARY_OBJECTIVE only). */
+  channel?: unknown;
   source: BusinessIdentitySource;
   sourceRef?: string | null;
   /** Replace this ACTIVE statement (same dimension) in the same transaction. */
@@ -79,6 +84,7 @@ export async function createIdentityStatement(input: CreateIdentityStatementInpu
   const dimension: BusinessIdentityDimension = input.dimension;
   const rule = DIMENSION_RULES[dimension];
   const value = normalizeStatementValue(dimension, { code: input.code, text: input.text });
+  const channel = normalizeObjectiveChannel(dimension, value.code, input.channel);
   if (input.source === "OWNER_ADOPTED_SUGGESTION" && !input.sourceRef) {
     throw new IdentityInputError("An adopted suggestion must name its signal");
   }
@@ -91,8 +97,10 @@ export async function createIdentityStatement(input: CreateIdentityStatementInpu
   });
 
   // Same value already stated: idempotent, the owner's existing statement stands.
-  const same = active.find((row) => row.code === value.code && row.text === value.text);
+  const same = active.find((row) => row.code === value.code && row.text === value.text && (row.channel ?? null) === channel);
   if (same) return same;
+  // The same objective with another channel: the new channel replaces it (one ACTIVE row per code).
+  const sameCode = value.code === null ? undefined : active.find((row) => row.code === value.code);
 
   if (dimension === "SECONDARY_OBJECTIVE") {
     const primary = await tx.businessIdentityStatement.findFirst({
@@ -106,6 +114,8 @@ export async function createIdentityStatement(input: CreateIdentityStatementInpu
   if (input.replacesStatementId !== undefined && input.replacesStatementId !== null) {
     if (!active.some((row) => row.id === input.replacesStatementId)) throw new IdentityNotFoundError();
     replaced = input.replacesStatementId;
+  } else if (sameCode) {
+    replaced = sameCode.id;
   } else if (rule.single && active.length > 0) {
     replaced = active[0].id;
   }
@@ -131,6 +141,7 @@ export async function createIdentityStatement(input: CreateIdentityStatementInpu
         text: value.text,
         source: input.source,
         sourceRef,
+        channel,
         confirmedByUserId: input.userId,
       },
       select: STATEMENT_SELECT,
@@ -166,11 +177,17 @@ export async function setIdentityPublicUse(
   if (typeof input.approved !== "boolean") throw new IdentityInputError("approved must be true or false");
   const row = await tx.businessIdentityStatement.findFirst({
     where: { id: input.statementId, businessId: input.businessId, status: "ACTIVE" },
-    select: { id: true, dimension: true },
+    select: { id: true, dimension: true, text: true },
   });
   if (!row) throw new IdentityNotFoundError();
   if (!DIMENSION_RULES[row.dimension].publicUseEligible) {
     throw new IdentityInputError(`${row.dimension} is internal and cannot be approved for public use`);
+  }
+  // P3-A claim guard: text that reads like a trust claim ("licensed", "since 1998", "number 1") is
+  // not approved as plain text — it belongs to a governed trust claim (or is not allowed at all).
+  // Withdrawing an approval is always allowed.
+  if (input.approved && claimLikeMatches(row.text).length > 0) {
+    throw new IdentityInputError("This text reads like a trust claim (years, licence, certification, guarantee, ranking). Add it as a trust claim instead, so it can carry its proof.");
   }
   const data = input.approved
     ? { publicUseApproved: true, publicUseApprovedAt: new Date(), publicUseApprovedByUserId: input.userId }

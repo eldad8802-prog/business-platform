@@ -11,6 +11,7 @@
  * Seven queries in one transaction for the stored knowledge, plus the two existing authoritative
  * engines (L0 facts, awaiting-payment) — a fixed number, independent of how much history exists.
  */
+import { loadServedCustomers, TRUST_CLAIM_SELECT } from "@/lib/services/trust/trust-claim.service";
 import type { Prisma } from "@prisma/client";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -121,8 +122,9 @@ export async function loadStoredKnowledge(businessId: number, asOf: Date) {
     });
 
     const { identityStatements, identityFacts } = await loadIdentityKnowledge(tx, businessId, asOf);
+    const { trustClaims, servedCustomers } = await loadTrustKnowledge(tx, businessId, asOf);
 
-    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes, identityStatements, identityFacts };
+    return { measures, temporal, claims, vendorCategories, decisions, identity, proposals, installments, actions, outcomes, identityStatements, identityFacts, trustClaims, servedCustomers };
   });
 }
 
@@ -137,7 +139,7 @@ export async function loadIdentityKnowledge(tx: Prisma.TransactionClient, busine
   const identityStatements = await tx.businessIdentityStatement.findMany({
     where: { businessId, status: "ACTIVE", createdAt: { lte: asOf } },
     select: {
-      id: true, dimension: true, code: true, source: true, sourceRef: true, status: true,
+      id: true, dimension: true, code: true, channel: true, source: true, sourceRef: true, status: true,
       confirmedByUserId: true, publicUseApproved: true, createdAt: true,
     },
     orderBy: [{ dimension: "asc" }, { id: "asc" }],
@@ -155,13 +157,29 @@ export async function loadIdentityKnowledge(tx: Prisma.TransactionClient, busine
                WHEN 'PUBLIC_PHONE'   THEN p."billingPhone"
                WHEN 'PUBLIC_EMAIL'   THEN p."billingEmail"
                WHEN 'PUBLIC_ADDRESS' THEN p."billingAddress"
+               WHEN 'PUBLIC_WHATSAPP' THEN w."displayPhoneNumber"
              END, 'UTF8')), 'hex'), false) AS "valueCurrent"
       FROM "BusinessIdentityFactAuthority" a
       JOIN "Business" b ON b."id" = a."businessId"
       LEFT JOIN "BusinessProfile" p ON p."businessId" = a."businessId"
+      LEFT JOIN "WhatsAppConnection" w ON w."businessId" = a."businessId"
      WHERE a."businessId" = ${businessId} AND a."status" = 'ACTIVE' AND a."createdAt" <= ${asOf}
      ORDER BY a."fact", a."id"`;
   return { identityStatements, identityFacts };
+}
+
+/**
+ * P3-A — the owner's ACTIVE trust claims, with the current served-customer evidence (p3.evidence.v1)
+ * so assembly can tell which claims have lapsed. The private document reference is never selected.
+ */
+export async function loadTrustKnowledge(tx: Prisma.TransactionClient, businessId: number, asOf: Date) {
+  const trustClaims = await tx.businessTrustClaim.findMany({
+    where: { businessId, status: "ACTIVE", createdAt: { lte: asOf } },
+    select: TRUST_CLAIM_SELECT,
+    orderBy: [{ claimKind: "asc" }, { id: "asc" }],
+  });
+  const servedCustomers = trustClaims.some((c) => c.claimClass === "SAFE_FACTUAL") ? await loadServedCustomers(businessId, tx) : null;
+  return { trustClaims, servedCustomers };
 }
 
 /**

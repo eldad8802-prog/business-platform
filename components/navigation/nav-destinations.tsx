@@ -1,27 +1,64 @@
-import type { ReactNode } from "react";
+import {
+  IconBell,
+  IconBox,
+  IconCalendar,
+  IconCash,
+  IconChat,
+  IconFile,
+  IconHome,
+  IconLeads,
+  IconReceipt,
+  IconSecretary,
+  IconSettings,
+  IconUsers,
+  type IconComponent,
+} from "./nav-icons";
 
 /**
  * Single source of truth for the app's primary navigation.
  *
- * Both the mobile `BottomBar` (the `primary` subset) and the tablet/desktop
- * `SideNav` (the full list) derive from THIS array — the nav list is declared
+ * Every nav surface derives from THIS array — the mobile bottom bar (the
+ * `primary` subset), the tablet rail (the same subset, plus settings at the
+ * foot) and the desktop sidebar (everything, grouped). The list is declared
  * once, never duplicated. Every `href` is a real, existing route (verified
  * against the app tree); nothing is invented here.
  *
- * Icons live here too so the same glyph is used across every nav surface. They
- * follow one line-weight family (stroke, 22px viewport, thicker when active),
- * matching the existing bottom-bar icons (moved here verbatim for home / chats /
- * documents / inventory).
+ * Groups and their order follow the approved desktop reference exactly:
+ * ראשי · כסף · לקוחות ומכירות · ניהול העסק, with הגדרות at the sidebar's foot.
+ * Search is not a destination in that reference — it is the square button next
+ * to "פעולה חדשה" — so it lives on `SEARCH_HREF` instead of in this list.
  */
+
+export type NavGroupKey = "main" | "money" | "customers" | "business" | "footer";
 
 export type NavDestination = {
   key: string;
   label: string;
   href: string;
-  icon: (props: { active: boolean }) => ReactNode;
-  /** Shown in the mobile bottom bar (the four primary tabs). */
+  icon: IconComponent;
+  group: NavGroupKey;
+  /** Shown in the mobile bottom bar and the tablet rail (the four primary tabs). */
   primary?: boolean;
 };
+
+export type NavGroup = {
+  key: Exclude<NavGroupKey, "main" | "footer">;
+  label: string;
+  /** The group's square colour dot — the same family colours the Home tiles use. */
+  dot: string;
+};
+
+export const NAV_GROUPS: NavGroup[] = [
+  { key: "money", label: "כסף", dot: "#246966" },
+  { key: "customers", label: "לקוחות ומכירות", dot: "#5B4FA8" },
+  { key: "business", label: "ניהול העסק", dot: "#A0601F" },
+];
+
+/** The only search the product has: financial records by vendor / category. */
+export const SEARCH_HREF = "/search";
+
+/** The business profile — reached from the sidebar business card (and Settings). */
+export const PROFILE_HREF = "/profile";
 
 /** Active-route test — shared by every nav surface. The authenticated home is
  *  "/app"; "/" is also treated as home for the brief pre-redirect moment on
@@ -33,169 +70,27 @@ export function isNavActive(pathname: string, href: string): boolean {
 }
 
 export const NAV_DESTINATIONS: NavDestination[] = [
-  { key: "home", label: "בית", href: "/app", icon: IconHome, primary: true },
-  { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, primary: true },
-  { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs, primary: true },
+  { key: "home", label: "בית", href: "/app", icon: IconHome, group: "main", primary: true },
+  { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, group: "main", primary: true },
+  { key: "docs", label: "מסמכים", href: "/documents", icon: IconFile, group: "main", primary: true },
   // Notifications take the fourth tab, because "what happened that mattered"
-  // is something the owner comes back for many times a day and previously had
-  // no home on mobile at all — the shell has no top bar to hang a bell from.
-  // Inventory leaves the bar and stays reachable through ניהול העסק and "+";
-  // it is a place you visit when you are doing stock, not all day.
-  { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, primary: true },
-  // Not a primary tab: search is a desktop/tablet way to find a financial
-  // record. The only search API is vendor/category on financial records.
-  { key: "search", label: "חיפוש", href: "/search", icon: IconSearch },
-  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory },
-  { key: "leads", label: "לידים", href: "/leads", icon: IconLeads },
-  { key: "customers", label: "לקוחות", href: "/customers", icon: IconCustomers },
-  { key: "payments", label: "גבייה", href: "/collection", icon: IconPayments },
-  { key: "billing", label: "חשבוניות", href: "/billing", icon: IconInvoice },
-  { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary },
-  // Beside the Secretary on purpose: the Secretary REMINDS about what is owed,
-  // this is where the money against it is tracked. Deliberately not primary —
-  // the mobile bottom bar stays at four tabs.
-  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconPayables },
-  { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings },
+  // is something the owner comes back for many times a day.
+  { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, group: "main", primary: true },
+  { key: "payments", label: "גבייה", href: "/collection", icon: IconCash, group: "money" },
+  { key: "billing", label: "חשבוניות", href: "/billing", icon: IconReceipt, group: "money" },
+  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconCalendar, group: "money" },
+  { key: "customers", label: "לקוחות", href: "/customers", icon: IconUsers, group: "customers" },
+  { key: "leads", label: "לידים", href: "/leads", icon: IconLeads, group: "customers" },
+  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconBox, group: "business" },
+  { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary, group: "business" },
+  { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings, group: "footer" },
 ];
 
-/** Primary destinations only — the mobile bottom-bar tabs. */
+/** Primary destinations only — the mobile bottom-bar tabs and the tablet rail. */
 export const PRIMARY_DESTINATIONS = NAV_DESTINATIONS.filter((d) => d.primary);
 
-/* ------------------------------------------------------------------ icons -- */
-/* home / chats / docs / inventory: moved verbatim from bottom-bar.tsx so the
-   mobile bar stays pixel-identical. The rest match the same style. */
+export const SETTINGS_DESTINATION = NAV_DESTINATIONS.find((d) => d.key === "settings")!;
 
-function IconHome({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconChat({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconDocs({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-      <path d="M14 2v6h6M9 13h6M9 17h6" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconInventory({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M21 8 12 3 3 8v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconLeads({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 6h16M6.5 12h11M9.5 18h5" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconCustomers({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="9" cy="8" r="3.2" stroke="currentColor" strokeWidth={w} />
-      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-      <path d="M16 5.2a3.2 3.2 0 0 1 0 5.9M17.5 19a5.5 5.5 0 0 0-2.7-4.7" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconPayments({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="2.5" y="6" width="19" height="12" rx="2.5" stroke="currentColor" strokeWidth={w} />
-      <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth={w} />
-      <path d="M6 9.5v5M18 9.5v5" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconInvoice({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M5 3h14v18l-2.3-1.6L14.4 21l-2.4-1.6L9.6 21l-2.3-1.6L5 21V3z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-      <path d="M8.5 8h7M8.5 12h7" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconSecretary({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H9l-4 3.5V16H6.5A2.5 2.5 0 0 1 4 13.5v-8z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-      <path d="M12 6.4l.9 1.9 2.1.3-1.5 1.5.35 2.1-1.85-1-1.85 1 .35-2.1-1.5-1.5 2.1-.3.9-1.9z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function IconBell({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M18 8.6A6 6 0 0 0 6 8.6c0 6.1-2.4 7.6-2.4 7.6h16.8S18 14.7 18 8.6z"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M13.7 19.6a2 2 0 0 1-3.4 0" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconSearch({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="11" cy="11" r="6.2" stroke="currentColor" strokeWidth={w} />
-      <path d="M16 16.5 20.5 21" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconSettings({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth={w} />
-      <path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconPayables({ active }: { active: boolean }) {
-  const w = active ? 2.05 : 1.8;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
-      <path d="M8 9h8M8 12.5h5" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-      <path d="M13.5 16.5l1.6 1.6 3-3.2" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+export function destinationsIn(group: NavGroupKey): NavDestination[] {
+  return NAV_DESTINATIONS.filter((d) => d.group === group);
 }

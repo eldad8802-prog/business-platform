@@ -29,7 +29,7 @@ export default function CorporateDataDeletionPage() {
           </h2>
           <p className="mt-3">בעל עסק יכול למחוק את חשבונו בכל עת, ישירות מתוך Dubiz:</p>
           <p className="mt-3 font-semibold text-[var(--mkt-ink)]">
-            הגדרות ← חשבון ופרטיות ← מחיקת חשבון
+            הגדרות ← פרטיות ← מחיקת חשבון
           </p>
           <p className="mt-3">המחיקה מסירה או ממזערת (אנונימיזציה) את המידע התפעולי ואת פרטי המשתמש, לרבות:</p>
           <ul className="mt-3 list-disc space-y-2 pe-5">

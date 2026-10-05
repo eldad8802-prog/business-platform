@@ -208,6 +208,7 @@ model Business {
   offeringDemandSignals         OfferingDemandSignal[]
   identityStatements            BusinessIdentityStatement[]
   identityFactAuthorities       BusinessIdentityFactAuthority[]
+  trustClaims                   BusinessTrustClaim[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -2880,6 +2881,7 @@ enum BusinessIdentityDimension {
   POSITIONING
   DIFFERENTIATOR
   SERVICE_AREA
+  CONVERSION_DECLARATION
 }
 
 /// P2 — how an owner statement came to exist. Both are owner-confirmed: a derived signal
@@ -2920,6 +2922,8 @@ model BusinessIdentityStatement {
   publicUseApprovedByUserId Int?
   retiredAt                 DateTime?
   retiredByUserId           Int?
+  /// P3-A: the channel an objective is meant through (objectives only; CHECK in 20261008090100).
+  channel                   ConversionChannel?
   createdAt                 DateTime                  @default(now())
   updatedAt                 DateTime                  @updatedAt
 
@@ -2937,6 +2941,7 @@ enum BusinessIdentityFact {
   PUBLIC_PHONE
   PUBLIC_EMAIL
   PUBLIC_ADDRESS
+  PUBLIC_WHATSAPP
 }
 
 /// P2 — the owner's confirmation and public-use approval of one identity FACT. The value is never
@@ -6488,4 +6493,86 @@ model LeadLifecycleEvent {
   @@unique([businessId, idempotencyKey])
   @@unique([businessId, leadId, seq])
   @@index([businessId, kind, occurredAt])
+}
+
+/// P3-A — the channel a conversion objective is meant through (objective × channel).
+enum ConversionChannel {
+  WHATSAPP_CLOUD
+  WHATSAPP_LINK
+  PHONE
+  IN_PERSON
+  EXTERNAL_LINK
+  EMAIL
+  DUBIZ_FORM
+  DUBIZ_BOOKING
+  DUBIZ_CHECKOUT
+}
+
+/// P3-A — closed claim catalogue. The class is fixed by the kind (CHECK BusinessTrustClaim_kind_class).
+enum TrustClaimKind {
+  FOUNDED_YEAR
+  SERVED_CUSTOMERS
+  LICENSED
+  CERTIFIED
+  AUTHORIZED_DEALER
+  GUARANTEE
+}
+
+/// PROHIBITED is vocabulary only: no kind maps to it, so no row can carry it.
+enum TrustClaimClass {
+  SAFE_FACTUAL
+  OWNER_ASSERTED
+  VERIFICATION_REQUIRED
+  PROHIBITED
+}
+
+enum TrustClaimStatus {
+  ACTIVE
+  RETIRED
+}
+
+enum TrustVerificationMethod {
+  OWNER_DOCUMENT
+}
+
+/// P3-A — an owner-governed trust claim: the only P3 object that may carry public-use authority.
+/// Created ACTIVE and NOT public (RLS insert policy); public use is a separate act. Content columns
+/// are immutable for the runtime (column-scoped UPDATE grant); a change is a new row. Evidence-backed
+/// claims store the evidence CONDITION (rule + version + condition), never counts. The private
+/// verification document is referenced by storage key + sha256 + mime, never a URL.
+/// CHECKs, partial unique (businessId, claimKind, scopeKey) WHERE ACTIVE, FORCE RLS and grants live in
+/// migration 20261008090100_p3a_trust_claims — never regenerate them from this model.
+model BusinessTrustClaim {
+  id                             Int                      @id @default(autoincrement())
+  businessId                     Int
+  claimKind                      TrustClaimKind
+  claimClass                     TrustClaimClass
+  scopeKey                       String                   @default("default")
+  params                         Json
+  wording                        String
+  wordingHash                    String
+  evidenceRuleId                 String?
+  evidenceRuleVersion            String?
+  evidenceCondition              Json?
+  confirmedByUserId              Int
+  confirmedAt                    DateTime                 @default(now())
+  verificationMethod             TrustVerificationMethod?
+  verificationAttachmentKey      String?
+  verificationAttachmentSha256   String?
+  verificationAttachmentMimeType String?
+  verifiedAt                     DateTime?
+  validUntil                     DateTime?
+  publicUseApproved              Boolean                  @default(false)
+  publicUseApprovedAt            DateTime?
+  publicUseApprovedByUserId      Int?
+  status                         TrustClaimStatus         @default(ACTIVE)
+  retiredAt                      DateTime?
+  retiredByUserId                Int?
+  createdAt                      DateTime                 @default(now())
+  updatedAt                      DateTime                 @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([id, businessId])
+  @@index([businessId, status, claimKind])
 }

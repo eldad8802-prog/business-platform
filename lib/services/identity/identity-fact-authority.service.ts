@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type BusinessIdentityFact } from "@prisma/client";
 import { IdentityInputError } from "./identity-vocabulary";
+import { findPublicByBusinessId } from "@/lib/services/integrations/whatsapp/connection.service";
 import { IdentityConflictError, IdentityNotFoundError } from "./identity-statement.service";
 
 /**
@@ -19,18 +20,22 @@ import { IdentityConflictError, IdentityNotFoundError } from "./identity-stateme
  *   category / subCategory / businessModel              internal taxonomy, not a public claim
  *   latitude / longitude                                no writer exists; a map pin is a later surface
  *   logo / images                                       BusinessAsset.publicUseApproved already governs them
- *   WhatsApp number                                     owned by the WhatsApp integration; channel choice is Conversion
+ * P3-A adds PUBLIC_WHATSAPP: the official WhatsApp Business number (WhatsAppConnection.displayPhoneNumber).
+ * Connection existence is not public authority — the number is KNOWN until the owner approves it, and a
+ * changed number lapses the approval (value hash). WhatsAppConnection is a provider-bootstrap table
+ * without tenant RLS, so it is read only after the tenant pin (assertTenantTx) and by businessId.
  */
 
 type Tx = Prisma.TransactionClient;
 
-export const FACT_SOURCES: Record<BusinessIdentityFact, { sourceField: string; model: "Business" | "BusinessProfile"; column: string }> = {
+export const FACT_SOURCES: Record<BusinessIdentityFact, { sourceField: string; model: "Business" | "BusinessProfile" | "WhatsAppConnection"; column: string }> = {
   BUSINESS_NAME: { sourceField: "Business.name", model: "Business", column: "name" },
   CITY: { sourceField: "BusinessProfile.city", model: "BusinessProfile", column: "city" },
   OPENING_HOURS: { sourceField: "BusinessProfile.openingHours", model: "BusinessProfile", column: "openingHours" },
   PUBLIC_PHONE: { sourceField: "BusinessProfile.billingPhone", model: "BusinessProfile", column: "billingPhone" },
   PUBLIC_EMAIL: { sourceField: "BusinessProfile.billingEmail", model: "BusinessProfile", column: "billingEmail" },
   PUBLIC_ADDRESS: { sourceField: "BusinessProfile.billingAddress", model: "BusinessProfile", column: "billingAddress" },
+  PUBLIC_WHATSAPP: { sourceField: "WhatsAppConnection.displayPhoneNumber", model: "WhatsAppConnection", column: "displayPhoneNumber" },
 };
 
 export const IDENTITY_FACTS = Object.keys(FACT_SOURCES) as BusinessIdentityFact[];
@@ -83,12 +88,15 @@ async function assertTenantTx(businessId: number, tx: Tx): Promise<void> {
 /** The current canonical values of every identity fact, read inside the caller's tenant transaction. */
 export async function loadIdentityFactValues(businessId: number, tx: Tx): Promise<Record<BusinessIdentityFact, string | null>> {
   await assertTenantTx(businessId, tx);
-  const [business, profile] = await Promise.all([
+  const [business, profile, whatsapp] = await Promise.all([
     tx.business.findUnique({ where: { id: businessId }, select: { name: true } }),
     tx.businessProfile.findUnique({
       where: { businessId },
       select: { city: true, openingHours: true, billingPhone: true, billingEmail: true, billingAddress: true },
     }),
+    // WhatsAppConnection has no tenant RLS (provider bootstrap) and one sanctioned accessor: the tenant
+    // pin above + the explicit businessId inside findPublicByBusinessId are the boundary. No tokens read.
+    findPublicByBusinessId(businessId),
   ]);
   const known = (v: string | null | undefined) => (typeof v === "string" && v.trim() ? v : null);
   return {
@@ -98,6 +106,7 @@ export async function loadIdentityFactValues(businessId: number, tx: Tx): Promis
     PUBLIC_PHONE: known(profile?.billingPhone),
     PUBLIC_EMAIL: known(profile?.billingEmail),
     PUBLIC_ADDRESS: known(profile?.billingAddress),
+    PUBLIC_WHATSAPP: known(whatsapp?.displayPhoneNumber),
   };
 }
 

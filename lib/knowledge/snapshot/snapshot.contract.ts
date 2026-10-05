@@ -89,7 +89,9 @@ export type ProvenanceRef = {
     /** P2 — an owner identity statement (code or presence only; never its text). */
     | "BusinessIdentityStatement"
     /** P2 — the owner's confirmation / public-use approval of an identity fact (never its value). */
-    | "BusinessIdentityFactAuthority";
+    | "BusinessIdentityFactAuthority"
+    /** P3-A — an owner-governed trust claim (kind, class and authority flags; never wording, params or documents). */
+    | "BusinessTrustClaim";
   readonly id: number | string;
 };
 

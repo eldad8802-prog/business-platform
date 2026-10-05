@@ -1,9 +1,10 @@
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { WORKSPACE_LANGUAGE_LABEL } from "@/components/settings/settings-hub";
 import styles from "../settings-desk.module.css";
 
 const SYSTEM_VALUES: { label: string; value: string }[] = [
-  { label: "שפה", value: "עברית" },
+  { label: "שפה", value: WORKSPACE_LANGUAGE_LABEL },
   { label: "כיווניות", value: "מימין לשמאל (RTL)" },
   { label: "מטבע", value: "שקל חדש (ILS)" },
   { label: "אזור זמן", value: "Asia/Jerusalem" },
