@@ -200,8 +200,11 @@ export default function BusinessProfilePage() {
             lineHeight: 1.5,
           }}
         >
-          <strong>לוגו העסק:</strong> מוגדר מדף הבית — תמונה עגולה בראש המסך,
-          לחיצה להעלאה. הלוגו יופיע במסמכים לאחר ההגדרה.
+          <strong>לוגו העסק:</strong> מוגדר בעמוד{" "}
+          <Link href="/profile" style={{ color: "inherit", fontWeight: 700 }}>
+            הפרופיל
+          </Link>{" "}
+          — כפתור המצלמה ליד הלוגו. הלוגו יופיע במסמכים לאחר ההגדרה.
         </div>
 
         {loading ? (

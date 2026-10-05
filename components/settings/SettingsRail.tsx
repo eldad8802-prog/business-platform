@@ -2,20 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SETTINGS_CATEGORIES } from "./settings-categories";
+import { SETTINGS_CATEGORIES, SETTINGS_GROUP_ORDER, SETTINGS_GROUP_TITLES } from "./settings-categories";
 import styles from "../../app/settings/settings-desk.module.css";
 
 /**
- * Desktop settings navigation. The same categories as the hub list, grouped by
- * what the owner is looking for, so switching area never passes through the
- * hub. Hidden below 1200 by the layout.
+ * Desktop settings navigation for the sub-pages. The same areas, in the same
+ * groups, as the hub (each category names its group), so switching area never
+ * passes through the hub and the two can never disagree. Hidden below 1200.
  */
-const GROUPS: Array<{ title: string; keys: string[] }> = [
-  { title: "זהות", keys: ["team", "business"] },
-  { title: "חיבורים", keys: ["connections"] },
-  { title: "העדפות ואבטחה", keys: ["workspace", "security", "account-privacy", "import-export"] },
-];
-const GROUPED = new Set(GROUPS.flatMap((group) => group.keys));
 
 export function SettingsRail() {
   const path = usePathname() || "";
@@ -30,14 +24,10 @@ export function SettingsRail() {
         <span className={styles.railIcon} aria-hidden>⚙️</span>
         <span>סקירה</span>
       </Link>
-      {GROUPS.map((group, index) => (
-        <div key={group.title} className={styles.railGroup}>
-          <p className={styles.railHeading}>{group.title}</p>
-          {SETTINGS_CATEGORIES.filter((item) =>
-            // A category no group names lands in the last group, never nowhere.
-            group.keys.includes(item.key) ||
-            (index === GROUPS.length - 1 && !GROUPED.has(item.key)),
-          ).map((item) => {
+      {SETTINGS_GROUP_ORDER.map((group) => (
+        <div key={group} className={styles.railGroup}>
+          <p className={styles.railHeading}>{SETTINGS_GROUP_TITLES[group]}</p>
+          {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
             const on = path === item.href || path.startsWith(`${item.href}/`);
             return (
               <Link

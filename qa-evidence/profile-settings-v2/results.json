@@ -1,0 +1,327 @@
+[
+  {
+    "name": "before upload: completion is 87% (7 of 8 — no logo)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "logo upload: PATCH accepted",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "logo upload: a 1600px PNG was shrunk to the server's limit",
+    "ok": true,
+    "detail": "308030 chars"
+  },
+  {
+    "name": "after upload: the logo shows and completion is 100%",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "profile 390: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=390 innerWidth=390"
+  },
+  {
+    "name": "settings 390: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=390 innerWidth=390"
+  },
+  {
+    "name": "settings: the live connections value is shown (3 פעילים)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "settings: subscription row says בקרוב and is not a link",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "profile 768: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=768 innerWidth=768"
+  },
+  {
+    "name": "settings 768: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=768 innerWidth=768"
+  },
+  {
+    "name": "profile 1024: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1024 innerWidth=1024"
+  },
+  {
+    "name": "settings 1024: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1024 innerWidth=1024"
+  },
+  {
+    "name": "profile 1280: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1280 innerWidth=1280"
+  },
+  {
+    "name": "settings 1280: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1280 innerWidth=1280"
+  },
+  {
+    "name": "profile 1440: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1440 innerWidth=1440"
+  },
+  {
+    "name": "settings 1440: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1440 innerWidth=1440"
+  },
+  {
+    "name": "profile 1920: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1920 innerWidth=1920"
+  },
+  {
+    "name": "settings 1920: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1920 innerWidth=1920"
+  },
+  {
+    "name": "profile empty 390: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=390 innerWidth=390"
+  },
+  {
+    "name": "empty: completion 0%",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "empty: no contact lines, an add-details link instead",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "profile empty 768: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=768 innerWidth=768"
+  },
+  {
+    "name": "profile empty 1440: no horizontal overflow",
+    "ok": true,
+    "detail": "scrollWidth=1440 innerWidth=1440"
+  },
+  {
+    "name": "hub link /notifications opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /profile opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/business opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/team opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/import-export opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/workspace opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /business opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/security opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/account opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings/connections opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /app opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /inbox opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /documents opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /search opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /inventory opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /leads opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /customers opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /collection opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /billing opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /secretary opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /payables opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /settings opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "support link is the support mailbox",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "profile link /settings opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /notifications opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /business opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /profile opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /onboarding opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /business/identity opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /app opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /inbox opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /documents opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /search opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /inventory opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /leads opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /customers opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /collection opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /billing opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /secretary opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /payables opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "sign-out returns to /login",
+    "ok": true,
+    "detail": "http://localhost:3020/login"
+  },
+  {
+    "name": "sign-out revoked the session server-side",
+    "ok": true,
+    "detail": "HTTP 401"
+  }
+]

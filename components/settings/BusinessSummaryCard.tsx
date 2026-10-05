@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 /**
- * Read-only business summary for Settings → "העסק שלי".
+ * Read-only business summary for Settings → "פרטי העסק".
  *
  * Reflects business identity from existing routes only:
  *   GET /api/auth/me           → businessName

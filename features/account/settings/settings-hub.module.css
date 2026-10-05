@@ -1,0 +1,247 @@
+/*
+ * Settings hub — three compositions of one screen.
+ *
+ *   < 768        mobile   the approved 390px reference
+ *   768 – 1279   tablet   account card, then the groups in two balanced columns
+ *   ≥ 1280       desktop  account band with what is set up, groups in three
+ *                         balanced columns, sign-out and version on one line
+ *
+ * The groups are balanced by CSS columns (break-inside: avoid), so a group is
+ * never split and the columns stay even as rows are added or removed.
+ */
+
+/* ======================================================= mobile (base) == */
+
+.page {
+  min-height: 100%;
+  background: var(--dz-warm-canvas);
+  padding: 20px 0 32px;
+  box-sizing: border-box;
+}
+
+.heading {
+  padding: 0 20px 4px;
+}
+
+/* ---- account card ------------------------------------------------------ */
+.account {
+  margin: 14px 20px 0;
+  text-decoration: none;
+  color: var(--dz-warm-on-teal);
+  border-radius: 22px;
+  padding: 16px;
+  background: var(--dz-warm-teal-gradient);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--dz-warm-teal-shadow);
+}
+.account:focus-visible {
+  outline: 2px solid var(--dz-warm-teal-900);
+  outline-offset: 3px;
+}
+.accountLogo {
+  flex-shrink: 0;
+  display: flex;
+}
+.accountLogoPlaceholder {
+  display: block;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background: var(--dz-warm-logo-bg-soft);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-sizing: border-box;
+}
+.accountText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.accountName {
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.accountLink {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dz-warm-on-teal-muted);
+}
+.accountCategory {
+  font-weight: 600;
+  color: var(--dz-warm-teal-900);
+  background: var(--dz-warm-teal-200);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.accountFacts {
+  display: none;
+}
+.accountChevron {
+  flex-shrink: 0;
+}
+
+/* ---- groups ------------------------------------------------------------- */
+.groups {
+  margin: 24px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.group {
+  break-inside: avoid;
+}
+
+/* ---- footer ------------------------------------------------------------- */
+.footer {
+  margin: 24px 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.signOut {
+  width: 100%;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--dz-warm-danger-border);
+  background: var(--dz-warm-danger-bg);
+  color: var(--dz-warm-danger-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.signOut:hover {
+  border-color: var(--dz-warm-danger-ink);
+}
+.signOut:focus-visible {
+  outline: 2px solid var(--dz-warm-danger-ink);
+  outline-offset: 2px;
+}
+.signOut:disabled {
+  cursor: progress;
+  opacity: 0.8;
+}
+.version {
+  font-size: 12px;
+  color: var(--dz-warm-ink-2);
+  text-align: center;
+}
+
+/* ============================================================ tablet ===== */
+
+@media (min-width: 768px) {
+  .page {
+    padding: 28px 32px 48px;
+    max-width: 1040px;
+    margin: 0 auto;
+  }
+  .heading {
+    padding: 0;
+  }
+  .account {
+    margin: 20px 0 0;
+    padding: 18px 20px;
+  }
+  .groups {
+    margin: 28px 0 0;
+    display: block;
+    columns: 2;
+    column-gap: 20px;
+  }
+  .group {
+    margin-bottom: 22px;
+  }
+  .footer {
+    margin: 6px auto 0;
+    max-width: 420px;
+  }
+}
+
+/* =========================================================== desktop ===== */
+
+@media (min-width: 1280px) {
+  .page {
+    padding: 32px 40px 56px;
+    max-width: 1240px;
+  }
+
+  /* The account band: identity, then what is set up, then the way in. */
+  .account {
+    margin-top: 24px;
+    padding: 20px 24px;
+    gap: 18px;
+    border-radius: 24px;
+  }
+  .accountName {
+    font-size: 22px;
+  }
+  .accountFacts {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .fact {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 112px;
+    max-width: 320px;
+    padding: 10px 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .factLabel {
+    font-size: 12px;
+    color: var(--dz-warm-on-teal-muted);
+  }
+  .factValue {
+    font-size: 16px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: start;
+  }
+
+  .groups {
+    margin-top: 32px;
+    columns: 3;
+    column-gap: 24px;
+  }
+  .group {
+    margin-bottom: 24px;
+  }
+
+  .footer {
+    max-width: none;
+    margin: 8px 0 0;
+    padding-top: 20px;
+    border-top: 1px solid var(--dz-warm-border);
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .signOut {
+    width: auto;
+    padding: 0 22px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .page {
+    max-width: 1400px;
+  }
+}

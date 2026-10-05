@@ -61,6 +61,6 @@ export function assertBillingIdentityReadyForTaxInvoice(
 ): void {
   if (isBillingIdentityComplete(p)) return;
   throw new ValidationError(
-    "יש להשלים את פרטי העסק (הגדרות › העסק שלי) לפני הפקת חשבונית מס או יצירת טיוטת חשבונית."
+    "יש להשלים את פרטי העסק (הגדרות › פרטי העסק) לפני הפקת חשבונית מס או יצירת טיוטת חשבונית."
   );
 }

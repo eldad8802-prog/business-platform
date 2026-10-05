@@ -1,15 +1,14 @@
 /*
- * Settings on desktop is a control center: a grouped rail of areas beside the
- * active configuration. Below 1200 nothing here applies and Settings keeps its
- * existing single column with the hub list.
+ * The Settings sub-pages on desktop: a grouped rail of areas beside the active
+ * configuration. Below 1200 nothing here applies and each sub-page keeps its
+ * single focused column. (The hub itself is features/account/settings.)
  */
 
 .frame {
   min-width: 0;
 }
 
-.aside,
-.overview {
+.aside {
   display: none;
 }
 
@@ -85,53 +84,6 @@
   font-size: 15px;
 }
 
-.overviewHead {
-  grid-column: 1 / -1;
-}
-
-.overviewHead h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--dz-text-primary);
-}
-
-.overviewHead p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--dz-text-muted);
-}
-
-.connections {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-}
-
-.connectionsMore {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 20px;
-  border: 1px solid var(--dz-border);
-  background: var(--dz-surface);
-  font-size: 13px;
-  color: var(--dz-text-muted);
-}
-
-.connectionsMore a {
-  flex-shrink: 0;
-  font-weight: 700;
-  color: var(--dz-brand);
-  text-decoration: none;
-}
-
 @media (min-width: 1200px) {
   .container {
     max-width: 1240px !important;
@@ -150,17 +102,6 @@
     position: sticky;
     top: 24px;
     padding-top: 8px;
-  }
-
-  .hubList {
-    display: none;
-  }
-
-  .overview {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    align-items: start;
   }
 
   .cardGrid {
