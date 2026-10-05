@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { countText, leadsWaitingClaim } from "@/features/home/v3/home-v3-model";
+import type { BusinessStatusItem } from "@/lib/business-status/types";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 
 /**
@@ -15,7 +17,12 @@ import { fetchJsonCached } from "@/lib/ui/cached-json";
  *   התחייבויות   GET /api/payables/commitments?scope=open → commitments whose
  *                worst installment is OVERDUE or DUE (count — the list is the
  *                whole open set, never paged)
- *   לידים        GET /api/home → leadsAttention.count (a full DB count)
+ *   לידים        GET /api/business-status → its lead items, through the SAME
+ *                leadsWaitingClaim() the Home's "מה מחכה" uses — one definition
+ *                (the canonical evaluateLeadAttention), one source; "N+" when
+ *                a cap may have cut the list. Re-read on every navigation with
+ *                the Home's own URL and cache window, so on /app both surfaces
+ *                share one response and can never disagree.
  *   מלאי         GET /api/inventory/alerts?type=CRITICAL_STOCK&isResolved=false
  *                → "קריטי" when at least one is open
  * A source that fails simply leaves its badge off — a badge that guesses is
@@ -35,7 +42,11 @@ const CONVERSATIONS_LIMIT = 50;
 type AttentionWire = { waitingForReply?: unknown[] };
 type CollectionInboxWire = { summary?: { attention?: { count?: number } } };
 type CommitmentsWire = { commitments?: Array<{ attention?: string }> };
-type HomeWire = { leadsAttention?: { count?: number } };
+type StatusWire = { items?: BusinessStatusItem[] };
+
+/** Same URL and window as the Home's read (features/home/v3/use-home-data.ts). */
+const STATUS_URL = "/api/business-status";
+const STATUS_TTL_MS = 15_000;
 type AlertsWire = { alerts?: unknown[] };
 type MeWire = { user?: { name?: string | null; businessName?: string | null } };
 type UnreadWire = { unreadCount?: number };
@@ -46,7 +57,7 @@ function countBadge(n: number, cap: number | null, tone: "brand" | "warn" | "new
   return { kind: "count", text, tone };
 }
 
-export function useNavBadges(enabled: boolean): NavBadges {
+export function useNavBadges(enabled: boolean, pathname: string): NavBadges {
   const [badges, setBadges] = useState<NavBadges>({});
 
   useEffect(() => {
@@ -77,10 +88,6 @@ export function useNavBadges(enabled: boolean): NavBadges {
       })
       .catch(quiet);
 
-    fetchJsonCached<HomeWire>("/api/home", BADGE_TTL_MS)
-      .then((j) => set("leads", countBadge(j.leadsAttention?.count ?? 0, null, "new")))
-      .catch(quiet);
-
     fetchJsonCached<AlertsWire>("/api/inventory/alerts?type=CRITICAL_STOCK&isResolved=false", BADGE_TTL_MS)
       .then((j) =>
         set("inventory", (j.alerts?.length ?? 0) > 0 ? { kind: "label", text: "קריטי", tone: "critical" } : undefined),
@@ -91,6 +98,25 @@ export function useNavBadges(enabled: boolean): NavBadges {
       cancelled = true;
     };
   }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    fetchJsonCached<StatusWire>(STATUS_URL, STATUS_TTL_MS)
+      .then((j) => {
+        if (cancelled) return;
+        const claim = leadsWaitingClaim(j.items ?? []);
+        const badge: NavBadge | undefined =
+          claim.n > 0 ? { kind: "count", text: countText(claim), tone: "new" } : undefined;
+        setBadges((prev) => ({ ...prev, leads: badge }));
+      })
+      .catch(() => {
+        /* No source, no badge. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, pathname]);
 
   return badges;
 }
