@@ -254,7 +254,7 @@ export function deriveLinkTimeToPay(rows: readonly PaymentRequestObservation[], 
 export function deriveReminderTiming(rows: readonly IncomeDocumentObservation[], now: Date, businessId: number): MeasureResult[] {
   const pts: LatencyPoint[] = rows.filter((o) => o.docType === "TAX_INVOICE" && o.firstReminderAt !== null && o.expectedAt !== null)
     .map((o) => ({ recordId: o.recordId, businessId: o.businessId, at: o.firstReminderAt as Date, expectedAt: o.expectedAt as Date }));
-  return [latencyMeasure({ measureKey: COLL01.measureKey, entityType: null, entityId: null, valueUnit: "days", evidenceKind: "collection-action",
+  return [latencyMeasure({ measureKey: COLL01.measureKey, entityType: null, entityId: null, valueUnit: "days", evidenceKind: "billing-document",
     minSupport: COLL01.minSupport, windowDays: COLL01.windowDays, trendMinDelta: 3 }, pts, now, businessId)];
 }
 
