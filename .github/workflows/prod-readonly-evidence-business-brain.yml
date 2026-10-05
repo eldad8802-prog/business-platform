@@ -1,0 +1,73 @@
+name: Prod Read-Only Evidence (Business Brain proof, B3/B9)
+
+# Business Brain — READ-ONLY Production proof of bks.v2 / brain-context.v3, run AFTER real derivations of B3 and B9 on
+# the live code. scripts/ops/business-brain-proof.ts builds the REAL snapshot and Brain context in-process as the
+# least-privilege runtime login (verified NOSUPERUSER + NOBYPASSRLS) in a READ ONLY session — no model is called —
+# and verifies every temporal state, memory item, record link and finding against the database with a second,
+# READ ONLY owner session. Output: counts, codes, booleans — never a value, name, amount or entity id.
+# Changes nothing. Businesses are fixed to 3 and 9.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "ISO instant; only derivation runs started at or after it count (e.g. the Production deploy time)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-business-brain
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Business Brain proof (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Connection secrets present and distinct (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          for v in DIRECT_URL RUNTIME_DATABASE_URL; do
+            if [ -z "${!v:-}" ]; then echo "::error::$v is not set in production-db — NOT RUN."; exit 1; fi
+          done
+          if [ "$DIRECT_URL" = "$RUNTIME_DATABASE_URL" ]; then echo "::error::owner and runtime URLs are identical — two identities are required."; exit 1; fi
+          echo "Connection secrets present and distinct."
+
+      - name: Validate input
+        env:
+          SINCE: ${{ inputs.since }}
+        run: |
+          set -euo pipefail
+          [[ "$SINCE" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "::error::since must be an ISO instant like 2026-10-05T00:56:30Z"; exit 2; }
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Business Brain proof (read-only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          RUNTIME_DATABASE_URL: ${{ secrets.RUNTIME_DATABASE_URL }}
+          SINCE: ${{ inputs.since }}
+        run: node_modules/.bin/tsx scripts/ops/business-brain-proof.ts --allow-host ep-flat-brook-am4bhq1y --runtime-user app_runtime_prod --businesses 3,9 --since "$SINCE"

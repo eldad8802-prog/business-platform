@@ -140,7 +140,7 @@ function policySeeds(): string[] {
 /** Business Cost learning — the cost lineages (Wave 1 FACT + Wave 2 PATTERN), out of the migrations that ship them. */
 function costWaveOneLineages(): string[] {
   const out: string[] = [];
-  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql", "prisma/migrations/20261008090000_learning_coverage_policies/migration.sql"]) {
+  for (const f of ["prisma/migrations/20261005090000_cost_learning_wave1_policies/migration.sql", "prisma/migrations/20261007090000_cost_learning_wave2_patterns/migration.sql", "prisma/migrations/20261008090000_learning_coverage_policies/migration.sql", "prisma/migrations/20261010090000_business_brain_temporal_policies/migration.sql"]) {
     const sql = readFileSync(join(process.cwd(), f), "utf8")
       .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
     const stmts = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));

@@ -197,7 +197,7 @@ const history = (n: number, f: (i: number) => number) =>
     }
     ok(`${r.ruleId}: versioned`, /^v\d+$/.test(r.versionLabel) && r.policyKey.startsWith("temporal-"));
   }
-  ok("seventeen temporal rules, each its own lineage", rules.length === 17 && new Set(rules.map((r) => r.policyKey)).size === 17);
+  ok("twenty-four temporal rules, each its own lineage", rules.length === 24 && new Set(rules.map((r) => r.policyKey)).size === 24);
   ok("INV-05 is not in the catalogue (blocked by the POS held-sale defect)", !rules.some((r) => r.followsRule === "INV-05"));
   // No cross-business path: a rule's source takes ONE businessId, and its series are built only from
   // what that source returned. There is no second argument through which another tenant could enter.
