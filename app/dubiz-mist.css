@@ -332,7 +332,7 @@
  * the path is `/app`) — but measure it on the page first.
  * ---------------------------------------------------------------------- */
 [data-dz-home="1"] {
-  --dz-shell-ground: #ffffff;
+  --dz-shell-ground: #FEF8F2;
   --dz-nav-surface: rgba(255, 255, 255, 0.76);
   --dz-nav-border: rgba(15, 23, 42, 0.06);
   --dz-nav-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset,

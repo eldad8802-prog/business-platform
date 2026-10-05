@@ -180,6 +180,12 @@
       "lab": "workflow",
       "workflow": "m6-acquisition-ci.yml",
       "reason": "M6: the one canonical acquisition lead per provider (web / Google / Meta), Meta X-Hub-Signature-256 verification, exact browser origins, key hashing and constant-time equality, non-personal receipt metadata, test submissions never becoming leads; run on pull_request by m6-acquisition-ci.yml"
+    },
+    "lib/knowledge/coverage/evidence-kinds.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "learning-coverage-ci.yml",
+      "reason": "provenance: every evidence kind a coverage rule emits is mapped to the table its record id lives in (the map the read-only Production proof resolves links through); COLL-01 points at invoices and CONV-01/02 at conversations; run by learning-coverage-ci.yml"
     }
   }
 }

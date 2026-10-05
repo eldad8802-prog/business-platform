@@ -19,7 +19,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 // Tier breakpoints — must stay in sync with the App Shell CSS media queries.
 const TABLET_MIN = "(min-width: 768px)";
-const DESKTOP_MIN = "(min-width: 1024px)";
+const DESKTOP_MIN = "(min-width: 1280px)";
 
 export type Breakpoint = "mobile" | "tablet" | "desktop";
 

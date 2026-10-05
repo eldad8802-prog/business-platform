@@ -119,7 +119,7 @@ export function deriveDaysToWin(rows: readonly LeadObservation[], now: Date, bus
 export function deriveFirstReply(rows: readonly ConversationOpeningObservation[], now: Date, businessId: number): MeasureResult[] {
   const pts: ValuePoint[] = rows.filter((c) => c.firstReplyAt !== null)
     .map((c) => ({ recordId: c.recordId, businessId: c.businessId, at: c.firstReplyAt as Date, value: days(c.firstInboundAt, c.firstReplyAt as Date) }));
-  return [valueMeasure({ measureKey: CONV01.measureKey, entityType: null, entityId: null, valueUnit: "days", evidenceKind: "message",
+  return [valueMeasure({ measureKey: CONV01.measureKey, entityType: null, entityId: null, valueUnit: "days", evidenceKind: "conversation",
     minSupport: CONV01.minSupport, windowDays: CONV01.windowDays, trendMinDelta: 0.25 }, pts, now, businessId)];
 }
 
@@ -128,7 +128,7 @@ export function deriveUnanswered24h(rows: readonly ConversationOpeningObservatio
   const pts: SharePoint[] = rows.filter((c) => now.getTime() - c.firstInboundAt.getTime() >= span)
     .map((c) => ({ recordId: c.recordId, businessId: c.businessId, at: c.firstInboundAt,
       hit: c.firstReplyAt === null || c.firstReplyAt.getTime() - c.firstInboundAt.getTime() > span }));
-  return [shareMeasure({ measureKey: CONV02.measureKey, entityType: null, entityId: null, valueUnit: "ratio", evidenceKind: "message",
+  return [shareMeasure({ measureKey: CONV02.measureKey, entityType: null, entityId: null, valueUnit: "ratio", evidenceKind: "conversation",
     minSupport: CONV02.minSupport, windowDays: CONV02.windowDays }, pts, now, businessId)];
 }
 

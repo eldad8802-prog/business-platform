@@ -12,7 +12,7 @@
   {
     "name": "logo upload: a 1600px PNG was shrunk to the server's limit",
     "ok": true,
-    "detail": "308030 chars"
+    "detail": "308906 chars"
   },
   {
     "name": "after upload: the logo shows and completion is 100%",
@@ -180,22 +180,12 @@
     "detail": "HTTP 200"
   },
   {
+    "name": "hub link /settings opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
     "name": "hub link /search opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
-    "name": "hub link /inventory opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
-    "name": "hub link /leads opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
-    "name": "hub link /customers opens a page",
     "ok": true,
     "detail": "HTTP 200"
   },
@@ -210,17 +200,27 @@
     "detail": "HTTP 200"
   },
   {
-    "name": "hub link /secretary opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
     "name": "hub link /payables opens a page",
     "ok": true,
     "detail": "HTTP 200"
   },
   {
-    "name": "hub link /settings opens a page",
+    "name": "hub link /customers opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /leads opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /inventory opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "hub link /secretary opens a page",
     "ok": true,
     "detail": "HTTP 200"
   },
@@ -280,21 +280,6 @@
     "detail": "HTTP 200"
   },
   {
-    "name": "profile link /inventory opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
-    "name": "profile link /leads opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
-    "name": "profile link /customers opens a page",
-    "ok": true,
-    "detail": "HTTP 200"
-  },
-  {
     "name": "profile link /collection opens a page",
     "ok": true,
     "detail": "HTTP 200"
@@ -305,12 +290,27 @@
     "detail": "HTTP 200"
   },
   {
-    "name": "profile link /secretary opens a page",
+    "name": "profile link /payables opens a page",
     "ok": true,
     "detail": "HTTP 200"
   },
   {
-    "name": "profile link /payables opens a page",
+    "name": "profile link /customers opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /leads opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /inventory opens a page",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "profile link /secretary opens a page",
     "ok": true,
     "detail": "HTTP 200"
   },
