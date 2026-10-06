@@ -76,6 +76,8 @@ on:
           - 'ops/evidence/closed-loop-recommendation-evidence-production-evidence.sql'
           - 'ops/evidence/closed-loop-gate-c-eligibility.sql'
           - 'ops/evidence/closed-loop-gate-c-enrollment.sql'
+          - 'ops/evidence/p3e-landing-persistence-preflight.sql'
+          - 'ops/evidence/p3e-landing-persistence-production-evidence.sql'
 
 permissions:
   contents: read
