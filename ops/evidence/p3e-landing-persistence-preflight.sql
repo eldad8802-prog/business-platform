@@ -7,8 +7,10 @@
 -- Measures every premise the migration's outcome depends on:
 --   * the ledger is clean; this migration is not recorded and nothing sorting after it was applied first;
 --     BY NAME every one of the 175 migrations on main before 20261012090000 is finished, and the only other
---     name the ledger may hold is 20261012090000_closed_loop_recommendation_evidence (merged before P3-E and
---     released on its own approval — check 7 reports whether it is already applied);
+--     names the ledger may hold are the two merged before P3-E, each released on its own approval:
+--     20261012090000_closed_loop_recommendation_evidence and 20261013090000_m7a_commerce_telephony_foundation
+--     (same timestamp as P3-E; by name it sorts first, so it is always released before P3-E). Check 7 reports
+--     how many of the two are applied: any not applied must be released first or in the same approved prefix;
 --   * none of the names it creates exists (tables, sequences, indexes, types, policies, functions);
 --   * the FK target it needs: Business.id is the integer primary key, owned by the migration role;
 --   * app_runtime exists and every runtime login is NOSUPERUSER NOBYPASSRLS; the migration role's default
@@ -25,8 +27,8 @@
 \echo ' 3 L2 every finished migration sorts BEFORE it (nothing later was applied first)'
 \echo ' 4 L3 finished migrations (INFO count)'
 \echo ' 5 L4 every one of the 175 expected names (main before 20261012090000) is finished (observed = missing)'
-\echo ' 6 L5 no ledger row outside the 175 names and 20261012090000_closed_loop_recommendation_evidence (observed = unexpected)'
-\echo ' 7 L6 INFO: 20261012090000_closed_loop_recommendation_evidence finished (observed = 1 if applied; if 0 it must be released first or in the same approved prefix)'
+\echo ' 6 L5 no ledger row outside the 175 names, 20261012090000_closed_loop_recommendation_evidence and 20261013090000_m7a_commerce_telephony_foundation (observed = unexpected)'
+\echo ' 7 L6 INFO: how many of closed_loop_recommendation_evidence / m7a_commerce_telephony_foundation are finished (observed = 0..2; any missing must be released first or in the same approved prefix)'
 \echo ' 8 N1 none of the relation names it creates exists (2 tables, 2 sequences, 2 pkeys, 9 indexes)'
 \echo ' 9 N2 neither enum type LandingVersionStatus / LandingVersionAuthority exists'
 \echo '10 N3 no policy named p3e_landing_* exists'
@@ -65,6 +67,8 @@ defacl_items AS (
   FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x
   WHERE d.defaclrole = (SELECT oid FROM me)),
 defacl AS (SELECT kind, nsp, grantee, string_agg(DISTINCT l, '' ORDER BY l) AS letters FROM defacl_items GROUP BY kind, nsp, grantee),
+-- merged on main before P3-E, each released on its own owner approval (may or may not be applied yet)
+merged_before(name) AS (VALUES ('20261012090000_closed_loop_recommendation_evidence'), ('20261013090000_m7a_commerce_telephony_foundation')),
 -- every migration directory on main before 20261012090000 (175)
 expected(name) AS (
   VALUES
@@ -256,10 +260,10 @@ checks(n, ok, observed_count) AS (
                       (SELECT count(*) FROM expected e WHERE NOT EXISTS (
                         SELECT 1 FROM ledger l WHERE l.migration_name = e.name AND l.finished_at IS NOT NULL AND l.rolled_back_at IS NULL))
   UNION ALL SELECT 6, NOT EXISTS (SELECT 1 FROM ledger l WHERE l.migration_name NOT IN (SELECT name FROM expected)
-                                    AND l.migration_name <> '20261012090000_closed_loop_recommendation_evidence'),
+                                    AND l.migration_name NOT IN (SELECT name FROM merged_before)),
                       (SELECT count(*) FROM ledger l WHERE l.migration_name NOT IN (SELECT name FROM expected)
-                                    AND l.migration_name <> '20261012090000_closed_loop_recommendation_evidence')
-  UNION ALL SELECT 7, true, (SELECT count(*) FROM ledger WHERE migration_name = '20261012090000_closed_loop_recommendation_evidence'
+                                    AND l.migration_name NOT IN (SELECT name FROM merged_before))
+  UNION ALL SELECT 7, true, (SELECT count(*) FROM ledger WHERE migration_name IN (SELECT name FROM merged_before)
                                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 8, NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname IN (SELECT nm FROM rel_names)),
                       (SELECT count(*) FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname IN (SELECT nm FROM rel_names))
