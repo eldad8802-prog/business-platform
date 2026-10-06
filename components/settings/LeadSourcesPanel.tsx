@@ -83,7 +83,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return json;
 }
 
-function stamp(iso: string): string {
+export function stamp(iso: string): string {
   return new Date(iso).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
 }
 
@@ -94,7 +94,7 @@ function when(c: Connection): string {
   return `ליד אחרון: ${stamp(last)}${n > 0 ? ` · ${n} ב-30 הימים האחרונים` : ""}`;
 }
 
-function Step({ done, children }: { done: boolean; children: React.ReactNode }) {
+export function Step({ done, children }: { done: boolean; children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2">
       <span aria-hidden className={done ? "text-[var(--dz-success)]" : "text-[var(--dz-text-muted)]"}>{done ? "✓" : "○"}</span>
@@ -153,7 +153,7 @@ function Copy({ text, label = "העתקה" }: { text: string; label?: string }) 
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+export function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="mt-2">
       <div className="text-[11px] font-bold text-[var(--dz-text-muted)]">{label}</div>
@@ -482,7 +482,7 @@ function SiteEditor({ current, busy, onSave }: { current: string[]; busy: boolea
   );
 }
 
-function Action({
+export function Action({
   children,
   onClick,
   busy,

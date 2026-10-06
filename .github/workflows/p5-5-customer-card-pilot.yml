@@ -81,7 +81,7 @@ jobs:
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
           GRANT USAGE ON SCHEMA public TO p2_runtime;
           GRANT SELECT ON "Business","User" TO p2_runtime;   -- auth-bootstrap reads (pre-context; no RLS)
-          GRANT SELECT ON "Customer","BillingDocument","PaymentRequest","Conversation","Appointment" TO p2_runtime;
+          GRANT SELECT ON "Customer","BillingDocument","PaymentRequest","Conversation","Appointment","CommerceOrder","CallActivity" TO p2_runtime;
           GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO p2_runtime;
 
           -- Tenants + users + one customer each.
@@ -141,7 +141,7 @@ jobs:
           DO $rls$
           DECLARE t text;
           BEGIN
-            FOREACH t IN ARRAY ARRAY['Customer','BillingDocument','PaymentRequest','Conversation','Appointment'] LOOP
+            FOREACH t IN ARRAY ARRAY['Customer','BillingDocument','PaymentRequest','Conversation','Appointment','CommerceOrder','CallActivity'] LOOP
               EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
               EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
               EXECUTE format($p$CREATE POLICY p2_tenant ON %I
@@ -155,7 +155,7 @@ jobs:
             V=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT v FROM p2_meta WHERE k='$k'")
             echo "$k=$V" >> "$GITHUB_ENV"
           done
-          echo "provisioned ids + RLS on 5 card tables"
+          echo "provisioned ids + RLS on 7 card tables (M7: store orders + calls)"
 
       - name: P5-5 Customer Card multi-table pilot proof (NON-BYPASS runtime role)
         env:

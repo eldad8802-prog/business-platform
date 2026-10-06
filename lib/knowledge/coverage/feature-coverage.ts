@@ -298,7 +298,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "commerce", name: "Commerce orders (store integrations, M7)", coverage: "DORMANT",
-    reason: "M7-A foundation: the order ledger (CommerceOrder / lines / append-only events), the core R5 destination and its sensors exist, but no store provider is registered in Production and both store features are OFF — there is no writer until M7-B ships a provider and the owner enables it for a business.",
+    reason: "M7-A ledger (CommerceOrder / lines / append-only events, R5, sensors) + M7-B providers (WooCommerce key-authorize + HMAC webhooks + reconciler, Wix app JWT webhooks + order search) are registered, but both store features are OFF for every business — there is no writer until the owner enables a store for a business (E17).",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["CommerceOrder", "CommerceOrderLine", "CommerceOrderEvent"],
     sensors: ["COMMERCE_ORDER_RECORDED", "COMMERCE_ORDER_STATUS_CHANGED"], legacyEvents: [], routes: [],
@@ -307,7 +307,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "telephony", name: "Business calls (telephony integrations, M7)", coverage: "DORMANT",
-    reason: "M7-A foundation: CallActivity, the core R9 call destination, the Secretary missed-call reason and its sensors exist, but no telephony provider is registered in Production and both telephony features are OFF — there is no writer until M7-C ships a provider and the owner enables it for a business.",
+    reason: "M7-A CallActivity (R9, the Secretary missed-call reason, sensors) + M7-C providers (CloudTalk Svix webhooks with the outcome read from call history, Voicenter keyed CDR) are registered, but both telephony features are OFF for every business — there is no writer until the owner enables a phone system for a business (E17).",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["CallActivity"],
     sensors: ["CALL_RECORDED", "MISSED_CALL_RETURNED"], legacyEvents: [], routes: [],

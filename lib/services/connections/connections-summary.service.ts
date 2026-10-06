@@ -23,6 +23,7 @@
 import { BillingAuthorityEnvironment } from "@prisma/client";
 
 import { enabledSources } from "@/lib/intake/acquisition/owner-api";
+import { ACQUISITION_SOURCE_KEYS } from "@/lib/intake/acquisition/gate";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
 import { resolveRuntimeAuthorityEnvironment } from "@/lib/services/billing/authority/billing-authority-env.service";
 import { getAuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
@@ -72,8 +73,9 @@ async function taxAuthorityActive(caller: ConnectionsSummaryCaller): Promise<num
 
 async function tenantCounts(businessId: number) {
   const enabled = await runWithTenantContext({ businessId }, () => enabledSources(businessId));
+  // Lead sources only (M6); commerce / telephony connections are not "lead sources".
   const enabledKeys = Object.entries(enabled)
-    .filter(([, on]) => on)
+    .filter(([key, on]) => on && (ACQUISITION_SOURCE_KEYS as readonly string[]).includes(key))
     .map(([key]) => key);
 
   return tenantTx(businessId, async (tx) => {

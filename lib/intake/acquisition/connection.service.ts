@@ -275,10 +275,14 @@ export async function createSignedConnection(input: {
  * read only to verify a delivery's signature. The ciphertext never leaves this function; a
  * ciphertext moved to another row or business fails its AAD.
  */
-export async function readConnectionSecrets(businessId: number, connectionId: number): Promise<ConnectionSecrets | null> {
+export async function readConnectionSecrets(
+  businessId: number,
+  connectionId: number,
+  opts: { anyLiveStatus?: boolean } = {}
+): Promise<ConnectionSecrets | null> {
   const row = await withTenantTransaction((tx) =>
     tx.acquisitionConnection.findFirst({
-      where: { id: connectionId, status: "ACTIVE" },
+      where: { id: connectionId, status: opts.anyLiveStatus ? { in: ["ACTIVE", "ERROR", "PAUSED"] } : "ACTIVE" },
       select: { sourceKey: true, publicId: true, credentialCiphertext: true, credentialIv: true, credentialTag: true, credentialKeyId: true },
     })
   );
@@ -332,6 +336,59 @@ export async function readMetaPageToken(
     credentialAad(businessId, "meta.lead_ads", row.publicId)
   );
   return { connectionId: row.id, token };
+}
+
+/**
+ * M7-B / M7-C — the secrets of the un-revoked connection a receipt was accepted through (its endpoint publicId),
+ * for a processing step that must call the provider (CloudTalk outcome lookup). Tenant context only.
+ */
+export async function readSecretsByPublicId(businessId: number, sourceKey: SignedSourceKey, publicId: string): Promise<ConnectionSecrets | null> {
+  const row = await withTenantTransaction((tx) =>
+    tx.acquisitionConnection.findFirst({ where: { sourceKey, publicId, status: { not: "REVOKED" } }, select: { id: true } })
+  );
+  return row ? readConnectionSecrets(businessId, row.id, { anyLiveStatus: true }) : null;
+}
+
+/** Replace a signed connection's secret bundle (owner action, or the provider state a poller keeps). */
+export async function updateConnectionSecrets(businessId: number, connectionId: number, patch: Partial<ConnectionSecrets>): Promise<boolean> {
+  const current = await readConnectionSecrets(businessId, connectionId, { anyLiveStatus: true });
+  if (!current) return false;
+  const next = { ...current, ...patch } as ConnectionSecrets;
+  return withTenantTransaction(async (tx) => {
+    const row = await tx.acquisitionConnection.findFirst({ where: { id: connectionId, status: { not: "REVOKED" } }, select: { sourceKey: true, publicId: true } });
+    if (!row) return false;
+    const enc = encryptCredential(JSON.stringify(next), credentialAad(businessId, row.sourceKey, row.publicId));
+    const r = await tx.acquisitionConnection.updateMany({
+      where: { id: connectionId, status: { not: "REVOKED" } },
+      data: { credentialCiphertext: enc.ciphertext, credentialIv: enc.iv, credentialTag: enc.tag, credentialKeyId: enc.keyId },
+    });
+    return r.count === 1;
+  });
+}
+
+/** A provider-side health problem the owner must see (status ERROR + a bounded code), or its recovery. */
+export async function setConnectionHealth(connectionId: number, code: string | null): Promise<void> {
+  await withTenantTransaction((tx) =>
+    code
+      ? tx.acquisitionConnection.updateMany({
+          where: { id: connectionId, status: { in: ["ACTIVE", "ERROR"] } },
+          data: { status: "ERROR", lastErrorCode: code.toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 64) },
+        })
+      : tx.acquisitionConnection.updateMany({ where: { id: connectionId, status: "ERROR" }, data: { status: "ACTIVE", lastErrorCode: null } })
+  );
+}
+
+/** The provider resource a signed connection belongs to, bound on its first verified delivery (CloudTalk company). */
+export async function bindExternalResource(connectionId: number, resourceId: string): Promise<"bound" | "same" | "mismatch"> {
+  if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(resourceId)) return "mismatch";
+  return withTenantTransaction(async (tx) => {
+    const row = await tx.acquisitionConnection.findFirst({ where: { id: connectionId, status: { not: "REVOKED" } }, select: { externalResourceId: true } });
+    if (!row) return "mismatch";
+    if (row.externalResourceId === resourceId) return "same";
+    if (row.externalResourceId !== null) return "mismatch";
+    await tx.acquisitionConnection.updateMany({ where: { id: connectionId, externalResourceId: null }, data: { externalResourceId: resourceId } });
+    return "bound";
+  });
 }
 
 /** Meta said the token is no longer valid: the owner must reconnect (status ERROR, code recorded). */

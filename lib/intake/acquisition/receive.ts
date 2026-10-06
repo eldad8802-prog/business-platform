@@ -50,6 +50,8 @@ async function ingest(
 ): Promise<DeliveryResponse & { outcome?: IngestOutcome }> {
   const parsed = parse(raw);
   if (!parsed.ok) return { status: 400, body: { error: "malformed", code: parsed.code } };
+  // Authenticated, understood, and nothing to record (a trashed order, an event Dubiz does not act on).
+  if (parsed.receipts.length === 0) return { status: 200, body: {} };
   const limit = await checkRateLimit({ bucket: "ACQUISITION_INTAKE", business: conn.businessId });
   if (!limit.allowed && limit.outcome === "rate_limited") {
     // 5xx so the provider redelivers (several providers never retry a 4xx).

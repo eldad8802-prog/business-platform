@@ -70,6 +70,7 @@ const rlsProbe = <M extends "billingDocument" | "paymentRequest" | "conversation
   check("T1 section: payments=1", c1.paymentRequests?.total === 1, `total=${c1.paymentRequests?.total}`);
   check("T1 section: conversations=1", c1.conversations?.total === 1, `total=${c1.conversations?.total}`);
   check("T1 section: appointments=1", c1.appointments?.total === 1, `total=${c1.appointments?.total}`);
+  check("T1 M7 sections present, read under RLS (no store orders / calls in this lab)", c1.orders?.total === 0 && c1.calls?.total === 0, `orders=${c1.orders?.total} calls=${c1.calls?.total}`);
 
   // T2 — B reads its OWN card: mirror isolation from the other side.
   const r2 = await getCard(tokenB, B_CUST);

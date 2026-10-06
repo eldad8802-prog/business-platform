@@ -72,6 +72,28 @@ export type CustomerCardAppointment = {
   createdAt: string;
 };
 
+/** M7-B — an order from the business's online store (history only: never a payment, a document or stock). */
+export type CustomerCardOrder = {
+  id: number;
+  sourceKey: string;
+  orderNumber: string | null;
+  status: string;
+  currency: string;
+  totalMinor: number;
+  refundedMinor: number;
+  placedAt: string;
+};
+
+/** M7-C — a call with this customer (no number, no recording: direction, outcome, time). */
+export type CustomerCardCall = {
+  id: number;
+  direction: string;
+  outcome: string;
+  durationSec: number;
+  startedAt: string;
+  returnedAt: string | null;
+};
+
 export type CustomerCardSection<T> = {
   items: T[];
   total: number;
@@ -83,6 +105,8 @@ export type CustomerCard = {
   paymentRequests: CustomerCardSection<CustomerCardPaymentRequest>;
   conversations: CustomerCardSection<CustomerCardConversation>;
   appointments: CustomerCardSection<CustomerCardAppointment>;
+  orders: CustomerCardSection<CustomerCardOrder>;
+  calls: CustomerCardSection<CustomerCardCall>;
   activity: {
     lastActivityAt: string | null;
     hasAnyActivity: boolean;
@@ -122,7 +146,7 @@ export async function getCustomerCard(
   // P5: when a tenant transaction is supplied, the ENTIRE multi-table card read
   // runs on it — one logical transaction, under the transaction-local GUC / RLS.
   // Every table below (Customer + BillingDocument + PaymentRequest + Conversation
-  // + Appointment) has a DIRECT businessId, so each is covered by a direct RLS
+  // + Appointment + CommerceOrder + CallActivity) has a DIRECT businessId, so each is covered by a direct RLS
   // policy. The app-level `businessId` filters are RETAINED as defense-in-depth.
   const db = options?.tx ?? prisma;
 
@@ -142,6 +166,10 @@ export async function getCustomerCard(
     conversationsTotal,
     appointments,
     appointmentsTotal,
+    orders,
+    ordersTotal,
+    calls,
+    callsTotal,
   ] = await Promise.all([
     db.billingDocument.findMany({
       where: scope,
@@ -203,6 +231,20 @@ export async function getCustomerCard(
       },
     }),
     db.appointment.count({ where: scope }),
+    db.commerceOrder.findMany({
+      where: scope,
+      orderBy: [{ placedAt: "desc" }, { id: "desc" }],
+      take: RELATION_TAKE,
+      select: { id: true, sourceKey: true, orderNumber: true, status: true, currency: true, totalMinor: true, refundedMinor: true, placedAt: true },
+    }),
+    db.commerceOrder.count({ where: scope }),
+    db.callActivity.findMany({
+      where: scope,
+      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+      take: RELATION_TAKE,
+      select: { id: true, direction: true, outcome: true, durationSec: true, startedAt: true, returnedAt: true },
+    }),
+    db.callActivity.count({ where: scope }),
   ]);
 
   const lastActivity = maxDate([
@@ -214,13 +256,17 @@ export async function getCustomerCard(
     // appointment contributes its createdAt (when it was scheduled), never its
     // future startsAt. startsAt stays the source of truth for the section date.
     ...appointments.map((a) => a.createdAt),
+    orders[0]?.placedAt ?? null,
+    calls[0]?.startedAt ?? null,
   ]);
 
   const hasAnyActivity =
     billingDocumentsTotal +
       paymentRequestsTotal +
       conversationsTotal +
-      appointmentsTotal >
+      appointmentsTotal +
+      ordersTotal +
+      callsTotal >
     0;
 
   return {
@@ -284,6 +330,30 @@ export async function getCustomerCard(
         title: a.title,
         startsAt: iso(a.startsAt),
         createdAt: a.createdAt.toISOString(),
+      })),
+    },
+    orders: {
+      total: ordersTotal,
+      items: orders.map((o) => ({
+        id: o.id,
+        sourceKey: o.sourceKey,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        currency: o.currency,
+        totalMinor: o.totalMinor,
+        refundedMinor: o.refundedMinor,
+        placedAt: o.placedAt.toISOString(),
+      })),
+    },
+    calls: {
+      total: callsTotal,
+      items: calls.map((c) => ({
+        id: c.id,
+        direction: c.direction,
+        outcome: c.outcome,
+        durationSec: c.durationSec,
+        startedAt: c.startedAt.toISOString(),
+        returnedAt: iso(c.returnedAt),
       })),
     },
     activity: {

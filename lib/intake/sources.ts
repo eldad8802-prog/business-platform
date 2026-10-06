@@ -12,6 +12,8 @@ import { whatsAppIntakeAdapter } from "@/lib/intake/whatsapp/whatsapp-intake";
 import { metaLeadAdsAdapter } from "@/lib/intake/acquisition/providers/meta-lead-ads";
 import { googleLeadFormAdapter } from "@/lib/intake/acquisition/providers/google-lead-form";
 import { webFormAdapter } from "@/lib/intake/acquisition/providers/web-form";
+import { wooCommerceAdapter, wixAdapter } from "@/lib/intake/commerce/providers";
+import { cloudTalkAdapter, voicenterAdapter } from "@/lib/intake/calls/providers";
 
 // M6 — first-wave acquisition sources. Each accepts nothing for a business until its platform
 // feature (acquisition_*) is enabled for that business; all three are OFF by default.
@@ -19,4 +21,10 @@ export const intakeRegistry = new IntakeRegistry()
   .register(whatsAppIntakeAdapter)
   .register(metaLeadAdsAdapter)
   .register(googleLeadFormAdapter)
-  .register(webFormAdapter);
+  .register(webFormAdapter)
+  // M7-B / M7-C — commerce and telephony. Each is OFF for every business until its feature
+  // (commerce_* / telephony_*) is enabled for that business; the core R5 / R9 destinations write them.
+  .register(wooCommerceAdapter)
+  .register(wixAdapter)
+  .register(cloudTalkAdapter)
+  .register(voicenterAdapter);

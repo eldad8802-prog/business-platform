@@ -17,6 +17,8 @@ export const CALL_NORMALIZER_VERSION = 1;
 export function makeCallAdapter(input: {
   sourceKey: TelephonySourceKey;
   resolveTenant: IntakeAdapter["resolveTenant"];
+  /** M7-C — a provider whose webhook does not carry everything (CloudTalk: no outcome) completes the receipt here. */
+  hydrate?: IntakeAdapter["hydrate"];
 }): IntakeAdapter {
   return {
     sourceKey: input.sourceKey,
@@ -24,11 +26,11 @@ export function makeCallAdapter(input: {
     normalizerVersion: `${input.sourceKey}@${CALL_NORMALIZER_VERSION}`,
     coreDestinations: ["call"],
     resolveTenant: input.resolveTenant,
-    async hydrate(_ctx, event) {
+    async hydrate(ctx, event) {
       if ((await connectionStateForRef(input.sourceKey, event.providerAccountRef)) === "revoked") {
         return { kind: "ignored", code: "connection_revoked" };
       }
-      return { kind: "unchanged" };
+      return input.hydrate ? input.hydrate(ctx, event) : { kind: "unchanged" };
     },
     normalize: normalizeCall,
     async route(): Promise<RouteResult> {

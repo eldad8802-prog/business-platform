@@ -53,6 +53,8 @@ export type CallV1 = {
   counterpartHidden: boolean;
   /** The provider's modification time for this event (ordering); defaults to endedAt ?? startedAt. */
   providerUpdatedAt: string;
+  /** M7-C — the owner's own name for the line at the provider ("Sales line"); business data, attribution only. */
+  lineName?: string;
 };
 
 export class CallInvalid extends Error {
@@ -173,7 +175,13 @@ export function normalizeCall(event: ClaimedIntakeEvent): NormalizeResult {
       contactHints: contact.hints,
       signals: contact.signals,
       identity: contact.hints ? "unresolved" : "none",
-      attribution: sanitizeAttribution({ channel: "call", provider: "telephony", source: call.businessLine ? `line:${call.businessLine.slice(-4)}` : undefined }),
+      attribution: sanitizeAttribution({
+        channel: "call",
+        provider: "telephony",
+        source: typeof call.lineName === "string" && call.lineName.trim()
+          ? `line:${call.lineName.trim().slice(0, 60)}`
+          : call.businessLine ? `line:${call.businessLine.slice(-4)}` : undefined,
+      }),
       target: "call",
     },
   };

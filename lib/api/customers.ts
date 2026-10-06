@@ -74,6 +74,28 @@ export type CustomerCardAppointment = {
   createdAt: string;
 };
 
+/** M7-B — an online-store order (history only). Amounts in minor units. */
+export type CustomerCardOrder = {
+  id: number;
+  sourceKey: string;
+  orderNumber: string | null;
+  status: string;
+  currency: string;
+  totalMinor: number;
+  refundedMinor: number;
+  placedAt: string;
+};
+
+/** M7-C — a phone call with the customer (no number, no recording). */
+export type CustomerCardCall = {
+  id: number;
+  direction: string;
+  outcome: string;
+  durationSec: number;
+  startedAt: string;
+  returnedAt: string | null;
+};
+
 /** Basic CRM fields editable from the customer card (C1). Tax identity + lifecycle excluded. */
 export type UpdateCustomerInput = {
   name?: string;
@@ -91,6 +113,8 @@ export type CustomerCard = {
   paymentRequests: CustomerCardSection<CustomerCardPaymentRequest>;
   conversations: CustomerCardSection<CustomerCardConversation>;
   appointments: CustomerCardSection<CustomerCardAppointment>;
+  orders: CustomerCardSection<CustomerCardOrder>;
+  calls: CustomerCardSection<CustomerCardCall>;
   activity: { lastActivityAt: string | null; hasAnyActivity: boolean };
 };
 

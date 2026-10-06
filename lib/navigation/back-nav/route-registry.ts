@@ -145,6 +145,8 @@ export const ROUTE_RULES: readonly RouteRule[] = [
 
   // ---- settings / business / tools ----------------------------------------
   { pattern: "/settings/whatsapp", parent: "/settings/connections", parentLabel: "לחיבורים" },
+  // M7-B — the Dubiz Wix app's confirm page (Wix opens it after install).
+  { pattern: "/settings/connections/wix", parent: "/settings/connections", parentLabel: "לחיבורים" },
   { pattern: "/settings/account", parent: "/settings", parentLabel: "להגדרות" },
   { pattern: "/settings/business", parent: "/settings", parentLabel: "להגדרות" },
   { pattern: "/settings/connections", parent: "/settings", parentLabel: "להגדרות" },
