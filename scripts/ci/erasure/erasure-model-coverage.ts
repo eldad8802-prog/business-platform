@@ -142,6 +142,13 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   WhatsAppConnection: { disposition: "ERASURE_MANAGED" },
   // M6 — revoked in place by account deletion's integration stage (REVOKE_INTEGRATIONS).
   AcquisitionConnection: { disposition: "ERASURE_MANAGED" },
+  // M7-A — the order keeps its non-personal facts (status, currency, totals, times); the Customer
+  // pointer, the attribution and the store's order number are scrubbed. Lines lose their product
+  // title (free text a store may personalise). Calls lose the Customer / lead pointers and the
+  // unknown caller's hash. CommerceOrderEvent is non-personal (below).
+  CommerceOrder: { disposition: "ERASURE_MANAGED" },
+  CommerceOrderLine: { disposition: "ERASURE_MANAGED" },
+  CallActivity: { disposition: "ERASURE_MANAGED" },
   EmailConnection: { disposition: "ERASURE_MANAGED" },
   OAuthToken: { disposition: "ERASURE_MANAGED" },
   POSApiKey: { disposition: "ERASURE_MANAGED" },
@@ -413,6 +420,11 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // a versioned rule id, CHECK-limited to [A-Za-z0-9_:.@-]{1,100}) or a
   // server-built idempotency key. Names, phones, emails, notes and reasons stay
   // on Lead, where the erasure reaches them. The write sites pin that down.
+  CommerceOrderEvent: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason:
+      "append-only history of an order: closed vocabularies (kind, status), a flag, a provider time and scalar ids; no person, no text, no amount",
+  },
   LeadLifecycleEvent: {
     disposition: "NON_PERSONAL_OPERATIONAL",
     reason:

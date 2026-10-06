@@ -545,6 +545,22 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             data: { proposedLinks: Prisma.DbNull, evidence: Prisma.DbNull, appliedEffects: Prisma.DbNull },
           });
 
+          // M7-A — orders keep their non-personal facts; the Customer pointer, the attribution and
+          // the store's order number go. Line titles go. Calls lose the Customer / lead pointers and
+          // the unknown caller's hash (FORCE RLS, no DELETE grant: erasure is an UPDATE).
+          await tx.commerceOrder.updateMany({
+            where: { businessId },
+            data: { customerId: null, attribution: Prisma.DbNull, orderNumber: null },
+          });
+          await tx.commerceOrderLine.updateMany({
+            where: { businessId },
+            data: { title: null },
+          });
+          await tx.callActivity.updateMany({
+            where: { businessId },
+            data: { callerHash: null, customerId: null, leadId: null },
+          });
+
           // The conversation row: free-text snapshots that summarise what was
           // said, the two Json blobs that carry pending follow-up and
           // appointment detail, and the participant pointers. `leadId` matters

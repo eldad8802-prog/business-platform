@@ -20,6 +20,10 @@ export const PLATFORM_FEATURE_KEYS = {
   ACQUISITION_GOOGLE_LEAD_FORMS: "acquisition_google_lead_forms",
   ACQUISITION_WEB_FORMS: "acquisition_web_forms",
   OWNER_RECOMMENDATIONS: "owner_recommendations",
+  COMMERCE_WOOCOMMERCE: "commerce_woocommerce",
+  COMMERCE_WIX: "commerce_wix",
+  TELEPHONY_CLOUDTALK: "telephony_cloudtalk",
+  TELEPHONY_VOICENTER: "telephony_voicenter",
 } as const;
 
 export type PlatformFeatureKey =
@@ -170,6 +174,40 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "לידים מטופס באתר",
       category: "integrations",
       description: "קבלת לידים מטופס יצירת קשר באתר העסק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // M7-A — commerce + telephony sources (D4, D5). OFF by default (migration 20261013090000): no
+    // order or call is accepted for a business until that source is enabled for it.
+    {
+      key: PLATFORM_FEATURE_KEYS.COMMERCE_WOOCOMMERCE,
+      displayName: "הזמנות מחנות WooCommerce",
+      category: "integrations",
+      description: "קליטת הזמנות מחנות WooCommerce של העסק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.COMMERCE_WIX,
+      displayName: "הזמנות מחנות Wix",
+      category: "integrations",
+      description: "קליטת הזמנות מחנות Wix של העסק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.TELEPHONY_CLOUDTALK,
+      displayName: "שיחות מ־CloudTalk",
+      category: "integrations",
+      description: "קליטת שיחות טלפון (נכנסות, יוצאות, שלא נענו) מ־CloudTalk — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.TELEPHONY_VOICENTER,
+      displayName: "שיחות מ־Voicenter",
+      category: "integrations",
+      description: "קליטת שיחות טלפון (נכנסות, יוצאות, שלא נענו) מ־Voicenter — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

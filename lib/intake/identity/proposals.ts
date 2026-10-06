@@ -9,8 +9,10 @@
  *
  *   confirm   staleness-checked, then: owner_confirmed links for the proposed
  *             identifiers, the event's Lead attached to the Customer (only if it
- *             is still contact-less), sibling proposals for the same event
- *             superseded. Every domain effect is recorded in appliedEffects.
+ *             is still contact-less), M7-A: the event's CommerceOrder / CallActivity
+ *             attached likewise (only if still without a Customer), sibling
+ *             proposals for the same event superseded. Every domain effect is
+ *             recorded in appliedEffects.
  *   reject    keep separate. Nothing else changes.
  *   undo      a confirmed proposal: its links are revoked and exactly the
  *             recorded domain effects are reverted — never messages, never
@@ -139,8 +141,33 @@ async function staleness(tx: TenantTx, businessId: number, p: LockedProposal): P
       return "lead_already_attached_to_another_customer";
     }
   }
+  const order = await eventOrder(tx, businessId, p.intakeEventId);
+  if (order && order.customerId !== null && order.customerId !== p.candidateCustomerId) return "order_already_attached_to_another_customer";
+  const call = await eventCall(tx, businessId, p.intakeEventId);
+  if (call && call.customerId !== null && call.customerId !== p.candidateCustomerId) return "call_already_attached_to_another_customer";
   return null;
 }
+
+/** M7-A — the order an intake event wrote (through its append-only history row). */
+async function eventOrder(tx: TenantTx, businessId: number, intakeEventId: number) {
+  const ev = await tx.commerceOrderEvent.findFirst({ where: { businessId, intakeEventId }, select: { orderId: true } });
+  if (!ev) return null;
+  return tx.commerceOrder.findFirst({ where: { id: ev.orderId, businessId }, select: { id: true, customerId: true } });
+}
+
+/** M7-A — the call an intake event wrote. */
+async function eventCall(tx: TenantTx, businessId: number, intakeEventId: number) {
+  return tx.callActivity.findFirst({
+    where: { businessId, OR: [{ firstIntakeEventId: intakeEventId }, { lastIntakeEventId: intakeEventId }] },
+    select: { id: true, customerId: true, callerHash: true },
+  });
+}
+
+type AppliedEffects = {
+  lead?: { id: number; previousCustomerId: number | null };
+  order?: { id: number };
+  call?: { id: number; previousCallerHash: string | null };
+};
 
 /** M5 — record an owner-decided contact relink on the lead's lifecycle history. */
 async function recordContactStep(
@@ -178,7 +205,7 @@ export async function decideProposal(args: {
     if (args.action === "undo") {
       if (p.state !== "confirmed") return { status: "invalid_state", state: p.state };
       await revokeProposalLinks(tx, { businessId: args.businessId, proposalId: p.id, userId: args.userId, now });
-      const effects = (p.appliedEffects ?? {}) as { lead?: { id: number; previousCustomerId: number | null } };
+      const effects = (p.appliedEffects ?? {}) as AppliedEffects;
       if (effects.lead) {
         // Revert only what this confirmation did, and only if nobody changed it since.
         const reverted = await tx.lead.updateMany({
@@ -189,6 +216,19 @@ export async function decideProposal(args: {
           // M5 — the reversal is part of the lead's lifecycle history (once per proposal).
           await recordContactStep(tx, args.businessId, effects.lead.id, "contact_detached", p.id, args.userId);
         }
+      }
+      // M7-A — exactly what the confirmation attached, and only if nobody changed it since.
+      if (effects.order) {
+        await tx.commerceOrder.updateMany({
+          where: { id: effects.order.id, businessId: args.businessId, customerId: p.candidateCustomerId },
+          data: { customerId: null },
+        });
+      }
+      if (effects.call) {
+        await tx.callActivity.updateMany({
+          where: { id: effects.call.id, businessId: args.businessId, customerId: p.candidateCustomerId },
+          data: { customerId: null, leadId: null, callerState: "unknown", callerHash: effects.call.previousCallerHash },
+        });
       }
       await tx.identityProposal.updateMany({
         where: { id: p.id, businessId: args.businessId },
@@ -228,7 +268,7 @@ export async function decideProposal(args: {
       sourceIntakeEventId: p.intakeEventId,
       proposalId: p.id,
     });
-    const effects: { lead?: { id: number; previousCustomerId: number | null } } = {};
+    const effects: AppliedEffects = {};
     if (p.leadId !== null) {
       const attached = await tx.lead.updateMany({
         where: { id: p.leadId, businessId: args.businessId, customerId: null },
@@ -238,6 +278,23 @@ export async function decideProposal(args: {
         effects.lead = { id: p.leadId, previousCustomerId: null };
         await recordContactStep(tx, args.businessId, p.leadId, "contact_attached", p.id, args.userId);
       }
+    }
+    // M7-A — the event's order / call, if it wrote one and it is still without a Customer.
+    const order = await eventOrder(tx, args.businessId, p.intakeEventId);
+    if (order && order.customerId === null) {
+      const a = await tx.commerceOrder.updateMany({
+        where: { id: order.id, businessId: args.businessId, customerId: null },
+        data: { customerId: p.candidateCustomerId },
+      });
+      if (a.count === 1) effects.order = { id: order.id };
+    }
+    const call = await eventCall(tx, args.businessId, p.intakeEventId);
+    if (call && call.customerId === null) {
+      const a = await tx.callActivity.updateMany({
+        where: { id: call.id, businessId: args.businessId, customerId: null },
+        data: { customerId: p.candidateCustomerId, callerState: "known", callerHash: null },
+      });
+      if (a.count === 1) effects.call = { id: call.id, previousCallerHash: call.callerHash };
     }
     await tx.identityProposal.updateMany({
       where: { businessId: args.businessId, intakeEventId: p.intakeEventId, state: "proposed", id: { not: p.id } },

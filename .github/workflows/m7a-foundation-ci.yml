@@ -1,0 +1,159 @@
+# M7-A — Commerce + Telephony foundation, Meta Lead Ads hardening (docs/business-intake-m7-decision-v1.md).
+#
+#   core      no database: the M7-A core suite + every suite the change touches
+#   battery   PostgreSQL 17, the REAL M6 + M7-A migrations on the pushed schema, Production's RLS (replayed
+#             verbatim from the migrations), a NOBYPASSRLS runtime running the app code: E2–E16 (simulated
+#             providers — LAB-PROVEN, never REAL-PROVIDER-PROVEN); then schema drift
+#   (the migration itself is proven in Production topology by m7a-foundation-lab.yml)
+#
+# Synthetic credentials; ZERO secrets; ZERO network (Meta Graph stubbed in-process).
+
+name: m7a — commerce + telephony foundation (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/intake/**"
+      - "lib/services/calls/**"
+      - "lib/services/crm/lead-attention.ts"
+      - "lib/services/crm/lead-briefing.ts"
+      - "lib/services/crm/lead-card.read-model.ts"
+      - "lib/services/crm/lead-intelligence.ts"
+      - "lib/business-status/**"
+      - "lib/sensors/**"
+      - "lib/knowledge/coverage/**"
+      - "lib/services/account/**"
+      - "lib/services/feature-access/**"
+      - "app/api/intake/**"
+      - "app/api/integrations/acquisition/**"
+      - "app/(corporate)/privacy/**"
+      - "app/(corporate)/data-deletion/**"
+      - "components/leads/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/**"
+      - "ops/evidence/m7a-foundation-*.sql"
+      - ".m7a/**"
+      - ".m6/**"
+      - ".github/workflows/m7a-foundation-ci.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: M7-A core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/intake/m7a-core.test.ts
+      - run: npx tsx lib/intake/acquisition/acquisition-core.test.ts
+      - run: npx tsx lib/intake/core/intake-core.test.ts
+      - run: npx tsx lib/intake/identity/identity-core.test.ts
+      - run: npx tsx lib/sensors/sensors.test.ts
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: npx tsx lib/services/crm/lead-core.test.ts
+      - run: npx tsx lib/services/crm/lead-lifecycle.test.ts
+      - run: npx tsx lib/services/crm/lead-intelligence.test.ts
+      - run: npm run verify:erasure-contract -- --baseline-check
+
+  battery:
+    name: M7-A battery (PG17, real M6 + M7-A migrations, Production RLS, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: m7a_owner
+          POSTGRES_PASSWORD: m7a_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_m7a
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U m7a_owner -d dubiz_m7a"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNER_URL: postgresql://m7a_owner:m7a_ci_synthetic_owner_pw@localhost:5432/dubiz_m7a
+      RUNTIME_URL: postgresql://app_runtime:m7a_ci_synthetic_runtime_pw@localhost:5432/dubiz_m7a
+      AUTH_TOKEN_SECRET: m7a_ci_secret_synthetic_at_least_32_characters_long
+      META_LEAD_ADS_APP_SECRET: m7a_ci_synthetic_meta_app_secret
+      META_LEAD_ADS_VERIFY_TOKEN: m7a_ci_synthetic_verify_token
+      ACQUISITION_CREDENTIAL_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PGPASSWORD: m7a_ci_synthetic_owner_pw
+      M6: prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
+      M7A: prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Roles as in Production (runtime NOSUPERUSER NOBYPASSRLS; app_auth / app_ctlplane / app_admin groups)
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 'm7a_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS"
+
+      - name: 2. Schema without M6 / M7-A (db push), then the REAL M6 and M7-A migrations
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          node .m7a/strip-schema.mjs prisma/schema.prisma /tmp/base.prisma
+          npx prisma db push --schema /tmp/base.prisma --skip-generate
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$M6"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7a/prereq.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$M7A"
+          npx prisma generate
+
+      - name: 3. Production row-level security, replayed verbatim from the migrations
+        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections 20261013090000_m7a_commerce_telephony_foundation
+
+      - name: 4. M7-A battery — E2–E16 on the real routes / processor / identity / destinations / Secretary
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m7a/battery.ts
+
+      - name: 5. No drift between the migrated database and schema.prisma (beyond the documented DB-only objects)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          npx prisma migrate diff --from-url "$OWNER_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
+          # DB-ONLY by design, and ONLY these: M7-A's three composite tenant FKs (Customer / Lead, SET NULL)
+          # and the sec-C (businessId, id) keys they reference. Partial indexes are invisible to the diff.
+          DBONLY='"(CommerceOrder_customerId|CallActivity_customerId|CallActivity_leadId)_tenant_fkey"|"(Customer|Lead)_businessId_id_key"'
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql > /tmp/drift-stmts.sql || true
+          n=$(grep -cE "$DBONLY" /tmp/drift-stmts.sql || true)
+          grep -vE "$DBONLY" /tmp/drift-stmts.sql > /tmp/drift-rest.sql || true
+          cat /tmp/drift-stmts.sql
+          if [ -s /tmp/drift-rest.sql ]; then echo "DRIFT between the migrations and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1; fi
+          echo "no drift beyond $n statement(s) on the documented DB-only objects"
+

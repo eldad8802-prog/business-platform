@@ -127,6 +127,8 @@ export type LeadAttentionRaw = {
   /** M5 — lifecycle facts the attention contract reads. */
   lastActivityAt: Date | null;
   lastCustomerInboundAt: Date | null;
+  /** M7-A — the latest missed inbound call of the lead's customer nobody returned. */
+  lastUnreturnedCallAt?: Date | null;
   openIdentityProposals: number;
 };
 
@@ -523,6 +525,11 @@ export async function loadLeadsNeedingAttention(
            l."createdAt", l."lastActivityAt",
            (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
              WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
+           (SELECT max(ca."startedAt") FROM "CallActivity" ca
+             WHERE ca."businessId" = l."businessId"
+               AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
+               AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
+               AND ca."returnedAt" IS NULL) AS "lastUnreturnedCallAt",
            (SELECT count(*)::int FROM "IdentityProposal" p
              WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed') AS "openIdentityProposals"
     FROM "Lead" l
@@ -540,6 +547,12 @@ export async function loadLeadsNeedingAttention(
         OR EXISTS (SELECT 1 FROM "Conversation" c
                     WHERE c."businessId" = l."businessId" AND c."leadId" = l."id"
                       AND c."customerLastInboundAt" > COALESCE(l."lastActivityAt", l."createdAt"))
+        -- M7-A — a missed call of this lead's customer nobody returned (the evaluator decides).
+        OR EXISTS (SELECT 1 FROM "CallActivity" ca
+                    WHERE ca."businessId" = l."businessId"
+                      AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
+                      AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
+                      AND ca."returnedAt" IS NULL)
       )
     ORDER BY l."nextFollowUpAt" ASC NULLS LAST, l."createdAt" ASC
     LIMIT ${BS_LEADS_CAP * 3}`);

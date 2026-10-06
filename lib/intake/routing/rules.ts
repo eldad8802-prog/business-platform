@@ -16,9 +16,16 @@
  *                         unresolved → a new Customer (deterministic creation);
  *                         candidate / ambiguous / conflict → a contact-less Lead
  *                         plus owner proposals. Never a guess.
- *   R5_COMMERCE           COMMERCE → commerce (Customer + Order). No handler
- *                         exists yet (M6+): dead-lettered with the payload KEPT
- *                         for replay once it ships — never turned into a Lead.
+ *   R5_COMMERCE           COMMERCE → commerce: the core commerce destination
+ *                         (M7-A) writes the CommerceOrder; identity decides the
+ *                         buyer's Customer. Never a Lead. A source that did not
+ *                         opt in is 'unavailable' (dead-lettered, payload KEPT).
+ *   R9_CALL               CALL with a call target → the core call destination
+ *                         (M7-A): one CallActivity. Identity may NAME a known
+ *                         Customer; it never creates one, never links an
+ *                         identifier and never creates or moves a Lead. A
+ *                         conflict asks the owner. (A CALL aimed at "lead" is
+ *                         already refused by R0.)
  *   R6_FORM_ATTENTION     FORM_SUBMISSION → attention (owner decides)
  *   R7_NONE               the adapter understood it and chose not to materialise
  *   R8_ATTENTION_DEFAULT  anything else the rules do not name → attention
@@ -32,7 +39,7 @@ import type { IntakeEventFamily } from "@prisma/client";
 import type { RouteTarget } from "@/lib/intake/core/contract";
 import type { IdentityState } from "@/lib/intake/identity/resolve";
 
-export const ROUTING_POLICY_VERSION = "routing-policy@1";
+export const ROUTING_POLICY_VERSION = "routing-policy@2";
 
 export type RoutingDecision = {
   rule: string;
@@ -58,6 +65,9 @@ export function decideRoute(input: {
   }
   if (family === "COMMERCE") {
     return { rule: "R5_COMMERCE", destination: "commerce", executor: core("commerce") ? "core" : "unavailable", ownerReviewRequired: false };
+  }
+  if (family === "CALL" && target === "call") {
+    return { rule: "R9_CALL", destination: "call", executor: core("call") ? "core" : "unavailable", ownerReviewRequired: identityState === "conflict" };
   }
   if (target === "message_status") {
     return { rule: "R2_MESSAGE_STATUS", destination: "message_status", executor: "adapter", ownerReviewRequired: false };

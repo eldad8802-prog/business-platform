@@ -56,7 +56,9 @@ export type SensorDomain =
   | "revenue"
   | "account"
   | "data"
-  | "intake";
+  | "intake"
+  | "commerce"
+  | "telephony";
 
 /**
  * A payload value. Deliberately narrow: identifiers, enums, counts, flags, dates as ISO strings, and

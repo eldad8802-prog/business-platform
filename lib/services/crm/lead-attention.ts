@@ -49,6 +49,7 @@ import {
 /** Why a lead is asking for the owner. Ordered most- to least-urgent. */
 export type LeadAttentionReason =
   | "FOLLOWUP_OVERDUE"
+  | "CUSTOMER_CALLED"
   | "CUSTOMER_WROTE"
   | "FOLLOWUP_DUE_TODAY"
   | "AWAITING_OWNER_DECISION"
@@ -67,6 +68,7 @@ export type LeadEvidenceClass = "fact" | "inference";
 
 export const LEAD_REASON_EVIDENCE: Record<LeadAttentionReason, LeadEvidenceClass> = {
   FOLLOWUP_OVERDUE: "fact",
+  CUSTOMER_CALLED: "fact",
   CUSTOMER_WROTE: "fact",
   FOLLOWUP_DUE_TODAY: "fact",
   AWAITING_OWNER_DECISION: "fact",
@@ -78,6 +80,7 @@ export const LEAD_REASON_EVIDENCE: Record<LeadAttentionReason, LeadEvidenceClass
 /** What the owner should do next. `none` = nothing is being asked of them. */
 export type LeadNextActionKind =
   | "complete_followup"
+  | "call_back"
   | "contact_new_lead"
   | "set_followup"
   | "none";
@@ -116,6 +119,11 @@ export type LeadAttentionInput = {
   lastActivityAt?: Date | null;
   /** M5 (optional): latest customer-inbound message on a conversation linked to the lead. */
   lastCustomerInboundAt?: Date | null;
+  /**
+   * M7-A (optional): the latest inbound call from this lead's customer that was missed and not
+   * returned (CallActivity). Recorded lead activity after it counts as handled.
+   */
+  lastUnreturnedCallAt?: Date | null;
   /** M5 (optional): open M4 identity proposals naming this lead. */
   openIdentityProposals?: number;
   /** M5 (optional): suggestion rules dismissed at the lead's current version. */
@@ -187,6 +195,21 @@ function evaluateCoreAttention(
       priority: Math.min(95, 80 + Math.min(followUp.overdueDays, 15)),
       nextAction: { kind: "complete_followup", label: "חזרו אליו — המעקב באיחור" },
     };
+  }
+
+  // M7-A — the customer CALLED, the call was missed, nobody called back, and nothing
+  // was recorded on the lead since (a fact, from CallActivity). Ranked above a
+  // written message: a caller is waiting on the phone, not in a thread.
+  if (input.lastUnreturnedCallAt) {
+    const handledAt = Math.max(input.createdAt.getTime(), input.lastActivityAt?.getTime() ?? 0);
+    if (input.lastUnreturnedCallAt.getTime() > handledAt) {
+      return {
+        needsAttention: true,
+        reason: "CUSTOMER_CALLED",
+        priority: 78,
+        nextAction: { kind: "call_back", label: "הלקוח התקשר — חזרו אליו" },
+      };
+    }
   }
 
   // M5 — the customer wrote after the last recorded activity on the lead (a
@@ -282,6 +305,8 @@ export function leadAttentionReasonLabel(reason: LeadAttentionReason): string {
       return "מעקב באיחור";
     case "FOLLOWUP_DUE_TODAY":
       return "מעקב להיום";
+    case "CUSTOMER_CALLED":
+      return "הלקוח התקשר ולא חזרתם";
     case "NEW_UNHANDLED":
       return "ליד חדש שלא טופל";
     case "CUSTOMER_WROTE":
@@ -318,6 +343,8 @@ export function leadAttentionSummary(
       return "הליד נכנס ועדיין לא נגעתם בו.";
     case "CUSTOMER_WROTE":
       return "הלקוח כתב אחרי העדכון האחרון שלכם בליד.";
+    case "CUSTOMER_CALLED":
+      return "הלקוח התקשר, השיחה לא נענתה, ולא חזרתם אליו מאז.";
     case "AWAITING_OWNER_DECISION":
       return "דוביז לא בטוח לאיזה לקוח הליד שייך, ומחכה לאישור שלכם.";
     case "QUOTE_NO_ACTIVITY":

@@ -410,13 +410,13 @@ A simulator or local server never yields REAL.
 | E16 | Provider failure → retry → recovery; WooCommerce reconciler catches a missed webhook | LAB | LAB | battery with the stubbed provider down, then up |
 | E17 | Real provider event for a real business, end to end | **REAL** (needs a real store) | **REAL** (needs a real account; Voicenter contract) | owner-run runbook + read-only evidence |
 
-**Today, every row is at level 0.** Nothing in M7 exists yet.
+**Status (M7-A, built):** E1–E16 are LAB-PROVEN (simulated providers) and E1/E2 become PROD at D10; E17 is not started (M7-B / M7-C). The per-row status lives in `docs/business-intake-m7a-release.md` §6.
 
 ---
 
 ## 13. Migration plan
 
-**One migration, `M7-A` (`<timestamp>_m7_commerce_telephony_foundation`, with a timestamp later than the newest migration on main when M7-A is built)**, applied only through the approved-prefix release gate after its own preflight. It contains:
+**One migration, `20261013090000_m7a_commerce_telephony_foundation`**, applied only through the approved-prefix release gate after its own preflight (release package: `docs/business-intake-m7a-release.md`). It contains:
 
 1. The `AcquisitionConnection` CHECK widening (sourceKey + source_shape). Resolver functions are extended for the new sources.
 2. **M-D2:** the Meta resolver accepts `ERROR` (leads are kept while a reconnect is pending).
@@ -424,11 +424,13 @@ A simulator or local server never yields REAL.
 4. Tables `CommerceOrder`, `CommerceOrderLine`, `CommerceOrderEvent` and `CallActivity`, with FORCE RLS, per-command policies, grants (runtime; no DELETE; INSERT/SELECT only on events) and indexes.
 5. Feature catalog rows (OFF).
 
-Additive only. No backfill. Rollback = leave the objects unused; the features stay OFF.
+Additive for data. No backfill. Rollback: `.m7a/rollback.sql`, owner-run and lab-proven; it refuses while anything uses the new objects.
+
+Order (migration-first, as M6): PR-A (migration only) → preflight → owner approval record → `release-migrate` → post-apply proof → PR-B (models + code). PR-B reads `CallActivity`, so it must never deploy before the migration.
 
 Evidence:
-- `ops/evidence/m7-foundation-preflight.sql`, which proves the objects are absent and M6 is unchanged.
-- `ops/evidence/m7-foundation-postcheck.sql`, which proves every E1/E2 item.
+- `ops/evidence/m7a-foundation-preflight.sql` (13 checks): the objects are absent, M6 and the M3/M4 vocabularies are in force, existing rows satisfy the widened shape.
+- `ops/evidence/m7a-foundation-production-evidence.sql` (16 checks, checksum pinned): every E1/E2 item.
 
 ---
 

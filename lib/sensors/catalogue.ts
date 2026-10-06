@@ -375,6 +375,50 @@ export const SENSORS = {
     timeSemantics: "INGESTION_TIME",
     learning: { role: "LEDGER_DUPLICATE", ledger: ["IntakeNormalizedEvent"] },
   }),
+  /* ───────────── M7-A — commerce + telephony (categories only; the domain rows are the ledger) ───────────── */
+  // Written by lib/intake/routing/commerce-destination.ts and call-destination.ts in the SAME transaction
+  // as the row they describe. Never a name, number, address, product text, amount or hash: buckets and
+  // states only.
+  COMMERCE_ORDER_RECORDED: S({
+    eventType: "COMMERCE_ORDER_RECORDED",
+    domain: "commerce",
+    entityType: "COMMERCE_ORDER",
+    version: 1,
+    payloadKeys: ["sourceKey", "status", "currency", "totalBucket", "lineCount", "customerKind", "identityState", "attributed"],
+    describes: "A store order reached Dubiz for the first time: which store, its status, a total bucket, whether its buyer was new, returning or unknown.",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["CommerceOrder"] },
+  }),
+  COMMERCE_ORDER_STATUS_CHANGED: S({
+    eventType: "COMMERCE_ORDER_STATUS_CHANGED",
+    domain: "commerce",
+    entityType: "COMMERCE_ORDER",
+    version: 1,
+    payloadKeys: ["sourceKey", "fromStatus", "toStatus", "eventKind"],
+    describes: "A store reported a newer state of an order and its status changed (paid, fulfilled, cancelled, refunded).",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["CommerceOrderEvent"] },
+  }),
+  CALL_RECORDED: S({
+    eventType: "CALL_RECORDED",
+    domain: "telephony",
+    entityType: "CALL_ACTIVITY",
+    version: 1,
+    payloadKeys: ["sourceKey", "direction", "outcome", "durationBucket", "callerState", "identityState", "onOpenLead"],
+    describes: "A business call reached Dubiz: its direction, outcome, a duration bucket, and whether the other party was a known customer, unknown or hidden.",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["CallActivity"] },
+  }),
+  MISSED_CALL_RETURNED: S({
+    eventType: "MISSED_CALL_RETURNED",
+    domain: "telephony",
+    entityType: "CALL_ACTIVITY",
+    version: 1,
+    payloadKeys: ["via", "latencyBucket", "callerState"],
+    describes: "A missed inbound call was returned by the business, how, and within which latency bucket.",
+    timeSemantics: "INGESTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["CallActivity"] },
+  }),
   IDENTITY_PROPOSAL_DECIDED: S({
     eventType: "IDENTITY_PROPOSAL_DECIDED",
     domain: "intake",

@@ -265,6 +265,10 @@ async function main() {
   // UPDATE; DELETE revoked): the erasure revokes connections in place with an UPDATE.
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "AcquisitionConnection" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "AcquisitionConnection" FROM ${RT_ROLE}`);
+  // M7-A — migration 20261013090000_m7a_commerce_telephony_foundation, mirrored exactly for the tables
+  // the erasure scrubs (SELECT, INSERT, UPDATE; DELETE revoked).
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "CommerceOrder", "CommerceOrderLine", "CallActivity" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "CommerceOrder", "CommerceOrderLine", "CallActivity" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );

@@ -1,0 +1,11 @@
+{
+  "note": "Business Intake M7-A: commerce + telephony foundation and the Meta Lead Ads hardening (docs/business-intake-m7a-release.md).",
+  "tests": {
+    "lib/intake/m7a-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m7a-foundation-ci.yml",
+      "reason": "M7-A: the canonical order / call (recordings never enter, hidden callers never a number), receipt identity, routing invariants (R0 Order/Call ≠ Lead, R5, R9), stale-delivery ordering, provider signature schemes (HMAC base64, Svix with replay window), per-business caller hashing, PII-free learning buckets, the Secretary's CUSTOMER_CALLED reason, Meta long-lived token exchange or refusal; run on pull_request by m7a-foundation-ci.yml (the tenant / RLS side by .m7a/battery.ts as a NOBYPASSRLS runtime)"
+    }
+  }
+}

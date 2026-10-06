@@ -28,6 +28,7 @@ function leadLabel(name: string | null): string {
 
 const SEVERITY_BY_REASON: Record<string, Severity> = {
   FOLLOWUP_OVERDUE: "HIGH",
+  CUSTOMER_CALLED: "HIGH",
   CUSTOMER_WROTE: "HIGH",
   FOLLOWUP_DUE_TODAY: "MEDIUM",
   AWAITING_OWNER_DECISION: "MEDIUM",
@@ -50,6 +51,7 @@ export function translateLeadsNeedingAttention(
         createdAt: r.createdAt,
         lastActivityAt: r.lastActivityAt,
         lastCustomerInboundAt: r.lastCustomerInboundAt,
+        lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
         openIdentityProposals: r.openIdentityProposals,
       },
       now

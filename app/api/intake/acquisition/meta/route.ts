@@ -5,6 +5,8 @@
  * POST  X-Hub-Signature-256 = HMAC-SHA256(app secret, raw body), verified BEFORE parsing. Each
  *       `leadgen` change names a Page; the Page id (inside the signed body) → the business that
  *       connected that Page (definer lookup). A Page nobody connected is skipped, never routed.
+ *       M7-A: a Page whose connection is in ERROR (token / permission failure) still resolves, so its
+ *       leads are recorded and deferred until the owner reconnects — never acknowledged and dropped.
  *       Receipts are references; the answers are read with the Page token in the processor's
  *       hydrate step, after the 200.
  * Config: the Meta app secret (META_LEAD_ADS_APP_SECRET, else the app's WHATSAPP_APP_SECRET) and

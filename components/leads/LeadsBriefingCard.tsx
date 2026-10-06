@@ -34,7 +34,9 @@ export function LeadsBriefingCard() {
   }, []);
 
   const arrivals = briefing?.arrivals;
-  if (!briefing || (briefing.counts.needsAttention === 0 && !arrivals?.today)) return null;
+  const calls = briefing?.calls;
+  const owedCalls = calls ? calls.unreturned.knownCustomers + calls.unreturned.unknownNumbers : 0;
+  if (!briefing || (briefing.counts.needsAttention === 0 && !arrivals?.today && owedCalls === 0)) return null;
   const c = briefing.counts;
   const lines: string[] = [];
   // M6 — today's arrivals with their sources ("3 מפייסבוק/אינסטגרם, 2 מגוגל"): context, not a separate inbox.
@@ -43,6 +45,11 @@ export function LeadsBriefingCard() {
       ? " · " + arrivals.bySource.map((s) => (s.group === "manual" ? `${s.count} ${s.label}` : `${s.count} מ${s.label}`)).join(", ")
       : "";
     lines.push(`נכנסו היום ${arrivals.today === 1 ? "ליד חדש אחד" : `${arrivals.today} לידים חדשים`}${sources}`);
+  }
+  if (c.CUSTOMER_CALLED) lines.push(`${c.CUSTOMER_CALLED} לקוחות התקשרו ולא חזרתם אליהם`);
+  // M7-A — calls nobody returned (known customers vs numbers Dubiz does not know). Never a number.
+  if (calls && calls.unreturned.unknownNumbers > 0) {
+    lines.push(`${calls.unreturned.unknownNumbers === 1 ? "מספר לא מוכר אחד התקשר" : `${calls.unreturned.unknownNumbers} מספרים לא מוכרים התקשרו`} ולא חזרתם`);
   }
   if (c.CUSTOMER_WROTE) lines.push(`${c.CUSTOMER_WROTE} לקוחות כתבו ומחכים לכם`);
   if (c.FOLLOWUP_OVERDUE) lines.push(`${c.FOLLOWUP_OVERDUE} מעקבים באיחור`);

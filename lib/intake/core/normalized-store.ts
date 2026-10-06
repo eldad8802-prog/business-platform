@@ -204,6 +204,7 @@ const ROUTE_TARGET_SET = new Set<string>([
   "lead",
   "customer",
   "commerce",
+  "call",
   "document",
   "attention",
   "none",

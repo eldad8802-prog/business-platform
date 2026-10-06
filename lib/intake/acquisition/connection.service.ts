@@ -13,11 +13,15 @@
  */
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ValidationError } from "@/lib/errors";
-import { newPublicId, newSharedKey } from "./keys";
+import { newPublicId, newSharedKey, newSigningSecret } from "./keys";
 import { credentialAad, decryptCredential, encryptCredential } from "./credential-crypto";
-import type { AcquisitionSourceKey } from "./gate";
+import type { ConnectionSourceKey } from "./gate";
 
 export const MAX_CONNECTIONS_PER_SOURCE = 20;
+/** Sources that authenticate with a shared key whose sha256 is stored (keyHash). */
+const KEYED_SOURCES = new Set<string>(["google.lead_form", "web.form", "telephony.voicenter"]);
+/** Sources whose provider-side reference on a receipt is the provider resource, not the endpoint. */
+const RESOURCE_REF_SOURCES = new Set<string>(["meta.lead_ads", "commerce.wix"]);
 export const MAX_ALLOWED_ORIGINS = 10;
 
 export type ConnectionView = {
@@ -78,7 +82,7 @@ function label(raw: unknown): string | null {
   return s ? s.slice(0, 120) : null;
 }
 
-export async function listConnections(sourceKey?: AcquisitionSourceKey): Promise<ConnectionView[]> {
+export async function listConnections(sourceKey?: ConnectionSourceKey): Promise<ConnectionView[]> {
   return withTenantTransaction((tx) =>
     tx.acquisitionConnection.findMany({
       where: sourceKey ? { sourceKey } : {},
@@ -91,7 +95,7 @@ export async function listConnections(sourceKey?: AcquisitionSourceKey): Promise
 export async function createKeyedConnection(input: {
   businessId: number;
   userId: number | null;
-  sourceKey: "google.lead_form" | "web.form";
+  sourceKey: "google.lead_form" | "web.form" | "telephony.voicenter";
   label?: unknown;
   allowedOrigins?: unknown;
 }): Promise<{ connection: ConnectionView; key: string }> {
@@ -120,7 +124,7 @@ export async function createKeyedConnection(input: {
 export async function rotateKey(id: number): Promise<{ connection: ConnectionView; key: string } | null> {
   return withTenantTransaction(async (tx) => {
     const row = await tx.acquisitionConnection.findFirst({ where: { id, status: { not: "REVOKED" } }, select: { sourceKey: true } });
-    if (!row || (row.sourceKey !== "google.lead_form" && row.sourceKey !== "web.form")) return null;
+    if (!row || (row.sourceKey !== "google.lead_form" && row.sourceKey !== "web.form" && row.sourceKey !== "telephony.voicenter")) return null;
     const k = newSharedKey(row.sourceKey);
     const connection = await tx.acquisitionConnection.update({ where: { id }, data: { keyHash: k.hash, keyHint: k.hint }, select: VIEW });
     return { connection, key: k.key };
@@ -164,7 +168,7 @@ export async function revokeConnection(id: number, now = new Date()): Promise<Co
         credentialKeyId: null,
         credentialExpiresAt: null,
         // A revoked key can never match again (null fails the keyed lookup's equality).
-        ...(row.sourceKey === "meta.lead_ads" ? {} : { keyHash: "0".repeat(64) }),
+        ...(KEYED_SOURCES.has(row.sourceKey) ? { keyHash: "0".repeat(64) } : {}),
       },
       select: VIEW,
     });
@@ -181,6 +185,8 @@ export async function bindMetaPage(input: {
   pageId: string;
   pageName?: unknown;
   pageAccessToken: string;
+  /** When Meta says the Page token expires; null = it does not (a long-lived Page token). */
+  credentialExpiresAt?: Date | null;
 }): Promise<ConnectionView> {
   if (!/^[0-9]{1,32}$/.test(input.pageId)) throw new ValidationError("invalid page id");
   const publicId = newPublicId();
@@ -202,11 +208,87 @@ export async function bindMetaPage(input: {
         credentialIv: enc.iv,
         credentialTag: enc.tag,
         credentialKeyId: enc.keyId,
+        credentialExpiresAt: input.credentialExpiresAt ?? null,
         createdByUserId: input.userId,
       },
       select: VIEW,
     });
   });
+}
+
+// ── M7-A — commerce / telephony connections (owner side; provider routes and UI arrive in M7-B/C) ──
+
+/** Sources that authenticate a delivery with a SIGNATURE Dubiz must verify (the secret is stored encrypted). */
+export const SIGNED_SOURCES = ["commerce.woocommerce", "commerce.wix", "telephony.cloudtalk"] as const;
+export type SignedSourceKey = (typeof SIGNED_SOURCES)[number];
+
+/** The encrypted credential bundle of a signed connection. Never returned to a browser, never logged. */
+export type ConnectionSecrets = { signingSecret: string } & Record<string, string>;
+
+/**
+ * Bind a signed source to this business. The signing secret is Dubiz's own (generated here) unless
+ * the provider issues it (a CloudTalk / Svix endpoint secret); either way it is stored ENCRYPTED and
+ * AAD-bound to the row. Wix binds by its app instance id (externalResourceId); the partial unique
+ * index refuses a store / instance that is live on another business.
+ */
+export async function createSignedConnection(input: {
+  businessId: number;
+  userId: number | null;
+  sourceKey: SignedSourceKey;
+  label?: unknown;
+  externalResourceId?: string | null;
+  signingSecret?: string;
+  extraSecrets?: Record<string, string>;
+}): Promise<{ connection: ConnectionView; signingSecret: string }> {
+  const resource = input.externalResourceId?.trim() || null;
+  if (resource !== null && !/^[A-Za-z0-9_.:-]{1,64}$/.test(resource)) throw new ValidationError("invalid provider resource id");
+  if (input.sourceKey === "commerce.wix" && resource === null) throw new ValidationError("a Wix connection needs its instance id");
+  const signingSecret = input.signingSecret?.trim() || newSigningSecret();
+  if (signingSecret.length < 16 || signingSecret.length > 256) throw new ValidationError("invalid signing secret");
+  const publicId = newPublicId();
+  const bundle: ConnectionSecrets = { ...(input.extraSecrets ?? {}), signingSecret };
+  const enc = encryptCredential(JSON.stringify(bundle), credentialAad(input.businessId, input.sourceKey, publicId));
+  const connection = await withTenantTransaction(async (tx) => {
+    const live = await tx.acquisitionConnection.count({ where: { sourceKey: input.sourceKey, status: { not: "REVOKED" } } });
+    if (live >= MAX_CONNECTIONS_PER_SOURCE) throw new ValidationError("too many connections for this source");
+    return tx.acquisitionConnection.create({
+      data: {
+        businessId: input.businessId,
+        sourceKey: input.sourceKey,
+        publicId,
+        externalResourceId: resource,
+        label: label(input.label),
+        credentialCiphertext: enc.ciphertext,
+        credentialIv: enc.iv,
+        credentialTag: enc.tag,
+        credentialKeyId: enc.keyId,
+        createdByUserId: input.userId,
+      },
+      select: VIEW,
+    });
+  });
+  return { connection, signingSecret };
+}
+
+/**
+ * The decrypted secrets of ONE live (ACTIVE) signed connection, inside the business's tenant context —
+ * read only to verify a delivery's signature. The ciphertext never leaves this function; a
+ * ciphertext moved to another row or business fails its AAD.
+ */
+export async function readConnectionSecrets(businessId: number, connectionId: number): Promise<ConnectionSecrets | null> {
+  const row = await withTenantTransaction((tx) =>
+    tx.acquisitionConnection.findFirst({
+      where: { id: connectionId, status: "ACTIVE" },
+      select: { sourceKey: true, publicId: true, credentialCiphertext: true, credentialIv: true, credentialTag: true, credentialKeyId: true },
+    })
+  );
+  if (!row || !row.credentialCiphertext || !row.credentialIv || !row.credentialTag || !row.credentialKeyId) return null;
+  const plain = decryptCredential(
+    { ciphertext: row.credentialCiphertext, iv: row.credentialIv, tag: row.credentialTag, keyId: row.credentialKeyId },
+    credentialAad(businessId, row.sourceKey, row.publicId)
+  );
+  const parsed = JSON.parse(plain) as ConnectionSecrets;
+  return typeof parsed?.signingSecret === "string" ? parsed : null;
 }
 
 /**
@@ -216,21 +298,22 @@ export async function bindMetaPage(input: {
  * the account is being erased. Paused is not revoked: what was accepted before a pause is processed.
  */
 export async function connectionStateForRef(
-  sourceKey: AcquisitionSourceKey,
+  sourceKey: ConnectionSourceKey,
   accountRef: string | null
 ): Promise<"live" | "revoked"> {
   if (!accountRef) return "revoked";
-  const where =
-    sourceKey === "meta.lead_ads"
-      ? { sourceKey, externalResourceId: accountRef, status: { not: "REVOKED" } }
-      : { sourceKey, publicId: accountRef, status: { not: "REVOKED" } };
+  const where = RESOURCE_REF_SOURCES.has(sourceKey)
+    ? { sourceKey, externalResourceId: accountRef, status: { not: "REVOKED" } }
+    : { sourceKey, publicId: accountRef, status: { not: "REVOKED" } };
   const live = await withTenantTransaction((tx) => tx.acquisitionConnection.count({ where }));
   return live > 0 ? "live" : "revoked";
 }
 
 /**
- * The live Page token for a Meta Page (hydrate), by the Page id the receipt carries — so a Page the
- * owner reconnected after a token failure is picked up by the next retry. Null when none is live.
+ * The Page token for a Meta Page, by the Page id the receipt carries — so a Page the owner reconnected
+ * after a token failure is picked up by the next retry. Any un-revoked connection answers: ACTIVE,
+ * ERROR (a retry may succeed once Meta recovers), and PAUSED — what was accepted before a pause is
+ * still processed, and disconnecting a paused Page must still unsubscribe it at Meta. Null when none.
  */
 export async function readMetaPageToken(
   businessId: number,
@@ -238,7 +321,7 @@ export async function readMetaPageToken(
 ): Promise<{ connectionId: number; token: string } | null> {
   const row = await withTenantTransaction((tx) =>
     tx.acquisitionConnection.findFirst({
-      where: { sourceKey: "meta.lead_ads", externalResourceId: pageId, status: { in: ["ACTIVE", "ERROR"] } },
+      where: { sourceKey: "meta.lead_ads", externalResourceId: pageId, status: { in: ["ACTIVE", "ERROR", "PAUSED"] } },
       orderBy: { id: "desc" },
       select: { id: true, publicId: true, credentialCiphertext: true, credentialIv: true, credentialTag: true, credentialKeyId: true },
     })
