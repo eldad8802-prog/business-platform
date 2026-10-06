@@ -62,8 +62,11 @@ export function parseGoogleLead(body: unknown): GoogleParse {
       formId: b.form_id,
       campaignId: b.campaign_id,
       adSetId: b.adgroup_id ?? b.asset_group_id,
+      adSetKind: b.adgroup_id != null ? "ad_group" : b.asset_group_id != null ? "asset_group" : undefined,
       adId: b.creative_id,
       clickId: b.gcl_id,
+      // LEAD_FORM or CONVERSATIONAL_AGENT (Google's webhook guide) — kept for attribution (M8).
+      sourceType: b.lead_source,
     },
   });
   return { ok: true, lead, googleKey };

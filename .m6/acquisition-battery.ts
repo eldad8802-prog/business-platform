@@ -222,6 +222,14 @@ async function main() {
     leads: await o.lead.count({ where: { businessId: A.id, phone: { contains: "525550199" } } }),
   };
   ok("the test contact became no Customer and no Lead", testPeople.customers === 0 && testPeople.leads === 0, JSON.stringify(testPeople));
+  // Activation readout the owner sees: Google's test arrived (URL + key are right), one real lead, and
+  // the test is NOT counted as a lead.
+  const gList = (await (await ownerGET(new NextRequest("http://m6.local/api/integrations/acquisition", {
+    headers: { authorization: `Bearer ${signAuthToken(userA.id)}` },
+  }))).json()) as { connections: Array<{ id: number; activity: { lastTestAt: string | null; lastDeliveryAt: string | null; deliveries30d: number } | null }> };
+  const gAct = gList.connections.find((c) => c.id === gA.connection.id)?.activity;
+  ok("activation readout: Google's test received, one real lead, the test not counted as a lead",
+    !!gAct?.lastTestAt && !!gAct.lastDeliveryAt && gAct.deliveries30d === 1, JSON.stringify(gAct));
   const r = await runWithTenantContext({ businessId: A.id }, () => revokeConnection(gA.connection.id));
   ok("a revoked Google endpoint → 401 for its old key", !!r && (await google(gA.connection.publicId, googleLead(gA.key, `${RUN}-g9`))).status === 401);
 

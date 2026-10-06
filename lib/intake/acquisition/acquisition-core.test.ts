@@ -64,6 +64,27 @@ t("google: contact columns → contact, the rest → answers; ids and gclid → 
   assert.deepEqual(parseGoogleLead({ lead_id: "x" }), { ok: false, code: "missing_key" });
   assert.deepEqual(parseGoogleLead({ google_key: "k" }), { ok: false, code: "missing_lead_id" });
 });
+t("google activation: every attribution fact Google sends is kept (lead source, PMax asset group); long lead ids never collapse", () => {
+  const pmax = parseGoogleLead({ lead_id: "L3", google_key: "k", asset_group_id: 55, campaign_id: 8, lead_source: "CONVERSATIONAL_AGENT", gcl_id: "G1" });
+  assert.ok(pmax.ok);
+  if (!pmax.ok) return;
+  assert.deepEqual([pmax.lead.context.adSetId, pmax.lead.context.adSetKind, pmax.lead.context.sourceType], ["55", "asset_group", "CONVERSATIONAL_AGENT"]);
+  const n = normalizeAcquisitionLead(claimed(acquisitionReceipt(pmax.lead, "c")));
+  assert.ok(n.ok && n.normalized.attribution?.referralSourceType === "CONVERSATIONAL_AGENT" && n.normalized.attribution?.clickId === "G1");
+  const meta = acquisitionReceipt(pmax.lead, "c").metadata as Record<string, unknown>;
+  assert.ok(meta.sourceType === "CONVERSATIONAL_AGENT" && meta.adSetKind === "asset_group" && meta.hasClickId === true && !JSON.stringify(meta).includes("G1"));
+  assert.equal(parseGoogleLead({ lead_id: "L4", google_key: "k", lead_source: "not valid!" }).ok && (parseGoogleLead({ lead_id: "L4", google_key: "k", lead_source: "not valid!" }) as { lead: { context: { sourceType?: string } } }).lead.context.sourceType, undefined);
+  // Two different 90-character ids that share their first 64 characters: two receipts, never one.
+  const prefix = "A".repeat(64);
+  const a = parseGoogleLead({ lead_id: `${prefix}-first-lead-id-xxxxxxxxxxxxxxxxxxx`, google_key: "k" });
+  const b = parseGoogleLead({ lead_id: `${prefix}-second-lead-id-xxxxxxxxxxxxxxxxxx`, google_key: "k" });
+  assert.ok(a.ok && b.ok);
+  if (!a.ok || !b.ok) return;
+  assert.notEqual(acquisitionReceipt(a.lead, "c").externalEventId, acquisitionReceipt(b.lead, "c").externalEventId);
+  assert.equal(acquisitionReceipt(a.lead, "c").externalEventId, acquisitionReceipt(parseGoogleLead({ lead_id: `${prefix}-first-lead-id-xxxxxxxxxxxxxxxxxxx`, google_key: "k" }).ok ? a.lead : a.lead, "c").externalEventId);
+  const odd = parseGoogleLead({ lead_id: "id with spaces / and ünicode", google_key: "k" });
+  assert.ok(odd.ok && /^sha256-[0-9a-f]{64}$/.test(odd.lead.providerLeadId ?? ""), "an id outside the safe charset is kept as its hash, never dropped");
+});
 t("meta: a leadgen webhook groups references by Page; non-leadgen and malformed entries are ignored", () => {
   const p = parseMetaLeadgenWebhook({ object: "page", entry: [
     { id: "111", changes: [{ field: "leadgen", value: { leadgen_id: "9", page_id: "111", form_id: "7", created_time: 1700000000 } },
