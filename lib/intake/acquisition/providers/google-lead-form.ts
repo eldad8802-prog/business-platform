@@ -22,6 +22,7 @@ const CONTACT_COLUMNS: Record<string, "fullName" | "firstName" | "lastName" | "p
   FIRST_NAME: "firstName",
   LAST_NAME: "lastName",
   PHONE_NUMBER: "phone",
+  PHONE_NUMBER_VERIFIED: "phone",
   EMAIL: "email",
   WORK_EMAIL: "email",
   WORK_PHONE: "phone",

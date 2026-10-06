@@ -6,7 +6,8 @@
  * Google retries 5xx and does not retry 4xx, so:
  *   200 {}  recorded (or a duplicate, or the source is off for the business — a decision, not an outage)
  *   400     malformed / no lead_id;  401 wrong key (incl. unknown endpoint);  413 too large;
- *   429     rate-limited (retry later is acceptable to Google);  503 store unavailable (Google retries).
+ *   503     rate-limited or store unavailable — Google retries 5xx only, so a rate-limited lead is
+ *           answered 503 + Retry-After (a 429 is a 4xx: Google would never resend it and the lead is lost).
  */
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -46,7 +47,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
 
   const limit = await checkRateLimit({ bucket: "ACQUISITION_INTAKE", business: conn.businessId });
   if (!limit.allowed && limit.outcome === "rate_limited") {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": String(limit.retryAfterSeconds) } });
+    return NextResponse.json({ error: "rate_limited" }, { status: 503, headers: { "retry-after": String(limit.retryAfterSeconds) } });
   }
 
   try {

@@ -267,10 +267,12 @@ export function normalizeAcquisitionLead(event: ClaimedIntakeEvent): NormalizeRe
     ok: true,
     normalized: {
       occurredAt: event.occurredAt,
-      contactHints: contact.hints,
+      // A provider test submission ("Send test data") carries a dummy contact: nothing about it is a
+      // person to resolve or keep, so no hints survive normalization (the payload is purged on IGNORED).
+      contactHints: lead.isTest ? null : contact.hints,
       signals: contact.signals,
       // No deterministic contact rule at the provider: M4 identity decides (never a silent merge).
-      identity: contact.hints ? "unresolved" : "none",
+      identity: contact.hints && !lead.isTest ? "unresolved" : "none",
       attribution: sanitizeAttribution({
         channel: "lead_form",
         provider: lead.provider,
