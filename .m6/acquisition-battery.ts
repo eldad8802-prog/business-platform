@@ -193,7 +193,15 @@ async function main() {
   ok("missing google_key → 401", (await google(gA.connection.publicId, { ...googleLead("", `${RUN}-g3`), google_key: undefined })).status === 401);
   ok("malformed body → 400", (await google(gA.connection.publicId, "{oops")).status === 400);
   ok("Google's 'Send test data' → 200, recorded, never a Lead",
-    (await google(gA.connection.publicId, googleLead(gA.key, `${RUN}-gt`, { is_test: true }))).status === 200);
+    (await google(gA.connection.publicId, googleLead(gA.key, `${RUN}-gt`, {
+      is_test: true,
+      // Its own contact (not g1's), so a test routed by mistake would show up as a second Lead / Customer.
+      user_column_data: [
+        { column_id: "FULL_NAME", column_name: "Full Name", string_value: "Google Test" },
+        { column_id: "PHONE_NUMBER", column_name: "Phone", string_value: "+972 52-555-0199" },
+        { column_id: "EMAIL", column_name: "Email", string_value: "google-test@example.test" },
+      ],
+    }))).status === 200);
   ok("the same Google lead redelivered → 200", (await google(gA.connection.publicId, googleLead(gA.key, `${RUN}-g1`))).status === 200);
   await drain(A.id);
   const cg = await counts(A.id, "google.lead_form");
@@ -202,8 +210,18 @@ async function main() {
   const ga = gNorm?.attribution as Record<string, unknown> | null;
   ok("Google attribution: campaign, ad group, creative, form and gclid kept",
     ga?.campaignId === "8001" && ga?.adSetId === "7001" && ga?.adId === "6001" && ga?.formId === "9001" && ga?.clickId === "Cj0KCQ-test", JSON.stringify(ga));
-  const testEv = await o.intakeEvent.findFirst({ where: { businessId: A.id, sourceKey: "google.lead_form", status: "IGNORED" } });
-  ok("the test submission was ignored as test_submission", testEv?.lastErrorCode === "test_submission" || testEv?.status === "IGNORED", JSON.stringify(testEv?.lastErrorCode));
+  const gEvents = await o.intakeEvent.findMany({ where: { businessId: A.id, sourceKey: "google.lead_form" }, select: { id: true, status: true, lastErrorCode: true, metadata: true } });
+  const testEv = gEvents.find((e) => (e.metadata as Record<string, unknown> | null)?.isTest === true);
+  ok("the test submission (its own receipt) was settled IGNORED as test_submission",
+    !!testEv && testEv.status === "IGNORED" && testEv.lastErrorCode === "test_submission", JSON.stringify(gEvents.map((e) => [e.status, e.lastErrorCode])));
+  const testNorm = testEv ? await o.intakeNormalizedEvent.findFirst({ where: { intakeEventId: testEv.id } }) : null;
+  ok("the test submission kept no contact hints and asked for no identity",
+    !!testNorm && testNorm.contactHints === null && testNorm.identityState === "not_applicable", JSON.stringify({ hints: testNorm?.contactHints ?? null, identity: testNorm?.identityState }));
+  const testPeople = {
+    customers: await o.customer.count({ where: { businessId: A.id, OR: [{ phone: { contains: "525550199" } }, { email: "google-test@example.test" }] } }),
+    leads: await o.lead.count({ where: { businessId: A.id, phone: { contains: "525550199" } } }),
+  };
+  ok("the test contact became no Customer and no Lead", testPeople.customers === 0 && testPeople.leads === 0, JSON.stringify(testPeople));
   const r = await runWithTenantContext({ businessId: A.id }, () => revokeConnection(gA.connection.id));
   ok("a revoked Google endpoint → 401 for its old key", !!r && (await google(gA.connection.publicId, googleLead(gA.key, `${RUN}-g9`))).status === 401);
 

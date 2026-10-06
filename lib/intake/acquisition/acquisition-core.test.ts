@@ -59,6 +59,8 @@ t("google: contact columns → contact, the rest → answers; ids and gclid → 
   assert.deepEqual(g.lead.answers, [{ key: "SERVICE", label: "Which?", value: "Kitchen" }]);
   assert.deepEqual([g.lead.context.formId, g.lead.context.campaignId, g.lead.context.adSetId, g.lead.context.adId, g.lead.context.clickId], ["9", "8", "7", "6", "G"]);
   assert.equal(g.lead.isTest, true);
+  const verified = parseGoogleLead({ lead_id: "L2", google_key: "k", user_column_data: [{ column_id: "PHONE_NUMBER_VERIFIED", string_value: "0525550101" }] });
+  assert.ok(verified.ok && verified.lead.contact.phone === "0525550101" && verified.lead.answers.length === 0, "a verified phone is the phone, not an answer");
   assert.deepEqual(parseGoogleLead({ lead_id: "x" }), { ok: false, code: "missing_key" });
   assert.deepEqual(parseGoogleLead({ google_key: "k" }), { ok: false, code: "missing_lead_id" });
 });
@@ -124,6 +126,7 @@ t("the ONE normalizer: lead target; test → none; attribution sanitized; intent
   assert.equal(n1.normalized.leadIntent, "Need: Roof\nterms: ✗");
   const test = normalizeAcquisitionLead(claimed(acquisitionReceipt(canonicalLead({ provider: "google", isTest: true, contact: { email: "a@b.test" } }), "c")));
   assert.ok(test.ok && test.normalized.target === "none");
+  assert.ok(test.ok && test.normalized.contactHints === null && test.normalized.identity === "none", "a test submission keeps no contact");
   assert.deepEqual(normalizeAcquisitionLead({ ...claimed(acquisitionReceipt(lead, "c")), payload: { v: 2 } as never }), { ok: false, code: "malformed_payload" });
   assert.equal(leadIntentOf(canonicalLead({ provider: "web" })), undefined);
 });
