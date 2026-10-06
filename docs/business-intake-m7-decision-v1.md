@@ -77,7 +77,7 @@ The audit's code-only fixes ship in the same PR as this record (§1.6). They cha
 | `PHONE_NUMBER_VERIFIED` column → phone slot | `lib/intake/acquisition/providers/google-lead-form.ts` |
 | Test submissions keep no contact hints | `lib/intake/acquisition/canonical.ts` |
 | Battery: the test lead gets its own contact; the assertion now discriminates | `.m6/acquisition-battery.ts` |
-| Developer-token and permission lists corrected; ES v2 deadline recorded | `docs/business-intake-m6-acquisition-connectors-v1.md` |
+| Developer-token level and Meta permission list corrected | `docs/business-intake-m6-acquisition-connectors-v1.md` |
 
 ---
 
@@ -105,20 +105,18 @@ The audit's code-only fixes ship in the same PR as this record (§1.6). They cha
 | `ads_management` | REQUEST | listed by both leadgen-webhook guides and as a `leads_retrieval` dependency; Dubiz makes no ads calls of its own |
 | `business_management` | **DO NOT REQUEST in v1** | not in the webhook guides; listed only as a dependency (via a page summary, UNVERIFIED). Add it only if review or a Page in a business portfolio demonstrably requires it |
 
-### 2.3 Embedded Signup and Graph versions — URGENT, separate from Lead Ads
+### 2.3 Embedded Signup and Graph versions — separate from Lead Ads (status 2026-10-06)
 
-- **WhatsApp Embedded Signup launches in the v2 format.**
-  - The code sends `extras: { setup, featureType, sessionInfoVersion: "3" }` (`components/whatsapp/embedded-signup-controller.ts:524-532`).
-  - Meta: "Embedded signup v2 will be deprecated on **October 15, 2026**. Migrate your integration to v4."
-  - In v4, "The extras object is purposely empty", and configuration moves into the Facebook Login for Business configuration.
-- **Required steps:**
-  1. The owner creates or upgrades a **v4** configuration from Meta's Embedded Signup template and records its id. This is a Meta change, which needs owner approval.
-  2. A small Dubiz PR updates extras and `NEXT_PUBLIC_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID`, and re-verifies the `WA_EMBEDDED_SIGNUP` message parsing.
-- **Open question:** how v4 selects coexistence (keeping the WhatsApp Business app) is UNVERIFIED. It must be read off the v4 template when the configuration is created.
-- **If the date is missed,** new WhatsApp connections break. Lead Ads is not affected.
+- **Deadline.** Meta: "Embedded Signup v2 **and v3** will be deprecated on **October 15, 2026**, including their public preview versions. Migrate your integration to v4."
+- **Today.** The launch sends `extras: { setup, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" }` with the existing configuration `1955709398385145`.
+- **v4 code.** Draft PR **#690** matches, byte for byte, what Meta's own Embedded Signup Builder generates for that configuration with ES Version v4 + "WhatsApp Business App Onboarding": `extras: { "version": "v4", "featureType": "whatsapp_business_app_onboarding" }`. The configuration id is unchanged. Runbook: `docs/whatsapp-embedded-signup-v4-switch.md` (on #690).
+- **Unresolved.** Meta's pages disagree: "version is determined inside of the extras object" vs. v4 needs "a new … configuration … with products" and "extras … purposely empty". Creating a new configuration with Products is not available to Dubiz yet. Meta states that v4 products need advanced access for their permissions, which is pending App Review.
+- **Status (owner, 2026-10-06):**
+  - Business Verification: IN REVIEW. App Review: IN REVIEW. Access Verification: NOT STARTED (blocked on Business Verification). Direct Meta support: unavailable.
+  - **Blocked externally.** The Production switch is not approved, and #690 stays a draft.
 - **Graph versions:**
   - Lead Ads uses v25.0, supported until 2028-07-29. OK.
-  - WhatsApp server calls use v23.0, supported until 2027-10-08. Not urgent; raise to v25.0 together with the ES v4 PR.
+  - WhatsApp server calls use v23.0, supported until 2027-10-08. Not urgent.
 
 ### 2.4 Required Dubiz PR before Meta activation (M-D1..D5)
 
@@ -443,24 +441,24 @@ Evidence:
 | **M7-C Telephony wave 1** | CloudTalk (Svix) + Voicenter (CDR, per-connection key; HMAC/IP if Voicenter provides one) + "unknown callers" digest + callback closure | LAB | owner contacts Voicenter (signature, pricing, partner); owner enables one real account → E17 REAL |
 | **M7-D Proof and release** | Production evidence SQL for E12/E14 after first activation; runbooks like M6 website | PROD + REAL per provider | each activation |
 
-**Separate and urgent, outside M7:** the WhatsApp Embedded Signup v4 PR (§2.3), due before **2026-10-15**.
+**Outside M7:** WhatsApp Embedded Signup v4 (§2.3): code ready as draft #690, blocked externally on Meta approvals; the Production switch needs a separate owner approval.
 
 ---
 
 ## 15. Owner decisions (only these)
 
-| # | Decision | Recommendation |
+| # | Decision | Owner decision (2026-10-06) |
 |---|---|---|
-| D1 | **WhatsApp Embedded Signup v4**: create the v4 configuration in Meta (Meta change) before 2026-10-15, so the code PR can follow | **Yes, now** |
-| D2 | Meta Lead Ads: go for Business Verification + Access Verification + App Review (`leads_retrieval`, `pages_manage_ads`, `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `ads_management`; not `business_management`), with the Login configuration on **System User** tokens | Yes, after the Dubiz M-D PR merges |
-| D3 | Google automatic setup (restricted `adwords` OAuth verification) | **No for now.** The manual webhook is enough. |
-| D4 | Commerce first wave = WooCommerce + Wix; Shopify in 1b (App Store review + Protected customer data Level 2 commitments) | Approve |
-| D5 | Telephony first wave = CloudTalk (self-serve, provable) + Voicenter (after a commercial and signature confirmation from Voicenter) | Approve; owner contacts Voicenter |
-| D6 | Connection model = **extend `AcquisitionConnection`** (CHECK widening), not a new table | Approve (it changes the tenant-mapping surface, so it is an owner decision) |
-| D7 | Orders do **not** move stock and do **not** write `FinancialEvent` / `BillingDocument` in wave 1 | Approve |
-| D8 | Unknown caller → **no automatic Customer** (an owner act creates one); unknown buyer with a valid phone → Customer created (as with leads) | Approve |
-| D9 | Recordings and transcription: out of M7, a separate capability after legal review | Approve |
-| D10 | Apply the M7-A migration in Production, when its lab proofs are green | later, per the release gate |
+| D1 | **WhatsApp Embedded Signup v4** | **Blocked externally** on Meta approvals; code ready as draft #690 (§2.3); Production switch not approved |
+| D2 | Meta Lead Ads: go for Business Verification + Access Verification + App Review (`leads_retrieval`, `pages_manage_ads`, `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `ads_management`; not `business_management`), with the Login configuration on **System User** tokens | Business Verification and App Review are **in review**; Access Verification not started. The Dubiz M-D PR comes before Lead Ads activation |
+| D3 | Google automatic setup (restricted `adwords` OAuth verification) | **APPROVED.** No for now; the manual webhook is the path |
+| D4 | Commerce first wave = WooCommerce + Wix; Shopify in 1b (App Store review + Protected customer data Level 2 commitments) | **APPROVED** |
+| D5 | Telephony first wave = CloudTalk (self-serve, provable) + Voicenter (after a commercial and signature confirmation from Voicenter) | **APPROVED**; Voicenter depends on its commercial and technical confirmation |
+| D6 | Connection model = **extend `AcquisitionConnection`** (CHECK widening), not a new table | **APPROVED** |
+| D7 | Orders do **not** move stock and do **not** write `FinancialEvent` / `BillingDocument` in wave 1 | **APPROVED** |
+| D8 | Unknown caller → **no automatic Customer** (an owner act creates one); unknown buyer with a valid phone → Customer created (as with leads) | **APPROVED** |
+| D9 | Recordings and transcription: out of M7, a separate capability after legal review | **APPROVED** |
+| D10 | Apply the M7-A migration in Production, when its lab proofs are green | **NOT APPROVED.** Decided only after M7-A is built and proven in the lab |
 
 ---
 
@@ -468,9 +466,9 @@ Evidence:
 
 ```
 GOOGLE  = MANUAL WEBHOOK PRODUCTION READY (429→503 fix in this PR); AUTO-SETUP BLOCKED BY GOOGLE (restricted adwords OAuth) — deferred; LIVE PROOF REQUIRES REAL BUSINESS
-META    = DUBIZ CODE NEEDS ONE PR (long-lived token, ERROR-connection lead loss, revoke-paused, privacy copy); THEN BLOCKED BY META REVIEW (Business Verification + Access Verification + App Review Advanced Access) + OWNER CONFIG; WHATSAPP EMBEDDED SIGNUP v4 DUE 2026-10-15 (URGENT, owner Meta config)
+META    = DUBIZ CODE NEEDS ONE PR (long-lived token, ERROR-connection lead loss, revoke-paused, privacy copy); THEN BLOCKED BY META REVIEW (Business Verification + Access Verification + App Review Advanced Access) + OWNER CONFIG; WHATSAPP EMBEDDED SIGNUP v4 = code ready (draft #690), BLOCKED EXTERNALLY on Meta approvals
 WEBSITE = WAITING FOR FIRST REAL BUSINESS
 M7 COMMERCE FIRST WAVE  = WooCommerce + Wix eCommerce (Shopify wave 1b; Konimbo deferred)
 M7 TELEPHONY FIRST WAVE = CloudTalk + Voicenter (Voicenter after a signature/commercial confirmation)
-M7 READY FOR IMPLEMENTATION = YES — M7-A foundation (code + lab) on the recommended defaults in §15; Production apply and every provider activation remain owner gates
+M7 READY FOR IMPLEMENTATION = YES — M7-A foundation (code + lab) on the approved D3–D9; Production apply and every provider activation remain owner gates
 ```
