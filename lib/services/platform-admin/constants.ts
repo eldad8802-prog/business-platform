@@ -12,6 +12,8 @@ export const PLATFORM_AUDIT_ACTIONS = {
   SESSION_VIEWED: "PLATFORM_ADMIN_SESSION_VIEWED",
   AREA_ENTERED: "PLATFORM_ADMIN_AREA_ENTERED",
   FEATURE_ACCESS_UPDATED: "PLATFORM_FEATURE_ACCESS_UPDATED",
+  /** An indeterminate refund resolved from evidence at the provider (MFA). */
+  PAYMENT_REVERSAL_RESOLVED: "PLATFORM_PAYMENT_REVERSAL_RESOLVED",
 } as const;
 
 /** Throttle window for AREA_ENTERED per admin (minutes). */

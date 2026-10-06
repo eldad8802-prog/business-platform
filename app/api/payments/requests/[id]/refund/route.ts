@@ -12,6 +12,7 @@ import {
 } from "@/lib/services/payments/payment-refund.service";
 import { toPaymentTransactionApi } from "@/lib/services/payments/payment-api.serializer";
 import { paymentRefundDeps } from "@/lib/services/payments/payments.deps";
+import { isBusinessAccountOwner } from "@/lib/services/payments/payment-account-owner";
 import { getProviderDescriptor } from "@/lib/services/payments/providers/provider-registry";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
@@ -97,6 +98,13 @@ export async function GET(
  *
  * Omitting `amount` refunds the entire remaining balance, which is the common
  * case and the one most easily got wrong by hand.
+ *
+ * `idempotencyKey` (body) or the `Idempotency-Key` header is REQUIRED: one key
+ * per refund the owner means to make. A retry with the same key is answered
+ * from the ledger and never reaches the provider twice.
+ *
+ * `intent` is REFUND (default) or VOID. A VOID is accepted only when the
+ * provider can withdraw a transaction, and only for the whole amount.
  */
 export async function POST(
   req: NextRequest,
@@ -104,7 +112,9 @@ export async function POST(
 ) {
   try {
     const user = await getCurrentUser(req);
-    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.REFUND);
+    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.REFUND, {
+      isBusinessAccountOwner: user ? await isBusinessAccountOwner(user) : false,
+    });
 
     const { id } = await context.params;
     const requestId = parsePaymentRequestId(id);
@@ -124,6 +134,18 @@ export async function POST(
         ? body.reason.trim()
         : null;
 
+    const idempotencyKey =
+      (typeof body.idempotencyKey === "string" ? body.idempotencyKey : null) ??
+      req.headers.get("idempotency-key");
+    if (!idempotencyKey || idempotencyKey.trim() === "") {
+      throw new ValidationError("idempotencyKey is required for a refund");
+    }
+
+    const intent = body.intent === undefined || body.intent === null ? "REFUND" : body.intent;
+    if (intent !== "REFUND" && intent !== "VOID") {
+      throw new ValidationError("intent must be REFUND or VOID");
+    }
+
     const result = await runWithTenantContext(
       { businessId: actor.businessId },
       async () => {
@@ -140,6 +162,18 @@ export async function POST(
           amount = balance.refundableRemaining;
         }
 
+        if (intent === "VOID") {
+          // Offered only where the adapter can actually withdraw a transaction.
+          const request = await deps.store.findPaymentRequestById(requestId);
+          const descriptor =
+            request && request.businessId === actor.businessId
+              ? getProviderDescriptor(request.provider)
+              : null;
+          if (!descriptor?.capabilities.void) {
+            throw new ValidationError("This payment provider cannot cancel a transaction");
+          }
+        }
+
         return refundPaymentRequest(
           {
             businessId: actor.businessId,
@@ -147,6 +181,8 @@ export async function POST(
             requestId,
             amount: amount as string | number,
             reason,
+            intent,
+            idempotencyKey,
           },
           deps
         );

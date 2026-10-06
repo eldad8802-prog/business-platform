@@ -15,6 +15,7 @@
  */
 
 import type { PaymentProvider } from "../payments.types";
+import type { PaymentMethodKind } from "./payment-provider.types";
 
 export type CredentialFieldType = "text" | "secret";
 
@@ -60,6 +61,32 @@ export interface ProviderCapabilities {
   sandbox: boolean;
   webhooks: boolean;
   tokens: boolean;
+  /**
+   * `getPaymentStatus` only READS. A status query that moves money (PayPal's
+   * captures an approved order) must never be run on a schedule, so only a
+   * read-only query may keep observing a provider after it is disabled.
+   */
+  readOnlyStatusQuery: boolean;
+  /**
+   * Which stored key the authoritative query needs. A provider that issues a
+   * session id at checkout is asked by it; one that issues none is asked by the
+   * Dubiz correlation value it carried through the payment. Reconciliation
+   * selects candidates by this, never by assuming every provider is CardCom.
+   */
+  verificationKey: "PROVIDER_REQUEST_ID" | "CORRELATION_VALUE";
+  /**
+   * How a customer can pay through this adapter's checkout as Dubiz uses it
+   * today. A method is listed only when it is proven, not when the provider
+   * merely offers it.
+   */
+  paymentMethods: readonly PaymentMethodKind[];
+  /**
+   * Whether the provider can issue its own tax documents for a payment.
+   *   NEVER — it has no such function;
+   *   MAY   — it can, depending on the merchant's account configuration, so
+   *           every verified payment is checked for a provider document.
+   */
+  taxDocuments: "NEVER" | "MAY";
 }
 
 export interface ProviderMerchantField {

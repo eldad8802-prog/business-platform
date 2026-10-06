@@ -8,6 +8,7 @@ import {
 } from "@/lib/services/payments/payment-authorization";
 import { resolveUnresolvedReversal } from "@/lib/services/payments/payment-refund.service";
 import { paymentRefundDeps } from "@/lib/services/payments/payments.deps";
+import { isBusinessAccountOwner } from "@/lib/services/payments/payment-account-owner";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
@@ -44,7 +45,9 @@ export async function POST(
     // Reversing money is a stronger right than reading it, and asking about a
     // reversal can change durable state — so it takes the same permission as
     // issuing one, not the weaker read permission.
-    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.REFUND);
+    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.REFUND, {
+      isBusinessAccountOwner: user ? await isBusinessAccountOwner(user) : false,
+    });
 
     const { id } = await context.params;
     const requestId = parsePaymentRequestId(id);

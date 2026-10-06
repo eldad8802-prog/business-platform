@@ -26,6 +26,7 @@ import type {
   UpsertProviderRoutingRow,
   WebhookEventPatch,
 } from "./payments.types";
+import { REFUND_ACCOUNTING_ATTENTION_REASON } from "./payments.types";
 
 export interface InMemoryPaymentStore extends PaymentStore {
   /** Seed an active/inactive connection for a business. */
@@ -51,7 +52,12 @@ export interface InMemoryPaymentStore extends PaymentStore {
   readonly webhookEvents: PaymentWebhookEventRecord[];
   readonly auditEvents: PaymentAuditEventRecord[];
   /** C3: accounting settlements opened alongside verified PAID transactions. */
-  readonly accountingSettlements: { businessId: number; paymentTransactionId: number }[];
+  readonly accountingSettlements: {
+    businessId: number;
+    paymentTransactionId: number;
+    status: "PENDING" | "REQUIRES_ATTENTION";
+    attentionReason: string | null;
+  }[];
 }
 
 export function createInMemoryPaymentStore(): InMemoryPaymentStore {
@@ -64,7 +70,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   const auditEvents: PaymentAuditEventRecord[] = [];
   const documents: PayableDocumentRef[] = [];
   const customers: { id: number; businessId: number }[] = [];
-  const accountingSettlements: { businessId: number; paymentTransactionId: number }[] = [];
+  const accountingSettlements: InMemoryPaymentStore["accountingSettlements"] = [];
 
   let connectionSeq = 0;
   let requestSeq = 0;
@@ -203,7 +209,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         .filter(
           (r) =>
             r.businessId === businessId &&
-            r.providerRequestId != null &&
+            (r.providerRequestId != null || r.paymentUrl != null) &&
             open.has(r.status) &&
             r.createdAt.getTime() >= options.createdAfter.getTime() &&
             r.createdAt.getTime() <= options.createdBefore.getTime()
@@ -377,9 +383,12 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         if (row.status !== "PAID" || !(Number(row.amount) > 0)) {
           throw new Error("accounting settlement may only open for a positive PAID transaction");
         }
+        const reason = row.openAccountingSettlement.attentionReason ?? null;
         accountingSettlements.push({
           businessId: row.openAccountingSettlement.businessId,
           paymentTransactionId: record.id,
+          status: reason ? "REQUIRES_ATTENTION" : "PENDING",
+          attentionReason: reason,
         });
       }
       return { ...record };
@@ -429,12 +438,79 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         }
       }
 
+      if (patch.openRefundAccounting) {
+        if (patch.status !== "PAID" || !(Number(record.amount) < 0)) {
+          throw new Error("refund accounting may only open when a reversal resolves to PAID");
+        }
+      }
       if (patch.status !== undefined) record.status = patch.status;
       if (patch.providerTransactionId !== undefined) {
         record.providerTransactionId = patch.providerTransactionId;
       }
       if (patch.rawPayload !== undefined) record.rawPayload = patch.rawPayload;
+      if (
+        patch.openRefundAccounting &&
+        !accountingSettlements.some((a) => a.paymentTransactionId === record.id)
+      ) {
+        accountingSettlements.push({
+          businessId: patch.openRefundAccounting.businessId,
+          paymentTransactionId: record.id,
+          status: "REQUIRES_ATTENTION",
+          attentionReason: REFUND_ACCOUNTING_ATTENTION_REASON,
+        });
+      }
       return { ...record };
+    },
+
+    async listUnresolvedReversals(businessId, options) {
+      return transactions
+        .filter((t) => {
+          const parent = requests.find((r) => r.id === t.paymentRequestId);
+          return (
+            parent?.businessId === businessId &&
+            t.status === "PENDING" &&
+            Number(t.amount) < 0 &&
+            t.createdAt.getTime() <= options.createdBefore.getTime()
+          );
+        })
+        .sort((a, b) => a.id - b.id)
+        .slice(0, options.limit)
+        .map((t) => ({ transaction: { ...t }, businessId, provider: t.provider }));
+    },
+
+    async listAccountingAttention(businessId, options) {
+      return accountingSettlements
+        .filter((a) => a.businessId === businessId && a.status === "REQUIRES_ATTENTION")
+        .slice(-options.limit)
+        .reverse()
+        .map((a) => ({
+          paymentTransactionId: a.paymentTransactionId,
+          paymentRequestId: transactions.find((t) => t.id === a.paymentTransactionId)?.paymentRequestId ?? 0,
+          reason: a.attentionReason ?? "UNKNOWN",
+          since: new Date(0),
+        }));
+    },
+
+    async countConnectionObligations(businessId, provider, since) {
+      const open = new Set(["PENDING", "FAILED", "CANCELLED", "EXPIRED"]);
+      const openRequests = requests.filter(
+        (r) =>
+          r.businessId === businessId &&
+          r.provider === provider &&
+          open.has(r.status) &&
+          (r.providerRequestId != null || r.paymentUrl != null) &&
+          r.createdAt.getTime() >= since.getTime()
+      ).length;
+      const unresolvedReversals = transactions.filter((t) => {
+        const parent = requests.find((r) => r.id === t.paymentRequestId);
+        return (
+          parent?.businessId === businessId &&
+          t.provider === provider &&
+          t.status === "PENDING" &&
+          Number(t.amount) < 0
+        );
+      }).length;
+      return { openRequests, unresolvedReversals };
     },
 
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {

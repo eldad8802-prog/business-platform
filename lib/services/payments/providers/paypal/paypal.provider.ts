@@ -457,6 +457,12 @@ export const payPalDescriptor: ProviderDescriptor = {
     sandbox: true,
     webhooks: true,
     tokens: false,
+    // getPaymentStatus CAPTURES an approved order — it moves money, so it may
+    // never run as a background observation.
+    readOnlyStatusQuery: false,
+    verificationKey: "PROVIDER_REQUEST_ID",
+    paymentMethods: [],
+    taxDocuments: "NEVER",
   },
   // No local translation table — the adapter forwards the ISO code unchanged.
   supportedCurrencies: null,

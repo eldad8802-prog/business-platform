@@ -78,6 +78,11 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
   const [refundAmount, setRefundAmount] = useState("");
   const [refundMax, setRefundMax] = useState<string | null>(null);
   const [refundState, setRefundState] = useState<RefundState | null>(null);
+  // One key per refund the owner means to make, minted when the dialog opens.
+  // A retry of the same submission (double click, flaky network) carries the
+  // same key, and the server answers it from the ledger instead of refunding
+  // twice. A new dialog is a new intent and gets a new key.
+  const [refundKey, setRefundKey] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -116,6 +121,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
 
   async function openRefund(t: RefundTarget) {
     setRefund(t);
+    setRefundKey(newRefundKey());
     setRefundMax(null);
     setRefundState(null);
     try {
@@ -393,7 +399,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                     act(async () => {
                       const r = await collectionFetch<{ outcome: RefundApiOutcome }>(`/api/payments/requests/${refund.requestId}/refund`, {
                         method: "POST",
-                        body: JSON.stringify({ amount: refundAmount }),
+                        body: JSON.stringify({ amount: refundAmount, idempotencyKey: refundKey }),
                       });
                       setRefund(null);
                       return refundOutcomeNotice(r.outcome);
@@ -522,4 +528,11 @@ function EventCard({
         e.outcome === "SETTLED" ? <span>הוחזר ללקוח</span> : e.outcome === "PENDING" ? <span>ממתין לאישור חברת הסליקה</span> : <span>ההחזר לא בוצע</span>
       );
   }
+}
+
+/** A fresh refund-intent key: 32 hex characters (the server accepts 8–128). */
+function newRefundKey(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return "rf-" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

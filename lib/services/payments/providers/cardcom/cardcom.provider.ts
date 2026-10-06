@@ -25,6 +25,9 @@
 import type { PaymentProvider } from "../../payments.types";
 import {
   PaymentProviderError,
+  PaymentProviderRefusalError,
+  type ConnectionEnvironment,
+  type PaymentMethodKind,
   type CreatePaymentLinkInput,
   type CreatePaymentLinkResult,
   type GetPaymentStatusInput,
@@ -292,6 +295,64 @@ function currencyOfCoinId(value: unknown): string | null {
   return `COIN:${coin}`;
 }
 
+/**
+ * CardCom's PUBLIC shared test terminal (CardCom KB: "terminal 1000" with the
+ * published test card). Any other positive terminal number is a merchant's own
+ * terminal. Whether CardCom also issues private test terminals is an open
+ * question to CardCom (EXTERNAL — CARDCOM RESPONSE REQUIRED); until answered,
+ * 1000 is the only terminal this adapter can positively call TEST.
+ */
+export const CARDCOM_PUBLIC_TEST_TERMINAL = "1000";
+
+export function classifyCardComTerminal(merchantId: string | null): ConnectionEnvironment {
+  const terminal = positiveIdOf(merchantId);
+  if (terminal == null) return "UNKNOWN";
+  return terminal === CARDCOM_PUBLIC_TEST_TERMINAL ? "TEST" : "LIVE";
+}
+
+/**
+ * How the customer paid, from GetLpResult. `ExternalPaymentVector` marks a
+ * payment made through an external method on the hosted page (Bit, wallets);
+ * its value set is not enumerated in the OpenAPI, so only a value that plainly
+ * names a method is mapped (DOCS-CONFIRM). A card transaction with no external
+ * vector is CARD. Anything else is UNKNOWN — never rounded to CARD.
+ */
+function cardComPaymentMethod(result: unknown, tranInfo: object | null): PaymentMethodKind {
+  const vector = caseInsensitiveGet(result, "ExternalPaymentVector");
+  if (typeof vector === "string" && vector.trim() !== "") {
+    const v = vector.toLowerCase();
+    if (v.includes("bit")) return "BIT";
+    if (v.includes("apple")) return "APPLE_PAY";
+    if (v.includes("google")) return "GOOGLE_PAY";
+    return "UNKNOWN";
+  }
+  return tranInfo ? "CARD" : "UNKNOWN";
+}
+
+/** True when CardCom states it created a document for this payment. */
+function cardComDocumentIssued(result: unknown, tranInfo: object | null): boolean {
+  const info = caseInsensitiveGet(result, "DocumentInfo");
+  if (info && typeof info === "object") return true;
+  const docNumber = tranInfo ? cardComCode(caseInsensitiveGet(tranInfo, "DocumentNumber")) : null;
+  return docNumber != null && docNumber > 0;
+}
+
+/** Non-secret identifiers a later receipt or refund may need. Never the card number. */
+function cardComEvidence(tranInfo: object | null): Record<string, string | null> {
+  if (!tranInfo) return {};
+  const str = (k: string): string | null => {
+    const v = caseInsensitiveGet(tranInfo, k);
+    return v == null || String(v).trim() === "" ? null : String(v).trim();
+  };
+  const last4 = str("Last4CardDigitsString") ?? str("Last4CardDigits");
+  return {
+    instrumentBrand: str("Brand"),
+    instrumentLast4: last4 && /^\d{4}$/.test(last4) ? last4 : null,
+    approvalNumber: str("ApprovalNumber"),
+    providerUid: str("Uid"),
+  };
+}
+
 /** What this request's GetLpResult answer must be about. */
 export interface GetLpResultExpectation {
   /** Our PaymentRequest id, round-tripped by CardCom as ReturnValue. */
@@ -345,7 +406,15 @@ export function interpretGetLpResult(
   }
 
   if (topCode === 0 && tranInfo && tranCode === 0) {
-    return { outcome: "PAID", providerTransactionId, verifiedAmount, verifiedCurrency };
+    return {
+      outcome: "PAID",
+      providerTransactionId,
+      verifiedAmount,
+      verifiedCurrency,
+      paymentMethod: cardComPaymentMethod(result, tranInfo),
+      providerDocumentIssued: cardComDocumentIssued(result, tranInfo),
+      evidence: cardComEvidence(tranInfo),
+    };
   }
   if (tranInfo && tranCode != null && tranCode !== 0) {
     // a transaction exists and the provider says it did not succeed
@@ -444,6 +513,10 @@ export function createCardComProvider(
   return {
     provider: CARDCOM_PROVIDER,
     supportedCurrencies: CARDCOM_SUPPORTED_CURRENCIES,
+
+    classifyEnvironment({ merchantId }) {
+      return classifyCardComTerminal(merchantId);
+    },
 
     async createPaymentLink(
       input: CreatePaymentLinkInput
@@ -609,8 +682,8 @@ export function createCardComProvider(
       const credential = parseCredential(input.credential);
       if (!input.merchantId || !credential || !credential.apiPassword) {
         // Configuration, not transport: nothing was sent, so nothing can have
-        // happened, and a throw is the honest answer.
-        throw new PaymentProviderError(
+        // happened, and a refusal is the honest answer.
+        throw new PaymentProviderRefusalError(
           CARDCOM_PROVIDER,
           "MISSING_CREDENTIALS",
           "CardCom connection is missing terminal number or API credentials."
@@ -619,7 +692,7 @@ export function createCardComProvider(
 
       const transactionId = Number(input.settlement.providerTransactionId);
       if (!Number.isInteger(transactionId) || transactionId <= 0) {
-        throw new PaymentProviderError(
+        throw new PaymentProviderRefusalError(
           CARDCOM_PROVIDER,
           "MISSING_TRANSACTION_ID",
           "This CardCom payment has no numeric transaction id to reverse."
@@ -659,12 +732,18 @@ export function createCardComProvider(
         return { providerRefundId: null, outcome: "UNKNOWN" };
       }
 
-      const code = caseInsensitiveGet(result, "ResponseCode");
+      const rawCode = caseInsensitiveGet(result, "ResponseCode");
       const newId = caseInsensitiveGet(result, "NewTranzactionId");
+      // F5, applied here too. `Number(null)`, `Number("")` and
+      // `Number(undefined→null)` are all 0 — CardCom's SUCCESS — so a bare
+      // `Number(code) === 0` read a 200 with an empty or missing code as a
+      // completed refund and settled a reversal CardCom never confirmed. Only a
+      // real integer code is a verdict.
+      const code = cardComCode(rawCode);
 
-      if (Number(code) === 0) {
+      if (code === 0) {
         return {
-          providerRefundId: newId == null ? null : String(newId),
+          providerRefundId: positiveIdOf(newId),
           outcome: "REFUNDED",
         };
       }
@@ -677,7 +756,7 @@ export function createCardComProvider(
       // CardCom stated a verdict and it is not success. THIS is the definite
       // refusal the domain releases a reservation for.
       const description = caseInsensitiveGet(result, "Description");
-      throw new PaymentProviderError(
+      throw new PaymentProviderRefusalError(
         CARDCOM_PROVIDER,
         `REFUND_${String(code)}`,
         typeof description === "string" && description.trim() !== ""
@@ -788,6 +867,10 @@ export const cardComDescriptor: ProviderDescriptor = {
     sandbox: true,
     webhooks: true,
     tokens: false,
+    readOnlyStatusQuery: true,
+    verificationKey: "PROVIDER_REQUEST_ID",
+    paymentMethods: ["CARD"],
+    taxDocuments: "MAY",
   },
   supportedCurrencies: CARDCOM_SUPPORTED_CURRENCIES,
 };

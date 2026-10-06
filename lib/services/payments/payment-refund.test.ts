@@ -19,12 +19,14 @@ import {
   type RefundPaymentRequestDeps,
 } from "./payment-refund.service";
 import { createInMemoryPaymentStore } from "./payment-store.memory";
-import { resolveUnresolvedReversal } from "./payment-refund.service";
+import { resolveUnresolvedReversal, resolveReversalManually } from "./payment-refund.service";
 import { createSumitProvider } from "./providers/sumit/sumit.provider";
-import type {
-  PaymentProviderAdapter,
-  RefundPaymentInput,
-  RefundPaymentResult,
+import {
+  PaymentProviderError,
+  PaymentProviderRefusalError,
+  type PaymentProviderAdapter,
+  type RefundPaymentInput,
+  type RefundPaymentResult,
 } from "./providers/payment-provider.types";
 import type { InMemoryPaymentStore } from "./payment-store.memory";
 
@@ -488,14 +490,14 @@ async function main() {
     ok("and the provider was never called", adapter.calls === 0);
   }
 
-  // ── provider failure never reads as success ────────────────────────────
+  // ── a STATED refusal never reads as success, and releases ─────────────
   {
     const store = createInMemoryPaymentStore();
     const request = await settledPayment(store);
     const exploding: PaymentProviderAdapter = {
       ...refundingProvider(),
       async refundPayment() {
-        throw new Error("provider said no");
+        throw new PaymentProviderRefusalError("CARDCOM", "REFUND_5", "provider said no");
       },
     };
 
@@ -527,6 +529,179 @@ async function main() {
     ok(
       "the failure is on the audit record",
       audit.some((a) => a.eventType === "PAYMENT_REFUND_FAILED")
+    );
+  }
+
+  // ── Core safety: ANY throw that is not a stated refusal is UNKNOWN ──────
+  // A timeout or dropped connection after the instruction left Dubiz may have
+  // been executed. The shared layer — not each adapter — keeps it reserved.
+  for (const thrown of [
+    new Error("socket hang up"),
+    new PaymentProviderError("SUMIT", "HTTP_ERROR", "SUMIT refund failed (network or timeout)."),
+    new TypeError("adapter bug"),
+  ]) {
+    const label = thrown.constructor.name;
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const silent: PaymentProviderAdapter = {
+      ...refundingProvider(),
+      async refundPayment() {
+        throw thrown;
+      },
+    };
+    const result = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, silent)
+    );
+    ok(`${label} after sending is UNKNOWN, not a refusal`, result.outcome === "UNKNOWN");
+    const reversals = (await store.listTransactionsByRequest(request.id)).filter(
+      (t) => Number(t.amount) < 0
+    );
+    ok(`${label}: the reservation stays PENDING`, reversals[0]!.status === "PENDING");
+    const balance = await getRefundableBalance(store, { businessId: 1, requestId: request.id });
+    ok(`${label}: the 40.00 stays reserved`, balance.refundableRemaining === "60.00");
+    await throws(
+      `${label}: a second refund is refused while the first is unknown`,
+      () =>
+        refundPaymentRequest(
+          { businessId: 1, actorUserId: 7, requestId: request.id, amount: "10.00" },
+          deps(store, refundingProvider())
+        ),
+      PaymentRefundInFlightError
+    );
+  }
+
+  // ── idempotency: the same key never reaches the provider twice ─────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const adapter = refundingProvider();
+    const first = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "30.00", idempotencyKey: "key-abc-123" },
+      deps(store, adapter)
+    );
+    const again = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "30.00", idempotencyKey: "key-abc-123" },
+      deps(store, adapter)
+    );
+    ok("the first call refunds", first.outcome === "REFUNDED");
+    ok("the replay answers the same outcome", again.outcome === "REFUNDED");
+    ok("the replay returns the same reversal row", again.refund.id === first.refund.id);
+    ok("the provider was called exactly once", adapter.seen.length === 1);
+    const reversals = (await store.listTransactionsByRequest(request.id)).filter(
+      (t) => Number(t.amount) < 0
+    );
+    ok("exactly one reversal exists", reversals.length === 1);
+    ok("the refundable balance moved once", again.refundableRemaining === "70.00");
+
+    // A full-balance refund replayed after the balance is zero still answers
+    // from the ledger, instead of failing on "nothing left to refund".
+    const full = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "70.00", idempotencyKey: "key-full-999" },
+      deps(store, adapter)
+    );
+    const fullReplay = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "0.00", idempotencyKey: "key-full-999" },
+      deps(store, adapter)
+    );
+    ok("a replay after the balance reached zero still answers", fullReplay.refund.id === full.refund.id);
+    const audit = await store.listAuditEvents(1, { paymentRequestId: request.id });
+    ok("a replay is on the audit record", audit.some((a) => a.eventType === "PAYMENT_REFUND_REPLAYED"));
+    await throws(
+      "a malformed key is refused, not reshaped",
+      () =>
+        refundPaymentRequest(
+          { businessId: 1, actorUserId: 7, requestId: request.id, amount: "1.00", idempotencyKey: "bad key!" },
+          deps(store, adapter)
+        ),
+      /idempotencyKey/
+    );
+  }
+
+  // ── refund accounting opens WITH the settled refund ───────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const result = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "25.00", idempotencyKey: "key-acct-001" },
+      deps(store, refundingProvider())
+    );
+    const row = store.accountingSettlements.find((a) => a.paymentTransactionId === result.refund.id);
+    ok("a settled refund opens its accounting row", row !== undefined);
+    ok("paused for the accounting decision, never auto-issued", row?.status === "REQUIRES_ATTENTION");
+    ok("with the refund reason", row?.attentionReason === "REFUND_ACCOUNTING_DECISION_REQUIRED");
+    const audit = await store.listAuditEvents(1, { paymentRequestId: request.id });
+    ok(
+      "and the pending correction is audited",
+      audit.some((a) => a.eventType === "PAYMENT_REFUND_ACCOUNTING_PENDING")
+    );
+  }
+
+  // ── VOID: whole amount only, never after a partial refund ──────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    await throws(
+      "a partial VOID is refused",
+      () =>
+        refundPaymentRequest(
+          { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00", intent: "VOID" },
+          deps(store, refundingProvider())
+        ),
+      /void/i
+    );
+    const adapter = refundingProvider();
+    const voided = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "100.00", intent: "VOID" },
+      deps(store, adapter)
+    );
+    ok("a whole-amount VOID reaches the adapter as VOID", adapter.seen[0]?.intent === "VOID");
+    ok("and settles", voided.outcome === "REFUNDED");
+  }
+
+  // ── manual resolution: admin evidence, PENDING only ────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const unknown = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, refundingProvider("UNKNOWN"))
+    );
+    await throws(
+      "resolution requires evidence",
+      () =>
+        resolveReversalManually(
+          { businessId: 1, requestId: request.id, reversalId: unknown.refund.id, outcome: "REFUNDED", evidence: "x", adminUserId: 1 },
+          { store }
+        ),
+      /evidence/
+    );
+    await throws(
+      "another business cannot resolve it",
+      () =>
+        resolveReversalManually(
+          { businessId: 2, requestId: request.id, reversalId: unknown.refund.id, outcome: "REFUNDED", evidence: "seen in portal, deal 555", adminUserId: 1 },
+          { store }
+        ),
+      /not found/i
+    );
+    const done = await resolveReversalManually(
+      { businessId: 1, requestId: request.id, reversalId: unknown.refund.id, outcome: "REFUNDED", evidence: "seen in the CardCom portal, deal 555", providerRefundId: "555", adminUserId: 1 },
+      { store }
+    );
+    ok("an admin resolution settles the reversal", done.status === "PAID");
+    ok(
+      "and opens its accounting row",
+      store.accountingSettlements.some((a) => a.paymentTransactionId === unknown.refund.id)
+    );
+    await throws(
+      "a resolved reversal cannot be resolved again",
+      () =>
+        resolveReversalManually(
+          { businessId: 1, requestId: request.id, reversalId: unknown.refund.id, outcome: "REJECTED", evidence: "a later contradicting claim", adminUserId: 1 },
+          { store }
+        ),
+      /no longer pending/i
     );
   }
 
@@ -772,7 +947,7 @@ async function main() {
     const request = await settledPayment(store);
     const refusing = refundingProvider();
     refusing.refundPayment = async () => {
-      throw new Error("CardCom refused the reversal (code 6).");
+      throw new PaymentProviderRefusalError("CARDCOM", "REFUND_6", "CardCom refused the reversal (code 6).");
     };
 
     await throws(

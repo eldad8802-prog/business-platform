@@ -50,6 +50,11 @@
 
 import { getTenantContext } from "@/lib/tenant/context";
 import { recordPaymentAuditEvent, type PaymentAuditEventType } from "./payment-audit.service";
+import {
+  classifyConnectionEnvironment,
+  isEnvironmentAllowedForBusiness,
+} from "./payment-environment";
+import { buildVerifiedPaymentEnvelope } from "./payment-evidence";
 import type {
   PaymentConnectionRecord,
   PaymentRequestRecord,
@@ -82,7 +87,20 @@ export interface AuthoritativeVerificationDeps {
   /** The canonical C3 settlement. Best-effort here; recovery retries it. */
   settleAccounting?: (event: { businessId: number; paymentTransactionId: number }) => Promise<void>;
   now?: () => Date;
+  /** Test seam for the runtime environment (Production detection). */
+  runtimeEnv?: Record<string, string | undefined>;
 }
+
+/**
+ * Why a verified payment was recorded but its accounting was opened PAUSED
+ * instead of issuing a receipt automatically. Both are Dubiz declining to
+ * create fiscal truth on its own — never a doubt about the money itself.
+ */
+export type AccountingHoldReason =
+  /** The provider issued its own tax document; a second one would duplicate it. */
+  | "PROVIDER_ISSUED_DOCUMENT"
+  /** The money came through a test/sandbox/unclassified account in Production. */
+  | "TEST_ENVIRONMENT_PAYMENT";
 
 export type UnresolvedReason =
   /** No active connection — the authority cannot be asked. */
@@ -125,6 +143,8 @@ export type AuthoritativeResolution =
       currencyMismatch: boolean;
       /** The request's status before the money arrived, when it was not PENDING. */
       paidAfterClosedStatus: PaymentRequestStatus | null;
+      /** Set when the accounting was opened paused rather than settled. */
+      accountingHold: AccountingHoldReason | null;
     }
   /** The provider's transaction was already recorded — nothing new was written. */
   | {
@@ -331,6 +351,22 @@ export async function resolvePaymentAuthoritatively(
       return alreadyRecorded(existing);
     }
 
+    // Where did this money come from? A test account in Production is the
+    // provider telling the truth about a payment that is not money; a provider
+    // that issued its own tax document has already done what C3 would do.
+    // Either way the money is RECORDED as stated — that is what happened — and
+    // only the automatic receipt is withheld, for a person to decide.
+    const environment = classifyConnectionEnvironment(adapter, connection.merchantId);
+    const accountingHold: AccountingHoldReason | null = !isEnvironmentAllowedForBusiness(
+      environment,
+      request.businessId,
+      deps.runtimeEnv
+    )
+      ? "TEST_ENVIRONMENT_PAYMENT"
+      : status.providerDocumentIssued === true
+        ? "PROVIDER_ISSUED_DOCUMENT"
+        : null;
+
     let transaction: PaymentTransactionRecord;
     try {
       transaction = await store.createTransaction({
@@ -340,8 +376,17 @@ export async function resolvePaymentAuthoritatively(
         amount: verifiedAmount,
         currency: verifiedCurrency,
         status: "PAID",
-        rawPayload: input.rawPayload ?? null,
-        openAccountingSettlement: { businessId: request.businessId },
+        rawPayload: buildVerifiedPaymentEnvelope({
+          source,
+          callback: input.rawPayload ?? null,
+          status,
+          environment,
+          verifiedAt: now(),
+        }),
+        openAccountingSettlement: {
+          businessId: request.businessId,
+          attentionReason: accountingHold,
+        },
       });
     } catch (error) {
       // The database refused a second row for this provider transaction: a
@@ -404,6 +449,13 @@ export async function resolvePaymentAuthoritatively(
         evidence
       );
     }
+    if (accountingHold) {
+      await audit(
+        "PAYMENT_ACCOUNTING_HELD",
+        `${provider} payment for request ${request.id} recorded; automatic receipt withheld (${accountingHold})`,
+        { ...evidence, accountingHold, environment }
+      );
+    }
 
     await projectAndSettle(transaction);
 
@@ -415,6 +467,7 @@ export async function resolvePaymentAuthoritatively(
       amountMismatch,
       currencyMismatch,
       paidAfterClosedStatus,
+      accountingHold,
     };
   }
 
@@ -442,7 +495,13 @@ export async function resolvePaymentAuthoritatively(
       amount: normaliseAmount(status.verifiedAmount) ?? request.amount,
       currency: normaliseCurrency(status.verifiedCurrency) ?? request.currency,
       status: outcome,
-      rawPayload: input.rawPayload ?? null,
+      rawPayload: buildVerifiedPaymentEnvelope({
+        source,
+        callback: input.rawPayload ?? null,
+        status,
+        environment: classifyConnectionEnvironment(adapter, connection.merchantId),
+        verifiedAt: now(),
+      }),
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -464,6 +523,7 @@ export async function resolvePaymentAuthoritatively(
     amountMismatch: false,
     currencyMismatch: false,
     paidAfterClosedStatus: null,
+    accountingHold: null,
   };
 
   // --- helpers that close over the request -----------------------------------

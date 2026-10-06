@@ -32,7 +32,11 @@ import {
   externalRefundReference,
   type CardComHttpResponse,
 } from "./cardcom.provider";
-import type { RefundPaymentInput, RefundStatusInput } from "../payment-provider.types";
+import {
+  PaymentProviderRefusalError,
+  type RefundPaymentInput,
+  type RefundStatusInput,
+} from "../payment-provider.types";
 
 let pass = 0;
 const failures: string[] = [];
@@ -197,6 +201,35 @@ async function main() {
       threw instanceof Error && /עסקה לא נמצאה/.test(threw.message),
       threw instanceof Error ? threw.message : String(threw)
     );
+    ok(
+      "as the ONE error class the domain releases a reservation for",
+      threw instanceof PaymentProviderRefusalError
+    );
+  }
+
+  // F5 on the refund path. Number(null), Number("") and Number(undefined) are
+  // all 0 — CardCom's SUCCESS — so these bodies were read as a completed
+  // refund. Each must be UNKNOWN: nothing CardCom said establishes anything.
+  for (const body of [
+    { ResponseCode: null, NewTranzactionId: 999200 },
+    { ResponseCode: "", NewTranzactionId: 999201 },
+    { ResponseCode: "  ", NewTranzactionId: 999202 },
+    { ResponseCode: false, NewTranzactionId: 999203 },
+    { NewTranzactionId: 999204 },
+    {},
+  ]) {
+    const { provider } = harness(() => jsonResponse(200, body));
+    const result = await provider.refundPayment!(refundInput());
+    ok(
+      `an empty or missing ResponseCode (${JSON.stringify(body)}) is UNKNOWN, never REFUNDED`,
+      result.outcome === "UNKNOWN" && result.providerRefundId === null
+    );
+  }
+  {
+    const { provider } = harness(() => jsonResponse(200, { ResponseCode: "0", NewTranzactionId: 999300 }));
+    const result = await provider.refundPayment!(refundInput());
+    ok("an integer-string \"0\" is still CardCom's success", result.outcome === "REFUNDED");
+    ok("with CardCom's own reversal id", result.providerRefundId === "999300");
   }
 
   {

@@ -34,6 +34,7 @@
 import type { PaymentProvider } from "../../payments.types";
 import {
   PaymentProviderError,
+  PaymentProviderRefusalError,
   type CreatePaymentLinkInput,
   type CreatePaymentLinkResult,
   type GetPaymentStatusInput,
@@ -49,6 +50,7 @@ import {
 } from "../payment-provider.types";
 import type { ProviderDescriptor } from "../provider-descriptor.types";
 import { buildCallbackUrl } from "../../payment-callback-secret";
+import { readCallbackBody, readVerifiedEvidence } from "../../payment-evidence";
 
 const SUMIT_PROVIDER: PaymentProvider = "SUMIT";
 
@@ -349,6 +351,36 @@ export function extractSumitCallbackFields(
  * orchestration treats as "do not settle" — never as failure and never as
  * success.
  */
+/**
+ * SUMIT's `Payment.Currency`. The request side sends an ISO string; the answer
+ * may carry the ISO string or SUMIT's numeric code. Only 0 (ILS) and 1 (USD) —
+ * the two currencies this adapter supports — are mapped (DOCS-CONFIRM:
+ * EXTERNAL — SUMIT RESPONSE REQUIRED). Anything else is reported as
+ * `CURRENCY:<n>`, which never equals a request currency, so it can only ever
+ * pause as a mismatch — never settle as the wrong money.
+ */
+function sumitCurrencyOf(value: unknown): string | null {
+  if (typeof value === "string") {
+    const c = value.trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(c) ? c : null;
+  }
+  if (typeof value === "number" && Number.isInteger(value)) {
+    if (value === 0) return "ILS";
+    if (value === 1) return "USD";
+    return `CURRENCY:${value}`;
+  }
+  return null;
+}
+
+/** A positive amount as a decimal string; finer precision kept verbatim to mismatch loudly. */
+function sumitAmountOf(value: unknown): string | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const cents = Math.round(n * 100);
+  if (Math.abs(n * 100 - cents) > 1e-6) return String(value);
+  return (cents / 100).toFixed(2);
+}
+
 export function interpretSumitPayment(result: unknown): ProviderPaymentStatus {
   const payment = get(get(result, "Data"), "Payment") ?? null;
   if (payment == null) {
@@ -360,7 +392,24 @@ export function interpretSumitPayment(result: unknown): ProviderPaymentStatus {
   const status = asString(get(payment, "Status"));
 
   if (valid === true && status === SUCCESS_STATUS_CODE) {
-    return { outcome: "PAID", providerTransactionId: id };
+    // M1 — the money SUMIT says moved, from its own record of the payment.
+    // Without these the authority records nothing (PAID_WITHOUT_VERIFIED_AMOUNT),
+    // which is how every SUMIT payment silently stayed unrecorded after M1.
+    const customerId = asString(get(payment, "CustomerID"));
+    const documentId = asString(get(payment, "DocumentID"));
+    return {
+      outcome: "PAID",
+      providerTransactionId: id,
+      verifiedAmount: sumitAmountOf(get(payment, "Amount")),
+      verifiedCurrency: sumitCurrencyOf(get(payment, "Currency")),
+      paymentMethod: "CARD",
+      // SUMIT is also an invoicing system and may issue its own document for
+      // the payment. When its record names one, Dubiz must not issue a second.
+      providerDocumentIssued: documentId != null && documentId !== "0" ? true : null,
+      // Kept with the money so a payment found by RECONCILIATION (no callback
+      // body) is as refundable as one announced by the IPN.
+      evidence: { customerId },
+    };
   }
   if (valid === false) {
     return { outcome: "FAILED", providerTransactionId: id };
@@ -753,7 +802,7 @@ export function createSumitProvider(
     async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentResult> {
       const customerId = extractSettlementCustomerId(input.settlement.rawPayload);
       if (customerId === null) {
-        throw new PaymentProviderError(
+        throw new PaymentProviderRefusalError(
           SUMIT_PROVIDER,
           "NO_REFUND_TARGET",
           "The stored SUMIT settlement carries no customer id, so there is " +
@@ -789,6 +838,17 @@ export function createSumitProvider(
  * uses, so there is one definition of how a SUMIT body is read.
  */
 export function extractSettlementCustomerId(rawPayload: unknown): number | null {
+  if (rawPayload == null) return null;
+
+  // Preferred: the customer id SUMIT's AUTHORITATIVE answer carried, recorded
+  // with the money whether the payment arrived by IPN or by reconciliation.
+  const verified = readVerifiedEvidence(rawPayload).customerId;
+  if (verified != null) {
+    const v = Number(verified);
+    if (Number.isSafeInteger(v) && v > 0) return v;
+  }
+  // Otherwise the callback body (the envelope's, or a pre-envelope row itself).
+  rawPayload = readCallbackBody(rawPayload);
   if (rawPayload == null) return null;
 
   const fields =
@@ -831,8 +891,11 @@ export async function refundSumitPayment(
 ): Promise<{ refundPaymentId: string | null; outcome: ParsedPaymentOutcome }> {
   const companyId = parseCompanyId(input.merchantId);
   const cred = parseCredential(input.credential);
+  // Configuration problems are detected before anything is sent, so nothing
+  // can have happened: these are refusals. Silence AFTER sending is not, and
+  // is left to throw a plain provider error, which the domain treats as UNKNOWN.
   if (companyId === null || !cred) {
-    throw new PaymentProviderError(
+    throw new PaymentProviderRefusalError(
       SUMIT_PROVIDER,
       "MISSING_CREDENTIALS",
       "The SUMIT connection is missing its company id or API key."
@@ -841,14 +904,14 @@ export async function refundSumitPayment(
 
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new PaymentProviderError(
+    throw new PaymentProviderRefusalError(
       SUMIT_PROVIDER,
       "INVALID_REFUND_AMOUNT",
       "A refund amount must be a positive number."
     );
   }
   if (!SUMIT_SUPPORTED_CURRENCIES.includes(input.currency)) {
-    throw new PaymentProviderError(
+    throw new PaymentProviderRefusalError(
       SUMIT_PROVIDER,
       "UNSUPPORTED_CURRENCY",
       `SUMIT cannot refund in ${input.currency}.`
@@ -927,12 +990,23 @@ export async function refundSumitPayment(
       "SUMIT returned a refund response that was not JSON."
     );
   }
-  if (get(json, "Status") !== 0) {
+  const envelopeStatus = get(json, "Status");
+  if (envelopeStatus !== 0) {
     const message = asString(get(json, "UserErrorMessage")) ?? "unspecified error";
+    // Status 1 is SUMIT stating a user-level refusal: nothing was charged.
+    // Status 2 is a TECHNICAL error, and anything else is unrecognised — the
+    // credit may or may not have been created, so neither is a refusal.
+    if (envelopeStatus === 1) {
+      throw new PaymentProviderRefusalError(
+        SUMIT_PROVIDER,
+        "PROVIDER_REFUSED",
+        `SUMIT refused the refund: ${message}`
+      );
+    }
     throw new PaymentProviderError(
       SUMIT_PROVIDER,
       "PROVIDER_ERROR",
-      `SUMIT refused the refund: ${message}`
+      `SUMIT could not confirm the refund: ${message}`
     );
   }
 
@@ -974,6 +1048,10 @@ export const sumitDescriptor: ProviderDescriptor = {
     sandbox: true,
     webhooks: true,
     tokens: false,
+    readOnlyStatusQuery: true,
+    verificationKey: "CORRELATION_VALUE",
+    paymentMethods: ["CARD"],
+    taxDocuments: "MAY",
   },
   supportedCurrencies: SUMIT_SUPPORTED_CURRENCIES,
 };

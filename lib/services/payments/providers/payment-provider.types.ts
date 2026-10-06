@@ -12,6 +12,27 @@
 
 import type { PaymentProvider } from "../payments.types";
 
+/**
+ * HOW the customer paid, as the provider's authoritative answer states it.
+ *
+ * Provider and method are different dimensions: one acquirer may take a card,
+ * Bit and a wallet through the same checkout, and two acquirers may both take
+ * Bit. An adapter reports a method only when its provider's answer names one;
+ * otherwise UNKNOWN, which is never rounded to CARD.
+ */
+export type PaymentMethodKind = "CARD" | "BIT" | "APPLE_PAY" | "GOOGLE_PAY" | "UNKNOWN";
+
+/**
+ * What a provider connection is pointed at, as far as the adapter can tell.
+ *
+ *   TEST    — a provider's published shared test account (CardCom terminal 1000)
+ *   SANDBOX — a provider sandbox host or a credential the provider marks as test
+ *   LIVE    — the adapter can positively tell it is a production account
+ *   UNKNOWN — the adapter cannot tell. Treated as NOT live wherever a live
+ *             money consequence depends on it (see payment-environment.ts).
+ */
+export type ConnectionEnvironment = "TEST" | "SANDBOX" | "LIVE" | "UNKNOWN";
+
 export interface CreatePaymentLinkInput {
   businessId: number;
   paymentRequestId: number;
@@ -152,6 +173,23 @@ export interface ProviderPaymentStatus {
    * never used to decide an outcome.
    */
   detail?: string | null;
+  /** How the customer paid, when the provider's answer states it. */
+  paymentMethod?: PaymentMethodKind | null;
+  /**
+   * True when the provider's answer shows that the PROVIDER issued a tax
+   * document (invoice / receipt) for this payment itself. Dubiz must then not
+   * issue a second one automatically — the settlement pauses for a person.
+   * Null when the answer does not say.
+   */
+  providerDocumentIssued?: boolean | null;
+  /**
+   * Provider-specific identifiers the adapter will need again later (a refund
+   * target, a customer id), taken from the AUTHORITATIVE answer. Stored with
+   * the money row so a payment discovered by reconciliation — which has no
+   * callback body — is as refundable as one announced by a webhook. Non-secret
+   * identifiers only; never card data, never credentials.
+   */
+  evidence?: Record<string, string | number | boolean | null> | null;
 }
 
 export interface PaymentProviderAdapter {
@@ -253,6 +291,13 @@ export interface PaymentProviderAdapter {
    * or to failure.
    */
   getRefundStatus?(input: RefundStatusInput): Promise<RefundStatusResult>;
+
+  /**
+   * Which kind of account a connection points at, from what Dubiz stores for
+   * it. Pure, no I/O. An adapter that cannot tell answers UNKNOWN — and absence
+   * of the method means UNKNOWN too — which the platform treats as not-live.
+   */
+  classifyEnvironment?(input: { merchantId: string | null }): ConnectionEnvironment;
 }
 
 export interface RefundStatusInput {
@@ -338,9 +383,13 @@ export interface RefundPaymentInput {
 /**
  * REFUNDED means the provider established the reversal. UNKNOWN means it did
  * not — the request may have reached the provider and may yet settle, so the
- * amount stays reserved and no further refund is allowed until a human
- * resolves it. There is deliberately no FAILED: a definite refusal is an
- * exception, not a result, so it can never be mistaken for an outcome.
+ * amount stays reserved and no further refund is allowed until it is resolved.
+ *
+ * There is deliberately no FAILED result. A definite refusal is signalled by
+ * throwing `PaymentProviderRefusalError` — and ONLY that class. Any other throw
+ * (network, timeout, an unreadable body, a bug) is treated by the domain as
+ * UNKNOWN: the instruction may have arrived, so the reservation stays held.
+ * This is enforced in `payment-refund.service.ts`, not left to each adapter.
  */
 export interface RefundPaymentResult {
   providerRefundId: string | null;
@@ -356,5 +405,20 @@ export class PaymentProviderError extends Error {
     this.name = "PaymentProviderError";
     this.provider = provider;
     this.code = code;
+  }
+}
+
+/**
+ * The provider STATED that a reversal did not happen and no money moved.
+ *
+ * The only error a refund adapter may throw to release a reservation. Throw it
+ * for a provider verdict, or for a configuration problem detected before
+ * anything was sent — never for silence, a timeout or a body that could not be
+ * read, which are UNKNOWN.
+ */
+export class PaymentProviderRefusalError extends PaymentProviderError {
+  constructor(provider: PaymentProvider, code: string, message: string) {
+    super(provider, code, message);
+    this.name = "PaymentProviderRefusalError";
   }
 }

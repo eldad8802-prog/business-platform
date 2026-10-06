@@ -26,13 +26,40 @@ async function main() {
     assert.equal(actor.action, "CREATE_CHARGE");
   }
 
-  // --- every current action is allowed for any authenticated member ---
+  // --- every action EXCEPT money-out is allowed for any authenticated member ---
   {
     for (const action of Object.values(PAYMENT_ACTIONS)) {
+      if (action === PAYMENT_ACTIONS.REFUND) continue;
       const actor = authorizePaymentAction({ id: 1, businessId: 2 }, action);
       assert.equal(actor.action, action);
       assert.equal(actor.businessId, 2);
     }
+  }
+
+  // --- REFUND is the account owner's, and fails CLOSED on an unresolved fact ---
+  {
+    assert.throws(
+      () => authorizePaymentAction({ id: 1, businessId: 2 }, PAYMENT_ACTIONS.REFUND),
+      (e) => statusCodeOf(e) === 403,
+      "no ownership fact => refused"
+    );
+    assert.throws(
+      () =>
+        authorizePaymentAction({ id: 1, businessId: 2 }, PAYMENT_ACTIONS.REFUND, {
+          isBusinessAccountOwner: false,
+        }),
+      (e) => statusCodeOf(e) === 403,
+      "a member who is not the owner => refused"
+    );
+    const owner = authorizePaymentAction({ id: 1, businessId: 2 }, PAYMENT_ACTIONS.REFUND, {
+      isBusinessAccountOwner: true,
+    });
+    assert.equal(owner.action, "REFUND");
+    // The fact never widens anything else: still 401 without a user.
+    assert.throws(
+      () => authorizePaymentAction(null, PAYMENT_ACTIONS.REFUND, { isBusinessAccountOwner: true }),
+      (e) => statusCodeOf(e) === 401
+    );
   }
 
   // --- unauthenticated => UnauthorizedError (401) ---
@@ -66,7 +93,9 @@ async function main() {
 
   // --- ownership: the businessId is always the actor's own ---
   {
-    const actor = authorizePaymentAction({ id: 2, businessId: 7 }, PAYMENT_ACTIONS.REFUND);
+    const actor = authorizePaymentAction({ id: 2, businessId: 7 }, PAYMENT_ACTIONS.REFUND, {
+      isBusinessAccountOwner: true,
+    });
     assert.equal(actor.businessId, 7); // derived from the actor, not from input
   }
 

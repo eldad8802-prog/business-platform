@@ -125,9 +125,19 @@ async function main() {
       ],
     };
 
+    // Core safety: only ENABLED providers are candidates. PAYPAL is disabled
+    // in this application, so a CARDCOM + PAYPAL business is not ambiguous —
+    // its single usable provider is chosen.
+    ok(
+      "a connection to a DISABLED provider never makes a business ambiguous",
+      (await selectPaymentProvider({ businessId: 1, requested: null }, twoActive)) === "CARDCOM"
+    );
+
+    // With both treated as enabled (test seam), the ambiguity rule still holds.
+    const allEnabled = () => true;
     let caught: unknown;
     try {
-      await selectPaymentProvider({ businessId: 1, requested: null }, twoActive);
+      await selectPaymentProvider({ businessId: 1, requested: null }, twoActive, allEnabled);
     } catch (e) {
       caught = e;
     }
@@ -149,7 +159,8 @@ async function main() {
     // Mode A resolves that same ambiguity deterministically.
     const chosen = await selectPaymentProvider(
       { businessId: 1, requested: "CARDCOM" },
-      twoActive
+      twoActive,
+      allEnabled
     );
     ok("naming one of the two resolves it deterministically", chosen === "CARDCOM");
   }
