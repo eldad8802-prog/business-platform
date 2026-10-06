@@ -72,6 +72,7 @@ on:
           - 'ops/evidence/m1-onboarding-production-evidence.sql'
           - 'ops/evidence/closed-loop-recommendation-evidence-preflight.sql'
           - 'ops/evidence/closed-loop-recommendation-evidence-production-evidence.sql'
+          - 'ops/evidence/closed-loop-gate-c-eligibility.sql'
 
 permissions:
   contents: read
