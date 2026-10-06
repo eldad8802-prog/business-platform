@@ -5,6 +5,12 @@
 --   20261013090000_m7a_commerce_telephony_foundation
 -- is in force with exactly its intended security properties.
 --
+-- SCHEMA EVOLUTION: a later approved migration may add objects to these tables. The exact-set checks
+-- (5, 11) accept ONLY the objects named in later_idx / later_check, each owned by its migration, and
+-- refuse anything else — they never count loosely. Added so far:
+--   20261014090000_m7bc_commerce_demand_and_line_labels  CommerceOrderLine_id_businessId_key (unique),
+--                                                       AcquisitionConnection_line_labels (CHECK)
+--
 -- NO DATA ROW is read except counts. Catalog, ledger and feature governance rows only.
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- Guard-clean: no write keyword anywhere, prose included (privilege names are spelled in parts).
@@ -15,13 +21,13 @@
 \echo ' 2 Q1 ledger: no unfinished and no rolled-back row'
 \echo ' 3 T1 the four tables have exactly their reviewed columns (observed = columns)'
 \echo ' 4 T2 exactly the named CHECK constraints, all validated (observed = checks)'
-\echo ' 5 T3 exactly the reviewed indexes, incl. the PARTIAL unknown-caller index (observed = indexes)'
+\echo ' 5 T3 exactly the reviewed indexes (+ named later additions only), incl. the PARTIAL unknown-caller index (observed = indexes)'
 \echo ' 6 T4 exactly the reviewed foreign keys: Business cascade, composite tenant keys, SET NULL for Customer / Lead (observed = FKs)'
 \echo ' 7 S1 RLS enabled AND forced on all four'
 \echo ' 8 S2 per-command policies with the tenant predicate: SELECT/INS/UPD (the order history: SELECT/INS only), none for DEL / ALL'
 \echo ' 9 G1 runtime (group + logins): arw on the order, its lines and the activity table, ar on the order history; Ur on each sequence; never d / D / x / t'
 \echo '10 G2 no other app_* role and not PUBLIC holds anything on the four tables or their sequences'
-\echo '11 A1 AcquisitionConnection: the 7-source vocabulary and the widened source shape, validated'
+\echo '11 A1 AcquisitionConnection: the 7-source vocabulary and the widened source shape, validated; exactly the named CHECKs'
 \echo '12 A2 IntakeNormalizedEvent: both route vocabularies include the new target, validated'
 \echo '13 F1 the resource resolver answers ACTIVE and ERROR only; still SECURITY DEFINER, STABLE, search_path pinned, migration-role owned, runtime-only EXECUTE'
 \echo '14 X1 the four M7 features: defined OFF, policies OFF, no business override (observed = overrides)'
@@ -75,6 +81,8 @@ expected_idx(nm, uniq) AS (VALUES
   ('CommerceOrderEvent_pkey', true), ('CommerceOrderEvent_businessId_intakeEventId_key', true), ('CommerceOrderEvent_businessId_orderId_idx', false),
   ('CallActivity_pkey', true), ('CallActivity_id_businessId_key', true), ('CallActivity_businessId_sourceKey_providerCallId_key', true),
   ('CallActivity_businessId_customerId_startedAt_idx', false), ('CallActivity_businessId_startedAt_idx', false), ('CallActivity_unknown_caller_idx', false)),
+-- Indexes later approved migrations add to these four tables (name, unique) — nothing else may appear.
+later_idx(nm, uniq) AS (VALUES ('CommerceOrderLine_id_businessId_key', true)),
 idx AS (SELECT ic.relname, i.indisunique, pg_get_expr(i.indpred, i.indrelid) AS pred
         FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid WHERE i.indrelid IN (SELECT oid FROM tbls)),
 expected_fk(nm, target, deltype) AS (VALUES
@@ -99,6 +107,14 @@ others AS (SELECT r.oid FROM pg_roles r WHERE r.rolname LIKE 'app\_%' AND r.roln
            AND NOT pg_has_role(r.oid, (SELECT oid FROM rt), 'USAGE')),
 privs(p) AS (VALUES ('SELECT'), ('INS' || 'ERT'), ('UPD' || 'ATE'), ('DEL' || 'ETE'), ('TRUNC' || 'ATE'), ('REFERENCES'), ('TRIGGER')),
 acq AS (SELECT oid FROM pg_class WHERE relnamespace = (SELECT oid FROM pub) AND relname = 'AcquisitionConnection' AND relkind = 'r'),
+-- AcquisitionConnection's CHECK constraints: the M6 + M7-A set, then the named later additions — exactly these.
+expected_check(nm) AS (VALUES ('AcquisitionConnection_credential_shape'), ('AcquisitionConnection_error_code'),
+  ('AcquisitionConnection_external_resource'), ('AcquisitionConnection_key_hash'), ('AcquisitionConnection_key_hint'),
+  ('AcquisitionConnection_label'), ('AcquisitionConnection_origins'), ('AcquisitionConnection_public_id'),
+  ('AcquisitionConnection_revoked_shape'), ('AcquisitionConnection_source_key'), ('AcquisitionConnection_source_shape'),
+  ('AcquisitionConnection_status')),
+later_check(nm) AS (VALUES ('AcquisitionConnection_line_labels')),
+acq_checks AS (SELECT k.conname, k.convalidated FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM acq) AND k.contype = 'c'),
 ine AS (SELECT oid FROM pg_class WHERE relnamespace = (SELECT oid FROM pub) AND relname = 'IntakeNormalizedEvent' AND relkind = 'r'),
 resolver AS (SELECT p.oid, p.prosrc, p.prosecdef, p.provolatile, p.proowner, p.proconfig FROM pg_proc p
              WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname = 'm6_acquisition_resolve_resource'),
@@ -122,8 +138,9 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 4, (SELECT count(*) FROM checks_c) = 26 AND (SELECT bool_and(convalidated) FROM checks_c)
                       AND NOT EXISTS (SELECT nm FROM expected_checks EXCEPT SELECT conname FROM checks_c),
                       (SELECT count(*) FROM checks_c)
-  UNION ALL SELECT 5, (SELECT count(*) FROM idx) = 16
-                      AND NOT EXISTS (SELECT e.nm FROM expected_idx e WHERE NOT EXISTS (SELECT 1 FROM idx i WHERE i.relname = e.nm AND i.indisunique = e.uniq))
+  UNION ALL SELECT 5, NOT EXISTS (SELECT e.nm FROM expected_idx e WHERE NOT EXISTS (SELECT 1 FROM idx i WHERE i.relname = e.nm AND i.indisunique = e.uniq))
+                      AND NOT EXISTS (SELECT 1 FROM idx i WHERE NOT EXISTS (SELECT 1 FROM expected_idx e WHERE e.nm = i.relname AND e.uniq = i.indisunique)
+                                                            AND NOT EXISTS (SELECT 1 FROM later_idx l WHERE l.nm = i.relname AND l.uniq = i.indisunique))
                       AND EXISTS (SELECT 1 FROM idx WHERE relname = 'CallActivity_unknown_caller_idx' AND position('"callerHash" IS NOT NULL' IN pred) > 0)
                       AND (SELECT count(*) FROM idx WHERE pred IS NOT NULL) = 1,
                       (SELECT count(*) FROM idx)
@@ -169,7 +186,9 @@ checks(n, ok, observed_count) AS (
                        AND EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM acq) AND k.conname = 'AcquisitionConnection_source_shape'
                                 AND k.convalidated AND position('telephony.voicenter' IN pg_get_constraintdef(k.oid)) > 0
                                 AND position('REVOKED' IN pg_get_constraintdef(k.oid)) > 0)
-                       AND (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM acq) AND k.contype = 'c') = 12,
+                       AND NOT EXISTS (SELECT e.nm FROM expected_check e WHERE NOT EXISTS (SELECT 1 FROM acq_checks c WHERE c.conname = e.nm AND c.convalidated))
+                       AND NOT EXISTS (SELECT 1 FROM acq_checks c WHERE c.conname NOT IN (SELECT nm FROM expected_check) AND c.conname NOT IN (SELECT nm FROM later_check))
+                       AND (SELECT bool_and(convalidated) FROM acq_checks),
                        (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM acq) AND k.contype = 'c')
   UNION ALL SELECT 12, (SELECT count(*) FROM pg_constraint k, target_word w WHERE k.conrelid = (SELECT oid FROM ine) AND k.convalidated
                          AND k.conname IN ('IntakeNormalizedEvent_routeTarget_vocab', 'IntakeNormalizedEvent_routingDestination_vocab')
