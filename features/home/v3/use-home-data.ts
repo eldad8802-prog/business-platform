@@ -8,6 +8,7 @@ import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 import type { SetupView } from "@/lib/services/onboarding/setup-model";
 import { loadRecommendations, type RecommendationView } from "@/features/recommendations/recommendations-client";
+import { parseHomeHistory, type HomeHistory } from "@/lib/services/home/home-history-model";
 
 import {
   FAILED,
@@ -60,9 +61,11 @@ export type HomeData = {
   leads: Load<LeadWire[]>;
   documents: Load<{ items: DocumentWire[]; totalPendingReview: number }>;
   insight: Load<InsightView | null>;
-  /** "Your start": the first action for the owner's goal and a short checklist. */
+  /** Whether the post-signup screen is still due (the page redirects there once). */
   setup: Load<SetupView>;
   recommendation: Load<RecommendationHomeView | null>;
+  /** Per card: has this business ever had a real event of that kind (never inferred from 0). */
+  history: Load<HomeHistory>;
   unread: boolean;
   /* desktop only */
   pending: Load<{ amount: string; count: number }>;
@@ -83,6 +86,7 @@ const INITIAL: HomeData = {
   insight: LOADING,
   setup: LOADING,
   recommendation: LOADING,
+  history: LOADING,
   unread: false,
   pending: LOADING,
   conversations: LOADING,
@@ -167,6 +171,10 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
     settle("insight", loadInsight(), (v) => ready(v));
     settle("setup", fetchJsonCached<SetupView>("/api/business/setup", TTL), (j) => ready(j));
     settle("recommendation", loadRecommendationHome(), (v) => ready(v));
+    settle("history", fetchJsonCached<unknown>("/api/home/history", TTL), (j) => {
+      const h = parseHomeHistory(j);
+      return h ? ready(h) : FAILED;
+    });
 
     fetchJsonCached<{ unreadCount?: number }>("/api/notifications/unread-count", 0)
       .then((j) => {

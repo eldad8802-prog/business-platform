@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import {
+  A11Y_STATE_EVENT,
+  A11Y_TOGGLE_EVENT,
+  hasVisibleDockedTrigger,
+} from "./accessibility-trigger";
 
 /**
  * AccessibilityFab — a floating, always-available accessibility menu.
@@ -13,8 +18,15 @@ import { usePathname } from "next/navigation";
  * for the user who opened it.
  *
  * Placement: fixed to the bottom-inline-end corner (bottom-left in Dubiz's RTL
- * UI, opposite the top-inline-start SkipLink), so it never covers the primary
- * content column. RTL-safe via logical `insetInlineEnd`.
+ * UI, opposite the top-inline-start SkipLink). RTL-safe via logical
+ * `insetInlineEnd`.
+ *
+ * Docked mode: a screen that gives accessibility a permanent place renders an
+ * AccessibilityTrigger (sidebar, rail, the phone Home header, auth and setup).
+ * While one is visible the floating button is not drawn — it covered content on
+ * those screens — and the panel opens next to the trigger that asked for it.
+ * Where no trigger is visible the floating button remains, so no layout and no
+ * breakpoint is ever left without a way in.
  *
  * a11y of the widget itself: the trigger carries a clear Hebrew `aria-label`,
  * `aria-expanded`/`aria-controls`; the panel is a labelled dialog that closes on
@@ -93,6 +105,16 @@ export function AccessibilityFab() {
   const [bottomInset, setBottomInset] = useState(BASE_BOTTOM);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // A docked trigger is on screen → the floating button stands down.
+  const [docked, setDocked] = useState(false);
+  // The element that opened the panel (floating button or a docked trigger):
+  // focus returns to it and the panel is placed beside it.
+  const openerRef = useRef<HTMLElement | null>(null);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   // Sync the saved prefs to the document (a DOM/external-system update) and
   // persist them, on mount and on every change. No setState here.
@@ -116,6 +138,7 @@ export function AccessibilityFab() {
       );
       const barH = bar?.offsetHeight ?? 0;
       setBottomInset(barH > 0 ? barH + 12 : BASE_BOTTOM);
+      setDocked(hasVisibleDockedTrigger(document));
     };
     measure();
     window.addEventListener("resize", measure);
@@ -127,13 +150,34 @@ export function AccessibilityFab() {
     };
   }, []);
 
+  // Docked triggers toggle the same panel.
+  useEffect(() => {
+    const onToggle = (e: Event) => {
+      const opener = (e as CustomEvent<{ opener?: HTMLElement }>).detail?.opener ?? null;
+      if (openRef.current && openerRef.current === opener) {
+        setOpen(false);
+        return;
+      }
+      openerRef.current = opener;
+      setAnchor(opener ? opener.getBoundingClientRect() : null);
+      setOpen(true);
+    };
+    window.addEventListener(A11Y_TOGGLE_EVENT, onToggle);
+    return () => window.removeEventListener(A11Y_TOGGLE_EVENT, onToggle);
+  }, []);
+
+  // Tell docked triggers whether the panel is open (their aria-expanded).
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(A11Y_STATE_EVENT, { detail: { open } }));
+  }, [open]);
+
   // Close on Escape / outside-click; move focus into the panel on open, keep it
   // trapped inside (Tab cycles), and restore it to the trigger on close.
   useEffect(() => {
     if (!open) return;
     const closeAndRestore = () => {
       setOpen(false);
-      triggerRef.current?.focus();
+      (openerRef.current ?? triggerRef.current)?.focus();
     };
     const focusables = () =>
       Array.from(
@@ -167,8 +211,8 @@ export function AccessibilityFab() {
       if (
         panelRef.current &&
         !panelRef.current.contains(t) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(t)
+        !(triggerRef.current && triggerRef.current.contains(t)) &&
+        !(openerRef.current && openerRef.current.contains(t))
       ) {
         setOpen(false);
       }
@@ -208,6 +252,7 @@ export function AccessibilityFab() {
           scroll-behavior: auto !important;
         }
       `}</style>
+      {!docked && (
       <button
         ref={triggerRef}
         type="button"
@@ -223,7 +268,11 @@ export function AccessibilityFab() {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls="dubiz-a11y-panel"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          openerRef.current = triggerRef.current;
+          setAnchor(null);
+          setOpen((v) => !v);
+        }}
         style={{
           position: "fixed",
           bottom: bottomInset,
@@ -268,6 +317,7 @@ export function AccessibilityFab() {
           />
         </svg>
       </button>
+      )}
 
       {open && (
         <div
@@ -278,8 +328,7 @@ export function AccessibilityFab() {
           dir="rtl"
           style={{
             position: "fixed",
-            bottom: bottomInset + 66,
-            insetInlineEnd: 20,
+            ...panelPlacement(anchor, bottomInset),
             zIndex: 101,
             width: 288,
             maxWidth: "calc(100vw - 40px)",
@@ -306,7 +355,7 @@ export function AccessibilityFab() {
               aria-label="סגור תפריט נגישות"
               onClick={() => {
                 setOpen(false);
-                triggerRef.current?.focus();
+                (openerRef.current ?? triggerRef.current)?.focus();
               }}
               style={{
                 border: "none",
@@ -391,6 +440,22 @@ export function AccessibilityFab() {
       )}
     </>
   );
+}
+
+const PANEL_WIDTH = 288;
+
+/**
+ * Beside the docked trigger that opened the panel, clamped to the viewport;
+ * above the floating button otherwise (its long-standing position).
+ */
+function panelPlacement(anchor: DOMRect | null, bottomInset: number): React.CSSProperties {
+  if (!anchor || typeof window === "undefined") {
+    return { bottom: bottomInset + 66, insetInlineEnd: 20 };
+  }
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const left = Math.min(Math.max(12, anchor.left + anchor.width / 2 - PANEL_WIDTH / 2), Math.max(12, vw - PANEL_WIDTH - 12));
+  return anchor.top > vh / 2 ? { left, bottom: vh - anchor.top + 8 } : { left, top: anchor.bottom + 8 };
 }
 
 const rowStyle: React.CSSProperties = {

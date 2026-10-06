@@ -1,5 +1,5 @@
 {
-  "note": "feat/m1-setup-flow: signup consent version integrity and the setup rules (goal provenance, taxonomy validation, first action, checklist).",
+  "note": "feat/m1-setup-flow + onboarding v2: signup consent version integrity, the one-screen setup (OWNER_INPUT identity answers, no goal/category), and the Home history contract.",
   "tests": {
     "lib/legal/consent-version.test.ts": {
       "class": "SECURITY_REQUIRED",
@@ -8,7 +8,11 @@
     },
     "lib/services/onboarding/setup-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "product behaviour; pure (no DB/network): setup goal provenance (a default is never recorded as the owner's choice), taxonomy validation of the business answer, first action per goal and its completion, the progressive checklist; run in verify:prelaunch (auth-plane-write-ci)"
+      "reason": "product behaviour; pure (no DB/network): one-screen setup — audience ↔ identity codes, description normalisation and limits, no goal/category/first action anywhere, no SetupCard on Home; run in verify:prelaunch (auth-plane-write-ci)"
+    },
+    "lib/services/home/home-history-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): Home first-time rule (history known absent AND no rows; never from 0), WhatsApp action per real connection state, strict wire parse, every history predicate pinned to businessId; SQL proven on PG in auth-plane-write battery §8; run in verify:prelaunch"
     }
   }
 }

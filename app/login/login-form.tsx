@@ -4,6 +4,25 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { PrimaryCta } from "@/components/ui/primary-cta";
+import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
+
+const LOGIN_A11Y_STYLE: React.CSSProperties = {
+  position: "absolute",
+  top: "calc(16px + env(safe-area-inset-top, 0px))",
+  insetInlineEnd: 16,
+  width: 44,
+  height: 44,
+  borderRadius: 12,
+  border: "1px solid var(--dz-border)",
+  background: "var(--dz-surface-flat)",
+  color: "var(--dz-text-primary)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  padding: 0,
+  zIndex: 2,
+};
 
 type LoginErrors = {
   email?: string;
@@ -393,6 +412,8 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
 
   return (
     <div style={pageStyle}>
+      {/* The accessibility entry has a fixed place here, so the floating button stands down. */}
+      <AccessibilityTrigger label="הגדרות נגישות" style={LOGIN_A11Y_STYLE} />
       <div style={cardStyle}>
         <div style={headerStyle}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>

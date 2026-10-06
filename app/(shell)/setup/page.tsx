@@ -1,73 +1,64 @@
 "use client";
 
 /**
- * /setup — two short, skippable questions after signup, then Home.
+ * /setup — one short, skippable screen after signup, then the ordinary Home.
  *
- *   1. "מה העסק עושה?"        → category / subCategory / businessModel (owner-declared)
- *   2. "עם מה תרצה להתחיל?"   → a product preference that picks Home's first action
+ *   "ספרו לנו קצת על העסק"        → DESCRIPTION, in the owner's own words
+ *   "מי בדרך כלל הלקוחות שלכם?"   → TARGET_AUDIENCE INDIVIDUALS / BUSINESSES / both
  *
- * Each answer is saved the moment "המשך" is pressed, so a refresh, Back, or a
- * login on another device resumes with what was already chosen. Steps are real
- * history entries (useFlowStep), so Back walks them in the order taken; on
- * finishing, the setup entries are consumed and Back never returns into them.
+ * Both are optional and both are saved as the owner goes (the text on blur,
+ * the choice on tap), so leaving and coming back — on any device — lands on
+ * this same screen with what was already said. Nothing here picks a category,
+ * a goal or a first action. Finishing or skipping stamps the business once;
+ * the Home then never redirects here again.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import BackButton from "@/components/ui/back-button";
-import { WarmButton } from "@/components/ui/warm/warm-primitives";
+import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
-import { useFlowStep } from "@/hooks/useFlowStep";
-import {
-  BUSINESS_CATEGORY_OPTIONS,
-  BUSINESS_MODEL_OPTIONS,
-  businessCategoryLabel,
-} from "@/lib/business/business-categories";
-import {
-  buildClientAuthHeaders,
-  getClientAuthToken,
-  redirectToLogin,
-} from "@/lib/client-session";
+import { useSessionIdentity } from "@/components/navigation/nav-signals";
+import { buildClientAuthHeaders, getClientAuthToken, redirectToLogin } from "@/lib/client-session";
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
-import {
-  SETUP_GOAL_OPTIONS,
-  START_ACTIONS,
-  defaultGoalFor,
-  suggestedModelFor,
-  type SetupGoal,
-} from "@/lib/services/onboarding/setup-model";
+import { DESCRIPTION_MAX, type SetupAudience, type SetupView } from "@/lib/services/onboarding/setup-model";
 import { invalidateCachedJson } from "@/lib/ui/cached-json";
 
 import styles from "./setup.module.css";
 
-type Step = "business" | "start";
-const STEPS: readonly Step[] = ["business", "start"];
 const SETUP_URL = "/api/business/setup";
+const HISTORY_URL = "/api/home/history";
 
-type SetupState = {
-  category: string | null;
-  subCategory: string | null;
-  businessModel: string | null;
-  storedGoal: string | null;
+const AUDIENCE_OPTIONS: Array<{ value: SetupAudience; label: string; icon: "person" | "building" | "both" }> = [
+  { value: "INDIVIDUALS", label: "לקוחות פרטיים", icon: "person" },
+  { value: "BUSINESSES", label: "עסקים", icon: "building" },
+  { value: "BOTH", label: "גם וגם", icon: "both" },
+];
+
+const AUDIENCE_SUMMARY: Record<SetupAudience, string> = {
+  INDIVIDUALS: "בעיקר לקוחות פרטיים",
+  BUSINESSES: "בעיקר עסקים",
+  BOTH: "פרטיים ועסקים",
 };
+
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 export default function SetupPage() {
   useHideShellChrome(true);
   const router = useRouter();
-  const flow = useFlowStep<Step>({ steps: STEPS });
+  const { businessName, userName } = useSessionIdentity(true);
 
-  const [category, setCategory] = useState<string | null>(null);
-  const [subCategory, setSubCategory] = useState<string | null>(null);
-  const [businessModel, setBusinessModel] = useState<string | null>(null);
-  const [goal, setGoal] = useState<SetupGoal | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [description, setDescription] = useState("");
+  const [audience, setAudience] = useState<SetupAudience | null>(null);
+  const [savedDescription, setSavedDescription] = useState("");
+  const [resumed, setResumed] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // Set on the owner's first tap, so a late prefill never overwrites a choice.
-  const touchedBusiness = useRef(false);
-  const touchedGoal = useRef(false);
+  // The owner's own edits always win over a late prefill.
+  const touchedText = useRef(false);
+  const touchedAudience = useRef(false);
 
-  // Resume: whatever was already saved — on this device or another — is shown.
   useEffect(() => {
     if (!getClientAuthToken()) {
       redirectToLogin();
@@ -81,37 +72,24 @@ export default function SetupPage() {
           return;
         }
         if (!res.ok) throw new Error(String(res.status));
-        const s = (await res.json()) as SetupState;
+        const s = (await res.json()) as SetupView;
         if (cancelled) return;
-        // Saved answers fill only what the owner has not touched yet: on a slow
-        // connection they may already have tapped a choice, and that wins.
-        if (!touchedBusiness.current) {
-          setCategory(s.category);
-          setSubCategory(s.subCategory);
-          setBusinessModel(s.businessModel);
+        if (!touchedText.current && s.description) {
+          setDescription(s.description);
+          setSavedDescription(s.description);
         }
-        const stored = s.storedGoal;
-        if (!touchedGoal.current && stored && SETUP_GOAL_OPTIONS.some((o) => o.value === stored)) {
-          setGoal(stored as SetupGoal);
-        }
+        if (!touchedAudience.current && s.audience) setAudience(s.audience);
+        if (s.needsSetup && (s.description || s.audience)) setResumed(true);
       })
       .catch(() => {
-        // Setup still works without a prefill: every answer is optional.
+        // The screen still works without a prefill: every answer is optional.
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const category0 = useMemo(
-    () => BUSINESS_CATEGORY_OPTIONS.find((c) => c.value === category) ?? null,
-    [category]
-  );
-  const businessComplete = Boolean(category && subCategory && businessModel);
-
   const post = useCallback(async (body: Record<string, unknown>): Promise<boolean> => {
-    setSaving(true);
-    setError("");
     try {
       const res = await fetch(SETUP_URL, {
         method: "POST",
@@ -124,230 +102,274 @@ export default function SetupPage() {
       }
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setError(data?.error ?? "לא הצלחנו לשמור. נסו שוב.");
+        setError(data?.error ?? "לא הצלחנו לשמור. אפשר לנסות שוב.");
         return false;
       }
+      setError("");
       return true;
     } catch {
-      setError("אין חיבור כרגע. נסו שוב.");
+      setError("אין חיבור כרגע. אפשר לנסות שוב.");
       return false;
-    } finally {
-      setSaving(false);
     }
   }, []);
 
-  const finish = useCallback(
-    async (chosen: SetupGoal | null) => {
-      const ok = await post({ step: "start", goal: chosen });
+  const saveText = useCallback(async () => {
+    const text = description.trim();
+    if (!text || text === savedDescription.trim()) return;
+    setSaveState("saving");
+    const ok = await post({ step: "about", description: text });
+    if (ok) setSavedDescription(text);
+    setSaveState(ok ? "saved" : "error");
+  }, [description, savedDescription, post]);
+
+  const chooseAudience = useCallback(
+    async (value: SetupAudience) => {
+      touchedAudience.current = true;
+      setAudience(value);
+      await post({ step: "about", audience: value });
+    },
+    [post]
+  );
+
+  const leave = useCallback(
+    async (body: Record<string, unknown>) => {
+      setBusy(true);
+      const ok = await post(body);
+      setBusy(false);
       if (!ok) return;
       invalidateCachedJson(SETUP_URL);
-      // Setup is done: its steps leave the trail so Back from Home never
-      // re-enters a finished flow.
+      invalidateCachedJson(HISTORY_URL);
+      // The screen is done: it leaves the back-nav trail so Back from Home
+      // never re-enters it. A client replace keeps that trail live.
       consumeFlowEntries((url) => new URL(url, window.location.origin).pathname === "/setup");
-      // A client replace, not a full navigation: the back-nav trail stays live
-      // across it, which is what lets Back from Home skip the consumed steps.
-      // (A full navigation was measured to let browser Back reopen /setup.)
       router.replace("/app");
     },
     [post, router]
   );
 
-  const onBusinessContinue = async () => {
-    if (!businessComplete) return;
-    const ok = await post({ step: "business", category, subCategory, businessModel });
-    if (ok) flow.go("start");
+  const onContinue = () => {
+    const text = description.trim();
+    void leave({
+      step: "complete",
+      ...(text && text !== savedDescription.trim() ? { description: text } : {}),
+      ...(audience ? { audience } : {}),
+    });
   };
 
-  const previewGoal: SetupGoal = goal ?? defaultGoalFor(businessModel);
-  const previewLabel = category ? businessCategoryLabel(category, subCategory) : null;
-  const stepIndex = flow.step === "business" ? 0 : 1;
+  const name = businessName ?? "העסק";
+  const firstName = userName?.split(/\s+/)[0] ?? null;
+  const hasText = description.trim().length > 0;
 
   return (
     <div className={styles.page} dir="rtl">
-      <div className={styles.top}>
-        <div className={styles.progress} aria-live="polite">
-          <div className={styles.progressLabel}>
-            שלב {stepIndex + 1} מתוך {STEPS.length} · כדקה
-          </div>
-          <div className={styles.bar} aria-hidden>
-            {STEPS.map((s, i) => (
-              <span key={s} className={`${styles.barSeg} ${i <= stepIndex ? styles.barSegOn : ""}`} />
-            ))}
-          </div>
+      <header className={styles.top}>
+        <div className={styles.logo}>
+          <span className={styles.logoMark} aria-hidden="true">d</span>
+          <span className={styles.logoWord} dir="ltr">dubiz</span>
         </div>
-        <BackButton fallback="/app" fallbackLabel="לבית" />
-      </div>
+        <AccessibilityTrigger className={styles.iconBtn} label="הגדרות נגישות" />
+      </header>
 
-      <main className={styles.body}>
-        {flow.step === "business" ? (
-          <section className={styles.card} aria-labelledby="setup-business-title">
-            <div>
-              <h1 id="setup-business-title" className={styles.title}>
-                מה העסק עושה?
-              </h1>
-              <p className={styles.why}>
-                כך נתאים לך דוגמאות, תוכן והמלצות. אפשר לשנות את זה בכל רגע.
-              </p>
+      <main className={styles.main}>
+        <form
+          className={styles.form}
+          onSubmit={(e) => {
+            e.preventDefault();
+            onContinue();
+          }}
+          aria-labelledby="setup-title"
+        >
+          {resumed ? (
+            <div className={styles.resume} role="status">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5" />
+              </svg>
+              <span>
+                <b>המשכנו מאיפה שעצרת.</b> מה שכבר כתבת נשמר.
+              </span>
             </div>
+          ) : (
+            <p className={styles.eyebrow}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M8 12.5l2.6 2.5L16 9.5" />
+              </svg>
+              {firstName ? `החשבון נפתח, ${firstName}` : "החשבון נפתח"}
+            </p>
+          )}
 
-            <div>
-              <p className={styles.label} id="setup-category">
-                תחום
-              </p>
-              <div className={styles.tiles} role="radiogroup" aria-labelledby="setup-category">
-                {BUSINESS_CATEGORY_OPTIONS.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={category === c.value}
-                    className={`${styles.tile} ${category === c.value ? styles.tileOn : ""}`}
-                    onClick={() => {
-                      touchedBusiness.current = true;
-                      if (category !== c.value) {
-                        setCategory(c.value);
-                        setSubCategory(c.subCategories.length === 1 ? c.subCategories[0].value : null);
-                        setBusinessModel((m) => m ?? suggestedModelFor(c.value));
-                      }
-                    }}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
+          <div className={styles.head}>
+            <h1 id="setup-title" className={styles.title}>
+              ספרו לנו על {name}
+            </h1>
+            <p className={styles.sub}>כמה מילים בשפה שלכם מספיקות. את השאר Dubiz ילמד מהעבודה.</p>
+          </div>
+
+          <div className={styles.field}>
+            <label htmlFor="setup-description" className={styles.label}>
+              ספרו לנו קצת על העסק
+            </label>
+            <textarea
+              id="setup-description"
+              className={styles.textarea}
+              maxLength={DESCRIPTION_MAX}
+              placeholder="בשפה שלכם: מה אתם עושים, איך אתם עובדים, ומה חשוב לכם שנדע."
+              value={description}
+              onChange={(e) => {
+                touchedText.current = true;
+                setDescription(e.target.value);
+                if (saveState !== "idle") setSaveState("idle");
+              }}
+              onBlur={() => void saveText()}
+              aria-describedby="setup-description-meta"
+            />
+            <div id="setup-description-meta" className={styles.meta}>
+              <span aria-live="polite">
+                {saveState === "saving" ? (
+                  "שומרים…"
+                ) : saveState === "saved" ? (
+                  <span className={styles.saved}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 12.5l4.5 4.5L19 7.5" />
+                    </svg>
+                    נשמר
+                  </span>
+                ) : null}
+              </span>
+              <span className={styles.count}>
+                {description.length}/{DESCRIPTION_MAX}
+              </span>
             </div>
+          </div>
 
-            {category0 && (
-              <div>
-                <p className={styles.label} id="setup-sub">
-                  ובאופן יותר מדויק
-                </p>
-                <div className={styles.chips} role="radiogroup" aria-labelledby="setup-sub">
-                  {category0.subCategories.map((s) => (
-                    <button
-                      key={s.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={subCategory === s.value}
-                      className={`${styles.tile} ${subCategory === s.value ? styles.tileOn : ""}`}
-                      onClick={() => {
-                        touchedBusiness.current = true;
-                        setSubCategory(s.value);
-                      }}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {category0 && (
-              <div>
-                <p className={styles.label} id="setup-model">
-                  העסק מוכר
-                </p>
-                <div className={styles.chips} role="radiogroup" aria-labelledby="setup-model">
-                  {BUSINESS_MODEL_OPTIONS.map((m) => (
-                    <button
-                      key={m.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={businessModel === m.value}
-                      className={`${styles.tile} ${businessModel === m.value ? styles.tileOn : ""}`}
-                      onClick={() => {
-                        touchedBusiness.current = true;
-                        setBusinessModel(m.value);
-                      }}
-                    >
-                      {m.value === "service" ? "שירותים" : m.value === "product" ? "מוצרים" : "גם וגם"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <p className={styles.error} role="alert">
-                {error}
-              </p>
-            )}
-
-            <div className={styles.actions}>
-              <WarmButton
-                fullWidth
-                disabled={!businessComplete || saving}
-                onClick={onBusinessContinue}
-              >
-                {saving ? "שומרים…" : "המשך"}
-              </WarmButton>
-              <WarmButton variant="text" fullWidth disabled={saving} onClick={() => flow.go("start")}>
-                אמלא אחר כך
-              </WarmButton>
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.label}>מי בדרך כלל הלקוחות שלכם?</legend>
+            <div className={styles.options}>
+              {AUDIENCE_OPTIONS.map((o) => {
+                const on = audience === o.value;
+                return (
+                  <label key={o.value} className={`${styles.option} ${on ? styles.optionOn : ""}`}>
+                    <input
+                      type="radio"
+                      name="setup-audience"
+                      value={o.value}
+                      checked={on}
+                      onChange={() => void chooseAudience(o.value)}
+                    />
+                    <span className={styles.optionIcon} aria-hidden="true">
+                      <AudienceIcon kind={o.icon} />
+                    </span>
+                    <span className={styles.optionLabel}>{o.label}</span>
+                    <span className={styles.mark} aria-hidden="true">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12.5l4.5 4.5L19 7.5" />
+                      </svg>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
-          </section>
-        ) : (
-          <section className={styles.card} aria-labelledby="setup-start-title">
-            <div>
-              <h1 id="setup-start-title" className={styles.title}>
-                עם מה תרצה להתחיל?
-              </h1>
-              <p className={styles.why}>
-                נציג לך בבית את הצעד הראשון שמתאים לזה. כל השאר נשאר זמין.
-              </p>
-            </div>
+          </fieldset>
 
-            <div className={styles.goals} role="radiogroup" aria-labelledby="setup-start-title">
-              {SETUP_GOAL_OPTIONS.map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={goal === o.value}
-                  className={`${styles.goal} ${goal === o.value ? styles.goalOn : ""}`}
-                  onClick={() => {
-                    touchedGoal.current = true;
-                    setGoal(o.value);
-                  }}
-                >
-                  <span className={styles.goalTitle}>{o.title}</span>
-                  <span className={styles.goalHint}>{o.hint}</span>
-                </button>
-              ))}
-            </div>
+          {error ? (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          ) : null}
 
-            {error && (
-              <p className={styles.error} role="alert">
-                {error}
-              </p>
-            )}
+          <div className={styles.actions}>
+            <button type="submit" className={styles.primary} disabled={busy}>
+              המשך לבית
+            </button>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={() => void leave({ step: "skip" })}>
+              אמלא אחר כך
+            </button>
+          </div>
+        </form>
 
-            <div className={styles.actions}>
-              <WarmButton fullWidth disabled={!goal || saving} onClick={() => finish(goal)}>
-                {saving ? "שומרים…" : "לבית שלי"}
-              </WarmButton>
-              <WarmButton variant="text" fullWidth disabled={saving} onClick={() => finish(null)}>
-                דלג
-              </WarmButton>
-            </div>
-          </section>
-        )}
-
-        <aside className={styles.preview} aria-label="כך Dubiz יראה אצלך">
-          <p className={styles.previewTitle}>כך Dubiz יראה אצלך</p>
-          <div className={styles.previewCard}>
-            <span className={styles.previewName}>{previewLabel ?? "העסק שלך"}</span>
-            <span className={styles.previewMuted}>
-              {previewLabel ? "הדוגמאות וההמלצות יותאמו לתחום הזה." : "בחרו תחום כדי שנתאים את הדוגמאות."}
+        <aside className={styles.card} aria-label={`מה Dubiz יודע על ${name}`}>
+          <div className={styles.cardHead}>
+            <span className={styles.cardMark} aria-hidden="true">
+              {name.trim().charAt(0)}
             </span>
+            <span className={styles.cardName}>{name}</span>
           </div>
-          <div className={styles.previewCard}>
-            <span className={styles.previewMuted}>הצעד הראשון בבית</span>
-            <span className={styles.previewName}>{START_ACTIONS[previewGoal].title}</span>
-            <span className={styles.previewMuted}>{START_ACTIONS[previewGoal].body}</span>
+          <div className={styles.cardSection}>
+            <span className={styles.cardEyebrow}>מה סיפרתם</span>
+            <div className={styles.cardRow}>
+              <span className={styles.cardKey}>על העסק</span>
+              {hasText ? <span className={styles.chipOwn}>נמסר על ידכם</span> : null}
+            </div>
+            {hasText ? <p className={styles.cardQuote}>״{description.trim()}״</p> : <p className={styles.cardEmpty}>עוד לא נכתב</p>}
+            <div className={`${styles.cardRow} ${styles.cardRowSplit}`}>
+              <span className={styles.cardKey}>לקוחות</span>
+              <span className={styles.cardValue}>
+                {audience ? AUDIENCE_SUMMARY[audience] : <span className={styles.cardEmpty}>עוד לא נבחר</span>}
+                {audience ? <span className={styles.chipOwn}>נמסר על ידכם</span> : null}
+              </span>
+            </div>
           </div>
+          <div className={`${styles.cardSection} ${styles.cardLearn}`}>
+            <span className={styles.cardEyebrow}>מה Dubiz ילמד מהעבודה</span>
+            <LearnRow title="מה אתם מוכרים" sub="מהשירותים והמוצרים שתוסיפו" />
+            <LearnRow title="איך לקוחות מגיעים אליכם" sub="מהפניות, התורים והצעות המחיר" />
+            <LearnRow title="איך הכסף זז" sub="מהמסמכים, ההכנסות וההוצאות" />
+          </div>
+          <p className={styles.private}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
+              <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+            </svg>
+            פרטי. לא מוצג ללקוחות בלי אישור שלכם.
+          </p>
         </aside>
       </main>
     </div>
+  );
+}
+
+function LearnRow({ title, sub }: { title: string; sub: string }) {
+  return (
+    <div className={styles.learn}>
+      <span className={styles.learnText}>
+        <span className={styles.learnTitle}>{title}</span>
+        <span className={styles.learnSub}>{sub}</span>
+      </span>
+      <span className={styles.chipLearn}>יילמד</span>
+    </div>
+  );
+}
+
+function AudienceIcon({ kind }: { kind: "person" | "building" | "both" }) {
+  const common = {
+    width: 22,
+    height: 22,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  if (kind === "person") {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="8" r="3.6" />
+        <path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6" />
+      </svg>
+    );
+  }
+  if (kind === "building") {
+    return (
+      <svg {...common}>
+        <path d="M4 20V6.5L12 4v16M12 9h8v11M4 20h16M7.5 9.5h1M7.5 13h1M7.5 16.5h1M15.5 12.5h1M15.5 16h1" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <circle cx="8" cy="9" r="3" />
+      <path d="M2.8 19c.6-3 2.6-4.6 5.2-4.6 1.3 0 2.4.4 3.2 1.1M13 20v-9.5l4-1.3V20M17 12h4v8M12 20h10" />
+    </svg>
   );
 }

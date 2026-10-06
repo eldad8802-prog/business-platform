@@ -1,0 +1,531 @@
+/*
+ * Register — three compositions on the Dubiz Mist tokens.
+ *   phone   (<768)      one column, the action at the end of the form
+ *   tablet  (768–1279)  a brand band on top, the form in two columns below
+ *   desktop (≥1280)     split screen: the form, and a brand panel beside it
+ * The same tiers as the app shell, so the breakpoints never disagree.
+ */
+
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  background: var(--dz-background);
+  color: var(--dz-text-primary);
+  direction: rtl;
+}
+
+/* ---------------------------------------------------------- brand panel -- */
+.brand {
+  position: relative;
+  overflow: hidden;
+  background: var(--dz-app-chrome);
+  color: var(--dz-text-on-brand);
+  display: none;
+}
+.brand::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(70% 70% at 88% 6%, rgba(122, 158, 142, 0.3), transparent 60%),
+    radial-gradient(60% 60% at 8% 96%, rgba(206, 178, 134, 0.16), transparent 62%);
+  pointer-events: none;
+}
+.brandInner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logoMark {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: #2b7a78;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+}
+.logoWord {
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+.brandTitle {
+  margin: 0;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 600;
+  font-size: 40px;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 20px;
+}
+.step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.stepNum {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid #8fb3a6;
+  color: #dfe9e4;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stepNumOn {
+  background: #fbfaf6;
+  border-color: #fbfaf6;
+  color: var(--dz-app-chrome);
+  font-weight: 700;
+}
+.stepText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stepTitle {
+  font-size: 17px;
+  font-weight: 600;
+}
+.stepSub {
+  font-size: 14px;
+  color: #c9d3cd;
+}
+.brandFoot {
+  position: relative;
+  font-size: 14px;
+  color: #a9bab2;
+}
+
+/* ----------------------------------------------------------------- form -- */
+.formSide {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 20px 24px;
+  min-width: 0;
+}
+.topBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.topLogo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dz-brand);
+}
+.topLogo .logoMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--dz-brand);
+  font-size: 18px;
+}
+.topLogo .logoWord {
+  font-size: 21px;
+}
+.a11yBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface-flat);
+  color: var(--dz-text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.a11yBtn:focus-visible {
+  outline: 2px solid var(--dz-brand);
+  outline-offset: 2px;
+}
+
+.form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 480px;
+  margin-inline: auto;
+  padding-top: 18px;
+}
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.title {
+  margin: 0;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+}
+.loginLine {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dz-text-secondary);
+}
+.link {
+  color: var(--dz-brand);
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.input {
+  height: 48px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dz-border-strong);
+  border-radius: 12px;
+  background: var(--dz-surface-raised-flat);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--dz-text-primary);
+  outline: none;
+}
+.input::placeholder {
+  color: #8a9288;
+}
+.input:focus {
+  border-color: var(--dz-brand);
+  box-shadow: 0 0 0 3px var(--dz-focus-ring);
+}
+.ltr {
+  direction: ltr;
+  text-align: left;
+}
+.invalid {
+  border-color: var(--dz-danger-accent);
+  background: var(--dz-danger-bg-soft);
+}
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dz-danger);
+}
+.pw {
+  position: relative;
+}
+.pw .input {
+  padding-right: 76px;
+}
+.toggle {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dz-brand);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toggle:hover {
+  background: var(--dz-brand-soft);
+}
+.meterRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--dz-text-secondary);
+}
+.meter {
+  display: flex;
+  gap: 4px;
+  direction: ltr;
+  width: 104px;
+}
+.seg {
+  height: 4px;
+  flex: 1;
+  border-radius: 2px;
+  background: var(--dz-border);
+}
+.segOn {
+  background: var(--dz-success-accent);
+}
+
+.terms {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface-flat);
+  font-size: 14px;
+  line-height: 1.55;
+  cursor: pointer;
+}
+.termsOn {
+  background: var(--dz-brand-soft);
+  border-color: var(--dz-brand-border);
+}
+.termsBad {
+  background: var(--dz-danger-bg-soft);
+  border-color: var(--dz-danger-border);
+}
+.terms input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--dz-brand);
+  flex: none;
+  cursor: pointer;
+}
+.termsText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.termsError {
+  color: var(--dz-danger);
+  font-weight: 500;
+}
+.termsText a {
+  color: var(--dz-brand);
+}
+
+.formError {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--dz-danger-bg-soft);
+  border: 1px solid var(--dz-danger-border);
+  color: var(--dz-danger);
+  font-size: 14px;
+}
+.actions {
+  margin-top: auto;
+  padding-top: 6px;
+}
+.submit {
+  height: 52px;
+  width: 100%;
+  border-radius: 14px;
+  border: 0;
+  background: var(--dz-brand-gradient);
+  color: var(--dz-text-on-brand);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.submit:hover {
+  background: var(--dz-brand-gradient-hover);
+}
+.submit:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.submit:focus-visible {
+  outline: 2px solid var(--dz-brand);
+  outline-offset: 3px;
+}
+
+/* The tablet brand band carries the accessibility button; elsewhere the top bar does. */
+.brandHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.brandA11y {
+  display: none;
+  border-color: rgba(251, 250, 246, 0.28);
+  background: transparent;
+  color: #fbfaf6;
+}
+
+/* ---------------------------------------------------------------- tablet -- */
+@media (min-width: 768px) {
+  .brand {
+    display: block;
+    padding: 30px 56px 38px;
+  }
+  .brandInner {
+    gap: 26px;
+  }
+  .steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .step {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .brandFoot {
+    display: none;
+  }
+  .formSide {
+    padding: 36px 56px 40px;
+    background: var(--dz-surface-flat);
+  }
+  .topLogo {
+    display: none;
+  }
+  .topBar {
+    order: 2;
+    justify-content: center;
+    padding-top: 18px;
+  }
+  .topBar .a11yBtn {
+    display: none;
+  }
+  .form {
+    max-width: none;
+    padding-top: 0;
+    gap: 20px;
+  }
+  .head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .title {
+    font-size: 34px;
+  }
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+  .input {
+    height: 52px;
+    font-size: 17px;
+  }
+  .submit {
+    height: 56px;
+    font-size: 17px;
+  }
+  .brandA11y {
+    display: inline-flex;
+  }
+}
+
+/* --------------------------------------------------------------- desktop -- */
+@media (min-width: 1280px) {
+  .page {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 1fr;
+  }
+  .formSide {
+    order: 1;
+    padding: 40px 96px;
+  }
+  .brand {
+    order: 2;
+    display: flex;
+    padding: 48px 72px;
+  }
+  .brandInner {
+    flex: 1;
+    justify-content: space-between;
+    gap: 36px;
+  }
+  .brandTitle {
+    font-size: 46px;
+  }
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+    max-width: 480px;
+  }
+  .step {
+    flex-direction: row;
+    gap: 16px;
+  }
+  .brandFoot {
+    display: block;
+  }
+  .topBar {
+    order: 0;
+    justify-content: space-between;
+    padding-top: 0;
+  }
+  .topBar .a11yBtn {
+    display: inline-flex;
+  }
+  .brandA11y {
+    display: none;
+  }
+  .form {
+    max-width: 480px;
+    justify-content: center;
+    gap: 18px;
+  }
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .title {
+    font-size: 36px;
+  }
+  .grid {
+    gap: 14px;
+  }
+  .gridWide {
+    grid-column: 1 / -1;
+  }
+  .actions {
+    margin-top: 6px;
+  }
+}
+

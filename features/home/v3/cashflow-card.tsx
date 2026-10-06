@@ -66,7 +66,14 @@ export function CashflowCard({
   period,
   onPeriodChange,
   style,
+  firstTime = false,
 }: {
+  /**
+   * The business has never had money in or out through Dubiz (history, never
+   * inferred from today's 0): the card keeps its place and header and says, in
+   * one line, when it starts to fill — instead of a chart of zeros.
+   */
+  firstTime?: boolean;
   variant: CashflowVariant;
   day: Load<CashflowSeries>;
   week: Load<CashflowSeries> | null;
@@ -279,7 +286,15 @@ export function CashflowCard({
     >
       {header}
       {info}
-      {variant === "mobile" ? (
+      {firstTime ? (
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 12, minHeight: variant === "desktop" ? 150 : 96, flex: 1 }}>
+          <div aria-hidden style={{ height: 1, background: "rgba(255,255,255,0.22)" }} />
+          <p style={{ margin: 0, fontSize: variant === "desktop" ? 15 : 14, lineHeight: 1.55, color: "#D7E8E6" }}>
+            יתחיל להתמלא מהתשלום הראשון שייגבה או יירשם ב-Dubiz.
+          </p>
+        </div>
+      ) : null}
+      {firstTime ? null : variant === "mobile" ? (
         <>
           {netBlock}
           {split}
@@ -290,9 +305,9 @@ export function CashflowCard({
           {split}
         </div>
       ) : null}
-      {readout}
-      {chart}
-      {series.state === "ready" && variant !== "desktop" ? <XAxis ticks={xTicks(series.value, variant)} size={11} marginTop={-6} /> : null}
+      {firstTime ? null : readout}
+      {firstTime ? null : chart}
+      {!firstTime && series.state === "ready" && variant !== "desktop" ? <XAxis ticks={xTicks(series.value, variant)} size={11} marginTop={-6} /> : null}
     </section>
   );
 }

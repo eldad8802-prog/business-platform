@@ -518,6 +518,57 @@ export function InsightCard({ insight, wide, style }: { insight: Load<InsightVie
   );
 }
 
+/* ------------------------------------------------- tell us (identity) -- */
+
+/**
+ * One small item in "מה ממתין לך" while the owner has not described the
+ * business (skipped it at signup). It is not counted as something urgent and
+ * it disappears once a description exists.
+ */
+const IDENTITY_PROMPT = { title: "ספרו לנו על העסק", subtitle: "כמה מילים בשפה שלכם", action: "לכתוב", href: "/setup" };
+
+export function IdentityPromptRow() {
+  return (
+    <div style={{ borderRadius: 16, padding: 12, background: "#FBF4EA", border: "1px solid #F1E2CC", display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>העסק</span>
+      <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{IDENTITY_PROMPT.title}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{IDENTITY_PROMPT.subtitle}</span>
+      </span>
+      <Link href={IDENTITY_PROMPT.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "10px 4px" }}>
+        {IDENTITY_PROMPT.action}
+      </Link>
+    </div>
+  );
+}
+
+export function IdentityPromptCard({ tablet }: { tablet?: boolean }) {
+  return (
+    <Link
+      href={IDENTITY_PROMPT.href}
+      prefetch={false}
+      style={{
+        borderRadius: tablet ? 20 : 18,
+        padding: tablet ? 14 : 12,
+        background: "#FBF4EA",
+        border: "1px solid #F1E2CC",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minWidth: 0,
+        textDecoration: "none",
+        color: INK,
+      }}
+    >
+      <span style={{ alignSelf: "flex-start", fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "3px 8px" }}>העסק</span>
+      <span style={{ fontSize: tablet ? 15 : 14, fontWeight: 600, lineHeight: 1.3 }}>{IDENTITY_PROMPT.title}</span>
+      <span style={{ fontSize: 12, color: MUTED, lineHeight: 1.4 }}>{IDENTITY_PROMPT.subtitle}</span>
+      <span style={{ flex: 1 }} />
+      <span style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{IDENTITY_PROMPT.action}</span>
+    </Link>
+  );
+}
+
 /* ---------------------------------------------------------- page styles -- */
 
 /** Hover / focus for the Home's own links and buttons (inline styles cannot). */
