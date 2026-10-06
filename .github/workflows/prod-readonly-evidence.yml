@@ -68,6 +68,7 @@ on:
           - 'ops/evidence/p3a-trust-conversion-production-evidence.sql'
           - 'ops/evidence/m0-signup-production-evidence.sql'
           - 'ops/evidence/m1-onboarding-preflight.sql'
+          - 'ops/evidence/learning-enrollment-inventory.sql'
 
 permissions:
   contents: read
