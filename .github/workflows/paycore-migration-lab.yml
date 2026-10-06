@@ -1,0 +1,154 @@
+# Payments core PR-A / migration 20261016090000_payments_core_connection_config — proof on PostgreSQL
+# BEFORE it reaches Production (ephemeral PG17), the M6 / M7-A / M7-B/C pattern.
+#
+# .paycore/lab.sh builds Production as it will be at release: everything through M7-B/C applied by the
+# real `prisma migrate deploy` with Production's roles, default privileges and RLS (.m7bc/lab.sh), and
+# this migration the ONLY one applied next.
+#
+#   0. both evidence files pass the Production workflow's SELECT-only guard, are selectable there; checksum pinned
+#   1. PREFLIGHT 7/7 on the pre-migration lab
+#   2. the migration alone by `prisma migrate deploy`: POST-APPLY PROOF 7/7; the preflight fails exactly 2 4
+#   3. atomicity: failing on its last statement leaves nothing behind
+#   4. faults: a configured connection, a dropped default index are each caught
+#   5. rollback (.paycore/rollback.sql): refused while a connection is configured, then back to a whole preflight
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: paycore — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261016090000_payments_core_connection_config/**"
+      - "ops/evidence/payments-core-config-*.sql"
+      - ".paycore/lab.sh"
+      - ".paycore/rollback.sql"
+      - ".m7bc/lab.sh"
+      - ".m7a/lab.sh"
+      - ".github/workflows/paycore-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: Payments core migration lab (PG17, Production topology, migrate deploy, proof, atomicity, faults, rollback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: paycore_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: paycore_ci_synthetic_super_pw
+      LAB_PASSWORD: paycore_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/payments-core-config-preflight.sql
+      EVIDENCE: ops/evidence/payments-core-config-production-evidence.sql
+      PAYCORE: prisma/migrations/20261016090000_payments_core_connection_config/migration.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there; checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$PAYCORE" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum (file is $sum)"; exit 1; }
+          echo "paycore sha256 $sum (pinned)"
+
+      - name: 1. Production before the migration — PREFLIGHT 7/7
+        run: |
+          set -euo pipefail
+          bash .paycore/lab.sh paycore_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d paycore_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the pre-migration lab"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "7" || { echo "expected 7 PASS"; exit 1; }
+
+      - name: 2. The migration by prisma migrate deploy — POST-APPLY PROOF 7/7; the preflight fails exactly 2 4
+        run: |
+          set -euo pipefail
+          bash .paycore/lab.sh paycore_post --with-paycore
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d paycore_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/post.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "7" || { echo "expected 7 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 4 " || { echo "post-migration lab: expected preflight 2 4 to fail, got: $fails"; exit 1; }
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261016090000_payments_core_connection_config'")" = "1"
+
+      - name: 3. Atomicity — the migration failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .paycore/lab.sh paycore_broken --broken-paycore
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d paycore_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_type WHERE typname = 'PaymentDocumentIssuer')
+                              + (SELECT count(*) FROM pg_attribute WHERE attrelid = '\"BusinessPaymentConnection\"'::regclass AND attname IN ('documentIssuer', 'isDefault') AND NOT attisdropped)
+                              + (SELECT count(*) FROM pg_class WHERE relname = 'BusinessPaymentConnection_one_default_per_business')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261016090000_payments_core_connection_config' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 4. Faults — a configured connection and a dropped default index are each caught by the proof
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d paycore_post -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          bid=$(lab -Atc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('paycore-fault', now()) RETURNING id" | head -1)
+          cid=$(lab -Atc "INSERT INTO \"BusinessPaymentConnection\" (\"businessId\", provider, \"isActive\", \"documentIssuer\", \"updatedAt\") VALUES ($bid, 'CARDCOM', true, 'DUBIZ_ISSUES', now()) RETURNING id" | head -1)
+          got=$(failing); test "$got" = "5 " || { echo "configured connection: expected '5 ', got '$got'"; exit 1; }
+          echo "fault detected [a connection already configured] → FAIL $got"
+          # The partial unique index refuses a second default for one business.
+          lab -q -c "UPDATE \"BusinessPaymentConnection\" SET \"documentIssuer\" = 'NOT_CONFIGURED', \"isDefault\" = true WHERE id = $cid"
+          c2=$(lab -Atc "INSERT INTO \"BusinessPaymentConnection\" (\"businessId\", provider, \"isActive\", \"updatedAt\") VALUES ($bid, 'SUMIT', true, now()) RETURNING id" | head -1)
+          if lab -q -c "UPDATE \"BusinessPaymentConnection\" SET \"isDefault\" = true WHERE id = $c2" 2>/tmp/dup.err; then
+            echo "a second default for one business was accepted"; exit 1
+          fi
+          grep -q "BusinessPaymentConnection_one_default_per_business" /tmp/dup.err || { cat /tmp/dup.err; exit 1; }
+          echo "a second default per business is refused by the index"
+          lab -q -c "DELETE FROM \"BusinessPaymentConnection\" WHERE \"businessId\" = $bid" -c "DELETE FROM \"Business\" WHERE id = $bid"
+          lab -q -c 'DROP INDEX "BusinessPaymentConnection_one_default_per_business"'
+          got=$(failing); test "$got" = "4 " || { echo "dropped index: expected '4 ', got '$got'"; exit 1; }
+          lab -q -c 'CREATE UNIQUE INDEX "BusinessPaymentConnection_one_default_per_business" ON "BusinessPaymentConnection"("businessId") WHERE "isDefault" = true'
+          echo "fault detected [default index dropped] → FAIL $got"
+          got=$(failing); test -z "$got" || { echo "proof not whole again: $got"; exit 1; }
+
+      - name: 5. Rollback (.paycore/rollback.sql) — refused while a connection is configured; then back to a whole preflight
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d paycore_post -v ON_ERROR_STOP=1 "$@"; }
+          bid=$(lab -Atc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('paycore-rollback-guard', now()) RETURNING id" | head -1)
+          lab -q -c "INSERT INTO \"BusinessPaymentConnection\" (\"businessId\", provider, \"isActive\", \"isDefault\", \"updatedAt\") VALUES ($bid, 'CARDCOM', true, true, now())"
+          if lab -f .paycore/rollback.sql 2>/tmp/rb.err; then echo "rollback ran while a connection was configured"; exit 1; fi
+          grep -q "rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while in use"
+          lab -q -c "DELETE FROM \"BusinessPaymentConnection\" WHERE \"businessId\" = $bid" -c "DELETE FROM \"Business\" WHERE id = $bid"
+          lab -q -f .paycore/rollback.sql
+          lab -f "$PREFLIGHT" | tee /tmp/rb.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/rb.out; then echo "after rollback: preflight not whole"; exit 1; fi
+          echo "rollback → preflight whole again (7/7)"

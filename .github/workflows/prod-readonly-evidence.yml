@@ -82,6 +82,8 @@ on:
           - 'ops/evidence/m7bc-demand-lines-production-evidence.sql'
           - 'ops/evidence/transactional-email-foundation-preflight.sql'
           - 'ops/evidence/transactional-email-foundation-production-evidence.sql'
+          - 'ops/evidence/payments-core-config-preflight.sql'
+          - 'ops/evidence/payments-core-config-production-evidence.sql'
 
 permissions:
   contents: read
