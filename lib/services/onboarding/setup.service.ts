@@ -3,152 +3,125 @@
  *
  * Every function takes the business id the caller resolved from the session
  * (getCurrentUser), never one from a request body, and runs in tenantTx so the
- * row-level policies on BusinessProfile and every activity table see the GUC.
- * The answers are written to their canonical homes — category/subCategory/
- * businessModel on BusinessProfile with the same BUSINESS_PROFILE_CHANGED sensor
- * the profile route records — so setup is not a parallel store of facts.
+ * row-level policies see the GUC.
+ *
+ * The answers are written to their canonical home through the one writer of
+ * owner identity (identity-statement.service): DESCRIPTION text and
+ * TARGET_AUDIENCE codes, source OWNER_INPUT, sourceRef "setup". Setup is not a
+ * parallel store of facts, and it never writes a category, a goal or a first
+ * action. The legacy onboardingGoal columns are left untouched (no reader).
  */
 
-import { recordSensor, changedFields } from "@/lib/sensors/record-sensor";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-import { isBillingIdentityComplete } from "@/lib/billing/business-identity";
+import {
+  createIdentityStatement,
+  retireIdentityStatement,
+} from "@/lib/services/identity/identity-statement.service";
 
 import {
+  SETUP_AUDIENCE_CODES,
   buildSetupView,
-  defaultGoalFor,
-  type SetupFacts,
-  type SetupGoal,
+  codesForAudience,
+  type AboutAnswer,
   type SetupView,
 } from "./setup-model";
 
-export type SetupState = SetupView & {
-  category: string | null;
-  subCategory: string | null;
-  businessModel: string | null;
-  /** The stored goal exactly as recorded (null until setup completes). */
-  storedGoal: string | null;
-};
+const SETUP_SOURCE_REF = "setup";
 
-const PROFILE_SELECT = {
-  category: true,
-  subCategory: true,
-  businessModel: true,
-  onboardingCompletedAt: true,
-  onboardingGoal: true,
-  onboardingGoalSource: true,
-  billingLegalName: true,
-  billingBusinessKind: true,
-  billingTaxId: true,
-  billingAddress: true,
-  billingPhone: true,
-  billingEmail: true,
-} as const;
-
-export async function loadSetupState(businessId: number): Promise<SetupState> {
+export async function loadSetupState(businessId: number): Promise<SetupView> {
   return tenantTx(businessId, async (tx) => {
-    // Existence, not volume: each probe stops at the first row.
-    const [profile, lead, billingDoc, doc, run, wa] = await Promise.all([
-      tx.businessProfile.findUnique({ where: { businessId }, select: PROFILE_SELECT }),
-      tx.lead.findFirst({ where: { businessId }, select: { id: true } }),
-      tx.billingDocument.findFirst({ where: { businessId }, select: { id: true } }),
-      tx.document.findFirst({ where: { businessId }, select: { id: true } }),
-      tx.contentRun.findFirst({ where: { businessId }, select: { id: true } }),
-      tx.whatsAppConnection.findUnique({ where: { businessId }, select: { status: true } }),
+    const [profile, statements] = await Promise.all([
+      tx.businessProfile.findUnique({ where: { businessId }, select: { onboardingCompletedAt: true } }),
+      tx.businessIdentityStatement.findMany({
+        where: {
+          businessId,
+          status: "ACTIVE",
+          OR: [
+            { dimension: "DESCRIPTION" },
+            { dimension: "TARGET_AUDIENCE", code: { in: [...SETUP_AUDIENCE_CODES] } },
+          ],
+        },
+        select: { dimension: true, code: true, text: true },
+      }),
     ]);
-
-    const facts: SetupFacts = {
+    const description = statements.find((s) => s.dimension === "DESCRIPTION")?.text ?? null;
+    const audienceCodes = statements
+      .filter((s) => s.dimension === "TARGET_AUDIENCE" && s.code)
+      .map((s) => s.code as string);
+    return buildSetupView({
       onboardingCompletedAt: profile?.onboardingCompletedAt ?? null,
-      onboardingGoal: profile?.onboardingGoal ?? null,
-      onboardingGoalSource: profile?.onboardingGoalSource ?? null,
-      category: profile?.category ?? null,
-      businessModel: profile?.businessModel ?? null,
-      billingIdentityComplete: isBillingIdentityComplete(profile),
-      whatsappConnected: wa?.status === "CONNECTED",
-      counts: {
-        leads: lead ? 1 : 0,
-        billingDocuments: billingDoc ? 1 : 0,
-        documents: doc ? 1 : 0,
-        contentRuns: run ? 1 : 0,
-      },
-    };
-
-    return {
-      ...buildSetupView(facts),
-      category: profile?.category ?? null,
-      subCategory: profile?.subCategory ?? null,
-      businessModel: profile?.businessModel ?? null,
-      storedGoal: profile?.onboardingGoal ?? null,
-    };
+      description,
+      audienceCodes,
+    });
   });
 }
 
-/** "What does the business do" — the owner's own answer, already validated. */
-export async function saveBusinessAnswer(
-  actor: { businessId: number; userId: number },
-  answer: { category: string; subCategory: string; businessModel: string }
-): Promise<void> {
+/**
+ * Save what the owner said so far. A description replaces the previous one
+ * (the identity writer retires it); an audience answer sets exactly the
+ * INDIVIDUALS / BUSINESSES statements it means and leaves every other
+ * TARGET_AUDIENCE code alone.
+ */
+export async function saveAbout(actor: { businessId: number; userId: number }, answer: AboutAnswer): Promise<void> {
   const { businessId, userId } = actor;
+  if (answer.description === undefined && answer.audience === undefined) return;
   await tenantTx(businessId, async (tx) => {
-    const before = await tx.businessProfile.findUnique({
-      where: { businessId },
-      select: { category: true, subCategory: true, businessModel: true },
-    });
-    const saved = await tx.businessProfile.upsert({
-      where: { businessId },
-      update: answer,
-      create: { businessId, ...answer },
-      select: { category: true, subCategory: true, businessModel: true },
-    });
-    const prev = {
-      category: before?.category ?? null,
-      subCategory: before?.subCategory ?? null,
-      businessModel: before?.businessModel ?? null,
-    };
-    const next = {
-      category: saved.category ?? null,
-      subCategory: saved.subCategory ?? null,
-      businessModel: saved.businessModel ?? null,
-    };
-    const fields = changedFields(prev, next, ["category", "subCategory", "businessModel"]);
-    if (fields.length > 0) {
-      await recordSensor(
+    if (answer.description !== undefined) {
+      await createIdentityStatement(
         {
           businessId,
-          sensor: "BUSINESS_PROFILE_CHANGED",
-          entityId: businessId,
-          actor: { type: "OWNER_USER", userId },
-          source: "OWNER_UI",
-          payload: {
-            fields,
-            ...(fields.includes("businessModel")
-              ? { fromBusinessModel: prev.businessModel, toBusinessModel: next.businessModel }
-              : {}),
-          },
+          userId,
+          dimension: "DESCRIPTION",
+          text: answer.description,
+          source: "OWNER_INPUT",
+          sourceRef: SETUP_SOURCE_REF,
         },
-        { tx }
+        tx
       );
+    }
+    if (answer.audience !== undefined) {
+      const wanted = new Set<string>(codesForAudience(answer.audience));
+      const active = await tx.businessIdentityStatement.findMany({
+        where: { businessId, status: "ACTIVE", dimension: "TARGET_AUDIENCE", code: { in: [...SETUP_AUDIENCE_CODES] } },
+        select: { id: true, code: true },
+      });
+      // Retire first, so a switch (e.g. BUSINESSES → INDIVIDUALS) never trips the active cap.
+      for (const row of active) {
+        if (!row.code || !wanted.has(row.code)) {
+          await retireIdentityStatement({ businessId, userId, statementId: row.id }, tx);
+        }
+      }
+      const have = new Set(active.map((r) => r.code));
+      for (const code of wanted) {
+        if (have.has(code)) continue;
+        await createIdentityStatement(
+          {
+            businessId,
+            userId,
+            dimension: "TARGET_AUDIENCE",
+            code,
+            source: "OWNER_INPUT",
+            sourceRef: SETUP_SOURCE_REF,
+          },
+          tx
+        );
+      }
     }
   });
 }
 
 /**
- * Finish setup. `goal` null means the owner skipped: a default is derived from
- * what they said about the business and stored as DEFAULTED, so it can never be
- * read back as their choice. Re-running only moves the goal; the completion
- * stamp keeps the first moment setup was finished.
+ * Finish (or skip) the screen. Only the completion stamp is written, once;
+ * re-running keeps the first moment setup was finished.
  */
-export async function completeSetup(businessId: number, goal: SetupGoal | null): Promise<void> {
+export async function completeSetup(businessId: number): Promise<void> {
   await tenantTx(businessId, async (tx) => {
     const current = await tx.businessProfile.findUnique({
       where: { businessId },
-      select: { businessModel: true, onboardingCompletedAt: true },
+      select: { onboardingCompletedAt: true },
     });
-    const chosen = goal ?? defaultGoalFor(current?.businessModel);
-    const data = {
-      onboardingGoal: chosen,
-      onboardingGoalSource: goal ? "OWNER_SELECTED" : "DEFAULTED",
-      onboardingCompletedAt: current?.onboardingCompletedAt ?? new Date(),
-    };
+    if (current?.onboardingCompletedAt) return;
+    const data = { onboardingCompletedAt: new Date() };
     await tx.businessProfile.upsert({
       where: { businessId },
       update: data,

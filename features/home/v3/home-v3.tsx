@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { IconBell, IconSettings } from "@/components/navigation/nav-icons";
+import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
+import type { HomeHistory } from "@/lib/services/home/home-history-model";
 import { greetingForHour } from "@/features/home/lib/home-model";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 
 import { CashflowCard, type CashflowVariant } from "./cashflow-card";
 import { DesktopHome } from "./desktop-home";
-import { SetupCard } from "./setup-card";
+import { identityPromptDue, moneyFirstTime } from "./home-first-time";
 import {
   ActivityList,
   FeatureTiles,
@@ -18,6 +20,7 @@ import {
   InsightCard,
   LINE,
   CARD,
+  IdentityPromptCard,
   MUTED,
   Note,
   SkeletonBlock,
@@ -71,7 +74,13 @@ export type HomeView = {
   activity: Load<ActivityItem[]>;
   when: (iso: string) => string;
   data: HomeData;
+  /**
+   * Per-card history (has this business EVER had such an event). null while it
+   * loads or if it failed — then every card keeps its ordinary empty line.
+   */
+  history: HomeHistory | null;
 };
+
 
 export const DESKTOP_QUERY = "(min-width: 1280px)";
 const TABLET_QUERY = "(min-width: 768px)";
@@ -162,6 +171,7 @@ export function HomeV3({
       activity,
       when: (iso) => formatWhen(iso, now),
       data,
+      history: data.history.state === "ready" ? data.history.value : null,
     };
   }, [data, now, businessName, ownerName, period, loadWeek]);
 
@@ -188,7 +198,16 @@ export function HomeV3({
 /* --------------------------------------------------------------- shared -- */
 
 function Cashflow({ view, variant }: { view: HomeView; variant: CashflowVariant }) {
-  return <CashflowCard variant={variant} day={view.day} week={view.week} period={view.period} onPeriodChange={view.onPeriodChange} />;
+  return (
+    <CashflowCard
+      variant={variant}
+      day={view.day}
+      week={view.week}
+      period={view.period}
+      onPeriodChange={view.onPeriodChange}
+      firstTime={moneyFirstTime(view)}
+    />
+  );
 }
 
 function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
@@ -205,6 +224,12 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
     );
   } else if (w.state === "failed") {
     body = <Note>לא הצלחתי לבדוק כרגע מה מחכה לך.</Note>;
+  } else if (w.value.items.length === 0 && identityPromptDue(view)) {
+    body = (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+        <IdentityPromptCard tablet={tablet} />
+      </div>
+    );
   } else if (w.value.items.length === 0) {
     body = (
       <div style={{ borderRadius: tablet ? 20 : 18, padding: 16, background: CARD, border: `1px solid ${LINE}`, fontSize: 14, color: MUTED }} role="status">
@@ -217,6 +242,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
         {w.value.items.slice(0, 3).map((item) => (
           <WaitingCard key={item.id} item={item} tablet={tablet} />
         ))}
+        {w.value.items.length < 3 && identityPromptDue(view) ? <IdentityPromptCard tablet={tablet} /> : null}
       </div>
     );
   }
@@ -228,6 +254,21 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
     </section>
   );
 }
+
+const ROUND_ICON_STYLE: React.CSSProperties = {
+  width: 44,
+  height: 44,
+  borderRadius: 999,
+  border: `1px solid ${LINE}`,
+  background: CARD,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: INK,
+  boxSizing: "border-box",
+  padding: 0,
+  cursor: "pointer",
+};
 
 function RoundIconLink({ href, label, children, dot }: { href: string; label: string; children: React.ReactNode; dot?: boolean }) {
   return (
@@ -273,6 +314,7 @@ function MobileHome({ view }: { view: HomeView }) {
           </h1>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <AccessibilityTrigger label="הגדרות נגישות" style={ROUND_ICON_STYLE} />
           <RoundIconLink href="/notifications" label="התראות" dot={view.hasUnread}>
             <IconBell size={20} />
           </RoundIconLink>
@@ -281,8 +323,6 @@ function MobileHome({ view }: { view: HomeView }) {
           </RoundIconLink>
         </div>
       </header>
-
-      <SetupCard setup={view.data.setup} variant="mobile" style={{ margin: "12px 20px 0 20px" }} />
 
       <div style={{ margin: "12px 20px 0 20px" }}>
         <Cashflow view={view} variant="mobile" />
@@ -302,7 +342,7 @@ function MobileHome({ view }: { view: HomeView }) {
         <ActivityList activity={view.activity} variant="flat" when={view.when} />
       </div>
 
-      <InsightCard insight={view.data.insight} style={{ margin: "24px 20px 0 20px" }} />
+      <InsightCard insight={view.data.insight} learning={view.history ? !view.history.insights : false} style={{ margin: "24px 20px 0 20px" }} />
     </main>
   );
 }
@@ -327,8 +367,6 @@ function TabletHome({ view }: { view: HomeView }) {
         </span>
       </header>
 
-      <SetupCard setup={view.data.setup} variant="tablet" />
-
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.45fr) minmax(0, 1fr)", gap: 22, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
           <Cashflow view={view} variant="tablet" />
@@ -337,7 +375,7 @@ function TabletHome({ view }: { view: HomeView }) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
           <FeatureTiles height={136} gap={10} />
-          <InsightCard insight={view.data.insight} />
+          <InsightCard insight={view.data.insight} learning={view.history ? !view.history.insights : false} />
           <ActivityList activity={view.activity} variant="boxed" when={view.when} />
         </div>
       </div>

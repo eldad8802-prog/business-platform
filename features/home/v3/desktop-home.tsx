@@ -42,9 +42,12 @@ import {
   TEAL,
   CountPill,
   WaitingRow,
+  IdentityPromptRow,
 } from "./home-parts";
 import { RecommendationCard } from "./recommendation-card";
 import type { HomeView } from "./home-v3";
+import { identityPromptDue, moneyFirstTime } from "./home-first-time";
+import { showsFirstTime, whatsAppAction } from "@/lib/services/home/home-history-model";
 import {
   CHANNEL_LABEL,
   SOURCE_LABEL,
@@ -58,7 +61,6 @@ import {
   waitingSentence,
   type WaitingKind,
 } from "./home-v3-model";
-import { SetupCard } from "./setup-card";
 
 /**
  * Desktop Home (≥1280) — "גרסה 3 מאובזרת", per the approved desktop reference.
@@ -70,7 +72,6 @@ export function DesktopHome({ view }: { view: HomeView }) {
     <main style={{ boxSizing: "border-box", padding: "22px clamp(16px, 2.4vw, 32px) 40px" }}>
       <div style={{ maxWidth: 1360, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
         <TopBar view={view} />
-        <SetupCard setup={view.data.setup} variant="desktop" />
         <Kpis view={view} />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>
@@ -80,6 +81,7 @@ export function DesktopHome({ view }: { view: HomeView }) {
             week={view.week}
             period={view.period}
             onPeriodChange={view.onPeriodChange}
+            firstTime={moneyFirstTime(view)}
             style={{ flex: "999 1 560px", boxSizing: "content-box" }}
           />
           <WaitingPanel view={view} />
@@ -103,7 +105,12 @@ export function DesktopHome({ view }: { view: HomeView }) {
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>
-          <InsightCard insight={view.data.insight} wide style={{ flex: "999 1 520px", boxSizing: "content-box" }} />
+          <InsightCard
+            insight={view.data.insight}
+            wide
+            learning={view.history ? !view.history.insights : false}
+            style={{ flex: "999 1 520px", boxSizing: "content-box" }}
+          />
           <Shortcuts />
         </div>
       </div>
@@ -247,7 +254,10 @@ function Kpi({
   note,
   icon: Icon,
   tone,
+  quiet = false,
 }: {
+  /** No history for this figure: a muted dash, never ₪0. */
+  quiet?: boolean;
   label: string;
   value: string | null;
   note?: string | null;
@@ -284,10 +294,10 @@ function Kpi({
         </span>
       </span>
       <span style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 25, fontWeight: 600, letterSpacing: -0.4 }}>
-          {value === null ? <SkeletonBlock h={26} r={8} style={{ width: 90, display: "inline-block" }} /> : value}
+        <span style={{ fontSize: 25, fontWeight: 600, letterSpacing: -0.4, opacity: quiet ? 0.45 : 1 }}>
+          {quiet ? "—" : value === null ? <SkeletonBlock h={26} r={8} style={{ width: 90, display: "inline-block" }} /> : value}
         </span>
-        {note ? <span style={{ fontSize: 12, color: t.note }}>{note}</span> : null}
+        {note && !quiet ? <span style={{ fontSize: 12, color: t.note }}>{note}</span> : null}
       </span>
     </div>
   );
@@ -311,13 +321,24 @@ function Kpis({ view }: { view: HomeView }) {
   const outValue = c.state === "loading" ? null : out ? formatShekel(toNumber(out.total) ?? 0) : dash;
   const outCount = out ? out.items.length : 0;
 
+  // A tile turns quiet only when history KNOWS there was never such money and
+  // the tile has nothing of its own today — never because today reads 0.
+  const h = view.history;
+  const incomeToday = day ? Number(day.income) > 0 : false;
+  const expenseToday = day && day.expense !== null ? Number(day.expense) > 0 : false;
+  const quietIncome = showsFirstTime(h, "income", incomeToday);
+  const quietExpense = showsFirstTime(h, "expenses", expenseToday);
+  const quietPending = showsFirstTime(h, "collection", p.state === "ready" && (toNumber(p.value.amount) ?? 0) > 0);
+  const quietOut = showsFirstTime(h, "obligations", outCount > 0);
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }} role="group" aria-label="מדדי היום">
-      <Kpi label="הכנסות היום" value={income} icon={IconArrowUp} tone="plain-in" />
-      <Kpi label="הוצאות היום" value={expense} icon={IconArrowDown} tone="plain-out" />
-      <Kpi label="נטו היום" value={net} icon={IconNet} tone="solid" />
-      <Kpi label="צפוי להיכנס" value={pending} note={p.state === "ready" ? "ממתין לגבייה" : null} icon={IconIncoming} tone="fresh" />
+      <Kpi label="הכנסות היום" value={income} icon={IconArrowUp} tone="plain-in" quiet={quietIncome} />
+      <Kpi label="הוצאות היום" value={expense} icon={IconArrowDown} tone="plain-out" quiet={quietExpense} />
+      <Kpi label="נטו היום" value={net} icon={IconNet} tone="solid" quiet={quietIncome && quietExpense} />
+      <Kpi label="צפוי להיכנס" value={pending} note={p.state === "ready" ? "ממתין לגבייה" : null} icon={IconIncoming} tone="fresh" quiet={quietPending} />
       <Kpi
+        quiet={quietOut}
         label="צריך לצאת"
         value={outValue}
         note={out ? (outCount === 1 ? "תשלום אחד" : `${outCount} תשלומים`) : null}
@@ -361,9 +382,10 @@ function WaitingPanel({ view }: { view: HomeView }) {
     const list = active === "all" ? model.items : model.items.filter((i) => i.kind === active);
     const claim = active === "all" ? model.total : model.byKind[active];
     const rest = list.length - ROWS_SHOWN;
+    const prompt = identityPromptDue(view) ? <IdentityPromptRow /> : null;
     body =
       model.items.length === 0 ? (
-        <Note>{model.total.exact ? "אין כרגע משהו שמחכה לך." : "לא נמצא כרגע משהו שמחכה לך."}</Note>
+        prompt ?? <Note>{model.total.exact ? "אין כרגע משהו שמחכה לך." : "לא נמצא כרגע משהו שמחכה לך."}</Note>
       ) : (
         <>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-label="סינון לפי סוג">
@@ -382,6 +404,7 @@ function WaitingPanel({ view }: { view: HomeView }) {
           {list.slice(0, ROWS_SHOWN).map((item) => (
             <WaitingRow key={item.id} item={item} />
           ))}
+          {active === "all" && list.length < ROWS_SHOWN ? prompt : null}
           {rest > 0 || !claim.exact ? (
             <Link
               href="/attention"
@@ -579,7 +602,7 @@ function ObligationsPanel({ view }: { view: HomeView }) {
     const items = buildUpcomingRows(c.value, 3);
     body =
       items.length === 0 ? (
-        <Note>אין תשלומים ב-30 הימים הקרובים.</Note>
+        <Note>{showsFirstTime(view.history, "obligations", false) ? "עוד לא נרשמו התחייבויות." : "אין תשלומים ב-30 הימים הקרובים."}</Note>
       ) : (
         <Rows>
           {items.map((it, i) => {
@@ -635,7 +658,7 @@ function CollectionPanel({ view }: { view: HomeView }) {
     ];
     body =
       rows.length === 0 ? (
-        <Note>אין כרגע בקשות תשלום פתוחות.</Note>
+        <Note>{showsFirstTime(view.history, "collection", false) ? "עוד לא נשלחו בקשות תשלום." : "אין כרגע בקשות תשלום פתוחות."}</Note>
       ) : (
         <Rows>
           {rows.map((r) => (
@@ -681,7 +704,7 @@ function DocumentsPanel({ view }: { view: HomeView }) {
     const more = d.value.totalPendingReview - shown.length;
     body =
       d.value.totalPendingReview === 0 ? (
-        <Note>אין מסמכים שמחכים לאישור.</Note>
+        <Note>{showsFirstTime(view.history, "documents", false) ? "עוד לא הועלו מסמכים." : "אין מסמכים שמחכים לאישור."}</Note>
       ) : (
         <>
           <Rows>
@@ -715,6 +738,29 @@ function DocumentsPanel({ view }: { view: HomeView }) {
   );
 }
 
+/**
+ * No new leads to show. A business that never had a lead hears where they will
+ * come from; the WhatsApp action follows the connection's real state (never
+ * "disconnected" while inbound still arrives) and is absent once connected.
+ */
+function LeadsEmpty({ view }: { view: HomeView }) {
+  const first = showsFirstTime(view.history, "leads", false);
+  const action = view.history ? whatsAppAction(view.history.whatsapp) : null;
+  // A disconnected number receives nothing until it is reconnected — the line
+  // must not promise messages that cannot arrive.
+  const firstLeadLine = view.history?.whatsapp === "DISCONNECTED" ? "עוד אין לידים." : "פניות מוואטסאפ יופיעו כאן.";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Note>{first ? firstLeadLine : "אין לידים חדשים."}</Note>
+      {action ? (
+        <Link href={action.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "4px 0 8px", alignSelf: "flex-start" }}>
+          {action.label}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
 function LeadsPanel({ view }: { view: HomeView }) {
   const l = view.data.leads;
   let body: ReactNode;
@@ -724,7 +770,7 @@ function LeadsPanel({ view }: { view: HomeView }) {
     const shown = l.value.slice(0, 2);
     body =
       shown.length === 0 ? (
-        <Note>אין לידים חדשים.</Note>
+        <LeadsEmpty view={view} />
       ) : (
         <>
           <Rows>
@@ -778,7 +824,7 @@ function ConversationsPanel({ view }: { view: HomeView }) {
     const shown = c.value.slice(0, 2);
     body =
       shown.length === 0 ? (
-        <Note>אין שיחות שמחכות לתשובה.</Note>
+        <Note>{showsFirstTime(view.history, "conversations", false) ? "עוד אין שיחות." : "אין שיחות שמחכות לתשובה."}</Note>
       ) : (
         <Rows>
           {shown.map((conv) => {
@@ -830,6 +876,7 @@ const STOCK_TONE = {
 
 function StockPanel({ view }: { view: HomeView }) {
   const inv = view.data.inventory;
+  const noStockEver = showsFirstTime(view.history, "inventory", inv.state === "ready" && inv.value.length > 0);
   let body: ReactNode;
   if (inv.state === "loading") body = <PanelSkeleton />;
   else if (inv.state === "failed") body = <Note>לא הצלחנו לטעון את המלאי.</Note>;
@@ -837,7 +884,7 @@ function StockPanel({ view }: { view: HomeView }) {
     const rows = buildStockRows(inv.value, view.now, 3);
     body =
       rows.length === 0 ? (
-        <Note>אין מוצרים עם סף מינימום להצגה.</Note>
+        <Note>{showsFirstTime(view.history, "inventory", inv.value.length > 0) ? "עוד אין מוצרים במלאי." : "אין מוצרים עם סף מינימום להצגה."}</Note>
       ) : (
         rows.map((r) => {
           const tone = STOCK_TONE[r.state];
@@ -868,26 +915,29 @@ function StockPanel({ view }: { view: HomeView }) {
     <Panel title="מצב המלאי" link={{ href: "/inventory", label: "לניהול מלאי" }} basis="320px" gap={10}>
       {body}
       <div style={{ flex: 1 }} />
-      <Link
-        href="/inventory/supplier-purchases/new"
-        prefetch={false}
-        style={{
-          height: 38,
-          borderRadius: 11,
-          border: "1px solid #CFE0DE",
-          background: "#FFFFFF",
-          color: "#1D5552",
-          fontSize: 13,
-          fontWeight: 600,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          textDecoration: "none",
-          boxSizing: "border-box",
-        }}
-      >
-        הזמנה מספק
-      </Link>
+      {/* Ordering from a supplier is not a natural step for a business that has no stock yet. */}
+      {noStockEver ? null : (
+        <Link
+          href="/inventory/supplier-purchases/new"
+          prefetch={false}
+          style={{
+            height: 38,
+            borderRadius: 11,
+            border: "1px solid #CFE0DE",
+            background: "#FFFFFF",
+            color: "#1D5552",
+            fontSize: 13,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            textDecoration: "none",
+            boxSizing: "border-box",
+          }}
+        >
+          הזמנה מספק
+        </Link>
+      )}
     </Panel>
   );
 }

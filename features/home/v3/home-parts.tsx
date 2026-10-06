@@ -464,8 +464,48 @@ export function ActivityList({
 
 /* -------------------------------------------------------------- insight -- */
 
-/** "התובנה של Dubiz" — drawn only when the backend actually has an insight. */
-export function InsightCard({ insight, wide, style }: { insight: Load<InsightView | null>; wide?: boolean; style?: CSSProperties }) {
+/**
+ * "התובנה של Dubiz" — drawn when the backend actually has an insight. A business
+ * that has never had one (history, not "none today") gets a quiet line saying
+ * when they will appear; one that has had insights and simply has none open
+ * right now keeps the card hidden, as before.
+ */
+export function InsightCard({
+  insight,
+  wide,
+  style,
+  learning = false,
+}: {
+  insight: Load<InsightView | null>;
+  wide?: boolean;
+  style?: CSSProperties;
+  /** True only when history says this business never had an insight. */
+  learning?: boolean;
+}) {
+  if (insight.state === "ready" && insight.value === null && learning) {
+    return (
+      <section
+        aria-label="התובנה של Dubiz"
+        style={{
+          borderRadius: wide ? 22 : 20,
+          padding: wide ? "18px 22px" : 16,
+          background: "#FBF8F3",
+          border: `1px solid ${LINE}`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          minWidth: 0,
+          ...style,
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: MUTED }}>
+          <IconSparkle size={14} strokeWidth={2} />
+          התובנה של Dubiz
+        </span>
+        <span style={{ fontSize: 14, color: MUTED }}>תופיע אחרי שיצטבר מספיק מידע.</span>
+      </section>
+    );
+  }
   if (insight.state !== "ready" || insight.value === null) return null;
   const v = insight.value;
   return (
@@ -514,6 +554,57 @@ export function InsightCard({ insight, wide, style }: { insight: Load<InsightVie
           <IconChevronLeft size={18} strokeWidth={2} />
         </span>
       )}
+    </Link>
+  );
+}
+
+/* ------------------------------------------------- tell us (identity) -- */
+
+/**
+ * One small item in "מה ממתין לך" while the owner has not described the
+ * business (skipped it at signup). It is not counted as something urgent and
+ * it disappears once a description exists.
+ */
+const IDENTITY_PROMPT = { title: "ספרו לנו על העסק", subtitle: "כמה מילים בשפה שלכם", action: "לכתוב", href: "/setup" };
+
+export function IdentityPromptRow() {
+  return (
+    <div style={{ borderRadius: 16, padding: 12, background: "#FBF4EA", border: "1px solid #F1E2CC", display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>העסק</span>
+      <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{IDENTITY_PROMPT.title}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{IDENTITY_PROMPT.subtitle}</span>
+      </span>
+      <Link href={IDENTITY_PROMPT.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "10px 4px" }}>
+        {IDENTITY_PROMPT.action}
+      </Link>
+    </div>
+  );
+}
+
+export function IdentityPromptCard({ tablet }: { tablet?: boolean }) {
+  return (
+    <Link
+      href={IDENTITY_PROMPT.href}
+      prefetch={false}
+      style={{
+        borderRadius: tablet ? 20 : 18,
+        padding: tablet ? 14 : 12,
+        background: "#FBF4EA",
+        border: "1px solid #F1E2CC",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minWidth: 0,
+        textDecoration: "none",
+        color: INK,
+      }}
+    >
+      <span style={{ alignSelf: "flex-start", fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "3px 8px" }}>העסק</span>
+      <span style={{ fontSize: tablet ? 15 : 14, fontWeight: 600, lineHeight: 1.3 }}>{IDENTITY_PROMPT.title}</span>
+      <span style={{ fontSize: 12, color: MUTED, lineHeight: 1.4 }}>{IDENTITY_PROMPT.subtitle}</span>
+      <span style={{ flex: 1 }} />
+      <span style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{IDENTITY_PROMPT.action}</span>
     </Link>
   );
 }

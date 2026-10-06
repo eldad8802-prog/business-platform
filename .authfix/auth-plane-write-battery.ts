@@ -751,33 +751,148 @@ async function main() {
     ok("lower(email) is unique in the database (case variant refused)", code === "P2002", `got ${code}`);
   }
 
-  // 7 — setup state for a brand-new business, through the real service.
+  // 7 — setup for a brand-new business, through the real service: one screen,
+  //     answers stored as OWNER_INPUT identity statements, no goal written.
   {
-    const { loadSetupState, completeSetup, saveBusinessAnswer } = await import("@/lib/services/onboarding/setup.service");
+    const { loadSetupState, completeSetup, saveAbout } = await import("@/lib/services/onboarding/setup.service");
     const businessA = bodyA.user?.businessId ?? -1;
+    const userA = bodyA.user?.id ?? -1;
     const fresh = await loadSetupState(businessA);
-    ok("a new business needs setup", fresh.needsSetup === true);
-    await saveBusinessAnswer({ businessId: businessA, userId: bodyA.user?.id ?? -1 }, {
-      category: "Beauty",
-      subCategory: "Nails",
-      businessModel: "service",
+    ok("a new business needs setup, with nothing said yet", fresh.needsSetup === true && fresh.description === null && fresh.audience === null);
+
+    await saveAbout({ businessId: businessA, userId: userA }, { description: "סטודיו קטן לטיפוח ציפורניים" });
+    const resumed = await loadSetupState(businessA);
+    ok("a saved description resumes (still needs setup)", resumed.needsSetup === true && resumed.description === "סטודיו קטן לטיפוח ציפורניים");
+
+    await saveAbout({ businessId: businessA, userId: userA }, { audience: "BOTH" });
+    await saveAbout({ businessId: businessA, userId: userA }, { audience: "INDIVIDUALS" });
+    const afterSwitch = await loadSetupState(businessA);
+    ok("switching the audience keeps exactly the chosen code", afterSwitch.audience === "INDIVIDUALS");
+
+    const rows = await owner.businessIdentityStatement.findMany({
+      where: { businessId: businessA, status: "ACTIVE" },
+      select: { dimension: true, code: true, source: true, sourceRef: true, confirmedByUserId: true, publicUseApproved: true },
     });
-    await completeSetup(businessA, null);
-    const afterSkip = await loadSetupState(businessA);
-    ok("skipping the goal completes setup with a DEFAULTED goal", afterSkip.needsSetup === false && afterSkip.goalSource === "DEFAULTED" && afterSkip.goal === "LEADS");
-    const stamp = (await owner.businessProfile.findUnique({ where: { businessId: businessA }, select: { onboardingCompletedAt: true } }))?.onboardingCompletedAt;
-    await completeSetup(businessA, "CONTENT");
-    const afterChoose = await loadSetupState(businessA);
-    const stamp2 = (await owner.businessProfile.findUnique({ where: { businessId: businessA }, select: { onboardingCompletedAt: true } }))?.onboardingCompletedAt;
-    ok("choosing later records OWNER_SELECTED", afterChoose.goal === "CONTENT" && afterChoose.goalSource === "OWNER_SELECTED");
-    ok("...and keeps the first completion time", stamp?.getTime() === stamp2?.getTime());
-    let checkCode: string | null = null;
+    ok(
+      "answers are OWNER_INPUT statements from setup, confirmed by the owner, never public",
+      rows.length === 2 &&
+        rows.every((r) => r.source === "OWNER_INPUT" && r.sourceRef === "setup" && r.confirmedByUserId === userA && r.publicUseApproved === false),
+      JSON.stringify(rows)
+    );
+
+    let refused = false;
     try {
-      await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "onboardingGoal" = 'NONSENSE' WHERE "businessId" = ${businessA}`);
+      await saveAbout({ businessId: businessA, userId: userA }, { description: "התקשרו 050-1234567 או www.example.co.il" });
     } catch (e) {
-      checkCode = pgCode(e) ?? "error";
+      refused = (e as Error).name === "IdentityInputError";
     }
-    ok("the database refuses an unknown goal (CHECK)", checkCode !== null, `got ${checkCode}`);
+    ok("contact details in the description are refused by the identity writer", refused);
+
+    await completeSetup(businessA);
+    const profile = await owner.businessProfile.findUnique({
+      where: { businessId: businessA },
+      select: { onboardingCompletedAt: true, onboardingGoal: true, onboardingGoalSource: true, category: true },
+    });
+    ok("completing stamps the business once", (await loadSetupState(businessA)).needsSetup === false && profile?.onboardingCompletedAt instanceof Date);
+    ok("no goal and no category are written", profile?.onboardingGoal === null && profile?.onboardingGoalSource === null && profile?.category === null);
+    await completeSetup(businessA);
+    const again = await owner.businessProfile.findUnique({ where: { businessId: businessA }, select: { onboardingCompletedAt: true } });
+    ok("...and re-completing keeps the first completion time", again?.onboardingCompletedAt?.getTime() === profile?.onboardingCompletedAt?.getTime());
+  }
+
+  // 8 — Home history: every flag is a past business event, never "0 today",
+  //     and every predicate is pinned to its own business.
+  {
+    const { loadHomeHistory } = await import("@/lib/services/home/home-history.service");
+    const a = bodyA.user?.businessId ?? -1;
+    const bId = bodyB.user?.businessId ?? -1;
+    const flags = (h: Record<string, unknown>) =>
+      Object.entries(h)
+        .filter(([k]) => k !== "whatsapp")
+        .filter(([, v]) => v === true)
+        .map(([k]) => k)
+        .sort()
+        .join(",");
+
+    const freshB = await loadHomeHistory(bId);
+    ok("a brand-new business has no history at all", flags(freshB) === "" && freshB.whatsapp === "NEVER", `got ${flags(freshB)} / ${freshB.whatsapp}`);
+
+    // Activity on business A must never show up as history on B.
+    await owner.lead.create({ data: { businessId: a }, select: { id: true } });
+    await owner.inventoryItem.create({ data: { businessId: a, name: "לק ג׳ל", unitType: "UNIT" }, select: { id: true } });
+    const reqA = await owner.paymentRequest.create({ data: { businessId: a, provider: "TRANZILA", amount: 180, status: "EXPIRED" }, select: { id: true } });
+    await owner.paymentTransaction.create({ data: { paymentRequestId: reqA.id, provider: "TRANZILA", amount: 180, status: "PAID" }, select: { id: true } });
+    await owner.payment.create({
+      data: { businessId: a, payeeNameSnapshot: "ספק", amount: 300, paidAt: new Date(), method: "BANK_TRANSFER" },
+      select: { id: true },
+    });
+    const afterA = await loadHomeHistory(a);
+    const stillB = await loadHomeHistory(bId);
+    ok(
+      "business A's events are history for A",
+      afterA.leads && afterA.inventory && afterA.collection && afterA.income && afterA.expenses && afterA.identityDescription,
+      flags(afterA)
+    );
+    ok("...and never for business B (explicit businessId in every predicate)", flags(stillB) === "", `B got ${flags(stillB)}`);
+    ok("an EXPIRED payment request still counts as collection history", afterA.collection === true);
+
+    // Documents: only a document that was really received counts.
+    await owner.document.create({ data: { businessId: bId, fileUrl: "lab://p", source: "upload", mimeType: "image/png", status: "processing" }, select: { id: true } });
+    await owner.document.create({ data: { businessId: bId, fileUrl: "lab://f", source: "upload", mimeType: "image/png", status: "failed" }, select: { id: true } });
+    ok("processing / failed uploads are not document history", (await loadHomeHistory(bId)).documents === false);
+    await owner.document.create({ data: { businessId: bId, fileUrl: "lab://r", source: "upload", mimeType: "image/png", status: "needs_review" }, select: { id: true } });
+    ok("a received document (needs_review) is document history", (await loadHomeHistory(bId)).documents === true);
+
+    // Income: a refund reversal (PAID, negative) is not money in; a VOID payment is not an expense.
+    const reqB = await owner.paymentRequest.create({ data: { businessId: bId, provider: "TRANZILA", amount: 90, status: "CANCELLED" }, select: { id: true } });
+    await owner.paymentTransaction.create({ data: { paymentRequestId: reqB.id, provider: "TRANZILA", amount: -90, status: "PAID" }, select: { id: true } });
+    await owner.payment.create({
+      data: { businessId: bId, payeeNameSnapshot: "ספק", amount: 50, paidAt: new Date(), method: "CASH", status: "VOID" },
+      select: { id: true },
+    });
+    const b2 = await loadHomeHistory(bId);
+    ok("a refund reversal is not income history", b2.income === false);
+    ok("a VOID payment is not expense history", b2.expenses === false);
+    ok("a CANCELLED request is still collection history", b2.collection === true);
+
+    // An approved expense document counts as expense history without any Payment.
+    const doc = await owner.document.create({ data: { businessId: bId, fileUrl: "lab://e", source: "upload", mimeType: "image/png", status: "approved" }, select: { id: true } });
+    await owner.financialRecord.create({
+      data: { documentId: doc.id, businessId: bId, amount: 86, date: new Date(), vendorName: "סופר-פארם", direction: "expense", category: "office" },
+      select: { id: true },
+    });
+    ok("an approved expense document is expense history", (await loadHomeHistory(bId)).expenses === true);
+
+    // WhatsApp semantics.
+    await owner.whatsAppConnection.create({
+      data: {
+        businessId: bId,
+        status: "REVOKED_BY_META",
+        phoneNumberId: "lab",
+        displayPhoneNumber: "+972500000000",
+        wabaId: "lab",
+        accessTokenEncrypted: "x",
+        accessTokenIv: "x",
+        accessTokenTag: "x",
+      },
+      select: { id: true },
+    });
+    ok("REVOKED_BY_META reads as needs-attention, not disconnected", (await loadHomeHistory(bId)).whatsapp === "ATTENTION");
+    await owner.whatsAppConnection.update({ where: { businessId: bId }, data: { status: "DISCONNECTED" }, select: { id: true } });
+    ok("DISCONNECTED reads as reconnect", (await loadHomeHistory(bId)).whatsapp === "DISCONNECTED");
+    await owner.whatsAppConnection.update({ where: { businessId: bId }, data: { status: "CONNECTED" }, select: { id: true } });
+    ok("CONNECTED reads as connected", (await loadHomeHistory(bId)).whatsapp === "CONNECTED");
+
+    // The plan: one statement, and no sequential scan of Conversation.
+    const { homeHistorySql } = await import("@/lib/services/home/home-history.service");
+    const sql = homeHistorySql(bId);
+    const plan = (await owner.$queryRawUnsafe<Array<{ "QUERY PLAN": string }>>(
+      `EXPLAIN ${sql.text}`,
+      ...sql.values
+    ))
+      .map((r) => r["QUERY PLAN"])
+      .join("\n");
+    ok("the history plan never touches Conversation", !/Conversation/.test(plan));
   }
 
   await owner.$disconnect();

@@ -17,6 +17,7 @@ import {
   type NavDestination,
 } from "./nav-destinations";
 import { IconPlus, IconSearch } from "./nav-icons";
+import { AccessibilityGlyph, AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import {
   useHasUnreadNotifications,
   useNavBadges,
@@ -75,6 +76,12 @@ export function NavRail() {
           />
         ))}
         <div style={{ flex: 1 }} />
+        <AccessibilityTrigger className="dz-rail__item">
+          <span className="dz-rail__icon">
+            <AccessibilityGlyph size={21} />
+          </span>
+          נגישות
+        </AccessibilityTrigger>
         <RailItem dest={SETTINGS_DESTINATION} active={isNavActive(pathname, SETTINGS_DESTINATION.href)} dot={false} />
       </nav>
       <ActionSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
@@ -176,6 +183,11 @@ export function NavSidebar() {
         ))}
 
         <div style={{ flex: 1, minHeight: 12 }} />
+
+        <AccessibilityTrigger className="dz-sidebar__item">
+          <AccessibilityGlyph size={18} />
+          <span style={{ flex: 1 }}>נגישות</span>
+        </AccessibilityTrigger>
 
         <SidebarItem
           dest={SETTINGS_DESTINATION}

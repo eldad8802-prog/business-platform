@@ -1,262 +1,618 @@
-/* Setup after signup. Layout lives here, in CSS, per lib/ui/use-breakpoint.ts:
- * phone < 768 is one column with a sticky action bar; tablet is a centred card;
- * desktop >= 1280 adds a live "how Dubiz will look for you" column. */
+/*
+ * /setup — one screen, three compositions on the Dubiz Mist tokens.
+ *   phone   (<768)      the questions, actions pinned to the bottom edge
+ *   tablet  (768–1279)  a compact business card on top, the questions below
+ *   desktop (≥1280)     the questions beside a live business card
+ */
 
 .page {
+  min-height: 100vh;
   min-height: 100dvh;
-  background: var(--dz-background);
-  color: var(--dz-text-primary);
   display: flex;
   flex-direction: column;
+  background: var(--dz-background);
+  color: var(--dz-text-primary);
 }
 
 .top {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 8px;
+  align-items: center;
+  padding: 14px 20px 0;
 }
-
-.progress {
-  flex: 1;
-  max-width: 320px;
-}
-
-.progressLabel {
-  font-size: 13px;
-  color: var(--dz-text-secondary);
-  margin-bottom: 6px;
-}
-
-.bar {
+.logo {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  color: var(--dz-brand);
 }
-
-.barSeg {
-  flex: 1;
-  height: 4px;
-  border-radius: 4px;
-  background: var(--dz-border);
-}
-
-.barSegOn {
+.logoMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   background: var(--dz-brand);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
 }
-
-.body {
-  flex: 1;
-  width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 8px 16px 120px;
-  display: grid;
-  gap: 24px;
-  /* Rows hug their content; without this the grid stretches them to fill the
-     viewport and opens a gap under the heading on tall phones. */
-  align-content: start;
+.logoWord {
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 700;
+  font-size: 21px;
 }
-
-.card {
-  display: grid;
-  gap: 20px;
-  align-content: start;
-}
-
-.title {
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.25;
-  margin: 0;
-}
-
-.why {
-  margin: 6px 0 0;
-  font-size: 15px;
-  color: var(--dz-text-secondary);
-  line-height: 1.5;
-}
-
-.label {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0 0 10px;
-}
-
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.tile {
-  min-height: 56px;
-  padding: 12px 14px;
-  border-radius: 14px;
+.iconBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   border: 1px solid var(--dz-border);
-  background: var(--dz-surface);
+  background: var(--dz-surface-flat);
   color: var(--dz-text-primary);
-  font: inherit;
-  font-size: 15px;
-  text-align: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  padding: 0;
 }
-
-.tile:hover {
-  border-color: var(--dz-border-strong);
-}
-
-.tileOn {
-  border-color: var(--dz-brand);
-  background: var(--dz-brand-soft);
-  box-shadow: 0 0 0 1px var(--dz-brand) inset;
-}
-
-.tile:focus-visible,
-.goal:focus-visible {
-  outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand));
+.iconBtn:focus-visible {
+  outline: 2px solid var(--dz-brand);
   outline-offset: 2px;
 }
 
-.chips {
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 18px 20px 0;
+}
+
+.form {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
 }
 
-.goals {
-  display: grid;
-  gap: 12px;
+.eyebrow {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dz-success);
+  font-size: 14px;
+  font-weight: 500;
 }
-
-.goal {
-  display: grid;
-  gap: 4px;
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid var(--dz-border);
-  background: var(--dz-surface);
-  color: var(--dz-text-primary);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
+.resume {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--dz-info-bg);
+  border: 1px solid var(--dz-info-border);
+  color: var(--dz-info);
+  font-size: 14px;
+  line-height: 1.5;
 }
-
-.goal:hover {
-  border-color: var(--dz-border-strong);
+.resume svg {
+  flex: none;
+  margin-top: 2px;
 }
-
-.goalOn {
-  border-color: var(--dz-brand);
-  background: var(--dz-brand-soft);
-  box-shadow: 0 0 0 1px var(--dz-brand) inset;
-}
-
-.goalTitle {
-  font-size: 16px;
+.resume b {
   font-weight: 600;
 }
 
-.goalHint {
-  font-size: 14px;
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -10px;
+}
+.title {
+  margin: 0;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.sub {
+  margin: 0;
+  font-size: 15px;
   color: var(--dz-text-secondary);
-  line-height: 1.45;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.label {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0;
+}
+.textarea {
+  display: block;
+  width: 100%;
+  min-height: 132px;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--dz-border-strong);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.55;
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  outline: none;
+}
+.textarea::placeholder {
+  color: #8a9288;
+}
+.textarea:focus {
+  border-color: var(--dz-brand);
+  box-shadow: 0 0 0 3px var(--dz-focus-ring);
+}
+.meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--dz-text-muted);
+  min-height: 18px;
+}
+.saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dz-success);
+}
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.fieldset legend {
+  margin-bottom: 10px;
+}
+.options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--dz-border-strong);
+  background: var(--dz-surface-raised-flat);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.option:hover {
+  border-color: var(--dz-brand-border);
+}
+.option:focus-within {
+  box-shadow: 0 0 0 3px var(--dz-focus-ring);
+}
+.optionOn {
+  border-color: var(--dz-brand);
+  background: var(--dz-brand-soft);
+  box-shadow: inset 0 0 0 1px var(--dz-brand);
+}
+.optionIcon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.optionOn .optionIcon {
+  background: var(--dz-brand);
+  color: #fff;
+}
+.optionLabel {
+  font-size: 16px;
+  font-weight: 600;
+}
+.mark {
+  margin-inline-start: auto;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dz-border-strong);
+  background: #fff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.mark svg {
+  opacity: 0;
+}
+.optionOn .mark {
+  background: var(--dz-brand);
+  border-color: var(--dz-brand);
+}
+.optionOn .mark svg {
+  opacity: 1;
 }
 
 .error {
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-radius: 12px;
   background: var(--dz-danger-bg-soft);
+  border: 1px solid var(--dz-danger-border);
   color: var(--dz-danger);
   font-size: 14px;
 }
 
+/* Phone: the two actions stay at the bottom edge, above the safe area. */
 .actions {
-  position: fixed;
-  inset-inline: 0;
+  position: sticky;
   bottom: 0;
+  margin: 0 -20px;
+  padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--dz-background);
+  border-top: 1px solid var(--dz-border);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  background: var(--dz-surface);
-  border-top: 1px solid var(--dz-border);
+  gap: 4px;
+}
+.primary {
+  height: 52px;
+  border-radius: 14px;
+  border: 0;
+  background: var(--dz-brand-gradient);
+  color: var(--dz-text-on-brand);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.primary:hover {
+  background: var(--dz-brand-gradient-hover);
+}
+.ghost {
+  height: 44px;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--dz-text-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ghost:hover {
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-primary);
+}
+.primary:focus-visible,
+.ghost:focus-visible {
+  outline: 2px solid var(--dz-brand);
+  outline-offset: 2px;
+}
+.primary:disabled,
+.ghost:disabled {
+  opacity: 0.7;
+  cursor: progress;
 }
 
-.preview {
+/* ------------------------------------------------------- business card -- */
+.card {
   display: none;
+  border-radius: 22px;
+  background: var(--dz-surface-raised);
+  border: 1px solid var(--dz-border-subtle);
+  box-shadow: var(--dz-shadow-raised);
+  padding: 24px;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cardMark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--dz-warning-bg);
+  color: var(--dz-warning);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 600;
+  font-size: 22px;
+  flex: none;
+}
+.cardName {
+  font-family: var(--font-rubik), "Heebo", sans-serif;
+  font-weight: 600;
+  font-size: 19px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cardSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--dz-border-subtle);
+}
+.cardEyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--dz-text-muted);
+}
+.cardRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.cardRowSplit {
+  padding-top: 10px;
+  border-top: 1px solid var(--dz-border-subtle);
+}
+.cardKey {
+  font-size: 14px;
+  font-weight: 600;
+}
+.cardValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cardQuote {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cardEmpty {
+  margin: 0;
+  font-size: 15px;
+  color: #8a9288;
+}
+.chipOwn,
+.chipLearn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chipOwn {
+  background: var(--dz-brand-soft);
+  color: var(--dz-brand-hover);
+}
+.chipLearn {
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-secondary);
+}
+.learn {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.learnText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.learnTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+.learnSub {
+  font-size: 13px;
+  color: var(--dz-text-muted);
+}
+.private {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dz-text-secondary);
 }
 
+/* ----------------------------------------------------------------- tablet -- */
 @media (min-width: 768px) {
   .top {
-    padding: 24px 32px 8px;
+    padding: 24px 48px 0;
   }
-  .body {
-    padding: 16px 32px 48px;
+  .logoMark {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+  }
+  .logoWord {
+    font-size: 24px;
+  }
+  .main {
+    padding: 28px 48px 40px;
+    gap: 28px;
   }
   .card {
-    padding: 28px;
-    border-radius: 20px;
-    background: var(--dz-surface);
-    border: 1px solid var(--dz-border);
-    box-shadow: var(--dz-shadow-card);
+    display: flex;
+    order: -1;
+    padding: 20px 22px;
+    gap: 12px;
   }
-  .tiles {
+  .card .cardLearn {
+    display: none;
+  }
+  .card .cardSection:not(.cardLearn) {
+    padding-top: 10px;
+  }
+  .title {
+    font-size: 36px;
+  }
+  .sub {
+    font-size: 17px;
+  }
+  .label {
+    font-size: 17px;
+  }
+  .textarea {
+    min-height: 170px;
+    font-size: 18px;
+    padding: 16px 18px;
+  }
+  .options {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
   }
-  .goals {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .option {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 116px;
+    padding: 18px;
+  }
+  .optionIcon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+  }
+  .optionLabel {
+    font-size: 17px;
+  }
+  .mark {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    width: 24px;
+    height: 24px;
   }
   .actions {
     position: static;
-    flex-direction: row-reverse;
-    justify-content: flex-start;
+    margin: 0;
     padding: 0;
-    background: none;
     border: 0;
+    background: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .primary {
+    flex: 1;
+    height: 56px;
+    font-size: 17px;
+  }
+  .ghost {
+    height: 56px;
+    padding: 0 24px;
+    border: 1px solid var(--dz-border-strong);
+    background: var(--dz-surface-raised-flat);
+    color: var(--dz-text-primary);
+    font-size: 17px;
   }
 }
 
+/* ---------------------------------------------------------------- desktop -- */
 @media (min-width: 1280px) {
-  .body {
-    max-width: 1080px;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    align-items: start;
-    gap: 32px;
+  .top {
+    padding: 24px 56px;
   }
-  .preview {
-    display: grid;
-    gap: 12px;
-    position: sticky;
-    top: 24px;
-    padding: 24px;
-    border-radius: 20px;
-    background: var(--dz-surface-muted);
-    border: 1px solid var(--dz-border-subtle);
+  .main {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 72px;
+    align-content: center;
+    align-items: center;
+    max-width: 1240px;
+    margin-inline: auto;
+    padding: 0 40px 56px;
   }
-  .previewTitle {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--dz-text-secondary);
+  .card {
+    order: 0;
+    padding: 28px;
+    gap: 20px;
   }
-  .previewCard {
+  .card .cardLearn {
+    display: flex;
+  }
+  .title {
+    font-size: 42px;
+  }
+  .textarea {
+    min-height: 150px;
+    font-size: 17px;
+  }
+  .options {
+    gap: 14px;
+  }
+  .option {
+    min-height: 104px;
     padding: 16px;
-    border-radius: 16px;
-    background: var(--dz-surface);
-    border: 1px solid var(--dz-border);
-    display: grid;
-    gap: 6px;
   }
-  .previewName {
-    font-size: 18px;
-    font-weight: 600;
+  .optionIcon {
+    width: 40px;
+    height: 40px;
   }
-  .previewMuted {
-    font-size: 14px;
+  .optionLabel {
+    font-size: 16px;
+  }
+  .primary {
+    flex: none;
+    padding: 0 32px;
+    height: 52px;
+    font-size: 16px;
+  }
+  .ghost {
+    height: 52px;
+    border: 0;
+    background: transparent;
     color: var(--dz-text-secondary);
-    line-height: 1.45;
+    font-size: 16px;
   }
 }

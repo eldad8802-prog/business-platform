@@ -2,14 +2,15 @@
  * Setup rules (pure, no database):
  *   npx tsx lib/services/onboarding/setup-model.test.ts
  */
+import { readFileSync } from "node:fs";
+
 import {
-  START_ACTIONS,
+  DESCRIPTION_MAX,
+  audienceFromCodes,
   buildSetupView,
-  defaultGoalFor,
-  isSetupGoal,
-  suggestedModelFor,
-  validateBusinessAnswer,
-  type SetupFacts,
+  codesForAudience,
+  isSetupAudience,
+  validateAbout,
 } from "./setup-model";
 
 let failed = 0;
@@ -23,88 +24,52 @@ function ok(name: string, cond: boolean, detail = ""): void {
   }
 }
 
-const base: SetupFacts = {
-  onboardingCompletedAt: null,
-  onboardingGoal: null,
-  onboardingGoalSource: null,
-  category: null,
-  businessModel: null,
-  billingIdentityComplete: false,
-  whatsappConnected: false,
-  counts: { leads: 0, billingDocuments: 0, documents: 0, contentRuns: 0 },
-};
-const done = new Date("2026-10-06T10:00:00Z");
+const done = new Date("2026-10-06T08:00:00Z");
 
-// ---- goals and defaults
-ok("the four goals are recognised", ["LEADS", "BILLING", "DOCUMENTS", "CONTENT"].every(isSetupGoal));
-ok("anything else is not a goal", !isSetupGoal("leads") && !isSetupGoal(null) && !isSetupGoal(1));
-ok("a product business defaults to DOCUMENTS", defaultGoalFor("product") === "DOCUMENTS");
-ok("services, both, or unknown default to LEADS", ["service", "hybrid", null, undefined].every((m) => defaultGoalFor(m) === "LEADS"));
-ok("model suggestion: retail → product, food → hybrid, else service",
-  suggestedModelFor("Retail") === "product" && suggestedModelFor("Food") === "hybrid" && suggestedModelFor("Beauty") === "service");
+// needsSetup is the completion stamp, nothing else.
+ok("not completed → needsSetup", buildSetupView({ onboardingCompletedAt: null, description: null, audienceCodes: [] }).needsSetup === true);
+ok("completed → no redirect", buildSetupView({ onboardingCompletedAt: done, description: null, audienceCodes: [] }).needsSetup === false);
+ok("a blank description reads as not answered", buildSetupView({ onboardingCompletedAt: null, description: "   ", audienceCodes: [] }).description === null);
 
-// ---- the business answer is checked against the taxonomy, not trusted
-ok("a real category/sub/model is accepted", validateBusinessAnswer({ category: "Beauty", subCategory: "Nails", businessModel: "service" }) !== null);
-ok("a sub-category from another category is refused", validateBusinessAnswer({ category: "Beauty", subCategory: "Bakery", businessModel: "service" }) === null);
-ok("an unknown category is refused", validateBusinessAnswer({ category: "Crypto", subCategory: "General", businessModel: "service" }) === null);
-ok("an unknown model is refused", validateBusinessAnswer({ category: "Other", subCategory: "General", businessModel: "SERVICE" }) === null);
-ok("non-strings are refused", validateBusinessAnswer({ category: ["Beauty"], subCategory: "Nails", businessModel: "service" }) === null);
+// Audience ↔ the two identity codes the screen owns.
+ok("INDIVIDUALS only", audienceFromCodes(["INDIVIDUALS"]) === "INDIVIDUALS");
+ok("BUSINESSES only", audienceFromCodes(["BUSINESSES", "LOCAL_CUSTOMERS"]) === "BUSINESSES");
+ok("both codes → BOTH", audienceFromCodes(["BUSINESSES", "INDIVIDUALS"]) === "BOTH");
+ok("other audience codes alone → no answer", audienceFromCodes(["LOCAL_CUSTOMERS", "WALK_IN_CUSTOMERS"]) === null);
+ok("BOTH writes two codes", JSON.stringify(codesForAudience("BOTH")) === JSON.stringify(["INDIVIDUALS", "BUSINESSES"]));
+ok("an unknown audience is refused", !isSetupAudience("FAMILIES") && "error" in validateAbout({ audience: "FAMILIES" }));
 
-// ---- redirect
-ok("not completed → needsSetup", buildSetupView(base).needsSetup === true);
-ok("completed → no redirect", buildSetupView({ ...base, onboardingCompletedAt: done }).needsSetup === false);
-
-// ---- provenance: a default is never presented as the owner's choice
+// Saving: partial answers, normalisation, limits — and an empty text is never "erase".
 {
-  const skipped = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: "LEADS", onboardingGoalSource: "DEFAULTED" });
-  ok("a skipped goal stays DEFAULTED", skipped.goalSource === "DEFAULTED");
-  const chosen = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: "CONTENT", onboardingGoalSource: "OWNER_SELECTED" });
-  ok("a chosen goal is OWNER_SELECTED", chosen.goal === "CONTENT" && chosen.goalSource === "OWNER_SELECTED");
-  const none = buildSetupView({ ...base, onboardingCompletedAt: done, businessModel: "product" });
-  ok("no stored goal → derived default, DEFAULTED", none.goal === "DOCUMENTS" && none.goalSource === "DEFAULTED");
-  const junk = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: "NONSENSE", onboardingGoalSource: "OWNER_SELECTED" });
-  ok("an unknown stored goal is never trusted as a choice", junk.goal === "LEADS" && junk.goalSource === "DEFAULTED");
+  const v = validateAbout({ description: "  סטודיו   קטן\n לציפורניים  " });
+  ok("description is collapsed and trimmed", !("error" in v) && v.description === "סטודיו קטן לציפורניים");
+  const empty = validateAbout({ description: "   " });
+  ok("an empty description writes nothing", !("error" in empty) && empty.description === undefined);
+  const long = validateAbout({ description: "א".repeat(DESCRIPTION_MAX + 1) });
+  ok("over 500 characters is refused", "error" in long && long.error === "description_too_long");
+  const onlyAudience = validateAbout({ audience: "BOTH" });
+  ok("audience alone is a valid save", !("error" in onlyAudience) && onlyAudience.audience === "BOTH" && onlyAudience.description === undefined);
+  ok("a non-string description is refused", "error" in validateAbout({ description: 42 }));
 }
 
-// ---- first action follows the goal, and knows when it happened
-for (const goal of ["LEADS", "BILLING", "DOCUMENTS", "CONTENT"] as const) {
-  const v = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: goal, onboardingGoalSource: "OWNER_SELECTED" });
-  ok(`${goal}: the start action is the goal's`, v.startAction.href === START_ACTIONS[goal].href && v.startAction.done === false);
-}
-ok("LEADS is done once WhatsApp is connected", buildSetupView({ ...base, onboardingGoal: "LEADS", onboardingGoalSource: "OWNER_SELECTED", whatsappConnected: true }).startAction.done);
-ok("LEADS is done once a lead exists", buildSetupView({ ...base, onboardingGoal: "LEADS", onboardingGoalSource: "OWNER_SELECTED", counts: { ...base.counts, leads: 1 } }).startAction.done);
-ok("BILLING is done once a billing document exists", buildSetupView({ ...base, onboardingGoal: "BILLING", onboardingGoalSource: "OWNER_SELECTED", counts: { ...base.counts, billingDocuments: 1 } }).startAction.done);
-ok("BILLING is NOT done by an uploaded document", !buildSetupView({ ...base, onboardingGoal: "BILLING", onboardingGoalSource: "OWNER_SELECTED", counts: { ...base.counts, documents: 1 } }).startAction.done);
-ok("DOCUMENTS is done once a document exists", buildSetupView({ ...base, onboardingGoal: "DOCUMENTS", onboardingGoalSource: "OWNER_SELECTED", counts: { ...base.counts, documents: 1 } }).startAction.done);
-ok("CONTENT is done once a content run exists", buildSetupView({ ...base, onboardingGoal: "CONTENT", onboardingGoalSource: "OWNER_SELECTED", counts: { ...base.counts, contentRuns: 1 } }).startAction.done);
-
-// ---- checklist: progressive, never repeats the start action, at most three
+// The screen never asks for a category, a goal or a first action again.
 {
-  const v = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: "CONTENT", onboardingGoalSource: "OWNER_SELECTED" });
-  ok("an unanswered business step is offered again", v.checklist.some((i) => i.key === "business" && i.href === "/setup"));
-  ok("WhatsApp and billing identity follow", v.checklist.map((i) => i.key).join(",") === "business,whatsapp,billing");
-  const leads = buildSetupView({ ...base, onboardingGoal: "LEADS", onboardingGoalSource: "OWNER_SELECTED", category: "Beauty" });
-  ok("LEADS does not repeat WhatsApp in the checklist", !leads.checklist.some((i) => i.key === "whatsapp"));
-  const billing = buildSetupView({ ...base, onboardingGoal: "BILLING", onboardingGoalSource: "OWNER_SELECTED", category: "Beauty" });
-  ok("BILLING does not ask for invoice identity up front", !billing.checklist.some((i) => i.key === "billing"));
-  ok("never more than three items", v.checklist.length <= 3);
+  const page = readFileSync("app/(shell)/setup/page.tsx", "utf8");
+  const model = readFileSync("lib/services/onboarding/setup-model.ts", "utf8");
+  const service = readFileSync("lib/services/onboarding/setup.service.ts", "utf8");
+  ok("setup page has no category taxonomy", !/BUSINESS_CATEGORY_OPTIONS|business-categories/.test(page));
+  ok("setup page has no goal / start step", !/SETUP_GOAL|START_ACTIONS|עם מה תרצה להתחיל/.test(page));
+  ok("setup model has no goal or first action", !/onboardingGoal|START_ACTIONS|defaultGoalFor/.test(model));
+  ok("setup service never writes a goal", !/onboardingGoal/.test(service.replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("answers go through the identity writer as OWNER_INPUT", /createIdentityStatement/.test(service) && /source: "OWNER_INPUT"/.test(service));
 }
 
-// ---- the card settles when there is nothing left to say
+// The Home no longer carries the setup card.
 {
-  const settled = buildSetupView({
-    ...base,
-    onboardingCompletedAt: done,
-    onboardingGoal: "DOCUMENTS",
-    onboardingGoalSource: "OWNER_SELECTED",
-    category: "Retail",
-    whatsappConnected: true,
-    billingIdentityComplete: true,
-    counts: { ...base.counts, documents: 1 },
-  });
-  ok("first action done + empty checklist → settled", settled.settled && settled.checklist.length === 0);
-  const notYet = buildSetupView({ ...base, onboardingCompletedAt: done, onboardingGoal: "DOCUMENTS", onboardingGoalSource: "OWNER_SELECTED", category: "Retail", whatsappConnected: true, billingIdentityComplete: true });
-  ok("first action pending → not settled", !notYet.settled);
+  const desktop = readFileSync("features/home/v3/desktop-home.tsx", "utf8");
+  const mobile = readFileSync("features/home/v3/home-v3.tsx", "utf8");
+  ok("no SetupCard on desktop", !/SetupCard/.test(desktop));
+  ok("no SetupCard on tablet / phone", !/SetupCard/.test(mobile));
 }
 
 if (failed > 0) {

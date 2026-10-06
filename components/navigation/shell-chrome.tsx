@@ -152,6 +152,12 @@ const shellCss = `
 }
 .dz-sidebar__item:hover { background: #FBF3EA; color: #1D5552; }
 .dz-sidebar__item[data-active] { background: #E3F2F0; color: #1D5552; font-weight: 600; }
+/* The accessibility entry is a <button> dressed as a nav item. */
+button.dz-rail__item, button.dz-sidebar__item {
+  border: 0; background: transparent; font-family: inherit; cursor: pointer; padding-block: 0; text-align: start;
+}
+button.dz-sidebar__item { width: 100%; padding-inline: 12px; }
+button.dz-rail__item { padding-inline: 0; }
 .dz-sidebar__badge { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; }
 
 .dz-rail a:focus-visible, .dz-rail button:focus-visible,

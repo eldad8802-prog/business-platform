@@ -12,3 +12,5 @@ export type { AccessibleFieldOptions } from "./accessible-field";
 export { SkipLink } from "./skip-link";
 
 export { usePrefersReducedMotion, motionSafe } from "./use-prefers-reduced-motion";
+
+export { AccessibilityTrigger, AccessibilityGlyph } from "./accessibility-trigger";
