@@ -18,6 +18,7 @@
  * did not supply it, or never can ("not_applicable") — so "unknown" never masquerades as "absent".
  */
 
+import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { ClaimedIntakeEvent, IntakeReceiptDraft, NormalizeResult } from "@/lib/intake/core/contract";
 import { deriveEventIdentity } from "@/lib/intake/core/event-identity";
@@ -66,6 +67,10 @@ export type AcquisitionLeadV1 = {
     adId?: string;
     adName?: string;
     clickId?: string;
+    /** The provider's own kind of lead source (Google lead_source: LEAD_FORM / CONVERSATIONAL_AGENT). */
+    sourceType?: string;
+    /** Whether adSetId names an ad group or a Performance Max asset group (Google). */
+    adSetKind?: "ad_group" | "asset_group";
     landingUrl?: string;
     referrerUrl?: string;
     utm?: Partial<Record<"source" | "medium" | "campaign" | "content" | "term", string>>;
@@ -88,6 +93,18 @@ const str = (v: unknown, max = 200): string | undefined => {
 const idOf = (v: unknown): string | undefined => {
   const s = str(v, 64);
   return s && /^[A-Za-z0-9_.:-]+$/.test(s) ? s : undefined;
+};
+/**
+ * The provider's id for ONE submission — the receipt's dedupe key. Never truncated (two distinct ids
+ * sharing a prefix must never collapse into one receipt): a plain id up to 200 characters is kept as
+ * is; anything longer or outside the safe charset is kept as its sha256, which is just as unique.
+ */
+const leadIdOf = (v: unknown): string | undefined => {
+  if (typeof v !== "string" && typeof v !== "number") return undefined;
+  const s = String(v).trim();
+  if (!s) return undefined;
+  if (s.length <= 200 && /^[A-Za-z0-9_.:-]+$/.test(s)) return s;
+  return `sha256-${createHash("sha256").update(s, "utf8").digest("hex")}`;
 };
 
 /** Bound and clean a provider's raw parts into the canonical lead (adapters call this). */
@@ -125,7 +142,7 @@ export function canonicalLead(input: {
   return {
     v: 1,
     provider: input.provider,
-    providerLeadId: idOf(input.providerLeadId) ?? null,
+    providerLeadId: leadIdOf(input.providerLeadId) ?? null,
     submittedAt: submittedDate && !Number.isNaN(submittedDate.getTime()) ? submittedDate.toISOString() : null,
     isTest: input.isTest === true,
     ...(str(input.platform, 20) ? { platform: str(input.platform, 20)!.toLowerCase() } : {}),
@@ -149,6 +166,8 @@ export function canonicalLead(input: {
       ...(idOf(ctx.adId) ? { adId: idOf(ctx.adId) } : {}),
       ...(str(ctx.adName, 120) ? { adName: str(ctx.adName, 120) } : {}),
       ...(str(ctx.clickId, 200) ? { clickId: str(ctx.clickId, 200) } : {}),
+      ...(typeof ctx.sourceType === "string" && /^[A-Z][A-Z_]{0,39}$/.test(ctx.sourceType) ? { sourceType: ctx.sourceType } : {}),
+      ...(ctx.adSetKind === "ad_group" || ctx.adSetKind === "asset_group" ? { adSetKind: ctx.adSetKind } : {}),
       ...(str(ctx.landingUrl, 500) ? { landingUrl: str(ctx.landingUrl, 500) } : {}),
       ...(str(ctx.referrerUrl, 500) ? { referrerUrl: str(ctx.referrerUrl, 500) } : {}),
       ...(Object.keys(utm).length ? { utm } : {}),
@@ -213,6 +232,9 @@ export function acquisitionReceipt(lead: AcquisitionLeadV1, accountScope: string
     ...(lead.context.campaignId ? { campaignId: lead.context.campaignId } : {}),
     ...(lead.context.adSetId ? { adSetId: lead.context.adSetId } : {}),
     ...(lead.context.adId ? { adId: lead.context.adId } : {}),
+    ...(lead.context.sourceType ? { sourceType: lead.context.sourceType } : {}),
+    ...(lead.context.adSetKind ? { adSetKind: lead.context.adSetKind } : {}),
+    ...(lead.context.clickId ? { hasClickId: true } : {}),
     ...(lead.context.utm ? { utm: lead.context.utm } : {}),
     answerCount: lead.answers.length,
     facts: status,
@@ -286,6 +308,7 @@ export function normalizeAcquisitionLead(event: ClaimedIntakeEvent): NormalizeRe
         ad: ctx.adName,
         adId: ctx.adId,
         clickId: ctx.clickId,
+        referralSourceType: ctx.sourceType,
         landingPage: ctx.landingUrl,
         referralSourceUrl: ctx.referrerUrl,
         utm: ctx.utm,

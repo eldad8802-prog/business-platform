@@ -28,6 +28,8 @@ type Connection = {
   lastEventAt: string | null;
   lastErrorCode: string | null;
   endpointUrl: string | null;
+  /** What actually reached Dubiz: the provider's test, the last real lead, leads in 30 days. */
+  activity: { lastTestAt: string | null; lastDeliveryAt: string | null; deliveries30d: number } | null;
 };
 type MetaLogin = { appId: string; configId: string; graphVersion: string };
 type Overview = {
@@ -81,9 +83,47 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return json;
 }
 
-function when(iso: string | null): string {
-  if (!iso) return "עוד לא הגיעו לידים";
-  return `ליד אחרון: ${new Date(iso).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}`;
+function stamp(iso: string): string {
+  return new Date(iso).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+}
+
+function when(c: Connection): string {
+  const last = c.activity?.lastDeliveryAt ?? null;
+  if (!last) return "עוד לא הגיעו לידים";
+  const n = c.activity?.deliveries30d ?? 0;
+  return `ליד אחרון: ${stamp(last)}${n > 0 ? ` · ${n} ב-30 הימים האחרונים` : ""}`;
+}
+
+function Step({ done, children }: { done: boolean; children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span aria-hidden className={done ? "text-[var(--dz-success)]" : "text-[var(--dz-text-muted)]"}>{done ? "✓" : "○"}</span>
+      <span className={done ? "text-[var(--dz-text-primary)]" : "text-[var(--dz-text-muted)]"}>{children}</span>
+    </li>
+  );
+}
+
+/**
+ * Google Ads — the three activation steps, each answered from what Dubiz received: the endpoint
+ * exists, Google's own "Send test data" arrived (the URL and key are right — a test never becomes a
+ * lead), and the first real lead arrived.
+ */
+function GoogleActivation({ c }: { c: Connection }) {
+  const test = c.activity?.lastTestAt ?? null;
+  const lead = c.activity?.lastDeliveryAt ?? null;
+  return (
+    <ol className="mt-2 space-y-1 text-[11px] leading-5" aria-label="שלבי ההפעלה">
+      <Step done>הכתובת והקוד נוצרו ב-Dubiz.</Step>
+      <Step done={!!test || !!lead}>
+        {test
+          ? `הבדיקה מ-Google התקבלה (${stamp(test)}) — החיבור תקין.`
+          : lead
+            ? "החיבור תקין."
+            : 'ב-Google Ads: טופס הלידים ← "שילוב Webhook" ← הדבקת הכתובת והקוד ← "שליחת נתוני בדיקה".'}
+      </Step>
+      <Step done={!!lead}>{lead ? `ליד ראשון התקבל (${stamp(lead)}).` : "ממתין לליד ראשון מהמודעה."}</Step>
+    </ol>
+  );
 }
 
 function originOf(input: string): string | null {
@@ -327,10 +367,11 @@ export function LeadSourcesPanel() {
                         {c.label ?? s.title}
                         {c.allowedOrigins.length ? <span className="font-normal text-[var(--dz-text-muted)]"> · {c.allowedOrigins.map((o) => o.replace(/^https?:\/\//, "")).join(", ")}</span> : null}
                       </div>
-                      <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c.lastEventAt)}</div>
+                      <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c)}</div>
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{STATUS[c.status].label}</span>
                   </div>
+                  {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (
                       <Action onClick={metaLogin} busy={busy === "meta:login"}>חיבור מחדש</Action>
