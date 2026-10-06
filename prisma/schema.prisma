@@ -2201,28 +2201,32 @@ model InventoryItemAsset {
 /// BOOKING key: booking:appointment:{appointmentId}
 /// PURCHASE key: purchase:sale-line:{saleLineId}
 model OfferingDemandSignal {
-  id                Int                      @id @default(autoincrement())
-  businessId        Int
-  offeringKind      OfferingKind
-  businessServiceId Int?
-  inventoryItemId   Int?
-  appointmentId     Int?
-  saleLineId        Int?
-  signalType        OfferingDemandSignalType
-  source            OfferingDemandSource
-  idempotencyKey    String
-  createdAt         DateTime                 @default(now())
+  id                  Int                      @id @default(autoincrement())
+  businessId          Int
+  offeringKind        OfferingKind
+  businessServiceId   Int?
+  inventoryItemId     Int?
+  appointmentId       Int?
+  saleLineId          Int?
+  /// M7-B — the store order line (source COMMERCE only; CHECK).
+  commerceOrderLineId Int?
+  signalType          OfferingDemandSignalType
+  source              OfferingDemandSource
+  idempotencyKey      String
+  createdAt           DateTime                 @default(now())
 
-  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessService BusinessService?   @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
-  inventoryItem   InventoryItem?     @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Restrict)
-  appointment     Appointment?       @relation(fields: [appointmentId, businessId], references: [id, businessId], onDelete: Restrict)
-  saleLine        InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Restrict)
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessService   BusinessService?   @relation(fields: [businessServiceId, businessId], references: [id, businessId], onDelete: Restrict)
+  inventoryItem     InventoryItem?     @relation(fields: [inventoryItemId, businessId], references: [id, businessId], onDelete: Restrict)
+  appointment       Appointment?       @relation(fields: [appointmentId, businessId], references: [id, businessId], onDelete: Restrict)
+  saleLine          InventorySaleLine? @relation(fields: [saleLineId, businessId], references: [id, businessId], onDelete: Restrict)
+  commerceOrderLine CommerceOrderLine? @relation(fields: [commerceOrderLineId, businessId], references: [id, businessId], onDelete: Cascade)
 
   @@unique([businessId, idempotencyKey])
   @@index([businessId, offeringKind, createdAt])
   @@index([businessId, businessServiceId])
   @@index([businessId, inventoryItemId])
+  @@index([businessId, commerceOrderLineId])
 }
 
 model POSApiKey {
@@ -2889,6 +2893,8 @@ enum OfferingDemandSignalType {
 enum OfferingDemandSource {
   APPOINTMENT
   SALE
+  /// M7-B — a line of an online-store order whose SKU names exactly one active product.
+  COMMERCE
 }
 
 /// P2 — what an owner statement is about. Coded dimensions (audience, objectives, tone,
@@ -6242,6 +6248,9 @@ model AcquisitionConnection {
   createdByUserId      Int?
   lastEventAt          DateTime?
   lastErrorCode        String?
+  /// M7-C — the owner's names for the business's own phone lines on a telephony connection: an object
+  /// {"<line digits>": "<label>"} (CHECK: telephony sources only). Attribution only — never a person.
+  lineLabels           Json?
   revokedAt            DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -6670,7 +6679,7 @@ model CommerceOrder {
 
 /// M7-A — what an order contains. Product facts only; no stock movement (D7).
 model CommerceOrderLine {
-  id                Int           @id @default(autoincrement())
+  id                Int                    @id @default(autoincrement())
   businessId        Int
   orderId           Int
   lineKey           String
@@ -6681,12 +6690,14 @@ model CommerceOrderLine {
   unitMinor         Int
   totalMinor        Int
   /// false when a later snapshot of the order no longer carries this line.
-  present           Boolean       @default(true)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  business          Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  order             CommerceOrder @relation(fields: [orderId, businessId], references: [id, businessId], onDelete: Cascade)
+  present           Boolean                @default(true)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  business          Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order             CommerceOrder          @relation(fields: [orderId, businessId], references: [id, businessId], onDelete: Cascade)
+  demandSignals     OfferingDemandSignal[]
 
+  @@unique([id, businessId])
   @@unique([businessId, orderId, lineKey])
 }
 

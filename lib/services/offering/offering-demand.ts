@@ -12,11 +12,13 @@ export type OfferingDemandInput = {
   /**
    * Durable identity of this fact.
    * BOOKING: `booking:appointment:{appointmentId}`
-   * PURCHASE: `purchase:sale-line:{saleLineId}`
+   * PURCHASE: `purchase:sale-line:{saleLineId}` | `purchase:commerce-line:{commerceOrderLineId}` (M7-B)
    */
   idempotencyKey: string;
   appointmentId?: number | null;
   saleLineId?: number | null;
+  /** M7-B — the online-store order line (source COMMERCE). */
+  commerceOrderLineId?: number | null;
 };
 
 function isUniqueConflict(error: unknown): boolean {
@@ -75,6 +77,7 @@ export async function recordOfferingDemand(tx: Tx, input: OfferingDemandInput) {
         offeringKind: "PRODUCT",
         inventoryItemId: input.offeringId,
         saleLineId: input.saleLineId ?? null,
+        commerceOrderLineId: input.commerceOrderLineId ?? null,
         signalType: input.signalType,
         source: input.source,
         idempotencyKey: key,

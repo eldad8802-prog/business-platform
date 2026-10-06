@@ -28,6 +28,7 @@
 
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { PURCHASE_STATES, recordCommerceDemand } from "./commerce-demand";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { customerService } from "@/lib/services/crm/customer.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
@@ -245,6 +246,8 @@ export async function routeToCommerce(
 
     // 6. lines
     if (applied && order.lines) await upsertLines(tx, businessId, orderId, order.lines);
+    // 6b. purchase demand per line that names exactly one product (idempotent per line)
+    if (applied && PURCHASE_STATES.has(order.status)) await recordCommerceDemand(tx, businessId, orderId);
 
     // 7. append-only history (the idempotency anchor of step 1)
     await tx.commerceOrderEvent.create({
