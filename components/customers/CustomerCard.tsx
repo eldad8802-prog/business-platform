@@ -14,6 +14,8 @@ import {
   type CustomerCardPaymentRequest,
   type CustomerCardConversation,
   type CustomerCardAppointment,
+  type CustomerCardOrder,
+  type CustomerCardCall,
 } from "@/lib/api/customers";
 import {
   getClientAuthToken,
@@ -85,6 +87,38 @@ const APPOINTMENT_STATUS_LABEL: Record<string, string> = {
   CANCELLED: "בוטל",
   COMPLETED: "הושלם",
 };
+
+const ORDER_SOURCE_LABEL: Record<string, string> = {
+  "commerce.woocommerce": "WooCommerce",
+  "commerce.wix": "Wix",
+};
+
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  placed: "התקבלה",
+  paid: "שולמה",
+  fulfilled: "סופקה",
+  cancelled: "בוטלה",
+  refunded: "זוכתה",
+  partially_refunded: "זוכתה חלקית",
+};
+
+const CALL_OUTCOME_LABEL: Record<string, string> = {
+  answered: "נענתה",
+  missed: "לא נענתה",
+  voicemail: "תא קולי",
+  busy: "תפוס",
+  failed: "נכשלה",
+  rejected: "נדחתה",
+};
+
+function formatMinor(minor: number, currency: string): string {
+  const exp = ["JPY", "KRW", "VND", "CLP", "ISK"].includes(currency) ? 0 : ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"].includes(currency) ? 3 : 2;
+  try {
+    return new Intl.NumberFormat("he-IL", { style: "currency", currency, minimumFractionDigits: exp, maximumFractionDigits: exp }).format(minor / 10 ** exp);
+  } catch {
+    return `${(minor / 10 ** exp).toFixed(exp)} ${currency}`;
+  }
+}
 
 function label(map: Record<string, string>, key: string): string {
   return map[key] ?? key;
@@ -388,6 +422,10 @@ function CustomerCardView({
       {card.appointments.total > 0 ? (
         <AppointmentsSection section={card.appointments} />
       ) : null}
+
+      {card.orders.total > 0 ? <OrdersSection section={card.orders} /> : null}
+
+      {card.calls.total > 0 ? <CallsSection section={card.calls} /> : null}
       </div>
 
       {!card.activity.hasAnyActivity ? (
@@ -529,6 +567,63 @@ function AppointmentsSection({
                 <div className="crm-item__title">{a.title?.trim() || "פגישה"}</div>
                 <div className="crm-item__meta">
                   <span className="crm-badge">{label(APPOINTMENT_STATUS_LABEL, a.status)}</span>
+                  {dateStr ? <span> · {dateStr}</span> : null}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** M7-B — the customer's orders from the online store: history only (no payment, document or stock). */
+function OrdersSection({ section }: { section: { items: CustomerCardOrder[]; total: number } }) {
+  return (
+    <div className="crm-section">
+      <SectionHead title="הזמנות מהחנות" count={section.total} />
+      <div className="crm-list">
+        {section.items.map((o) => {
+          const dateStr = formatDate(o.placedAt);
+          return (
+            <div className="crm-item" key={o.id}>
+              <div className="crm-item__main">
+                <div className="crm-item__title">
+                  {o.orderNumber ? `הזמנה ${o.orderNumber}` : "הזמנה"} · {formatMinor(o.totalMinor, o.currency)}
+                </div>
+                <div className="crm-item__meta">
+                  <span className="crm-badge">{label(ORDER_STATUS_LABEL, o.status)}</span>
+                  <span> · {label(ORDER_SOURCE_LABEL, o.sourceKey)}</span>
+                  {o.refundedMinor > 0 ? <span> · זוכה {formatMinor(o.refundedMinor, o.currency)}</span> : null}
+                  {dateStr ? <span> · {dateStr}</span> : null}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** M7-C — calls with the customer: direction, outcome and time (never a number or a recording). */
+function CallsSection({ section }: { section: { items: CustomerCardCall[]; total: number } }) {
+  return (
+    <div className="crm-section">
+      <SectionHead title="שיחות טלפון" count={section.total} />
+      <div className="crm-list">
+        {section.items.map((c) => {
+          const dateStr = formatDate(c.startedAt);
+          const owed = c.direction === "inbound" && c.outcome !== "answered" && !c.returnedAt;
+          return (
+            <div className="crm-item" key={c.id}>
+              <div className="crm-item__main">
+                <div className="crm-item__title">{c.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"}</div>
+                <div className="crm-item__meta">
+                  <span className="crm-badge">{label(CALL_OUTCOME_LABEL, c.outcome)}</span>
+                  {c.outcome === "answered" && c.durationSec > 0 ? <span> · {Math.max(1, Math.round(c.durationSec / 60))} דק׳</span> : null}
+                  {owed ? <span> · לא חזרו ללקוח</span> : c.returnedAt ? <span> · חזרו ללקוח</span> : null}
                   {dateStr ? <span> · {dateStr}</span> : null}
                 </div>
               </div>

@@ -36,7 +36,9 @@ export function LeadsBriefingCard() {
   const arrivals = briefing?.arrivals;
   const calls = briefing?.calls;
   const owedCalls = calls ? calls.unreturned.knownCustomers + calls.unreturned.unknownNumbers : 0;
-  if (!briefing || (briefing.counts.needsAttention === 0 && !arrivals?.today && owedCalls === 0)) return null;
+  const commerce = briefing?.commerce;
+  const storeExceptions = commerce ? commerce.reversals.total + commerce.connections.length : 0;
+  if (!briefing || (briefing.counts.needsAttention === 0 && !arrivals?.today && owedCalls === 0 && storeExceptions === 0)) return null;
   const c = briefing.counts;
   const lines: string[] = [];
   // M6 — today's arrivals with their sources ("3 מפייסבוק/אינסטגרם, 2 מגוגל"): context, not a separate inbox.
@@ -50,6 +52,13 @@ export function LeadsBriefingCard() {
   // M7-A — calls nobody returned (known customers vs numbers Dubiz does not know). Never a number.
   if (calls && calls.unreturned.unknownNumbers > 0) {
     lines.push(`${calls.unreturned.unknownNumbers === 1 ? "מספר לא מוכר אחד התקשר" : `${calls.unreturned.unknownNumbers} מספרים לא מוכרים התקשרו`} ולא חזרתם`);
+  }
+  // M7-B / M7-C — exceptions only: a cancel / refund on a customer with an open lead, a connection to fix.
+  if (commerce && commerce.reversals.total > 0) {
+    lines.push(`${commerce.reversals.total === 1 ? "לקוח עם ליד פתוח ביטל או קיבל זיכוי על הזמנה" : `${commerce.reversals.total} לקוחות עם ליד פתוח ביטלו או קיבלו זיכוי על הזמנה`}`);
+  }
+  if (commerce && commerce.connections.length > 0) {
+    lines.push(`${commerce.connections.length === 1 ? "חיבור לחנות או לטלפוניה דורש" : `${commerce.connections.length} חיבורים לחנות או לטלפוניה דורשים`} טיפול (הגדרות ← חיבורים)`);
   }
   if (c.CUSTOMER_WROTE) lines.push(`${c.CUSTOMER_WROTE} לקוחות כתבו ומחכים לכם`);
   if (c.FOLLOWUP_OVERDUE) lines.push(`${c.FOLLOWUP_OVERDUE} מעקבים באיחור`);

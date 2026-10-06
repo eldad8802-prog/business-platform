@@ -2,7 +2,16 @@
  * M6 — bounded request reading for the public acquisition endpoints (a webhook body is otherwise
  * unbounded in a Next route handler). Reads the stream and stops at the limit.
  */
-export const BODY_LIMITS = { "web.form": 32 * 1024, "google.lead_form": 64 * 1024, "meta.lead_ads": 512 * 1024 } as const;
+export const BODY_LIMITS = {
+  "web.form": 32 * 1024,
+  "google.lead_form": 64 * 1024,
+  "meta.lead_ads": 512 * 1024,
+  // M7-B / M7-C — a full order (up to 500 lines) and a JWT-wrapped order; a call event is small.
+  "commerce.woocommerce": 2 * 1024 * 1024,
+  "commerce.wix": 2 * 1024 * 1024,
+  "telephony.cloudtalk": 128 * 1024,
+  "telephony.voicenter": 128 * 1024,
+} as const;
 
 export class BodyTooLargeError extends Error {
   readonly code = "body_too_large";

@@ -1,9 +1,11 @@
-# M7-A — Commerce + Telephony foundation, Meta Lead Ads hardening (docs/business-intake-m7-decision-v1.md).
+# M7-A — Commerce + Telephony foundation, Meta Lead Ads hardening (docs/business-intake-m7-decision-v1.md),
+# and M7-B / M7-C — the WooCommerce, Wix, CloudTalk and Voicenter providers on it (docs/business-intake-m7bc-release.md).
 #
-#   core      no database: the M7-A core suite + every suite the change touches
+#   core      no database: the M7-A and M7-B/C core suites + every suite the change touches
 #   battery   PostgreSQL 17, the REAL M6 + M7-A migrations on the pushed schema, Production's RLS (replayed
 #             verbatim from the migrations), a NOBYPASSRLS runtime running the app code: E2–E16 (simulated
-#             providers — LAB-PROVEN, never REAL-PROVIDER-PROVEN); then schema drift
+#             providers — LAB-PROVEN, never REAL-PROVIDER-PROVEN); then M7-B/C on the REAL routes with in-process
+#             provider stand-ins (store REST + webhooks, Wix JWT + OAuth, CloudTalk history, Voicenter CDR); then drift
 #   (the migration itself is proven in Production topology by m7a-foundation-lab.yml)
 #
 # Synthetic credentials; ZERO secrets; ZERO network (Meta Graph stubbed in-process).
@@ -16,6 +18,8 @@ on:
     paths:
       - "lib/intake/**"
       - "lib/services/calls/**"
+      - "lib/services/commerce/**"
+      - "lib/services/crm/customer-card.read-model.ts"
       - "lib/services/crm/lead-attention.ts"
       - "lib/services/crm/lead-briefing.ts"
       - "lib/services/crm/lead-card.read-model.ts"
@@ -27,6 +31,12 @@ on:
       - "lib/services/feature-access/**"
       - "app/api/intake/**"
       - "app/api/integrations/acquisition/**"
+      - "app/api/integrations/commerce/**"
+      - "app/settings/connections/**"
+      - "components/settings/LeadSourcesPanel.tsx"
+      - "components/settings/StoresAndCallsPanel.tsx"
+      - "components/settings/WixConnectConfirm.tsx"
+      - "components/customers/CustomerCard.tsx"
       - "app/(corporate)/privacy/**"
       - "app/(corporate)/data-deletion/**"
       - "components/leads/**"
@@ -34,6 +44,7 @@ on:
       - "prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/**"
       - "ops/evidence/m7a-foundation-*.sql"
       - ".m7a/**"
+      - ".m7bc/**"
       - ".m6/**"
       - ".github/workflows/m7a-foundation-ci.yml"
       - "package.json"
@@ -56,6 +67,7 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
       - run: npx tsx lib/intake/m7a-core.test.ts
+      - run: npx tsx lib/intake/m7bc-core.test.ts
       - run: npx tsx lib/intake/acquisition/acquisition-core.test.ts
       - run: npx tsx lib/intake/core/intake-core.test.ts
       - run: npx tsx lib/intake/identity/identity-core.test.ts
@@ -137,6 +149,12 @@ jobs:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m7a/battery.ts
+
+      - name: 4b. M7-B/C battery — WooCommerce / Wix / CloudTalk / Voicenter on the real routes, adapters and sweeper
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m7bc/battery.ts
 
       - name: 5. No drift between the migrated database and schema.prisma (beyond the documented DB-only objects)
         env:

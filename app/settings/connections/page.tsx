@@ -5,6 +5,7 @@ import { PaymentConnectionCard } from "@/components/settings/PaymentConnectionCa
 import { IntegrationStatusCards } from "@/components/settings/IntegrationStatusCards";
 import { AuthorityConnectionCard } from "@/components/settings/AuthorityConnectionCard";
 import { LeadSourcesPanel } from "@/components/settings/LeadSourcesPanel";
+import { StoresAndCallsPanel } from "@/components/settings/StoresAndCallsPanel";
 
 export default function SettingsConnectionsPage() {
   return (
@@ -15,6 +16,7 @@ export default function SettingsConnectionsPage() {
         <AuthorityConnectionCard />
         <IntegrationStatusCards />
         <LeadSourcesPanel />
+        <StoresAndCallsPanel />
       </div>
       <SettingsSection>
         <p className="text-sm leading-6 text-[var(--dz-text-muted)]">

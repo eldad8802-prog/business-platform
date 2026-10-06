@@ -1,0 +1,11 @@
+{
+  "note": "Business Intake M7-B / M7-C: WooCommerce, Wix, CloudTalk and Voicenter providers on the M7-A foundation (docs/business-intake-m7bc-release.md).",
+  "tests": {
+    "lib/intake/m7bc-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m7a-foundation-ci.yml",
+      "reason": "M7-B/C: exact money, WooCommerce order parsing and receipt identity (order + modification time + status), store URL / host binding, the sealed connect state (business-, kind- and expiry-bound), Wix RS256-only JWT verification and its signed-instance-only binding, CloudTalk call.ended references with the outcome read from call history (never guessed), Svix verification, Voicenter CDR mapping (recordings / AI data dropped, extensions never a person); run on pull_request by m7a-foundation-ci.yml (the routes, tenancy, idempotency, reconciliation and Secretary side by .m7bc/battery.ts as a NOBYPASSRLS runtime)"
+    }
+  }
+}

@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { AppError } from "@/lib/errors";
-import { ACQUISITION_FEATURE, ACQUISITION_SOURCE_KEYS, type AcquisitionSourceKey } from "./gate";
+import { ACQUISITION_SOURCE_KEYS, CONNECTION_SOURCE_KEYS, SOURCE_FEATURE, type AcquisitionSourceKey, type ConnectionSourceKey } from "./gate";
 import type { ConnectionView } from "./connection.service";
 
 export type OwnerCtx = { businessId: number; userId: number };
@@ -27,9 +27,10 @@ export async function withOwner(
   }
 }
 
-export async function enabledSources(businessId: number): Promise<Record<AcquisitionSourceKey, boolean>> {
-  const out = {} as Record<AcquisitionSourceKey, boolean>;
-  for (const s of ACQUISITION_SOURCE_KEYS) out[s] = (await resolveFeatureAccess(businessId, ACQUISITION_FEATURE[s])).allowed;
+/** Every connection source (lead, commerce, telephony) → enabled for this business? (all OFF by default) */
+export async function enabledSources(businessId: number): Promise<Record<ConnectionSourceKey, boolean>> {
+  const out = {} as Record<ConnectionSourceKey, boolean>;
+  for (const s of CONNECTION_SOURCE_KEYS) out[s] = (await resolveFeatureAccess(businessId, SOURCE_FEATURE[s])).allowed;
   return out;
 }
 
@@ -42,5 +43,10 @@ export function endpointUrl(req: Request, c: Pick<ConnectionView, "sourceKey" | 
   const origin = new URL(req.url).origin;
   if (c.sourceKey === "web.form") return `${origin}/api/intake/acquisition/web/${c.publicId}`;
   if (c.sourceKey === "google.lead_form") return `${origin}/api/intake/acquisition/google/${c.publicId}`;
+  // M7-B / M7-C. Voicenter's URL carries its key, shown once at creation; the stored view shows where it goes.
+  if (c.sourceKey === "commerce.woocommerce") return `${origin}/api/intake/commerce/woocommerce/${c.publicId}`;
+  if (c.sourceKey === "telephony.cloudtalk") return `${origin}/api/intake/telephony/cloudtalk/${c.publicId}`;
+  if (c.sourceKey === "telephony.voicenter") return `${origin}/api/intake/telephony/voicenter/${c.publicId}/<key>`;
+  if (c.sourceKey === "commerce.wix") return `${origin}/api/intake/commerce/wix`;
   return null;
 }

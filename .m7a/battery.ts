@@ -67,12 +67,14 @@ const labVoicenter = makeCallAdapter({
   async resolveTenant(ref) { return (await resolvePublicConnection("telephony.voicenter", ref))?.businessId ?? null; },
 });
 const labRegistry = new IntakeRegistry();
-for (const a of intakeRegistry.list()) labRegistry.register(a);
+// M7-B / M7-C registered the real adapters for these keys: the lab simulators stand in for them here.
+const LAB_KEYS = new Set(["commerce.woocommerce", "telephony.cloudtalk", "telephony.voicenter"]);
+for (const a of intakeRegistry.list()) if (!LAB_KEYS.has(a.sourceKey)) labRegistry.register(a);
 labRegistry.register(labCommerce).register(labCloudtalk).register(labVoicenter);
 
 // A deliberately WRONG adapter: a call aimed at "lead". R0 must refuse it at runtime.
 const r0Registry = new IntakeRegistry();
-for (const a of intakeRegistry.list()) r0Registry.register(a);
+for (const a of intakeRegistry.list()) if (a.sourceKey !== "telephony.voicenter") r0Registry.register(a);
 r0Registry.register({
   ...labVoicenter,
   normalize(e) {

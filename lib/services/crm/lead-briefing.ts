@@ -25,6 +25,7 @@ import type { LeadSuggestion } from "@/lib/services/crm/lead-lifecycle-core";
 import { dismissedSuggestionRules } from "@/lib/services/crm/lead-lifecycle.service";
 import { jerusalemDayKey, jerusalemDayUtcHalfOpen } from "@/lib/utils/jerusalem-day";
 import { loadCallBriefing, type CallBriefing } from "@/lib/services/calls/call-attention";
+import { loadCommerceBriefing, type CommerceBriefing } from "@/lib/services/commerce/commerce-attention";
 
 type Tx = Prisma.TransactionClient;
 
@@ -76,6 +77,8 @@ export type LeadBriefing = {
   arrivals?: LeadArrivals;
   /** M7-A — calls the owner may still owe a call back (set by getLeadBriefing). */
   calls?: CallBriefing;
+  /** M7-B / M7-C — store / phone exceptions only (never one item per order; set by getLeadBriefing). */
+  commerce?: CommerceBriefing;
 };
 
 function emptyCounts(): LeadBriefingCounts {
@@ -242,5 +245,6 @@ export async function getLeadBriefing(
   const { rows, complete } = await loadLeadBriefingFacts(tx, businessId);
   const arrivals = await loadLeadArrivals(tx, businessId, now);
   const calls = await loadCallBriefing(tx, businessId, now);
-  return { ...deriveLeadBriefing(rows, now, complete), arrivals, calls };
+  const commerce = await loadCommerceBriefing(tx, businessId, now);
+  return { ...deriveLeadBriefing(rows, now, complete), arrivals, calls, commerce };
 }
