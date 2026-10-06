@@ -11,6 +11,7 @@ import type {
   InvoiceApprovalNotAcceptableResponse,
   InvoiceApprovalServerErrorResponse,
 } from "@/lib/services/billing/authority/billing-authority-approval.types";
+import type { SendCertainty } from "@/lib/services/billing/authority/billing-authority-send-certainty";
 
 /**
  * Transport/outcome classification. This buckets outcomes only — it never
@@ -26,10 +27,26 @@ export type ApprovalClientErrorClass =
   | "BUSINESS_DECISION"
   | "AUTHENTICATION"
   | "AUTHORIZATION"
+  | "CONFIGURATION"
   | "NETWORK"
   | "TIMEOUT"
   | "SERVER"
   | "UNKNOWN";
+
+/**
+ * Where an infrastructure_error arose:
+ *   PRE_SEND      — before fetch was called (URL/serialization/egress config); NOT_SENT.
+ *   TRANSPORT     — fetch rejected; send certainty from the transport error.
+ *   HTTP_STATUS   — an undocumented HTTP status was received; POSSIBLY_SENT.
+ *   BODY_READ     — status received, body read failed/aborted; POSSIBLY_SENT.
+ *   MALFORMED_BODY — status received, body was not JSON; POSSIBLY_SENT.
+ */
+export type ApprovalClientFailureKind =
+  | "PRE_SEND"
+  | "TRANSPORT"
+  | "HTTP_STATUS"
+  | "BODY_READ"
+  | "MALFORMED_BODY";
 
 export type ApprovalClientResult =
   | {
@@ -90,4 +107,9 @@ export type ApprovalClientResult =
       message: string;
       /** ITA `error_id` when the body carried one; otherwise null. */
       errorId: string | null;
+      failureKind: ApprovalClientFailureKind;
+      /** NOT_SENT only when the code can prove no request byte was written. */
+      sendCertainty: SendCertainty;
+      /** Allowlisted transport error code (diagnostic only), else null. */
+      transportCode: string | null;
     };

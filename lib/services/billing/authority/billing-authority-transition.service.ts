@@ -19,6 +19,12 @@ import type {
   AuthorityTransitionKind,
 } from "@/lib/services/billing/authority/billing-authority.types";
 import { assertAuthorityTransition } from "@/lib/services/billing/authority/billing-authority.service";
+import {
+  buildAuthorityOutcomeUncertainErrorCode,
+  isAuthorityNotSentErrorCode,
+  isAuthorityOutcomeUncertainErrorCode,
+  type AuthorityOutcomeUncertainReason,
+} from "@/lib/services/billing/authority/billing-authority-send-certainty";
 
 const SUBMISSION_SELECT = {
   id: true,
@@ -1099,6 +1105,14 @@ export async function executeAuthorityTransitionTx(
 
 /**
  * Persists a submission attempt (READY|PENDING|FAILED → SUBMITTED) without external ITA calls.
+ *
+ * This is the ownership boundary before an Approval POST:
+ *   - compare-and-set on the status read here (`requireCurrentStatus`), so of
+ *     two concurrent reservations at most one applies; the other gets
+ *     AuthorityConditionalUpdateMissedError and must not POST;
+ *   - a FAILED row is reservable only when its failure is provably not-sent
+ *     (AUTHORITY_NOT_SENT_*). Any other FAILED code may mean the previous POST
+ *     reached the authority, so it is refused (fail closed).
  */
 export async function recordAuthoritySubmissionAttemptTx(
   tx: Prisma.TransactionClient,
@@ -1111,7 +1125,7 @@ export async function recordAuthoritySubmissionAttemptTx(
       billingDocumentId: input.billingDocumentId,
       businessId: input.businessId,
     },
-    select: { status: true, submittedAt: true, retryCount: true },
+    select: { status: true, submittedAt: true, retryCount: true, errorCode: true },
   });
   if (!existing) {
     throw new NotFoundError(
@@ -1120,6 +1134,12 @@ export async function recordAuthoritySubmissionAttemptTx(
   }
 
   const isRetry = existing.status === BillingAuthoritySubmissionStatus.FAILED;
+  if (isRetry && !isAuthorityNotSentErrorCode(existing.errorCode)) {
+    throw new ForbiddenError(
+      "Authority resubmission is only allowed after a provably not-sent failure",
+      "AUTHORITY_RESUBMIT_NOT_PROVABLY_UNSENT"
+    );
+  }
 
   const submissionUpdate: Prisma.BillingAuthoritySubmissionUpdateInput = {
     status: BillingAuthoritySubmissionStatus.SUBMITTED,
@@ -1153,6 +1173,7 @@ export async function recordAuthoritySubmissionAttemptTx(
       retryIncremented: isRetry,
     },
     submissionUpdate,
+    requireCurrentStatus: existing.status,
   });
 
   return result;
@@ -1388,6 +1409,15 @@ export async function recordAuthorityFailedTx(
       "AUTHORITY_FAIL_FORBIDDEN"
     );
   }
+  // FAILED is the only re-executable post-attempt state, so it may only record
+  // a provably not-sent failure. A possibly-sent outcome must use
+  // recordAuthorityOutcomeUncertainTx (stays SUBMITTED, never re-sent).
+  if (!isAuthorityNotSentErrorCode(incoming.errorCode)) {
+    throw new ForbiddenError(
+      "Authority failure may only record a provably not-sent error code",
+      "AUTHORITY_FAIL_REQUIRES_NOT_SENT"
+    );
+  }
 
   const submissionUpdate: Prisma.BillingAuthoritySubmissionUpdateInput = {
     status: BillingAuthoritySubmissionStatus.FAILED,
@@ -1541,6 +1571,139 @@ export async function recordAuthorityHeldTx(
     throw new ForbiddenError(
       "Authority hold-for-decision conditional update missed and submission is not held",
       "AUTHORITY_HOLD_FORBIDDEN"
+    );
+  }
+}
+
+export type AuthorityOutcomeUncertainEvidence = {
+  sendCertainty: "POSSIBLY_SENT";
+  classification: string | null;
+  failureKind: string | null;
+  providerHttpStatus: number | null;
+  providerErrorId: string | null;
+  transportCode: string | null;
+  /**
+   * Only for APPROVED_PERSIST_FAILED: the allocation number the authority
+   * returned, kept so the result can be recovered manually. Not a secret (it is
+   * printed on the invoice) — never logged, only stored here.
+   */
+  receivedAllocationNumber: string | null;
+};
+
+export type RecordAuthorityOutcomeUncertainTxInput = {
+  businessId: number;
+  billingDocumentId: number;
+  reason: AuthorityOutcomeUncertainReason;
+  observedAt: Date;
+  evidence: AuthorityOutcomeUncertainEvidence;
+  actorUserId?: number | null;
+  occurredAt?: Date;
+};
+
+export type RecordAuthorityOutcomeUncertainTxResult = {
+  outcome: "APPLIED" | "NOOP";
+  errorCode: string;
+};
+
+const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]{1,64}$/;
+
+function sanitizeDiagnosticToken(value: string | null): string | null {
+  return value !== null && SAFE_DIAGNOSTIC_TOKEN.test(value) ? value : null;
+}
+
+function sanitizeUncertainEvidence(
+  evidence: AuthorityOutcomeUncertainEvidence
+): Record<string, string | number | null> {
+  return {
+    sendCertainty: "POSSIBLY_SENT",
+    classification: sanitizeDiagnosticToken(evidence.classification),
+    failureKind: sanitizeDiagnosticToken(evidence.failureKind),
+    providerHttpStatus:
+      typeof evidence.providerHttpStatus === "number" &&
+      Number.isInteger(evidence.providerHttpStatus)
+        ? evidence.providerHttpStatus
+        : null,
+    providerErrorId: sanitizeDiagnosticToken(evidence.providerErrorId),
+    transportCode: sanitizeDiagnosticToken(evidence.transportCode),
+    receivedAllocationNumber: sanitizeDiagnosticToken(evidence.receivedAllocationNumber),
+  };
+}
+
+/**
+ * Marks a SUBMITTED submission whose Approval POST may have reached the
+ * authority but has no definitive persisted result (SUBMITTED → SUBMITTED,
+ * errorCode AUTHORITY_OUTCOME_UNCERTAIN_<reason>).
+ *
+ * SUBMITTED is never executable and no transition leaves it except a
+ * definitive provider result (APPROVED / REJECTED / HELD) or a provably
+ * not-sent failure, so this marker blocks every automatic or user-triggered
+ * re-POST. Idempotent: the first marker wins; later calls are NOOP.
+ */
+export async function recordAuthorityOutcomeUncertainTx(
+  tx: Prisma.TransactionClient,
+  input: RecordAuthorityOutcomeUncertainTxInput
+): Promise<RecordAuthorityOutcomeUncertainTxResult> {
+  const errorCode = buildAuthorityOutcomeUncertainErrorCode(input.reason);
+  const observedAt = normalizeAuthorityTimestamp(input.observedAt, "observedAt");
+  let context = await loadAuthorityApprovalContext(
+    tx,
+    input.businessId,
+    input.billingDocumentId
+  );
+
+  const alreadyMarked = () =>
+    context.submission.status === BillingAuthoritySubmissionStatus.SUBMITTED &&
+    isAuthorityOutcomeUncertainErrorCode(context.submission.errorCode);
+
+  if (alreadyMarked()) {
+    return { outcome: "NOOP", errorCode: context.submission.errorCode as string };
+  }
+  if (context.submission.status !== BillingAuthoritySubmissionStatus.SUBMITTED) {
+    throw new ForbiddenError(
+      "Authority outcome-uncertain marker is only allowed from SUBMITTED",
+      "AUTHORITY_UNCERTAIN_FORBIDDEN"
+    );
+  }
+
+  try {
+    await executeAuthorityTransitionTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      kind: "MARK_OUTCOME_UNCERTAIN",
+      to: BillingAuthoritySubmissionStatus.SUBMITTED,
+      actorUserId: input.actorUserId,
+      occurredAt: input.occurredAt,
+      summary: "Authority approval outcome uncertain — not re-sent",
+      metadata: {
+        errorCode,
+        reason: input.reason,
+        observedAt: observedAt.toISOString(),
+        resend: "BLOCKED",
+        ...sanitizeUncertainEvidence(input.evidence),
+      },
+      submissionUpdate: {
+        errorCode,
+        // Sanitized: our own canonical code only.
+        errorMessage: errorCode,
+      },
+      requireCurrentStatus: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    return { outcome: "APPLIED", errorCode };
+  } catch (error) {
+    if (!(error instanceof AuthorityConditionalUpdateMissedError)) {
+      throw error;
+    }
+    context = await loadAuthorityApprovalContext(
+      tx,
+      input.businessId,
+      input.billingDocumentId
+    );
+    if (alreadyMarked()) {
+      return { outcome: "NOOP", errorCode: context.submission.errorCode as string };
+    }
+    throw new ForbiddenError(
+      "Authority outcome-uncertain conditional update missed",
+      "AUTHORITY_UNCERTAIN_FORBIDDEN"
     );
   }
 }

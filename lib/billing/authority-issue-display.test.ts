@@ -46,9 +46,9 @@ function ok(name: string, cond: boolean, extra?: unknown): void {
   ok("decision_already_reported → not received, no false approval", d.allocationReceived === false && d.tone !== "success");
 }
 
-// 6. in_progress / validation_failed / authentication_failed / ambiguous → never "received".
+// 6. in_progress / validation_failed / ambiguous → never "received".
 {
-  for (const status of ["in_progress", "validation_failed", "authentication_failed", "ambiguous"] as const) {
+  for (const status of ["in_progress", "validation_failed", "ambiguous"] as const) {
     const d = describeAuthorityIssueOutcome({ status, submissionId: 5 } as AuthorityIssueOutcome);
     ok(`${status} → documentIssued, allocationReceived=false`, d.documentIssued === true && d.allocationReceived === false);
   }
@@ -56,7 +56,7 @@ function ok(name: string, cond: boolean, extra?: unknown): void {
 
 // 7. Invariant: only "approved" yields allocationReceived === true.
 {
-  const all: AuthorityIssueOutcome["status"][] = ["approved","not_required","in_progress","decision_required","decision_already_reported","validation_failed","authentication_failed","infrastructure_failed","ambiguous","execution_error"];
+  const all: AuthorityIssueOutcome["status"][] = ["approved","not_required","in_progress","decision_required","decision_already_reported","validation_failed","infrastructure_failed","ambiguous","execution_error"];
   const received = all.filter((s) => describeAuthorityIssueOutcome({ status: s, allocationNumber: s === "approved" ? "9" : undefined } as AuthorityIssueOutcome).allocationReceived);
   ok("only 'approved' reports allocationReceived", received.length === 1 && received[0] === "approved", received);
 }
