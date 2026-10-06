@@ -1,6 +1,6 @@
 /**
- * M6 — the one ingestion path every acquisition webhook uses, after it has authenticated the
- * request and its trusted resolver has named the business:
+ * M6 / M7-A — the one ingestion path every connection webhook uses (lead, commerce and telephony
+ * sources alike), after it has authenticated the request and its trusted resolver has named the business:
  *
  *   gate (source enabled for the business, business active) → acceptIntake (durable receipts,
  *   deduped by provider id) → ACK → processing after the response (drainIntake: hydrate,
@@ -15,8 +15,9 @@ import type { IntakeReceiptDraft } from "@/lib/intake/core/contract";
 import { acceptIntake, drainIntake } from "@/lib/intake/core/processor";
 import { logIntake } from "@/lib/intake/core/observability";
 import { intakeRegistry } from "@/lib/intake/sources";
+import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { runTenantJob } from "@/lib/tenant/job";
-import { acquisitionGate, type AcquisitionSourceKey } from "./gate";
+import { sourceGate, type ConnectionSourceKey } from "./gate";
 import { touchConnection } from "./connection.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
@@ -35,7 +36,7 @@ function afterResponse(task: () => Promise<void>): Promise<void> | null {
 }
 
 export async function ingestAcquisition(input: {
-  sourceKey: AcquisitionSourceKey;
+  sourceKey: ConnectionSourceKey;
   /** The trusted provider-side reference the resolver answered for (endpoint id / Page id). */
   accountRef: string;
   businessId: number;
@@ -43,14 +44,17 @@ export async function ingestAcquisition(input: {
   receipts: IntakeReceiptDraft[];
   /** Tests: process inline instead of after the response. */
   processInline?: boolean;
+  /** Lab only: a registry holding reference adapters. Production always uses the source registry. */
+  registry?: IntakeRegistry;
 }): Promise<IngestOutcome> {
-  const gate = await acquisitionGate(input.businessId, input.sourceKey);
+  const registry = input.registry ?? intakeRegistry;
+  const gate = await sourceGate(input.businessId, input.sourceKey);
   if (!gate.ok) {
     logIntake("refused", { businessId: input.businessId, sourceKey: input.sourceKey, code: gate.reason });
     return { status: "refused", reason: gate.reason };
   }
   const accepted = await acceptIntake({
-    registry: intakeRegistry,
+    registry,
     sourceKey: input.sourceKey,
     accountRef: input.accountRef,
     receipts: input.receipts,
@@ -66,7 +70,7 @@ export async function ingestAcquisition(input: {
     // Even a pure re-delivery drains: drainIntake also picks up this business's DUE retries, so any
     // inbound for a business is a recovery opportunity for its own stuck receipts (tenant-scoped).
     await runTenantJob({ businessId: accepted.businessId }, () =>
-      drainIntake(intakeRegistry, accepted.businessId, { eventIds })
+      drainIntake(registry, accepted.businessId, { eventIds })
     ).then(() => undefined, () => undefined);
   };
   if (input.processInline) await work();

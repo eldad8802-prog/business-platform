@@ -8,12 +8,13 @@
  */
 import { prisma } from "@/lib/prisma";
 import { hashKey, PUBLIC_ID_PATTERN } from "./keys";
+import type { ConnectionSourceKey } from "./gate";
 
 export type ResolvedConnection = { connectionId: number; businessId: number };
 
 /** Google webhook / website server post: endpoint + shared key. */
 export async function resolveKeyedConnection(
-  sourceKey: "google.lead_form" | "web.form",
+  sourceKey: "google.lead_form" | "web.form" | "telephony.voicenter",
   publicId: string,
   key: string
 ): Promise<ResolvedConnection | null> {
@@ -25,7 +26,7 @@ export async function resolveKeyedConnection(
 
 /** Website browser post: endpoint → business + the origins its owner allowed. */
 export async function resolvePublicConnection(
-  sourceKey: "web.form" | "google.lead_form",
+  sourceKey: ConnectionSourceKey,
   publicId: string
 ): Promise<(ResolvedConnection & { allowedOrigins: string[] }) | null> {
   if (!PUBLIC_ID_PATTERN.test(publicId)) return null;
@@ -35,9 +36,13 @@ export async function resolvePublicConnection(
     : null;
 }
 
-/** Meta webhook: the Page id (inside a payload Meta signed) → the business that connected it. */
+/**
+ * Meta webhook: the Page id (inside a payload Meta signed) → the business that connected it (M7-A: a
+ * Page whose connection is in ERROR still resolves, so its leads are stored and deferred, not dropped).
+ * Wix (M7-B): the app instance id inside a payload Wix signed.
+ */
 export async function resolveResourceConnection(
-  sourceKey: "meta.lead_ads",
+  sourceKey: "meta.lead_ads" | "commerce.wix",
   resourceId: string
 ): Promise<ResolvedConnection | null> {
   if (typeof resourceId !== "string" || !/^[A-Za-z0-9_.:-]{1,64}$/.test(resourceId)) return null;

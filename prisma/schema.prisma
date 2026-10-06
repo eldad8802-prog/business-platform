@@ -256,6 +256,10 @@ model Business {
   entityLinkProposals           EntityLinkProposal[]
   intakeEvents                  IntakeEvent[]
   acquisitionConnections        AcquisitionConnection[]
+  commerceOrders                CommerceOrder[]
+  commerceOrderLines            CommerceOrderLine[]
+  commerceOrderEvents           CommerceOrderEvent[]
+  callActivities                CallActivity[]
   outcomeRecommendations        OutcomeRecommendation[]
   outcomeDecisions              OutcomeDecision[]
   outcomeActionEvents           OutcomeActionEvent[]
@@ -518,8 +522,8 @@ model BusinessFeatureAccess {
 }
 
 model BusinessProfile {
-  id                      Int      @id @default(autoincrement())
-  businessId              Int      @unique
+  id                      Int       @id @default(autoincrement())
+  businessId              Int       @unique
   category                String?
   subCategory             String?
   businessModel           String?
@@ -554,7 +558,7 @@ model BusinessProfile {
   /// signature and NOT proof of integrity; same constraints as billingLogoDataUrl.
   billingSignatureDataUrl String?
   /// CLASSIC | MODERN | COMPACT — drives billing PDF layout presets (business-wide).
-  billingPdfTemplateStyle String   @default("CLASSIC")
+  billingPdfTemplateStyle String    @default("CLASSIC")
   /// Setup after signup finished or was skipped. NULL = the app routes the owner
   /// to /setup once, from any device. Existing businesses were backfilled
   /// (migration 20261011090000_onboarding_setup_state).
@@ -566,9 +570,9 @@ model BusinessProfile {
   /// OWNER_SELECTED | DEFAULTED (CHECK-constrained). A default is never recorded
   /// as the owner's choice.
   onboardingGoalSource    String?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-  business                Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([category])
   @@index([subCategory])
@@ -6218,7 +6222,8 @@ enum IntakeEventStatus {
 model AcquisitionConnection {
   id                   Int       @id @default(autoincrement())
   businessId           Int
-  /// meta.lead_ads | google.lead_form | web.form (CHECK)
+  /// meta.lead_ads | google.lead_form | web.form | commerce.woocommerce | commerce.wix |
+  /// telephony.cloudtalk | telephony.voicenter (CHECK)
   sourceKey            String
   /// ACTIVE | PAUSED | ERROR | REVOKED (CHECK)
   status               String    @default("ACTIVE")
@@ -6241,69 +6246,72 @@ model AcquisitionConnection {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commerceOrders CommerceOrder[]
+  callActivities CallActivity[]
 
   @@unique([id, businessId])
   @@index([businessId, sourceKey, status])
 }
 
 model IntakeEvent {
-  id                 Int                    @id @default(autoincrement())
-  businessId         Int
+  id                  Int                    @id @default(autoincrement())
+  businessId          Int
   /// Registry key of the source adapter ("whatsapp", later "meta.lead_ads", …).
   /// CHECK-constrained to a dotted lowercase identifier.
-  sourceKey          String
+  sourceKey           String
   /// Stable business meaning (MESSAGE, LEAD, …).
-  family             IntakeEventFamily
+  family              IntakeEventFamily
   /// The adapter's own finer type ("message.received", "message.status").
-  eventType          String
+  eventType           String
   /// How externalEventId was derived: the provider's event id, or a content
   /// fingerprint when the provider gives none. Never a random guess.
-  dedupeBasis        String                 @default("provider_event_id")
+  dedupeBasis         String                 @default("provider_event_id")
   /// How far processing got: received → normalized → routed → completed.
-  lastStage          String?
+  lastStage           String?
   /// LEGACY (M2) — set for WhatsApp rows only; see IntakeProvider.
-  provider           IntakeProvider?
+  provider            IntakeProvider?
   /// LEGACY (M2) — set for WhatsApp rows only.
-  kind               IntakeEventKind?
+  kind                IntakeEventKind?
   /// Replay key derived from the provider's own identity for the event — never
   /// a sender-controlled value, and never the raw provider id: a SHA-256
   /// (`sha256:<hex>`). WhatsApp message: of the wamid; status: of
   /// `<wamid>:<status>`. The raw wamid lives on Message.providerMessageId.
-  externalEventId    String
+  externalEventId     String
   /// The business's own provider account the event arrived on (WhatsApp:
   /// phone_number_id). Routing evidence, not a person.
-  providerAccountRef String?
+  providerAccountRef  String?
   /// Business time as the provider reports it. Null when the provider gave none
   /// — never invented.
-  occurredAt         DateTime?
-  receivedAt         DateTime               @default(now())
-  status             IntakeEventStatus      @default(RECEIVED)
-  attempts           Int                    @default(0)
-  lastAttemptAt      DateTime?
+  occurredAt          DateTime?
+  receivedAt          DateTime               @default(now())
+  status              IntakeEventStatus      @default(RECEIVED)
+  attempts            Int                    @default(0)
+  lastAttemptAt       DateTime?
   /// Earliest time the next attempt may run. Doubles as the processing lease.
-  nextAttemptAt      DateTime?
+  nextAttemptAt       DateTime?
   /// A bounded, non-personal failure code (error class / provider code). Never
   /// a free-text message that could echo payload content.
-  lastErrorCode      String?
-  processedAt        DateTime?
+  lastErrorCode       String?
+  processedAt         DateTime?
   /// Minimal normalized envelope needed to process the event. PERSONAL DATA
   /// until processed; nulled on PROCESSED and by account erasure.
-  payload            Json?
-  payloadPurgedAt    DateTime?
+  payload             Json?
+  payloadPurgedAt     DateTime?
   /// Non-personal normalized facts kept after the payload is purged (message
   /// type, click-to-WhatsApp referral ids).
-  metadata           Json?
+  metadata            Json?
   /// What the event became. Plain ids: the receipt is evidence about them and
   /// must not cascade with them.
-  messageId          Int?
-  conversationId     Int?
-  customerId         Int?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
-  business           Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  normalized         IntakeNormalizedEvent?
-  identityProposals  IdentityProposal[]
+  messageId           Int?
+  conversationId      Int?
+  customerId          Int?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  business            Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  normalized          IntakeNormalizedEvent?
+  identityProposals   IdentityProposal[]
+  commerceOrderEvents CommerceOrderEvent[]
 
   /// Replay protection (M3): one receipt per (business, source, event identity).
   /// Tenant- and source-scoped, so identical provider ids never cross-dedup.
@@ -6618,4 +6626,129 @@ model OutcomeRecommendationEvidence {
 
   @@unique([businessId, id])
   @@unique([businessId, recommendationId])
+}
+
+/// M7-A — a store order as the store last reported it (docs/business-intake-m7-decision-v1.md §7–§8).
+/// Order ≠ Lead: there is no lead column. No money is booked, no stock moves, no tax document is issued.
+/// customerId comes only from M4 identity or an owner-confirmed proposal (DB-only composite tenant FK).
+model CommerceOrder {
+  id                 Int                   @id @default(autoincrement())
+  businessId         Int
+  connectionId       Int
+  /// commerce.woocommerce | commerce.wix (CHECK)
+  sourceKey          String
+  externalOrderId    String
+  orderNumber        String?
+  customerId         Int?
+  /// placed | paid | fulfilled | cancelled | refunded | partially_refunded (CHECK)
+  status             String
+  /// ISO-4217
+  currency           String
+  totalMinor         Int
+  refundedMinor      Int                   @default(0)
+  lineCount          Int                   @default(0)
+  placedAt           DateTime
+  /// The provider's modification time: a stale redelivery never moves status back.
+  providerUpdatedAt  DateTime
+  providerSequence   Int?
+  /// Sanitized utm / landing page / referrer / click id. Erased with the account.
+  attribution        Json?
+  firstIntakeEventId Int
+  lastIntakeEventId  Int
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection         AcquisitionConnection @relation(fields: [connectionId, businessId], references: [id, businessId], onDelete: Cascade)
+  lines              CommerceOrderLine[]
+  events             CommerceOrderEvent[]
+
+  @@unique([id, businessId])
+  @@unique([businessId, sourceKey, externalOrderId])
+  @@index([businessId, customerId])
+  @@index([businessId, placedAt])
+}
+
+/// M7-A — what an order contains. Product facts only; no stock movement (D7).
+model CommerceOrderLine {
+  id                Int           @id @default(autoincrement())
+  businessId        Int
+  orderId           Int
+  lineKey           String
+  externalProductId String?
+  sku               String?
+  title             String?
+  quantity          Int
+  unitMinor         Int
+  totalMinor        Int
+  /// false when a later snapshot of the order no longer carries this line.
+  present           Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  business          Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order             CommerceOrder @relation(fields: [orderId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([businessId, orderId, lineKey])
+}
+
+/// M7-A — append-only order history: one row per intake receipt (runtime: SELECT + INSERT only).
+model CommerceOrderEvent {
+  id                Int           @id @default(autoincrement())
+  businessId        Int
+  orderId           Int
+  intakeEventId     Int
+  /// created | updated | paid | fulfilled | cancelled | refunded | restored (CHECK)
+  kind              String
+  statusAfter       String
+  /// false: older than what the order already reflects (out of order) — recorded, not applied.
+  applied           Boolean
+  providerUpdatedAt DateTime
+  createdAt         DateTime      @default(now())
+  business          Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order             CommerceOrder @relation(fields: [orderId, businessId], references: [id, businessId], onDelete: Cascade)
+  intakeEvent       IntakeEvent   @relation(fields: [businessId, intakeEventId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, intakeEventId])
+  @@index([businessId, orderId])
+}
+
+/// M7-A — one business call. Call ≠ Lead (leadId is an evidence pointer to an EXISTING lead only), a call
+/// never creates an IdentityLink, an unknown caller is never a Customer and is kept only as a hash.
+/// Recordings and transcripts are never stored (D9). customerId / leadId: DB-only composite tenant FKs.
+model CallActivity {
+  id                 Int                   @id @default(autoincrement())
+  businessId         Int
+  connectionId       Int
+  /// telephony.cloudtalk | telephony.voicenter (CHECK)
+  sourceKey          String
+  providerCallId     String
+  /// inbound | outbound (CHECK)
+  direction          String
+  /// answered | missed | voicemail | busy | failed | rejected (CHECK)
+  outcome            String
+  durationSec        Int                   @default(0)
+  startedAt          DateTime
+  endedAt            DateTime?
+  /// The business's own line (digits). Never the caller's number.
+  businessLine       String?
+  /// known | unknown | hidden (CHECK)
+  callerState        String
+  /// Unknown caller only: domain-separated sha256 of (business, number). Never the number.
+  callerHash         String?
+  customerId         Int?
+  leadId             Int?
+  firstIntakeEventId Int
+  lastIntakeEventId  Int
+  providerUpdatedAt  DateTime
+  returnedAt         DateTime?
+  /// outbound_call | owner_marked (CHECK)
+  returnedVia        String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection         AcquisitionConnection @relation(fields: [connectionId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@unique([id, businessId])
+  @@unique([businessId, sourceKey, providerCallId])
+  @@index([businessId, customerId, startedAt])
+  @@index([businessId, startedAt])
 }

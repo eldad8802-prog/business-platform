@@ -24,6 +24,7 @@ import { OPEN_LEAD_STATUSES, type LeadStatusValue } from "@/lib/services/crm/lea
 import type { LeadSuggestion } from "@/lib/services/crm/lead-lifecycle-core";
 import { dismissedSuggestionRules } from "@/lib/services/crm/lead-lifecycle.service";
 import { jerusalemDayKey, jerusalemDayUtcHalfOpen } from "@/lib/utils/jerusalem-day";
+import { loadCallBriefing, type CallBriefing } from "@/lib/services/calls/call-attention";
 
 type Tx = Prisma.TransactionClient;
 
@@ -40,6 +41,8 @@ export type LeadBriefingFacts = {
   createdAt: Date;
   lastActivityAt: Date | null;
   lastCustomerInboundAt: Date | null;
+  /** M7-A — the latest missed inbound call of the lead's customer nobody returned. */
+  lastUnreturnedCallAt?: Date | null;
   openIdentityProposals: number;
   dismissedRuleIds?: readonly string[];
 };
@@ -71,6 +74,8 @@ export type LeadBriefing = {
   generatedAt: string;
   /** M6 — today's new leads and where they came from (set by getLeadBriefing). */
   arrivals?: LeadArrivals;
+  /** M7-A — calls the owner may still owe a call back (set by getLeadBriefing). */
+  calls?: CallBriefing;
 };
 
 function emptyCounts(): LeadBriefingCounts {
@@ -79,6 +84,7 @@ function emptyCounts(): LeadBriefingCounts {
     needsAttention: 0,
     withSuggestion: 0,
     FOLLOWUP_OVERDUE: 0,
+    CUSTOMER_CALLED: 0,
     CUSTOMER_WROTE: 0,
     FOLLOWUP_DUE_TODAY: 0,
     AWAITING_OWNER_DECISION: 0,
@@ -108,6 +114,7 @@ export function deriveLeadBriefing(
         createdAt: r.createdAt,
         lastActivityAt: r.lastActivityAt,
         lastCustomerInboundAt: r.lastCustomerInboundAt,
+        lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
         openIdentityProposals: r.openIdentityProposals,
         dismissedRuleIds: r.dismissedRuleIds ?? [],
       },
@@ -142,7 +149,7 @@ export function deriveLeadBriefing(
 
   items.sort((a, b) => b.priority - a.priority || a.leadId - b.leadId);
   const state: LeadBriefing["state"] =
-    counts.FOLLOWUP_OVERDUE > 0 || counts.CUSTOMER_WROTE > 0
+    counts.FOLLOWUP_OVERDUE > 0 || counts.CUSTOMER_CALLED > 0 || counts.CUSTOMER_WROTE > 0
       ? "CRITICAL"
       : counts.needsAttention > 0
         ? "BUSY"
@@ -162,6 +169,11 @@ export async function loadLeadBriefingFacts(
            l."createdAt", l."lastActivityAt",
            (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
              WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
+           (SELECT max(ca."startedAt") FROM "CallActivity" ca
+             WHERE ca."businessId" = l."businessId"
+               AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
+               AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
+               AND ca."returnedAt" IS NULL) AS "lastUnreturnedCallAt",
            (SELECT count(*)::int FROM "IdentityProposal" p
              WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed') AS "openIdentityProposals"
     FROM "Lead" l
@@ -229,5 +241,6 @@ export async function getLeadBriefing(
 ): Promise<LeadBriefing> {
   const { rows, complete } = await loadLeadBriefingFacts(tx, businessId);
   const arrivals = await loadLeadArrivals(tx, businessId, now);
-  return { ...deriveLeadBriefing(rows, now, complete), arrivals };
+  const calls = await loadCallBriefing(tx, businessId, now);
+  return { ...deriveLeadBriefing(rows, now, complete), arrivals, calls };
 }

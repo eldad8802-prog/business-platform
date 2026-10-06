@@ -13,6 +13,7 @@
  * relations that already exist — nothing is duplicated into Lead storage.
  */
 
+import { lastUnreturnedCallByLead } from "@/lib/services/calls/call-attention";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
@@ -247,11 +248,12 @@ export async function getLeadCard(
   const intelligence = deriveLeadConversationIntelligence({ conversations, now });
   // M5 — the same lifecycle facts the attention loader reads, for this one lead.
   const tx = db as CardTx;
-  const [dismissed, proposals, inbound, history] = await Promise.all([
+  const [dismissed, proposals, inbound, history, calls] = await Promise.all([
     dismissedSuggestionRules(tx, input.businessId, [lead.id]),
     openIdentityProposalCounts(tx, input.businessId, [lead.id]),
     lastCustomerInboundByLead(tx, input.businessId, [lead.id]),
     getLeadLifecycleHistory(tx, input.businessId, lead.id, 30),
+    lastUnreturnedCallByLead(tx, input.businessId, [lead.id]),
   ]);
   const attention = evaluateLeadAttention(
     {
@@ -260,6 +262,7 @@ export async function getLeadCard(
       createdAt: lead.createdAt,
       lastActivityAt: lead.lastActivityAt,
       lastCustomerInboundAt: inbound.get(lead.id) ?? null,
+      lastUnreturnedCallAt: calls.get(lead.id) ?? null,
       openIdentityProposals: proposals.get(lead.id) ?? 0,
       dismissedRuleIds: dismissed.get(lead.id) ?? [],
     },

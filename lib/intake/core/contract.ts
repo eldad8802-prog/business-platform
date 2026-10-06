@@ -43,6 +43,7 @@ export const ROUTE_TARGETS = [
   "lead", // an explicit lead / opportunity (never a plain inbound message)
   "customer", // a contact record only
   "commerce", // an order / checkout (never a Lead)
+  "call", // M7-A — one business call (never a Lead, never a Customer by itself)
   "document", // the documents intake (stays authoritative for documents)
   "attention", // needs a human; no domain write
   "none", // understood, deliberately not materialised
@@ -197,7 +198,7 @@ export type HydrateResult =
 
 /** Domain records an event produced — plain ids, never content. */
 export type ResultRefs = Partial<
-  Record<"customerId" | "conversationId" | "messageId" | "leadId" | "documentImportId" | "orderId", number>
+  Record<"customerId" | "conversationId" | "messageId" | "leadId" | "documentImportId" | "orderId" | "callId", number>
 >;
 
 export type RouteResult =

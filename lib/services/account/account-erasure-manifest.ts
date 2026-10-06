@@ -198,6 +198,13 @@ export const ANONYMIZE_MODELS = [
   // link can never match again). Proposals: hashes, evidence and applied effects.
   { model: "identityLink", fields: { valueHash: "null" } },
   { model: "identityProposal", fields: { proposedLinks: "json-null", evidence: "json-null", appliedEffects: "json-null" } },
+  // M7-A — commerce and calls. The order keeps status / currency / totals / times (non-personal facts);
+  // the Customer pointer, attribution and the store's order number go. A line's product title goes
+  // (stores personalise titles). A call keeps direction / outcome / duration / times; the Customer
+  // and lead pointers and the unknown caller's hash go — an erased call can never be regrouped.
+  { model: "commerceOrder", fields: { customerId: "null", attribution: "json-null", orderNumber: "null" } },
+  { model: "commerceOrderLine", fields: { title: "null" } },
+  { model: "callActivity", fields: { callerHash: "null", customerId: "null", leadId: "null" } },
   {
     model: "conversation",
     fields: {

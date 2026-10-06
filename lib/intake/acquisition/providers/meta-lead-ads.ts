@@ -11,6 +11,11 @@
  * the processor's hydrate step reads the lead with the Page token (encrypted at rest) and replaces
  * the reference with the canonical lead before the one normalizer runs. Meta keeps leads ~90 days,
  * so a token problem defers the receipt until the owner reconnects instead of losing it.
+ *
+ * M7-A — no silent loss: a Page whose connection is in ERROR still RESOLVES (migration 20261013090000),
+ * so new leads keep being recorded and deferred; Meta's 200–299 permission errors defer (the owner
+ * may fix access); "lead unavailable" (code 100 — e.g. a Leads Access Manager restriction not yet
+ * granted to Dubiz) defers for up to {@link META_UNAVAILABLE_GRACE_MS} before it dead-letters.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -21,6 +26,7 @@ import { makeAcquisitionAdapter } from "../adapter";
 import { resolveResourceConnection } from "../resolve";
 import { markConnectionError, readMetaPageToken } from "../connection.service";
 import { metaAppSecret, metaGraphVersion } from "../meta-config";
+import { isMetaPermissionCode } from "./meta-graph";
 
 export const META_LEAD_ADS_SOURCE = "meta.lead_ads" as const;
 export const META_LEAD_FIELDS =
@@ -123,6 +129,8 @@ function appSecretProof(token: string): string | null {
 }
 
 const HOUR = 3_600_000;
+/** How long a lead Meta reports as unavailable (code 100) keeps being retried before it dead-letters. */
+export const META_UNAVAILABLE_GRACE_MS = 72 * HOUR;
 
 /** Read the lead behind a reference and turn it into the canonical lead. */
 export async function hydrateMetaLead(ctx: { businessId: number; now: Date }, event: ClaimedIntakeEvent): Promise<HydrateResult> {
@@ -149,14 +157,19 @@ export async function hydrateMetaLead(ctx: { businessId: number; now: Date }, ev
       await markConnectionError(cred.connectionId, "META_TOKEN_INVALID");
       return { kind: "deferred", code: "meta_token_invalid", until: new Date(ctx.now.getTime() + 6 * HOUR) };
     }
-    if (code === 10 || code === 200 || res.status === 403) {
+    if (isMetaPermissionCode(code) || res.status === 403) {
       await markConnectionError(cred.connectionId, "META_PERMISSION_MISSING");
       return { kind: "deferred", code: "meta_permission_missing", until: new Date(ctx.now.getTime() + 6 * HOUR) };
     }
     if (code === 4 || code === 17 || code === 32 || code === 613 || res.status === 429) {
       return { kind: "deferred", code: "meta_rate_limited", until: new Date(ctx.now.getTime() + HOUR) };
     }
-    if (code === 100) throw new IntakeTerminalError("meta_lead_unavailable");
+    if (code === 100) {
+      if (ctx.now.getTime() - event.receivedAt.getTime() < META_UNAVAILABLE_GRACE_MS) {
+        return { kind: "deferred", code: "meta_lead_unavailable", until: new Date(ctx.now.getTime() + 6 * HOUR) };
+      }
+      throw new IntakeTerminalError("meta_lead_unavailable");
+    }
     throw new Error(`meta_graph_${res.status}_${code ?? "unknown"}`);
   }
 

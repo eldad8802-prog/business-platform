@@ -11,7 +11,12 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 const PUBLIC_ID_BYTES = 24; // 32 base64url chars
 const KEY_BYTES = 32;
 
-export const KEY_PREFIX = { "google.lead_form": "dgk_", "web.form": "dwk_" } as const;
+export const KEY_PREFIX = { "google.lead_form": "dgk_", "web.form": "dwk_", "telephony.voicenter": "dvk_" } as const;
+
+/** M7-A — a webhook signing secret Dubiz generates for a provider to sign with (stored ENCRYPTED). */
+export function newSigningSecret(): string {
+  return randomBytes(KEY_BYTES).toString("base64url");
+}
 
 export function newPublicId(): string {
   return randomBytes(PUBLIC_ID_BYTES).toString("base64url");
