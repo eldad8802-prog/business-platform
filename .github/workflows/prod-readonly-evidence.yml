@@ -78,6 +78,8 @@ on:
           - 'ops/evidence/closed-loop-gate-c-enrollment.sql'
           - 'ops/evidence/p3e-landing-persistence-preflight.sql'
           - 'ops/evidence/p3e-landing-persistence-production-evidence.sql'
+          - 'ops/evidence/m7bc-demand-lines-preflight.sql'
+          - 'ops/evidence/m7bc-demand-lines-production-evidence.sql'
 
 permissions:
   contents: read
