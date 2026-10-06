@@ -42,7 +42,13 @@ function PreviewImage({ image, loadImage, className }: { image: RenderImage; loa
   }, [image.src, loadImage]);
   return (
     <figure className={`${styles.figure} ${className ?? ""}`} data-asset-ref={image.ref} data-illustrative={image.illustrative ? "true" : "false"}>
-      {url ? <img src={url} alt={image.alt} className={styles.img} /> : <div className={styles.imgPlaceholder} role="img" aria-label={image.alt} />}
+      {url ? (
+        // A short-lived object URL from a Bearer-authenticated fetch: next/image cannot optimise it.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={image.alt} className={styles.img} />
+      ) : (
+        <div className={styles.imgPlaceholder} role="img" aria-label={image.alt} />
+      )}
       {/* A generated image is an illustration, never a real person / place / job. */}
       {image.illustrative && <figcaption className={styles.illustrativeTag}>איור להמחשה</figcaption>}
     </figure>
