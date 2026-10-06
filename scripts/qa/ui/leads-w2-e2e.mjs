@@ -55,7 +55,7 @@ async function registerTenant(label) {
   const api = makeApi(ref);
   const reg = await api("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name: `QA W2 ${label}`, businessName: `${TAG}-${label}` }),
+    body: JSON.stringify({ email, password, name: `QA W2 ${label}`, businessName: `${TAG}-${label}`, acceptTerms: true }),
   });
   if (reg.status !== 200 && reg.status !== 201) {
     throw new Error(`register ${label} failed: ${reg.status} ${JSON.stringify(reg.body)}`);

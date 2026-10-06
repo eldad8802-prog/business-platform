@@ -143,7 +143,7 @@ async function main() {
 
   const reg = await api("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name: "QA W1 Smoke", businessName: TAG }),
+    body: JSON.stringify({ email, password, name: "QA W1 Smoke", businessName: TAG, acceptTerms: true }),
   });
   check(
     reg.status === 200 || reg.status === 201,

@@ -70,8 +70,7 @@ async function registerTenant(label) {
       email,
       password,
       name: `QA W25 ${label}`,
-      businessName: `${TAG}-${label}`,
-    }),
+      businessName: `${TAG}-${label}`, acceptTerms: true }),
   });
   if (reg.status !== 200 && reg.status !== 201) {
     throw new Error(`register ${label} failed: ${reg.status} ${JSON.stringify(reg.body)}`);
