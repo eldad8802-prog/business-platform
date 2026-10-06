@@ -42,7 +42,7 @@ const DAY = 86_400_000;
 const NOW = new Date();
 const at = (d: number) => new Date(NOW.getTime() + d * DAY);
 const M9_MIGRATION = "prisma/migrations/20260928090000_m9_outcome_learning/migration.sql";
-const EVIDENCE_MIGRATION = "prisma/migrations/20261011090000_closed_loop_recommendation_evidence/migration.sql";
+const EVIDENCE_MIGRATION = "prisma/migrations/20261012090000_closed_loop_recommendation_evidence/migration.sql";
 
 let passed = 0;
 let failed = 0;

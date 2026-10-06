@@ -174,7 +174,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       mutable: true,
     },
     // Closed Loop — Dubiz recommendations shown to the owner, and the owner's decision on them. OFF by
-    // default (migration 20261011090000): a business sees them only after a platform admin enables it.
+    // default (migration 20261012090000): a business sees them only after a platform admin enables it.
     {
       key: PLATFORM_FEATURE_KEYS.OWNER_RECOMMENDATIONS,
       displayName: "המלצות Dubiz",

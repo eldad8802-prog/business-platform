@@ -197,7 +197,7 @@ trait, motive, risk appetite or intent (tested).
 
 The first owner-facing step of the loop. It reuses M9 unchanged: the same generation, memory, suppression, decision contract, ledger-read actions, assessor and learning.
 
-**Durable WHY.** `OutcomeRecommendationEvidence` (migration `20261011090000_closed_loop_recommendation_evidence`) holds one row per issued version. The row is written in the same transaction as the version itself, from the domain rows behind its targets. A version whose evidence cannot be built is not issued.
+**Durable WHY.** `OutcomeRecommendationEvidence` (migration `20261012090000_closed_loop_recommendation_evidence`) holds one row per issued version. The row is written in the same transaction as the version itself, from the domain rows behind its targets. A version whose evidence cannot be built is not issued.
 - `OVERDUE_INSTALLMENT` records:
   - the installment and its commitment;
   - the due date and the days overdue;
