@@ -15,8 +15,12 @@
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { createInMemoryPaymentStore } from "./payment-store.memory";
 import { resolvePaymentAuthoritatively } from "./payment-verification.service";
-import { connectPaymentProvider } from "./payment-connection.service";
-import { createPaymentRequest } from "./payment-request.service";
+import { connectPaymentProvider, parseDocumentIssuer } from "./payment-connection.service";
+import {
+  AmbiguousPaymentProviderError,
+  createPaymentRequest,
+  selectPaymentProvider,
+} from "./payment-request.service";
 import { processPaymentWebhook } from "./payment-webhook.service";
 import { listPaymentAttention } from "./payment-attention.service";
 import { readPaymentMethod, readVerifiedEvidence } from "./payment-evidence";
@@ -331,6 +335,84 @@ async function main() {
       theirs.items.length === 0,
       JSON.stringify(theirs.counts)
     );
+  }
+
+  // ── PR-B: the configured document issuer ──────────────────────────────
+  {
+    const { store, request } = await paidRequest(1);
+    // The connection as the store returns it, configured PROVIDER_ISSUES.
+    await runWithTenantContext({ businessId: 1 }, () =>
+      resolvePaymentAuthoritatively(
+        {
+          request,
+          adapter: adapter({}),
+          source: "RECONCILIATION",
+        },
+        {
+          store: {
+            ...store,
+            findActiveConnection: async (b: number, p: "CARDCOM") => {
+              const c = await store.findActiveConnection(b, p);
+              return c ? { ...c, documentIssuer: "PROVIDER_ISSUES" as const } : null;
+            },
+          } as typeof store,
+          runtimeEnv: PROD,
+        }
+      )
+    );
+    ok(
+      "a connection configured PROVIDER_ISSUES never gets an automatic Dubiz receipt",
+      store.accountingSettlements[0]?.attentionReason === "PROVIDER_IS_DOCUMENT_ISSUER",
+      JSON.stringify(store.accountingSettlements[0])
+    );
+  }
+  {
+    await rejects(
+      "an unknown document issuer is refused",
+      async () => parseDocumentIssuer("BOTH"),
+      /documentIssuer must be one of/
+    );
+    ok("an omitted document issuer means unchanged", parseDocumentIssuer(undefined) === undefined);
+  }
+
+  // ── PR-B: the default connection ───────────────────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const encryptCredential = () => ({ credentialEncrypted: "e", credentialIv: "i", credentialTag: "t", encryptionKeyId: "k" });
+    await connectPaymentProvider(
+      { businessId: 1, provider: "CARDCOM", merchantId: "172012", credential: "{}", isDefault: true },
+      { store, encryptCredential, runtimeEnv: PREVIEW }
+    );
+    store.seedConnection({ businessId: 1, provider: "SUMIT", isActive: true, merchantId: "9" });
+    const allEnabled = () => true;
+    ok(
+      "with two usable providers, the business default decides",
+      (await selectPaymentProvider({ businessId: 1, requested: null }, store, allEnabled)) === "CARDCOM"
+    );
+    await connectPaymentProvider(
+      { businessId: 1, provider: "SUMIT", merchantId: "9", credential: "{}", isDefault: true },
+      { store, encryptCredential, runtimeEnv: PREVIEW }
+    );
+    const defaults = (await store.listConnections(1)).filter((c) => c.isDefault);
+    ok(
+      "making another connection default leaves exactly one default",
+      defaults.length === 1 && defaults[0]!.provider === "SUMIT"
+    );
+    const deactivated = await connectPaymentProvider(
+      { businessId: 1, provider: "SUMIT", merchantId: "9", credential: "{}", isActive: false, isDefault: true },
+      { store, encryptCredential, runtimeEnv: PREVIEW }
+    );
+    ok("an inactive connection is never the default", deactivated.isDefault === false);
+    const noDefault = createInMemoryPaymentStore();
+    noDefault.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    noDefault.seedConnection({ businessId: 1, provider: "SUMIT", isActive: true });
+    let ambiguous = false;
+    try {
+      await selectPaymentProvider({ businessId: 1, requested: null }, noDefault, allEnabled);
+    } catch (e) {
+      ambiguous = e instanceof AmbiguousPaymentProviderError;
+    }
+    ok("with no default, two usable providers are still refused as ambiguous", ambiguous);
   }
 
   console.log(`\npayment-core-safety: ${pass} passed, ${failures.length} failed`);

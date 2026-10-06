@@ -48,6 +48,8 @@ type ConnectionRow = {
   credentialTag: string | null;
   encryptionKeyId: string | null;
   isActive: boolean;
+  documentIssuer: string;
+  isDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -103,6 +105,8 @@ function toConnectionRecord(row: ConnectionRow): PaymentConnectionRecord {
     credentialTag: row.credentialTag,
     encryptionKeyId: row.encryptionKeyId,
     isActive: row.isActive,
+    documentIssuer: row.documentIssuer as PaymentConnectionRecord["documentIssuer"],
+    isDefault: row.isDefault,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -352,7 +356,17 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async upsertConnection(row: UpsertConnectionRow) {
-      const saved = await dbStep((db) => db.businessPaymentConnection.upsert({
+      // ONE tenant transaction: clearing the other defaults and writing this
+      // one commit together, and the partial unique index refuses anything
+      // that would leave two.
+      const saved = await dbStep(async (db) => {
+        if (row.isDefault === true) {
+          await db.businessPaymentConnection.updateMany({
+            where: { businessId: row.businessId, provider: { not: row.provider }, isDefault: true },
+            data: { isDefault: false },
+          });
+        }
+        return db.businessPaymentConnection.upsert({
         where: {
           businessId_provider: {
             businessId: row.businessId,
@@ -368,6 +382,8 @@ export function createPaymentPrismaStore(): PaymentStore {
           credentialTag: row.credentialTag,
           encryptionKeyId: row.encryptionKeyId,
           isActive: row.isActive,
+          ...(row.documentIssuer !== undefined ? { documentIssuer: row.documentIssuer } : {}),
+          ...(row.isDefault !== undefined ? { isDefault: row.isDefault } : {}),
         },
         update: {
           merchantId: row.merchantId,
@@ -376,8 +392,11 @@ export function createPaymentPrismaStore(): PaymentStore {
           credentialTag: row.credentialTag,
           encryptionKeyId: row.encryptionKeyId,
           isActive: row.isActive,
+          ...(row.documentIssuer !== undefined ? { documentIssuer: row.documentIssuer } : {}),
+          ...(row.isDefault !== undefined ? { isDefault: row.isDefault } : {}),
         },
-      }));
+        });
+      });
       return toConnectionRecord(saved);
     },
 

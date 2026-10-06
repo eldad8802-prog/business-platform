@@ -64,6 +64,7 @@ export type SettlementAttentionReason =
   // Core safety — opened PAUSED at recording time (payment-verification):
   | "PROVIDER_ISSUED_DOCUMENT"
   | "TEST_ENVIRONMENT_PAYMENT"
+  | "PROVIDER_IS_DOCUMENT_ISSUER"
   // A settled refund whose correcting document is not yet decided.
   | "REFUND_ACCOUNTING_DECISION_REQUIRED";
 
@@ -76,6 +77,7 @@ export type SettlementAttentionReason =
 export const NON_RETRYABLE_ATTENTION_REASONS: ReadonlySet<string> = new Set([
   "PROVIDER_ISSUED_DOCUMENT",
   "TEST_ENVIRONMENT_PAYMENT",
+  "PROVIDER_IS_DOCUMENT_ISSUER",
   "REFUND_ACCOUNTING_DECISION_REQUIRED",
 ]);
 

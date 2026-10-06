@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/payments/payment-authorization";
 import {
   connectProviderFromDescriptor,
+  parseDocumentIssuer,
   listPaymentConnections,
 } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
             provider: typeof body.provider === "string" ? body.provider : "",
             fields: body,
             isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+            documentIssuer: parseDocumentIssuer(body.documentIssuer),
+            isDefault: typeof body.isDefault === "boolean" ? body.isDefault : undefined,
           },
           paymentConnectionDeps()
         )

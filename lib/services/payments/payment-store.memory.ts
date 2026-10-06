@@ -92,6 +92,8 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         businessId: connection.businessId,
         provider: connection.provider,
         merchantId: connection.merchantId ?? "test-merchant",
+        documentIssuer: connection.documentIssuer ?? "NOT_CONFIGURED",
+        isDefault: connection.isDefault ?? false,
         credentialEncrypted: connection.credentialEncrypted ?? null,
         credentialIv: connection.credentialIv ?? null,
         credentialTag: connection.credentialTag ?? null,
@@ -112,6 +114,12 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
     },
 
     async upsertConnection(row: UpsertConnectionRow) {
+      // Mirrors the partial unique index: at most one default per business.
+      if (row.isDefault === true) {
+        for (const c of connections) {
+          if (c.businessId === row.businessId && c.provider !== row.provider) c.isDefault = false;
+        }
+      }
       const existing = connections.find(
         (c) => c.businessId === row.businessId && c.provider === row.provider
       );
@@ -122,6 +130,8 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         existing.credentialTag = row.credentialTag;
         existing.encryptionKeyId = row.encryptionKeyId;
         existing.isActive = row.isActive;
+        if (row.documentIssuer !== undefined) existing.documentIssuer = row.documentIssuer;
+        if (row.isDefault !== undefined) existing.isDefault = row.isDefault;
         existing.updatedAt = new Date();
         return { ...existing };
       }
@@ -136,6 +146,8 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         credentialTag: row.credentialTag,
         encryptionKeyId: row.encryptionKeyId,
         isActive: row.isActive,
+        documentIssuer: row.documentIssuer ?? "NOT_CONFIGURED",
+        isDefault: row.isDefault ?? false,
         createdAt: now,
         updatedAt: now,
       };
