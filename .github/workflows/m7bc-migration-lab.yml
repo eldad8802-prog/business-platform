@@ -1,8 +1,8 @@
 # M7-B/C PR-A / migration 20261014090000_m7bc_commerce_demand_and_line_labels — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17), the M6 / M7-A pattern.
 #
-# .m7bc/lab.sh builds Production as it will be at release: M7-A applied, this migration the ONLY one applied next
-# (a migration merged but not applied in Production is neither recorded nor deployed). P1's OfferingDemandSignal
+# .m7bc/lab.sh builds Production as it is now: M7-A applied, then P3-E applied alone (as release-migrate did), and
+# this migration the ONLY one applied next. P1's OfferingDemandSignal
 # CHECKs, RLS and runtime privileges are verbatim (.m7a/prereq.sql, .m7bc/prereq.sql).
 #
 #   0. both evidence files pass the Production workflow's SELECT-only guard, are selectable there; checksum pinned
@@ -27,6 +27,7 @@ on:
       - ".m7bc/rollback.sql"
       - ".m7a/lab.sh"
       - ".m7a/prereq.sql"
+      - "prisma/migrations/20261013090000_p3e_landing_persistence/**"
       - ".m6/lab.sh"
       - ".github/workflows/m7bc-migration-lab.yml"
   workflow_dispatch:
@@ -106,6 +107,10 @@ jobs:
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "3 4 5 " || { echo "post-migration lab: expected preflight 3 4 5 to fail, got: $fails"; exit 1; }
           test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261014090000_m7bc_commerce_demand_and_line_labels'")" = "1"
+          # The ledger is Production's order: P3-E finished first, this migration last and alone after it.
+          order=$(lab -Atc "SELECT string_agg(migration_name, ',' ORDER BY finished_at) FROM \"_prisma_migrations\" WHERE migration_name >= '20261013090000'")
+          echo "ledger tail: $order"
+          test "$order" = "20261013090000_m7a_commerce_telephony_foundation,20261013090000_p3e_landing_persistence,20261014090000_m7bc_commerce_demand_and_line_labels" || { echo "unexpected ledger order"; exit 1; }
 
       - name: 3. Atomicity — the migration failing on its last statement leaves nothing behind
         run: |
