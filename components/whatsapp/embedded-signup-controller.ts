@@ -524,12 +524,12 @@ export function createEmbeddedSignupController(
           config_id: config.configId,
           response_type: "code",
           override_default_response_type: true,
-          // Embedded Signup v4: the version and the products come from the Facebook Login for
-          // Business configuration (`config_id`), so extras names no `version` and no v2
-          // `sessionInfoVersion` (v4 sends the session info for every flow). Coexistence path —
-          // onboard an existing WhatsApp Business App number — via `featureType`.
+          // Embedded Signup v4, exactly as Meta's Embedded Signup Builder generates it for our
+          // existing configuration + "ES Version v4" + "WhatsApp Business App Onboarding":
+          // the version is named in extras; no v2 `sessionInfoVersion` (v4 sends the session info
+          // for every flow). Coexistence path — onboard an existing WhatsApp Business App number.
           extras: {
-            setup: {},
+            version: "v4",
             featureType: "whatsapp_business_app_onboarding",
           },
         }

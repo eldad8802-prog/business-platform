@@ -245,11 +245,10 @@ async function main() {
     assert.equal(o.config_id, "CFG");
     assert.equal(o.response_type, "code");
     assert.equal(o.override_default_response_type, true);
-    // Embedded Signup v4: the Login for Business configuration selects the version and products;
-    // extras carries only the coexistence feature type — no v2 `sessionInfoVersion`, no `version`.
-    assert.deepEqual(o.extras, { setup: {}, featureType: "whatsapp_business_app_onboarding" });
+    // Embedded Signup v4 — byte-for-byte the extras Meta's Embedded Signup Builder generates for our
+    // configuration with "ES Version v4" + "WhatsApp Business App Onboarding". No v2 `sessionInfoVersion`.
+    assert.deepEqual(o.extras, { version: "v4", featureType: "whatsapp_business_app_onboarding" });
     assert.ok(!("sessionInfoVersion" in o.extras), "v4: no sessionInfoVersion");
-    assert.ok(!("version" in o.extras), "v4: the version comes from the configuration, not extras");
     assert.deepEqual(h.timerMs(), [DEADLINE], "only the absolute deadline is armed at launch");
   });
 
