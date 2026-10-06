@@ -22,3 +22,47 @@ BEGIN
   END IF;
 END
 $$;
+
+-- P1 20260928120000: the OfferingDemandSignal CHECKs (DB-only), verbatim — the M7-B/C migration re-creates
+-- OfferingDemandSignal_identity wider and refuses a database without it.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'OfferingDemandSignal_one_offering') THEN
+    ALTER TABLE "OfferingDemandSignal" ADD CONSTRAINT "OfferingDemandSignal_one_offering" CHECK (
+      (
+        "offeringKind" = 'SERVICE'
+        AND "businessServiceId" IS NOT NULL
+        AND "inventoryItemId" IS NULL
+      )
+      OR (
+        "offeringKind" = 'PRODUCT'
+        AND "inventoryItemId" IS NOT NULL
+        AND "businessServiceId" IS NULL
+      )
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'OfferingDemandSignal_identity') THEN
+    ALTER TABLE "OfferingDemandSignal" ADD CONSTRAINT "OfferingDemandSignal_identity" CHECK (
+      (
+        "signalType" = 'BOOKING'
+        AND "source" = 'APPOINTMENT'
+        AND "appointmentId" IS NOT NULL
+        AND "saleLineId" IS NULL
+        AND "offeringKind" = 'SERVICE'
+      )
+      OR (
+        "signalType" = 'PURCHASE'
+        AND "source" = 'SALE'
+        AND "saleLineId" IS NOT NULL
+        AND "appointmentId" IS NULL
+        AND "offeringKind" = 'PRODUCT'
+      )
+      OR (
+        "signalType" IN ('PRICE', 'AVAILABILITY')
+        AND "appointmentId" IS NULL
+        AND "saleLineId" IS NULL
+      )
+    );
+  END IF;
+END
+$$;
