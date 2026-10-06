@@ -216,7 +216,15 @@ run_guard() {
   #
   # Neither touches the Conversation graph, which CI-AD-12 continues to guard by
   # name.
-  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete'
+  #
+  #   transactional_email_runtime_delete  TransactionalEmail  account erasure ONLY
+  #
+  # The transactional email outbox (owner-approved tenant model, PR-1). app_runtime
+  # holds DELETE and SELECT ("id", "businessId") and nothing else on it — never the
+  # recipient or payload, no INSERT / UPDATE — and the policy binds it to
+  # app.current_business_id, so erasure Stage 2 deletes exactly the erased
+  # business's rows. The delivery plane (app_auth) has no DELETE at all.
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete'
   local ci13
   ci13="$(
     grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \

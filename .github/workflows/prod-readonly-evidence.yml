@@ -80,6 +80,8 @@ on:
           - 'ops/evidence/p3e-landing-persistence-production-evidence.sql'
           - 'ops/evidence/m7bc-demand-lines-preflight.sql'
           - 'ops/evidence/m7bc-demand-lines-production-evidence.sql'
+          - 'ops/evidence/transactional-email-foundation-preflight.sql'
+          - 'ops/evidence/transactional-email-foundation-production-evidence.sql'
 
 permissions:
   contents: read

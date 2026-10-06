@@ -1,0 +1,183 @@
+# Transactional email foundation / migration 20261015090000_transactional_email_foundation — proof on
+# PostgreSQL BEFORE it reaches Production (ephemeral PG17).
+#
+# .te/lab.sh builds Production's topology on top of the P3-E lab: non-superuser CREATEROLE/BYPASSRLS owner,
+# NOLOGIN app_runtime + LOGIN app_runtime_prod, NOLOGIN app_auth (D2 E4 narrowing on User) + a LOGIN member
+# te_auth_login, the owner's default privileges, Business under B4's FORCE RLS; ledger through M6 + P3-E.
+# The migrations merged after M6 other than P3-E are left out of the lab ledger (their objects come from db
+# push here) — so preflight check 5 ("every name on main is finished") is a PRODUCTION premise this lab
+# cannot meet; every other preflight check must pass here. The migration depends on Business and User alone,
+# and step 0 proves it names nothing else.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256.
+#   1. Baseline (pending): PREFLIGHT passes all but 5 (lab topology); the proof refuses (no table).
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 17/17; the preflight then
+#      fails exactly its "not there yet" checks (+ 5).
+#   3. Battery (.te/battery.ts) as the real roles: signup plane (app_auth), tenant plane (app_runtime),
+#      account erasure inside the erased tenant, constraints, cascade.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Faults: DELETE for app_auth, content read for app_runtime, INSERT for app_runtime, NO FORCE,
+#      permissive FOR ALL, PUBLIC read — each caught by the check meant for it.
+#   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again),
+#      and a re-apply makes the proof whole.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: transactional email foundation — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261015090000_transactional_email_foundation/**"
+      - "ops/evidence/transactional-email-foundation-*.sql"
+      - ".te/**"
+      - ".github/workflows/transactional-email-foundation-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: transactional email foundation (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: te_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: te_ci_synthetic_super_pw
+      LAB_PASSWORD: te_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/transactional-email-foundation-preflight.sql
+      EVIDENCE: ops/evidence/transactional-email-foundation-production-evidence.sql
+      TE: prisma/migrations/20261015090000_transactional_email_foundation/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only Business and User
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$TE" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$TE sha256 $sum (pinned)"
+          others=$(grep -oE '"[A-Z][A-Za-z]*"' "$TE" | sort -u | grep -vxE '"TransactionalEmail"|"Business"|"User"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261015090000_transactional_email_foundation" ]] || continue
+            if grep -nE 'TransactionalEmail|transactional_email' "$d/migration.sql"; then echo "$n names a transactional email object"; exit 1; fi
+          done
+          echo "the migration names only TransactionalEmail, Business and User; no other migration names its objects"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes all but 5 (lab topology); the proof refuses
+        run: |
+          set -euo pipefail
+          bash .te/lab.sh te_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d te_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "5 " || { echo "baseline: expected only 5 (lab topology) to fail, got: $fails"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline (the table does not exist yet)"
+
+      - name: 2. prisma migrate deploy applies it — proof 17/17; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .te/lab.sh te_post --with-te | tee /tmp/post.log
+          grep -q 'Applying migration `20261015090000_transactional_email_foundation`' /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d te_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "17" || { echo "expected 17 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 5 6 8 9 " || { echo "after the release: expected '2 3 5 6 8 9 ', got: $fails"; exit 1; }
+
+      - name: 3. Battery — signup plane, tenant plane, account erasure, constraints, cascade (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/te_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/te_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/te_post" \
+            npx tsx .te/battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .te/lab.sh te_broken --broken-te
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d te_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'TransactionalEmail%') + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'transactional_email_%')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261015090000_transactional_email_foundation' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d te_post -v ON_ERROR_STOP=1 "$@"; }
+          # The battery left rows behind, so 17 (empty table) fails throughout; every fault adds exactly its own check.
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "17 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          fault "DELETE for app_auth" "14 17 " 'GRANT DELETE ON "TransactionalEmail" TO app_auth' 'REVOKE DELETE ON "TransactionalEmail" FROM app_auth'
+          fault "content read for app_runtime" "12 17 " 'GRANT SELECT ("toEmail") ON "TransactionalEmail" TO app_runtime' 'REVOKE SELECT ("toEmail") ON "TransactionalEmail" FROM app_runtime'
+          fault "INSERT for app_runtime" "11 17 " 'GRANT INSERT ON "TransactionalEmail" TO app_runtime' 'REVOKE INSERT ON "TransactionalEmail" FROM app_runtime'
+          fault "NO FORCE row-level security" "4 17 " 'ALTER TABLE "TransactionalEmail" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "TransactionalEmail" FORCE ROW LEVEL SECURITY'
+          fault "permissive FOR ALL policy" "5 6 17 " 'CREATE POLICY te_fault_all ON "TransactionalEmail" USING (true)' 'DROP POLICY te_fault_all ON "TransactionalEmail"'
+          fault "PUBLIC read" "16 17 " 'GRANT SELECT ON "TransactionalEmail" TO PUBLIC' 'REVOKE SELECT ON "TransactionalEmail" FROM PUBLIC'
+          test "$(failing)" = "17 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 6. Rollback — refused while rows exist; reverts whole on an empty database; re-apply makes the proof whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          if lab te_post -q -f .te/rollback.sql 2>/tmp/rb.err; then echo "rollback ran despite rows"; exit 1; fi
+          grep -q "transactional email rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while rows exist; nothing changed"
+          bash .te/lab.sh te_rb --with-te >/dev/null
+          lab te_rb -q -f .te/rollback.sql
+          fails=$(lab te_rb -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "5 " || { echo "after rollback: expected only 5 (lab topology), got: $fails"; exit 1; }
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+          cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            if [[ ! "$n" > "20261009090000_m6_acquisition_connections" || "$n" == "20261013090000_p3e_landing_persistence" || "$n" == "20261015090000_transactional_email_foundation" ]]; then cp -r "$d" "$TMP/prisma/migrations/"; fi
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/te_rb"
+          DATABASE_URL="$U" DIRECT_URL="$U" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | grep -E "Applying migration"
+          got=$(lab te_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "rollback reverted the migration whole; re-apply made the proof whole"
