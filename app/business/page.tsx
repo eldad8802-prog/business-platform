@@ -11,6 +11,7 @@ import {
   type InvoiceProfileFormState,
 } from "@/components/billing/BusinessIdentitySetupForm";
 import { BillingSignatureField } from "@/components/billing/BillingSignatureField";
+import { BusinessNameEditor } from "@/components/business/BusinessNameEditor";
 import desk from "./business-desk.module.css";
 
 function getAuthToken(): string {
@@ -209,6 +210,7 @@ export default function BusinessProfilePage() {
           <div style={{ marginTop: 24, color: "var(--dz-text-muted)" }}>טוען…</div>
         ) : (
           <div className={desk.stack}>
+            <BusinessNameEditor />
             <section
               style={{
                 background: "var(--dz-surface)",

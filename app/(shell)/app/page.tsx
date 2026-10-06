@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
 import { IconInfo } from "@/components/navigation/nav-icons";
@@ -118,6 +119,16 @@ function HomePage() {
 
   const desktop = useMediaQuery(DESKTOP_QUERY);
   const { data: homeData, loadWeek } = useHomeData(data !== null, desktop);
+  const router = useRouter();
+
+  // A business that has not finished (or skipped) setup is sent there once —
+  // from whichever device it signs in on. Finishing or skipping stamps the
+  // business, so this never loops; every business that existed before setup
+  // shipped was stamped by its migration and never sees it.
+  const setupLoad = homeData.setup;
+  useEffect(() => {
+    if (setupLoad.state === "ready" && setupLoad.value.needsSetup) router.replace("/setup");
+  }, [setupLoad, router]);
 
   useEffect(() => {
     let t: string | null = null;

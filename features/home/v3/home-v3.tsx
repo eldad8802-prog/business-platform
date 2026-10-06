@@ -9,6 +9,7 @@ import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 
 import { CashflowCard, type CashflowVariant } from "./cashflow-card";
 import { DesktopHome } from "./desktop-home";
+import { SetupCard } from "./setup-card";
 import {
   ActivityList,
   FeatureTiles,
@@ -280,6 +281,8 @@ function MobileHome({ view }: { view: HomeView }) {
         </div>
       </header>
 
+      <SetupCard setup={view.data.setup} variant="mobile" style={{ margin: "12px 20px 0 20px" }} />
+
       <div style={{ margin: "12px 20px 0 20px" }}>
         <Cashflow view={view} variant="mobile" />
       </div>
@@ -320,6 +323,8 @@ function TabletHome({ view }: { view: HomeView }) {
           dubiz
         </span>
       </header>
+
+      <SetupCard setup={view.data.setup} variant="tablet" />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.45fr) minmax(0, 1fr)", gap: 22, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>

@@ -347,7 +347,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     reason: "Owner-confirmed identity statements/facts reach the BKS as OWNER_DECISION context; profile changes are an interpretation boundary, not a behaviour.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim"],
-    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile"],
+    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile", "page/setup"],
     outcome: NO_OUTCOME,
   },
   {

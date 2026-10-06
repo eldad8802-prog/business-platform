@@ -312,6 +312,13 @@ model User {
   /// column is already present in Production (migration
   /// 20260902100000_auth_token_version). Never decremented.
   tokenVersion                               Int                          @default(0)
+  /// When the owner accepted the terms at signup, and which text. Written once,
+  /// by signup, in the account transaction (app_auth holds INSERT only).
+  termsAcceptedAt                            DateTime?
+  termsVersion                               String?
+  /// Sanitised utm_* values and the referrer host captured at signup — it cannot
+  /// be recovered later. Names nobody; bounded by lib/auth/signup-identity.ts.
+  signupAttribution                          Json?
   createdAt                                  DateTime                     @default(now())
   updatedAt                                  DateTime                     @updatedAt
   business                                   Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -547,6 +554,17 @@ model BusinessProfile {
   billingSignatureDataUrl String?
   /// CLASSIC | MODERN | COMPACT — drives billing PDF layout presets (business-wide).
   billingPdfTemplateStyle String   @default("CLASSIC")
+  /// Setup after signup finished or was skipped. NULL = the app routes the owner
+  /// to /setup once, from any device. Existing businesses were backfilled
+  /// (migration 20261011090000_onboarding_setup_state).
+  onboardingCompletedAt   DateTime?
+  /// LEADS | BILLING | DOCUMENTS | CONTENT (CHECK-constrained). A product
+  /// preference that picks Home's first action — not a fact about the business,
+  /// never part of the knowledge snapshot.
+  onboardingGoal          String?
+  /// OWNER_SELECTED | DEFAULTED (CHECK-constrained). A default is never recorded
+  /// as the owner's choice.
+  onboardingGoalSource    String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   business                Business @relation(fields: [businessId], references: [id], onDelete: Cascade)

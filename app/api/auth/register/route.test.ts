@@ -102,6 +102,7 @@ const VALID = {
   password: "sup3rsecret",
   name: "בעל עסק חדש",
   businessName: "עסק חדש",
+  acceptTerms: true,
 };
 
 function req(body: unknown = VALID, init: RequestInit = {}): Request {
@@ -201,6 +202,46 @@ async function main() {
     ok("open -> refresh cookie is httpOnly", /httponly/i.test(cookie));
     ok("open -> refresh cookie is SameSite=Strict", /samesite=strict/i.test(cookie));
     ok("open -> refresh credential never in the body", !JSON.stringify(body).includes(FAKE_SESSION.credential));
+  }
+
+  // Consent: the box must be ticked, and nothing is created otherwise.
+  for (const [label, acceptTerms] of [["missing", undefined], ["false", false], ["string", "true"]] as const) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, acceptTerms }), deps);
+    const body = await res.json();
+    ok(`open -> terms ${label} is 400 on acceptTerms`, res.status === 400 && body.field === "acceptTerms");
+    ok(`open -> terms ${label} creates nothing`, calls.createAccount === 0);
+  }
+
+  // Attribution reaches the account sanitised: labels kept, everything else dropped.
+  {
+    let seen: unknown = "unset";
+    const { deps } = makeDeps(true, {
+      createAccount: async (input) => {
+        seen = input.attribution;
+        return {
+          userId: 1,
+          businessId: 2,
+          email: input.email,
+          name: input.name,
+          businessName: input.businessName,
+          tokenVersion: 0,
+          session: FAKE_SESSION,
+        };
+      },
+    });
+    await handleRegister(
+      req({
+        ...VALID,
+        attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=x", other: "y" },
+      }),
+      deps
+    );
+    ok(
+      "open -> attribution sanitised before persistence",
+      JSON.stringify(seen) === JSON.stringify({ utm_source: "facebook", referrerHost: "www.google.com" }),
+      JSON.stringify(seen)
+    );
   }
 
   // The account is created with the address FOLDED to lower case, so two

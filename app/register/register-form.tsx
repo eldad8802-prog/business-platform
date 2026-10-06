@@ -10,7 +10,7 @@ type RegisterErrors = {
   businessName?: string;
   email?: string;
   password?: string;
-  confirmPassword?: string;
+  acceptTerms?: string;
   form?: string;
 };
 
@@ -21,10 +21,9 @@ export default function RegisterForm() {
   const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [bootLoading, setBootLoading] = useState(true);
@@ -94,7 +93,7 @@ export default function RegisterForm() {
   );
 
   function validateField(
-    field: "name" | "businessName" | "email" | "password" | "confirmPassword",
+    field: "name" | "businessName" | "email" | "password",
     value: string
   ) {
     if (field === "name") {
@@ -122,12 +121,6 @@ export default function RegisterForm() {
       return "";
     }
 
-    if (field === "confirmPassword") {
-      if (!value.trim()) return "יש לאשר את הסיסמה";
-      if (value !== password) return "הסיסמאות אינן תואמות";
-      return "";
-    }
-
     return "";
   }
 
@@ -138,23 +131,19 @@ export default function RegisterForm() {
     const businessNameError = validateField("businessName", businessName);
     const emailError = validateField("email", email);
     const passwordError = validateField("password", password);
-    const confirmPasswordError = validateField(
-      "confirmPassword",
-      confirmPassword
-    );
 
     if (nameError) nextErrors.name = nameError;
     if (businessNameError) nextErrors.businessName = businessNameError;
     if (emailError) nextErrors.email = emailError;
     if (passwordError) nextErrors.password = passwordError;
-    if (confirmPasswordError) nextErrors.confirmPassword = confirmPasswordError;
+    if (!acceptTerms) nextErrors.acceptTerms = "יש לאשר את תנאי השימוש ומדיניות הפרטיות";
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
 
   function handleBlur(
-    field: "name" | "businessName" | "email" | "password" | "confirmPassword"
+    field: "name" | "businessName" | "email" | "password"
   ) {
     setTouched((prev) => ({ ...prev, [field]: true }));
 
@@ -163,7 +152,6 @@ export default function RegisterForm() {
       businessName,
       email,
       password,
-      confirmPassword,
     };
 
     const fieldError = validateField(field, valueMap[field]);
@@ -181,9 +169,24 @@ export default function RegisterForm() {
       !businessName.trim() ||
       !email.trim() ||
       !password.trim() ||
-      !confirmPassword.trim()
+      !acceptTerms
     );
-  }, [loading, name, businessName, email, password, confirmPassword]);
+  }, [loading, name, businessName, email, password, acceptTerms]);
+
+  /**
+   * Campaign labels from the landing page, read at submit. The server keeps only
+   * a sanitised allowlist (utm_* and the referrer host) — see signup-identity.ts.
+   */
+  function readAttribution(): Record<string, string> | null {
+    const params = new URLSearchParams(window.location.search);
+    const found: Record<string, string> = {};
+    for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
+      const v = params.get(key);
+      if (v) found[key] = v;
+    }
+    if (document.referrer) found.referrer = document.referrer;
+    return Object.keys(found).length > 0 ? found : null;
+  }
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -193,7 +196,7 @@ export default function RegisterForm() {
       businessName: true,
       email: true,
       password: true,
-      confirmPassword: true,
+      acceptTerms: true,
     });
 
     if (!validateForm()) {
@@ -214,6 +217,8 @@ export default function RegisterForm() {
           businessName: businessName.trim(),
           email: email.trim(),
           password,
+          acceptTerms,
+          attribution: readAttribution(),
         }),
       });
 
@@ -268,7 +273,8 @@ export default function RegisterForm() {
         localStorage.removeItem("user");
       }
 
-      router.replace("/app");
+      // A new business starts with two short, skippable setup questions.
+      router.replace("/setup");
     } catch (err) {
       console.error("register error:", err);
       setErrors({
@@ -669,14 +675,6 @@ export default function RegisterForm() {
                     }));
                   }
 
-                  if (touched.confirmPassword) {
-                    setErrors((prev) => ({
-                      ...prev,
-                      confirmPassword:
-                        validateField("confirmPassword", confirmPassword) ||
-                        undefined,
-                    }));
-                  }
                 }}
                 onBlur={() => handleBlur("password")}
                 style={{
@@ -723,60 +721,36 @@ export default function RegisterForm() {
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle} htmlFor="reg-confirm">אימות סיסמה</label>
-            <div style={inputShellStyle}>
+            <label
+              htmlFor="reg-terms"
+              style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", lineHeight: 1.5 }}
+            >
               <input
-                type={showConfirmPassword ? "text" : "password"}
-                id="reg-confirm"
-                aria-invalid={touched.confirmPassword && !!errors.confirmPassword}
-                aria-describedby="reg-confirm-msg"
-                value={confirmPassword}
+                id="reg-terms"
+                type="checkbox"
+                checked={acceptTerms}
+                aria-invalid={touched.acceptTerms && !!errors.acceptTerms}
+                aria-describedby="reg-terms-msg"
                 onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  if (touched.confirmPassword) {
-                    setErrors((prev) => ({
-                      ...prev,
-                      confirmPassword:
-                        validateField("confirmPassword", e.target.value) ||
-                        undefined,
-                    }));
-                  }
+                  setAcceptTerms(e.target.checked);
+                  setErrors((prev) => ({ ...prev, acceptTerms: undefined }));
                 }}
-                onBlur={() => handleBlur("confirmPassword")}
-                style={{
-                  ...passwordInputStyle,
-                  borderColor:
-                    touched.confirmPassword && errors.confirmPassword
-                      ? "var(--dz-danger-border)"
-                      : "var(--dz-border-strong)",
-                  boxShadow:
-                    touched.confirmPassword && errors.confirmPassword
-                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
-                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
-                }}
-                placeholder="הכנס שוב את הסיסמה"
-                autoComplete="new-password"
-                spellCheck={false}
+                style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0, accentColor: "var(--dz-brand)" }}
               />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword((prev) => !prev)}
-                style={passwordToggleStyle}
-                aria-label={showConfirmPassword ? "הסתר סיסמה" : "הצג סיסמה"}
-                aria-pressed={showConfirmPassword}
-                aria-controls="reg-confirm"
-              >
-                {showConfirmPassword ? "הסתר" : "הצג"}
-              </button>
-            </div>
-
-            {touched.confirmPassword && errors.confirmPassword ? (
-              <p id="reg-confirm-msg" role="alert" style={fieldErrorStyle}>{errors.confirmPassword}</p>
-            ) : (
-              <p id="reg-confirm-msg" style={helperTextStyle}>
-                כדי לוודא שלא נפלה טעות בהקלדה, הזן שוב את הסיסמה.
-              </p>
-            )}
+              <span style={{ fontSize: 14, color: "var(--dz-text-primary)" }}>
+                קראתי ואני מסכים/ה ל
+                <a href="/terms" target="_blank" rel="noreferrer" style={{ color: "var(--dz-brand)" }}>
+                  תנאי השימוש
+                </a>
+                {" "}ול
+                <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: "var(--dz-brand)" }}>
+                  מדיניות הפרטיות
+                </a>
+              </span>
+            </label>
+            {touched.acceptTerms && errors.acceptTerms ? (
+              <p id="reg-terms-msg" role="alert" style={fieldErrorStyle}>{errors.acceptTerms}</p>
+            ) : null}
           </div>
 
           {errors.form && (

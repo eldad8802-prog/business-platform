@@ -1,0 +1,262 @@
+/* Setup after signup. Layout lives here, in CSS, per lib/ui/use-breakpoint.ts:
+ * phone < 768 is one column with a sticky action bar; tablet is a centred card;
+ * desktop >= 1280 adds a live "how Dubiz will look for you" column. */
+
+.page {
+  min-height: 100dvh;
+  background: var(--dz-background);
+  color: var(--dz-text-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 8px;
+}
+
+.progress {
+  flex: 1;
+  max-width: 320px;
+}
+
+.progressLabel {
+  font-size: 13px;
+  color: var(--dz-text-secondary);
+  margin-bottom: 6px;
+}
+
+.bar {
+  display: flex;
+  gap: 6px;
+}
+
+.barSeg {
+  flex: 1;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--dz-border);
+}
+
+.barSegOn {
+  background: var(--dz-brand);
+}
+
+.body {
+  flex: 1;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 16px 120px;
+  display: grid;
+  gap: 24px;
+  /* Rows hug their content; without this the grid stretches them to fill the
+     viewport and opens a gap under the heading on tall phones. */
+  align-content: start;
+}
+
+.card {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.title {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.why {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--dz-text-secondary);
+  line-height: 1.5;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  min-height: 56px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface);
+  color: var(--dz-text-primary);
+  font: inherit;
+  font-size: 15px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.tile:hover {
+  border-color: var(--dz-border-strong);
+}
+
+.tileOn {
+  border-color: var(--dz-brand);
+  background: var(--dz-brand-soft);
+  box-shadow: 0 0 0 1px var(--dz-brand) inset;
+}
+
+.tile:focus-visible,
+.goal:focus-visible {
+  outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand));
+  outline-offset: 2px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.goals {
+  display: grid;
+  gap: 12px;
+}
+
+.goal {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--dz-border);
+  background: var(--dz-surface);
+  color: var(--dz-text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.goal:hover {
+  border-color: var(--dz-border-strong);
+}
+
+.goalOn {
+  border-color: var(--dz-brand);
+  background: var(--dz-brand-soft);
+  box-shadow: 0 0 0 1px var(--dz-brand) inset;
+}
+
+.goalTitle {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.goalHint {
+  font-size: 14px;
+  color: var(--dz-text-secondary);
+  line-height: 1.45;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--dz-danger-bg-soft);
+  color: var(--dz-danger);
+  font-size: 14px;
+}
+
+.actions {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--dz-surface);
+  border-top: 1px solid var(--dz-border);
+}
+
+.preview {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .top {
+    padding: 24px 32px 8px;
+  }
+  .body {
+    padding: 16px 32px 48px;
+  }
+  .card {
+    padding: 28px;
+    border-radius: 20px;
+    background: var(--dz-surface);
+    border: 1px solid var(--dz-border);
+    box-shadow: var(--dz-shadow-card);
+  }
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .goals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .actions {
+    position: static;
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+}
+
+@media (min-width: 1280px) {
+  .body {
+    max-width: 1080px;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    align-items: start;
+    gap: 32px;
+  }
+  .preview {
+    display: grid;
+    gap: 12px;
+    position: sticky;
+    top: 24px;
+    padding: 24px;
+    border-radius: 20px;
+    background: var(--dz-surface-muted);
+    border: 1px solid var(--dz-border-subtle);
+  }
+  .previewTitle {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dz-text-secondary);
+  }
+  .previewCard {
+    padding: 16px;
+    border-radius: 16px;
+    background: var(--dz-surface);
+    border: 1px solid var(--dz-border);
+    display: grid;
+    gap: 6px;
+  }
+  .previewName {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .previewMuted {
+    font-size: 14px;
+    color: var(--dz-text-secondary);
+    line-height: 1.45;
+  }
+}

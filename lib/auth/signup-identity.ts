@@ -17,6 +17,9 @@
 // owner with a shorter password is not locked out by this rule.
 export const MIN_PASSWORD_LENGTH = 8;
 export const MIN_NAME_LENGTH = 2;
+/** Shared with the rename route: a business name is a label, not a paragraph. */
+export const MAX_BUSINESS_NAME_LENGTH = 120;
+export const MAX_NAME_LENGTH = 120;
 
 /**
  * Deliberately permissive. This shape check exists to catch typos, not to
@@ -30,6 +33,20 @@ export type SignupInput = {
   password: unknown;
   name: unknown;
   businessName: unknown;
+  /** Must be exactly `true`: the box was ticked. Anything else is refusal. */
+  acceptTerms?: unknown;
+  /** Whatever the landing page captured; reduced by normalizeSignupAttribution. */
+  attribution?: unknown;
+};
+
+/** Campaign labels and a referrer HOST — never a path, query, or free text. */
+export type SignupAttribution = {
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+  referrerHost?: string;
 };
 
 export type NormalizedSignup = {
@@ -37,9 +54,10 @@ export type NormalizedSignup = {
   password: string;
   name: string;
   businessName: string;
+  attribution: SignupAttribution | null;
 };
 
-export type SignupField = "email" | "password" | "name" | "businessName";
+export type SignupField = "email" | "password" | "name" | "businessName" | "acceptTerms";
 
 export class SignupValidationError extends Error {
   readonly field: SignupField;
@@ -73,6 +91,43 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
+const MAX_UTM_LENGTH = 100;
+const UTM_VALUE = /^[\p{L}\p{N} ._+-]+$/u;
+const HOST = /^[a-z0-9.-]{1,253}$/;
+
+/**
+ * Reduce whatever the landing page sent to labels that name nobody.
+ *
+ * Attribution is worth keeping because it cannot be recovered later — but it is
+ * also caller-controlled input written by the auth plane. So it is an
+ * allowlist, not a filter: five utm keys with short label-shaped values, and
+ * the referrer reduced to its host. Anything else is dropped silently; a bad
+ * campaign tag never costs anyone their signup.
+ */
+export function normalizeSignupAttribution(raw: unknown): SignupAttribution | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const input = raw as Record<string, unknown>;
+  const out: SignupAttribution = {};
+  for (const key of UTM_KEYS) {
+    const v = input[key];
+    if (typeof v !== "string") continue;
+    const t = v.trim();
+    if (t.length === 0 || t.length > MAX_UTM_LENGTH || !UTM_VALUE.test(t)) continue;
+    out[key] = t;
+  }
+  const ref = input.referrer;
+  if (typeof ref === "string" && ref.length <= 2048) {
+    try {
+      const host = new URL(ref).hostname.toLowerCase();
+      if (HOST.test(host)) out.referrerHost = host;
+    } catch {
+      /* not a URL: dropped */
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /**
  * Validate and normalize, or throw with the offending field named.
  *
@@ -80,10 +135,14 @@ export function normalizeEmail(raw: string): string {
  * re-trim or re-fold and risk disagreeing about what the identity is.
  */
 export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
-  const { email, password, name, businessName } = input ?? ({} as SignupInput);
+  const { email, password, name, businessName, acceptTerms, attribution } =
+    input ?? ({} as SignupInput);
 
   if (typeof name !== "string" || name.trim().length < MIN_NAME_LENGTH) {
     throw new SignupValidationError("name", "יש להזין שם מלא");
+  }
+  if (name.trim().length > MAX_NAME_LENGTH) {
+    throw new SignupValidationError("name", `השם ארוך מדי (עד ${MAX_NAME_LENGTH} תווים)`);
   }
 
   if (
@@ -91,6 +150,12 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     businessName.trim().length < MIN_NAME_LENGTH
   ) {
     throw new SignupValidationError("businessName", "יש להזין שם עסק");
+  }
+  if (businessName.trim().length > MAX_BUSINESS_NAME_LENGTH) {
+    throw new SignupValidationError(
+      "businessName",
+      `שם העסק ארוך מדי (עד ${MAX_BUSINESS_NAME_LENGTH} תווים)`
+    );
   }
 
   if (typeof email !== "string" || !EMAIL_SHAPE.test(email.trim())) {
@@ -107,10 +172,16 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     );
   }
 
+  // Strictly `true`. A string "true", a 1 or a missing field is not consent.
+  if (acceptTerms !== true) {
+    throw new SignupValidationError("acceptTerms", "יש לאשר את תנאי השימוש ומדיניות הפרטיות");
+  }
+
   return {
     email: normalizeEmail(email),
     password,
     name: name.trim(),
     businessName: businessName.trim(),
+    attribution: normalizeSignupAttribution(attribution),
   };
 }

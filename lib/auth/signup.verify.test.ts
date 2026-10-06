@@ -50,6 +50,7 @@ const valid = {
   password: "sup3rsecret",
   name: "אלדד",
   businessName: "מספרה",
+  acceptTerms: true,
 };
 
 function main() {
@@ -161,7 +162,48 @@ function main() {
       password: "sup3rsecret",
       name: "אלדד",
       businessName: "מספרה",
+      attribution: null,
     });
+  });
+
+  /* -------------------------------------------------------------- consent -- */
+
+  expectInvalid({ ...valid, acceptTerms: undefined }, "acceptTerms", "terms not ticked");
+  expectInvalid({ ...valid, acceptTerms: false }, "acceptTerms", "terms refused");
+  expectInvalid({ ...valid, acceptTerms: "true" }, "acceptTerms", "a string is not consent");
+  expectInvalid({ ...valid, acceptTerms: 1 }, "acceptTerms", "a number is not consent");
+
+  /* ---------------------------------------------------------- name bounds -- */
+
+  expectInvalid({ ...valid, businessName: "א".repeat(121) }, "businessName", "business name over 120");
+  check("a business name of exactly 120 is accepted", () => {
+    assert.equal(normalizeSignupInput({ ...valid, businessName: "א".repeat(120) }).businessName.length, 120);
+  });
+
+  /* ---------------------------------------------------------- attribution -- */
+
+  check("attribution keeps utm labels and the referrer host only", () => {
+    const out = normalizeSignupInput({
+      ...valid,
+      attribution: {
+        utm_source: "facebook",
+        utm_campaign: "חורף 2026",
+        utm_medium: "<script>",
+        utm_term: "x".repeat(101),
+        referrer: "https://www.google.com/search?q=private",
+        email: "leak@example.com",
+      },
+    });
+    assert.deepEqual(out.attribution, {
+      utm_source: "facebook",
+      utm_campaign: "חורף 2026",
+      referrerHost: "www.google.com",
+    });
+  });
+  check("nothing usable means no attribution at all", () => {
+    assert.equal(normalizeSignupInput({ ...valid, attribution: { referrer: "not a url" } }).attribution, null);
+    assert.equal(normalizeSignupInput({ ...valid, attribution: "utm_source=x" }).attribution, null);
+    assert.equal(normalizeSignupInput({ ...valid, attribution: ["x"] }).attribution, null);
   });
 
   console.log(`signup.verify.test.ts: ok (${checks} checks)`);

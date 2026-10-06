@@ -105,7 +105,7 @@ async function main() {
 
   const reg = await api("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name: "QA W25 Prod", businessName: TAG }),
+    body: JSON.stringify({ email, password, name: "QA W25 Prod", businessName: TAG, acceptTerms: true }),
   });
   check([200, 201].includes(reg.status), "AUTH2 a synthetic tenant registers through the public flow",
     `status=${reg.status} ${JSON.stringify(reg.body).slice(0, 120)}`);

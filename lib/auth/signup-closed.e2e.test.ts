@@ -153,6 +153,7 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-should-never-exist`,
+        acceptTerms: true,
       })
     );
     const blockedBody = await blockedRes.json();
@@ -191,6 +192,8 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-newcomer-business`,
+        // Signup requires accepting the terms (M1); the gate is what is tested.
+        acceptTerms: true,
       })
     );
     const openBody = await openRes.json();
@@ -218,6 +221,7 @@ async function main() {
         password: "Newcomer-Pass-2",
         name: "נרשם נוסף",
         businessName: `${TAG}-second-should-never-exist`,
+        acceptTerms: true,
       })
     );
     ok("reversible: closing again re-blocks -> 403", reBlocked.status === 403);
