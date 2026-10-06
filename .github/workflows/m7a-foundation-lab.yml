@@ -1,0 +1,164 @@
+# M7-A PR-A / migration 20261013090000_m7a_commerce_telephony_foundation — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17), the M6 pattern.
+#
+# .m7a/lab.sh builds Production as it will be at release: every migration up to and including
+# 20261012090000_closed_loop_recommendation_evidence applied, M7-A the ONLY pending migration (non-superuser
+# CREATEROLE/BYPASSRLS owner whose DEFAULT PRIVILEGES hand the runtime DELETE on new tables, NOLOGIN app_runtime +
+# LOGIN app_runtime_prod, app_auth / app_ctlplane, B4, P2, P3-A, M6 by the real migrate deploy).
+#
+#   0. both evidence files pass the Production workflow's SELECT-only guard, are selectable there; checksum pinned
+#   1. PREFLIGHT 12/13 (13 is a Production premise this lab cannot build); the proof fails exactly what M7-A creates
+#   2. M7-A alone by `prisma migrate deploy`: POST-APPLY PROOF 16/16; the preflight fails exactly its M7-A-absent checks
+#   3. atomicity: M7-A failing on its last statement leaves nothing behind
+#   4. faults: a DELETE grant, a mutable history, a foreign SELECT, a foreign EXECUTE are each caught
+#   5. rollback (.m7a/rollback.sql): refused while an owner decision exists, then back to a whole preflight
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: m7a — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/**"
+      - "ops/evidence/m7a-foundation-*.sql"
+      - ".m7a/lab.sh"
+      - ".m7a/prereq.sql"
+      - ".m7a/rollback.sql"
+      - ".m6/lab.sh"
+      - ".github/workflows/m7a-foundation-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: M7-A migration lab (PG17, Production topology, migrate deploy, proof, atomicity, faults, rollback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: m7a_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: m7a_ci_synthetic_super_pw
+      LAB_PASSWORD: m7a_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/m7a-foundation-preflight.sql
+      EVIDENCE: ops/evidence/m7a-foundation-production-evidence.sql
+      M7A: prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Both files pass the Production workflow's SELECT-only guard and are selectable there; checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$M7A" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum (file is $sum)"; exit 1; }
+          echo "M7-A sha256 $sum (pinned)"
+
+      - name: 1. Production before M7-A — PREFLIGHT 12/13 here (13 is a Production premise); the proof fails exactly what M7-A creates
+        run: |
+          set -euo pipefail
+          bash .m7a/lab.sh m7a_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m7a_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          prefails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$prefails" = "13 " || { echo "preflight: expected only 13 (lab topology) to fail, got: $prefails"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "12" || { echo "expected 12 PASS"; exit 1; }
+          fails=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          echo "proof on the pre-M7-A lab fails: $fails"
+          test "$fails" = "1 3 4 5 6 7 8 9 11 12 13 14 15 " || { echo "expected 1 3 4 5 6 7 8 9 11 12 13 14 15"; exit 1; }
+
+      - name: 2. M7-A by prisma migrate deploy — POST-APPLY PROOF 16/16; the preflight fails exactly its M7-A-absent checks
+        run: |
+          set -euo pipefail
+          bash .m7a/lab.sh m7a_post --with-m7a
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m7a_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/post.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/post.out; then echo "proof FAILS after a correct apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/post.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "3 4 5 7 8 10 13 " || { echo "post-M7-A lab: expected preflight 3 4 5 7 8 10 (+ 13, lab topology) to fail, got: $fails"; exit 1; }
+          want=$(ls -1 prisma/migrations | grep -E "^[0-9]{14}_" | awk -v m="$(basename "$(dirname "$M7A")")" '$0 <= m' | wc -l)
+          got=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
+          echo "ledger: $got applied (expected $want)"
+          test "$got" -ge "$want" || { echo "ledger: expected at least $want applied, got $got"; exit 1; }
+          test "$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261013090000_m7a_commerce_telephony_foundation'")" = "1"
+
+      - name: 3. Atomicity — M7-A failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .m7a/lab.sh m7a_broken --broken-m7a
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m7a_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('CommerceOrder','CommerceOrderLine','CommerceOrderEvent','CallActivity'))
+                              + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key LIKE 'commerce\_%' OR key LIKE 'telephony\_%')
+                              + (SELECT count(*) FROM pg_proc WHERE proname = 'm6_acquisition_resolve_resource' AND prosrc LIKE '%ERROR%')
+                              + (SELECT count(*) FROM pg_constraint WHERE conname = 'AcquisitionConnection_source_key' AND pg_get_constraintdef(oid) LIKE '%telephony%')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261013090000_m7a_commerce_telephony_foundation' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 4. Faults — a DELETE grant, a foreign SELECT grant, a foreign EXECUTE grant are each caught by the proof
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m7a_post -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          lab -q -c 'GRANT DELETE ON "CommerceOrder" TO app_runtime'
+          got=$(failing); test "$got" = "9 " || { echo "DELETE grant: expected '9 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE DELETE ON "CommerceOrder" FROM app_runtime'
+          echo "fault detected [DELETE grant to runtime] → FAIL $got"
+          lab -q -c 'GRANT UPDATE ON "CommerceOrderEvent" TO app_runtime'
+          got=$(failing); test "$got" = "9 " || { echo "UPDATE on the history: expected '9 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE UPDATE ON "CommerceOrderEvent" FROM app_runtime'
+          echo "fault detected [history made mutable] → FAIL $got"
+          lab -q -c 'GRANT SELECT ON "CallActivity" TO app_auth'
+          got=$(failing); test "$got" = "10 " || { echo "SELECT to app_auth: expected '10 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE SELECT ON "CallActivity" FROM app_auth'
+          echo "fault detected [foreign SELECT grant] → FAIL $got"
+          lab -q -c 'GRANT EXECUTE ON FUNCTION public.m6_acquisition_resolve_resource(text, text) TO app_auth'
+          got=$(failing); test "$got" = "13 " || { echo "EXECUTE to app_auth: expected '13 ', got '$got'"; exit 1; }
+          lab -q -c 'REVOKE EXECUTE ON FUNCTION public.m6_acquisition_resolve_resource(text, text) FROM app_auth'
+          echo "fault detected [foreign EXECUTE grant] → FAIL $got"
+          got=$(failing); test -z "$got" || { echo "proof not whole again: $got"; exit 1; }
+
+      - name: 5. Rollback (.m7a/rollback.sql) — refused while an owner decision exists; then back to a whole preflight
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d m7a_post -v ON_ERROR_STOP=1 "$@"; }
+          bid=$(lab -Atc "INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('m7a-rollback-guard', now()) RETURNING id" | head -1)
+          lab -q -c "INSERT INTO \"BusinessFeatureAccess\" (\"businessId\", \"featureKey\", state, \"updatedAt\") VALUES ($bid, 'commerce_wix', 'ENABLED', now())"
+          if lab -f .m7a/rollback.sql 2>/tmp/rb.err; then echo "rollback ran while a feature override existed"; exit 1; fi
+          grep -q "rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while in use: $(grep -o 'rollback refused[^"]*' /tmp/rb.err | head -1)"
+          lab -q -c "DELETE FROM \"BusinessFeatureAccess\" WHERE \"businessId\" = $bid" -c "DELETE FROM \"Business\" WHERE id = $bid"
+          lab -q -f .m7a/rollback.sql
+          lab -f "$PREFLIGHT" | tee /tmp/rb.out
+          fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/rb.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "13 " || { echo "after rollback: expected only 13 (lab topology), got: $fails"; exit 1; }
+          echo "rollback → preflight whole again (12/13 + the Production premise)"

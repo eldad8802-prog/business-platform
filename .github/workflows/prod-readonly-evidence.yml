@@ -70,6 +70,8 @@ on:
           - 'ops/evidence/m1-onboarding-preflight.sql'
           - 'ops/evidence/learning-enrollment-inventory.sql'
           - 'ops/evidence/m1-onboarding-production-evidence.sql'
+          - 'ops/evidence/m7a-foundation-preflight.sql'
+          - 'ops/evidence/m7a-foundation-production-evidence.sql'
           - 'ops/evidence/closed-loop-recommendation-evidence-preflight.sql'
           - 'ops/evidence/closed-loop-recommendation-evidence-production-evidence.sql'
           - 'ops/evidence/closed-loop-gate-c-eligibility.sql'
