@@ -31,7 +31,7 @@ type LoginOpts = {
   config_id: string;
   response_type: string;
   override_default_response_type: boolean;
-  extras: { featureType: string; sessionInfoVersion: string };
+  extras: Record<string, unknown>;
 };
 
 type DiagCall = { event: string; data: Record<string, unknown> };
@@ -245,8 +245,11 @@ async function main() {
     assert.equal(o.config_id, "CFG");
     assert.equal(o.response_type, "code");
     assert.equal(o.override_default_response_type, true);
-    assert.equal(o.extras.featureType, "whatsapp_business_app_onboarding");
-    assert.equal(o.extras.sessionInfoVersion, "3");
+    // Embedded Signup v4: the Login for Business configuration selects the version and products;
+    // extras carries only the coexistence feature type — no v2 `sessionInfoVersion`, no `version`.
+    assert.deepEqual(o.extras, { setup: {}, featureType: "whatsapp_business_app_onboarding" });
+    assert.ok(!("sessionInfoVersion" in o.extras), "v4: no sessionInfoVersion");
+    assert.ok(!("version" in o.extras), "v4: the version comes from the configuration, not extras");
     assert.deepEqual(h.timerMs(), [DEADLINE], "only the absolute deadline is armed at launch");
   });
 

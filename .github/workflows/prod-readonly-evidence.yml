@@ -70,6 +70,7 @@ on:
           - 'ops/evidence/m1-onboarding-preflight.sql'
           - 'ops/evidence/learning-enrollment-inventory.sql'
           - 'ops/evidence/m1-onboarding-production-evidence.sql'
+          - 'ops/evidence/whatsapp-es-v4-switch-evidence.sql'
 
 permissions:
   contents: read
