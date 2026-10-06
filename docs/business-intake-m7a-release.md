@@ -139,7 +139,24 @@ WooCommerce and Wix arrive in M7-B, CloudTalk and Voicenter in M7-C. No connecti
 in Production. Meta: no change in Meta. Business Verification and App Review are in review; Access Verification has
 not started.
 
-## 10. Remaining external blockers (not D10's)
+## 10. Self-review against the decision record (what M7-A deliberately leaves to M7-B / M7-C)
+
+| Decision-record item | Status |
+|---|---|
+| §7 canonical flow, invariants I1–I8 | built (I1 R0 + R5/R9; I2 the connection only; I3 2xx after the receipt; I4 unique keys + locks; I5 proposals, no link from a call; I6 owner act only; I7 categories only; I8 dropped at receipt build) |
+| §8 reuse-vs-new table | built as recorded. Exception: `CommerceOrderLine.inventoryItemId` is not added (no mapping until M7-B; D7 holds anyway) |
+| §9 tenant / security / privacy | built and LAB-PROVEN (proof 7–10, battery E2, E5–E9) |
+| §10 Secretary: missed call not returned, unknown-caller digest | built |
+| §10 Secretary: commerce exceptions (refund or cancel on a known customer with an open lead; connection unhealthy) | **M7-B** (needs a real store's lifecycle) |
+| §10 customer card: order history | **M7-B** (UI) |
+| §11 sensors, attribution on order and call | built |
+| §11 `OfferingDemandSignal` PURCHASE from mapped lines | **M7-B** (needs SKU → offering mapping) |
+| §11 business-line role attribution (owner-labelled lines) | **M7-C** (owner UI on the telephony connection) |
+| §6 WooCommerce reconciler + webhook health; Wix JWT; 1,250 ms acknowledgement | **M7-B** |
+| §6 CloudTalk / Voicenter adapters; Voicenter confirmation | **M7-C** |
+| §2.4 M-D1..M-D5 Meta hardening | built (M-D2 needs this migration) |
+
+## 11. Remaining external blockers (not D10's)
 
 - **M7-B commerce:** a Wix app (Dubiz developer account, owner), a real WooCommerce store for E17.
 - **M7-C telephony:** a CloudTalk account; Voicenter commercial and technical confirmation (signature or IP list,

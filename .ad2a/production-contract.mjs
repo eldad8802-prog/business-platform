@@ -255,6 +255,40 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "m6_acquisition_connection_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // M7-A — commerce orders, their lines and business calls. Per command, NO DELETE: the erasure
+  // scrubs them with an UPDATE (Customer / lead pointers, attribution, order number, line title,
+  // the unknown caller's hash). CommerceOrderEvent is append-only and holds nothing personal — the
+  // deletion flow never touches it.
+  {
+    table: "CommerceOrder",
+    migration: "20261013090000_m7a_commerce_telephony_foundation",
+    why: "points at the buyer's Customer and keeps acquisition attribution and the store's order number; the erasure clears all three with an UPDATE",
+    policies: [
+      { name: "m7a_commerce_order_select", command: "SELECT", using: TENANT },
+      { name: "m7a_commerce_order_insert", command: "INSERT", check: TENANT },
+      { name: "m7a_commerce_order_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "CommerceOrderLine",
+    migration: "20261013090000_m7a_commerce_telephony_foundation",
+    why: "a product title is free text a store may personalise; the erasure clears it with an UPDATE",
+    policies: [
+      { name: "m7a_commerce_order_line_select", command: "SELECT", using: TENANT },
+      { name: "m7a_commerce_order_line_insert", command: "INSERT", check: TENANT },
+      { name: "m7a_commerce_order_line_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "CallActivity",
+    migration: "20261013090000_m7a_commerce_telephony_foundation",
+    why: "points at a Customer and a lead and holds an unknown caller's pseudonymous hash; the erasure clears all three with an UPDATE",
+    policies: [
+      { name: "m7a_call_activity_select", command: "SELECT", using: TENANT },
+      { name: "m7a_call_activity_insert", command: "INSERT", check: TENANT },
+      { name: "m7a_call_activity_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
   // B4 — Business keeps every read (login, session, signup, lifecycle gates and the
   // public coupon pages read it before a tenant exists) but its WRITES are pinned to
   // the tenant. The erasure's two Business transitions name their own business first.
@@ -598,6 +632,18 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   AcquisitionConnection: {
     verbs: SIU,
     basis: "migration 20261009090000_m6_acquisition_connections grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  CommerceOrder: {
+    verbs: SIU,
+    basis: "migration 20261013090000_m7a_commerce_telephony_foundation grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  CommerceOrderLine: {
+    verbs: SIU,
+    basis: "migration 20261013090000_m7a_commerce_telephony_foundation grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
+  },
+  CallActivity: {
+    verbs: SIU,
+    basis: "migration 20261013090000_m7a_commerce_telephony_foundation grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
 };
 
