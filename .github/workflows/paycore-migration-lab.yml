@@ -24,6 +24,7 @@ on:
       - "ops/evidence/payments-core-config-*.sql"
       - ".paycore/lab.sh"
       - ".paycore/rollback.sql"
+      - ".paycore/prereq.sql"
       - ".m7bc/lab.sh"
       - ".m7a/lab.sh"
       - ".github/workflows/paycore-migration-lab.yml"

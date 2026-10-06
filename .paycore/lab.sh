@@ -19,6 +19,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PAYCORE="20261016090000_payments_core_connection_config"
 bash "$ROOT/.m7bc/lab.sh" "$DB" --with-m7bc >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
+# Production's row-level security on the table this migration widens, verbatim (a db push omits it).
+PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/.paycore/prereq.sql"
 
 deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   local TMP; TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
