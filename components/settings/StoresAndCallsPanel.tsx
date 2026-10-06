@@ -29,6 +29,8 @@ type Connection = {
   activity: { lastTestAt: string | null; lastDeliveryAt: string | null; deliveries30d: number } | null;
   /** CloudTalk: which of its two values the owner has saved (flags only). */
   setup: { signingSecret: boolean; apiKey: boolean } | null;
+  /** M7-C — the owner's names for their own phone lines ({"<digits>": "<name>"}). */
+  lineLabels?: Record<string, string> | null;
 };
 type Overview = {
   sources: Record<string, boolean>;
@@ -195,6 +197,7 @@ export function StoresAndCallsPanel() {
                     <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{HEALTH[c.lastErrorCode] ?? "יש בעיה בחיבור. ננסה שוב אוטומטית."}</p>
                   ) : null}
                   {c.sourceKey === "telephony.cloudtalk" ? <CloudTalkSetup c={c} onSaved={load} /> : null}
+                  {s.key.startsWith("telephony.") ? <LineNames c={c} onSaved={load} /> : null}
                   {c.sourceKey === "telephony.voicenter" && c.endpointUrl ? (
                     <details className="mt-2">
                       <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">איך מחברים ב-Voicenter</summary>
@@ -258,6 +261,51 @@ export function StoresAndCallsPanel() {
         })}
       </div>
     </section>
+  );
+}
+
+/** The owner's names for their own numbers ("קו קמפיין גוגל"): calls on that line are attributed to it. */
+function LineNames({ c, onSaved }: { c: Connection; onSaved: () => Promise<void> }) {
+  const current = c.lineLabels ?? {};
+  const [number, setNumber] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(next: Record<string, string>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/integrations/acquisition/${c.id}`, { action: "set_line_labels", lineLabels: next });
+      setNumber("");
+      setName("");
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "משהו השתבש — נסה/י שוב.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const input = "min-w-0 flex-1 rounded-full border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-1 text-xs";
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">שמות לקווים שלך {Object.keys(current).length ? `(${Object.keys(current).length})` : ""}</summary>
+      <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">למשל מספר ייעודי לקמפיין — שיחות למספר הזה יסומנו בשם שתבחר/י.</p>
+      {Object.entries(current).map(([digits, label]) => (
+        <div key={digits} className="mt-1 flex items-center justify-between gap-2 text-xs">
+          <span dir="ltr">{digits}</span>
+          <span className="flex-1 truncate">{label}</span>
+          <Action onClick={() => { const next = { ...current }; delete next[digits]; void save(next); }} busy={busy} danger>הסרה</Action>
+        </div>
+      ))}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input dir="ltr" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="03-555-0000" aria-label="מספר הקו" className={input} />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="שם הקו" aria-label="שם הקו" className={input} />
+        <Action onClick={() => void save({ ...current, [number]: name })} busy={busy}>הוספה</Action>
+      </div>
+      {error ? <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{error}</p> : null}
+    </details>
   );
 }
 

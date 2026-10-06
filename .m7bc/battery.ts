@@ -232,6 +232,11 @@ async function main() {
   const uB = await o.user.create({ data: { email: `${RUN}-b@lab.test`, password: "x", businessId: B.id, role: "USER" } });
   const uC = await o.user.create({ data: { email: `${RUN}-c@lab.test`, password: "x", businessId: C.id, role: "USER" } });
   let leadsCreatedBySetup = 0;
+  // The owner's catalogue (setup): one product per SKU, except SKU-DUP (two products — ambiguous, never matched).
+  const lamp = await o.inventoryItem.create({ data: { businessId: A.id, name: "Lamp", unitType: "UNIT", sku: "SKU-1" } });
+  await o.inventoryItem.create({ data: { businessId: A.id, name: "Dup one", unitType: "UNIT", sku: "SKU-DUP" } });
+  await o.inventoryItem.create({ data: { businessId: A.id, name: "Dup two", unitType: "UNIT", sku: "SKU-DUP" } });
+  await o.inventoryItem.create({ data: { businessId: B.id, name: "B's lamp", unitType: "UNIT", sku: "SKU-2" } });
   const baseline = {
     leads: await o.lead.count(), deals: await o.deal.count(), financial: await o.financialEvent.count(),
     billing: await o.billingDocument.count(), invSales: await o.inventorySale.count(), invExternal: await o.inventoryExternalSale.count(),
@@ -307,6 +312,21 @@ async function main() {
   ok("a partial refund (negative string) → partially_refunded, refundedMinor exact", refunded.status === 200
     && (await o.commerceOrder.findFirst({ where: { id: o1!.id } }))?.refundedMinor === 5_900);
 
+  console.log("\n-- demand: a paid order line naming exactly one product → one PURCHASE signal (source COMMERCE) --");
+  const sig = await o.offeringDemandSignal.findMany({ where: { businessId: A.id, source: "COMMERCE" } });
+  ok("order 5001 (paid, SKU-1) → ONE PURCHASE signal on that product, pointing at its store line",
+    sig.length === 1 && sig[0].inventoryItemId === lamp.id && sig[0].signalType === "PURCHASE" && sig[0].offeringKind === "PRODUCT" && sig[0].commerceOrderLineId !== null,
+    JSON.stringify(sig.map((x) => ({ i: x.inventoryItemId, l: x.commerceOrderLineId }))));
+  ok("…its later states (fulfilled, refunded, redeliveries) never add a second one", sig.length === 1);
+  await sendWoo(shopA, wooOrder(5101, { line_items: [{ id: 1, product_id: 7, variation_id: 0, sku: "SKU-DUP", name: "Dup", quantity: 1, total: "259.00" }] }), "order.created");
+  await sendWoo(shopA, wooOrder(5102, { line_items: [{ id: 1, product_id: 8, variation_id: 0, sku: "SKU-NONE", name: "?", quantity: 1, total: "259.00" }] }), "order.created");
+  await sendWoo(shopA, wooOrder(5103, { status: "pending" }), "order.created");
+  await sendWoo(shopA, wooOrder(5104, { line_items: [{ id: 1, product_id: 9, variation_id: 0, sku: "SKU-2", name: "B's", quantity: 1, total: "259.00" }] }), "order.created");
+  ok("an ambiguous SKU (two products), an unknown SKU, an unpaid order, another business's SKU → NO signal",
+    (await o.offeringDemandSignal.count({ where: { businessId: A.id, source: "COMMERCE" } })) === 1 && (await o.offeringDemandSignal.count({ where: { businessId: B.id } })) === 0);
+  ok("the signal names no customer, text or amount (product + line + kind only)",
+    !Object.keys(sig[0] ?? {}).some((k) => /customer|title|amount|minor|phone|email/i.test(k)));
+
   console.log("\n-- Secretary + customer card: exceptions only, order history on the card --");
   const asA = <T,>(fn: (tx: Parameters<Parameters<typeof withTenantTransaction>[0]>[0]) => Promise<T>) =>
     runWithTenantContext({ businessId: A.id }, () => withTenantTransaction(fn));
@@ -321,7 +341,7 @@ async function main() {
     && !/Dana|25900|5900|052/.test(JSON.stringify(b1.commerce)), JSON.stringify(b1.commerce));
   const card = await asA((tx) => getCustomerCard({ businessId: A.id, customerId: o1!.customerId! }, { tx }));
   ok("the customer card shows the store order history (status, total, refund) — and counts it as activity",
-    card.orders.total >= 1 && card.orders.items[0]?.status === "partially_refunded" && card.orders.items[0]?.refundedMinor === 5_900 && card.activity.hasAnyActivity);
+    card.orders.total >= 1 && card.orders.items.some((x) => x.id === o1!.id && x.status === "partially_refunded" && x.refundedMinor === 5_900) && card.activity.hasAnyActivity);
   ok("B cannot read A's customer card", await runWithTenantContext({ businessId: B.id }, () => withTenantTransaction((tx) =>
     getCustomerCard({ businessId: B.id, customerId: o1!.customerId! }, { tx }))).then(() => false, () => true));
 
@@ -479,6 +499,11 @@ async function main() {
   await sweep(7 * 3_600_000);
   ok("a WRONG API key → still waiting (deferred), still no guessed call", (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" } })) === 0);
   await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_credentials", apiKeyId: "LABKEYID1", apiKeySecret: "LABKEYSECRET1" }) }), params({ id: String(ctConn.id) }));
+  const badLabels = await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "12": "too short" } }) }), params({ id: String(ctConn.id) }));
+  ok("a line label for something that is not a phone number → 400", badLabels.status === 400);
+  const setLabels = await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "03-555-0000": "קו מכירות" } }) }), params({ id: String(ctConn.id) }));
+  ok("the owner names their line (03-555-0000) → saved on the connection", setLabels.status === 200
+    && JSON.stringify((await o.acquisitionConnection.findFirst({ where: { id: ctConn.id } }))?.lineLabels) === JSON.stringify({ "035550000": "קו מכירות" }));
   await sweep(14 * 3_600_000);
   const ca1 = await o.callActivity.findFirst({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: "c-1" } });
   ok("with the right key → the call is recorded MISSED (no answered_at in CloudTalk's history), 0 s", ca1?.outcome === "missed" && ca1.durationSec === 0, ca1?.outcome);
@@ -486,8 +511,8 @@ async function main() {
   ok("…the business line kept; the recording URL never stored", ca1?.businessLine === "97235550000"
     && !JSON.stringify(await o.intakeEvent.findMany({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" } })).includes("rec.lab.test"));
   const norm = await o.intakeNormalizedEvent.findFirst({ where: { businessId: A.id, intakeEvent: { sourceKey: "telephony.cloudtalk" } } });
-  ok("…routed by R9 (CALL), and labelled by its line name for attribution", norm?.routingRule === "R9_CALL"
-    && JSON.stringify(norm?.attribution ?? {}).includes("line:Sales line"), `${norm?.routingRule} ${JSON.stringify(norm?.attribution)}`);
+  ok("…routed by R9 (CALL), attributed to the OWNER's name for the line (0… matches +972…; wins over CloudTalk's)", norm?.routingRule === "R9_CALL"
+    && JSON.stringify(norm?.attribution ?? {}).includes("line:קו מכירות"), `${norm?.routingRule} ${JSON.stringify(norm?.attribution)}`);
   ok("the API key went in the Authorization header (Basic), never a URL", ctAuthSeen.includes(Buffer.from("LABKEYID1:LABKEYSECRET1").toString("base64")));
   ctHistory.set("c-7", "2026-10-06 09:00:05");
   await sendCloudTalk(ctConn.publicId, whsec, ctCall("c-7", CT_CO));
@@ -520,6 +545,12 @@ async function main() {
   await sendVoicenter(vcPub, vcKey, cdr("v-2", { direction: "outgoing", type: "outgoing", caller: "035550001", target: "0547300002", status: "ANSWER", isAnswer: 1, actualCallDuration: 33, time: Math.floor(T0 / 1000) - 60 }));
   const v1r = await o.callActivity.findFirst({ where: { businessId: A.id, providerCallId: "v-1" } });
   ok("the business calling the number back (answered) → the missed call is RETURNED (outbound_call)", !!v1r?.returnedAt && v1r.returnedVia === "outbound_call");
+  await ownerIdPOST(req(`/api/integrations/acquisition/${vcStored!.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "035550001": "קו קמפיין גוגל" } }) }), params({ id: String(vcStored!.id) }));
+  await sendVoicenter(vcPub, vcKey, cdr("v-5", { time: Math.floor(T0 / 1000) - 30 }));
+  const vNorm = await o.intakeNormalizedEvent.findFirst({ where: { businessId: A.id, intakeEvent: { sourceKey: "telephony.voicenter" } }, orderBy: { id: "desc" } });
+  ok("a call to the owner's named Voicenter line (campaign DID) → attributed to that name", JSON.stringify(vNorm?.attribution ?? {}).includes("line:קו קמפיין גוגל"), JSON.stringify(vNorm?.attribution));
+  ok("line labels cannot be set on a store connection (404)",
+    (await ownerIdPOST(req(`/api/integrations/acquisition/${wixConnA!.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "035550001": "x" } }) }), params({ id: String(wixConnA!.id) }))).status === 404);
   const wrongKey = await sendVoicenter(vcPub, "dvk_" + "0".repeat(43), cdr("v-3"));
   ok("a wrong key → 401 {Err:2}", wrongKey.status === 401 && (await json(wrongKey)).Err === 2);
   await ownerIdPOST(req(`/api/integrations/acquisition/${vcStored!.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "pause" }) }), params({ id: String(vcStored!.id) }));

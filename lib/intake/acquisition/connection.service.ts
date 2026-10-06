@@ -11,6 +11,7 @@
  *
  * Inbound requests never use this module — they resolve through ./resolve (definer lookups).
  */
+import { Prisma } from "@prisma/client";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ValidationError } from "@/lib/errors";
 import { newPublicId, newSharedKey, newSigningSecret } from "./keys";
@@ -41,7 +42,7 @@ export type ConnectionView = {
 
 const VIEW = {
   id: true, sourceKey: true, status: true, publicId: true, label: true, externalResourceId: true, keyHint: true,
-  allowedOrigins: true, lastEventAt: true, lastErrorCode: true, createdAt: true, revokedAt: true,
+  allowedOrigins: true, lastEventAt: true, lastErrorCode: true, createdAt: true, revokedAt: true, lineLabels: true,
 } as const;
 
 /** Exact browser origins: https://host[:port] (http only for localhost). Anything else is refused. */
@@ -150,6 +151,60 @@ export async function setAllowedOrigins(id: number, raw: unknown): Promise<Conne
     if (!row) return null;
     return tx.acquisitionConnection.update({ where: { id }, data: { allowedOrigins: origins }, select: VIEW });
   });
+}
+
+/** M7-C — the owner's names for their own phone lines: {"<digits>": "<label>"}, at most 20, telephony only. */
+export function normalizeLineLabels(raw: unknown): Record<string, string> {
+  if (raw == null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new ValidationError("line labels must be an object");
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const digits = k.replace(/\D/g, "");
+    if (digits.length < 3 || digits.length > 20) throw new ValidationError("a line must be a phone number");
+    if (typeof v !== "string") throw new ValidationError("a line name must be text");
+    const name = v.trim().replace(/\s+/g, " ");
+    if (!name) continue;
+    if (name.length > 40) throw new ValidationError("a line name is at most 40 characters");
+    out[digits] = name;
+  }
+  if (Object.keys(out).length > 20) throw new ValidationError("at most 20 named lines");
+  return out;
+}
+
+export async function setLineLabels(id: number, raw: unknown): Promise<ConnectionView | null> {
+  const labels = normalizeLineLabels(raw);
+  return withTenantTransaction(async (tx) => {
+    const row = await tx.acquisitionConnection.findFirst({
+      where: { id, sourceKey: { in: ["telephony.cloudtalk", "telephony.voicenter"] }, status: { not: "REVOKED" } },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return tx.acquisitionConnection.update({
+      where: { id },
+      data: { lineLabels: Object.keys(labels).length ? labels : Prisma.DbNull },
+      select: VIEW,
+    });
+  });
+}
+
+/** A number's national part: "035550000", "+972 3-555-0000" and "0097235550000" are the same line. */
+function nationalDigits(digits: string): string {
+  return digits.replace(/^(00)?972/, "").replace(/^0+/, "");
+}
+
+/** The owner's name for a business line on the connection a call came through (national-number match). */
+export async function lineLabelFor(sourceKey: string, publicId: string, businessLine: string | undefined): Promise<string | null> {
+  const line = nationalDigits((businessLine ?? "").replace(/\D/g, ""));
+  if (line.length < 3) return null;
+  const row = await withTenantTransaction((tx) =>
+    tx.acquisitionConnection.findFirst({ where: { sourceKey, publicId, status: { not: "REVOKED" } }, select: { lineLabels: true } })
+  );
+  const labels = row?.lineLabels && typeof row.lineLabels === "object" && !Array.isArray(row.lineLabels) ? (row.lineLabels as Record<string, unknown>) : {};
+  for (const [digits, name] of Object.entries(labels)) {
+    if (typeof name !== "string") continue;
+    if (nationalDigits(digits) === line) return name;
+  }
+  return null;
 }
 
 /** Permanent. The credential is wiped; the row stays as the audit of the binding. */

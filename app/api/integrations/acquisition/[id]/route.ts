@@ -7,6 +7,8 @@
  *                                              CloudTalk: the webhook signing secret (whsec_…) and the API key
  *                                              (call history, for the call's real outcome) — stored ENCRYPTED,
  *                                              never returned; the response says only which are set
+ *   { action: "set_line_labels", lineLabels } CloudTalk / Voicenter: the owner's names for their own phone lines
+ *                                              ({"<number>": "<name>"}; attribution of the calls on that line)
  *   { action: "revoke" }                       permanent; a Meta Page is also unsubscribed and a WooCommerce
  *                                              store's Dubiz webhooks are removed (best-effort)
  * FORCE RLS confines every action to the caller's business: another business's id is "not found".
@@ -17,6 +19,7 @@ import {
   revokeConnection,
   rotateKey,
   setAllowedOrigins,
+  setLineLabels,
   setPaused,
   listConnections,
   readConnectionSecrets,
@@ -49,6 +52,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     if (action === "set_origins") {
       const c = await setAllowedOrigins(id, body?.allowedOrigins);
+      return c ? NextResponse.json({ connection: c }) : notFound;
+    }
+    if (action === "set_line_labels") {
+      const c = await setLineLabels(id, body?.lineLabels);
       return c ? NextResponse.json({ connection: c }) : notFound;
     }
     if (action === "set_credentials") {

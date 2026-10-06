@@ -37,6 +37,8 @@ const IS_CHILD = process.env.P1_RLS_CHILD === "1";
 if (!IS_CHILD) process.env.DATABASE_URL = TEST_DB;
 
 const P1_MIGRATION = "20260928120000_p1_business_offering";
+/** Later migrations that extend a P1 table — their statements on it are replayed after P1, as Production has them. */
+const P1_EXTENSIONS = ["20261014090000_m7bc_commerce_demand_and_line_labels"];
 const P1_TABLES = ["BusinessServiceAsset", "InventoryItemAsset", "OfferingDemandSignal"] as const;
 const BASE_RLS: Array<{ migration: string; tables: string[] }> = [
   { migration: "20260824210000_d2_p7_wave1_tenant_rls", tables: ["BusinessService"] },
@@ -306,6 +308,16 @@ async function main() {
     }
   }
   ok(`applied ${applied} statements of the P1 migration`, applied > 20);
+  for (const migration of P1_EXTENSIONS) {
+    for (const statement of migrationStatements(migration)) {
+      if (!/"OfferingDemandSignal"|"OfferingDemandSource"/.test(statement)) continue;
+      try {
+        await prisma.$executeRawUnsafe(statement);
+      } catch (error) {
+        if (!alreadyThere(error)) throw error;
+      }
+    }
+  }
 
   console.log("\n2 · replay base-table RLS from the migrations that own it");
   for (const { migration, tables } of BASE_RLS) {

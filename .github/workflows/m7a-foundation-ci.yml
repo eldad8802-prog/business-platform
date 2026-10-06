@@ -42,6 +42,8 @@ on:
       - "components/leads/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/**"
+      - "prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/**"
+      - "lib/services/offering/**"
       - "ops/evidence/m7a-foundation-*.sql"
       - ".m7a/**"
       - ".m7bc/**"
@@ -106,6 +108,7 @@ jobs:
       PGPASSWORD: m7a_ci_synthetic_owner_pw
       M6: prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
       M7A: prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
+      M7BC: prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/migration.sql
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -124,7 +127,7 @@ jobs:
             -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS" \
             -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS"
 
-      - name: 2. Schema without M6 / M7-A (db push), then the REAL M6 and M7-A migrations
+      - name: 2. Schema without M6 / M7-A / M7-B/C (db push), then the REAL M6, M7-A and M7-B/C migrations (P1 RLS verbatim)
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
@@ -139,10 +142,12 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$M6"
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7a/prereq.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$M7A"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7bc/prereq.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f "$M7BC"
           npx prisma generate
 
       - name: 3. Production row-level security, replayed verbatim from the migrations
-        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections 20261013090000_m7a_commerce_telephony_foundation
+        run: node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections 20261013090000_m7a_commerce_telephony_foundation 20261014090000_m7bc_commerce_demand_and_line_labels
 
       - name: 4. M7-A battery — E2–E16 on the real routes / processor / identity / destinations / Secretary
         env:

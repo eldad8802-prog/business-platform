@@ -22,6 +22,12 @@ for (const m of MODELS) {
 }
 // Back-relation fields pointing at the stripped models.
 s = s.replace(new RegExp(`\\n\\s*\\w+\\s+(${MODELS.join("|")})(\\[\\]|\\?)?(\\s+@relation\\([^)]*\\))?\\s*(?=\\n)`, "g"), "");
+// M7-B/C (20261014090000): the column, index and enum value its migration adds to models that stay.
+s = s.replace(/\n\s*\/\/\/ M7-B — the store order line \(source COMMERCE only; CHECK\)\.\n\s*commerceOrderLineId\s+Int\?/, "");
+s = s.replace(/\n\s*@@index\(\[businessId, commerceOrderLineId\]\)/, "");
+s = s.replace(/\n\s*\/\/\/ M7-B — a line of an online-store order whose SKU names exactly one active product\.\n\s*COMMERCE(?=\n)/, "");
+for (const leftover of ["commerceOrderLineId", "lineLabels"]) if (s.includes(leftover)) throw new Error(`${leftover} remains`);
+if (/enum OfferingDemandSource \{[^}]*COMMERCE/.test(s)) throw new Error("OfferingDemandSource.COMMERCE remains");
 for (const m of MODELS) if (new RegExp(`\\b${m}\\b`).test(s)) throw new Error(`a reference to ${m} remains`);
 writeFileSync(output, s);
 console.log(`stripped ${MODELS.join(", ")}`);

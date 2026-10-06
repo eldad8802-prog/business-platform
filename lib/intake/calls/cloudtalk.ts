@@ -137,7 +137,9 @@ export async function fetchCloudTalkOutcome(callId: string, apiKeyId: string, ap
 export async function hydrateCloudTalkCall(
   ctx: { businessId: number; now: Date },
   event: ClaimedIntakeEvent,
-  readKey: (businessId: number, publicId: string) => Promise<{ apiKeyId: string; apiKeySecret: string } | null>
+  readKey: (businessId: number, publicId: string) => Promise<{ apiKeyId: string; apiKeySecret: string } | null>,
+  /** M7-C — the owner's own name for the business line, when they gave one (wins over CloudTalk's). */
+  labelFor?: (publicId: string, businessLine: string | undefined) => Promise<string | null>
 ): Promise<HydrateResult> {
   const p = event.payload as Partial<CloudTalkCallRefV1> | null;
   if (!p || p.kind !== "cloudtalk_call_ref") return { kind: "unchanged" }; // already canonical (resume)
@@ -167,9 +169,10 @@ export async function hydrateCloudTalkCall(
       counterpartNumber: p.externalNumber,
     });
     const receipt = callReceipt(call, event.providerAccountRef);
+    const lineName = (labelFor ? await labelFor(event.providerAccountRef, call.businessLine) : null) ?? p.lineName;
     return {
       kind: "hydrated",
-      payload: { ...call, ...(p.lineName ? { lineName: p.lineName } : {}) } as unknown as Prisma.InputJsonValue,
+      payload: { ...call, ...(lineName ? { lineName } : {}) } as unknown as Prisma.InputJsonValue,
       metadata: { ...(receipt.metadata as Record<string, unknown>), hydrated: true } as Prisma.InputJsonValue,
     };
   } catch (e) {
