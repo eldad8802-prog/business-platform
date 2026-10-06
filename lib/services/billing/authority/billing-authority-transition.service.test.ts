@@ -116,7 +116,7 @@ function failureInput(overrides: {
     businessId: 1,
     billingDocumentId: overrides.billingDocumentId,
     lastAttemptAt: overrides.lastAttemptAt ?? FAILED_AT,
-    errorCode: overrides.errorCode ?? "FL-001",
+    errorCode: overrides.errorCode ?? "AUTHORITY_NOT_SENT_NETWORK",
     errorMessage: overrides.errorMessage ?? "Operational failure from authority",
     authorityResponseHash: overrides.authorityResponseHash,
   };
@@ -544,6 +544,8 @@ async function runTests() {
       status: BillingAuthoritySubmissionStatus.FAILED,
       retryCount: 2,
       submittedAt: new Date("2026-06-01T08:00:00.000Z"),
+      // Only a provably not-sent failure is reservable again.
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
     });
     const fake = makeFakeAuthorityDb({ submission });
 
@@ -1101,7 +1103,7 @@ async function runTests() {
       billingDocumentId: 37,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
       errorMessage: "Stored failure message",
       authorityResponseHash: "fail-hash-37",
     });
@@ -1130,7 +1132,7 @@ async function runTests() {
       billingDocumentId: 38,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
       authorityResponseHash: "fail-hash-38",
     });
     const fake = makeFakeAuthorityDb({ submission });
@@ -1140,7 +1142,7 @@ async function runTests() {
         fake.tx,
         failureInput({
           billingDocumentId: 38,
-          errorCode: "FL-999",
+          errorCode: "AUTHORITY_NOT_SENT_LOCAL_VALIDATION",
           authorityResponseHash: "fail-hash-38",
         })
       )
@@ -1195,7 +1197,7 @@ async function runTests() {
       billingDocumentId: 45,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
       errorMessage: "Stored failure message",
       retryCount: 2,
     });
@@ -1252,7 +1254,7 @@ async function runTests() {
       billingDocumentId: 46,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
     });
     const fake = makeFakeAuthorityDb({ submission });
 
@@ -1279,7 +1281,7 @@ async function runTests() {
       billingDocumentId: 47,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
     });
     const fake = makeFakeAuthorityDb({ submission });
 
@@ -1309,7 +1311,7 @@ async function runTests() {
       billingDocumentId: 48,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
     });
     const fake = makeFakeAuthorityDb({ submission });
 
@@ -1335,7 +1337,7 @@ async function runTests() {
       billingDocumentId: 49,
       status: BillingAuthoritySubmissionStatus.FAILED,
       lastAttemptAt: FAILED_AT,
-      errorCode: "FL-001",
+      errorCode: "AUTHORITY_NOT_SENT_NETWORK",
       submittedAt: new Date("2026-06-06T10:00:00.000Z"),
     });
     const fake = makeFakeAuthorityDb({ submission });
@@ -1357,7 +1359,7 @@ async function runTests() {
       failureInput({
         billingDocumentId: 49,
         lastAttemptAt: NEW_FAILED_AT,
-        errorCode: "FL-002",
+        errorCode: "AUTHORITY_NOT_SENT_CONFIGURATION",
       })
     );
 

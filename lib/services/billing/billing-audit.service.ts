@@ -13,6 +13,9 @@ export const BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES = [
   "BILLING_AUTHORITY_APPROVED",
   "BILLING_AUTHORITY_REJECTED",
   "BILLING_AUTHORITY_FAILED",
+  // Approval POST may have reached the authority but no definitive result was
+  // persisted; the submission stays SUBMITTED and is never re-sent automatically.
+  "BILLING_AUTHORITY_OUTCOME_UNCERTAIN",
   "BILLING_AUTHORITY_RETRY_SCHEDULED",
   "BILLING_AUTHORITY_HELD",
   "BILLING_AUTHORITY_HELD_DECISION_REPORTED",

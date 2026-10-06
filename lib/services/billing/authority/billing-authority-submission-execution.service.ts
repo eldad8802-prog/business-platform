@@ -1,16 +1,24 @@
 /**
  * Submission Execution Service — runs ONE end-to-end allocation attempt for an
- * issued billing document. NOT wired to issueBillingDocument / routes / jobs.
+ * issued billing document. Called only from the post-commit issue hook.
  *
- * Flow: load doc+submission -> pre-flight validate -> resolve runtime context
- * -> build payload (customerTaxId from the frozen snapshot) -> payload-hash
- * determinism check -> TX1 reserve READY/FAILED->SUBMITTED -> HTTP (orchestrator)
- * outside any tx -> optional 401 force-refresh once (same attempt) -> TX2 persist
- * outcome -> ExecutionResult.
+ * Flow: load doc+submission -> re-entry gate -> resolve runtime context ->
+ * build payload (customerTaxId from the frozen snapshot) -> payload-hash
+ * determinism check -> TX1 reserve (compare-and-set READY | FAILED[not-sent]
+ * -> SUBMITTED) -> exactly ONE Approval POST outside any tx -> TX2 persist.
  *
- * Composes existing layers unchanged (builder, HTTP client, orchestrator,
- * runtime providers, transitions). No schema/state-machine change. No
- * recordAuthorityScheduleRetryTx (retry scheduling is a future service).
+ * SAFETY INVARIANT: an Approval request that may already have reached the Tax
+ * Authority is never sent again by Dubiz.
+ *   - Only a provably NOT_SENT failure is persisted as FAILED (re-executable).
+ *   - Every possibly-sent outcome without a definitive provider result stays
+ *     SUBMITTED with an AUTHORITY_OUTCOME_UNCERTAIN_* marker; SUBMITTED is never
+ *     executable, so no automatic or user-triggered path can re-POST it.
+ *   - A 401 is not proven to mean "not processed" (undocumented in the
+ *     contract) → no in-attempt re-POST with a refreshed token; uncertain.
+ *   - If ITA approved but TX2 fails, the submission is marked uncertain with the
+ *     received allocation number (best effort); if even that write fails it
+ *     remains SUBMITTED from TX1 — still non-executable.
+ * No reconciliation endpoint is assumed. No retry scheduling exists.
  */
 
 import { createHash } from "node:crypto";
@@ -27,7 +35,6 @@ import {
   type BillingIssuedSnapshotV1,
 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import type { InvoiceApprovalRequest } from "@/lib/services/billing/authority/billing-authority-approval.types";
-import type { AuthorityApprovalConfig } from "@/lib/services/billing/authority/billing-authority-approval-client.config";
 import {
   buildInvoiceApprovalPayload,
   type ApprovalPayloadBuildResult,
@@ -48,14 +55,26 @@ import {
   recordAuthorityApprovedTx,
   recordAuthorityFailedTx,
   recordAuthorityHeldTx,
+  recordAuthorityOutcomeUncertainTx,
   recordAuthorityRejectedTx,
   recordAuthoritySubmissionAttemptTx,
+  type AuthorityOutcomeUncertainEvidence,
   type RecordAuthorityApprovedTxInput,
   type RecordAuthorityFailedTxInput,
   type RecordAuthorityHeldTxInput,
+  type RecordAuthorityOutcomeUncertainTxInput,
   type RecordAuthorityRejectedTxInput,
   type RecordAuthoritySubmissionAttemptInput,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
+import {
+  buildAuthorityNotSentErrorCode,
+  buildAuthorityOutcomeUncertainErrorCode,
+  isAuthorityNotSentErrorCode,
+  isAuthorityOutcomeUncertainErrorCode,
+  type AuthorityNotSentReason,
+  type AuthorityOutcomeUncertainReason,
+} from "@/lib/services/billing/authority/billing-authority-send-certainty";
+import { ForbiddenError } from "@/lib/errors";
 import { billingTenantTx } from "../billing-tenant-tx";
 
 /** The HTTP send path ignores `scope` (OAuth-only); a placeholder satisfies the
@@ -64,18 +83,22 @@ const ORCHESTRATOR_SCOPE_UNUSED = "" as const;
 
 export type SafeToRetry = boolean | "manual";
 
+/** An SUBMITTED row without a marker older than this is reported as uncertain (read-only). */
+export const AUTHORITY_IN_FLIGHT_STALE_MS = 15 * 60 * 1000;
+
 export type ExecutionResult =
   | { outcome: "completed_approved"; billingDocumentId: number; submissionId: number; allocationNumber: string; safeToRetry: false }
   | { outcome: "completed_rejected"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: false }
-  | { outcome: "preflight_failed"; billingDocumentId: number; submissionId?: number; errorCode: string; safeToRetry: SafeToRetry }
+  | { outcome: "preflight_failed"; billingDocumentId: number; submissionId?: number; errorCode: string; safeToRetry: boolean }
   | { outcome: "local_validation_failed"; billingDocumentId: number; submissionId?: number; errorCode: string; safeToRetry: true }
-  | { outcome: "authentication_failed"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: true }
-  | { outcome: "infrastructure_failed"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry }
+  /** Provably NOT_SENT transport/configuration failure — persisted FAILED, re-executable. */
+  | { outcome: "infrastructure_failed"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: true }
   | { outcome: "already_processed"; billingDocumentId: number; submissionId: number; status: BillingAuthoritySubmissionStatus; safeToRetry: false }
   | { outcome: "in_progress"; billingDocumentId: number; submissionId: number; safeToRetry: false }
   | { outcome: "decision_required"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; userActionRequired: true; safeToRetry: false }
   | { outcome: "decision_already_reported"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; safeToRetry: false }
-  | { outcome: "ambiguous_result"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry };
+  /** The POST may have reached the authority; never re-sent; explicit resolution required. */
+  | { outcome: "outcome_uncertain"; billingDocumentId: number; submissionId: number; errorCode: string; userActionRequired: true; safeToRetry: false };
 
 export type ExecuteAuthorityApprovalInput = {
   businessId: number;
@@ -94,7 +117,25 @@ export type LoadedDocumentSubmission = {
     id: number;
     status: BillingAuthoritySubmissionStatus;
     authorityPayloadHash: string | null;
+    errorCode: string | null;
+    lastAttemptAt: Date | null;
   } | null;
+};
+
+/** Sanitized safety evidence for logs — ids, codes and hashes only. */
+export type AuthoritySafetyEvent = {
+  event:
+    | "AUTHORITY_APPROVED_PERSIST_FAILED"
+    | "AUTHORITY_UNCERTAIN_MARKER_WRITE_FAILED"
+    | "AUTHORITY_NOT_SENT_FAILURE_WRITE_FAILED";
+  businessId: number;
+  billingDocumentId: number;
+  submissionId: number;
+  errorCode: string;
+  /** sha256 of the received allocation number (hex, first 16) — never the number. */
+  allocationNumberSha256Prefix?: string;
+  allocationNumberLength?: number;
+  persistErrorName?: string;
 };
 
 export type SubmissionExecutionDeps = {
@@ -119,6 +160,8 @@ export type SubmissionExecutionDeps = {
   recordRejected: (tx: Prisma.TransactionClient, input: RecordAuthorityRejectedTxInput) => Promise<unknown>;
   recordFailed: (tx: Prisma.TransactionClient, input: RecordAuthorityFailedTxInput) => Promise<unknown>;
   recordHeld: (tx: Prisma.TransactionClient, input: RecordAuthorityHeldTxInput) => Promise<unknown>;
+  recordOutcomeUncertain: (tx: Prisma.TransactionClient, input: RecordAuthorityOutcomeUncertainTxInput) => Promise<unknown>;
+  reportSafetyEvent: (event: AuthoritySafetyEvent) => void;
 };
 
 function stableStringify(value: unknown): string {
@@ -141,7 +184,7 @@ export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
       select: {
         id: true, businessId: true, status: true, lockedAt: true,
         legalSnapshotHash: true, issuedSnapshot: true,
-        authoritySubmission: { select: { id: true, status: true, authorityPayloadHash: true } },
+        authoritySubmission: { select: { id: true, status: true, authorityPayloadHash: true, errorCode: true, lastAttemptAt: true } },
       },
     })
   );
@@ -164,19 +207,75 @@ export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
   recordRejected: recordAuthorityRejectedTx,
   recordFailed: recordAuthorityFailedTx,
   recordHeld: recordAuthorityHeldTx,
+  recordOutcomeUncertain: recordAuthorityOutcomeUncertainTx,
+  reportSafetyEvent: (event) => {
+    // Filtered: ids, internal codes and a hash only — no token/payload/number.
+    console.error("billing-authority: approval safety event", event);
+  },
 };
 
 function isPositiveInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n > 0;
 }
 
-/** Persist a FAILED outcome (TX2) and return an error-shaped ExecutionResult. */
-async function persistFailed(
-  deps: SubmissionExecutionDeps,
-  input: ExecuteAuthorityApprovalInput,
-  submissionId: number,
-  errorCode: string,
-): Promise<void> {
+function sha256Prefix(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+/** Possibly-sent infrastructure outcome → uncertain reason. */
+function uncertainReasonForInfrastructure(
+  result: Extract<ApprovalDomainResult, { outcome: "infrastructure_failure" }>
+): AuthorityOutcomeUncertainReason {
+  // A 5xx status is the more informative signal even when its body is malformed.
+  if (result.classification === "SERVER") return "SERVER";
+  if (result.failureKind === "MALFORMED_BODY") return "MALFORMED_RESPONSE";
+  switch (result.classification) {
+    case "TIMEOUT":
+      return "TIMEOUT";
+    case "NETWORK":
+      return result.failureKind === "BODY_READ" ? "MALFORMED_RESPONSE" : "NETWORK";
+    case "AUTHENTICATION":
+      return "AUTHENTICATION";
+    case "AUTHORIZATION":
+      return "AUTHORIZATION";
+    default:
+      return result.failureKind === "HTTP_STATUS" ? "UNEXPECTED_STATUS" : "UNKNOWN";
+  }
+}
+
+function notSentReasonForInfrastructure(
+  result: Extract<ApprovalDomainResult, { outcome: "infrastructure_failure" }>
+): AuthorityNotSentReason {
+  return result.classification === "CONFIGURATION" ? "CONFIGURATION" : "NETWORK";
+}
+
+const NO_EVIDENCE: AuthorityOutcomeUncertainEvidence = {
+  sendCertainty: "POSSIBLY_SENT",
+  classification: null,
+  failureKind: null,
+  providerHttpStatus: null,
+  providerErrorId: null,
+  transportCode: null,
+  receivedAllocationNumber: null,
+};
+
+type Ctx = {
+  deps: SubmissionExecutionDeps;
+  input: ExecuteAuthorityApprovalInput;
+  submissionId: number;
+};
+
+/**
+ * Persist a provably NOT_SENT failure (TX2 → FAILED, re-executable). If the
+ * write fails the row stays SUBMITTED from TX1 — non-executable, still safe.
+ */
+async function persistNotSent(ctx: Ctx, reason: AuthorityNotSentReason): Promise<string> {
+  const errorCode = buildAuthorityNotSentErrorCode(reason);
+  const { deps, input } = ctx;
   await deps.runInTransaction(input.businessId, (tx) =>
     deps.recordFailed(tx, {
       businessId: input.businessId,
@@ -188,6 +287,62 @@ async function persistFailed(
       actorUserId: input.actorUserId,
     }),
   );
+  return errorCode;
+}
+
+/**
+ * Marks the SUBMITTED row as outcome-uncertain and returns the non-retryable
+ * result. Never throws: if the marker cannot be written the row is still
+ * SUBMITTED from TX1 (non-executable) and a sanitized safety event is emitted.
+ */
+async function markUncertain(
+  ctx: Ctx,
+  reason: AuthorityOutcomeUncertainReason,
+  evidence: AuthorityOutcomeUncertainEvidence,
+): Promise<ExecutionResult> {
+  const { deps, input, submissionId } = ctx;
+  const errorCode = buildAuthorityOutcomeUncertainErrorCode(reason);
+  try {
+    await deps.runInTransaction(input.businessId, (tx) =>
+      deps.recordOutcomeUncertain(tx, {
+        businessId: input.businessId,
+        billingDocumentId: input.billingDocumentId,
+        reason,
+        observedAt: deps.now(),
+        evidence,
+        actorUserId: input.actorUserId,
+      }),
+    );
+  } catch (error) {
+    deps.reportSafetyEvent({
+      event: "AUTHORITY_UNCERTAIN_MARKER_WRITE_FAILED",
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      submissionId,
+      errorCode,
+      persistErrorName: errorName(error),
+      ...(evidence.receivedAllocationNumber
+        ? {
+            allocationNumberSha256Prefix: sha256Prefix(evidence.receivedAllocationNumber),
+            allocationNumberLength: evidence.receivedAllocationNumber.length,
+          }
+        : {}),
+    });
+  }
+  return {
+    outcome: "outcome_uncertain",
+    billingDocumentId: input.billingDocumentId,
+    submissionId,
+    errorCode,
+    userActionRequired: true,
+    safeToRetry: false,
+  };
+}
+
+async function already(ctx: Ctx): Promise<ExecutionResult> {
+  const after = await ctx.deps.loadDocumentWithSubmission(ctx.input.businessId, ctx.input.billingDocumentId);
+  const st = after?.submission?.status ?? BillingAuthoritySubmissionStatus.SUBMITTED;
+  return { outcome: "already_processed", billingDocumentId: ctx.input.billingDocumentId, submissionId: ctx.submissionId, status: st, safeToRetry: false };
 }
 
 export async function executeAuthorityApproval(
@@ -215,18 +370,42 @@ export async function executeAuthorityApproval(
   if (loaded.legalSnapshotHash == null) return { outcome: "preflight_failed", billingDocumentId, errorCode: "LEGAL_HASH_MISSING", safeToRetry: false };
   if (!loaded.submission) return { outcome: "preflight_failed", billingDocumentId, errorCode: "SUBMISSION_MISSING", safeToRetry: false };
 
+  // ---- re-entry gate: only READY or a provably not-sent FAILED may POST ----
   const submission = loaded.submission;
   switch (submission.status) {
-    case BillingAuthoritySubmissionStatus.SUBMITTED:
+    case BillingAuthoritySubmissionStatus.SUBMITTED: {
+      // A POST may be in flight or may already have reached the authority.
+      const marked = isAuthorityOutcomeUncertainErrorCode(submission.errorCode);
+      const stale =
+        submission.lastAttemptAt != null &&
+        deps.now().getTime() - submission.lastAttemptAt.getTime() > AUTHORITY_IN_FLIGHT_STALE_MS;
+      if (marked || stale) {
+        return {
+          outcome: "outcome_uncertain",
+          billingDocumentId,
+          submissionId: submission.id,
+          errorCode: marked
+            ? (submission.errorCode as string)
+            : buildAuthorityOutcomeUncertainErrorCode("UNKNOWN"),
+          userActionRequired: true,
+          safeToRetry: false,
+        };
+      }
       return { outcome: "in_progress", billingDocumentId, submissionId: submission.id, safeToRetry: false };
+    }
     case BillingAuthoritySubmissionStatus.APPROVED:
     case BillingAuthoritySubmissionStatus.REJECTED:
       return { outcome: "already_processed", billingDocumentId, submissionId: submission.id, status: submission.status, safeToRetry: false };
     case BillingAuthoritySubmissionStatus.READY:
+      break;
     case BillingAuthoritySubmissionStatus.FAILED:
+      if (!isAuthorityNotSentErrorCode(submission.errorCode)) {
+        // Legacy/unknown failure code: the previous POST may have been sent.
+        return { outcome: "preflight_failed", billingDocumentId, submissionId: submission.id, errorCode: "SUBMISSION_NOT_PROVABLY_UNSENT", safeToRetry: false };
+      }
       break;
     default:
-      // NOT_REQUIRED / PENDING / INITIAL — fail-closed, not executable.
+      // NOT_REQUIRED / PENDING / HELD — fail-closed, not executable.
       return { outcome: "preflight_failed", billingDocumentId, submissionId: submission.id, errorCode: "SUBMISSION_NOT_EXECUTABLE", safeToRetry: false };
   }
 
@@ -262,7 +441,8 @@ export async function executeAuthorityApproval(
     return { outcome: "preflight_failed", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_PAYLOAD_HASH_MISMATCH", safeToRetry: false };
   }
 
-  // ---- TX1 reserve READY/FAILED -> SUBMITTED ----
+  // ---- TX1 reserve: compare-and-set READY | FAILED[not-sent] -> SUBMITTED ----
+  // The ownership boundary: at most one concurrent caller passes it.
   try {
     await deps.runInTransaction(input.businessId, (tx) =>
       deps.recordAttempt(tx, {
@@ -272,7 +452,7 @@ export async function executeAuthorityApproval(
       }),
     );
   } catch (error) {
-    // Concurrency / status advanced between pre-flight and reserve.
+    // Nothing has been sent. Report what the row says now.
     const after = await deps.loadDocumentWithSubmission(businessId, billingDocumentId);
     const st = after?.submission?.status;
     if (st === BillingAuthoritySubmissionStatus.APPROVED || st === BillingAuthoritySubmissionStatus.REJECTED) {
@@ -281,53 +461,39 @@ export async function executeAuthorityApproval(
     if (st === BillingAuthoritySubmissionStatus.SUBMITTED || error instanceof AuthorityConditionalUpdateMissedError) {
       return { outcome: "in_progress", billingDocumentId, submissionId: submission.id, safeToRetry: false };
     }
+    if (error instanceof ForbiddenError) {
+      return { outcome: "preflight_failed", billingDocumentId, submissionId: submission.id, errorCode: "SUBMISSION_NOT_PROVABLY_UNSENT", safeToRetry: false };
+    }
     return { outcome: "preflight_failed", billingDocumentId, submissionId: submission.id, errorCode: "RESERVE_FAILED", safeToRetry: true };
   }
 
-  // ---- HTTP (outside tx) + 401 force-refresh once (same attempt) ----
-  const orchestratorConfig: AuthorityApprovalConfig = { ...ctx.context.approvalConfig, scope: ORCHESTRATOR_SCOPE_UNUSED };
-  let result = await deps.requestApproval({
-    snapshot,
-    customerTaxId: snapshot.customer.taxId,
-    accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,
-    operatorUserName: String(actorUserId),
-    accessToken: ctx.context.accessToken,
-    config: orchestratorConfig,
-  });
+  const owned: Ctx = { deps, input, submissionId: submission.id };
 
-  if (result.outcome === "infrastructure_failure" && result.classification === "AUTHENTICATION") {
-    const ctx2 = await deps.resolveRuntimeContext({ businessId, environment, forceRefresh: true });
-    if (!ctx2.ok) {
-      await persistFailed(deps, input, submission.id, "AUTHENTICATION");
-      return { outcome: "authentication_failed", billingDocumentId, submissionId: submission.id, errorCode: ctx2.code, safeToRetry: true };
-    }
-    const stableInputs =
-      ctx2.context.accountingSoftwareNumber === ctx.context.accountingSoftwareNumber &&
-      stableStringify(ctx2.context.approvalConfig) === stableStringify(ctx.context.approvalConfig);
-    if (!stableInputs) {
-      await persistFailed(deps, input, submission.id, "RUNTIME_CONTEXT_CHANGED");
-      return { outcome: "authentication_failed", billingDocumentId, submissionId: submission.id, errorCode: "RUNTIME_CONTEXT_CHANGED", safeToRetry: true };
-    }
-    // One (and only one) second attempt — identical payload, new access token.
+  // ---- exactly ONE Approval POST (outside any tx). No in-attempt re-POST. ----
+  let result: ApprovalDomainResult;
+  try {
     result = await deps.requestApproval({
       snapshot,
       customerTaxId: snapshot.customer.taxId,
-      accountingSoftwareNumber: ctx2.context.accountingSoftwareNumber,
+      accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,
       operatorUserName: String(actorUserId),
-      accessToken: ctx2.context.accessToken,
-      config: { ...ctx2.context.approvalConfig, scope: ORCHESTRATOR_SCOPE_UNUSED },
+      accessToken: ctx.context.accessToken,
+      config: { ...ctx.context.approvalConfig, scope: ORCHESTRATOR_SCOPE_UNUSED },
     });
+  } catch {
+    // The orchestrator contains its own catch; a throw here is unexpected and
+    // its send status cannot be proven.
+    return markUncertain(owned, "UNKNOWN", { ...NO_EVIDENCE, failureKind: "CLIENT_THREW" });
   }
 
-  // ---- TX2 persist outcome (idempotent; concurrent advance -> already_processed) ----
-  try {
-    switch (result.outcome) {
-      case "approved": {
-        if (result.confirmationNumber == null) {
-          await persistFailed(deps, input, submission.id, "AUTHORITY_APPROVED_NO_CONFIRMATION");
-          return { outcome: "ambiguous_result", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_APPROVED_NO_CONFIRMATION", safeToRetry: "manual" };
-        }
-        const allocationNumber = result.confirmationNumber;
+  // ---- TX2 persist outcome ----
+  switch (result.outcome) {
+    case "approved": {
+      if (result.confirmationNumber == null) {
+        return markUncertain(owned, "APPROVED_NO_CONFIRMATION", { ...NO_EVIDENCE, providerHttpStatus: 200 });
+      }
+      const allocationNumber = result.confirmationNumber;
+      try {
         await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordApproved(tx, {
             businessId, billingDocumentId,
@@ -336,9 +502,34 @@ export async function executeAuthorityApproval(
           }),
         );
         return { outcome: "completed_approved", billingDocumentId, submissionId: submission.id, allocationNumber, safeToRetry: false };
+      } catch (error) {
+        if (error instanceof AuthorityConditionalUpdateMissedError) {
+          const after = await deps.loadDocumentWithSubmission(businessId, billingDocumentId).catch(() => null);
+          if (after?.submission?.status === BillingAuthoritySubmissionStatus.APPROVED) {
+            return { outcome: "already_processed", billingDocumentId, submissionId: submission.id, status: BillingAuthoritySubmissionStatus.APPROVED, safeToRetry: false };
+          }
+        }
+        // ITA approved but we could not persist it. Never FAILED: keep the
+        // number (marker evidence) and block every re-POST.
+        deps.reportSafetyEvent({
+          event: "AUTHORITY_APPROVED_PERSIST_FAILED",
+          businessId, billingDocumentId, submissionId: submission.id,
+          errorCode: buildAuthorityOutcomeUncertainErrorCode("APPROVED_PERSIST_FAILED"),
+          allocationNumberSha256Prefix: sha256Prefix(allocationNumber),
+          allocationNumberLength: allocationNumber.length,
+          persistErrorName: errorName(error),
+        });
+        return markUncertain(owned, "APPROVED_PERSIST_FAILED", {
+          ...NO_EVIDENCE,
+          providerHttpStatus: 200,
+          receivedAllocationNumber: allocationNumber,
+        });
       }
-      case "authority_validation_failed": {
-        const errorCode = result.errors[0] ? `ITA_${result.errors[0].code}` : "ITA_VALIDATION";
+    }
+    case "authority_validation_failed": {
+      // Definitive provider rejection (400 with the contract error schema).
+      const errorCode = result.errors[0] ? `ITA_${result.errors[0].code}` : "ITA_VALIDATION";
+      try {
         await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordRejected(tx, {
             businessId, billingDocumentId,
@@ -348,28 +539,51 @@ export async function executeAuthorityApproval(
             actorUserId,
           }),
         );
-        return { outcome: "completed_rejected", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: false };
+      } catch (error) {
+        if (!(error instanceof AuthorityConditionalUpdateMissedError)) throw error;
+        return already(owned);
       }
-      case "not_acceptable": {
-        await persistFailed(deps, input, submission.id, "AUTHORITY_NOT_ACCEPTABLE");
-        return { outcome: "infrastructure_failed", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_NOT_ACCEPTABLE", safeToRetry: "manual" };
-      }
-      case "infrastructure_failure": {
-        const errorCode = `AUTHORITY_${result.classification}`;
-        await persistFailed(deps, input, submission.id, errorCode);
-        if (result.classification === "AUTHENTICATION") {
-          return { outcome: "authentication_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: true };
+      return { outcome: "completed_rejected", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: false };
+    }
+    case "not_acceptable":
+      // 406: documented shape, undocumented processing semantics → fail closed.
+      return markUncertain(owned, "NOT_ACCEPTABLE", {
+        ...NO_EVIDENCE,
+        classification: "BUSINESS_VALIDATION",
+        providerHttpStatus: 406,
+        providerErrorId: result.errorId,
+      });
+    case "infrastructure_failure": {
+      if (result.sendCertainty === "NOT_SENT") {
+        const reason = notSentReasonForInfrastructure(result);
+        try {
+          const errorCode = await persistNotSent(owned, reason);
+          return { outcome: "infrastructure_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: true };
+        } catch (error) {
+          // Row stays SUBMITTED (non-executable): safe, just not retryable yet.
+          deps.reportSafetyEvent({
+            event: "AUTHORITY_NOT_SENT_FAILURE_WRITE_FAILED",
+            businessId, billingDocumentId, submissionId: submission.id,
+            errorCode: buildAuthorityNotSentErrorCode(reason),
+            persistErrorName: errorName(error),
+          });
+          return { outcome: "in_progress", billingDocumentId, submissionId: submission.id, safeToRetry: false };
         }
-        const retryable = result.classification === "NETWORK" || result.classification === "TIMEOUT" || result.classification === "SERVER";
-        return { outcome: "infrastructure_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: retryable ? true : "manual" };
       }
-      case "decision_required": {
-        // Business rejection (460/461) requiring a user decision. Persist
-        // SUBMITTED → HELD (non-terminal): NOT a technical FAILED, NOT a terminal
-        // REJECTED — either would lose the business meaning and block a future
-        // Continue/Objection. errorMessage is the sanitized canonical code only
-        // (no authority PII). The user-decision paths out of HELD are a future PR.
-        const errorCode = buildAuthorityHeldErrorCode(result.code);
+      return markUncertain(owned, uncertainReasonForInfrastructure(result), {
+        ...NO_EVIDENCE,
+        classification: result.classification,
+        failureKind: result.failureKind,
+        providerHttpStatus: result.providerHttpStatus,
+        providerErrorId: result.providerErrorId,
+        transportCode: result.transportCode,
+      });
+    }
+    case "decision_required": {
+      // Definitive business rejection (460/461) requiring a user decision →
+      // SUBMITTED → HELD (non-terminal, non-executable).
+      const errorCode = buildAuthorityHeldErrorCode(result.code);
+      try {
         await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordHeld(tx, {
             businessId, billingDocumentId,
@@ -379,36 +593,34 @@ export async function executeAuthorityApproval(
             actorUserId,
           }),
         );
-        return { outcome: "decision_required", billingDocumentId, submissionId: submission.id, code: result.code, errorCode, userActionRequired: true, safeToRetry: false };
+      } catch (error) {
+        if (!(error instanceof AuthorityConditionalUpdateMissedError)) throw error;
+        return already(owned);
       }
-      case "decision_already_reported": {
-        // 462 — a decision was already reported to the authority. Do not
-        // re-decide or overwrite local state; flag for reconciliation. The
-        // submission is left as-is.
-        return { outcome: "decision_already_reported", billingDocumentId, submissionId: submission.id, code: result.code, errorCode: "AUTHORITY_DECISION_ALREADY_REPORTED", safeToRetry: false };
-      }
-      case "not_approved_unknown": {
-        // approved:false with no verified 460/461/462 — fail-closed (no invented
-        // decision). Recorded as FAILED; message/confirmation not persisted (no
-        // free-form audit field without a schema change) — flagged.
-        await persistFailed(deps, input, submission.id, "AUTHORITY_NOT_APPROVED_AMBIGUOUS");
-        return { outcome: "ambiguous_result", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_NOT_APPROVED_AMBIGUOUS", safeToRetry: "manual" };
-      }
-      case "local_validation_failed": {
-        await persistFailed(deps, input, submission.id, "AUTHORITY_LOCAL_VALIDATION_UNEXPECTED");
-        return { outcome: "local_validation_failed", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_LOCAL_VALIDATION_UNEXPECTED", safeToRetry: true };
-      }
-      default: {
-        const _never: never = result;
-        return _never;
+      return { outcome: "decision_required", billingDocumentId, submissionId: submission.id, code: result.code, errorCode, userActionRequired: true, safeToRetry: false };
+    }
+    case "decision_already_reported": {
+      // 462 — the authority says a decision was already reported. Do not
+      // re-decide; keep SUBMITTED and mark it for explicit reconciliation.
+      await markUncertain(owned, "DECISION_ALREADY_REPORTED", { ...NO_EVIDENCE, providerHttpStatus: 200 });
+      return { outcome: "decision_already_reported", billingDocumentId, submissionId: submission.id, code: result.code, errorCode: "AUTHORITY_DECISION_ALREADY_REPORTED", safeToRetry: false };
+    }
+    case "not_approved_unknown":
+      // approved:false with no verified 460/461/462 — processing unknown.
+      return markUncertain(owned, "NOT_APPROVED_AMBIGUOUS", { ...NO_EVIDENCE, providerHttpStatus: 200 });
+    case "local_validation_failed": {
+      // The orchestrator's own build failed: the client was never called.
+      try {
+        const errorCode = await persistNotSent(owned, "LOCAL_VALIDATION");
+        return { outcome: "local_validation_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: true };
+      } catch (error) {
+        if (!(error instanceof AuthorityConditionalUpdateMissedError)) throw error;
+        return already(owned);
       }
     }
-  } catch (error) {
-    if (error instanceof AuthorityConditionalUpdateMissedError) {
-      const after = await deps.loadDocumentWithSubmission(businessId, billingDocumentId);
-      const st = after?.submission?.status ?? submission.status;
-      return { outcome: "already_processed", billingDocumentId, submissionId: submission.id, status: st, safeToRetry: false };
+    default: {
+      const _never: never = result;
+      return _never;
     }
-    throw error;
   }
 }

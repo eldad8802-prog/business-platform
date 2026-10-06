@@ -82,13 +82,6 @@ export function describeAuthorityIssueOutcome(
         title: "המסמך הונפק — בקשת ההקצאה נדחתה",
         detail: "רשות המסים דחתה את בקשת מספר ההקצאה. לא התקבל מספר.",
       };
-    case "authentication_failed":
-      return {
-        ...base,
-        tone: "warning",
-        title: "המסמך הונפק — בקשת ההקצאה לא הושלמה",
-        detail: "נדרש חיבור מחדש לרשות המסים. לא התקבל מספר.",
-      };
     case "infrastructure_failed":
       return {
         ...base,
@@ -101,14 +94,15 @@ export function describeAuthorityIssueOutcome(
         ...base,
         tone: "danger",
         title: "המסמך הונפק — תוצאת ההקצאה אינה ודאית",
-        detail: "נדרש בירור מול רשות המסים. אין להניח שהתקבל מספר.",
+        userActionRequired: true,
+        detail: "ייתכן שהבקשה הגיעה לרשות המסים. היא לא תישלח שוב אוטומטית — נדרש בירור. אין להניח שהתקבל מספר.",
       };
     case "execution_error":
       return {
         ...base,
         tone: "danger",
         title: "המסמך הונפק — בקשת ההקצאה נכשלה",
-        detail: "אירעה תקלה בעת בקשת מספר ההקצאה. לא התקבל מספר.",
+        detail: "אירעה תקלה בעת בקשת מספר ההקצאה. הבקשה לא תישלח שוב אוטומטית — נדרש בירור.",
       };
     default: {
       // Exhaustiveness guard — every AuthorityIssueStatus is handled above.

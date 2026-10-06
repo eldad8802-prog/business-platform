@@ -427,7 +427,8 @@ export async function resolveAuthorityOutcomeAfterIssue(
       status: "execution_error",
       submissionId: submission.submissionId,
       errorCode: "AUTHORITY_EXECUTION_UNEXPECTED",
-      safeToRetry: "manual",
+      // The throw may have happened after the Approval POST: never retryable.
+      safeToRetry: false,
     };
   }
 }

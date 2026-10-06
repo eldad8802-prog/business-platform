@@ -1,0 +1,169 @@
+# ITA Approval safety — no automatic re-send after a possibly-sent request.
+#
+# Invariant: an Approval request (POST /Invoices/v2/Approval) that may already
+# have reached the Tax Authority is never sent again by Dubiz. Only a provably
+# NOT_SENT failure is FAILED (re-executable); every possibly-sent outcome stays
+# SUBMITTED with an AUTHORITY_OUTCOME_UNCERTAIN_* marker.
+#
+# Pure: the real execution → orchestrator → client → transition stack runs
+# against a counting fake fetch and an in-memory Prisma double (atomic CAS +
+# rollback). The only sockets are 127.0.0.1 fixtures that prove real undici
+# error shapes. ZERO secrets; ZERO database; ZERO Internet.
+
+name: authority — approval safety
+
+on:
+  pull_request:
+    # The ITA work is stacked on feat/ita-authority-egress until it lands on main.
+    branches: [main, feat/ita-authority-egress]
+    paths:
+      - ".authority-approval-tenant/**"
+      - "lib/services/billing/authority/billing-authority-approval-client*.ts"
+      - "lib/services/billing/authority/billing-authority-approval-orchestrator*.ts"
+      - "lib/services/billing/authority/billing-authority-approval-safety.verify.test.ts"
+      - "lib/services/billing/authority/billing-authority-send-certainty.ts"
+      - "lib/services/billing/authority/billing-authority-submission-execution.service*.ts"
+      - "lib/services/billing/authority/billing-authority-transition.service*.ts"
+      - "lib/services/billing/authority/billing-authority-issue-outcome*.ts"
+      - "lib/services/billing/authority/billing-authority-egress.ts"
+      - "lib/services/billing/billing-issue.service.ts"
+      - ".github/workflows/authority-approval-safety-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  approval-safety:
+    name: Approval safety battery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Safety battery (POST counting, concurrency, DB-failure, 401)
+        run: npm run verify:authority-approval-safety
+
+      - name: Unit suites on the same path
+        run: |
+          npx tsx lib/services/billing/authority/billing-authority-submission-execution.service.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-transition.service.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-approval-client.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-approval-orchestrator.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-issue-outcome.test.ts
+          npx tsx lib/billing/authority-issue-display.test.ts
+          npx tsx lib/services/billing/billing-issue-authority-wiring.test.ts
+
+      # ── NEGATIVE PROOFS ─────────────────────────────────────────────────
+      # Each re-plants one defect and requires the battery to catch it.
+      - name: Negative proof (reserve loses its compare-and-set)
+        run: |
+          F="lib/services/billing/authority/billing-authority-transition.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    submissionUpdate,\n    requireCurrentStatus: existing\.status,\n/    submissionUpdate,\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run --silent verify:authority-approval-safety >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: concurrent executions both POSTed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (a connection reset counts as not-sent)
+        run: |
+          F="lib/services/billing/authority/billing-authority-send-certainty.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  "ECONNREFUSED",\n/  "ECONNREFUSED",\n  "ECONNRESET",\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run --silent verify:authority-approval-safety >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a possibly-sent reset became retryable"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (FAILED accepts a possibly-sent code)
+        run: |
+          F="lib/services/billing/authority/billing-authority-transition.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(!isAuthorityNotSentErrorCode\(incoming\.errorCode\)\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run --silent verify:authority-approval-safety >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: FAILED recorded a possibly-sent outcome"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (every infrastructure failure treated as not-sent)
+        run: |
+          F="lib/services/billing/authority/billing-authority-submission-execution.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      if \(result\.sendCertainty === "NOT_SENT"\) \{/      if (true) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run --silent verify:authority-approval-safety >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: possibly-sent outcomes were not marked uncertain"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Worktree unchanged by the negative proofs
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "A negative proof left the worktree dirty"; exit 1
+          fi
+          echo "WORKTREE CLEAN"
+
+  # Real Postgres FORCE RLS + the application's real runtime grants; the app
+  # code runs as a NOBYPASSRLS role. Ephemeral PG17 only (the battery refuses
+  # any other DIRECT_URL). Synthetic CI-only credentials; ZERO secrets.
+  approval-tenant-isolation:
+    name: Approval tenant isolation (ephemeral PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: apsafe_owner
+          POSTGRES_PASSWORD: apsafe_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_apsafe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U apsafe_owner -d dubiz_apsafe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://apsafe_owner:apsafe_ci_synthetic_owner_pw@localhost:5432/dubiz_apsafe
+      DIRECT_URL: postgresql://apsafe_owner:apsafe_ci_synthetic_owner_pw@localhost:5432/dubiz_apsafe
+      AUTH_TOKEN_SECRET: apsafe_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Push schema (ephemeral)
+        run: npx prisma db push --skip-generate
+
+      - name: Tenant-isolation battery (runtime role, FORCE RLS)
+        run: npx tsx .authority-approval-tenant/battery.mts
+
+      - name: Negative proof (runtime role with BYPASSRLS must fail the battery)
+        run: |
+          if APSAFE_NEGATIVE=bypassrls npx tsx .authority-approval-tenant/battery.mts > neg.log 2>&1; then
+            cat neg.log; echo "NEGATIVE-PROOF FAIL: battery passed without RLS"; exit 1
+          fi
+          grep -E "\[FAIL\]|PASS=" neg.log | head -20
+          echo "NEGATIVE-PROOF PASS"
