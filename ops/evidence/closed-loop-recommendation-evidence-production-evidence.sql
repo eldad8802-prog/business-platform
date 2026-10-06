@@ -6,12 +6,12 @@
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, nothing is unfinished or rolled back;
---   * the table exists with RLS ENABLED + FORCED, exactly the two tenant policies (read, insert) on the
+--   * the table exists with RLS ENABLED + FORCED, exactly the two tenant policies (read, add) on the
 --     app.current_business_id GUC and no other command policy;
---   * the append-only trigger runs m9_append_only_guard() before update or delete;
---   * the composite (businessId, recommendationId) FK to OutcomeRecommendation and the Business FK cascade;
+--   * the append-only trigger runs m9_append_only_guard() before any row rewrite or removal;
+--   * the composite (businessId, recommendationId) FK to OutcomeRecommendation and the Business FK, both cascading;
 --   * one evidence row per recommendation (unique) and the kind / shape checks exist;
---   * app_runtime holds exactly SELECT + INSERT on the table (r, a) and USAGE + SELECT on its sequence;
+--   * app_runtime holds exactly r + a on the table and U + r on its sequence;
 --   * owner_recommendations is defined default-off and globally off, not emergency-disabled, and NO business
 --     has access to it; the table is empty (nothing was backfilled).
 --
@@ -23,12 +23,12 @@
 \echo ' 1 the migration is recorded and finished (observed = finished rows)'
 \echo ' 2 no ledger row is unfinished or rolled back (observed = such rows)'
 \echo ' 3 OutcomeRecommendationEvidence exists with RLS ENABLED + FORCED'
-\echo ' 4 exactly two policies: tenant read (SELECT) and tenant insert (INSERT), both on the GUC (observed = policies)'
-\echo ' 5 the append-only trigger runs m9_append_only_guard before update or delete (observed = such triggers)'
-\echo ' 6 composite FK (businessId, recommendationId) to OutcomeRecommendation, ON DELETE CASCADE'
-\echo ' 7 FK businessId to Business, ON DELETE CASCADE'
+\echo ' 4 exactly two policies: tenant read (r) and tenant add (a), both on the GUC (observed = policies)'
+\echo ' 5 the append-only trigger runs m9_append_only_guard before row rewrite or removal (observed = such triggers)'
+\echo ' 6 composite FK (businessId, recommendationId) to OutcomeRecommendation, cascading'
+\echo ' 7 FK businessId to Business, cascading'
 \echo ' 8 unique (businessId, recommendationId) and the two check constraints exist (observed = of 3)'
-\echo ' 9 app_runtime table privileges are exactly ar (SELECT, INSERT)'
+\echo ' 9 app_runtime table privileges are exactly ar (read, add)'
 \echo '10 app_runtime holds USAGE + SELECT on the id sequence (observed = privileges)'
 \echo '11 owner_recommendations defined: defaultEnabled false, mutable true'
 \echo '12 owner_recommendations policy: globalEnabled false, emergencyDisabled false'

@@ -12,7 +12,7 @@
 --   * what it reuses exists: m9_append_only_guard(), the composite (businessId, id) FK target on
 --     OutcomeRecommendation, the FORCE-RLS outcome history, Business.id;
 --   * app_runtime exists and every runtime login is NOSUPERUSER NOBYPASSRLS; the migration role's default
---     privileges are exactly what the migration's explicit grant and revoke statements assume;
+--     privileges are exactly what the migration's explicit privilege statements assume;
 --   * the feature tables accept the ON CONFLICT targets the migration names.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.

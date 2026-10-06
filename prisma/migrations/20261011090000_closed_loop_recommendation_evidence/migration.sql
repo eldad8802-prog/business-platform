@@ -1,8 +1,8 @@
 -- Closed Loop Activation — durable WHY for owner-facing recommendations, and the owner surface switch.
 --
 -- 1. OutcomeRecommendationEvidence: what Dubiz saw, at the moment it issued ONE recommendation version, in a
---    structured, bounded form (ids, dates, day counts, codes, and — for an overdue installment — the remaining
---    amount the owner already sees in their own payables). So "why did Dubiz recommend this to me then?" is
+--    structured, bounded form (ids, dates, day counts and fixed codes; NO money — as everywhere in M9, amounts
+--    are used in memory only). So "why did Dubiz recommend this to me then?" is
 --    answered from what was captured, never recomputed from today's state. No names, no document text, no free
 --    text, no raw rows.
 --      - one row per recommendation version (recommendation ids are already one per version)
