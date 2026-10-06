@@ -376,9 +376,8 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
   };
 
   // Boot check (validating an existing session before redirecting to /app).
-  // Render the brand intro's cream ground — no card, no "טוען..." — so a
-  // logged-in entry is cream from the first paint and flows seamlessly into the
-  // /app bear intro with no separate loading screen.
+  // Render a plain cream ground — no card, no "טוען..." — while a logged-in
+  // entry is validated and sent on to /app.
   if (bootLoading) {
     return (
       <div

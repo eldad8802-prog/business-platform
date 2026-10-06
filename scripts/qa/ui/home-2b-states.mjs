@@ -624,9 +624,6 @@ async function main() {
         viewport: { width, height: 900 },
         deviceScaleFactor: 2,
         locale: "he-IL",
-      reducedMotion: "reduce",
-        // The brand intro splash hides the shell until its timeline ends; under
-        // reduced motion it resolves in 900ms, which is also the a11y path.
         reducedMotion: "reduce",
       });
       const page = await ctx.newPage();

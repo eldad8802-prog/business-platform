@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
 import { IconInfo } from "@/components/navigation/nav-icons";
 import { DESKTOP_QUERY, HomeV3 } from "@/features/home/v3/home-v3";
 import { useHomeData } from "@/features/home/v3/use-home-data";
@@ -29,21 +28,12 @@ const HOME_FETCH_TIMEOUT_MS = 28_000;
 
 /* ----------------------------------------------------------- auth states -- */
 
-// The pre-session bootstrap paint. Rendered as the intro's cream ground (no
-// text) so the brand entry never shows a "טוען…" flash — even for a frame,
-// before the overlay/preboot takes over. On the rare no-token "stuck" path the
-// fallback button below still appears over it.
+// The pre-session bootstrap paint: the Home canvas with no text, so the frame
+// before the session read never flashes a "טוען…" word or a colour change into
+// the loading state below. On the rare no-token "stuck" path the fallback
+// button below still appears over it.
 function HomeAuthBootstrap() {
-  return (
-    <main
-      aria-hidden="true"
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(circle at 50% 38%, #FDFBF6 0%, #F5EFE2 58%, #EDE4D3 100%)",
-      }}
-    />
-  );
+  return <main aria-hidden="true" className="min-h-screen" style={{ background: "#FEF8F2" }} />;
 }
 
 /** First paint while `/api/home` answers — the Home canvas, quiet blocks. */
@@ -295,16 +285,7 @@ function HomePage() {
     body = <HomeV3 data={homeData} loadWeek={loadWeek} businessName={businessName} ownerName={ownerName} />;
   }
 
-  // The brand intro overlay REPLACES the old skeleton on first authenticated
-  // entry per session. It renders on top, plays in parallel with /api/home, and
-  // fades out only once the animation has finished AND the page has settled
-  // (appReady). It self-limits to once/session and respects reduced-motion.
-  return (
-    <>
-      <DubizIntroOverlay appReady={sessionReady && !loading} />
-      {body}
-    </>
-  );
+  return body;
 }
 
 export default HomePage;

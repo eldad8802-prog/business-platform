@@ -207,7 +207,7 @@ ok("signed-out scope → none", resolveBackTarget({ store: chain(["/app", "/docu
 // Every real page route must be classified: root, registered sub-screen, or
 // an explicit exemption (public / auth / dev / redirect-only).
 const EXEMPT_PREFIXES = [
-  "/login", "/register", "/onboarding", "/dev", "/test-upload", "/brand-animation-demo", "/posts", "/upload",
+  "/login", "/register", "/onboarding", "/dev", "/test-upload", "/posts", "/upload",
   "/coupon-design", "/home", "/home-prototype", "/about", "/contact", "/privacy", "/terms", "/data-deletion",
   "/revenue/issue", "/offers", "/promotions", "/dashboard", "/opportunities", "/",
 ];
