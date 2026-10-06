@@ -1,0 +1,15 @@
+{
+  "note": "Dubiz Payments — Production Safety & Shared Payment Core (docs/payments-core-safety-v1.md).",
+  "tests": {
+    "lib/services/payments/provider-contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) money-truth contract: every REAL adapter (CardCom, SUMIT) through the shared path — verified amount/currency before recording, exactly-once, reconciliation candidates for id-less providers, refund target from stored evidence, UNKNOWN on refund timeout; also run with two re-injected historical defects by m1-inbound-money-ci.yml"
+    },
+    "lib/services/payments/payment-core-safety.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite: test/sandbox accounts cannot create fiscal truth in Production, provider-issued documents never duplicated, connections pinned while money is open, one open link per invoice, webhook amounts compared as money, attention list tenant-scoped; also run by m1-inbound-money-ci.yml"
+    }
+  }
+}

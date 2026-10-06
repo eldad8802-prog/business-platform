@@ -185,6 +185,31 @@ function toWebhookRecord(row: WebhookRow): PaymentWebhookEventRecord {
   };
 }
 
+/**
+ * The settlement row opened WITH a verified payment. A hold reason opens it
+ * already paused: no automatic receipt is ever attempted, and recovery (which
+ * picks PENDING rows) leaves it be.
+ */
+function settlementOpening(
+  open: NonNullable<CreateTransactionRow["openAccountingSettlement"]>,
+  paymentTransactionId: number
+): Prisma.PaymentAccountingSettlementUncheckedCreateInput {
+  const held = typeof open.attentionReason === "string" && open.attentionReason !== "";
+  return held
+    ? {
+        businessId: open.businessId,
+        paymentTransactionId,
+        status: "REQUIRES_ATTENTION",
+        attentionReason: open.attentionReason,
+      }
+    : {
+        businessId: open.businessId,
+        paymentTransactionId,
+        status: "PENDING",
+        nextAttemptAt: new Date(),
+      };
+}
+
 function toJsonInput(value: unknown): Prisma.InputJsonValue {
   // Strings/objects/numbers are all valid JSON column values. Undefined is
   // not, so coalesce to null wrapped as JSON.
@@ -753,23 +778,8 @@ export function createPaymentPrismaStore(): PaymentStore {
           },
         });
         if (open) {
-          // A hold reason opens the row already paused: no automatic receipt is
-          // ever attempted, and recovery (which picks PENDING rows) leaves it be.
-          const held = typeof open.attentionReason === "string" && open.attentionReason !== "";
           await db.paymentAccountingSettlement.create({
-            data: held
-              ? {
-                  businessId: open.businessId,
-                  paymentTransactionId: created.id,
-                  status: "REQUIRES_ATTENTION",
-                  attentionReason: open.attentionReason,
-                }
-              : {
-                  businessId: open.businessId,
-                  paymentTransactionId: created.id,
-                  status: "PENDING",
-                  nextAttemptAt: new Date(),
-                },
+            data: settlementOpening(open, created.id),
           });
         }
         return created;
