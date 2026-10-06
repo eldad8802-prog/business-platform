@@ -524,11 +524,13 @@ export function createEmbeddedSignupController(
           config_id: config.configId,
           response_type: "code",
           override_default_response_type: true,
-          // Coexistence path — onboard an existing WhatsApp Business App number.
+          // Embedded Signup v4: the version and the products come from the Facebook Login for
+          // Business configuration (`config_id`), so extras names no `version` and no v2
+          // `sessionInfoVersion` (v4 sends the session info for every flow). Coexistence path —
+          // onboard an existing WhatsApp Business App number — via `featureType`.
           extras: {
             setup: {},
             featureType: "whatsapp_business_app_onboarding",
-            sessionInfoVersion: "3",
           },
         }
       );
