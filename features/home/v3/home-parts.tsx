@@ -464,48 +464,8 @@ export function ActivityList({
 
 /* -------------------------------------------------------------- insight -- */
 
-/**
- * "התובנה של Dubiz" — drawn when the backend actually has an insight. A business
- * that has never had one (history, not "none today") gets a quiet line saying
- * when they will appear; one that has had insights and simply has none open
- * right now keeps the card hidden, as before.
- */
-export function InsightCard({
-  insight,
-  wide,
-  style,
-  learning = false,
-}: {
-  insight: Load<InsightView | null>;
-  wide?: boolean;
-  style?: CSSProperties;
-  /** True only when history says this business never had an insight. */
-  learning?: boolean;
-}) {
-  if (insight.state === "ready" && insight.value === null && learning) {
-    return (
-      <section
-        aria-label="התובנה של Dubiz"
-        style={{
-          borderRadius: wide ? 22 : 20,
-          padding: wide ? "18px 22px" : 16,
-          background: "#FBF8F3",
-          border: `1px solid ${LINE}`,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          minWidth: 0,
-          ...style,
-        }}
-      >
-        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: MUTED }}>
-          <IconSparkle size={14} strokeWidth={2} />
-          התובנה של Dubiz
-        </span>
-        <span style={{ fontSize: 14, color: MUTED }}>תופיע אחרי שיצטבר מספיק מידע.</span>
-      </section>
-    );
-  }
+/** "התובנה של Dubiz" — drawn only when the backend actually has an insight. */
+export function InsightCard({ insight, wide, style }: { insight: Load<InsightView | null>; wide?: boolean; style?: CSSProperties }) {
   if (insight.state !== "ready" || insight.value === null) return null;
   const v = insight.value;
   return (

@@ -105,12 +105,7 @@ export function DesktopHome({ view }: { view: HomeView }) {
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>
-          <InsightCard
-            insight={view.data.insight}
-            wide
-            learning={view.history ? !view.history.insights : false}
-            style={{ flex: "999 1 520px", boxSizing: "content-box" }}
-          />
+          <InsightCard insight={view.data.insight} wide style={{ flex: "999 1 520px", boxSizing: "content-box" }} />
           <Shortcuts />
         </div>
       </div>
@@ -876,7 +871,6 @@ const STOCK_TONE = {
 
 function StockPanel({ view }: { view: HomeView }) {
   const inv = view.data.inventory;
-  const noStockEver = showsFirstTime(view.history, "inventory", inv.state === "ready" && inv.value.length > 0);
   let body: ReactNode;
   if (inv.state === "loading") body = <PanelSkeleton />;
   else if (inv.state === "failed") body = <Note>לא הצלחנו לטעון את המלאי.</Note>;
@@ -915,29 +909,26 @@ function StockPanel({ view }: { view: HomeView }) {
     <Panel title="מצב המלאי" link={{ href: "/inventory", label: "לניהול מלאי" }} basis="320px" gap={10}>
       {body}
       <div style={{ flex: 1 }} />
-      {/* Ordering from a supplier is not a natural step for a business that has no stock yet. */}
-      {noStockEver ? null : (
-        <Link
-          href="/inventory/supplier-purchases/new"
-          prefetch={false}
-          style={{
-            height: 38,
-            borderRadius: 11,
-            border: "1px solid #CFE0DE",
-            background: "#FFFFFF",
-            color: "#1D5552",
-            fontSize: 13,
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            textDecoration: "none",
-            boxSizing: "border-box",
-          }}
-        >
-          הזמנה מספק
-        </Link>
-      )}
+      <Link
+        href="/inventory/supplier-purchases/new"
+        prefetch={false}
+        style={{
+          height: 38,
+          borderRadius: 11,
+          border: "1px solid #CFE0DE",
+          background: "#FFFFFF",
+          color: "#1D5552",
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          textDecoration: "none",
+          boxSizing: "border-box",
+        }}
+      >
+        הזמנה מספק
+      </Link>
     </Panel>
   );
 }

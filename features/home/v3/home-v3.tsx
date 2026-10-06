@@ -342,7 +342,7 @@ function MobileHome({ view }: { view: HomeView }) {
         <ActivityList activity={view.activity} variant="flat" when={view.when} />
       </div>
 
-      <InsightCard insight={view.data.insight} learning={view.history ? !view.history.insights : false} style={{ margin: "24px 20px 0 20px" }} />
+      <InsightCard insight={view.data.insight} style={{ margin: "24px 20px 0 20px" }} />
     </main>
   );
 }
@@ -375,7 +375,7 @@ function TabletHome({ view }: { view: HomeView }) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
           <FeatureTiles height={136} gap={10} />
-          <InsightCard insight={view.data.insight} learning={view.history ? !view.history.insights : false} />
+          <InsightCard insight={view.data.insight} />
           <ActivityList activity={view.activity} variant="boxed" when={view.when} />
         </div>
       </div>
