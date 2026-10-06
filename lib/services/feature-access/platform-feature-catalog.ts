@@ -19,6 +19,7 @@ export const PLATFORM_FEATURE_KEYS = {
   ACQUISITION_META_LEAD_ADS: "acquisition_meta_lead_ads",
   ACQUISITION_GOOGLE_LEAD_FORMS: "acquisition_google_lead_forms",
   ACQUISITION_WEB_FORMS: "acquisition_web_forms",
+  OWNER_RECOMMENDATIONS: "owner_recommendations",
 } as const;
 
 export type PlatformFeatureKey =
@@ -169,6 +170,16 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "לידים מטופס באתר",
       category: "integrations",
       description: "קבלת לידים מטופס יצירת קשר באתר העסק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Closed Loop — Dubiz recommendations shown to the owner, and the owner's decision on them. OFF by
+    // default (migration 20261012090000): a business sees them only after a platform admin enables it.
+    {
+      key: PLATFORM_FEATURE_KEYS.OWNER_RECOMMENDATIONS,
+      displayName: "המלצות Dubiz",
+      category: "intelligence",
+      description: "הצגת המלצות Dubiz לבעל העסק וקבלת החלטתו — כבויה כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

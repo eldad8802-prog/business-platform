@@ -24,6 +24,7 @@ import {
   WaitingCard,
   WaitingHeading,
 } from "./home-parts";
+import { RecommendationCard } from "./recommendation-card";
 import {
   FAILED,
   LOADING,
@@ -291,6 +292,8 @@ function MobileHome({ view }: { view: HomeView }) {
         <WaitingGrid view={view} />
       </div>
 
+      <RecommendationCard recommendation={view.data.recommendation} style={{ margin: "16px 20px 0 20px" }} />
+
       <div style={{ margin: "28px 20px 0 20px" }}>
         <FeatureTiles height={132} gap={8} />
       </div>
@@ -330,6 +333,7 @@ function TabletHome({ view }: { view: HomeView }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
           <Cashflow view={view} variant="tablet" />
           <WaitingGrid view={view} tablet />
+          <RecommendationCard recommendation={view.data.recommendation} />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
           <FeatureTiles height={136} gap={10} />

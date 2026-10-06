@@ -390,9 +390,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     key: "knowledge", name: "Knowledge / insights / outcomes (the business brain)", coverage: "META",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["KnowledgeMeasure", "KnowledgeMeasureEvidenceLink", "TemporalKnowledge", "BusinessInsight", "OutcomeRecommendation", "OutcomeDecision",
-      "OutcomeActionEvent", "OutcomeObservation", "OutcomeAssessment", "KnowledgeDerivationRun", "LearningEvent", "LearningSignal",
-      "DerivationPolicy", "DerivationPolicyVersion", "DerivedClaimCandidate"],
-    sensors: ["INSIGHT_DECIDED"], legacyEvents: [], routes: ["api/knowledge", "api/insights", "api/outcomes"],
+      "OutcomeActionEvent", "OutcomeObservation", "OutcomeAssessment", "OutcomeRecommendationEvidence", "KnowledgeDerivationRun",
+      "LearningEvent", "LearningSignal", "DerivationPolicy", "DerivationPolicyVersion", "DerivedClaimCandidate"],
+    sensors: ["INSIGHT_DECIDED"], legacyEvents: [], routes: ["api/knowledge", "api/insights", "api/outcomes", "page/recommendations"],
     outcome: NO_OUTCOME,
   },
 ];

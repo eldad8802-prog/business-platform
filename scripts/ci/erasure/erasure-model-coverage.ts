@@ -574,6 +574,12 @@ const DECIDE: Record<string, ModelCoverage> = {
       "installments), snapshot slots and fingerprints. No free text, no names, no amounts. It cascades " +
       "with Business and is regenerable from retained knowledge; decide whether it is erased with the account."
   ),
+  OutcomeRecommendationEvidence: decide(
+    "Closed Loop. The durable WHY of one recommendation version, captured at issue: installment / " +
+      "commitment / document ids, due date, day counts, fixed codes, a fingerprint. No free text, no names, " +
+      "no amounts. Append-only; cascades with Business and with its recommendation. NOT rebuildable after the " +
+      "fact (it is what Dubiz saw then); same open question as the other M9 tables (C13)."
+  ),
   OutcomeDecision: decide(
     "M9. The owner's own answer to a recommendation: an actor user id, a decision, an optional " +
       "structured reason CODE and a target subset. Deliberately no free text. Like a REJECTED " +

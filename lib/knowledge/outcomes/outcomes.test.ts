@@ -302,13 +302,19 @@ async function main(): Promise<void> {
     for (const n of readdirSync(d)) {
       if (n === "node_modules" || n.startsWith(".")) continue;
       const p = join(d, n);
-      if (statSync(p).isDirectory()) walk(p, out); else if (/\.tsx$/.test(n)) out.push(p);
+      if (statSync(p).isDirectory()) walk(p, out); else if (/\.tsx?$/.test(n)) out.push(p);
     }
     return out;
   };
-  const ui = [...walk(join(appRoot, "components")), ...walk(join(appRoot, "features")), ...walk(join(appRoot, "app"))]
-    .filter((f) => /outcomes\/recommendations|outcomeRecommendation|OutcomeRecommendation|lib\/knowledge\/outcomes/.test(readFileSync(f, "utf8")));
-  ok("OWNER-VISIBLE: no UI component reads or calls M9", ui.length === 0, ui.map((f) => relative(appRoot, f)));
+  // Closed Loop: the owner sees recommendations ONLY through the feature-gated owner-surface API, called from
+  // ONE client module. No UI file imports M9 itself, touches its tables, or names the API elsewhere.
+  const uiFiles = [...walk(join(appRoot, "components")), ...walk(join(appRoot, "features")), ...walk(join(appRoot, "app"))]
+    .filter((f) => !relative(appRoot, f).split(/[\\/]/).includes("api"));
+  const uiM9 = uiFiles.filter((f) => /lib\/knowledge\/outcomes|outcomeRecommendation|OutcomeRecommendation/.test(readFileSync(f, "utf8")));
+  ok("OWNER-VISIBLE: no UI file imports M9 or touches its tables", uiM9.length === 0, uiM9.map((f) => relative(appRoot, f)));
+  const uiApi = uiFiles.filter((f) => /\/api\/outcomes\/recommendations/.test(readFileSync(f, "utf8"))).map((f) => relative(appRoot, f).replace(/\\/g, "/"));
+  ok("OWNER-VISIBLE: only the recommendations client calls the owner-surface API",
+    uiApi.length === 1 && uiApi[0] === "features/recommendations/recommendations-client.ts", uiApi);
 
   if (failed > 0) { console.error(`\nM9 outcome learning: ${failed} FAILED`); process.exit(1); }
   console.log("\nM9 outcome learning: separated, sequence-only, evidence-backed. ✔");

@@ -1,0 +1,9 @@
+{
+  "note": "Closed Loop Activation: the owner recommendation surface over M9 (durable evidence, owner view, decision handoff).",
+  "tests": {
+    "lib/knowledge/outcomes/closed-loop.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: durable-evidence capture (no money, fingerprint reconstructable), deterministic owner wording with the causal-wording boundary, ACCEPT handoff targets, and the planner's suppression/reissue semantics on owner answers; the tenant/RLS side of the evidence table is proven as a NOBYPASSRLS role by .m0/m9-outcome-battery.ts (section E1); run by m0-knowledge-tenant-safety.yml"
+    }
+  }
+}

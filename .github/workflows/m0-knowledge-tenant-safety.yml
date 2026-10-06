@@ -239,6 +239,12 @@ jobs:
       - name: M9 outcome-learning corpus (pure — separation, memory, reversal, causal safety)
         run: npx tsx lib/knowledge/outcomes/outcomes.test.ts
 
+      # Closed Loop — the owner surface over M9: evidence captured at issue (no money, reconstructable), the
+      # owner's words (deterministic, sequence-only, causal phrases refused), ACCEPT handoff into the real
+      # flows, and the planner consuming the owner's answer. The DB side is section E1 of the battery below.
+      - name: Closed loop corpus (pure — durable evidence, owner view, causal safety, next plan)
+        run: npx tsx lib/knowledge/outcomes/closed-loop.test.ts
+
       - name: M9 outcome battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/m9-outcome-battery.ts
 

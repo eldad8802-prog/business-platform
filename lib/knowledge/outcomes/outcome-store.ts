@@ -24,6 +24,15 @@ import type { ClosePlan, IssueDraft } from "./recommend";
 import type { AssessAction, AssessObservation } from "./assess";
 import type { DocumentTruth, ExistingObservation, InstallmentTruth } from "./track";
 import type { Assessment } from "./outcome.contract";
+import { RECOMMENDATION_TYPES } from "./outcome.contract";
+import {
+  overdueInstallmentEvidence,
+  parseEvidence,
+  reviewBacklogEvidence,
+  type EvidenceRecord,
+  type OverdueInstallmentFacts,
+  type ParsedEvidence,
+} from "./evidence";
 
 const DAY = 86_400_000;
 const TRACK_LOOKBACK_DAYS = 180;
@@ -165,13 +174,19 @@ export async function loadDomainTruth(businessId: number, asOf: Date, recs: read
   });
 }
 
-/** Lifecycle moves first (a successor can only be ACTIVE once its predecessor is not), then issues. */
+/**
+ * Lifecycle moves first (a successor can only be ACTIVE once its predecessor is not), then issues.
+ *
+ * Every issued version gets its durable WHY in the SAME transaction, built from the domain rows behind its
+ * targets as they stand now (the moment of issue). A version whose evidence cannot be built is not issued:
+ * the whole plan rolls back and the derivation reports write_plan. No recommendation exists without its WHY.
+ */
 export async function writeRecommendationPlan(
   businessId: number,
   asOf: Date,
   plan: { issue: readonly IssueDraft[]; close: readonly ClosePlan[] },
   meta: { snapshotFingerprint: string },
-): Promise<{ issued: number; closed: Record<string, number> }> {
+): Promise<{ issued: number; closed: Record<string, number>; evidence: number }> {
   return tenantTx(businessId, async (tx) => {
     const closed: Record<string, number> = {};
     for (const c of plan.close) {
@@ -182,6 +197,7 @@ export async function writeRecommendationPlan(
       if (r.count === 1) closed[c.status] = (closed[c.status] ?? 0) + 1;
     }
     let issued = 0;
+    let evidence = 0;
     for (const d of plan.issue) {
       const s = d.source;
       const created = await tx.outcomeRecommendation.create({
@@ -204,6 +220,36 @@ export async function writeRecommendationPlan(
         select: { id: true },
       });
       issued += 1;
+
+      let record: EvidenceRecord;
+      if (d.candidate.type === "SETTLE_OVERDUE_INSTALLMENT") {
+        const inst = await tx.installment.findFirst({
+          where: { id: d.candidate.subject.id, businessId },
+          select: {
+            id: true, commitmentId: true, sequence: true, dueAt: true, status: true, scheduledAmount: true,
+            allocations: { where: { businessId }, select: { allocatedAmount: true, reversedAt: true, payment: { select: { status: true, voidedAt: true } } } },
+          },
+        });
+        if (!inst) throw new Error("writeRecommendationPlan: the installment behind a recommendation is gone");
+        record = overdueInstallmentEvidence({
+          ...inst, scheduledAmount: inst.scheduledAmount.toString(),
+          allocations: inst.allocations.map((a) => ({ ...a, allocatedAmount: a.allocatedAmount.toString() })),
+        }, d.candidate.severity, asOf);
+      } else {
+        const docs = await tx.document.findMany({
+          where: { businessId, id: { in: [...d.candidate.targets] } }, select: { id: true, createdAt: true, source: true },
+        });
+        if (docs.length === 0) throw new Error("writeRecommendationPlan: the documents behind a recommendation are gone");
+        record = reviewBacklogEvidence(docs, RECOMMENDATION_TYPES.REVIEW_PENDING_DOCUMENTS.minTargets, asOf);
+      }
+      await tx.outcomeRecommendationEvidence.create({
+        data: {
+          businessId, recommendationId: created.id, evidenceVersion: record.evidenceVersion, kind: record.kind,
+          facts: record.facts as object, evidenceRefs: record.evidenceRefs.map((r) => ({ store: r.store, id: r.id })),
+          factFingerprint: record.factFingerprint, capturedAt: record.capturedAt, capturedAfterIssue: false,
+        },
+      });
+      evidence += 1;
       if (d.supersedesId != null) {
         await tx.outcomeRecommendation.updateMany({
           where: { id: d.supersedesId, businessId, status: "SUPERSEDED", supersededById: null },
@@ -211,7 +257,7 @@ export async function writeRecommendationPlan(
         });
       }
     }
-    return { issued, closed };
+    return { issued, closed, evidence };
   });
 }
 
@@ -339,6 +385,133 @@ export async function appendOwnerDecision(
       select: { id: true },
     });
     return { ok: true as const, decisionId: created.id, duplicate: false };
+  });
+}
+
+/* ── Owner surface (read) ─────────────────────────────────────────────────────────────────── */
+
+/** How far back a closed recommendation stays on the owner's surface (its "after" view). */
+export const OWNER_SURFACE_CLOSED_DAYS = 45;
+const OWNER_DOCUMENT_CAP = 50;
+
+export type OwnerRecommendationRow = {
+  id: number;
+  version: number;
+  type: RecommendationType;
+  status: StoredRecommendation["status"];
+  issuedAt: Date;
+  validUntil: Date;
+  outcomeWindowEnd: Date;
+  closedAt: Date | null;
+  closedReason: string | null;
+  targets: number[];
+  severity: string | null;
+  evidence: ParsedEvidence;
+  decision: { decision: DecisionKind; reasonCode: string | null; deferUntil: Date | null; decidedAt: Date; targets: number[] | null } | null;
+  actions: { eventType: string; targetId: number; occurredAt: Date }[];
+  observations: { kind: string; targetId: number | null; valueInt: number | null; observedAt: Date }[];
+  assessment: { actionState: string; outcomeState: string; direction: string; attribution: string; uncertainty: string; windowEnd: Date } | null;
+  /** Live, the owner's own records, for display only — never stored as evidence, no money. */
+  context: {
+    commitment: { id: number; title: string } | null;
+    documents: { id: number; createdAt: Date; originalFilename: string | null; status: string }[];
+  };
+};
+
+/**
+ * What the owner's recommendation surface shows, for ONE business: the ACTIVE versions and the ones closed in
+ * the last OWNER_SURFACE_CLOSED_DAYS, each WITH its durable evidence. A version without evidence (issued before
+ * evidence existed) is not shown — its WHY cannot be reconstructed — and is only counted.
+ */
+export async function loadOwnerRecommendations(
+  businessId: number,
+  asOf: Date,
+  opts: { id?: number } = {},
+): Promise<{ items: OwnerRecommendationRow[]; withoutEvidence: number }> {
+  return tenantTx(businessId, async (tx) => {
+    const since = new Date(asOf.getTime() - OWNER_SURFACE_CLOSED_DAYS * DAY);
+    const recs = await tx.outcomeRecommendation.findMany({
+      where: opts.id != null
+        ? { businessId, id: opts.id }
+        : { businessId, OR: [{ status: "ACTIVE" }, { closedAt: { gte: since } }] },
+      select: {
+        id: true, version: true, type: true, status: true, issuedAt: true, validUntil: true, outcomeWindowEnd: true,
+        closedAt: true, closedReason: true, targets: true, severity: true,
+        evidence: {
+          select: { evidenceVersion: true, kind: true, facts: true, evidenceRefs: true, factFingerprint: true, capturedAt: true, capturedAfterIssue: true },
+        },
+      },
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+      take: 100,
+    });
+    const shown: { r: (typeof recs)[number]; evidence: ParsedEvidence }[] = [];
+    for (const r of recs) {
+      const evidence = r.evidence ? parseEvidence(r.evidence) : null;
+      if (evidence) shown.push({ r, evidence });
+    }
+    const ids = shown.map((x) => x.r.id);
+    if (ids.length === 0) return { items: [], withoutEvidence: recs.length };
+
+    const decisions = await tx.outcomeDecision.findMany({
+      where: { businessId, recommendationId: { in: ids } },
+      select: { recommendationId: true, decision: true, reasonCode: true, deferUntil: true, decidedAt: true, modification: true },
+      orderBy: [{ decidedAt: "asc" }, { id: "asc" }],
+    });
+    const actions = await tx.outcomeActionEvent.findMany({
+      where: { businessId, recommendationId: { in: ids } },
+      select: { recommendationId: true, eventType: true, targetId: true, occurredAt: true },
+      orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    });
+    const observations = await tx.outcomeObservation.findMany({
+      where: { businessId, recommendationId: { in: ids } },
+      select: { recommendationId: true, kind: true, targetId: true, valueInt: true, observedAt: true },
+      orderBy: [{ observedAt: "asc" }, { id: "asc" }],
+    });
+    const assessments = await tx.outcomeAssessment.findMany({
+      where: { businessId, recommendationId: { in: ids }, status: "ACTIVE" },
+      select: { recommendationId: true, actionState: true, outcomeState: true, direction: true, attribution: true, uncertainty: true, windowEnd: true },
+    });
+
+    const targetsOf = (r: (typeof recs)[number]) => (Array.isArray(r.targets) ? (r.targets as unknown[]).map(Number).filter(Number.isInteger) : []);
+    const commitmentIdOf = (e: ParsedEvidence) => (e.kind === "OVERDUE_INSTALLMENT" ? (e.facts as OverdueInstallmentFacts).commitmentId : null);
+    const commitmentIds = [...new Set(shown.map((x) => commitmentIdOf(x.evidence)).filter((x): x is number => x != null))];
+    const commitments = commitmentIds.length === 0 ? [] : await tx.commitment.findMany({
+      where: { businessId, id: { in: commitmentIds } }, select: { id: true, title: true },
+    });
+    const docIds = [...new Set(shown.filter((x) => x.r.type === "REVIEW_PENDING_DOCUMENTS").flatMap((x) => targetsOf(x.r).slice(0, OWNER_DOCUMENT_CAP)))];
+    const docs = docIds.length === 0 ? [] : await tx.document.findMany({
+      where: { businessId, id: { in: docIds } }, select: { id: true, createdAt: true, originalFilename: true, status: true },
+    });
+    const docById = new Map(docs.map((d) => [d.id, d]));
+    const commitmentById = new Map(commitments.map((c) => [c.id, c]));
+
+    const items = shown.map(({ r, evidence }): OwnerRecommendationRow => {
+      const targets = targetsOf(r);
+      const last = decisions.filter((d) => d.recommendationId === r.id).at(-1);
+      const a = assessments.find((x) => x.recommendationId === r.id);
+      const commitmentId = commitmentIdOf(evidence);
+      const mod = last?.modification as { targets?: unknown } | null | undefined;
+      return {
+        id: r.id, version: r.version, type: r.type as RecommendationType, status: r.status as StoredRecommendation["status"],
+        issuedAt: r.issuedAt, validUntil: r.validUntil, outcomeWindowEnd: r.outcomeWindowEnd, closedAt: r.closedAt, closedReason: r.closedReason,
+        targets, severity: r.severity, evidence,
+        decision: last ? {
+          decision: last.decision as DecisionKind, reasonCode: last.reasonCode, deferUntil: last.deferUntil, decidedAt: last.decidedAt,
+          targets: mod && Array.isArray(mod.targets) ? mod.targets.map(Number) : null,
+        } : null,
+        actions: actions.filter((x) => x.recommendationId === r.id).map((x) => ({ eventType: x.eventType, targetId: x.targetId, occurredAt: x.occurredAt })),
+        observations: observations.filter((x) => x.recommendationId === r.id)
+          .map((x) => ({ kind: x.kind, targetId: x.targetId, valueInt: x.valueInt, observedAt: x.observedAt })),
+        assessment: a ? { actionState: a.actionState, outcomeState: a.outcomeState, direction: a.direction, attribution: a.attribution, uncertainty: a.uncertainty, windowEnd: a.windowEnd } : null,
+        context: {
+          commitment: commitmentId != null ? commitmentById.get(commitmentId) ?? null : null,
+          documents: r.type === "REVIEW_PENDING_DOCUMENTS"
+            ? targets.slice(0, OWNER_DOCUMENT_CAP).map((id) => docById.get(id)).filter((d): d is NonNullable<typeof d> => d != null)
+            : [],
+        },
+      };
+    });
+    return { items, withoutEvidence: recs.length - shown.length };
   });
 }
 

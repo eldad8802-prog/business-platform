@@ -17,6 +17,8 @@
  *   O11 deterministic rebuild: wiped tracking and assessments are rebuilt to the same hashes
  *   O12 feedback: the next snapshot (and the Brain context) carries the learning, per business
  *   O13 no business record is mutated by the loop; failures and the kill switch write nothing
+ *   E1  Closed Loop: every issued version carries its durable WHY (append-only, FORCE RLS, no money),
+ *       the owner surface reads it back intact, and the after view is worded as a sequence only
  *
  * Output is labels and PASS/FAIL only. Synthetic lab data; nothing here touches Production.
  */
@@ -40,6 +42,7 @@ const DAY = 86_400_000;
 const NOW = new Date();
 const at = (d: number) => new Date(NOW.getTime() + d * DAY);
 const M9_MIGRATION = "prisma/migrations/20260928090000_m9_outcome_learning/migration.sql";
+const EVIDENCE_MIGRATION = "prisma/migrations/20261012090000_closed_loop_recommendation_evidence/migration.sql";
 
 let passed = 0;
 let failed = 0;
@@ -106,6 +109,12 @@ async function main(): Promise<void> {
   await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${GROUP}`);
   // …then the M9 grant block exactly as shipped, which REVOKEs what the blanket grant just gave.
   for (const s of sqlStatements(M9_MIGRATION, /^DO \$do\$/)) await owner.$executeRawUnsafe(s);
+  // Closed Loop evidence: its CHECKs, append-only trigger, RLS, policies, then its grant block as shipped.
+  const ev = sqlStatements(EVIDENCE_MIGRATION, /^ALTER TABLE "OutcomeRecommendationEvidence" ADD CONSTRAINT "\w+_chk"|^CREATE TRIGGER|ROW LEVEL SECURITY|^CREATE POLICY/);
+  for (const s of ev) await owner.$executeRawUnsafe(s);
+  for (const s of sqlStatements(EVIDENCE_MIGRATION, /^DO \$do\$/)) await owner.$executeRawUnsafe(s);
+  check("the shipped evidence DDL replays (2 checks, 1 trigger, ENABLE + FORCE, 2 policies)",
+    ev.length === 7 && ev.filter((s) => /^CREATE POLICY/.test(s)).length === 2 && ev.filter((s) => /^CREATE TRIGGER/.test(s)).length === 1, `n=${ev.length}`);
 
   const rtUrl = (() => { const u = new URL(ADMIN_URL!); u.username = RT_ROLE; u.password = RT_PW; return u.toString(); })();
   process.env.DATABASE_URL = rtUrl;
@@ -180,8 +189,9 @@ async function main(): Promise<void> {
   check("A: three recommendations — one review backlog, one per overdue installment",
     r1.failureStage === null && recsA.length === 3 && recsA.filter((r) => r.type === "SETTLE_OVERDUE_INSTALLMENT").length === 2, JSON.stringify(r1));
   const docRec = recsA.find((r) => r.type === "REVIEW_PENDING_DOCUMENTS")!;
-  const rec1 = recsA.find((r) => r.subjectId === A.inst1)!;
-  const rec2 = recsA.find((r) => r.subjectId === A.inst2)!;
+  const rec1 = recsA.find((r) => r.type === "SETTLE_OVERDUE_INSTALLMENT" && r.subjectId === A.inst1)!;
+  const rec2 = recsA.find((r) => r.type === "SETTLE_OVERDUE_INSTALLMENT" && r.subjectId === A.inst2)!;
+  const aIds0 = recsA.map((r) => r.id);
   check("the backlog targets exactly A's four waiting documents", JSON.stringify(docRec.targets) === JSON.stringify([...A.docs].sort((a, b) => a - b)));
   check("every supporting slot exists in the snapshot it was derived from",
     recsA.every((r) => (r.supportingSlots as string[]).every((s) => snapA0.knowledge.some((k) => k.slot === s))));
@@ -190,8 +200,45 @@ async function main(): Promise<void> {
   check("the others are KNOWLEDGE_RULE", rec2.sourceKind === "KNOWLEDGE_RULE" && docRec.sourceKind === "KNOWLEDGE_RULE");
   check("B got its own three, independently", rB.failureStage === null && (await recsOf(B.biz)).length === 3);
 
+  section("E1 — the durable WHY: one evidence row per issued version, captured with it");
+  const { loadOwnerRecommendations } = await import("@/lib/knowledge/outcomes/outcome-store");
+  const { buildOwnerView, CAUSAL_PHRASES } = await import("@/lib/knowledge/outcomes/owner-view");
+  const evA = await tenantTx(A.biz, (tx) => tx.outcomeRecommendationEvidence.findMany({ where: { businessId: A.biz } }));
+  check("every one of A's three recommendations has exactly one evidence row, captured at issue",
+    evA.length === 3 && new Set(evA.map((e) => e.recommendationId)).size === 3 && evA.every((e) => !e.capturedAfterIssue &&
+      recsA.some((r) => r.id === e.recommendationId && r.issuedAt.getTime() === e.capturedAt.getTime())));
+  const evInst = evA.find((e) => e.recommendationId === rec1.id);
+  const fI = evInst?.facts as { installmentId?: number; daysOverdue?: number; coverage?: string } | undefined;
+  check("installment evidence: the installment, 10 days overdue, nothing paid",
+    evInst?.kind === "OVERDUE_INSTALLMENT" && fI?.installmentId === A.inst1 && fI?.daysOverdue === 10 && fI?.coverage === "NONE", JSON.stringify(fI));
+  const evDoc = evA.find((e) => e.recommendationId === docRec.id);
+  check("backlog evidence: four waiting documents, referenced by id",
+    evDoc?.kind === "REVIEW_BACKLOG" && (evDoc.facts as { pendingCount?: number }).pendingCount === 4 &&
+    JSON.stringify((evDoc.evidenceRefs as { id: number }[]).map((r) => r.id)) === JSON.stringify([...A.docs].sort((a, b) => a - b)));
+  check("evidence carries no money and no names", !/4321|4322|Secret|s3:/.test(JSON.stringify(evA.map((e) => [e.facts, e.evidenceRefs]))));
+  check("A's evidence is invisible inside B's tenant and without a tenant",
+    (await tenantTx(B.biz, (tx) => tx.outcomeRecommendationEvidence.count({ where: { recommendationId: { in: aIds0 } } }))) === 0 &&
+    (await rt.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "OutcomeRecommendationEvidence"`))[0].n === 0);
+  check("the runtime cannot UPDATE or DELETE evidence",
+    await refused(tenantTx(A.biz, (tx) => tx.outcomeRecommendationEvidence.updateMany({ where: { businessId: A.biz }, data: { factFingerprint: "x" } }))) &&
+    await refused(tenantTx(A.biz, (tx) => tx.outcomeRecommendationEvidence.deleteMany({ where: { businessId: A.biz } }))));
+  check("even the table owner cannot rewrite evidence (append-only trigger)",
+    await refused(owner.outcomeRecommendationEvidence.update({ where: { id: evA[0].id }, data: { factFingerprint: "x" } }), /M9_APPEND_ONLY/));
+  check("a second evidence row for the same version is refused",
+    await refused(owner.outcomeRecommendationEvidence.create({ data: { businessId: A.biz, recommendationId: rec1.id, evidenceVersion: "rec-evidence.v1",
+      kind: "OVERDUE_INSTALLMENT", facts: {}, evidenceRefs: [], factFingerprint: "x", capturedAt: at(0) } })));
+  const surfaceA = await loadOwnerRecommendations(A.biz, at(0.1));
+  check("the owner surface shows A's three, each intact (facts still hash to their fingerprint)",
+    surfaceA.items.length === 3 && surfaceA.withoutEvidence === 0 && surfaceA.items.every((i) => i.evidence.intact));
+  check("the owner surface of B never shows A's", (await loadOwnerRecommendations(B.biz, at(0.1))).items.every((i) => !aIds0.includes(i.id)));
+  const rowI1 = surfaceA.items.find((i) => i.id === rec1.id)!;
+  const viewI1 = buildOwnerView(rowI1, at(0.1));
+  check("the owner view: WHAT names the installment, WHY says 10 days, ACCEPT hands off to the payment form",
+    viewI1.what.includes("תשלום 1") && viewI1.why[0].includes("10 ימים") && viewI1.options[0].href === `/payables/${rowI1.context.commitment?.id}?pay=${A.inst1}`,
+    JSON.stringify([viewI1.what, viewI1.why[0], viewI1.options[0]]));
+
   section("O3 — tenant isolation");
-  const aIds = recsA.map((r) => r.id);
+  const aIds = aIds0;
   const seenFromB = await tenantTx(B.biz, (tx) => tx.outcomeRecommendation.count({ where: { id: { in: aIds } } }));
   check("A's recommendations are invisible inside B's tenant", seenFromB === 0);
   const bare = await rt.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "OutcomeRecommendation"`);
@@ -273,6 +320,10 @@ async function main(): Promise<void> {
     acts.filter((x) => x.domainStore === "ReviewEvent" && x.decisionId === (d3.ok ? d3.decisionId : -1)).length === 2 &&
     acts.some((x) => x.domainStore === "PaymentAllocation" && x.domainRecordId === al.id && x.decisionId === (d1.ok ? d1.decisionId : -1)));
   const recsA40 = await recsOf(A.biz);
+  const afterI1 = buildOwnerView((await loadOwnerRecommendations(A.biz, at(40), { id: rec1.id })).items[0], at(40));
+  check("AFTER view: the payment is stated in sequence, never as a cause",
+    afterI1.after.some((l) => l.startsWith("לאחר ההמלצה והפעולה, התשלום נרשם")) &&
+    !CAUSAL_PHRASES.some((p) => [afterI1.what, ...afterI1.why, ...afterI1.after].join(" ").includes(p)), JSON.stringify(afterI1.after));
   check("lifecycle: backlog and installment 1 RESOLVED; installment 2 EXPIRED (unanswered is not the case — it was rejected) and NOT re-issued",
     recsA40.find((r) => r.id === docRec.id)?.status === "RESOLVED" && recsA40.find((r) => r.id === rec1.id)?.status === "RESOLVED" &&
     recsA40.find((r) => r.id === rec2.id)?.status === "EXPIRED" && (r40.recommendations?.suppressed.SUPPRESSED_REJECTED ?? 0) === 1 && recsA40.length === 3);
@@ -295,7 +346,7 @@ async function main(): Promise<void> {
     (await owner.outcomeAssessment.count({ where: { businessId: A.biz, recommendationId: rec1.id, status: "SUPERSEDED" } })) >= 1 &&
     aI1b?.actionState === "REVERSED" && aI1b.attribution === "NOT_ASSESSABLE");
   check("the installment is overdue again, so its situation recurs as version 2 (the owner had accepted, and it had resolved)",
-    (await recsOf(A.biz)).some((r) => r.subjectId === A.inst1 && r.version === 2 && r.status === "ACTIVE") && r42.recommendations?.issued === 1);
+    (await recsOf(A.biz)).some((r) => r.type === "SETTLE_OVERDUE_INSTALLMENT" && r.subjectId === A.inst1 && r.version === 2 && r.status === "ACTIVE") && r42.recommendations?.issued === 1);
 
   section("O11 — deterministic rebuild from the ledger");
   const hashes = async () => (await owner.outcomeAssessment.findMany({ where: { businessId: A.biz, status: "ACTIVE" }, select: { recommendationId: true, semanticHash: true } }))

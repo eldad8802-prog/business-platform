@@ -43,6 +43,7 @@ import {
   CountPill,
   WaitingRow,
 } from "./home-parts";
+import { RecommendationCard } from "./recommendation-card";
 import type { HomeView } from "./home-v3";
 import {
   CHANNEL_LABEL,
@@ -83,6 +84,8 @@ export function DesktopHome({ view }: { view: HomeView }) {
           />
           <WaitingPanel view={view} />
         </div>
+
+        <RecommendationCard recommendation={view.data.recommendation} wide />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>
           <ObligationsPanel view={view} />
