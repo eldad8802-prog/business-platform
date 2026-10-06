@@ -63,6 +63,16 @@ const ROUTES: Record<string, string> = {
 const CLIENT_API = read("components/business/landing/landing-versions-api.ts");
 const UI = read("components/business/landing/LandingVersionsScreen.tsx") + read("components/business/landing/LandingPreviewScreen.tsx") + read("components/business/landing/landing-labels.ts");
 
+/** Source without comment lines: a static check must read code, never prose. */
+const codeOnly = (src: string) => src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*\*)/.test(l)).join("\n");
+/** The body of one module-private function (up to its closing brace at column 0). */
+function innerFn(src: string, name: string): string {
+  const start = src.indexOf(`async function ${name}(`);
+  if (start < 0) return "";
+  const end = src.indexOf("\n}\n", start);
+  return src.slice(start, end < 0 ? undefined : end);
+}
+
 /** The body of one exported function of the service (up to the next top-level export). */
 function fnBody(src: string, name: string): string {
   const start = src.indexOf(`export async function ${name}(`);
@@ -183,8 +193,14 @@ async function main(): Promise<void> {
   ok("P19 the snapshot's CLOSED key set is exactly the validated blueprint's keys — no prompt, raw output, composer context, evidence or meta",
     JSON.stringify(Object.keys(quote.bp).sort()) === JSON.stringify(allowedKeys) &&
     !allowedKeys.filter((x) => !x.endsWith("Version")).some((x) => /prompt|raw|output|context|evidence|demand|token|provider|model/i.test(x)), { allowedKeys, keys: Object.keys(quote.bp).sort() });
-  ok("P20 version numbers are DB-safe: a counter advanced under the page row lock + a unique index; never max + 1",
-    /FOR UPDATE/.test(SERVICE) && /"lastVersionNumber" = "lastVersionNumber" \+ 1/.test(SERVICE) && !/_max|aggregate\(|versionNumber \+ 1|max\(/.test(SERVICE) &&
+  // The lock must be IN lockPage's query (not merely mentioned somewhere), and every write path must take it
+  // before its first write.
+  const writePaths = ["persistDraft", "approveLandingVersion", "rollbackLandingVersion", "retireLandingDraft"].map((n) => codeOnly(fnBody(SERVICE, n)));
+  const firstWrite = (b: string) => Math.min(...[".update(", ".create(", "nextVersionNumber(", "supersede("].map((w) => b.indexOf(w)).filter((i) => i >= 0));
+  ok("P20 version numbers are DB-safe: every write path takes the page row lock (FOR UPDATE in lockPage) before writing; counter + unique index; never max + 1",
+    /FOR UPDATE`/.test(codeOnly(innerFn(SERVICE, "lockPage"))) &&
+    writePaths.every((b) => b.includes("lockPage(tx") && b.indexOf("lockPage(tx") < firstWrite(b)) &&
+    /"lastVersionNumber" = "lastVersionNumber" \+ 1/.test(SERVICE) && !/_max|aggregate\(|versionNumber \+ 1|max\(/.test(codeOnly(SERVICE)) &&
     /"LandingPageVersion"\("businessId", "landingPageId", "versionNumber"\)/.test(MIGRATION));
   ok("P21 a version is never updated in place: content is immutable for every role (guard trigger + column grants); no hard delete of a version exists",
     /p3e_landing_version_guard/.test(MIGRATION) && /P3E_IMMUTABLE/.test(MIGRATION) && !/\.delete\(|deleteMany|DELETE FROM/.test(SERVICE));
@@ -238,6 +254,13 @@ async function main(): Promise<void> {
   const noPhone = ctxFor({ ...HOME, facts: [NAME, { fact: "PUBLIC_PHONE", value: "03-5550000", authority: "CONFIRMED" }] });
   const cConv = computeCurrentReadiness(home.bp, noPhone, RENDERER_VERSION);
   ok("C4 CONVERSION authority re-checked: the action's destination no longer approved blocks", cConv.blockers.includes("CONVERSION_DESTINATION_MISSING:PRIMARY:PUBLIC_PHONE") && !cConv.checks.conversion, cConv);
+  // Readiness is a function of TODAY's authority, never sticky: once the asset, the claim and the phone are
+  // approved again, the same unchanged snapshots are clear again.
+  const restoredQuote = computeCurrentReadiness(quote.bp, ctxFor(QUOTE), RENDERER_VERSION);
+  const restoredHome = computeCurrentReadiness(home.bp, ctxFor(HOME), RENDERER_VERSION);
+  ok("C4 authority restored → current readiness recovers (asset, trust and conversion blockers all clear)",
+    restoredQuote.blockers.length === 0 && restoredHome.blockers.length === 0 && Object.values(restoredQuote.checks).every(Boolean) && Object.values(restoredHome.checks).every(Boolean),
+    { restoredQuote, restoredHome });
   const offeringRef = quote.bp.offeringRefs[0];
   const fewer = ctxFor({ ...QUOTE, services: (QUOTE.services ?? []).map((s) => (`offering:SERVICE:${s.id}` === offeringRef ? { ...s, active: false } : s)) });
   const cOff = computeCurrentReadiness(quote.bp, fewer, RENDERER_VERSION);
@@ -251,11 +274,20 @@ async function main(): Promise<void> {
     !/approvedAt|status\s*=|update\(|revoke/i.test(MODEL_SRC.slice(MODEL_SRC.indexOf("export function computeCurrentReadiness"), MODEL_SRC.indexOf("/* ───────────────────────────── rendering a saved version"))));
 
   /* ─────────────── A · authority (static half) ─────────────── */
+  // Read INSIDE approveLandingVersion: its input carries exactly businessId / userId / versionId, and the
+  // approval record is written from that session userId — no other approver source exists.
+  const approveBody = codeOnly(fnBody(SERVICE, "approveLandingVersion"));
   ok("A1 the client cannot set approval: approve reads no body; approvedAt / approvedBy come from the server clock and session",
-    !/req\.json/.test(ROUTES.approve) && /userId: user\.id/.test(ROUTES.approve) && /approvedAt: now, approvedByUserId: userId/.test(SERVICE));
+    !/req\.json/.test(ROUTES.approve) && /userId: user\.id/.test(ROUTES.approve) &&
+    /approveLandingVersion\(input: \{ businessId: number; userId: number; versionId: number \}/.test(approveBody) &&
+    /approvedAt: now, approvedByUserId: userId \}/.test(approveBody) && !/input\.\w+|approvedBy(?!UserId)/.test(approveBody));
   ok("A2 the client cannot set a status, authority or pointer: no route or client call carries one",
     Object.values(ROUTES).every((src) => !/authority|currentApprovedVersionId|currentDraftVersionId|status: (body|input|req|json)/.test(src.replace(/^\s*(\*|\/\/|\/\*\*).*$/gm, ""))));
-  ok("A3 approvedBy is the session user, always (never a parameter of the HTTP layer)", /approvedByUserId: userId/.test(SERVICE) && !Object.values(ROUTES).some((s) => /approvedBy/.test(s)));
+  const rollbackBody = codeOnly(fnBody(SERVICE, "rollbackLandingVersion"));
+  ok("A3 approvedBy is the session user, always (never a parameter of the HTTP layer or of any service input)",
+    /approvedByUserId: userId/.test(approveBody) && /approvedByUserId: userId,/.test(rollbackBody) &&
+    /rollbackLandingVersion\(input: \{ businessId: number; userId: number; sourceVersionId: number; clientKey: string \}/.test(rollbackBody) &&
+    !/approvedBy(?!UserId)/.test(codeOnly(SERVICE)) && !Object.values(ROUTES).some((s) => /approvedBy/.test(codeOnly(s))));
   const sources = walk(join(ROOT, "lib")).concat(walk(join(ROOT, "app")));
   const importers = sources.filter((f) => /from "[^"]*persistence\/landing-page\.service"|from "\.\/landing-page\.service"/.test(readFileSync(f, "utf8"))).map((f) => f.slice(ROOT.length + 1).replace(/\\/g, "/"));
   ok("A4 AI cannot approve: only the owner routes (and the persistence helpers) import the persistence service — never the composer, renderer or strategy engine",

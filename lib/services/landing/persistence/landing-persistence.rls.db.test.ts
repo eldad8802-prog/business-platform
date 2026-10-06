@@ -410,7 +410,8 @@ async function main() {
   const counts = await prisma.$queryRawUnsafe<Array<{ s: string; n: bigint }>>(
     `SELECT status::text AS s, count(*)::bigint AS n FROM "LandingPageVersion" WHERE "businessId" = $1 GROUP BY 1 ORDER BY 1`, a.id);
   ok("A's history: exactly one APPROVED, superseded and retired versions kept (nothing deleted)",
-    counts.find((c) => c.s === "APPROVED")?.n === 1n && Number(counts.find((c) => c.s === "SUPERSEDED")?.n ?? 0) >= 3 && Number(counts.find((c) => c.s === "RETIRED")?.n ?? 0) === 1, counts);
+    counts.find((c) => c.s === "APPROVED")?.n === 1n && Number(counts.find((c) => c.s === "SUPERSEDED")?.n ?? 0) >= 3 && Number(counts.find((c) => c.s === "RETIRED")?.n ?? 0) === 1,
+    counts.map((c) => ({ s: c.s, n: Number(c.n) })));
 
   console.log(`\nP3-E landing persistence (real RLS): ${passed} passed, ${failed} failed`);
   await prisma.$disconnect();
