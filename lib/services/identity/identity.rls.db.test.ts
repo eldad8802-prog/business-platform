@@ -365,6 +365,25 @@ async function child() {
     promptHasB: counting.prompts.some((pr) => pr.includes(`offering:SERVICE:${bServiceId}`) || pr.includes(`asset:${bAssetId}`) || pr.includes(`trust:${claimB}`)),
   };
 
+  // ── P3-D · renderer preview: same tenant-bound path; owner-only asset rule ──
+  const { composeLandingPreviewForBusiness } = await import("@/lib/services/landing/composer/landing-blueprint.service");
+  const { resolvePreviewAsset } = await import("@/lib/services/landing/renderer/preview-asset");
+  const previewA = await composeLandingPreviewForBusiness(a, aIds[0], { model: counting });
+  const previewJson = JSON.stringify(previewA.renderModel);
+  resetComposerCacheForTests();
+  const disabledA = await composeLandingPreviewForBusiness(a, aIds[0], { model: null });
+  const previewBOnly = bOnlyId ? await refused(() => composeLandingPreviewForBusiness(a, bOnlyId, { model: counting })) : "NO_B_ONLY_ID";
+  const renderer = {
+    status: previewA.result.compositionStatus, hasModel: !!previewA.renderModel, renderError: previewA.renderError,
+    mode: previewA.renderModel?.mode ?? null,
+    leaksB: previewJson.includes(`offering:SERVICE:${bServiceId}`) || previewJson.includes(`asset:${bAssetId}`) || previewJson.includes(`/asset/${bAssetId}`) || previewJson.includes(`trust:${claimB}`) || /\+972500000000|biz\/\d+\//.test(previewJson),
+    disabled: { status: disabledA.result.compositionStatus, model: disabledA.renderModel === null },
+    previewBOnly,
+    assetBFromA: await resolvePreviewAsset(a, bAssetId),
+    assetAUnapproved: await resolvePreviewAsset(a, aAssetId),
+    assetBOwn: await resolvePreviewAsset(b, bAssetId),
+  };
+
   console.log(
     "@@RESULT@@" +
       JSON.stringify({
@@ -401,7 +420,7 @@ async function child() {
           },
           afterRetire: { claimIds: ctxAfterRetire.trust.claims.map((c) => c.id), publicIds: ctxAfterRetire.publicUse.trustClaims.map((c) => c.id) },
           retiredFrozen, servedA, servedBUnderA,
-          landing, composer,
+          landing, composer, renderer,
           docs: {
             d1: { old: d1.oldDocument, key: afterD1.key, files: afterD1.files },
             d3: { old: d3.oldDocument, key: afterD3.key, files: afterD3.files, replacedFrom: afterD1.key },
@@ -589,7 +608,7 @@ async function main() {
     // A: three plain services and one UNAPPROVED asset. Nothing of B may reach A's landing context.
     const bService = await prisma.businessService.findFirstOrThrow({ where: { businessId: b.id } });
     await prisma.businessService.update({ where: { id: bService.id }, data: { featuredByOwner: true } });
-    const bAsset = await prisma.businessAsset.create({ data: { businessId: b.id, origin: "OWNER_UPLOAD", publicUseApproved: true } });
+    const bAsset = await prisma.businessAsset.create({ data: { businessId: b.id, origin: "OWNER_UPLOAD", publicUseApproved: true, storageKey: `biz/${b.id}/content/${tag}-hero.jpg` } });
     await prisma.businessServiceAsset.create({ data: { businessId: b.id, businessServiceId: bService.id, businessAssetId: bAsset.id } });
     for (let i = 0; i < 12; i += 1) {
       const ap = await appt(b.id, (await prisma.customer.create({ data: { businessId: b.id, name: `${tag}-cbd-${i}` } })).id, "COMPLETED");
@@ -744,6 +763,14 @@ async function main() {
       ok("P3-C T17: a forged strategy id and a client-built strategy object are refused", /LandingStrategyNotAvailableError/.test(C.composeForged ?? "") && /LandingStrategyNotAvailableError/.test(C.composeObject ?? ""), C);
       ok("P3-C S30: A's blueprint and prompts never reference B's offerings, assets or trust claims",
         !C.promptHasB && !(C.refs?.offerings ?? []).includes(`offering:SERVICE:${L.ids.bServiceId}`) && !(C.refs?.assets ?? []).includes(`asset:${L.ids.bAssetId}`) && !(C.refs?.trust ?? []).includes(`trust:${claimBRow.id}`), C.refs);
+      // P3-D · the renderer preview is produced only through the tenant-bound P3-C path.
+      const R = p.renderer;
+      ok("P3-D R24: A's preview is composed and rendered from A's own recomputed strategy (OWNER_PREVIEW)", R.status === "COMPOSED" && R.hasModel && R.renderError === null && R.mode === "OWNER_PREVIEW", R);
+      ok("P3-D R24: A's render model carries nothing of B (offering, asset, trust claim, WhatsApp number) and no storage key", R.leaksB === false, R);
+      ok("P3-D R24: B's strategy id cannot produce a preview under A", /LandingStrategyNotAvailableError/.test(R.previewBOnly ?? ""), R.previewBOnly);
+      ok("P3-D R25: composer disabled → UNAVAILABLE, no render model (nothing composed, nothing drawn)", R.disabled.status === "UNAVAILABLE" && R.disabled.model === true, R.disabled);
+      ok("P3-D R13/R24: B's approved asset cannot be streamed to A; A's unapproved asset cannot either", R.assetBFromA === null && R.assetAUnapproved === null, R);
+      ok("P3-D (positive control): B's approved asset resolves for B, under B's own key prefix", R.assetBOwn?.storageKey?.startsWith(`biz/${b.id}/`) === true, R.assetBOwn);
       ok("P3-A T9: once retired, the claim leaves the context and public use", !p.afterRetire.claimIds.includes(p.myClaimId) && !p.afterRetire.publicIds.includes(p.myClaimId), p.afterRetire);
       ok("P3-A T9: a retired claim is frozen history (cannot be re-activated by the runtime)", p.retiredFrozen === 0, p.retiredFrozen);
       // T11 — served customers from completed work only, per tenant.

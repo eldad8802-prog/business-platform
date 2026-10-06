@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CHANNEL_LABELS } from "@/components/business/identity/identity-labels";
 import { STRATEGY_TITLES } from "@/lib/services/landing/landing-strategy-explain";
@@ -134,6 +135,7 @@ export function LandingStrategyPreview() {
                     <dd>{s.recommendedSections.filter((x) => x.required || x.dataAvailable).map((x) => SECTION_LABELS[x.section] ?? x.section).join(" ← ")}</dd>
                   </div>
                 </dl>
+                <Link className={styles.compose} href={`/business/landing-preview?strategy=${encodeURIComponent(s.id)}`}>תצוגה מקדימה של הדף ←</Link>
                 <button type="button" className={styles.compose} disabled={composing !== null} onClick={() => onCompose(s.id)}>
                   {composing === s.id ? "יוצרים טיוטה…" : "יצירת טיוטת דף לכיוון הזה"}
                 </button>

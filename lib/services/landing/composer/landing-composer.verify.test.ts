@@ -338,7 +338,7 @@ async function main(): Promise<void> {
       !STRATEGY_ID_PATTERN.test('{"strategyType":"CALL_FIRST"}') && !STRATEGY_ID_PATTERN.test("p3b.strategy.v1:CALL_FIRST:CALL:PHONE; drop table") && !STRATEGY_ID_PATTERN.test(""));
     const route = readFileSync(join(process.cwd(), "app/api/business/landing-blueprint/route.ts"), "utf8");
     ok("T17 the route reads ONLY strategyId from the body; the business comes from the session",
-      /\.strategyId;/.test(route) && !/businessId\s*[:=]\s*(?!user\.businessId)/.test(route.replace(/user\.businessId/g, "")) && /composeLandingBlueprintForBusiness\(user\.businessId, strategyId/.test(route) && /checkRateLimit\(\{ bucket: "LANDING_COMPOSE"/.test(route));
+      /\.strategyId;/.test(route) && !/businessId\s*[:=]\s*(?!user\.businessId)/.test(route.replace(/user\.businessId/g, "")) && /compose(?:LandingBlueprint|LandingPreview)ForBusiness\(user\.businessId, strategyId/.test(route) && /checkRateLimit\(\{ bucket: "LANDING_COMPOSE"/.test(route));
     const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? walk(p) : p.endsWith(".ts") || p.endsWith(".tsx") ? [p] : []; });
     const landingFiles = walk(join(process.cwd(), "lib/services/landing")).filter((f) => !f.includes(".test."));
     const importers = landingFiles.filter((f) => /from\s+["']openai["']/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/").split("lib/services/landing/")[1]);

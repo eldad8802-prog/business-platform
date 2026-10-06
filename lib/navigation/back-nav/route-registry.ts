@@ -162,6 +162,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/business", parent: "/settings", parentLabel: "להגדרות" },
   { pattern: "/business/identity", parent: "/business", parentLabel: "לפרופיל העסק" },
   { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabel: "לנוכחות הדיגיטלית" },
+  { pattern: "/business/landing-preview", parent: "/business/landing-strategy", parentLabel: "לכיווני דף הנחיתה" },
   { pattern: "/business/bot", parent: "/tools/customers", parentLabel: "ללקוחות ומכירות" },
   { pattern: "/business/bot-settings", parent: "/business/bot", parentLabel: "לבוט שלי" },
   { pattern: "/business/bot-settings/[area]", parent: "/business/bot-settings", parentLabel: "להגדרות הבוט" },
