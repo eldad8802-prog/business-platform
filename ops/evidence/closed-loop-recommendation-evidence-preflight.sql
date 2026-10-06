@@ -2,11 +2,11 @@
 -- closed-loop-recommendation-evidence-preflight.sql
 --
 -- Read-only Production PREFLIGHT for migration
---   20261011090000_closed_loop_recommendation_evidence   (Closed Loop Activation, NOT applied)
+--   20261012090000_closed_loop_recommendation_evidence   (Closed Loop Activation, NOT applied)
 --
 -- Measures every premise the migration's outcome depends on:
 --   * the ledger is clean; this migration is not recorded, nothing sorting after it was applied first, and BY
---     NAME every one of the 172 migrations on main is finished and nothing else is in the ledger, so it is the
+--     NAME every one of the 175 migrations on main is finished and nothing else is in the ledger, so it is the
 --     ONLY pending migration;
 --   * none of the names it creates exists; the feature key is undefined and nobody has access to it;
 --   * what it reuses exists: m9_append_only_guard(), the composite (businessId, id) FK target on
@@ -21,11 +21,11 @@
 
 \echo '== Closed loop recommendation evidence preflight: legend (n -> check) =='
 \echo ' 1 L0 migration ledger: no unfinished and no rolled-back row (observed = such rows)'
-\echo ' 2 L1 20261011090000_closed_loop_recommendation_evidence is NOT recorded'
+\echo ' 2 L1 20261012090000_closed_loop_recommendation_evidence is NOT recorded'
 \echo ' 3 L2 every finished migration sorts BEFORE it (it is next; nothing later was applied first)'
 \echo ' 4 L3 finished migrations (INFO count)'
-\echo ' 5 L4 every one of the 172 expected names (all of main) is finished (observed = missing)'
-\echo ' 6 L5 no ledger row outside the 172 expected names: this migration is the only pending one (observed = unexpected)'
+\echo ' 5 L4 every one of the 175 expected names (all of main) is finished (observed = missing)'
+\echo ' 6 L5 no ledger row outside the 175 expected names: this migration is the only pending one (observed = unexpected)'
 \echo ' 7 N1 none of the relation names it creates exists (table, sequence, pkey, 2 unique indexes)'
 \echo ' 8 N2 no policy named outcome_recommendation_evidence_* exists'
 \echo ' 9 N3 owner_recommendations is not defined (definitions + policies; observed = rows)'
@@ -73,7 +73,7 @@ defacl_items AS (
   WHERE d.defaclrole = (SELECT oid FROM me)),
 defacl AS (SELECT kind, nsp, grantee, string_agg(DISTINCT l, '' ORDER BY l) AS letters FROM defacl_items GROUP BY kind, nsp, grantee),
 uniq_on(tbl, col) AS (VALUES ('PlatformFeatureDefinition', 'key'), ('PlatformFeaturePolicy', 'featureKey')),
--- every migration directory on main (172)
+-- every migration directory on main (175)
 expected(name) AS (
   VALUES
     ('20260210120000_billing_invoice_profile_fields'),
@@ -247,14 +247,17 @@ expected(name) AS (
     ('20261008090000_p3a_identity_enum_values'),
     ('20261008090100_p3a_trust_claims'),
     ('20261009090000_m6_acquisition_connections'),
-    ('20261010090000_business_brain_temporal_policies')
+    ('20261010090000_business_brain_temporal_policies'),
+    ('20261011090000_onboarding_setup_state'),
+    ('20261011090100_signup_consent_business_rename'),
+    ('20261011090200_user_email_casefold_unique')
 ),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
             (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM ledger WHERE migration_name = '20261011090000_closed_loop_recommendation_evidence'),
-                      (SELECT count(*) FROM ledger WHERE migration_name = '20261011090000_closed_loop_recommendation_evidence')
-  UNION ALL SELECT 3, (SELECT max(migration_name) FROM ledger WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) < '20261011090000_closed_loop_recommendation_evidence', 1
+  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM ledger WHERE migration_name = '20261012090000_closed_loop_recommendation_evidence'),
+                      (SELECT count(*) FROM ledger WHERE migration_name = '20261012090000_closed_loop_recommendation_evidence')
+  UNION ALL SELECT 3, (SELECT max(migration_name) FROM ledger WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) < '20261012090000_closed_loop_recommendation_evidence', 1
   UNION ALL SELECT 4, true, (SELECT count(*) FROM ledger WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 5, NOT EXISTS (SELECT 1 FROM expected e WHERE NOT EXISTS (
                         SELECT 1 FROM ledger l WHERE l.migration_name = e.name AND l.finished_at IS NOT NULL AND l.rolled_back_at IS NULL)),

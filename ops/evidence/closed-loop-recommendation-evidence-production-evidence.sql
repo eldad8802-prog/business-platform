@@ -2,7 +2,7 @@
 -- closed-loop-recommendation-evidence-production-evidence.sql
 --
 -- Read-only Production EVIDENCE after migration
---   20261011090000_closed_loop_recommendation_evidence
+--   20261012090000_closed_loop_recommendation_evidence
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, nothing is unfinished or rolled back;
@@ -58,9 +58,9 @@ pols AS (SELECT p.polname, p.polcmd, pg_get_expr(COALESCE(p.polqual, p.polwithch
 fks AS (SELECT k.conname, k.confrelid::regclass::text AS target, k.confdeltype, cardinality(k.conkey) AS width
         FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM ev) AND k.contype = 'f'),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261011090000_closed_loop_recommendation_evidence'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261012090000_closed_loop_recommendation_evidence'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261011090000_closed_loop_recommendation_evidence'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261012090000_closed_loop_recommendation_evidence'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)

@@ -1,4 +1,4 @@
--- Reversal of 20261011090000_closed_loop_recommendation_evidence. OWNER-RUN ONLY, never automatic.
+-- Reversal of 20261012090000_closed_loop_recommendation_evidence. OWNER-RUN ONLY, never automatic.
 --
 -- Safe only while no code writes or reads the table (the code PR not deployed, or reverted first). Dropping the
 -- table discards captured evidence; that is the deliberate meaning of reversal here (the evidence is a derived
