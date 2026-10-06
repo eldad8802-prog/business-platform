@@ -416,7 +416,7 @@ A simulator or local server never yields REAL.
 
 ## 13. Migration plan
 
-**One migration, `M7-A` (`20261012090000_m7_commerce_telephony_foundation`)**, applied only through the approved-prefix release gate after its own preflight. It contains:
+**One migration, `M7-A` (`<timestamp>_m7_commerce_telephony_foundation`, with a timestamp later than the newest migration on main when M7-A is built)**, applied only through the approved-prefix release gate after its own preflight. It contains:
 
 1. The `AcquisitionConnection` CHECK widening (sourceKey + source_shape). Resolver functions are extended for the new sources.
 2. **M-D2:** the Meta resolver accepts `ERROR` (leads are kept while a reconnect is pending).
