@@ -297,9 +297,7 @@ try {
   await page.screenshot({ path: ".tmp/coupon-smoke-mobile.png", fullPage: true });
 
   // ── 12. console / network hygiene
-  // Known pre-existing app-shell noise, NOT coupon code: the Dubiz intro splash
-  // (app/(shell)/layout.tsx + components/brand/dubiz-intro-overlay.tsx) renders
-  // a preboot <script> and hydrates differently from the server HTML. Reported
+  // Known pre-existing app-shell hydration noise, NOT coupon code. Reported
   // separately rather than silently swallowed.
   const SHELL_NOISE = /Hydration failed|hydrat|Encountered a script tag while rendering/i;
   const shellNoise = consoleErrors.filter((e) => SHELL_NOISE.test(e));

@@ -75,12 +75,6 @@ async function main() {
     if (skel) await page.screenshot({ path: path.join(OUT, "shots", `skeleton__${w}.png`) });
 
     await page.waitForSelector(".dzhome .wrap", { timeout: 30000 }).catch(() => {});
-    // The brand intro overlay (variant V6) covers Home on every FULL document
-    // load, so screenshots taken too early capture the animation instead of
-    // the composition. Wait for it to retire before measuring/shooting.
-    await page
-      .waitForFunction(() => !document.querySelector("[data-dubiz-intro-overlay]"), { timeout: 25000 })
-      .catch(() => {});
     await page.waitForTimeout(900);
     const m = await measure(page);
     rows.push({ w, skel, ...m });
