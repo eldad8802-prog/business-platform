@@ -69,7 +69,8 @@ export const assetRef = (id: number) => `asset:${id}`;
 export const factRef = (key: string) => `fact:${key}`;
 export const statementRef = (id: number) => `statement:${id}`;
 
-function priceText(priceMode: string | null, amount: string | null, max: string | null): string | null {
+/** The owner price as the page states it. Exported for P3-E, which re-checks a saved snapshot against today's catalog. */
+export function priceText(priceMode: string | null, amount: string | null, max: string | null): string | null {
   const n = (v: string | null) => (v === null ? null : Number(v).toLocaleString("he-IL", { maximumFractionDigits: 2 }));
   switch (priceMode) {
     case "FIXED": return amount !== null ? `₪${n(amount)}` : null;

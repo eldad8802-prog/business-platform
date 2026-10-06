@@ -117,6 +117,18 @@
       "workflow": "p2-identity-ci.yml",
       "reason": "P2 + P3-A: replays the P2 and P3-A migrations verbatim and proves tenant isolation of BusinessIdentityStatement and BusinessTrustClaim as a NOSUPERUSER NOBYPASSRLS app_runtime (cross-tenant read/write/update/evidence-link refused, no DELETE; cross-tenant context, claims and private document references refused; claims never inserted public, wording immutable, retired claims frozen); run on pull_request by p2-identity-ci.yml job db"
     },
+    "lib/services/landing/persistence/landing-persistence.rls.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-E: replays migration 20261013090000_p3e_landing_persistence verbatim and runs the real save / approve / rollback / retire service as a NOSUPERUSER NOBYPASSRLS app_runtime — state machine S1–S14 (one DRAFT / one APPROVED, rollback creates a new approved version, concurrent approvals leave one pointer, DB-safe numbering), database-enforced authority (no snapshot rewrite, no approval without approver, no non-rollback APPROVED insert, no DELETE), tenant isolation T1–T8 (cross-tenant preview / approve / rollback / retire / pointers refused; no tenant context sees nothing; audit events tenant-scoped, no copy), damaged or unsupported snapshots fail closed, no blueprint copy in logs; run on pull_request by p2-identity-ci.yml job db"
+    },
+    "lib/services/landing/persistence/landing-persistence.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p2-identity-ci.yml",
+      "reason": "P3-E: pure + static proof of owner landing versions — snapshot fingerprint / integrity fail closed, closed snapshot key set (no prompt / raw output / composer context), saved-version render without the composer with destinations and images re-derived from today's authority, current readiness re-checks assets / trust / facts / offerings / conversion / renderer (C1–C6) without ever revoking approval, routes read no blueprint / status / authority / approver / business id from the client, only the owner routes reach the service (A1–A9), logs and audit payloads carry no copy, no public route; run on pull_request by p2-identity-ci.yml job core"
+    },
     "lib/services/landing/renderer/landing-renderer.verify.test.tsx": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

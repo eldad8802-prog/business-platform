@@ -430,6 +430,61 @@ export const SENSORS = {
     learning: { role: "LEDGER_DUPLICATE", ledger: ["IdentityProposal"] },
   }),
 
+  /* ─────────────────────── landing — P3-E owner versions ─────────────────────── */
+  // Written by lib/services/landing/persistence/landing-page.service.ts inside the same transaction as the
+  // version row. Version numbers, statuses and the strategy TYPE only: never blueprint copy, refs, facts,
+  // asset keys or model output.
+  LANDING_VERSION_CREATED: S({
+    eventType: "LANDING_VERSION_CREATED",
+    domain: "landing",
+    entityType: "LANDING_PAGE_VERSION",
+    version: 1,
+    payloadKeys: ["versionNumber", "strategyType", "status"],
+    describes: "The owner saved a composed landing blueprint as a new draft version.",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LandingPageVersion"] },
+  }),
+  LANDING_VERSION_APPROVED: S({
+    eventType: "LANDING_VERSION_APPROVED",
+    domain: "landing",
+    entityType: "LANDING_PAGE_VERSION",
+    version: 1,
+    payloadKeys: ["versionNumber", "strategyType", "publishReady", "blockerCount"],
+    describes: "The owner approved a landing version as their chosen version (approval, not publication).",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LandingPageVersion"] },
+  }),
+  LANDING_VERSION_SUPERSEDED: S({
+    eventType: "LANDING_VERSION_SUPERSEDED",
+    domain: "landing",
+    entityType: "LANDING_PAGE_VERSION",
+    version: 1,
+    payloadKeys: ["versionNumber", "previousStatus", "supersededByVersionNumber"],
+    describes: "A landing version stopped being the current draft or the current approved version because the owner chose another.",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LandingPageVersion"] },
+  }),
+  LANDING_ROLLBACK_CREATED: S({
+    eventType: "LANDING_ROLLBACK_CREATED",
+    domain: "landing",
+    entityType: "LANDING_PAGE_VERSION",
+    version: 1,
+    payloadKeys: ["versionNumber", "sourceVersionNumber", "strategyType"],
+    describes: "The owner restored an earlier approved landing version as a new approved version.",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LandingPageVersion"] },
+  }),
+  LANDING_VERSION_RETIRED: S({
+    eventType: "LANDING_VERSION_RETIRED",
+    domain: "landing",
+    entityType: "LANDING_PAGE_VERSION",
+    version: 1,
+    payloadKeys: ["versionNumber"],
+    describes: "The owner discarded their current landing draft.",
+    timeSemantics: "ACTION_TIME",
+    learning: { role: "LEDGER_DUPLICATE", ledger: ["LandingPageVersion"] },
+  }),
+
   /* ─────────────────────── leads — M5 lifecycle ─────────────────────── */
   // Written by lib/services/crm/lead-lifecycle.service.ts beside each LeadLifecycleEvent row.
   // Categories, counts and durations only: never a name, phone, email, note, reason text or amount.

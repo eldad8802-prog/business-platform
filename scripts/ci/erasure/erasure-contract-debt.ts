@@ -88,6 +88,10 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIdentityFactAuthority", why: "E2" },
   // P3-A. Owner trust-claim parameters can name the owner; the row also references a private document.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessTrustClaim", why: "E2" },
+  // P3-E. A saved landing version copies approved public business material (it can include the owner's
+  // designated public phone / email / address) and owner user ids; the page row holds createdByUserId.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "LandingPage", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "LandingPageVersion", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
   // Payables Phase 1a. Commitment and Installment are what BusinessObligation

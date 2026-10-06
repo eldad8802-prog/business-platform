@@ -56,3 +56,38 @@ export const BLUEPRINT_MISSING_LABELS: Record<string, string> = {
   ...MISSING_LABELS,
   PUBLIC_APPROVED_ASSET: "לפחות תמונה אחת מאושרת לפרסום",
 };
+
+/* ───────────── P3-E — saved versions (never "published / live / on air": nothing is published) ───────────── */
+
+/** The badge of a saved version. A RETIRED version is a draft the owner discarded. */
+export const VERSION_BADGE: Record<string, string> = {
+  APPROVED: "מאושרת",
+  DRAFT: "טיוטה",
+  SUPERSEDED: "גרסה קודמת",
+  RETIRED: "טיוטה שבוטלה",
+};
+
+/** Today's re-check of a saved version (deterministic, against current approvals). */
+const CURRENT_BLOCKER_PREFIX: Record<string, string> = {
+  ASSET_NOT_PUBLIC_APPROVED: "תמונה בגרסה כבר לא מאושרת לפרסום",
+  TRUST_CLAIM_NOT_PUBLIC_EFFECTIVE: "טענת אמון בגרסה כבר לא מאושרת לפרסום",
+  TRUST_CLAIM_WORDING_CHANGED: "הנוסח של טענת אמון השתנה מאז שהגרסה נשמרה",
+  FACT_NOT_APPROVED: "פרט עסק בגרסה כבר לא מאושר לפרסום",
+  FACT_VALUE_CHANGED: "פרט עסק השתנה מאז שהגרסה נשמרה",
+  STATEMENT_NOT_APPROVED: "טקסט על העסק בגרסה כבר לא מאושר לפרסום",
+  STATEMENT_TEXT_CHANGED: "טקסט על העסק השתנה מאז שהגרסה נשמרה",
+  OFFERING_NOT_AVAILABLE: "שירות או מוצר בגרסה כבר לא פעיל",
+  OFFERING_CHANGED: "שירות או מוצר השתנה מאז שהגרסה נשמרה (שם, תיאור או מחיר)",
+  CONVERSION_DESTINATION_MISSING: "לדרך הפנייה בגרסה אין כרגע פרט מאושר (טלפון, אימייל, וואטסאפ או כתובת)",
+  CONVERSION_UNSUPPORTED: "דרך הפנייה בגרסה כבר לא נתמכת",
+  UNSUPPORTED_BLUEPRINT_VERSION: "הגרסה נשמרה בפורמט שכבר לא נתמך",
+  UNSUPPORTED_RENDERER_VERSION: "הגרסה נשמרה בפורמט שכבר לא נתמך",
+};
+
+export function currentBlockerLabel(code: string): string {
+  return CURRENT_BLOCKER_PREFIX[code.split(":")[0]] ?? code;
+}
+
+export function snapshotMissingLabel(code: string): string {
+  return BLUEPRINT_MISSING_LABELS[code] ?? BLUEPRINT_MISSING_LABELS[code.replace(/^ASSET:/, "")] ?? code;
+}

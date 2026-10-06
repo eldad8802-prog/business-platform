@@ -364,8 +364,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     key: "business-identity", name: "Business identity / profile", coverage: "L0_ONLY",
     reason: "Owner-confirmed identity statements/facts reach the BKS as OWNER_DECISION context; profile changes are an interpretation boundary, not a behaviour.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim"],
-    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile", "page/setup"],
+    // P3-E: the owner's saved / approved landing versions belong to the same identity surface (an owner decision).
+    models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim", "LandingPage", "LandingPageVersion"],
+    sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED", "LANDING_VERSION_CREATED", "LANDING_VERSION_APPROVED", "LANDING_VERSION_SUPERSEDED", "LANDING_ROLLBACK_CREATED", "LANDING_VERSION_RETIRED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile", "page/setup"],
     outcome: NO_OUTCOME,
   },
   {
