@@ -261,6 +261,7 @@ model Business {
   outcomeActionEvents           OutcomeActionEvent[]
   outcomeObservations           OutcomeObservation[]
   outcomeAssessments            OutcomeAssessment[]
+  outcomeRecommendationEvidence OutcomeRecommendationEvidence[]
   knowledgeDerivationRuns       KnowledgeDerivationRun[]
   intakeNormalizedEvents        IntakeNormalizedEvent[]
   identityLinks                 IdentityLink[]
@@ -5932,11 +5933,12 @@ model OutcomeRecommendation {
   supersededById       Int?
   createdAt            DateTime                    @default(now())
 
-  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   decisions    OutcomeDecision[]
   actionEvents OutcomeActionEvent[]
   observations OutcomeObservation[]
   assessments  OutcomeAssessment[]
+  evidence     OutcomeRecommendationEvidence?
 
   @@unique([businessId, id])
   @@unique([businessId, recommendationKey, version])
@@ -6593,4 +6595,27 @@ model BusinessTrustClaim {
 
   @@unique([id, businessId])
   @@index([businessId, status, claimKind])
+}
+
+/// Closed Loop · the durable WHY of ONE recommendation version: structured, bounded facts captured at issue from
+/// domain truth (ids, dates, day counts, codes, the installment amounts the owner already sees). No names, no
+/// text. Append-only (m9_append_only_guard); FORCE RLS; runtime SELECT + INSERT only.
+model OutcomeRecommendationEvidence {
+  id                 Int      @id @default(autoincrement())
+  businessId         Int
+  recommendationId   Int
+  evidenceVersion    String
+  kind               String
+  facts              Json
+  evidenceRefs       Json
+  factFingerprint    String
+  capturedAt         DateTime
+  capturedAfterIssue Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation OutcomeRecommendation @relation(fields: [businessId, recommendationId], references: [businessId, id], onDelete: Cascade, map: "OutcomeRecommendationEvidence_recommendation_fkey")
+
+  @@unique([businessId, id])
+  @@unique([businessId, recommendationId])
 }

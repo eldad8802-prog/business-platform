@@ -561,7 +561,17 @@ function PaymentForm({
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState<string>("BANK_TRANSFER");
   const [reference, setReference] = useState("");
-  const [selected, setSelected] = useState<number[]>([]);
+  // Arriving from a Dubiz recommendation (`?pay=<installmentId>`): that open installment is preselected and
+  // the form scrolled into view. Only the selection; the amount and date are what the owner actually paid.
+  const [selected, setSelected] = useState<number[]>(() => {
+    if (typeof window === "undefined") return [];
+    const pay = Number(new URLSearchParams(window.location.search).get("pay"));
+    return Number.isInteger(pay) && pay > 0 && open.some((i) => i.id === pay) ? [pay] : [];
+  });
+  const [arrivedToPay] = useState(() => selected.length > 0);
+  useEffect(() => {
+    if (arrivedToPay) document.getElementById("pm-amount")?.scrollIntoView({ block: "center" });
+  }, [arrivedToPay]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

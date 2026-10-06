@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { appendOwnerDecision } from "@/lib/knowledge/outcomes/outcome-store";
+import { appendOwnerDecision, loadOwnerRecommendations } from "@/lib/knowledge/outcomes/outcome-store";
+import { ownerRecommendationsEnabled } from "@/lib/knowledge/outcomes/owner-surface.service";
 import {
   NOT_NOW_DEFAULT_DAYS,
   NOT_NOW_MAX_DAYS,
@@ -13,9 +14,10 @@ import {
 /**
  * M9 — the owner answers a recommendation. APPEND-ONLY; the owner's answer is authority, never inferred.
  *
- * NOT A SURFACE. No screen calls this yet: M9 is the backend loop, and showing recommendations to an
- * owner is a separate activation decision. The endpoint exists so that decision can be made without a
- * schema change, and so the battery can prove the decision path end to end.
+ * Called by the owner recommendation surface (/recommendations), behind the platform feature
+ * `owner_recommendations` (default OFF): when the feature is off for the business, a decision is refused
+ * (403). Only a recommendation the surface can show — one whose WHY was captured durably — can be decided:
+ * the owner answers what they were shown, never a recommendation they could not see (404 otherwise).
  *
  * The tenant and the actor come from the session, never from the body. The caller names the version it
  * is answering: a decision about v1 is never applied to v2 (409). A retry with the same
@@ -76,6 +78,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   try {
+    if (!(await ownerRecommendationsEnabled(user.businessId))) {
+      return NextResponse.json({ error: "FEATURE_DISABLED" }, { status: 403 });
+    }
+    const shown = await loadOwnerRecommendations(user.businessId, new Date(), { id: recommendationId });
+    if (shown.items.length === 0) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+
     const result = await appendOwnerDecision(user.businessId, recommendationId, user.id, {
       recommendationVersion: version, decision, modification: targets ? { targets } : null, reasonCode, deferUntil,
       idempotencyKey: header ?? randomUUID(),

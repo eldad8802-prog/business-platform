@@ -7,6 +7,7 @@ import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 import type { SetupView } from "@/lib/services/onboarding/setup-model";
+import { loadRecommendations, type RecommendationView } from "@/features/recommendations/recommendations-client";
 
 import {
   FAILED,
@@ -47,6 +48,9 @@ export type ConversationWire = {
 
 export type InsightView = { title: string; body: string | null; href: string };
 
+/** The Dubiz recommendation waiting for the owner, when the feature is on for the business and one waits. */
+export type RecommendationHomeView = { type: RecommendationView["type"]; what: string; summary: string; waiting: number; href: string };
+
 export type HomeData = {
   dayIncome: Load<{ hours: string[]; total: string }>;
   cost: Load<BusinessCostSummaryApi>;
@@ -58,6 +62,7 @@ export type HomeData = {
   insight: Load<InsightView | null>;
   /** "Your start": the first action for the owner's goal and a short checklist. */
   setup: Load<SetupView>;
+  recommendation: Load<RecommendationHomeView | null>;
   unread: boolean;
   /* desktop only */
   pending: Load<{ amount: string; count: number }>;
@@ -77,6 +82,7 @@ const INITIAL: HomeData = {
   documents: LOADING,
   insight: LOADING,
   setup: LOADING,
+  recommendation: LOADING,
   unread: false,
   pending: LOADING,
   conversations: LOADING,
@@ -160,6 +166,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
     );
     settle("insight", loadInsight(), (v) => ready(v));
     settle("setup", fetchJsonCached<SetupView>("/api/business/setup", TTL), (j) => ready(j));
+    settle("recommendation", loadRecommendationHome(), (v) => ready(v));
 
     fetchJsonCached<{ unreadCount?: number }>("/api/notifications/unread-count", 0)
       .then((j) => {
@@ -225,6 +232,22 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
   }, [put]);
 
   return { data, loadWeek };
+}
+
+/**
+ * The newest recommendation waiting for the owner's answer. Feature off, or nothing waiting → null and the
+ * card is not drawn (the Home is exactly as before).
+ */
+async function loadRecommendationHome(): Promise<RecommendationHomeView | null> {
+  const p = await loadRecommendations();
+  if (!p.enabled) return null;
+  const waiting = p.items.filter((v) => v.stage === "waiting");
+  const top = waiting[0];
+  if (!top) return null;
+  return {
+    type: top.type, what: top.what, summary: top.summary, waiting: waiting.length,
+    href: waiting.length === 1 ? `/recommendations/${top.id}` : "/recommendations",
+  };
 }
 
 /**

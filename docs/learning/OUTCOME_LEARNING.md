@@ -80,7 +80,7 @@ Migration: `prisma/migrations/20260928090000_m9_outcome_learning`. Battery: `.m0
 - The actor comes from the session. `source = OWNER_UI`.
 - An optional **structured** `reasonCode`: `ALREADY_HANDLED`, `NOT_RELEVANT`, `WRONG_TIMING`, `DISAGREE` or `WILL_HANDLE_DIFFERENTLY`. There is deliberately no free text.
 - **Silence is never a decision.** An unanswered recommendation expires with decision state `NONE`.
-- Route: `POST /api/outcomes/recommendations/[id]/decision`. The tenant and actor come from the session; the `Idempotency-Key` header is honoured. **No screen calls it.**
+- Route: `POST /api/outcomes/recommendations/[id]/decision`. The tenant and actor come from the session; the `Idempotency-Key` header is honoured. Called by the owner recommendation surface (see *Closed Loop* below). It is refused (403) when the `owner_recommendations` feature is off for the business, and 404 for a recommendation that has no durable evidence, because the owner cannot have seen its WHY.
 
 **Action**, read from the ledger and never claimed:
 
@@ -191,7 +191,43 @@ trait, motive, risk appetite or intent (tested).
 - **Isolation probe.** The derive route's isolation probe now covers the five M9 tables.
 - **Kill switch.** `OUTCOMES_MODE=off` means no read and no write.
 - **Failure.** M9 never throws into the derivation. A failure is reported with its stage. Knowledge built for another business is refused before any read (`tenant_mismatch`).
-- **No owner-visible AI.** No UI reads M9 (tested). Recommendations are not rendered, notified or sent.
+- **No owner-visible AI.** The owner surface (Closed Loop) is deterministic wording from durable evidence; no model writes or chooses anything the owner reads. No UI imports M9 directly; the only UI caller of the owner-surface API is `features/recommendations/recommendations-client.ts` (tested). Nothing is notified or sent.
+
+## Closed Loop — the owner surface (2026-10-06)
+
+The first owner-facing step of the loop. It reuses M9 unchanged: the same generation, memory, suppression, decision contract, ledger-read actions, assessor and learning.
+
+**Durable WHY.** `OutcomeRecommendationEvidence` (migration `20261011090000_closed_loop_recommendation_evidence`) holds one row per issued version. The row is written in the same transaction as the version itself, from the domain rows behind its targets. A version whose evidence cannot be built is not issued.
+- `OVERDUE_INSTALLMENT` records:
+  - the installment and its commitment;
+  - the due date and the days overdue;
+  - its status;
+  - coverage as `NONE` or `PARTIAL`, from live allocations on recorded, unvoided payments.
+
+  It holds **no money**: as everywhere in M9, amounts are read in memory only.
+- `REVIEW_BACKLOG` records:
+  - the pending count;
+  - the oldest and newest waiting days;
+  - the intake channel as a fixed code;
+  - the document ids, capped at 50.
+- Rows contain no names and no text.
+- `factFingerprint` lets the surface prove the stored facts are unchanged ("intact").
+- `capturedAfterIssue` is true only for an owner-approved, one-off late capture, and the surface says so.
+- The table is append-only (`m9_append_only_guard`), under FORCE RLS, with tenant SELECT and INSERT policies. The runtime holds SELECT and INSERT only.
+
+**Surface.** It sits behind the platform feature `owner_recommendations` (default OFF, enabled per business).
+- The Home card "Dubiz ממליץ" appears beside *what is waiting*. It is drawn only when something waits.
+- `/recommendations` lists them, grouped into waiting, in progress and history.
+- `/recommendations/[id]` shows WHAT, WHY, EVIDENCE and WHAT CAN I DO, plus the after view.
+- The words come from `owner-view.ts`, which is pure and deterministic. The after view is a sequence only, e.g. "לאחר ההמלצה והפעולה, התשלום נרשם". Causal and credit phrases are refused by test.
+
+**Action handoff.** ACCEPT records the decision, then continues in the real flow:
+- an installment goes to `/payables/[commitmentId]?pay=[installmentId]`, the existing payment form with that installment preselected;
+- documents go to `/documents/review/[first]`, the first of the owner's subset for MODIFY.
+
+Nothing is marked done by the surface. Completion is what the ledger later shows.
+
+**Not shown.** Recommendations issued before evidence existed have no WHY that can be reconstructed. They are counted (`withoutEvidence`), never shown, and cannot be decided.
 
 ## Known limitations
 

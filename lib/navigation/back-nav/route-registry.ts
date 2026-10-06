@@ -65,6 +65,9 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view", "cstep"] },
   { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי", identityParams: ["step"] },
   { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabel: "לקופונים" },
+  // Dubiz recommendations (owner_recommendations): the list, and one recommendation with its WHY.
+  { pattern: "/recommendations", parent: "/app", parentLabel: "לבית" },
+  { pattern: "/recommendations/[id]", parent: "/recommendations", parentLabel: "לכל ההמלצות" },
 
   // ---- content creation flow (each step's fallback = the step before) ----
   { pattern: "/content", parent: "/app", parentLabel: "לבית" },
