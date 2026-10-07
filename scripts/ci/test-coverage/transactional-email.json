@@ -1,0 +1,11 @@
+{
+  "note": "feat/transactional-email-welcome (PR-2): WELCOME on signup through the TransactionalEmail outbox — configuration OFF by default, Resend over fetch with a stable idempotency key, retry / expiry / sweep, erasure.",
+  "tests": {
+    "lib/email/transactional/transactional-email.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "transactional-email-ci.yml",
+      "reason": "pure (no DB/network): TRANSACTIONAL_EMAIL_ENABLED off by default and fail-closed (OFF = no database, no outbound request), header-injection-safe sender config, WELCOME payload contract and HTML escaping, Resend Idempotency-Key te:<id>, 429/5xx/network retryable vs validation 4xx permanent, expiry within the provider window, logs without address/name/body, the sweep route's CRON_SECRET authority, and the static scope (only signup enqueues; only the register and sweep routes deliver; only delivery/sweep hold the auth client); run on pull_request by transactional-email-ci.yml"
+    }
+  }
+}

@@ -72,6 +72,11 @@ await sh(`CREATE ROLE ${role} LOGIN PASSWORD '${pw}' NOSUPERUSER NOBYPASSRLS NOC
 await sh(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin') THEN CREATE ROLE app_admin NOLOGIN; END IF; END $$`);
 // B4: Business's signup INSERT policy names app_auth (the auth plane's NOLOGIN group in Production).
 await sh(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth') THEN CREATE ROLE app_auth NOLOGIN; END IF; END $$`);
+// TransactionalEmail's tenant-plane policies name app_runtime (the runtime's NOLOGIN group in Production,
+// of which the runtime login is a member). The fresh runtime role joins it here exactly as Production's
+// login does, so a `TO app_runtime` policy binds it; the group itself holds nothing in this database.
+await sh(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN CREATE ROLE app_runtime NOLOGIN; END IF; END $$`);
+await sh(`GRANT app_runtime TO ${role}`);
 await sh(`CREATE DATABASE ${db}`);
 await sh(`COMMENT ON DATABASE ${db} IS 'ad2a-fresh:${nonce}'`);
 

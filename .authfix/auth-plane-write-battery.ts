@@ -56,6 +56,9 @@ const B4 = MIG("20261006090000_business_tenant_write_rls");
 const M1_STATE = MIG("20261011090000_onboarding_setup_state");
 const M1_CONSENT = MIG("20261011090100_signup_consent_business_rename");
 const M1_CASEFOLD = MIG("20261011090200_user_email_casefold_unique");
+// Transactional email: signup records the WELCOME it owes in the account transaction, so the
+// signup plane's INSERT on TransactionalEmail is part of the signup contract this lab proves.
+const TE = MIG("20261015090000_transactional_email_foundation");
 
 const RUNTIME_ROLE = "app_runtime_battery";
 const RUNTIME_PW = "authfix_ci_synthetic_runtime_pw";
@@ -184,6 +187,15 @@ async function main() {
   }
   for (const f of [SEC_C, B4, M1_STATE, M1_CONSENT, M1_CASEFOLD]) {
     for (const s of statements(readFileSync(f, "utf8"))) await owner.$executeRawUnsafe(s);
+  }
+  // db push built TransactionalEmail from the model, without the migration's RLS and grants.
+  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "TransactionalEmail" CASCADE`);
+  for (const s of statements(readFileSync(TE, "utf8"))) await owner.$executeRawUnsafe(s);
+  {
+    const te = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(
+      `SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE relname = 'TransactionalEmail'`
+    );
+    ok("transactional email migration applied: TransactionalEmail under FORCED row-level security", te[0]?.r === true && te[0]?.f === true);
   }
   {
     const rls = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(

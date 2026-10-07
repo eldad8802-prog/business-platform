@@ -66,6 +66,12 @@ fi
 # owner-facing session list and its revokes make lives in that ONE module, so the
 # ownership predicate sits in one place instead of three routes remembering it.
 # Allowlisting the module rather than the three routes is what keeps that true.
+#
+# lib/email/transactional/{delivery,sweep}.ts join it as the DELIVERY half of the
+# signup plane: the WELCOME row is written by signup (above) in the account
+# transaction, and only app_auth may claim, read and settle it — the tenant runtime
+# holds DELETE + SELECT ("id", "businessId") on that table and nothing else. The
+# two modules touch TransactionalEmail only; nothing in them reads User or Business.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -75,6 +81,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
     | grep -vE "(^|/)lib/auth/admin-mfa\\.service\\.ts:" \
+    | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

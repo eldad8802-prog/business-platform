@@ -190,6 +190,7 @@ model Business {
   inboundEmailAttachmentImports InboundEmailAttachmentImport[]
   inboundEmailAuthorizedSenders InboundEmailAuthorizedSender[]
   inboundEmailSenderChallenges  InboundEmailSenderChallenge[]
+  transactionalEmails           TransactionalEmail[]
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -340,6 +341,7 @@ model User {
   crmAttachmentsUploaded                     CrmAttachment[]
   platformAdminMfa                           PlatformAdminMfa?
   authSessions                               AuthSession[]
+  transactionalEmails                        TransactionalEmail[]
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -6776,4 +6778,41 @@ model CallActivity {
   @@unique([businessId, sourceKey, providerCallId])
   @@index([businessId, customerId, startedAt])
   @@index([businessId, startedAt])
+}
+
+/// One transactional email Dubiz owes a recipient (migration
+/// 20261015090000_transactional_email_foundation). Written by the signup / delivery
+/// plane (app_auth) in the same transaction as the act that owes it; moved through
+/// delivery by the same plane. The tenant plane (app_runtime) holds DELETE and
+/// SELECT ("id", "businessId") only, bound to app.current_business_id — account
+/// erasure, nothing else. The CHECK constraints live in the migration.
+model TransactionalEmail {
+  id                Int       @id @default(autoincrement())
+  /// Registry key (lib/email/transactional/registry.ts), e.g. WELCOME. Not an enum on purpose.
+  kind              String
+  /// The idempotency key: one row per owed email, across every kind.
+  dedupeKey         String    @unique
+  userId            Int?
+  businessId        Int
+  toEmail           String
+  /// The template's parameters, captured at enqueue. Never financial, document or customer data.
+  payload           Json      @default("{}")
+  locale            String    @default("he")
+  /// PENDING | SENDING | SENT | FAILED | EXPIRED (CHECK)
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime?
+  expiresAt         DateTime
+  lastErrorCode     String?
+  provider          String?
+  providerMessageId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  sentAt            DateTime?
+  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user              User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([userId])
+  @@index([businessId])
 }
