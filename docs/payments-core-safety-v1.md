@@ -28,6 +28,18 @@ verify.
 | Authorization | Refund / void / refund verification: the business's account owner (its first user). Manual resolution: platform admin + MFA. | `payment-authorization.ts`, `payment-account-owner.ts` |
 | Attention | One read of money that needs a person, from durable rows only. | `payment-attention.service.ts`, `GET /api/payments/attention` |
 
+## Authorization baseline (owner-approved 2026-10-07)
+
+| Action | Who | Where |
+|---|---|---|
+| Refund, partial refund, void, asking about a reversal | The business's **account owner** (its first user) only | `authorizePaymentAction(…, REFUND, { isBusinessAccountOwner })`, resolved server-side by `payment-account-owner.ts` |
+| Manual resolution of an UNKNOWN / stuck refund | **Platform admin + MFA** only, with written evidence from the provider | `app/api/platform-admin/payments/reversals/resolve` |
+| Everything else in payments | Any authenticated member of the business | unchanged |
+
+No role system is introduced. This is a deliberate baseline: a dedicated
+permission (e.g. a "finance" role, or step-up confirmation for refunds) plugs
+into the same `authorizePaymentAction` seam later without touching call sites.
+
 ## Proof
 
 - `provider-contract.test.ts` — each REAL adapter (CardCom, SUMIT) through the shared path: link → lost webhook → reconciliation → exactly one row at the verified amount → replay no-op → refund target from stored evidence → timeout is UNKNOWN. CI puts back two historical defects and requires red.
