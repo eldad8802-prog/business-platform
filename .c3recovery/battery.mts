@@ -49,6 +49,12 @@ async function makeBusiness(label: string): Promise<Ctx> {
     },
   });
   const customer = await prisma.customer.create({ data: { businessId: business.id, name: "C3R Customer" } });
+  // A business whose connection has DECIDED that Dubiz issues documents. Without
+  // a decision (or without a connection) settlement is fail-closed and holds the
+  // receipt — that rule has its own proof (M1 battery case Y).
+  await prisma.businessPaymentConnection.create({
+    data: { businessId: business.id, provider: "CARDCOM", isActive: true, merchantId: "c3r", documentIssuer: "DUBIZ_ISSUES" },
+  });
   return { businessId: business.id, customerId: customer.id };
 }
 let invoiceNo = 0;
