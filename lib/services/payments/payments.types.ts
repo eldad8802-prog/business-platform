@@ -19,6 +19,21 @@ export type { PayableDocumentRef };
 
 export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL" | "SUMIT";
 
+/**
+ * Who issues the tax document for payments through a connection.
+ *   NOT_CONFIGURED  — nobody decided yet; today's behaviour (Dubiz issues,
+ *                     with the provider-document detection as a safety net)
+ *   DUBIZ_ISSUES    — Dubiz issues; the provider's documents are off
+ *   PROVIDER_ISSUES — the provider issues; Dubiz never auto-issues
+ */
+export type PaymentDocumentIssuer = "NOT_CONFIGURED" | "DUBIZ_ISSUES" | "PROVIDER_ISSUES";
+
+export const PAYMENT_DOCUMENT_ISSUERS: readonly PaymentDocumentIssuer[] = [
+  "NOT_CONFIGURED",
+  "DUBIZ_ISSUES",
+  "PROVIDER_ISSUES",
+];
+
 export type PaymentRequestStatus =
   | "PENDING"
   | "PAID"
@@ -61,6 +76,8 @@ export interface PaymentConnectionRecord {
   credentialTag: string | null;
   encryptionKeyId: string | null;
   isActive: boolean;
+  documentIssuer: PaymentDocumentIssuer;
+  isDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,6 +93,8 @@ export interface PublicPaymentConnection {
   merchantId: string | null;
   isActive: boolean;
   hasCredential: boolean;
+  documentIssuer: PaymentDocumentIssuer;
+  isDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -132,6 +151,13 @@ export interface UpsertConnectionRow {
   credentialTag: string | null;
   encryptionKeyId: string | null;
   isActive: boolean;
+  /** Omitted = keep what is stored (or the column default on create). */
+  documentIssuer?: PaymentDocumentIssuer;
+  /**
+   * Omitted = keep what is stored. true makes this the business's ONLY default:
+   * every other connection of the business loses the flag in the same write.
+   */
+  isDefault?: boolean;
 }
 
 /**

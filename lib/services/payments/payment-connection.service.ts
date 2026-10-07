@@ -11,11 +11,13 @@
 
 import { ConflictError, ValidationError } from "@/lib/errors";
 import type { EncryptedCredentialMaterial } from "./payment-crypto.service";
-import type {
-  PaymentConnectionRecord,
-  PaymentProvider,
-  PaymentStore,
-  PublicPaymentConnection,
+import {
+  PAYMENT_DOCUMENT_ISSUERS,
+  type PaymentConnectionRecord,
+  type PaymentDocumentIssuer,
+  type PaymentProvider,
+  type PaymentStore,
+  type PublicPaymentConnection,
 } from "./payments.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
 import { getProviderDescriptor, resolvePaymentProvider } from "./providers/provider-registry";
@@ -52,8 +54,21 @@ export interface ConnectProviderInput {
   /** Plaintext provider credential. Encrypted before storage, never returned. */
   credential: string;
   isActive?: boolean;
+  /** Who issues the tax document for this connection's payments. Omitted = unchanged. */
+  documentIssuer?: PaymentDocumentIssuer;
+  /** Make this the business's default connection. Omitted = unchanged. */
+  isDefault?: boolean;
   /** Authenticated user who connected the provider (for the audit trail). */
   actorUserId?: number | null;
+}
+
+/** Validate a document-issuer value from a request body; undefined = not supplied. */
+export function parseDocumentIssuer(value: unknown): PaymentDocumentIssuer | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "string" && (PAYMENT_DOCUMENT_ISSUERS as readonly string[]).includes(value)) {
+    return value as PaymentDocumentIssuer;
+  }
+  throw new ValidationError(`documentIssuer must be one of ${PAYMENT_DOCUMENT_ISSUERS.join(", ")}`);
 }
 
 export interface PaymentConnectionDeps {
@@ -66,6 +81,16 @@ export interface PaymentConnectionDeps {
   now?: () => Date;
   /** Test seam for the runtime environment (Production detection). */
   runtimeEnv?: Record<string, string | undefined>;
+  /**
+   * Called after a connection is saved with a DECIDED document issuer, to
+   * finish accounting that was held for want of the decision (idempotent; a
+   * re-save simply asks again). Production: releaseDocumentIssuerHolds.
+   */
+  onDocumentIssuerConfigured?: (input: {
+    businessId: number;
+    provider: PaymentProvider;
+    documentIssuer: PaymentDocumentIssuer;
+  }) => Promise<unknown>;
 }
 
 const DEFAULT_PROVIDER: PaymentProvider = "TRANZILA";
@@ -80,6 +105,8 @@ export function toPublicConnection(
     merchantId: record.merchantId,
     isActive: record.isActive,
     hasCredential: record.credentialEncrypted != null,
+    documentIssuer: record.documentIssuer,
+    isDefault: record.isDefault,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -160,6 +187,9 @@ export async function connectPaymentProvider(
     credentialTag: encrypted.credentialTag,
     encryptionKeyId: encrypted.encryptionKeyId,
     isActive,
+    ...(input.documentIssuer !== undefined ? { documentIssuer: input.documentIssuer } : {}),
+    // A default must be usable: an inactive connection is never the default.
+    ...(input.isDefault !== undefined ? { isDefault: input.isDefault && isActive } : isActive ? {} : { isDefault: false }),
   });
 
   // audit the connection change. NEVER record credential material — only the
@@ -174,8 +204,27 @@ export async function connectPaymentProvider(
       provider,
       merchantId,
       isActive: saved.isActive,
+      documentIssuer: saved.documentIssuer,
+      isDefault: saved.isDefault,
     },
   });
+
+  if (saved.documentIssuer !== "NOT_CONFIGURED" && deps.onDocumentIssuerConfigured) {
+    try {
+      await deps.onDocumentIssuerConfigured({
+        businessId: input.businessId,
+        provider,
+        documentIssuer: saved.documentIssuer,
+      });
+    } catch (error) {
+      // The decision is saved; what it releases stays held and visible in
+      // attention, and saving again asks again. Never a lost payment.
+      console.error("[payments] releasing document-issuer holds failed", {
+        provider,
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
 
   return toPublicConnection(saved);
 }
@@ -191,6 +240,8 @@ export interface ConnectProviderFromFieldsInput {
    */
   fields: Record<string, unknown>;
   isActive?: boolean;
+  documentIssuer?: PaymentDocumentIssuer;
+  isDefault?: boolean;
   actorUserId?: number | null;
 }
 
@@ -243,6 +294,8 @@ export async function connectProviderFromDescriptor(
       merchantId,
       credential: JSON.stringify(credentialObject),
       isActive: input.isActive,
+      documentIssuer: input.documentIssuer,
+      isDefault: input.isDefault,
       actorUserId: input.actorUserId ?? null,
     },
     deps

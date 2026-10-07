@@ -3528,7 +3528,7 @@ model EntityLinkProposal {
 // ---------------------------------------------------------------------------
 
 model BusinessPaymentConnection {
-  id                  Int             @id @default(autoincrement())
+  id                  Int                   @id @default(autoincrement())
   businessId          Int
   provider            PaymentProvider
   merchantId          String?
@@ -3538,14 +3538,28 @@ model BusinessPaymentConnection {
   credentialIv        String?
   credentialTag       String?
   encryptionKeyId     String?
-  isActive            Boolean         @default(false)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  isActive            Boolean               @default(false)
+  /// Who issues the tax document for payments through this connection
+  /// (migration 20261015090000_payments_core_connection_config). NOT_CONFIGURED
+  /// keeps today's behaviour; PROVIDER_ISSUES makes Dubiz never auto-issue.
+  documentIssuer      PaymentDocumentIssuer @default(NOT_CONFIGURED)
+  /// The connection a new payment uses when the caller names none. At most one
+  /// per business — a partial unique index in the migration (Prisma cannot
+  /// express it): "BusinessPaymentConnection_one_default_per_business".
+  isDefault           Boolean               @default(false)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, provider])
   @@index([businessId, isActive])
+}
+
+enum PaymentDocumentIssuer {
+  NOT_CONFIGURED
+  DUBIZ_ISSUES
+  PROVIDER_ISSUES
 }
 
 model PaymentRequest {

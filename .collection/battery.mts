@@ -55,7 +55,7 @@ async function makeBusiness(label: string, opts: { identity?: boolean; connectio
   });
   const providers = ["CARDCOM", "SUMIT"].slice(0, opts.connections ?? 1);
   for (const provider of providers) {
-    await prisma.businessPaymentConnection.create({ data: { businessId: business.id, provider: provider as never, isActive: true, merchantId: "m" } });
+    await prisma.businessPaymentConnection.create({ data: { businessId: business.id, provider: provider as never, isActive: true, merchantId: "m", documentIssuer: "DUBIZ_ISSUES" } });
   }
   const customer = await prisma.customer.create({ data: { businessId: business.id, name: "יוסי כהן", phone: "0501234567" } });
   return { businessId: business.id, userId: user.id, token: signAuthToken(user.id), customerId: customer.id };

@@ -83,7 +83,7 @@ async function makeBusiness(label: string, opts: { identity?: boolean } = {}): P
   });
   const customer = await prisma.customer.create({ data: { businessId: business.id, name: "C3 Customer" } });
   await prisma.businessPaymentConnection.create({
-    data: { businessId: business.id, provider: "CARDCOM", isActive: true, merchantId: "m-synthetic" },
+    data: { businessId: business.id, provider: "CARDCOM", isActive: true, merchantId: "m-synthetic", documentIssuer: "DUBIZ_ISSUES" },
   });
   return { businessId: business.id, actorUserId: actor.id, customerId: customer.id };
 }

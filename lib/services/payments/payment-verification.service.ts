@@ -55,6 +55,7 @@ import {
   isEnvironmentAllowedForBusiness,
 } from "./payment-environment";
 import { buildVerifiedPaymentEnvelope } from "./payment-evidence";
+import { getProviderDescriptor } from "./providers/provider-registry";
 import type {
   PaymentConnectionRecord,
   PaymentRequestRecord,
@@ -100,7 +101,11 @@ export type AccountingHoldReason =
   /** The provider issued its own tax document; a second one would duplicate it. */
   | "PROVIDER_ISSUED_DOCUMENT"
   /** The money came through a test/sandbox/unclassified account in Production. */
-  | "TEST_ENVIRONMENT_PAYMENT";
+  | "TEST_ENVIRONMENT_PAYMENT"
+  /** The business configured the PROVIDER as this connection's document issuer. */
+  | "PROVIDER_IS_DOCUMENT_ISSUER"
+  /** The provider may issue documents and the business has not decided who does. */
+  | "DOCUMENT_ISSUER_NOT_CONFIGURED";
 
 export type UnresolvedReason =
   /** No active connection — the authority cannot be asked. */
@@ -363,9 +368,14 @@ export async function resolvePaymentAuthoritatively(
       deps.runtimeEnv
     )
       ? "TEST_ENVIRONMENT_PAYMENT"
-      : status.providerDocumentIssued === true
-        ? "PROVIDER_ISSUED_DOCUMENT"
-        : null;
+      : connection.documentIssuer === "PROVIDER_ISSUES"
+        ? "PROVIDER_IS_DOCUMENT_ISSUER"
+        : status.providerDocumentIssued === true
+          ? "PROVIDER_ISSUED_DOCUMENT"
+          : connection.documentIssuer !== "DUBIZ_ISSUES" &&
+              (getProviderDescriptor(provider)?.capabilities.taxDocuments ?? "MAY") !== "NEVER"
+            ? "DOCUMENT_ISSUER_NOT_CONFIGURED"
+            : null;
 
     let transaction: PaymentTransactionRecord;
     try {

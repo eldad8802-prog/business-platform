@@ -217,6 +217,12 @@ export async function selectPaymentProvider(
     assertPaymentProviderEnabled(only);
     return only;
   }
+  // Several usable providers: the business's own stated default decides. The
+  // owner chose it; this layer still never picks on their behalf.
+  const defaults = active.filter((c) => c.isDefault);
+  if (defaults.length === 1) {
+    return defaults[0]!.provider;
+  }
   throw new AmbiguousPaymentProviderError(active.map((c) => c.provider));
 }
 
