@@ -5,7 +5,9 @@
 #
 # Production as it will be when this migration is released: everything through M7-B/C applied
 # (.m7bc/lab.sh --with-m7bc builds exactly that, by the real `prisma migrate deploy`, with
-# Production's roles, default privileges and RLS), and this migration the ONLY one applied next.
+# Production's roles, default privileges and RLS), then the TransactionalEmail foundation
+# (20261015090000, the one migration ordered before this) applied on its own, and this migration
+# the ONLY one applied next.
 #   --with-paycore:   `prisma migrate deploy` through this migration — it applies exactly it, alone.
 #   --broken-paycore: it fails at its last statement (atomicity).
 #
@@ -43,6 +45,9 @@ deploy_upto() {  # deploy_upto <last-migration-name> [broken]
   rm -rf "$TMP"
   return $rc
 }
+
+# The migration ordered before this one, applied alone (as release-migrate would).
+deploy_upto "20261015090000_transactional_email_foundation" >/dev/null
 
 case "$MODE" in
   --with-paycore) deploy_upto "$PAYCORE" ;;
