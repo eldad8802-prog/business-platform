@@ -13,6 +13,7 @@ import { setReceiptAllocationsTx } from "@/lib/services/billing/receipt/billing-
 import { createReceiptDraftTx } from "@/lib/services/billing/receipt/billing-receipt-draft.service";
 import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { buildPaymentAuditRow } from "@/lib/services/payments/payment-audit.service";
+import { getProviderDescriptor } from "@/lib/services/payments/providers/provider-registry";
 import { readPaymentMethod, readVerifiedEvidence } from "@/lib/services/payments/payment-evidence";
 import type { PaymentMethodKind } from "@/lib/services/payments/providers/payment-provider.types";
 
@@ -65,6 +66,9 @@ export type SettlementAttentionReason =
   | "PROVIDER_ISSUED_DOCUMENT"
   | "TEST_ENVIRONMENT_PAYMENT"
   | "PROVIDER_IS_DOCUMENT_ISSUER"
+  // Fail-closed: the provider MAY issue its own documents and the business has
+  // not yet said who issues them. Money recorded; the document waits.
+  | "DOCUMENT_ISSUER_NOT_CONFIGURED"
   // A settled refund whose correcting document is not yet decided.
   | "REFUND_ACCOUNTING_DECISION_REQUIRED";
 
@@ -78,8 +82,33 @@ export const NON_RETRYABLE_ATTENTION_REASONS: ReadonlySet<string> = new Set([
   "PROVIDER_ISSUED_DOCUMENT",
   "TEST_ENVIRONMENT_PAYMENT",
   "PROVIDER_IS_DOCUMENT_ISSUER",
+  "DOCUMENT_ISSUER_NOT_CONFIGURED",
   "REFUND_ACCOUNTING_DECISION_REQUIRED",
 ]);
+
+/**
+ * WHO ISSUES THE DOCUMENT — decided per connection, fail-closed.
+ *
+ *   PROVIDER_ISSUES                         → never a Dubiz receipt
+ *   NOT_CONFIGURED, provider MAY issue one  → not yet: hold the DOCUMENT
+ *   DUBIZ_ISSUES, or a provider that never issues documents → Dubiz issues
+ *
+ * Checked here — inside the one settlement every path goes through (inline,
+ * recovery, manual retry) — as well as at recording time, so no route can
+ * reach a receipt the configuration has not cleared. The money itself is
+ * never held: the PaymentTransaction exists before this function runs.
+ */
+export function documentHoldFor(
+  provider: string,
+  documentIssuer: string | null | undefined
+): "PROVIDER_IS_DOCUMENT_ISSUER" | "DOCUMENT_ISSUER_NOT_CONFIGURED" | null {
+  if (documentIssuer === "PROVIDER_ISSUES") return "PROVIDER_IS_DOCUMENT_ISSUER";
+  if (documentIssuer === "DUBIZ_ISSUES") return null;
+  // NOT_CONFIGURED, or no connection row at all: only a provider that can
+  // never issue a document may proceed without a decision.
+  const taxDocuments = getProviderDescriptor(provider)?.capabilities.taxDocuments ?? "MAY";
+  return taxDocuments === "NEVER" ? null : "DOCUMENT_ISSUER_NOT_CONFIGURED";
+}
 
 /**
  * The receipt line's payment method, from how the provider's AUTHORITATIVE
@@ -315,6 +344,14 @@ async function settleInTx(
     }
     if (!payment.amount.equals(request.amount)) {
       throw new SettlementAttention("VERIFIED_AMOUNT_MISMATCH");
+    }
+    const connection = await tx.businessPaymentConnection.findFirst({
+      where: { businessId, provider: payment.provider },
+      select: { documentIssuer: true },
+    });
+    const documentHold = documentHoldFor(payment.provider, connection?.documentIssuer ?? null);
+    if (documentHold) {
+      throw new SettlementAttention(documentHold);
     }
     const amount = payment.amount;
 
@@ -638,6 +675,67 @@ async function recordTransientFailure(
  * itself and creates no accounting effect: the next call to
  * settleVerifiedPayment — inline, recovery or manual — does that, exactly once.
  */
+/**
+ * The business has now said who issues documents for one provider: finish what
+ * was held for want of that decision. Exactly once, and never a new payment.
+ *
+ *   DUBIZ_ISSUES    → every DOCUMENT_ISSUER_NOT_CONFIGURED row of that provider
+ *                     returns to PENDING and goes through the ONE idempotent
+ *                     settlement (a receipt is unique per payment, so a second
+ *                     release or a concurrent recovery issues nothing twice).
+ *   PROVIDER_ISSUES → those rows become PROVIDER_IS_DOCUMENT_ISSUER: still no
+ *                     Dubiz document, now for a stated reason.
+ *   NOT_CONFIGURED  → nothing.
+ *
+ * Only rows held for THIS reason move. A payment paused for a provider-issued
+ * document, a test account or a refund is never released by configuration.
+ * Tenant-scoped: the rows are found and changed inside the business's own
+ * transaction, so one business can never finish another's accounting.
+ */
+export async function releaseDocumentIssuerHolds(
+  input: { businessId: number; provider: string; documentIssuer: string },
+  deps: SettlementDeps = {}
+): Promise<{ released: number[]; settled: number }> {
+  assertPositiveInt(input.businessId, "businessId");
+  if (input.documentIssuer !== "DUBIZ_ISSUES" && input.documentIssuer !== "PROVIDER_ISSUES") {
+    return { released: [], settled: 0 };
+  }
+  const at = (deps.now ?? (() => new Date()))();
+  const released = await billingTenantTx(input.businessId, async (tx) => {
+    const held = await tx.paymentAccountingSettlement.findMany({
+      where: {
+        businessId: input.businessId,
+        status: PaymentAccountingSettlementStatus.REQUIRES_ATTENTION,
+        attentionReason: "DOCUMENT_ISSUER_NOT_CONFIGURED",
+        paymentTransaction: { provider: input.provider as never },
+      },
+      select: { id: true, paymentTransactionId: true },
+    });
+    const ids: number[] = [];
+    for (const row of held) {
+      const locked = await lockSettlementRowTx(tx, input.businessId, row.paymentTransactionId);
+      if (!locked || locked.status !== PaymentAccountingSettlementStatus.REQUIRES_ATTENTION) continue;
+      await tx.paymentAccountingSettlement.update({
+        where: { id: row.id },
+        data:
+          input.documentIssuer === "DUBIZ_ISSUES"
+            ? { status: PaymentAccountingSettlementStatus.PENDING, attentionReason: null, attemptCount: 0, nextAttemptAt: at }
+            : { attentionReason: "PROVIDER_IS_DOCUMENT_ISSUER" },
+      });
+      ids.push(row.paymentTransactionId);
+    }
+    return ids;
+  });
+  let settled = 0;
+  if (input.documentIssuer === "DUBIZ_ISSUES") {
+    for (const paymentTransactionId of released) {
+      const result = await settleVerifiedPayment({ businessId: input.businessId, paymentTransactionId }, deps);
+      if (result.outcome === "SETTLED" || result.outcome === "ALREADY_SETTLED") settled++;
+    }
+  }
+  return { released, settled };
+}
+
 export async function requeueSettlement(
   input: { businessId: number; paymentTransactionId: number },
   deps: SettlementDeps = {}

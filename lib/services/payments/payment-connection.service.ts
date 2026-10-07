@@ -81,6 +81,16 @@ export interface PaymentConnectionDeps {
   now?: () => Date;
   /** Test seam for the runtime environment (Production detection). */
   runtimeEnv?: Record<string, string | undefined>;
+  /**
+   * Called after a connection is saved with a DECIDED document issuer, to
+   * finish accounting that was held for want of the decision (idempotent; a
+   * re-save simply asks again). Production: releaseDocumentIssuerHolds.
+   */
+  onDocumentIssuerConfigured?: (input: {
+    businessId: number;
+    provider: PaymentProvider;
+    documentIssuer: PaymentDocumentIssuer;
+  }) => Promise<unknown>;
 }
 
 const DEFAULT_PROVIDER: PaymentProvider = "TRANZILA";
@@ -198,6 +208,23 @@ export async function connectPaymentProvider(
       isDefault: saved.isDefault,
     },
   });
+
+  if (saved.documentIssuer !== "NOT_CONFIGURED" && deps.onDocumentIssuerConfigured) {
+    try {
+      await deps.onDocumentIssuerConfigured({
+        businessId: input.businessId,
+        provider,
+        documentIssuer: saved.documentIssuer,
+      });
+    } catch (error) {
+      // The decision is saved; what it releases stays held and visible in
+      // attention, and saving again asks again. Never a lost payment.
+      console.error("[payments] releasing document-issuer holds failed", {
+        provider,
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
 
   return toPublicConnection(saved);
 }

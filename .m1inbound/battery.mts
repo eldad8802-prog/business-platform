@@ -60,6 +60,7 @@ import {
 } from "../lib/services/payments/payment-reconciliation.service";
 import { cancelPaymentRequest } from "../lib/services/payments/payment-request-cancel.service";
 import {
+  releaseDocumentIssuerHolds,
   requeueSettlement,
   settleVerifiedPayment,
 } from "../lib/services/billing/settlement/payment-accounting-settlement.service";
@@ -279,7 +280,7 @@ async function makeBusiness(label: string): Promise<Ctx> {
     "CARDCOM"
   );
   await admin.businessPaymentConnection.create({
-    data: { businessId: business.id, provider: "CARDCOM", isActive: true, merchantId: TERMINAL, ...cred },
+    data: { businessId: business.id, provider: "CARDCOM", isActive: true, merchantId: TERMINAL, documentIssuer: "DUBIZ_ISSUES", ...cred },
   });
   return { businessId: business.id, actorUserId: actor.id, customerId: customer.id };
 }
@@ -1079,6 +1080,109 @@ async function main() {
       })
     );
     ok("W — an id-less issued request is a reconciliation candidate", candidates.some((c) => c.id === idless.id));
+  }
+
+  if (run("Y")) {
+    console.log("\n== Y — fail-closed document issuer: hold the document, never the money ==");
+    const a = await makeBusiness("Y-a");
+    const b = await makeBusiness("Y-b");
+    for (const ctx of [a, b]) {
+      await admin.businessPaymentConnection.updateMany({
+        where: { businessId: ctx.businessId },
+        data: { documentIssuer: "NOT_CONFIGURED" },
+      });
+    }
+    const inv = await invoice(a, "40.00");
+    const req = await request(a, "40.00", { invoiceId: inv.id });
+    provider(req.lowProfileId, { mode: "paid", tranId: tranId(), amount: 40, coinId: 1 });
+
+    // 1. The verified money is recorded exactly once.
+    const r1 = await reconcile(a);
+    ok("Y1 — reconciliation records the payment", r1.recorded === 1, JSON.stringify(r1));
+    let t = await truth(req.id);
+    ok("Y1 — exactly 1 incoming PaymentTransaction", t.incoming.length === 1, `got ${t.incoming.length}`);
+    ok("Y1 — the request is PAID (money truth kept)", t.req.status === "PAID", t.req.status);
+    ok("Y1 — exactly 1 money-in FinancialEvent", t.events === 1, `events=${t.events}`);
+    // 2. No automatic document.
+    ok("Y2 — no receipt was issued", t.receipts.length === 0, `receipts=${t.receipts.length}`);
+    ok("Y2 — the invoice still owes 40.00", (await outstanding(a, inv.id)) === "40.00");
+    // 3. Attention exactly once.
+    ok(
+      "Y3 — exactly 1 accounting row, held on DOCUMENT_ISSUER_NOT_CONFIGURED",
+      t.settlements.length === 1 &&
+        t.settlements[0].status === "REQUIRES_ATTENTION" &&
+        (t.settlements[0] as any).attentionReason === "DOCUMENT_ISSUER_NOT_CONFIGURED",
+      JSON.stringify(t.settlements)
+    );
+    const txId = t.incoming[0].id;
+    const attA = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.listAccountingAttention(a.businessId, { limit: 50 })
+    );
+    ok(
+      "Y3 — attention lists it exactly once",
+      attA.filter((x) => x.paymentTransactionId === txId && x.reason === "DOCUMENT_ISSUER_NOT_CONFIGURED").length === 1,
+      JSON.stringify(attA)
+    );
+
+    // 5. Retry / reconciliation / webhook redelivery create nothing twice.
+    const r2 = await reconcile(a);
+    ok("Y5 — a second reconciliation records nothing new", r2.recorded === 0, JSON.stringify(r2));
+    await webhook(req);
+    ok("Y5 — a redelivered webhook records nothing new", (await truth(req.id)).incoming.length === 1);
+    const requeued = await requeueSettlement({ businessId: a.businessId, paymentTransactionId: txId });
+    ok("Y5 — a generic retry cannot clear the issuer hold", requeued.requeued === false);
+    const attempt = await settleVerifiedPayment({ businessId: a.businessId, paymentTransactionId: txId });
+    ok("Y5 — settling it directly issues nothing", attempt.outcome === "REQUIRES_ATTENTION", JSON.stringify(attempt));
+    ok("Y5 — still no receipt", (await truth(req.id)).receipts.length === 0);
+
+    // 6. Business B cannot finish A's accounting.
+    const foreign = await releaseDocumentIssuerHolds({
+      businessId: b.businessId,
+      provider: "CARDCOM",
+      documentIssuer: "DUBIZ_ISSUES",
+    });
+    ok("Y6 — B's release finds none of A's held rows", foreign.released.length === 0, JSON.stringify(foreign));
+    t = await truth(req.id);
+    ok("Y6 — A is still held, still no receipt", t.settlements[0].status === "REQUIRES_ATTENTION" && t.receipts.length === 0);
+
+    // 4. After configuration: finished exactly once — no new payment.
+    await admin.businessPaymentConnection.updateMany({
+      where: { businessId: a.businessId },
+      data: { documentIssuer: "DUBIZ_ISSUES" },
+    });
+    const released = await releaseDocumentIssuerHolds({
+      businessId: a.businessId,
+      provider: "CARDCOM",
+      documentIssuer: "DUBIZ_ISSUES",
+    });
+    ok("Y4 — configuring DUBIZ_ISSUES releases exactly that payment", released.released.length === 1 && released.released[0] === txId, JSON.stringify(released));
+    ok("Y4 — and settles it", released.settled === 1, JSON.stringify(released));
+    await exactlyOnce("Y4", req.id, { amount: "40.00", allocated: "40.00" });
+    ok("Y4 — the invoice is now settled (outstanding 0)", (await outstanding(a, inv.id)) === "0.00");
+    const again = await releaseDocumentIssuerHolds({
+      businessId: a.businessId,
+      provider: "CARDCOM",
+      documentIssuer: "DUBIZ_ISSUES",
+    });
+    ok("Y4 — releasing again finds nothing", again.released.length === 0);
+    const r3 = await reconcile(a);
+    ok("Y4 — reconciliation after release records nothing", r3.recorded === 0, JSON.stringify(r3));
+    await exactlyOnce("Y4 (after release twice + reconciliation)", req.id, { amount: "40.00", allocated: "40.00" });
+
+    // PROVIDER_ISSUES: held for a stated reason, never a Dubiz document.
+    const req2 = await request(b, "9.00");
+    provider(req2.lowProfileId, { mode: "paid", tranId: tranId(), amount: 9, coinId: 1 });
+    await reconcile(b);
+    await admin.businessPaymentConnection.updateMany({ where: { businessId: b.businessId }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+    await releaseDocumentIssuerHolds({ businessId: b.businessId, provider: "CARDCOM", documentIssuer: "PROVIDER_ISSUES" });
+    const tb = await truth(req2.id);
+    ok(
+      "Y — PROVIDER_ISSUES: money recorded once, re-held as PROVIDER_IS_DOCUMENT_ISSUER, no Dubiz receipt",
+      tb.incoming.length === 1 &&
+        (tb.settlements[0] as any).attentionReason === "PROVIDER_IS_DOCUMENT_ISSUER" &&
+        tb.receipts.length === 0,
+      JSON.stringify(tb.settlements)
+    );
   }
 
   if (run("R")) {

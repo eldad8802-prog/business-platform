@@ -55,7 +55,7 @@ async function business(label: string) {
   const b = await prisma.business.create({ data: { name: `e2e-${label}-${uniq()}` } });
   const u = await prisma.user.create({ data: { email: `e2e-${uniq()}@example.test`, password: "x", businessId: b.id, role: "USER" } });
   await prisma.businessProfile.create({ data: { businessId: b.id, billingLegalName: "עסק לדוגמה בע\"מ", billingBusinessKind: "LTD_COMPANY", billingTaxId: "999999998", billingAddress: "רחוב הדוגמה 1", billingPhone: "0500000000", billingEmail: "e2e@example.test" } });
-  await prisma.businessPaymentConnection.create({ data: { businessId: b.id, provider: "CARDCOM", isActive: true, merchantId: "m" } });
+  await prisma.businessPaymentConnection.create({ data: { businessId: b.id, provider: "CARDCOM", isActive: true, merchantId: "m", documentIssuer: "DUBIZ_ISSUES" } });
   const yossi = await prisma.customer.create({ data: { businessId: b.id, name: "יוסי כהן", phone: "0501234567" } });
   const dana = await prisma.customer.create({ data: { businessId: b.id, name: "דנה לוי", phone: "0527654321" } });
   return { id: b.id, userId: u.id, token: signAuthToken(u.id), yossi: yossi.id, dana: dana.id };

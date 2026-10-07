@@ -94,6 +94,10 @@ export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAM
     title: "התשלום התקבל — חברת הסליקה כבר הפיקה עליו מסמך, ולכן דוביז לא הפיקה קבלה נוספת",
     action: "REVIEW",
   },
+  DOCUMENT_ISSUER_NOT_CONFIGURED: {
+    title: "התשלום התקבל ונרשם — הקבלה תופק אחרי שתגדירו מי מפיק את המסמכים (דוביז או חברת הסליקה)",
+    action: "REVIEW",
+  },
   PROVIDER_IS_DOCUMENT_ISSUER: {
     title: "התשלום התקבל — לפי הגדרות העסק חברת הסליקה מפיקה את המסמך, ולכן דוביז לא הפיקה קבלה",
     action: "REVIEW",

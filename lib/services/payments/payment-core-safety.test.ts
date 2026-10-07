@@ -24,7 +24,10 @@ import {
 import { processPaymentWebhook } from "./payment-webhook.service";
 import { listPaymentAttention } from "./payment-attention.service";
 import { readPaymentMethod, readVerifiedEvidence } from "./payment-evidence";
-import { receiptMethodFor } from "@/lib/services/billing/settlement/payment-accounting-settlement.service";
+import {
+  documentHoldFor,
+  receiptMethodFor,
+} from "@/lib/services/billing/settlement/payment-accounting-settlement.service";
 import { isEnvironmentAllowedForBusiness } from "./payment-environment";
 import { COLLECTION_QA_BUSINESS_ID } from "./qa-webhook-suppression";
 import type {
@@ -94,9 +97,13 @@ function adapter(
   };
 }
 
-async function paidRequest(businessId: number, merchantId = "172012") {
+async function paidRequest(
+  businessId: number,
+  merchantId = "172012",
+  documentIssuer: "NOT_CONFIGURED" | "DUBIZ_ISSUES" | "PROVIDER_ISSUES" = "DUBIZ_ISSUES"
+) {
   const store = createInMemoryPaymentStore();
-  store.seedConnection({ businessId, provider: "CARDCOM", isActive: true, merchantId });
+  store.seedConnection({ businessId, provider: "CARDCOM", isActive: true, merchantId, documentIssuer });
   const request = await store.createPaymentRequest({
     businessId,
     customerId: null,
@@ -413,6 +420,80 @@ async function main() {
       ambiguous = e instanceof AmbiguousPaymentProviderError;
     }
     ok("with no default, two usable providers are still refused as ambiguous", ambiguous);
+  }
+
+  // ── FAIL-CLOSED: NOT_CONFIGURED holds the document, never the money ────
+  {
+    const { store, request } = await paidRequest(1, "172012", "NOT_CONFIGURED");
+    const first = await runWithTenantContext({ businessId: 1 }, () =>
+      resolvePaymentAuthoritatively(
+        { request, adapter: adapter({}), source: "WEBHOOK", rawPayload: { cb: 1 } },
+        { store, runtimeEnv: PROD }
+      )
+    );
+    ok("NOT_CONFIGURED: the verified money is RECORDED", first.kind === "RECORDED");
+    ok("NOT_CONFIGURED: exactly one PaymentTransaction", store.transactions.filter((t) => Number(t.amount) > 0).length === 1);
+    ok(
+      "NOT_CONFIGURED: its accounting opens HELD on the issuer decision, not queued for a receipt",
+      store.accountingSettlements.length === 1 &&
+        store.accountingSettlements[0]!.status === "REQUIRES_ATTENTION" &&
+        store.accountingSettlements[0]!.attentionReason === "DOCUMENT_ISSUER_NOT_CONFIGURED"
+    );
+    // A redelivered webhook and a reconciliation run change nothing.
+    for (const source of ["WEBHOOK", "RECONCILIATION"] as const) {
+      const again = await runWithTenantContext({ businessId: 1 }, async () =>
+        resolvePaymentAuthoritatively(
+          { request: (await store.findPaymentRequestById(request.id))!, adapter: adapter({}), source },
+          { store, runtimeEnv: PROD }
+        )
+      );
+      ok(`NOT_CONFIGURED: a later ${source} ask is ALREADY_RECORDED`, again.kind === "ALREADY_RECORDED");
+    }
+    ok("NOT_CONFIGURED: still one PaymentTransaction", store.transactions.filter((t) => Number(t.amount) > 0).length === 1);
+    ok("NOT_CONFIGURED: still one accounting row", store.accountingSettlements.length === 1);
+    const attention = await listPaymentAttention(1, { store });
+    ok(
+      "NOT_CONFIGURED: attention lists it exactly once",
+      attention.items.filter((i) => i.reason === "DOCUMENT_ISSUER_NOT_CONFIGURED").length === 1
+    );
+    ok("NOT_CONFIGURED: another business sees none of it", (await listPaymentAttention(2, { store })).items.length === 0);
+  }
+  {
+    ok("the hold rule: CardCom NOT_CONFIGURED holds", documentHoldFor("CARDCOM", "NOT_CONFIGURED") === "DOCUMENT_ISSUER_NOT_CONFIGURED");
+    ok("the hold rule: no connection row holds too", documentHoldFor("CARDCOM", null) === "DOCUMENT_ISSUER_NOT_CONFIGURED");
+    ok("the hold rule: DUBIZ_ISSUES proceeds", documentHoldFor("CARDCOM", "DUBIZ_ISSUES") === null);
+    ok("the hold rule: PROVIDER_ISSUES never issues", documentHoldFor("CARDCOM", "PROVIDER_ISSUES") === "PROVIDER_IS_DOCUMENT_ISSUER");
+    ok("the hold rule: a provider that never issues documents needs no decision", documentHoldFor("PAYPAL", "NOT_CONFIGURED") === null);
+    ok("the hold rule: an unknown provider fails closed", documentHoldFor("NOPE", "NOT_CONFIGURED") === "DOCUMENT_ISSUER_NOT_CONFIGURED");
+  }
+  {
+    // Configuring the issuer asks for the held accounting to be finished —
+    // once per decided save, never for NOT_CONFIGURED, and a failure there
+    // never fails the save.
+    const store = createInMemoryPaymentStore();
+    const encryptCredential = () => ({ credentialEncrypted: "e", credentialIv: "i", credentialTag: "t", encryptionKeyId: "k" });
+    const calls: string[] = [];
+    const deps = {
+      store,
+      encryptCredential,
+      runtimeEnv: PREVIEW,
+      onDocumentIssuerConfigured: async (e: { documentIssuer: string }) => {
+        calls.push(e.documentIssuer);
+        if (calls.length === 2) throw new Error("db down");
+      },
+    };
+    await connectPaymentProvider({ businessId: 1, provider: "CARDCOM", merchantId: "172012", credential: "{}" }, deps);
+    ok("an undecided save releases nothing", calls.length === 0);
+    await connectPaymentProvider(
+      { businessId: 1, provider: "CARDCOM", merchantId: "172012", credential: "{}", documentIssuer: "DUBIZ_ISSUES" },
+      deps
+    );
+    ok("deciding DUBIZ_ISSUES asks to finish the held accounting", calls.join(",") === "DUBIZ_ISSUES");
+    const saved = await connectPaymentProvider(
+      { businessId: 1, provider: "CARDCOM", merchantId: "172012", credential: "{}" },
+      deps
+    );
+    ok("a failed release never fails the save (the decision is kept)", saved.documentIssuer === "DUBIZ_ISSUES" && calls.length === 2);
   }
 
   console.log(`\npayment-core-safety: ${pass} passed, ${failures.length} failed`);

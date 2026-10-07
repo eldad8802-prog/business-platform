@@ -24,7 +24,10 @@ import type { RefundPaymentRequestDeps } from "./payment-refund.service";
 import type { ProcessWebhookDeps } from "./payment-webhook.service";
 import type { PaymentConnectionRecord, PaymentProvider } from "./payments.types";
 import { resolvePaymentProvider } from "./providers/provider-registry";
-import { settleVerifiedPayment } from "@/lib/services/billing/settlement/payment-accounting-settlement.service";
+import {
+  releaseDocumentIssuerHolds,
+  settleVerifiedPayment,
+} from "@/lib/services/billing/settlement/payment-accounting-settlement.service";
 
 function decryptConnectionCredential(
   connection: PaymentConnectionRecord
@@ -133,5 +136,6 @@ export function paymentConnectionDeps(): PaymentConnectionDeps {
   return {
     store: createPaymentPrismaStore(),
     encryptCredential: encryptPaymentCredential,
+    onDocumentIssuerConfigured: (e) => releaseDocumentIssuerHolds(e),
   };
 }
