@@ -17,8 +17,15 @@ export type RenderedEmail = { subject: string; html: string; text: string };
 
 export const WELCOME_SUBJECT = "ברוכים הבאים ל־Dubiz 👋";
 export const WELCOME_CTA_LABEL = "כניסה ל־Dubiz";
-/** Where the CTA goes, relative to APP_BASE_URL. Login forwards a signed-in owner to Home. */
-export const WELCOME_CTA_PATH = "/login";
+/**
+ * Where the CTA goes, relative to APP_BASE_URL: Home (`/app`), the app's canonical entry.
+ *   - signed in (live access token)          → Home directly;
+ *   - signed in, access token spent          → the shell refreshes it from the cookie first (RefreshCoordinator) → Home;
+ *   - not signed in                          → /app sends them to /login, and login lands on /app.
+ * `/login` is NOT the target: with a spent access token it clears it and shows the form to someone
+ * who is still signed in through the refresh cookie — exactly who opens a welcome email later.
+ */
+export const WELCOME_CTA_PATH = "/app";
 
 export const WELCOME_LINES = {
   thanks: "כיף שהצטרפת ל־Dubiz.",

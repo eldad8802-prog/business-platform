@@ -183,7 +183,7 @@ async function main() {
       row!.status === "SENT" && row!.attempts === 1 && row!.sentAt !== null && row!.provider === "fake" && row!.providerMessageId === "fake-msg" && row!.lastErrorCode === null && row!.nextAttemptAt === null);
     ok("one provider call, key te:<row id>, to the signup address, configured sender",
       calls.length === 1 && calls[0].idempotencyKey === `te:${a.welcomeEmailId}` && calls[0].to === `${tag}-a@battery.test` && calls[0].from === ON.TRANSACTIONAL_EMAIL_FROM && calls[0].replyTo === ON.TRANSACTIONAL_EMAIL_REPLY_TO);
-    ok("the WELCOME rendered from the stored payload", calls[0].subject === "ברוכים הבאים ל־Dubiz 👋" && calls[0].text.startsWith("היי דנה,") && calls[0].html.includes("https://app.battery.test/login"));
+    ok("the WELCOME rendered from the stored payload", calls[0].subject === "ברוכים הבאים ל־Dubiz 👋" && calls[0].text.startsWith("היי דנה,") && calls[0].html.includes("https://app.battery.test/app"));
     const again2 = await deliverTransactionalEmail(a.welcomeEmailId!, { provider, env: ON });
     ok("a SENT row is never claimed again (no second email)", again2 === "not_claimable" && calls.length === 1);
   }

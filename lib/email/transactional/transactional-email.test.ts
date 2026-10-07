@@ -114,8 +114,8 @@ async function main() {
     ok("welcome: greeting by first name", r.html.includes("היי דנה,") && r.text.startsWith("היי דנה,"));
     ok("welcome: every approved line is in BOTH parts",
       [WELCOME_LINES.thanks, WELCOME_LINES.value, WELCOME_LINES.noSetup, WELCOME_LINES.signature].every((l) => r.text.includes(l) && r.html.includes(l)));
-    ok("welcome: the CTA label and link (APP_BASE_URL + /login) in both parts",
-      r.html.includes(`href="https://app.example.test/login"`) && r.html.includes(WELCOME_CTA_LABEL) && r.text.includes(`${WELCOME_CTA_LABEL}: https://app.example.test/login`));
+    ok("welcome: the CTA label and link (APP_BASE_URL + /app) in both parts",
+      r.html.includes(`href="https://app.example.test/app"`) && r.html.includes(WELCOME_CTA_LABEL) && r.text.includes(`${WELCOME_CTA_LABEL}: https://app.example.test/app`));
     const evil = renderWelcome({ firstName: firstNameOf(`<script>x</script> "a"`) }, { appBaseUrl: "https://a.test" });
     ok("welcome: the name is escaped — no markup gets through", !/<script>/i.test(evil.html) && !evil.html.includes('"a"'));
     const anon = renderWelcome({ firstName: null }, { appBaseUrl: "https://a.test" });
@@ -347,6 +347,28 @@ async function main() {
     ok("scope: no provider SDK dependency (fetch only)", !Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).some((d) => /resend|nodemailer|sendgrid|mailgun|postmark/i.test(d)));
     const hardcoded = files.filter((f) => f.startsWith("lib/email/") && /promaxgroup|@promax|hello@/.test(code(f)));
     ok("scope: no sender address or domain is hard-coded", hardcoded.length === 0, JSON.stringify(hardcoded));
+  }
+
+  // ── 11. the CTA target is the app's canonical entry, and the routing it relies on holds ─────
+  // (Driven end-to-end in a browser by .te/cta-browser.ts; these are the source facts it rests on.)
+  {
+    const root = process.cwd();
+    const src = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
+    const { WELCOME_CTA_PATH } = await import("./templates/welcome");
+    ok("cta: the WELCOME links to /app (Home), not /login", WELCOME_CTA_PATH === "/app");
+    const home = src("app/(shell)/app/page.tsx");
+    ok("cta: /app with no session sends the visitor to /login",
+      /if \(!currentToken\) \{\s*window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
+    ok("cta: /app with a rejected session (401) sends the visitor to /login",
+      /res\.status === 401\)[\s\S]{0,200}window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
+    const shell = src("app/(shell)/layout.tsx");
+    ok("cta: /app sits under the shell's RefreshCoordinator (a spent access token is refreshed from the cookie before Home loads)",
+      /<RefreshCoordinator>[\s\S]*\{children\}[\s\S]*<\/RefreshCoordinator>/.test(shell));
+    const login = src("app/login/login-form.tsx");
+    ok("cta: login lands on /app — after signing in, and when already signed in",
+      (login.match(/window\.location\.replace\(`\$\{window\.location\.origin\}\/app`\)/g) ?? []).length >= 2);
+    ok("cta: /login does NOT refresh a spent token (it clears it and shows the form) — why it is not the target",
+      !/RefreshCoordinator|bootstrapRefresh|refreshAccessToken/.test(login) && /status === 401 \|\| status === 403/.test(login));
   }
 
   console.log(`\n[transactional-email] ${pass} passed, ${fail} failed`);
