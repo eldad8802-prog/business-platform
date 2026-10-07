@@ -73,6 +73,10 @@ export const EXEMPT = {
  *
  * intake-sweep.yml is the same shape for the same reason: a lead receipt that did not finish when
  * it arrived (Meta answers not yet readable, a transient failure) is retried every 10 minutes.
+ *
+ * transactional-email-sweep.yml is the same shape again: a transactional email (WELCOME) whose
+ * immediate send failed is retried on its backoff, and one past its lifetime is settled EXPIRED.
+ * While TRANSACTIONAL_EMAIL_ENABLED is off the endpoint answers without touching the database.
  */
 export const SANCTIONED = [
   {
@@ -86,6 +90,12 @@ export const SANCTIONED = [
     file: "intake-sweep.yml",
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: 10-minute intake retry (M6 acquisition + WhatsApp receipts); CRON authority bound to the `cron` environment, main-only",
+  },
+  {
+    rule: "WP-5",
+    file: "transactional-email-sweep.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: 10-minute transactional email retry / expiry (WELCOME); CRON authority bound to the `cron` environment, main-only",
   },
 ];
 
@@ -372,6 +382,9 @@ function selfTest() {
     ["intake-sweep.yml: the same cron-bound, main-only schedule is sanctioned", () => { const r = judge("intake-sweep.yml", settle); return r.failures.length === 0 && r.recorded.length === 1; }],
     ["intake-sweep.yml: a push trigger is NOT covered (fails WP-5)", () => has(judge("intake-sweep.yml", settle.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  push:\n")), "WP-5")],
     ["intake-sweep.yml: no environment fails WP-3", () => has(judge("intake-sweep.yml", settle.replace("    environment: cron\n", "")), "WP-3")],
+    ["transactional-email-sweep.yml: the same cron-bound, main-only schedule is sanctioned", () => { const r = judge("transactional-email-sweep.yml", settle); return r.failures.length === 0 && r.recorded.length === 1; }],
+    ["transactional-email-sweep.yml: a pull_request trigger is NOT covered (fails WP-5)", () => has(judge("transactional-email-sweep.yml", settle.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request:\n")), "WP-5")],
+    ["transactional-email-sweep.yml: no environment fails WP-3", () => has(judge("transactional-email-sweep.yml", settle.replace("    environment: cron\n", "")), "WP-3")],
     ["an inappropriate environment (production-db) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: production-db")), "WP-6")],
     ["an inappropriate environment (knowledge-derive) fails WP-6", () => has(judge(SF, settle.replace("environment: cron", "environment: knowledge-derive")), "WP-6")],
     ["dropping the main-only condition fails WP-4", () => has(judge(SF, settle.replace("    if: github.ref == 'refs/heads/main'\n", "")), "WP-4")],

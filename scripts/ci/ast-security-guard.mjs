@@ -84,7 +84,7 @@ const CANONICAL_PRISMA = "lib/prisma";
 /** Privileged client module -> the only surfaces allowed to import it (regex on repo path). */
 const PRIVILEGED = {
   "lib/prisma-admin": [/^app\/api\/platform-admin\//, /^app\/api\/dev\//, /^lib\/services\/platform-admin\//, /^lib\/services\/learning-center\//],
-  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */],
+  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */, /^lib\/email\/transactional\/(delivery|sweep)\.ts$/ /* the delivery half of the signup plane: TransactionalEmail only */],
   "lib/prisma-control-plane": null, // read from privwrite-guard's own allowlist below
 };
 

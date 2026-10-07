@@ -18,10 +18,16 @@
  * the same transaction, through the same `issueRefreshSession` login uses, so
  * signup ends exactly where login ends — or nothing is written at all.
  *
- * SCOPE BOUNDARY: this module creates the account and its first session, and
- * nothing else. It does not decide whether registration is OPEN — that is the
- * public-signup gate, checked first in the route — and it does not mint tokens,
- * set cookies, send mail or raise events.
+ * The WELCOME email the new account is owed is part of the same fact too — as a
+ * RECORD, not a send. Its TransactionalEmail row is written in this transaction,
+ * so it exists exactly when the account does: a rolled-back signup owes nothing,
+ * a committed one owes exactly one (the dedupe key names the user). Delivery
+ * happens after the response, and its failure can never undo or fail the signup.
+ *
+ * SCOPE BOUNDARY: this module creates the account, its first session and the
+ * record of the email it is owed, and nothing else. It does not decide whether
+ * registration is OPEN — that is the public-signup gate, checked first in the
+ * route — and it does not mint tokens, set cookies, send mail or raise events.
  *
  * The rules about what an identity IS live in ./signup-identity.ts, which has no
  * dependencies and is therefore testable without a database.
@@ -32,8 +38,9 @@ import { Prisma } from "@prisma/client";
 import { CURRENT_TERMS_VERSION } from "@/lib/legal/consent-version";
 import bcrypt from "bcrypt";
 
-import { authDb } from "@/lib/prisma-auth";
+import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
+import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 
 import {
   EmailAlreadyRegisteredError,
@@ -85,6 +92,11 @@ export type CreatedAccount = {
   tokenVersion: number;
   /** The first session — the same row, credential and expiry login issues. */
   session: { sessionId: string; credential: string; absoluteExpiresAt: Date };
+  /**
+   * The WELCOME row written with the account, or null when the auth plane is not
+   * active (only the signup plane may write it; see below).
+   */
+  welcomeEmailId: number | null;
 };
 
 export function hashSignupPassword(plain: string): Promise<string> {
@@ -140,6 +152,20 @@ export async function createAccount(
         userAgent: input.userAgent ?? null,
       });
 
+      // The email this account is owed, recorded with it. Only the signup plane
+      // (app_auth) holds INSERT on TransactionalEmail; in the legacy mode this
+      // client is the tenant runtime, which cannot write it — so there, rather
+      // than failing every signup, no row is written.
+      const welcomeEmailId = isAuthPlaneActive()
+        ? await enqueueWelcomeEmail(tx, {
+            userId: user.id,
+            businessId: business.id,
+            toEmail: user.email,
+            name: input.name,
+            now: input.now,
+          })
+        : null;
+
       return {
         userId: user.id,
         businessId: business.id,
@@ -148,6 +174,7 @@ export async function createAccount(
         businessName: business.name,
         tokenVersion: user.tokenVersion,
         session,
+        welcomeEmailId,
       };
     });
   } catch (error) {

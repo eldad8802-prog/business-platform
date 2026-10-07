@@ -17,6 +17,7 @@ import {
   SECF_MIGRATION_LAB_STATE,
   EXPECTED_RUNTIME_TABLE_PRIVILEGES,
   EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES,
+  RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES,
 } from "./production-contract.mjs";
 import { deparseAll } from "./pg-deparse.mjs";
 
@@ -212,7 +213,10 @@ export async function expectedState(owner, sequences) {
   const tablePrivs = [];
   for (const [t, e] of Object.entries(EXPECTED_RUNTIME_TABLE_PRIVILEGES)) for (const v of e.verbs) tablePrivs.push(`${t}:${v}`);
   const seqPrivs = [];
-  for (const s of sequences) for (const v of EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES) seqPrivs.push(`${s}:${v}`);
+  for (const s of sequences) {
+    if (RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES.includes(s)) continue;
+    for (const v of EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES) seqPrivs.push(`${s}:${v}`);
+  }
   const tables = PRODUCTION_RLS_CONTRACT.map((s) => s.table);
   const rls = new Set([...tables, ...(secfPresent ? SECF_MIGRATION_LAB_STATE.rls : [])]);
   const force = new Set([...tables, ...(secfPresent ? SECF_MIGRATION_LAB_STATE.force : [])]);

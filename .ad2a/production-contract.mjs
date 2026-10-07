@@ -436,6 +436,26 @@ export const PRODUCTION_RLS_CONTRACT = [
     why: "stage 2 deletes pending sender challenges under a tenant context",
     policies: [{ name: "inbound_challenge_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
+  // Transactional email. Stage 2 deletes the erased business's rows through the tenant plane's
+  // DELETE policy — the one consumer CI-AD-13 registers for it. The three app_auth policies are the
+  // signup / delivery plane's and are reproduced so the lab's table is Production's table.
+  {
+    table: "TransactionalEmail",
+    migration: "20261015090000_transactional_email_foundation",
+    why: "stage 2 deletes the owner's transactional email rows under a tenant context",
+    policies: [
+      { name: "transactional_email_auth_select", command: "SELECT", roles: ["app_auth"], using: "true" },
+      {
+        name: "transactional_email_auth_insert",
+        command: "INSERT",
+        roles: ["app_auth"],
+        check: `"userId" IS NULL OR EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "TransactionalEmail"."userId" AND u."businessId" = "TransactionalEmail"."businessId")`,
+      },
+      { name: "transactional_email_auth_update", command: "UPDATE", roles: ["app_auth"], using: "true", check: "true" },
+      { name: "transactional_email_runtime_select", command: "SELECT", roles: ["app_runtime"], using: TENANT },
+      { name: "transactional_email_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -645,10 +665,19 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
     verbs: SIU,
     basis: "migration 20261013090000_m7a_commerce_telephony_foundation grants SELECT, INSERT, UPDATE and REVOKEs DELETE",
   },
+  // Table level: DELETE alone. The runtime's SELECT is column-level ("id", "businessId"), which
+  // the table ACL does not carry and the battery asserts separately.
+  TransactionalEmail: {
+    verbs: ["DELETE"],
+    basis: "migration 20261015090000_transactional_email_foundation: DELETE + SELECT (id, businessId) only",
+  },
 };
 
-/** Every sequence in the schema: USAGE and SELECT, nothing else. */
+/** Every sequence in the schema: USAGE and SELECT, nothing else — except the ones below. */
 export const EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES = ["SELECT", "USAGE"];
+
+/** Sequences the runtime holds NOTHING on in Production (it never inserts into their table). */
+export const RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES = ["TransactionalEmail_id_seq"];
 
 /**
  * SEC-F (migration 20260926140000) — the row-level-security state that migration

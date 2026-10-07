@@ -272,6 +272,12 @@ async function main() {
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );
+  // Transactional email — migration 20261015090000_transactional_email_foundation, mirrored exactly:
+  // the runtime holds DELETE and SELECT on (id, businessId) and nothing else — never the recipient or
+  // the payload, no INSERT / UPDATE, nothing on the id sequence. Account erasure is its one consumer.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON "TransactionalEmail" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "TransactionalEmail" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE "TransactionalEmail_id_seq" FROM ${RT_ROLE}`);
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
@@ -584,6 +590,20 @@ async function main() {
     // businesses so the control tenant proves the delete is scoped rather than
     // merely effective. The hash is a marker, so a survivor is readable in the
     // output instead of showing up only as a count.
+    // Transactional email: the WELCOME signup recorded for this owner. Seeded for BOTH businesses,
+    // so the control tenant proves the erasure's DELETE is scoped by the policy, not merely effective.
+    await owner.transactionalEmail.create({
+      data: {
+        kind: "WELCOME",
+        dedupeKey: `welcome:user:${u.id}`,
+        userId: u.id,
+        businessId: b.id,
+        toEmail: `${tag}-owner@ad2a.test`,
+        payload: { firstName: `${MARK}first` },
+        expiresAt: new Date(Date.now() + 24 * 3600_000),
+      },
+    });
+
     const inboundSender = await owner.inboundEmailAuthorizedSender.create({
       data: {
         businessId: b.id,
@@ -1249,6 +1269,8 @@ async function main() {
     (await owner.inboundEmailSenderChallenge.count({ where: { businessId: A.biz.id } })) === 0);
   ok("A's inbound authorised senders are gone",
     (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: A.biz.id } })) === 0);
+  ok("A's transactional email rows are gone (tenant-scoped DELETE)",
+    (await owner.transactionalEmail.count({ where: { businessId: A.biz.id } })) === 0);
   const custA = await owner.customer.findFirst({ where: { businessId: A.biz.id } });
   ok("A's customer is ANONYMIZED, not deleted (invoice FK)", custA !== null && custA.name === "לקוח שנמחק");
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
@@ -1491,6 +1513,8 @@ async function main() {
     (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's inbound sender challenge survives",
     (await owner.inboundEmailSenderChallenge.count({ where: { businessId: B.biz.id } })) === 1);
+  ok("B's transactional email row survives (the DELETE policy is bound to the erased tenant)",
+    (await owner.transactionalEmail.count({ where: { businessId: B.biz.id } })) === 1);
 
   // C12-E1 cross-tenant. The line is the one that can actually go wrong: it has no
   // businessId, so it is reached through the PurchaseOrder relation, and a filter

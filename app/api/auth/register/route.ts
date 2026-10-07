@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
@@ -18,6 +18,9 @@ import {
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
+import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
+import { runTenantJob } from "@/lib/tenant/job";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -72,7 +75,26 @@ export type RegisterDeps = {
    * connection, which a pure dependency-injection test must not do.
    */
   recordUsage: typeof recordProductUsageEvent;
+  /**
+   * The fast path for the WELCOME the account transaction recorded: delivery is
+   * scheduled to run AFTER the response. It never blocks, fails or delays the
+   * signup — the sweep is what guarantees delivery (or its expiry) when this
+   * attempt does not happen or does not succeed.
+   */
+  scheduleWelcome: (welcomeEmailId: number, businessId: number) => void;
 };
+
+function scheduleWelcomeAfterResponse(welcomeEmailId: number, businessId: number): void {
+  // OFF: nothing is scheduled at all — no database read, no outbound request.
+  if (!isTransactionalEmailEnabled()) return;
+  // An explicit tenant handoff (CI-W4-1), never the request's inherited context.
+  // Delivery itself runs on the signup / delivery plane and reads only its row.
+  after(() =>
+    runTenantJob({ businessId }, async () => {
+      await deliverTransactionalEmail(welcomeEmailId);
+    })
+  );
+}
 
 const defaultDeps: RegisterDeps = {
   isSignupEnabled: isPublicSignupEnabled,
@@ -81,6 +103,7 @@ const defaultDeps: RegisterDeps = {
   createAccount,
   signToken: signAuthToken,
   recordUsage: recordProductUsageEvent,
+  scheduleWelcome: scheduleWelcomeAfterResponse,
 };
 
 async function recordSignupFailure(
@@ -192,6 +215,19 @@ export async function handleRegister(
       now,
       absoluteExpiresAt: account.session.absoluteExpiresAt,
     });
+
+    // Last, and contained: the account and its session are done. Nothing about
+    // the email — scheduling included — may turn a successful signup into an error.
+    if (account.welcomeEmailId !== null) {
+      try {
+        deps.scheduleWelcome(account.welcomeEmailId, account.businessId);
+      } catch (error) {
+        console.error("[transactional-email] schedule_failed", {
+          id: account.welcomeEmailId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    }
 
     return res;
   } catch (error) {

@@ -95,6 +95,7 @@ const CRON_ROUTES = [
   "app/api/intake/sweep/route.ts",
   "app/api/payments/reconciliation/route.ts",
   "app/api/payments/settlement-recovery/route.ts",
+  "app/api/transactional-email/sweep/route.ts",
 ];
 {
   const root = process.cwd();
@@ -113,9 +114,9 @@ const CRON_ROUTES = [
   // The intake sweep route delegates its authority to lib/intake/sweep-auth.ts (QStash signature, else
   // this same dual-accept decision) — so the decision's callers are the two payment routes + that module,
   // and that module is used by the sweep route and nothing else.
-  const DECISION_CALLERS = ["app/api/payments/reconciliation/route.ts", "app/api/payments/settlement-recovery/route.ts", "lib/intake/sweep-auth.ts"];
+  const DECISION_CALLERS = ["app/api/payments/reconciliation/route.ts", "app/api/payments/settlement-recovery/route.ts", "app/api/transactional-email/sweep/route.ts", "lib/intake/sweep-auth.ts"];
   const cronCallers = files.filter((f) => /decideCronAuth\(/.test(code(f)) && !f.endsWith("settlement-recovery-auth.ts")).sort();
-  ok("scope: decideCronAuth is called by exactly the two payment routes and the sweep authority", JSON.stringify(cronCallers) === JSON.stringify(DECISION_CALLERS), JSON.stringify(cronCallers));
+  ok("scope: decideCronAuth is called by exactly the two payment routes, the transactional email sweep and the intake sweep authority", JSON.stringify(cronCallers) === JSON.stringify(DECISION_CALLERS), JSON.stringify(cronCallers));
   const sweepAuthUsers = files.filter((f) => /from "@\/lib\/intake\/sweep-auth"/.test(code(f))).sort();
   ok("scope: the sweep authority is used by the sweep route only, which uses it",
     JSON.stringify(sweepAuthUsers) === JSON.stringify(["app/api/intake/sweep/route.ts"]) && /authorizeSweep\(/.test(code("app/api/intake/sweep/route.ts")), JSON.stringify(sweepAuthUsers));

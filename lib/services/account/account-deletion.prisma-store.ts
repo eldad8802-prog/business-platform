@@ -439,6 +439,22 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           await tx.inboundEmailSenderChallenge.deleteMany({ where: { businessId } });
           await tx.inboundEmailAuthorizedSender.deleteMany({ where: { businessId } });
 
+          // ── B.2.2 — transactional email (the owner's own address and name) ──
+          //
+          // Each row is an email Dubiz owed or sent this account's owner: the
+          // recipient address and the template's parameters. Nothing references
+          // it and it has no fiscal role, so it is deleted outright.
+          //
+          // This is the one statement the tenant runtime's DELETE on the table
+          // exists for (migration 20261015090000; CI-AD-13 registers its policy
+          // with this consumer). The policy binds it to app.current_business_id,
+          // which runTenantJob set to THIS business, and the runtime may read only
+          // (id, businessId) — so it can neither reach another tenant's rows nor
+          // see the addresses it removes. Explicit rather than left to the
+          // ON DELETE CASCADE from User, which never fires: the user is
+          // anonymised in place above, not deleted.
+          await tx.transactionalEmail.deleteMany({ where: { businessId } });
+
           // ── B.3 — the conversation graph, ANONYMISED IN PLACE ──────────────
           //
           // This used to be `conversation.deleteMany`, and it deleted nothing.

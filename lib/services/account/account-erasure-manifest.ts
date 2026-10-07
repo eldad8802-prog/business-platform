@@ -227,6 +227,9 @@ export const DELETE_MODELS = [
   // no fiscal linkage, so they are deleted rather than anonymised.
   "inboundEmailSenderChallenge",
   "inboundEmailAuthorizedSender",
+  // Transactional email to the owner (address + template parameters). No fiscal
+  // linkage; deleted under the tenant context through its tenant-scoped policy.
+  "transactionalEmail",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.

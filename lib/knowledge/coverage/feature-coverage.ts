@@ -424,8 +424,11 @@ export const INFRASTRUCTURE = {
   models: ["User", "Business", "ProductUsageEvent", "BusinessFeatureAccess", "Usage", "AuthSession", "AuthSessionSecret", "PlatformAdminMfa",
     "PlatformAuditEvent", "PlatformFeatureDefinition", "PlatformFeaturePolicy", "OAuthToken", "ExtractedData", "ExtractionEvidence", "MessageAnalysis",
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
-    "BusinessBotLearningSuggestion"],
+    "BusinessBotLearningSuggestion",
+    // Transactional email (WELCOME): account mail delivery, not business learning evidence.
+    "TransactionalEmail"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
+    "api/transactional-email",
     "page/settings", "page/login", "page/register", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */

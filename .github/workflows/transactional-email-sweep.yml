@@ -1,0 +1,59 @@
+# Transactional email — the sweep (scheduled).
+#
+# Signup records the WELCOME it owes in the account transaction and tries to deliver it right after the
+# response. This sweep is what makes delivery eventually happen — or eventually stop: it retries due
+# rows (429 / 5xx / network, on their backoff), re-claims a row whose worker died, and settles rows past
+# their lifetime (WELCOME: 24h) as EXPIRED, never sent late.
+#
+# While TRANSACTIONAL_EMAIL_ENABLED is not "true" in Production the endpoint answers 200
+# { enabled: false } without touching the database: this schedule is then a no-op.
+#
+# Safe at any cadence and concurrently: each row is claimed by one conditional UPDATE, and every attempt
+# of a row carries the same provider idempotency key (te:<id>).
+#
+# WHY GITHUB ACTIONS. Same as intake-sweep.yml: Vercel Hobby crons run at most daily.
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` environment (main-only). The
+# endpoint answers counts only; they go to the step summary.
+
+name: transactional email sweep (scheduled)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transactional-email-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # CRON_SECRET authenticates to PRODUCTION. It is read only from main, inside the protected `cron`
+    # environment (same binding as intake-sweep.yml and payment-settlement-recovery.yml).
+    if: github.ref == 'refs/heads/main'
+    environment: cron
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # The endpoint answers 500 when delivery is ON but misconfigured, so an unhealthy run goes red.
+      - name: Sweep transactional email on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SWEEP_URL: https://promaxgroup.co.il/api/transactional-email/sweep
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o sweep.json -w "%{http_code}" -m 90 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$SWEEP_URL")
+          echo "HTTP $code"
+          cat sweep.json; echo
+          {
+            echo "### Transactional email sweep — HTTP $code"
+            echo '```json'; cat sweep.json; echo; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" = "200" ] || { echo "::error::transactional email sweep answered $code"; exit 1; }

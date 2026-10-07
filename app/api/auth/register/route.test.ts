@@ -35,6 +35,7 @@ type Calls = {
   signToken: number;
   signedSessionId?: string;
   bodyReads: number;
+  scheduled: number[];
 };
 
 const FAKE_SESSION = {
@@ -53,6 +54,7 @@ function makeDeps(
     hash: 0,
     signToken: 0,
     bodyReads: 0,
+    scheduled: [],
   };
 
   const deps: RegisterDeps = {
@@ -80,6 +82,7 @@ function makeDeps(
         businessName: input.businessName,
         tokenVersion: 0,
         session: FAKE_SESSION,
+        welcomeEmailId: 501,
       };
     },
     signToken: (_userId, _tv, sessionId) => {
@@ -91,6 +94,9 @@ function makeDeps(
     // implementation swallows its own errors, but it still opens a database
     // connection — which would quietly make "no database, no network" false.
     recordUsage: async () => {},
+    scheduleWelcome: (id) => {
+      calls.scheduled.push(id);
+    },
     ...overrides,
   };
 
@@ -325,6 +331,56 @@ async function main() {
     const res = await handleRegister(req(), deps);
     ok("open -> rate limited still 429", res.status === 429);
     ok("open -> rate limited creates nothing", calls.createAccount === 0);
+  }
+
+  // ------------------------------------------------------- WELCOME email --
+  // The account transaction records the WELCOME; the route only schedules its
+  // delivery after the response, and nothing about it can fail the signup.
+  {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req(), deps);
+    ok("welcome -> signup 200", res.status === 200);
+    ok("welcome -> delivery scheduled exactly once, for the recorded row", JSON.stringify(calls.scheduled) === "[501]");
+  }
+  {
+    const { deps } = makeDeps(true, {
+      scheduleWelcome: () => {
+        throw new Error("scheduler exploded");
+      },
+    });
+    const res = await handleRegister(req(), deps);
+    const body = await res.json();
+    ok("welcome -> a scheduling failure does NOT fail the signup (200)", res.status === 200 && body.success === true);
+    ok("welcome -> …and the session token is still issued", typeof body.token === "string" && body.token.length > 0);
+  }
+  {
+    const { deps, calls } = makeDeps(true);
+    deps.createAccount = async (input) => ({
+      userId: 99,
+      businessId: 4242,
+      email: input.email,
+      name: input.name,
+      businessName: input.businessName,
+      tokenVersion: 0,
+      session: FAKE_SESSION,
+      welcomeEmailId: null,
+    });
+    const res = await handleRegister(req(), deps);
+    ok("welcome -> no recorded row (legacy auth plane) -> nothing scheduled, signup 200", res.status === 200 && calls.scheduled.length === 0);
+  }
+  {
+    const { deps, calls } = makeDeps(true, {
+      createAccount: async () => {
+        throw new EmailAlreadyRegisteredError();
+      },
+    });
+    const res = await handleRegister(req(), deps);
+    ok("welcome -> duplicate signup (409) schedules nothing", res.status === 409 && calls.scheduled.length === 0);
+  }
+  {
+    const { deps, calls } = makeDeps(false);
+    await handleRegister(req(), deps);
+    ok("welcome -> closed signup schedules nothing", calls.scheduled.length === 0);
   }
 
   console.log(failed === 0 ? "\nPASS" : `\nFAIL (${failed})`);
