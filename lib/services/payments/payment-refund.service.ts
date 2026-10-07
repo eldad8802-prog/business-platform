@@ -52,10 +52,11 @@ import { recordPaymentAuditEvent } from "./payment-audit.service";
 import {
   assertPaymentProviderEnabled,
 } from "./providers/provider-availability";
-import type {
-  PaymentProviderAdapter,
-  RefundPaymentResult,
-  RefundStatusResult,
+import {
+  PaymentProviderRefusalError,
+  type PaymentProviderAdapter,
+  type RefundPaymentResult,
+  type RefundStatusResult,
 } from "./providers/payment-provider.types";
 import type {
   PaymentConnectionRecord,
@@ -111,6 +112,14 @@ export interface RefundPaymentRequestInput {
   /** Positive decimal string or number. Bounded below against the settlement. */
   amount: string | number;
   reason?: string | null;
+  /**
+   * The caller's identity for THIS refund instruction. A retry carrying the
+   * same key — a double click, a network retry, a reload — is answered from
+   * the ledger and never reaches the provider a second time. Scoped to the
+   * payment request. Required by the route; optional here only so internal
+   * callers and older tests keep compiling.
+   */
+  idempotencyKey?: string | null;
 }
 
 export interface RefundPaymentRequestDeps {
@@ -242,15 +251,32 @@ export async function refundPaymentRequest(
   assertPositiveInt(input.requestId, "requestId");
 
   const intent = input.intent ?? "REFUND";
-  const requested = toMinorUnits(input.amount, "amount");
-  if (requested <= 0) {
-    throw new ValidationError("A refund amount must be greater than zero");
+  if (intent !== "REFUND" && intent !== "VOID") {
+    throw new ValidationError("intent must be REFUND or VOID");
   }
 
   // 1. OWNERSHIP. Missing and foreign are the same answer, deliberately.
   const request = await deps.store.findPaymentRequestById(input.requestId);
   if (!request || request.businessId !== input.businessId) {
     throw new NotFoundError("Payment request not found");
+  }
+
+  // 1b. REPLAY. The same instruction, again: answer from the ledger. Checked
+  //     before anything else can refuse, so a retry of a refund that already
+  //     went through is told what happened rather than "already refunded".
+  const idempotencyKey = normaliseIdempotencyKey(input.idempotencyKey);
+  if (idempotencyKey) {
+    const prior = (await deps.store.listTransactionsByRequest(request.id)).find(
+      (t) => isReversal(t) && reversalIdempotencyKey(t) === idempotencyKey
+    );
+    if (prior) {
+      return replayResult(deps, request, prior, input.actorUserId);
+    }
+  }
+
+  const requested = toMinorUnits(input.amount, "amount");
+  if (requested <= 0) {
+    throw new ValidationError("A refund amount must be greater than zero");
   }
 
   // 2. There must be something to reverse. An unpaid request has taken no
@@ -303,6 +329,13 @@ export async function refundPaymentRequest(
         `balance of ${fromMinorUnits(refundableMinor)}`
     );
   }
+  // A VOID withdraws the whole transaction before it is deposited. It is not a
+  // small refund: it cannot be partial, and it cannot follow a refund.
+  if (intent === "VOID" && (alreadyMinor !== 0 || requested !== settledMinor)) {
+    throw new ValidationError(
+      "A cancellation (void) withdraws the whole payment and cannot follow or accompany a partial refund"
+    );
+  }
 
   // 5. The connection is the ONLY source of credentials. Nothing in the input
   //    shape can carry one, and nothing here reads one from anywhere else.
@@ -337,6 +370,7 @@ export async function refundPaymentRequest(
       reversesTransactionId: settlement.id,
       actorUserId: input.actorUserId,
       reason: input.reason ?? null,
+      idempotencyKey,
     },
   });
 
@@ -428,24 +462,28 @@ export async function refundPaymentRequest(
       },
     });
   } catch (error) {
-    // A THROW IS A DEFINITE REFUSAL. The adapters in this domain raise rather
-    // than return when the provider refused or could not be reached with the
-    // instruction intact, so the reservation releases and the balance is
-    // restored. An adapter that is unsure must return UNKNOWN instead — the
-    // branch below — and not throw.
-    await deps.store.updateTransaction(reservation.id, { status: "FAILED" });
-    const message =
-      error instanceof Error ? error.message : "provider refused the refund";
-    await recordPaymentAuditEvent(deps.store, {
-      businessId: request.businessId,
-      paymentRequestId: request.id,
-      actorUserId: input.actorUserId,
-      eventType: "PAYMENT_REFUND_FAILED",
-      source: "PROVIDER",
-      summary: `Refund refused by ${request.provider}: ${message}`,
-      metadata: { provider: request.provider, reservationId: reservation.id },
-    });
-    throw new ValidationError(`Refund failed: ${message}`);
+    // ONLY A STATED REFUSAL RELEASES. Enforced HERE rather than trusted to each
+    // adapter: `PaymentProviderRefusalError` means the provider said no and no
+    // money moved. Every other throw — a timeout, a dropped connection, an
+    // unreadable body, a bug — means the instruction may have arrived and been
+    // executed, so it is UNKNOWN and the reservation stays held. Releasing on
+    // silence is exactly how a second refund gets issued for money that left.
+    if (!(error instanceof PaymentProviderRefusalError)) {
+      result = { providerRefundId: null, outcome: "UNKNOWN" };
+    } else {
+      await deps.store.updateTransaction(reservation.id, { status: "FAILED" });
+      const message = error.message || "provider refused the refund";
+      await recordPaymentAuditEvent(deps.store, {
+        businessId: request.businessId,
+        paymentRequestId: request.id,
+        actorUserId: input.actorUserId,
+        eventType: "PAYMENT_REFUND_FAILED",
+        source: "PROVIDER",
+        summary: `Refund refused by ${request.provider}: ${message}`,
+        metadata: { provider: request.provider, reservationId: reservation.id, code: error.code },
+      });
+      throw new ValidationError(`Refund failed: ${message}`);
+    }
   }
 
   if (result.outcome !== "REFUNDED") {
@@ -456,6 +494,7 @@ export async function refundPaymentRequest(
     await deps.store.updateTransaction(reservation.id, {
       providerTransactionId: result.providerRefundId,
       rawPayload: {
+        ...payloadOf(reservation),
         kind: "refund_indeterminate",
         requestedAmount: fromMinorUnits(requested),
         providerRefundId: result.providerRefundId,
@@ -494,7 +533,12 @@ export async function refundPaymentRequest(
   const settled = await deps.store.updateTransaction(reservation.id, {
     status: "PAID",
     providerTransactionId: result.providerRefundId,
+    // The refund's accounting lifecycle opens WITH the money movement, in the
+    // same transaction: the books still say this money is income, and that
+    // must be durable from the moment the money left.
+    openRefundAccounting: { businessId: request.businessId },
     rawPayload: {
+      ...payloadOf(reservation),
       // The intent survives settlement. Which act the owner asked for is not a
       // detail of the attempt — it is what this row IS, and a settled void
       // that reads back as a refund has lost the only record of the difference.
@@ -523,6 +567,7 @@ export async function refundPaymentRequest(
       reservationId: reservation.id,
     },
   });
+  await recordRefundAccountingPending(deps, request, settled.id, input.actorUserId);
 
   const final = await deps.store.listTransactionsByRequest(request.id);
   const total = reservedOrSettledReversals(final);
@@ -533,6 +578,187 @@ export async function refundPaymentRequest(
     refundedTotal: fromMinorUnits(total),
     refundableRemaining: fromMinorUnits(settledMinor - total),
   };
+}
+
+// --- idempotency and accounting helpers --------------------------------------
+
+/** 8–128 visible characters, or null. Anything else is refused, not trimmed into shape. */
+function normaliseIdempotencyKey(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const key = String(value).trim();
+  if (key === "") return null;
+  if (!/^[A-Za-z0-9._:-]{8,128}$/.test(key)) {
+    throw new ValidationError("idempotencyKey must be 8–128 letters, digits or . _ : -");
+  }
+  return key;
+}
+
+function payloadOf(t: PaymentTransactionRecord): Record<string, unknown> {
+  return typeof t.rawPayload === "object" && t.rawPayload !== null && !Array.isArray(t.rawPayload)
+    ? (t.rawPayload as Record<string, unknown>)
+    : {};
+}
+
+function reversalIdempotencyKey(t: PaymentTransactionRecord): string | null {
+  const key = payloadOf(t).idempotencyKey;
+  return typeof key === "string" && key !== "" ? key : null;
+}
+
+/**
+ * The answer to a replayed instruction, from the ledger alone. Nothing is sent
+ * to the provider and nothing is written except the audit line saying so.
+ */
+async function replayResult(
+  deps: RefundPaymentRequestDeps,
+  request: { id: number; businessId: number; provider: PaymentProvider },
+  prior: PaymentTransactionRecord,
+  actorUserId: number
+): Promise<RefundPaymentRequestResult> {
+  await recordPaymentAuditEvent(deps.store, {
+    businessId: request.businessId,
+    paymentRequestId: request.id,
+    actorUserId,
+    eventType: "PAYMENT_REFUND_REPLAYED",
+    source: "USER",
+    summary: `Refund instruction replayed for ${request.provider} payment ${request.id}; answered from the ledger`,
+    metadata: { provider: request.provider, reservationId: prior.id, status: prior.status },
+  });
+  if (prior.status === "FAILED" || prior.status === "CANCELLED") {
+    throw new ValidationError(
+      "This refund was already refused by the payment provider. Start a new refund to try again."
+    );
+  }
+  const rows = await deps.store.listTransactionsByRequest(request.id);
+  const settlement = findSettlement(rows);
+  const settledMinor = settlement ? toMinorUnits(settlement.amount, "settlement amount") : 0;
+  const total = reservedOrSettledReversals(rows);
+  return {
+    refund: prior,
+    outcome: prior.status === "PAID" ? "REFUNDED" : "UNKNOWN",
+    refundedTotal: fromMinorUnits(total),
+    refundableRemaining: fromMinorUnits(settledMinor - total),
+  };
+}
+
+/**
+ * A settled refund leaves the books saying the money is still income. Its
+ * accounting row is opened with the reversal (store, same transaction); this
+ * records why it is paused. WHICH document corrects it — a credit receipt, a
+ * cancelled receipt, a credit tax invoice — is an accounting decision that has
+ * not been made, so none is issued here. OWNER / ACCOUNTING DECISION REQUIRED.
+ */
+async function recordRefundAccountingPending(
+  deps: Pick<RefundPaymentRequestDeps, "store">,
+  request: { id: number; businessId: number; provider: PaymentProvider },
+  reversalId: number,
+  actorUserId: number | null
+): Promise<void> {
+  await recordPaymentAuditEvent(deps.store, {
+    businessId: request.businessId,
+    paymentRequestId: request.id,
+    actorUserId,
+    eventType: "PAYMENT_REFUND_ACCOUNTING_PENDING",
+    source: "SYSTEM",
+    summary:
+      `Refund ${reversalId} on ${request.provider} payment ${request.id} settled; ` +
+      `the accounting correction awaits a document decision`,
+    metadata: { provider: request.provider, reversalId },
+  });
+}
+
+// --- manual resolution (platform administrator, MFA) -------------------------
+
+export interface ResolveReversalManuallyInput {
+  businessId: number;
+  requestId: number;
+  /** The specific reversal row being resolved. */
+  reversalId: number;
+  outcome: "REFUNDED" | "REJECTED";
+  /** What the administrator saw at the provider — required, kept in the audit trail. */
+  evidence: string;
+  /** The provider's id for the reversal, when the administrator found one. */
+  providerRefundId?: string | null;
+  adminUserId: number;
+}
+
+/**
+ * Resolve an indeterminate reversal from evidence outside Dubiz.
+ *
+ * The way out for the case the provider cannot be asked about (CardCom, when
+ * its answer was lost and no reversal id came back). It is NOT an owner
+ * override: the route behind it is platform-administrator-only with MFA, the
+ * administrator must state what they observed at the provider, and the act is
+ * audited with that evidence. Only a still-PENDING reversal can be resolved,
+ * so it can never rewrite an outcome the provider already established.
+ */
+export async function resolveReversalManually(
+  input: ResolveReversalManuallyInput,
+  deps: Pick<RefundPaymentRequestDeps, "store">
+): Promise<{ status: "PAID" | "FAILED" }> {
+  assertPositiveInt(input.businessId, "businessId");
+  assertPositiveInt(input.requestId, "requestId");
+  assertPositiveInt(input.reversalId, "reversalId");
+  assertPositiveInt(input.adminUserId, "adminUserId");
+  if (input.outcome !== "REFUNDED" && input.outcome !== "REJECTED") {
+    throw new ValidationError("outcome must be REFUNDED or REJECTED");
+  }
+  const evidence = (input.evidence ?? "").trim();
+  if (evidence.length < 10 || evidence.length > 1000) {
+    throw new ValidationError(
+      "evidence must describe what was observed at the provider (10–1000 characters)"
+    );
+  }
+
+  const request = await deps.store.findPaymentRequestById(input.requestId);
+  if (!request || request.businessId !== input.businessId) {
+    throw new NotFoundError("Payment request not found");
+  }
+  const rows = await deps.store.listTransactionsByRequest(request.id);
+  const reversal = rows.find((t) => t.id === input.reversalId);
+  if (!reversal || !isReversal(reversal)) {
+    throw new NotFoundError("Reversal not found");
+  }
+  if (reversal.status !== "PENDING") {
+    throw new ConflictError("REVERSAL_ALREADY_RESOLVED", "This reversal is no longer pending");
+  }
+
+  const providerRefundId =
+    input.providerRefundId != null && String(input.providerRefundId).trim() !== ""
+      ? String(input.providerRefundId).trim()
+      : null;
+
+  if (input.outcome === "REFUNDED") {
+    await deps.store.updateTransaction(reversal.id, {
+      status: "PAID",
+      providerTransactionId: reversal.providerTransactionId ?? providerRefundId,
+      openRefundAccounting: { businessId: request.businessId },
+      rawPayload: { ...payloadOf(reversal), kind: "reversal_resolved_manually", outcome: "REFUNDED" },
+    });
+  } else {
+    await deps.store.updateTransaction(reversal.id, {
+      status: "FAILED",
+      rawPayload: { ...payloadOf(reversal), kind: "reversal_resolved_manually", outcome: "REJECTED" },
+    });
+  }
+  await recordPaymentAuditEvent(deps.store, {
+    businessId: request.businessId,
+    paymentRequestId: request.id,
+    actorUserId: input.adminUserId,
+    eventType: "PAYMENT_REFUND_RESOLVED_MANUALLY",
+    source: "USER",
+    summary: `Reversal ${reversal.id} resolved as ${input.outcome} by a platform administrator`,
+    metadata: {
+      provider: request.provider,
+      reversalId: reversal.id,
+      outcome: input.outcome,
+      providerRefundId,
+      evidence,
+    },
+  });
+  if (input.outcome === "REFUNDED") {
+    await recordRefundAccountingPending(deps, request, reversal.id, input.adminUserId);
+  }
+  return { status: input.outcome === "REFUNDED" ? "PAID" : "FAILED" };
 }
 
 async function refreshed(
@@ -716,6 +942,7 @@ export async function resolveUnresolvedReversal(
       status: "PAID",
       providerTransactionId:
         reversal.providerTransactionId ?? status.providerRefundId ?? null,
+      openRefundAccounting: { businessId: request.businessId },
       rawPayload: {
         ...(typeof reversal.rawPayload === "object" && reversal.rawPayload !== null
           ? (reversal.rawPayload as Record<string, unknown>)
@@ -740,6 +967,7 @@ export async function resolveUnresolvedReversal(
           reversal.providerTransactionId ?? status.providerRefundId ?? null,
       },
     });
+    await recordRefundAccountingPending(deps, request, reversal.id, input.actorUserId);
     const after = await deps.store.listTransactionsByRequest(request.id);
     return summarise(after, "PAID", "REFUNDED", status.detail ?? null);
   }

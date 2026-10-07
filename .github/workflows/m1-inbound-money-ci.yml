@@ -78,8 +78,31 @@ jobs:
             fi
           done
           echo "payments test files: $total run, $failed failed"
-          [ "$total" -ge 29 ] || { echo "::error::expected at least 29 payments test files, found $total"; exit 1; }
+          [ "$total" -ge 31 ] || { echo "::error::expected at least 31 payments test files, found $total"; exit 1; }
           [ "$failed" -eq 0 ]
+
+      # Core safety — the provider contract must catch the two defects that
+      # silently broke a real adapter before (a PAID with no verified amount,
+      # and a reconciliation query that only finds providers with a session id).
+      # Each is put back for one run and must turn the contract suite red.
+      - name: Provider contract negative proofs
+        run: |
+          set -euo pipefail
+          C="lib/services/payments/provider-contract.test.ts"
+          S="lib/services/payments/providers/sumit/sumit.provider.ts"
+          M="lib/services/payments/payment-store.memory.ts"
+          prove() { # $1 file, $2 perl substitution, $3 grep that must match after, $4 label
+            cp "$1" "$1.bak"
+            perl -0pi -e "$2" "$1"
+            grep -q "$3" "$1" || { mv "$1.bak" "$1"; echo "::error::negative-proof setup did not apply: $4"; exit 1; }
+            if npx tsx "$C" >/dev/null 2>&1; then
+              mv "$1.bak" "$1"; echo "::error::NEGATIVE-PROOF FAIL: the contract passed with $4"; exit 1
+            fi
+            mv "$1.bak" "$1"; echo "negative proof held: $4"
+          }
+          prove "$S" 's/verifiedAmount: sumitAmountOf\(get\(payment, "Amount"\)\),/verifiedAmount: null,/' 'verifiedAmount: null,' "SUMIT reporting PAID without a verified amount"
+          prove "$M" 's/\(r\.providerRequestId != null \|\| r\.paymentUrl != null\) &&/r.providerRequestId != null \&\&/' 'r.providerRequestId != null &&$' "reconciliation candidates requiring a provider session id"
+          npx tsx "$C"
 
       - name: Settlement and billing rules touched by M1
         run: |

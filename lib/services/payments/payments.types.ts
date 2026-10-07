@@ -192,7 +192,15 @@ export interface CreateTransactionRow {
    * incoming payment (positive amount). Its existence is the forward-only
    * boundary: a transaction written without it is never settled automatically.
    */
-  openAccountingSettlement?: { businessId: number };
+  openAccountingSettlement?: {
+    businessId: number;
+    /**
+     * When set, the settlement row is opened already PAUSED on this reason
+     * (REQUIRES_ATTENTION) instead of PENDING, so no automatic receipt is ever
+     * attempted. Recorded money, withheld fiscal document.
+     */
+    attentionReason?: string | null;
+  };
 }
 
 /**
@@ -207,6 +215,40 @@ export interface TransactionPatch {
   status?: PaymentTransactionStatus;
   providerTransactionId?: string | null;
   rawPayload?: unknown;
+  /**
+   * Refund accounting lifecycle. Set ONLY when a reversal row resolves to PAID
+   * (the provider established that money went back). Opens, in the SAME
+   * database transaction as the status change, the reversal's accounting row,
+   * paused until the correcting document is decided — so a settled refund can
+   * never exist without a durable record that the books still need correcting.
+   */
+  openRefundAccounting?: { businessId: number };
+}
+
+/** The accounting reason a settled refund carries until its document is decided. */
+export const REFUND_ACCOUNTING_ATTENTION_REASON = "REFUND_ACCOUNTING_DECISION_REQUIRED";
+
+/** A reversal row (negative amount) that has not resolved. */
+export interface UnresolvedReversalRecord {
+  transaction: PaymentTransactionRecord;
+  businessId: number;
+  provider: PaymentProvider;
+}
+
+/** An accounting row paused for a person (C3 REQUIRES_ATTENTION). */
+export interface AccountingAttentionRecord {
+  paymentTransactionId: number;
+  paymentRequestId: number;
+  reason: string;
+  since: Date;
+}
+
+/** What still depends on a provider connection, for a business. */
+export interface ConnectionObligations {
+  /** Requests that can still be paid at the provider (open or closed locally, in window). */
+  openRequests: number;
+  /** Reversals instructed and not resolved. */
+  unresolvedReversals: number;
 }
 
 export interface InsertWebhookEventRow {
@@ -317,8 +359,10 @@ export interface PaymentStore {
 
   /**
    * M1 — requests inbound reconciliation should ask the provider about: issued
-   * to a provider (a provider request id exists), not PAID, created inside the
-   * window. Every other status qualifies — a customer can still pay through a
+   * to a provider (a provider request id OR a payment link exists — a provider
+   * may issue no session id at all), not PAID, created inside the window.
+   * Which key the authority is then asked by is the adapter's declared
+   * `verificationKey`. Every other status qualifies — a customer can still pay through a
    * link after the owner cancelled the request or it lapsed, and that money is
    * real. A request that already carries a verified payment but whose status
    * never caught up (a crash between the two writes, or money that landed on a
@@ -331,6 +375,35 @@ export interface PaymentStore {
     businessId: number,
     options: { createdAfter: Date; createdBefore: Date; limit: number }
   ): Promise<PaymentRequestRecord[]>;
+
+  /**
+   * Core safety — reversals (negative rows) still PENDING, created before
+   * `createdBefore`, for one business. Inside that tenant's context. The input
+   * to the refund-recovery sweep: nothing here decides an outcome.
+   */
+  listUnresolvedReversals(
+    businessId: number,
+    options: { createdBefore: Date; limit: number }
+  ): Promise<UnresolvedReversalRecord[]>;
+
+  /**
+   * Core safety — what still depends on this business's connection to one
+   * provider: payment links that can still be paid (any non-PAID status
+   * created after `since` — a link outlives a local cancellation) and
+   * reversals awaiting an answer. A connection that is still needed may not be
+   * deactivated or repointed at another account.
+   */
+  countConnectionObligations(
+    businessId: number,
+    provider: PaymentProvider,
+    since: Date
+  ): Promise<ConnectionObligations>;
+
+  /** Accounting rows paused for a person (payment or refund), newest first. */
+  listAccountingAttention(
+    businessId: number,
+    options: { limit: number }
+  ): Promise<AccountingAttentionRecord[]>;
 
   /**
    * SEC-01 + SEC-02 — resolve a billing document the caller wants to collect

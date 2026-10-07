@@ -38,6 +38,7 @@ import { recordPaymentAuditEvent } from "./payment-audit.service";
 import { hashCallbackSecret } from "./payment-callback-secret";
 import {
   resolvePaymentAuthoritatively,
+  toMinorUnits,
   type VerifiedPaidEvent,
 } from "./payment-verification.service";
 
@@ -256,12 +257,20 @@ export async function processPaymentWebhook(
   // the settlement below takes its amount from the stored request. But a body
   // that *claims* a different amount or currency than the request it points at
   // is incoherent, so it is refused rather than silently normalised.
-  if (parsed.amount != null && String(parsed.amount) !== String(request.amount)) {
-    return reject("amount_mismatch");
+  //
+  // Compared as MONEY, not as text: a provider that states 100 for a request of
+  // "100.00" is coherent, and refusing it would drop a genuine callback (the
+  // payment would still be found by reconciliation, hours later). A claim that
+  // cannot be read as an amount at all is incoherent and is refused.
+  if (parsed.amount != null) {
+    const claimed = toMinorUnits(String(parsed.amount));
+    if (claimed === null || claimed !== toMinorUnits(request.amount)) {
+      return reject("amount_mismatch");
+    }
   }
   if (
     parsed.currency != null &&
-    String(parsed.currency).toUpperCase() !== String(request.currency).toUpperCase()
+    String(parsed.currency).trim().toUpperCase() !== String(request.currency).trim().toUpperCase()
   ) {
     return reject("currency_mismatch");
   }

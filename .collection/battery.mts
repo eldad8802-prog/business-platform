@@ -213,7 +213,16 @@ async function main() {
   const rI = await makeBusiness("RI", { identity: false });
   const rd = async (ctx: Ctx) => (await json(await readinessRoute.GET(req("/api/collection/readiness", ctx.token)))).body;
   ok("R1 — no provider", JSON.stringify((await rd(r0)).blockers) === JSON.stringify(["NO_PAYMENT_PROVIDER"]));
-  ok("R1 — ambiguous provider", (await rd(r2)).blockers.includes("PAYMENT_PROVIDER_AMBIGUOUS"));
+  // Core safety: only ENABLED providers are candidates. r2 holds CARDCOM + SUMIT,
+  // and SUMIT is disabled in this application, so the business has exactly one
+  // usable provider and is NOT ambiguous (true ambiguity between two enabled
+  // providers is covered in payment-provider-seam.test.ts with an injected set).
+  const r2State = await rd(r2);
+  ok(
+    "R1 — a connection to a disabled provider does not make readiness ambiguous",
+    !r2State.blockers.includes("PAYMENT_PROVIDER_AMBIGUOUS") && r2State.ready === true,
+    JSON.stringify(r2State)
+  );
   ok("R1 — identity incomplete", (await rd(rI)).blockers.includes("BILLING_IDENTITY_INCOMPLETE"));
   const ready = await rd(a);
   ok("R1 — ready", ready.ready === true && ready.blockers.length === 0, JSON.stringify(ready));

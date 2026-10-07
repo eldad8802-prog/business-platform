@@ -9,7 +9,7 @@
  * so it is unit-testable without a database or the real crypto key.
  */
 
-import { ValidationError } from "@/lib/errors";
+import { ConflictError, ValidationError } from "@/lib/errors";
 import type { EncryptedCredentialMaterial } from "./payment-crypto.service";
 import type {
   PaymentConnectionRecord,
@@ -18,8 +18,32 @@ import type {
   PublicPaymentConnection,
 } from "./payments.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
-import { getProviderDescriptor } from "./providers/provider-registry";
+import { getProviderDescriptor, resolvePaymentProvider } from "./providers/provider-registry";
 import { assertPaymentProviderEnabled } from "./providers/provider-availability";
+import {
+  classifyConnectionEnvironment,
+  environmentRefusalMessage,
+  isEnvironmentAllowedForBusiness,
+} from "./payment-environment";
+
+/**
+ * How far back a payment link is assumed still payable at the provider. Kept
+ * equal to reconciliation's window: a link older than that is no longer asked
+ * about, so it no longer pins the connection either.
+ */
+export const CONNECTION_OBLIGATION_WINDOW_DAYS = 30;
+
+/** Raised when a connection still carries open payments or refunds. */
+export class PaymentConnectionInUseError extends ConflictError {
+  constructor(readonly obligations: { openRequests: number; unresolvedReversals: number }) {
+    super(
+      "PAYMENT_CONNECTION_IN_USE",
+      "אי אפשר לנתק או להחליף את חשבון הסליקה כרגע: יש בקשות תשלום שעדיין אפשר לשלם דרכו" +
+        " או החזרים שממתינים לאישור חברת הסליקה. אפשר לעדכן סיסמה לאותו חשבון בכל עת."
+    );
+    this.name = "PaymentConnectionInUseError";
+  }
+}
 
 export interface ConnectProviderInput {
   businessId: number;
@@ -39,6 +63,9 @@ export interface PaymentConnectionDeps {
     businessId: number,
     provider: PaymentProvider
   ) => EncryptedCredentialMaterial;
+  now?: () => Date;
+  /** Test seam for the runtime environment (Production detection). */
+  runtimeEnv?: Record<string, string | undefined>;
 }
 
 const DEFAULT_PROVIDER: PaymentProvider = "TRANZILA";
@@ -79,6 +106,45 @@ export async function connectPaymentProvider(
     throw new ValidationError("credential is required");
   }
 
+  const isActive = input.isActive ?? true;
+
+  // TEST / SANDBOX in Production. A shared test account connected to a live
+  // business is how test-card "payments" became real receipts; refused here,
+  // before anything is stored. Deactivating is always allowed — it cannot
+  // create money.
+  if (isActive) {
+    const environment = classifyConnectionEnvironment(resolvePaymentProvider(provider), merchantId);
+    if (!isEnvironmentAllowedForBusiness(environment, input.businessId, deps.runtimeEnv)) {
+      throw new ValidationError(environmentRefusalMessage(environment));
+    }
+  }
+
+  // A connection that open payments still depend on may not be switched off or
+  // pointed at a DIFFERENT account: the old account's links can still be paid,
+  // and verifying them — or a pending refund — needs the account that took the
+  // money. Rotating the password of the SAME account is always allowed.
+  const existing = (await deps.store.listConnections(input.businessId)).find(
+    (c) => c.provider === provider
+  );
+  const repointed = existing != null && existing.merchantId != null && existing.merchantId !== merchantId;
+  const deactivated = existing != null && existing.isActive && !isActive;
+  if (repointed || deactivated) {
+    const now = deps.now ?? (() => new Date());
+    const since = new Date(now().getTime() - CONNECTION_OBLIGATION_WINDOW_DAYS * 24 * 60 * 60_000);
+    const obligations = await deps.store.countConnectionObligations(input.businessId, provider, since);
+    if (obligations.openRequests > 0 || obligations.unresolvedReversals > 0) {
+      await recordPaymentAuditEvent(deps.store, {
+        businessId: input.businessId,
+        actorUserId: input.actorUserId ?? null,
+        eventType: "PAYMENT_CONNECTION_CHANGE_REFUSED",
+        source: input.actorUserId != null ? "USER" : "SYSTEM",
+        summary: `${provider} connection change refused: open payments still depend on it`,
+        metadata: { provider, repointed, deactivated, ...obligations },
+      });
+      throw new PaymentConnectionInUseError(obligations);
+    }
+  }
+
   const encrypted = deps.encryptCredential(
     input.credential,
     input.businessId,
@@ -93,7 +159,7 @@ export async function connectPaymentProvider(
     credentialIv: encrypted.credentialIv,
     credentialTag: encrypted.credentialTag,
     encryptionKeyId: encrypted.encryptionKeyId,
-    isActive: input.isActive ?? true,
+    isActive,
   });
 
   // audit the connection change. NEVER record credential material — only the

@@ -81,6 +81,20 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   "PAYMENT_ACCOUNTING_RETRY_SCHEDULED",
   // The owner named who paid a verified payment that arrived with no customer.
   "PAYMENT_ACCOUNTING_CUSTOMER_NAMED",
+  // Core safety — a verified payment whose automatic receipt was withheld
+  // (provider issued its own document, or a test account in Production).
+  "PAYMENT_ACCOUNTING_HELD",
+  // A refund that settled at the provider and now waits for its accounting
+  // correction. Which document corrects it is an accounting decision.
+  "PAYMENT_REFUND_ACCOUNTING_PENDING",
+  // A replayed refund instruction (same idempotency key) — answered from the
+  // ledger, nothing sent to the provider.
+  "PAYMENT_REFUND_REPLAYED",
+  // A platform administrator resolved an indeterminate refund from evidence
+  // outside Dubiz (the provider's own portal), with MFA.
+  "PAYMENT_REFUND_RESOLVED_MANUALLY",
+  // A connection change refused because open payments still depend on it.
+  "PAYMENT_CONNECTION_CHANGE_REFUSED",
 ] as const;
 
 export type PaymentAuditEventType = (typeof PAYMENT_AUDIT_EVENT_TYPES)[number];

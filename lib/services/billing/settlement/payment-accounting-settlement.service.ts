@@ -13,6 +13,8 @@ import { setReceiptAllocationsTx } from "@/lib/services/billing/receipt/billing-
 import { createReceiptDraftTx } from "@/lib/services/billing/receipt/billing-receipt-draft.service";
 import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { buildPaymentAuditRow } from "@/lib/services/payments/payment-audit.service";
+import { readPaymentMethod, readVerifiedEvidence } from "@/lib/services/payments/payment-evidence";
+import type { PaymentMethodKind } from "@/lib/services/payments/providers/payment-provider.types";
 
 /**
  * C3 — VERIFIED PAYMENT → ACCOUNTING SETTLEMENT.
@@ -58,7 +60,53 @@ export type SettlementAttentionReason =
   | "VERIFIED_CURRENCY_MISMATCH"
   | "DOCUMENT_NOT_ALLOCATABLE"
   | "TRANSACTION_NOT_ELIGIBLE"
-  | "RETRY_EXHAUSTED";
+  | "RETRY_EXHAUSTED"
+  // Core safety — opened PAUSED at recording time (payment-verification):
+  | "PROVIDER_ISSUED_DOCUMENT"
+  | "TEST_ENVIRONMENT_PAYMENT"
+  // A settled refund whose correcting document is not yet decided.
+  | "REFUND_ACCOUNTING_DECISION_REQUIRED";
+
+/**
+ * Attention reasons a generic "try again" must NEVER clear. Each one is a
+ * decision a person has to make — retrying would issue exactly the document
+ * the pause exists to withhold (a second receipt, a receipt for test money, a
+ * receipt for a refund).
+ */
+export const NON_RETRYABLE_ATTENTION_REASONS: ReadonlySet<string> = new Set([
+  "PROVIDER_ISSUED_DOCUMENT",
+  "TEST_ENVIRONMENT_PAYMENT",
+  "REFUND_ACCOUNTING_DECISION_REQUIRED",
+]);
+
+/**
+ * The receipt line's payment method, from how the provider's AUTHORITATIVE
+ * answer said the customer paid (recorded with the money).
+ *
+ *   CARD → CREDIT_CARD, but only with the brand and last four digits the
+ *          provider stated — a card line requires both, and neither is ever
+ *          invented. Without them the line stays OTHER, as before.
+ *   BIT  → BIT, referenced by the provider's transaction id.
+ *   anything else → OTHER (unchanged behaviour).
+ *
+ * The method is a fiscal field (it maps to the uniform-file 1306 code), so it
+ * is filled only from provider-stated facts.
+ */
+export function receiptMethodFor(
+  method: PaymentMethodKind,
+  evidence: Record<string, unknown>
+): { method: "CREDIT_CARD"; cardBrand: string; cardLast4: string } | { method: "BIT" | "OTHER" } {
+  if (method === "CARD") {
+    const brand = typeof evidence.instrumentBrand === "string" ? evidence.instrumentBrand.trim() : "";
+    const last4 = typeof evidence.instrumentLast4 === "string" ? evidence.instrumentLast4.trim() : "";
+    if (brand !== "" && /^\d{4}$/.test(last4)) {
+      return { method: "CREDIT_CARD", cardBrand: brand, cardLast4: last4 };
+    }
+    return { method: "OTHER" };
+  }
+  if (method === "BIT") return { method: "BIT" };
+  return { method: "OTHER" };
+}
 
 export type SettleVerifiedPaymentResult =
   | {
@@ -385,10 +433,13 @@ async function settleInTx(
         currency,
         paymentLines: [
           {
-            // The provider verified that money arrived; it did not tell us, in
-            // a form we hold authoritatively, HOW it was paid. OTHER is the
-            // honest method — no card brand, last4 or approval is invented.
-            method: "OTHER",
+            // HOW it was paid, only as the provider's authoritative answer
+            // stated it (recorded with the money). No card brand, last4 or
+            // approval is invented; an unstated method stays OTHER.
+            ...receiptMethodFor(
+              readPaymentMethod(payment.rawPayload),
+              readVerifiedEvidence(payment.rawPayload)
+            ),
             amount: amount.toFixed(2),
             currency,
             paymentDate: payment.createdAt.toISOString(),
@@ -595,6 +646,13 @@ export async function requeueSettlement(
   return billingTenantTx(input.businessId, async (tx) => {
     const row = await lockSettlementRowTx(tx, input.businessId, input.paymentTransactionId);
     if (!row || row.status !== PaymentAccountingSettlementStatus.REQUIRES_ATTENTION) {
+      return { requeued: false };
+    }
+    const current = await tx.paymentAccountingSettlement.findUnique({
+      where: { id: row.id },
+      select: { attentionReason: true },
+    });
+    if (current?.attentionReason && NON_RETRYABLE_ATTENTION_REASONS.has(current.attentionReason)) {
       return { requeued: false };
     }
     await tx.paymentAccountingSettlement.update({

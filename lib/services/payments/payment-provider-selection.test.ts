@@ -125,15 +125,17 @@ async function main() {
     );
   }
 
-  // --- 4. multiple active providers => must specify explicitly ---
+  // --- 4. an active connection to a DISABLED provider is not a candidate ---
+  // (Core safety.) TRANZILA is disabled, so a CARDCOM + TRANZILA business has
+  // exactly one usable provider and is NOT ambiguous. The ambiguity rule itself
+  // is covered with an injected enablement set in payment-provider-seam.test.ts,
+  // since only one real provider is enabled in this application.
   {
     const store = createInMemoryPaymentStore();
     store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
     store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
-    await assert.rejects(
-      () => createPaymentRequest({ businessId: 1, amount: 100 }, requestDeps(store)),
-      /more than one active payment provider/
-    );
+    const res = await createPaymentRequest({ businessId: 1, amount: 100 }, requestDeps(store));
+    assert.equal(res.paymentRequest.provider, "CARDCOM");
   }
 
   // --- 5. explicit provider chosen even when multiple are active ---

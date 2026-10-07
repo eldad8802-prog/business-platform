@@ -950,6 +950,137 @@ async function main() {
     ok("Q — outstanding still 5", (await outstanding(ctx, inv.id)) === "5.00");
   }
 
+  if (run("W")) {
+    console.log("\n== W — Core safety under FORCE RLS: refund accounting, held settlements, tenant-scoped reads ==");
+    const a = await makeBusiness("W-a");
+    const b = await makeBusiness("W-b");
+    const req = await request(a, "50.00");
+    provider(req.lowProfileId, { mode: "paid", tranId: tranId(), amount: 50, coinId: 1 });
+    const r1 = await reconcile(a);
+    ok("W — the payment is recorded", r1.recorded === 1, JSON.stringify(r1));
+
+    // W1 — a reversal resolving to PAID opens its accounting row in the SAME write, once.
+    const reversal = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.createTransaction({
+        paymentRequestId: req.id,
+        provider: "CARDCOM",
+        providerTransactionId: null,
+        amount: "-20.00",
+        currency: "ILS",
+        status: "PENDING",
+        rawPayload: { kind: "refund_reservation", idempotencyKey: "w-key-0001" },
+      })
+    );
+    const unresolvedA = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.listUnresolvedReversals(a.businessId, { createdBefore: new Date(Date.now() + 1000), limit: 10 })
+    );
+    const unresolvedB = await runWithTenantContext({ businessId: b.businessId }, () =>
+      store.listUnresolvedReversals(b.businessId, { createdBefore: new Date(Date.now() + 1000), limit: 10 })
+    );
+    ok("W — tenant A sees its unresolved reversal", unresolvedA.some((r) => r.transaction.id === reversal.id));
+    ok("W — tenant B sees none of it", unresolvedB.length === 0, JSON.stringify(unresolvedB));
+    const obligationsA = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.countConnectionObligations(a.businessId, "CARDCOM", new Date(Date.now() - 86_400_000))
+    );
+    ok("W — the pending reversal pins A's connection", obligationsA.unresolvedReversals === 1, JSON.stringify(obligationsA));
+    const obligationsB = await runWithTenantContext({ businessId: b.businessId }, () =>
+      store.countConnectionObligations(b.businessId, "CARDCOM", new Date(Date.now() - 86_400_000))
+    );
+    ok("W — and nothing of A's pins B's", obligationsB.unresolvedReversals === 0 && obligationsB.openRequests === 0, JSON.stringify(obligationsB));
+
+    let crossTenantWrite = "no error";
+    try {
+      await runWithTenantContext({ businessId: b.businessId }, () =>
+        store.updateTransaction(reversal.id, {
+          status: "PAID",
+          providerTransactionId: `w-foreign-${uniq()}`,
+          openRefundAccounting: { businessId: b.businessId },
+        })
+      );
+    } catch (e) {
+      crossTenantWrite = e instanceof Error ? e.name : "error";
+    }
+    ok("W — tenant B cannot resolve A's reversal (RLS hides the row)", crossTenantWrite !== "no error", crossTenantWrite);
+
+    for (let i = 0; i < 2; i++) {
+      await runWithTenantContext({ businessId: a.businessId }, () =>
+        store.updateTransaction(reversal.id, {
+          status: "PAID",
+          providerTransactionId: `w-refund-${req.id}`,
+          openRefundAccounting: { businessId: a.businessId },
+        })
+      );
+    }
+    const refundRows = await admin.paymentAccountingSettlement.findMany({ where: { paymentTransactionId: reversal.id } });
+    ok("W — exactly one accounting row for the settled refund (idempotent)", refundRows.length === 1, String(refundRows.length));
+    ok(
+      "W — paused for the accounting decision",
+      refundRows[0]?.status === "REQUIRES_ATTENTION" && refundRows[0]?.attentionReason === "REFUND_ACCOUNTING_DECISION_REQUIRED",
+      JSON.stringify(refundRows[0])
+    );
+    const requeued = await requeueSettlement({ businessId: a.businessId, paymentTransactionId: reversal.id });
+    ok("W — a generic retry can never clear a refund's accounting pause", requeued.requeued === false);
+    const receiptsForRefund = await admin.billingDocument.count({ where: { sourcePaymentTransactionId: reversal.id } });
+    ok("W — and no document is issued for the refund", receiptsForRefund === 0);
+
+    // W2 — a settlement opened HELD is never attempted by recovery.
+    const heldRequest = await request(a, "7.00");
+    const held = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.createTransaction({
+        paymentRequestId: heldRequest.id,
+        provider: "CARDCOM",
+        providerTransactionId: `w-held-${uniq()}`,
+        amount: "7.00",
+        currency: "ILS",
+        status: "PAID",
+        rawPayload: null,
+        openAccountingSettlement: { businessId: a.businessId, attentionReason: "TEST_ENVIRONMENT_PAYMENT" },
+      })
+    );
+    const heldRow = await admin.paymentAccountingSettlement.findUnique({ where: { paymentTransactionId: held.id } });
+    ok(
+      "W — a held settlement opens REQUIRES_ATTENTION",
+      heldRow?.status === "REQUIRES_ATTENTION" && heldRow?.attentionReason === "TEST_ENVIRONMENT_PAYMENT",
+      JSON.stringify(heldRow)
+    );
+    const settledHeld = await settleVerifiedPayment({ businessId: a.businessId, paymentTransactionId: held.id });
+    ok("W — settling it issues nothing", settledHeld.outcome === "REQUIRES_ATTENTION", JSON.stringify(settledHeld));
+    ok("W — no receipt exists for held money", (await admin.billingDocument.count({ where: { sourcePaymentTransactionId: held.id } })) === 0);
+    const attentionA = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.listAccountingAttention(a.businessId, { limit: 50 })
+    );
+    const attentionB = await runWithTenantContext({ businessId: b.businessId }, () =>
+      store.listAccountingAttention(b.businessId, { limit: 50 })
+    );
+    ok(
+      "W — A's attention lists both paused rows",
+      attentionA.filter((x) => x.paymentTransactionId === held.id || x.paymentTransactionId === reversal.id).length === 2,
+      JSON.stringify(attentionA)
+    );
+    ok("W — B's attention is empty", attentionB.length === 0, JSON.stringify(attentionB));
+
+    // W3 — a request with a link but no provider session id is a reconciliation candidate.
+    const idless = await admin.paymentRequest.create({
+      data: {
+        businessId: a.businessId,
+        provider: "CARDCOM",
+        amount: "3.00",
+        currency: "ILS",
+        status: "PENDING",
+        paymentUrl: "https://pay.example/idless",
+        createdAt: PAST(),
+      },
+    });
+    const candidates = await runWithTenantContext({ businessId: a.businessId }, () =>
+      store.listReconciliationCandidates(a.businessId, {
+        createdAfter: new Date(Date.now() - 86_400_000),
+        createdBefore: new Date(),
+        limit: 100,
+      })
+    );
+    ok("W — an id-less issued request is a reconciliation candidate", candidates.some((c) => c.id === idless.id));
+  }
+
   if (run("R")) {
     console.log("\n== R — a degraded run turns the route red ==");
     // Earlier cases left anomalies in the window (K, L, M, N), so a full run

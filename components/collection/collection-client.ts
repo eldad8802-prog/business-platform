@@ -88,6 +88,20 @@ export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAM
   DOCUMENT_NOT_ALLOCATABLE: { title: "התשלום התקבל — החשבונית שלו אינה זמינה לשיוך", action: "RETRY" },
   CUSTOMER_MISMATCH: { title: "התשלום התקבל — הלקוח שונה מלקוח החשבונית", action: "RETRY" },
   TRANSACTION_NOT_ELIGIBLE: { title: "התשלום אינו זמין להפקת קבלה", action: "RETRY" },
+  // Core safety — paused ON PURPOSE. "Try again" would issue exactly the
+  // document the pause withholds, so none of these offers a retry.
+  PROVIDER_ISSUED_DOCUMENT: {
+    title: "התשלום התקבל — חברת הסליקה כבר הפיקה עליו מסמך, ולכן דוביז לא הפיקה קבלה נוספת",
+    action: "REVIEW",
+  },
+  TEST_ENVIRONMENT_PAYMENT: {
+    title: "התשלום בוצע דרך מסוף בדיקה — לא הופקה קבלה כי זה לא כסף אמיתי",
+    action: "REVIEW",
+  },
+  REFUND_ACCOUNTING_DECISION_REQUIRED: {
+    title: "בוצע החזר ללקוח — עדכון הספרים (מסמך הזיכוי) ממתין להחלטה",
+    action: "REVIEW",
+  },
 };
 
 export function attentionText(reason: string | null | undefined) {

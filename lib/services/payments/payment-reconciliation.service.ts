@@ -41,7 +41,10 @@
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { isPaymentProviderEnabled } from "./providers/provider-availability";
 import type { PaymentProviderAdapter } from "./providers/payment-provider.types";
+import { getProviderDescriptor } from "./providers/provider-registry";
+import type { ProviderDescriptor } from "./providers/provider-descriptor.types";
 import type { PaymentProvider, PaymentRequestRecord } from "./payments.types";
+import { resolveUnresolvedReversal } from "./payment-refund.service";
 import {
   resolvePaymentAuthoritatively,
   type AuthoritativeResolution,
@@ -95,13 +98,41 @@ export interface PaymentReconciliationReport {
     /** CardCom answered about a different payment or terminal. */
     providerAnswerMismatch: number;
   };
-  /** Candidates whose provider is disabled or cannot be asked. */
+  /** Candidates whose provider cannot be asked at all (no status query, or one that moves money). */
   skipped: number;
+  /**
+   * Candidates of a provider DISABLED for new payments that were still asked,
+   * because a disabled provider's open links can still be paid. Disabling
+   * stops new business; it does not end the duty to observe the old.
+   */
+  observedOnDisabledProvider: number;
+  /**
+   * Candidates missing the key their provider's authority is asked by. A link
+   * Dubiz issued that cannot be verified is money that could arrive unseen.
+   */
+  unverifiable: number;
+  /** The refund-recovery sweep: reversals the provider never established. */
+  refunds: {
+    checked: number;
+    /** The provider confirmed the reversal — the books' correction is now pending. */
+    resolved: number;
+    /** The provider confirmed it did not happen — the reservation released. */
+    rejected: number;
+    stillUnknown: number;
+    /** Still unknown after REFUND_STALE_AFTER_MS — a person must look. */
+    stale: number;
+  };
   /** Unexpected errors (database, code). */
   failed: number;
   stoppedEarly: boolean;
   healthy: boolean;
 }
+
+/** A reversal still unestablished after this long is an alarm, not a wait. */
+export const REFUND_STALE_AFTER_MS = 24 * 60 * 60_000;
+/** Reversals younger than this are left to the request that instructed them. */
+const REFUND_SWEEP_MIN_AGE_MS = 10 * 60_000;
+const REFUND_SWEEP_PER_BUSINESS = 10;
 
 const DEFAULTS = {
   windowDays: 30,
@@ -144,6 +175,9 @@ export function emptyReconciliationReport(): PaymentReconciliationReport {
       providerAnswerMismatch: 0,
     },
     skipped: 0,
+    observedOnDisabledProvider: 0,
+    unverifiable: 0,
+    refunds: { checked: 0, resolved: 0, rejected: 0, stillUnknown: 0, stale: 0 },
     failed: 0,
     stoppedEarly: false,
     healthy: true,
@@ -210,6 +244,8 @@ export function isReconciliationHealthy(report: PaymentReconciliationReport): bo
   return (
     report.failed === 0 &&
     report.verificationErrors === 0 &&
+    report.unverifiable === 0 &&
+    report.refunds.stale === 0 &&
     a.paidWithoutTransactionId === 0 &&
     a.paidWithoutVerifiedAmount === 0 &&
     a.transactionConflict === 0 &&
@@ -239,6 +275,50 @@ export async function runPaymentReconciliation(
   const createdAfter = new Date(at.getTime() - windowDays * 24 * 60 * 60_000);
   const createdBefore = new Date(at.getTime() - minAgeMs);
   const random = options.random ?? Math.random;
+
+  // REFUND RECOVERY. A reversal the provider never established keeps its
+  // amount reserved; this is the scheduled way out that is not a person
+  // guessing. It only ASKS (resolveUnresolvedReversal never instructs a second
+  // reversal) and only a provider verdict moves a row.
+  async function sweepUnresolvedRefunds(businessId: number): Promise<void> {
+    let pending;
+    try {
+      pending = await deps.store.listUnresolvedReversals(businessId, {
+        createdBefore: new Date(at.getTime() - REFUND_SWEEP_MIN_AGE_MS),
+        limit: REFUND_SWEEP_PER_BUSINESS,
+      });
+    } catch {
+      report.failed++;
+      return;
+    }
+    const seen = new Set<number>();
+    for (const item of pending) {
+      const requestId = item.transaction.paymentRequestId;
+      if (seen.has(requestId)) continue;
+      seen.add(requestId);
+      report.refunds.checked++;
+      try {
+        const result = await resolveUnresolvedReversal(
+          { businessId, actorUserId: null, requestId },
+          {
+            store: deps.store,
+            resolveProvider: deps.resolveProvider,
+            decryptConnectionCredential: deps.decryptConnectionCredential ?? (() => null),
+          }
+        );
+        if (result.outcome === "REFUNDED") report.refunds.resolved++;
+        else if (result.outcome === "REJECTED") report.refunds.rejected++;
+        else {
+          report.refunds.stillUnknown++;
+          if (at.getTime() - item.transaction.createdAt.getTime() > REFUND_STALE_AFTER_MS) {
+            report.refunds.stale++;
+          }
+        }
+      } catch {
+        report.failed++;
+      }
+    }
+  }
 
   let businessIds: number[];
   try {
@@ -285,18 +365,34 @@ export async function runPaymentReconciliation(
           return;
         }
         let adapter: PaymentProviderAdapter;
+        let descriptor: ProviderDescriptor | null;
         try {
-          if (!isPaymentProviderEnabled(request.provider)) {
-            report.skipped++;
-            continue;
-          }
           adapter = deps.resolveProvider(request.provider);
+          descriptor = getProviderDescriptor(request.provider);
         } catch {
           report.skipped++;
           continue;
         }
-        if (typeof adapter.getPaymentStatus !== "function") {
+        if (typeof adapter.getPaymentStatus !== "function" || !descriptor) {
           report.skipped++;
+          continue;
+        }
+        // A DISABLED provider is still observed — its links can still be paid —
+        // but only through a status query that merely reads. One that moves
+        // money (PayPal captures) is never run as a background observation.
+        if (!isPaymentProviderEnabled(request.provider)) {
+          if (!descriptor.capabilities.readOnlyStatusQuery) {
+            report.skipped++;
+            continue;
+          }
+          report.observedOnDisabledProvider++;
+        }
+        // Asked by the key the provider's authority actually needs.
+        if (
+          descriptor.capabilities.verificationKey === "PROVIDER_REQUEST_ID" &&
+          !request.providerRequestId
+        ) {
+          report.unverifiable++;
           continue;
         }
 
@@ -322,6 +418,8 @@ export async function runPaymentReconciliation(
           });
         }
       }
+
+      await sweepUnresolvedRefunds(businessId);
     });
   }
 

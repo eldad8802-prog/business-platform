@@ -256,6 +256,10 @@ export const tranzilaDescriptor: ProviderDescriptor = {
     sandbox: true,
     webhooks: true,
     tokens: false,
+    readOnlyStatusQuery: true,
+    verificationKey: "PROVIDER_REQUEST_ID",
+    paymentMethods: [],
+    taxDocuments: "MAY",
   },
   supportedCurrencies: TRANZILA_SUPPORTED_CURRENCIES,
 };

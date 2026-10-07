@@ -10,14 +10,20 @@
  *      businessId is taken from the authenticated actor, never from request
  *      input, so a caller can only ever touch their own business's money.
  *
- * Stage 1 deliberately introduces NO business-role taxonomy: every authenticated
- * member of the business is authorized for every payment action. Role
- * differentiation (owner / finance / viewer) is a future, additive step that
- * will plug into THIS function without changing a single call site.
+ * Stage 1 introduced NO business-role taxonomy, and this still introduces
+ * none. What it adds is one rule on the one action that sends money OUT:
  *
- * REFUND and MANAGE_SETTINGS are reserved action constants with no route yet
- * (Stage 1 Non-Goals: no Refund, no settings UI) — present so future work has a
- * stable vocabulary to gate on.
+ *   REFUND (refund, partial refund, void, and asking about a reversal) is
+ *   reserved to the business's ACCOUNT OWNER — the user who opened the
+ *   business, i.e. its first user. A business has exactly one user today
+ *   (signup creates one; there are no invitations), so nobody who can refund
+ *   now loses that right; what changes is that a second user, when invitations
+ *   exist, does not inherit "move money out" merely by being logged in. The
+ *   route resolves ownership from the database and passes it in; this
+ *   function never guesses it.
+ *
+ * Resolving an indeterminate refund from outside evidence is not a business
+ * action at all: it is platform-administrator-only with MFA (admin route).
  */
 
 import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
@@ -31,7 +37,7 @@ export const PAYMENT_ACTIONS = {
   VIEW_TRANSACTIONS: "VIEW_TRANSACTIONS",
   /** Change payment settings / policy. Reserved — no route in Stage 1. */
   MANAGE_SETTINGS: "MANAGE_SETTINGS",
-  /** Reverse a payment. Reserved — no route in Stage 1 (Non-Goal). */
+  /** Reverse a payment (refund, partial refund, void). Account owner only. */
   REFUND: "REFUND",
 } as const;
 
@@ -43,6 +49,17 @@ export interface PaymentActorUser {
   id: number;
   businessId: number;
 }
+
+/** Facts about the actor the route resolved server-side. Never from input. */
+export interface PaymentActorFacts {
+  /** True when the actor is the business's account owner (its first user). */
+  isBusinessAccountOwner?: boolean;
+}
+
+/** Actions reserved to the business's account owner. */
+const ACCOUNT_OWNER_ACTIONS: ReadonlySet<PaymentAction> = new Set<PaymentAction>([
+  PAYMENT_ACTIONS.REFUND,
+]);
 
 export interface AuthorizedPaymentActor {
   userId: number;
@@ -58,7 +75,8 @@ export interface AuthorizedPaymentActor {
  */
 export function authorizePaymentAction(
   user: PaymentActorUser | null | undefined,
-  action: PaymentAction
+  action: PaymentAction,
+  facts: PaymentActorFacts = {}
 ): AuthorizedPaymentActor {
   if (!user) {
     throw new UnauthorizedError();
@@ -67,7 +85,9 @@ export function authorizePaymentAction(
     // Authenticated but with no business context — cannot touch money.
     throw new ForbiddenError("No business context for payment action");
   }
-  // Stage 1: every authenticated member of the business is authorized. This is
-  // where future role checks (REFUND, MANAGE_SETTINGS, ...) will live.
+  // Money OUT is the account owner's. Fail closed: an unresolved fact is "no".
+  if (ACCOUNT_OWNER_ACTIONS.has(action) && facts.isBusinessAccountOwner !== true) {
+    throw new ForbiddenError("רק בעל החשבון של העסק יכול להחזיר כסף ללקוחות");
+  }
   return { userId: user.id, businessId: user.businessId, action };
 }

@@ -14,7 +14,7 @@
  * real provider.
  */
 
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type {
   PaymentConnectionRecord,
   PaymentProvider,
@@ -28,7 +28,16 @@ import {
   hashCallbackSecret,
 } from "./payment-callback-secret";
 import { assertAmountPayableAgainstDocument } from "./payment-document-authority";
-import { assertPaymentProviderEnabled } from "./providers/provider-availability";
+import {
+  assertPaymentProviderEnabled,
+  isPaymentProviderEnabled,
+} from "./providers/provider-availability";
+import {
+  classifyConnectionEnvironment,
+  environmentRefusalMessage,
+  isEnvironmentAllowedForBusiness,
+} from "./payment-environment";
+import { toMinorUnits } from "./payment-verification.service";
 import { isQaWebhookSuppressed } from "./qa-webhook-suppression";
 import { isSupportedProvider } from "./providers/provider-registry";
 
@@ -49,6 +58,8 @@ export interface CreatePaymentRequestInput {
 }
 
 export interface CreatePaymentRequestDeps {
+  /** Test seam for the runtime environment (Production detection). */
+  runtimeEnv?: Record<string, string | undefined>;
   store: PaymentStore;
   resolveProvider: (provider: PaymentProvider) => PaymentProviderAdapter;
   /** Returns the decrypted merchant credential, or null on failure. */
@@ -161,11 +172,21 @@ export interface SelectPaymentProviderInput {
  */
 export async function selectPaymentProvider(
   input: SelectPaymentProviderInput,
-  store: Pick<PaymentStore, "listConnections">
+  store: Pick<PaymentStore, "listConnections">,
+  /** Test seam: which providers are enabled capabilities. */
+  isEnabled: (provider: PaymentProvider) => boolean = isPaymentProviderEnabled
 ): Promise<PaymentProvider> {
-  const active = (await store.listConnections(input.businessId)).filter(
-    (c) => c.isActive
-  );
+  // Only connections a payment can actually be created through count. A row
+  // left active for a provider the platform has since disabled is not a
+  // candidate, and must not turn a single-provider business "ambiguous".
+  const allActive = (await store.listConnections(input.businessId)).filter((c) => c.isActive);
+  const active = allActive.filter((c) => isEnabled(c.provider));
+
+  // Only a disabled provider is connected: say so plainly rather than "connect
+  // a provider", which would read as if nothing had been connected at all.
+  if (!input.requested && active.length === 0 && allActive.length > 0) {
+    assertPaymentProviderEnabled(allActive[0]!.provider);
+  }
 
   if (input.requested) {
     if (!isSupportedProvider(input.requested)) {
@@ -266,6 +287,25 @@ export async function createPaymentRequest(
   // is closed.
   if (payableDocument) {
     assertAmountPayableAgainstDocument(payableDocument, { amount, currency });
+
+    // 2c'. ONE OPEN ASK PER DEBT. The outstanding balance above counts issued
+    // receipts only, so two open links for the same invoice could each pass it
+    // and BOTH be paid — the customer charged twice. Every still-open request
+    // against this document counts against what may be asked for now. The
+    // owner re-sends the existing link instead of minting a second one.
+    const open = await deps.store.listPaymentRequests(input.businessId, {
+      billingDocumentId: payableDocument.id,
+      status: "PENDING",
+    });
+    const openMinor = open.reduce((sum, r) => sum + (toMinorUnits(r.amount) ?? BigInt(0)), BigInt(0));
+    const outstandingMinor = toMinorUnits(payableDocument.outstandingAmount) ?? BigInt(0);
+    const requestedMinor = toMinorUnits(amount) ?? BigInt(0);
+    if (open.length > 0 && openMinor + requestedMinor > outstandingMinor) {
+      throw new ConflictError(
+        "PAYMENT_REQUEST_ALREADY_OPEN",
+        "כבר נשלחה בקשת תשלום פתוחה לחשבונית הזו. אפשר לשלוח שוב את הקישור הקיים, או לבטל אותו לפני שיוצרים חדש."
+      );
+    }
   }
 
   // 2d. SEC-05 — CURRENCY AUTHORITY. An adapter that translates ISO codes from
@@ -275,6 +315,13 @@ export async function createPaymentRequest(
   // so an unsupported currency leaves no trace and reaches no provider.
   const adapter = deps.resolveProvider(provider);
   assertCurrencySupported(adapter, currency);
+
+  // 2e. TEST / SANDBOX in Production: no link is issued through an account
+  // that is not positively live, so a test card can never become a receipt.
+  const environment = classifyConnectionEnvironment(adapter, connection.merchantId);
+  if (!isEnvironmentAllowedForBusiness(environment, input.businessId, deps.runtimeEnv)) {
+    throw new ValidationError(environmentRefusalMessage(environment));
+  }
 
   // 3. persist PENDING first.
   const created = await deps.store.createPaymentRequest({

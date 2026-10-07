@@ -36,6 +36,7 @@ import type {
   UpsertConnectionRow,
   WebhookEventPatch,
 } from "./payments.types";
+import { REFUND_ACCOUNTING_ATTENTION_REASON } from "./payments.types";
 
 type ConnectionRow = {
   id: number;
@@ -182,6 +183,31 @@ function toWebhookRecord(row: WebhookRow): PaymentWebhookEventRecord {
     processedAt: row.processedAt,
     error: row.error,
   };
+}
+
+/**
+ * The settlement row opened WITH a verified payment. A hold reason opens it
+ * already paused: no automatic receipt is ever attempted, and recovery (which
+ * picks PENDING rows) leaves it be.
+ */
+function settlementOpening(
+  open: NonNullable<CreateTransactionRow["openAccountingSettlement"]>,
+  paymentTransactionId: number
+): Prisma.PaymentAccountingSettlementUncheckedCreateInput {
+  const held = typeof open.attentionReason === "string" && open.attentionReason !== "";
+  return held
+    ? {
+        businessId: open.businessId,
+        paymentTransactionId,
+        status: "REQUIRES_ATTENTION",
+        attentionReason: open.attentionReason,
+      }
+    : {
+        businessId: open.businessId,
+        paymentTransactionId,
+        status: "PENDING",
+        nextAttemptAt: new Date(),
+      };
 }
 
 function toJsonInput(value: unknown): Prisma.InputJsonValue {
@@ -433,7 +459,13 @@ export function createPaymentPrismaStore(): PaymentStore {
       const rows = await dbStep((db) => db.paymentRequest.findMany({
         where: {
           businessId,
-          providerRequestId: { not: null },
+          // ISSUED TO A PROVIDER — by either key. A provider that issues a
+          // session id stores it; one that issues none (SUMIT) still stored the
+          // link it handed the customer. Requiring `providerRequestId` excluded
+          // every id-less provider from reconciliation, so a lost callback for
+          // one was never discovered. Which key the authority is asked by is
+          // the adapter's declared `verificationKey`, decided per request.
+          OR: [{ providerRequestId: { not: null } }, { paymentUrl: { not: null } }],
           status: { in: ["PENDING", "FAILED", "CANCELLED", "EXPIRED"] },
           createdAt: { gte: options.createdAfter, lte: options.createdBefore },
         },
@@ -441,6 +473,63 @@ export function createPaymentPrismaStore(): PaymentStore {
         take: options.limit,
       }));
       return rows.map(toRequestRecord);
+    },
+
+    async listUnresolvedReversals(businessId, options) {
+      const rows = await dbStep((db) => db.paymentTransaction.findMany({
+        where: {
+          status: "PENDING",
+          amount: { lt: 0 },
+          createdAt: { lte: options.createdBefore },
+          paymentRequest: { businessId },
+        },
+        include: { paymentRequest: { select: { businessId: true } } },
+        orderBy: { id: "asc" },
+        take: options.limit,
+      }));
+      return rows.map((row) => ({
+        transaction: toTransactionRecord(row),
+        businessId: row.paymentRequest.businessId,
+        provider: row.provider as PaymentProvider,
+      }));
+    },
+
+    async listAccountingAttention(businessId, options) {
+      const rows = await dbStep((db) => db.paymentAccountingSettlement.findMany({
+        where: { businessId, status: "REQUIRES_ATTENTION" },
+        include: { paymentTransaction: { select: { paymentRequestId: true } } },
+        orderBy: { updatedAt: "desc" },
+        take: options.limit,
+      }));
+      return rows.map((row) => ({
+        paymentTransactionId: row.paymentTransactionId,
+        paymentRequestId: row.paymentTransaction.paymentRequestId,
+        reason: row.attentionReason ?? "UNKNOWN",
+        since: row.updatedAt,
+      }));
+    },
+
+    async countConnectionObligations(businessId, provider, since) {
+      return dbStep(async (db) => {
+        const openRequests = await db.paymentRequest.count({
+          where: {
+            businessId,
+            provider,
+            status: { in: ["PENDING", "FAILED", "CANCELLED", "EXPIRED"] },
+            OR: [{ providerRequestId: { not: null } }, { paymentUrl: { not: null } }],
+            createdAt: { gte: since },
+          },
+        });
+        const unresolvedReversals = await db.paymentTransaction.count({
+          where: {
+            provider,
+            status: "PENDING",
+            amount: { lt: 0 },
+            paymentRequest: { businessId },
+          },
+        });
+        return { openRequests, unresolvedReversals };
+      });
     },
 
     // SEC-01 + SEC-02. TWO INDEPENDENT LAYERS, deliberately not collapsed:
@@ -690,12 +779,7 @@ export function createPaymentPrismaStore(): PaymentStore {
         });
         if (open) {
           await db.paymentAccountingSettlement.create({
-            data: {
-              businessId: open.businessId,
-              paymentTransactionId: created.id,
-              status: "PENDING",
-              nextAttemptAt: new Date(),
-            },
+            data: settlementOpening(open, created.id),
           });
         }
         return created;
@@ -733,18 +817,47 @@ export function createPaymentPrismaStore(): PaymentStore {
       const step = tenant
         ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
         : dbStep;
-      const row = await step((db) => db.paymentTransaction.update({
-        where: { id },
-        data: {
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.providerTransactionId !== undefined
-            ? { providerTransactionId: patch.providerTransactionId }
-            : {}),
-          ...(patch.rawPayload !== undefined
-            ? { rawPayload: toJsonInput(patch.rawPayload) }
-            : {}),
-        },
-      }));
+      const openRefund = patch.openRefundAccounting;
+      if (openRefund) {
+        if (patch.status !== "PAID") {
+          throw new Error("refund accounting may only open when a reversal resolves to PAID");
+        }
+        if (!tenant || tenant.businessId !== openRefund.businessId) {
+          throw new Error("refund accounting must be opened inside its own tenant context");
+        }
+      }
+      const row = await step(async (db) => {
+        const updated = await db.paymentTransaction.update({
+          where: { id },
+          data: {
+            ...(patch.status !== undefined ? { status: patch.status } : {}),
+            ...(patch.providerTransactionId !== undefined
+              ? { providerTransactionId: patch.providerTransactionId }
+              : {}),
+            ...(patch.rawPayload !== undefined
+              ? { rawPayload: toJsonInput(patch.rawPayload) }
+              : {}),
+          },
+        });
+        if (openRefund) {
+          if (!(Number(updated.amount) < 0)) {
+            throw new Error("refund accounting may only open for a reversal (negative) row");
+          }
+          // Idempotent: the unique on paymentTransactionId makes a second
+          // resolution of the same reversal a no-op rather than a second row.
+          await db.paymentAccountingSettlement.upsert({
+            where: { paymentTransactionId: updated.id },
+            create: {
+              businessId: openRefund.businessId,
+              paymentTransactionId: updated.id,
+              status: "REQUIRES_ATTENTION",
+              attentionReason: REFUND_ACCOUNTING_ATTENTION_REASON,
+            },
+            update: {},
+          });
+        }
+        return updated;
+      });
       return toTransactionRecord(row);
     },
 
