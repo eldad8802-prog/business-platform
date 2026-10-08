@@ -2,3 +2,5 @@ parking-app
 node_modules
 .next
 .git
+# Repository QA evidence: documentation only, never needed to build or run.
+qa-evidence

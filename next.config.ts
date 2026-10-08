@@ -4,6 +4,18 @@ const nextConfig: NextConfig = {
   // Playwright is Node-native; do not bundle it into the serverless output.
   serverExternalPackages: ["playwright", "playwright-core"],
 
+  // QA evidence (screenshots, logs, proof tables) is repository documentation,
+  // never runtime input. Routes with dynamic filesystem access — e.g. the
+  // billing PDF route (process.cwd()-relative font + storage paths) — make the
+  // file tracer include the whole project, which put qa-evidence/** (~100 MB)
+  // into serverless functions and brought api/billing/documents/[id]/pdf to the
+  // 250 MB limit. Excluded from every route's trace ('/*' matches all routes;
+  // picomatch `contains`). Runtime assets the PDF needs (public/fonts, the font
+  // VFS, playwright) are unaffected.
+  outputFileTracingExcludes: {
+    "/*": ["qa-evidence/**"],
+  },
+
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by
   // Homepage v1 at `/home`). It has zero internal consumers but was publicly
   // reachable, so we RETIRE it behind a permanent (308) compatibility redirect
