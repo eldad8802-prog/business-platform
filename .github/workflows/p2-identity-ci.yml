@@ -5,7 +5,9 @@ name: p2 business identity
 # (trust claims, conversion, the canonical BusinessIdentityContext) on top of
 # 20261008090000_p3a_identity_enum_values + 20261008090100_p3a_trust_claims — and the
 # P3-B landing strategy engine (computed, no schema) built on that context, and the P3-C AI
-# composer + structured blueprint validator (deterministic fake models only; CI never calls a model).
+# composer + structured blueprint validator (deterministic fake models only; CI never calls a model), and the
+# P3-E owner landing versions (migration 20261013090000_p3e_landing_persistence replayed verbatim; the save /
+# approve / rollback / retire state machine and tenant isolation run as app_runtime).
 #
 #   core     identity vocabulary, derived signals, the six-vertical three-strategy
 #            data-readiness matrix, and the M7 snapshot (identity items carry
@@ -29,6 +31,7 @@ on:
       - "prisma/migrations/20261004090000_p2_business_identity/**"
       - "prisma/migrations/20261008090000_p3a_identity_enum_values/**"
       - "prisma/migrations/20261008090100_p3a_trust_claims/**"
+      - "prisma/migrations/20261013090000_p3e_landing_persistence/**"
       - "lib/services/identity/**"
       - "lib/services/trust/**"
       - "lib/services/conversion/**"
@@ -48,6 +51,9 @@ on:
       - "app/api/business/landing-strategies/**"
       - "app/api/business/landing-blueprint/**"
       - "app/api/business/landing-preview/**"
+      - "app/api/business/landing/**"
+      - "app/business/landing/**"
+      - "lib/sensors/**"
       - "app/business/landing-preview/**"
       - "components/landing-renderer/**"
       - "lib/security/rate-limiter/**"
@@ -89,6 +95,8 @@ jobs:
         run: npx tsx lib/services/landing/composer/landing-composer.verify.test.ts
       - name: P3-D deterministic landing renderer (real rendered markup; fail-closed; owner preview only)
         run: npx tsx lib/services/landing/renderer/landing-renderer.verify.test.tsx
+      - name: P3-E landing persistence (snapshot integrity, current readiness C1–C6, static authority A1–A9, P1–P30)
+        run: npx tsx lib/services/landing/persistence/landing-persistence.verify.test.ts
 
   db:
     name: p2 identity (PG17, real RLS)
@@ -124,7 +132,9 @@ jobs:
         run: npx prisma generate
       - name: Replay the P2 + P3-A migrations; tenant isolation as app_runtime
         run: npx tsx lib/services/identity/identity.rls.db.test.ts
-      - name: No drift between the P2 + P3-A migrations and schema.prisma
+      - name: P3-E — replay the landing persistence migration; state machine, authority, tenant isolation as app_runtime
+        run: npx tsx lib/services/landing/persistence/landing-persistence.rls.db.test.ts
+      - name: No drift between the P2 + P3-A + P3-E migrations and schema.prisma
         run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Constraints, history, public-use authority, adoption, concurrency
         run: npx tsx lib/services/identity/identity.db.test.ts

@@ -210,6 +210,8 @@ model Business {
   identityStatements            BusinessIdentityStatement[]
   identityFactAuthorities       BusinessIdentityFactAuthority[]
   trustClaims                   BusinessTrustClaim[]
+  landingPage                   LandingPage?
+  landingPageVersions           LandingPageVersion[]
   inventoryMovements            InventoryMovement[]
   inventoryPendingMatches       InventoryPendingMatch[]
   leads                         Lead[]
@@ -6815,4 +6817,91 @@ model TransactionalEmail {
   @@index([status, nextAttemptAt])
   @@index([userId])
   @@index([businessId])
+}
+
+/// P3-E · Landing persistence. Lifecycle (DRAFT → APPROVED | SUPERSEDED | RETIRED; APPROVED → SUPERSEDED),
+/// snapshot immutability, pointer integrity (deferred constraint triggers), the composite (businessId, id)
+/// foreign keys of the pointers and lineage columns, the partial unique indexes (one DRAFT / one APPROVED per
+/// page), RLS and grants live in migration 20261013090000_p3e_landing_persistence. The pointer and lineage
+/// relations below mirror the migration's composite foreign keys exactly (names, NO ACTION), so the database
+/// the migration builds equals this schema; the service writes them as scalars and never navigates them.
+enum LandingVersionStatus {
+  DRAFT
+  APPROVED
+  SUPERSEDED
+  RETIRED
+}
+
+/// Owner authority of a stored version. A machine proposal is never stored.
+enum LandingVersionAuthority {
+  OWNER_SAVED
+  OWNER_APPROVED
+}
+
+/// One per business. No copy: only the current-draft / current-approved pointers and the version counter.
+model LandingPage {
+  id                       Int      @id @default(autoincrement())
+  businessId               Int      @unique
+  currentDraftVersionId    Int?
+  currentApprovedVersionId Int?
+  lastVersionNumber        Int      @default(0)
+  createdByUserId          Int
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  versions        LandingPageVersion[] @relation("LandingPageVersions")
+  currentDraft    LandingPageVersion?  @relation("LandingPageCurrentDraft", fields: [businessId, currentDraftVersionId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction, map: "LandingPage_currentDraft_fkey")
+  currentApproved LandingPageVersion?  @relation("LandingPageCurrentApproved", fields: [businessId, currentApprovedVersionId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction, map: "LandingPage_currentApproved_fkey")
+
+  @@unique([businessId, id])
+}
+
+/// An immutable snapshot of one validated P3-C blueprint, saved (OWNER_SAVED) or approved (OWNER_APPROVED)
+/// by the owner. Never edited; a change is a new version.
+model LandingPageVersion {
+  id                      Int                     @id @default(autoincrement())
+  businessId              Int
+  landingPageId           Int
+  versionNumber           Int
+  status                  LandingVersionStatus    @default(DRAFT)
+  authority               LandingVersionAuthority @default(OWNER_SAVED)
+  strategyId              String
+  strategyType            String
+  strategyEngineVersion   String
+  composerVersion         String
+  promptVersion           String
+  composerContextVersion  String
+  blueprintVersion        String
+  rendererVersion         String
+  blueprintSnapshot       Json
+  sourceFingerprint       String
+  idempotencyKey          String
+  supersedesVersionId     Int?
+  rollbackSourceVersionId Int?
+  createdByUserId         Int
+  createdAt               DateTime                @default(now())
+  approvedAt              DateTime?
+  approvedByUserId        Int?
+  supersededAt            DateTime?
+  supersededByVersionId   Int?
+  retiredAt               DateTime?
+  retiredByUserId         Int?
+  updatedAt               DateTime                @updatedAt
+
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  page           LandingPage          @relation("LandingPageVersions", fields: [businessId, landingPageId], references: [businessId, id], onDelete: Cascade, map: "LandingPageVersion_landingPage_fkey")
+  supersedes     LandingPageVersion?  @relation("LandingVersionSupersedes", fields: [businessId, supersedesVersionId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction, map: "LandingPageVersion_supersedes_fkey")
+  supersededBy   LandingPageVersion?  @relation("LandingVersionSupersededBy", fields: [businessId, supersededByVersionId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction, map: "LandingPageVersion_supersededBy_fkey")
+  rollbackSource LandingPageVersion?  @relation("LandingVersionRollbackSource", fields: [businessId, rollbackSourceVersionId], references: [businessId, id], onDelete: NoAction, onUpdate: NoAction, map: "LandingPageVersion_rollbackSource_fkey")
+  supersededOf   LandingPageVersion[] @relation("LandingVersionSupersedes")
+  replacedOf     LandingPageVersion[] @relation("LandingVersionSupersededBy")
+  restoredAs     LandingPageVersion[] @relation("LandingVersionRollbackSource")
+  draftOf        LandingPage[]        @relation("LandingPageCurrentDraft")
+  approvedOf     LandingPage[]        @relation("LandingPageCurrentApproved")
+
+  @@unique([businessId, id])
+  @@unique([businessId, landingPageId, versionNumber])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, status])
 }

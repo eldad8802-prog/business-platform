@@ -191,6 +191,9 @@ export function PreviewCard({ ctx, knowledge }: { ctx: Ctx; knowledge: LandingKn
       <Link href="/business/landing-strategy" className={s.inlineLink}>
         לאילו כיווני דף נחיתה זה מוביל ←
       </Link>
+      <Link href="/business/landing" className={s.inlineLink}>
+        הגרסאות ששמרת ←
+      </Link>
     </section>
   );
 }

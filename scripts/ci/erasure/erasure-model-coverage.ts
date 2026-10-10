@@ -315,6 +315,13 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // guarantee terms) can name the owner, plus confirmedBy/publicUseApprovedBy/retiredBy user ids and the
   // key + sha256 of a private supporting document. Same E2 position as the P2 identity tables.
   BusinessTrustClaim: unmanaged("owner-entered claim parameters and wording, the private supporting document key + sha256, plus confirmedBy/publicUseApprovedBy/retiredBy user ids"),
+  // P3-E. A saved landing version is an immutable copy of the owner-approved public material it was
+  // composed from: business name, approved statements, trust wording and approved public facts (which can
+  // be the owner's own phone / email / address), plus createdBy/approvedBy/retiredBy user ids. It references
+  // assets by opaque ref only — no storage key, no URL, no copied object. Same E2 position as the P2 / P3-A
+  // tables it copies from; the page row carries only pointers, a counter and createdByUserId.
+  LandingPage: unmanaged("createdByUserId (the owner who first saved a version); pointers and a counter otherwise"),
+  LandingPageVersion: unmanaged("blueprintSnapshot: a copy of approved public business material (name, statements, trust wording, approved public phone / email / address), plus createdBy/approvedBy/retiredBy user ids"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
   AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
   InboundEmailMessage: unmanaged(

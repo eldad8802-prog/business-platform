@@ -11,7 +11,7 @@
 .back { min-height: 40px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 999px; border: 1px solid var(--dz-border); color: var(--dz-text-primary); text-decoration: none; font-size: 14px; }
 .titleBlock { display: grid; gap: 2px; min-width: 0; }
 .titleBlock strong { font-size: 15px; color: var(--dz-text-primary); }
-.badge { font-size: 11px; font-weight: 700; color: var(--dz-warning); }
+.badge { font-size: 11px; font-weight: 700; color: var(--dz-text-secondary); }
 .devices { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--dz-surface-muted); border: 1px solid var(--dz-border); }
 .device, .deviceOn { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 0; background: transparent; color: var(--dz-text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
 .deviceOn { background: var(--dz-surface-flat); color: var(--dz-text-primary); font-weight: 700; box-shadow: var(--dz-shadow-card); }
@@ -33,3 +33,17 @@
   .stage { padding: 0; }
   .frame { border-radius: 0; border-inline: 0; }
 }
+
+/* P3-E — saved versions: status badges, save / approve, light confirmation. */
+.badgeRow { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.badgeApproved, .badgeDraft, .badgePast { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid var(--dz-border); }
+.badgeApproved { color: var(--dz-success); }
+.badgeDraft { color: var(--dz-warning); }
+.badgePast { color: var(--dz-text-secondary); background: var(--dz-surface-muted); }
+.save { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dz-brand); background: var(--dz-brand); color: var(--dz-surface-flat); font: inherit; font-weight: 700; cursor: pointer; }
+.save:disabled { opacity: 0.6; cursor: progress; }
+.save:focus-visible { outline: 2px solid var(--dz-brand); outline-offset: 2px; }
+.alert { margin: 12px 16px 0; padding: 10px 14px; border-radius: 12px; background: var(--dz-surface-flat); border: 1px solid var(--dz-border); font-size: 14px; color: var(--dz-text-primary); }
+.confirm { margin: 12px 16px 0; padding: 12px 14px; border-radius: 12px; background: var(--dz-surface-flat); border: 1px solid var(--dz-brand); display: grid; gap: 8px; }
+.confirm p { margin: 0; font-size: 14px; color: var(--dz-text-primary); line-height: 1.6; }
+.confirmActions { display: flex; flex-wrap: wrap; gap: 8px; }
