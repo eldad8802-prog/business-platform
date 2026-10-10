@@ -335,6 +335,46 @@ async function main() {
     ok("…and no row anywhere still carries A's address", (await owner.transactionalEmail.count({ where: { toEmail: `${tag}-a@battery.test` } })) === 0);
   }
 
+  console.log("--- closed beta: the REAL register route with PUBLIC_SIGNUP_ENABLED off + an allowlist ---");
+  {
+    const { POST: registerPOST } = await import("../app/api/auth/register/route");
+    const listed = `${tag}-beta@battery.test`;
+    delete process.env.PUBLIC_SIGNUP_ENABLED;
+    process.env.SIGNUP_ALLOWED_EMAILS = `someone@elsewhere.test, ${listed}`;
+    const call = (email: string, ip: string) =>
+      registerPOST(new Request("https://app.battery.test/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": ip },
+        body: JSON.stringify({ email, password: "beta-battery-pw-1", name: "בטא בודק", businessName: `${tag} beta`, acceptTerms: true }),
+      }));
+    const rows0 = await total();
+    const users0 = await owner.user.count();
+    const denied = await call(`${tag}-outsider@battery.test`, "198.51.100.21");
+    const deniedBody = await denied.json();
+    ok("beta: an unlisted address gets the closed gate (403 SIGNUP_DISABLED)", denied.status === 403 && deniedBody.code === "SIGNUP_DISABLED");
+    ok("beta: …and nothing is written (no user, no WELCOME)", (await owner.user.count()) === users0 && (await total()) === rows0);
+    const res = await call(`  ${listed.toUpperCase()} `, "198.51.100.22");
+    const body = await res.json();
+    ok("beta: the listed address signs up through the real route (200 + session)", res.status === 200 && typeof body.token === "string", String(res.status));
+    const u = await owner.user.findUnique({ where: { email: listed }, select: { id: true, businessId: true } });
+    ok("beta: Business + User created, stored under signup's normalised address", u !== null && u.businessId === body.businessId);
+    ok("beta: the first AuthSession was written in the same transaction", (await owner.authSession.count({ where: { userId: u!.id } })) === 1);
+    const w = await owner.transactionalEmail.findMany({ where: { userId: u!.id } });
+    ok("beta: exactly one WELCOME row, PENDING (flag OFF → nothing scheduled, nothing sent)",
+      w.length === 1 && w[0].kind === "WELCOME" && w[0].status === "PENDING" && w[0].attempts === 0 && w[0].dedupeKey === `welcome:user:${u!.id}`);
+    const again = await call(listed, "198.51.100.23");
+    ok("beta: the listed address again → the closed gate (not 409), still one account and one WELCOME",
+      again.status === 403 && (await again.json()).code === "SIGNUP_DISABLED" &&
+      (await owner.user.count({ where: { email: listed } })) === 1 && (await owner.transactionalEmail.count({ where: { userId: u!.id } })) === 1);
+    process.env.SIGNUP_ALLOWED_EMAILS = `*@battery.test`;
+    const wild = await call(`${tag}-wild@battery.test`, "198.51.100.24");
+    ok("beta: a wildcard list is ignored (fail closed) → 403, nothing written",
+      wild.status === 403 && (await owner.user.count({ where: { email: `${tag}-wild@battery.test` } })) === 0);
+    delete process.env.SIGNUP_ALLOWED_EMAILS;
+    const removed = await call(`${tag}-after@battery.test`, "198.51.100.25");
+    ok("beta: list removed → the closed gate exactly as before", removed.status === 403 && (await removed.json()).code === "SIGNUP_DISABLED");
+  }
+
   console.log("--- no backfill ---");
   ok("a user who existed before has no transactional email", (await owner.transactionalEmail.count({ where: { userId: oldUser.id } })) === 0);
   const signups = await owner.user.count({ where: { email: { startsWith: `${tag}-` }, NOT: { id: oldUser.id } } });

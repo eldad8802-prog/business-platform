@@ -4,6 +4,7 @@ import {
   SIGNUP_DISABLED_TITLE_HE,
   isPublicSignupEnabled,
 } from "@/lib/auth/signup-gate";
+import { CLOSED_BETA_ACCESS, readSignupAllowlist } from "@/lib/auth/signup-allowlist";
 import RegisterForm from "./register-form";
 
 /**
@@ -11,6 +12,13 @@ import RegisterForm from "./register-form";
  * the registration form is never sent to the browser at all — the visitor gets
  * a plain Hebrew notice and a route back to login. The real enforcement lives
  * in app/api/auth/register/route.ts; this is the UI half of the same decision.
+ *
+ * Closed beta: while a valid SIGNUP_ALLOWED_EMAILS list is configured, the form
+ * is ALSO rendered for the explicit entry `/register?access=beta` — and only
+ * there, so the public `/register` stays the closed notice. The form being
+ * visible grants nothing: the API admits listed addresses only, and answers
+ * everyone else exactly as the closed gate does. Without a valid list the entry
+ * is the closed notice too, so removing the list restores today's page exactly.
  *
  * Styling follows the Dubiz Mist tokens used by the login/register screens —
  * no new colors.
@@ -81,10 +89,16 @@ function SignupClosedNotice() {
   );
 }
 
-export default function RegisterPage() {
-  if (!isPublicSignupEnabled()) {
-    return <SignupClosedNotice />;
-  }
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  if (isPublicSignupEnabled()) return <RegisterForm />;
 
-  return <RegisterForm />;
+  const { access } = await searchParams;
+  if (access === CLOSED_BETA_ACCESS && readSignupAllowlist().configured) {
+    return <RegisterForm />;
+  }
+  return <SignupClosedNotice />;
 }

@@ -17,6 +17,8 @@ import {
   isPublicSignupEnabled,
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
+import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
+import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
@@ -60,6 +62,11 @@ export const dynamic = "force-dynamic";
  */
 export type RegisterDeps = {
   isSignupEnabled: () => boolean;
+  /**
+   * The closed-beta allowlist (lib/auth/signup-allowlist.ts). Consulted ONLY
+   * while public signup is closed; fail-closed — not configured means no one.
+   */
+  signupAllowlist: () => SignupAllowlist;
   rateLimit: typeof consumeRateLimit;
   hashPassword: (plain: string) => Promise<string>;
   /**
@@ -98,6 +105,7 @@ function scheduleWelcomeAfterResponse(welcomeEmailId: number, businessId: number
 
 const defaultDeps: RegisterDeps = {
   isSignupEnabled: isPublicSignupEnabled,
+  signupAllowlist: readSignupAllowlist,
   rateLimit: consumeRateLimit,
   hashPassword: hashSignupPassword,
   createAccount,
@@ -105,6 +113,14 @@ const defaultDeps: RegisterDeps = {
   recordUsage: recordProductUsageEvent,
   scheduleWelcome: scheduleWelcomeAfterResponse,
 };
+
+/** The one answer every closed path gives — byte-for-byte the gate's response. */
+function signupDisabledResponse(): NextResponse {
+  return NextResponse.json(signupDisabledBody(), {
+    status: SIGNUP_DISABLED_STATUS,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
 
 async function recordSignupFailure(
   deps: RegisterDeps,
@@ -124,13 +140,21 @@ export async function handleRegister(
   req: Request,
   deps: RegisterDeps = defaultDeps
 ): Promise<NextResponse> {
+  // Set only on the closed-beta path, where the answers below must stay those of
+  // a closed gate for anything that is not a successful signup of a listed address.
+  let admitted: NormalizedSignup | null = null;
   try {
     // --- Public-signup gate: fail closed, before any side effect. ---
     if (!deps.isSignupEnabled()) {
-      return NextResponse.json(signupDisabledBody(), {
-        status: SIGNUP_DISABLED_STATUS,
-        headers: { "Cache-Control": "no-store" },
-      });
+      const allowlist = deps.signupAllowlist();
+      if (allowlist.error) {
+        // Ignored as a whole (fail closed). Counts and a code only — never an address.
+        console.warn("[signup] allowlist ignored", { error: allowlist.error });
+      }
+      // No (valid) list: exactly the closed gate — before the body is read.
+      if (!allowlist.configured) return signupDisabledResponse();
+      admitted = await admitAllowlisted(req, allowlist);
+      if (!admitted) return signupDisabledResponse();
     }
 
     const ip = getClientIp(req);
@@ -148,18 +172,22 @@ export async function handleRegister(
       );
     }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      await recordSignupFailure(deps, "malformed_body");
-      return NextResponse.json(
-        { error: "Invalid request body" },
-        { status: 400 }
-      );
+    let input: NormalizedSignup;
+    if (admitted) {
+      input = admitted;
+    } else {
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        await recordSignupFailure(deps, "malformed_body");
+        return NextResponse.json(
+          { error: "Invalid request body" },
+          { status: 400 }
+        );
+      }
+      input = normalizeSignupInput(body as never);
     }
-
-    const input = normalizeSignupInput(body as never);
     const passwordHash = await deps.hashPassword(input.password);
 
     const now = new Date();
@@ -240,6 +268,9 @@ export async function handleRegister(
     }
 
     if (error instanceof EmailAlreadyRegisteredError) {
+      // Closed beta: a listed address that already has an account answers as the
+      // closed gate does — "registered" must not be learnable from outside.
+      if (admitted) return signupDisabledResponse();
       await recordSignupFailure(deps, "duplicate_email");
       // 409 states the specific truth: the request was well-formed, it lost to
       // an existing account. The old code returned 400 after a racy pre-check,
@@ -274,6 +305,30 @@ export async function handleRegister(
     await recordSignupFailure(deps, "server_error");
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+}
+
+/**
+ * Closed beta: is this a valid signup for an allowlisted address? Returns the
+ * normalised input, or null. A malformed body, an invalid field and an address
+ * that is not listed are deliberately indistinguishable — the caller answers all
+ * three with the closed gate's response, so nobody can learn from the reply
+ * whether an address is on the list. Nothing is recorded and no rate-limit budget
+ * is spent for a request that is not admitted, exactly as with no list at all.
+ */
+async function admitAllowlisted(req: Request, allowlist: SignupAllowlist): Promise<NormalizedSignup | null> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return null;
+  }
+  let input: NormalizedSignup;
+  try {
+    input = normalizeSignupInput(body as never);
+  } catch {
+    return null;
+  }
+  return allowlist.has(input.email) ? input : null;
 }
 
 export async function POST(req: Request) {

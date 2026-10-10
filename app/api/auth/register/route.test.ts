@@ -17,6 +17,7 @@ import {
 } from "@/app/api/auth/register/route";
 import { SIGNUP_DISABLED_CODE } from "@/lib/auth/signup-gate";
 import { EmailAlreadyRegisteredError } from "@/lib/auth/signup-identity";
+import { parseSignupAllowlist } from "@/lib/auth/signup-allowlist";
 
 let failed = 0;
 function ok(name: string, cond: boolean): void {
@@ -36,6 +37,7 @@ type Calls = {
   signedSessionId?: string;
   bodyReads: number;
   scheduled: number[];
+  usage: number;
 };
 
 const FAKE_SESSION = {
@@ -55,10 +57,13 @@ function makeDeps(
     signToken: 0,
     bodyReads: 0,
     scheduled: [],
+    usage: 0,
   };
 
   const deps: RegisterDeps = {
     isSignupEnabled: () => enabled,
+    // No closed-beta list unless a test sets one: the gate as it is today.
+    signupAllowlist: () => parseSignupAllowlist(undefined),
     rateLimit: async () => {
       calls.rateLimit += 1;
       return { allowed: true, remaining: 2, resetAt: 0 };
@@ -93,7 +98,9 @@ function makeDeps(
     // Telemetry is injected so this stays a genuinely pure test. The real
     // implementation swallows its own errors, but it still opens a database
     // connection — which would quietly make "no database, no network" false.
-    recordUsage: async () => {},
+    recordUsage: async () => {
+      calls.usage += 1;
+    },
     scheduleWelcome: (id) => {
       calls.scheduled.push(id);
     },
@@ -331,6 +338,106 @@ async function main() {
     const res = await handleRegister(req(), deps);
     ok("open -> rate limited still 429", res.status === 429);
     ok("open -> rate limited creates nothing", calls.createAccount === 0);
+  }
+
+  // --------------------------------------------------------- CLOSED BETA --
+  // PUBLIC_SIGNUP_ENABLED off + an explicit SIGNUP_ALLOWED_EMAILS list. Every
+  // request that is not a valid signup of a listed address must be answered
+  // exactly as the closed gate answers it today — and record nothing.
+  {
+    const LISTED = "beta-owner@example.test";
+    const listed = parseSignupAllowlist(LISTED);
+    const reference = await handleRegister(req(), makeDeps(false).deps);
+    const refText = await reference.text();
+    const sameAsClosed = async (res: Response) =>
+      res.status === reference.status &&
+      res.headers.get("cache-control") === reference.headers.get("cache-control") &&
+      (await res.text()) === refText;
+
+    // A listed address, a valid body → the real signup path.
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => listed });
+      const res = await handleRegister(req({ ...VALID, email: "  Beta-Owner@Example.TEST " }), deps);
+      const body = await res.json();
+      ok("beta -> listed address signs up (200, session issued)", res.status === 200 && typeof body.token === "string");
+      ok("beta -> createAccount ran once, with signup's normalised address", calls.createAccount === 1 && body.user?.email === LISTED);
+      ok("beta -> the normal rate limit applies to an admitted signup", calls.rateLimit === 1);
+      ok("beta -> the WELCOME is scheduled like any signup", JSON.stringify(calls.scheduled) === "[501]");
+    }
+    // An unlisted address — even with a perfect body — is the closed gate, byte for byte.
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => listed });
+      const res = await handleRegister(req({ ...VALID, email: "someone-else@example.test" }), deps);
+      ok("beta -> unlisted address: exactly the closed gate's 403 (status, headers, body)", await sameAsClosed(res));
+      ok("beta -> unlisted: nothing created, hashed, rate-limited or recorded",
+        calls.createAccount === 0 && calls.hash === 0 && calls.rateLimit === 0 && calls.usage === 0 && calls.scheduled.length === 0);
+    }
+    // Same domain, different person: no domain-wide allowance.
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => listed });
+      const res = await handleRegister(req({ ...VALID, email: "colleague@example.test" }), deps);
+      ok("beta -> same domain, unlisted address: closed gate", (await sameAsClosed(res)) && calls.createAccount === 0);
+    }
+    // A listed address with an invalid field must NOT reveal it is listed (no 400 field error).
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => listed });
+      const res = await handleRegister(req({ ...VALID, email: LISTED, password: "x" }), deps);
+      ok("beta -> listed address, invalid field: the closed gate (not a 400 that would reveal the listing)",
+        (await sameAsClosed(res)) && calls.createAccount === 0 && calls.usage === 0);
+    }
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => listed });
+      const broken = new Request("https://app.dubiz.test/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{ not json",
+      });
+      const res = await handleRegister(broken, deps);
+      ok("beta -> malformed body: the closed gate, nothing recorded", (await sameAsClosed(res)) && calls.usage === 0);
+    }
+    // A listed address that already has an account: closed gate, not 409.
+    {
+      const { deps, calls } = makeDeps(false, {
+        signupAllowlist: () => listed,
+        createAccount: async () => {
+          throw new EmailAlreadyRegisteredError();
+        },
+      });
+      const res = await handleRegister(req({ ...VALID, email: LISTED }), deps);
+      ok("beta -> listed but already registered: the closed gate (not 409 — 'registered' is not learnable)",
+        (await sameAsClosed(res)) && calls.usage === 0 && calls.scheduled.length === 0);
+    }
+    // Fail closed: an invalid list is no list.
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => parseSignupAllowlist(`${LISTED}, *@example.test`) });
+      const res = await handleRegister(req({ ...VALID, email: LISTED }), deps);
+      ok("beta -> a list with a wildcard entry is ignored entirely: even the listed address gets the closed gate",
+        (await sameAsClosed(res)) && calls.createAccount === 0 && calls.rateLimit === 0);
+    }
+    // Removing the list restores today's behaviour exactly — the body is not even read.
+    {
+      const { deps, calls } = makeDeps(false, { signupAllowlist: () => parseSignupAllowlist("") });
+      let read = false;
+      const probe = new Request("https://app.dubiz.test/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...VALID, email: LISTED }),
+      });
+      const origJson = probe.json.bind(probe);
+      probe.json = async () => {
+        read = true;
+        return origJson();
+      };
+      const res = await handleRegister(probe, deps);
+      ok("beta -> list removed: identical to the closed gate, body never read, nothing recorded",
+        (await sameAsClosed(res)) && !read && calls.createAccount === 0 && calls.usage === 0);
+    }
+    // Public signup open: the list is irrelevant — everyone registers as before.
+    {
+      const { deps, calls } = makeDeps(true, { signupAllowlist: () => listed });
+      const res = await handleRegister(req({ ...VALID, email: "public-person@example.test" }), deps);
+      ok("open -> the allowlist is ignored while public signup is open", res.status === 200 && calls.createAccount === 1);
+    }
   }
 
   // ------------------------------------------------------- WELCOME email --
