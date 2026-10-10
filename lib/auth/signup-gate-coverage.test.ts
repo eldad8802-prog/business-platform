@@ -154,6 +154,15 @@ function main() {
   ok("gate runs before the rate limiter", gateAt >= 0 && rateLimitAt > gateAt);
   ok("gate runs before any create", gateAt >= 0 && createAt > gateAt);
 
+  // 2a. Closed beta (lib/auth/signup-allowlist.ts). With the gate closed, the body is
+  // read ONLY after a valid list is confirmed; with no (valid) list the closed answer
+  // is given before anything is read — exactly the gate as it was.
+  const noListAt = registerSrc.indexOf("if (!allowlist.configured) return signupDisabledResponse();");
+  const admitAt = registerSrc.indexOf("admitted = await admitAllowlisted(req, allowlist);");
+  ok("closed + no valid list: answered before the body is read",
+    noListAt > gateAt && admitAt > noListAt && registerSrc.indexOf("if (!admitted) return signupDisabledResponse();") > admitAt);
+  ok("closed beta: the rate limiter still runs only after admission", rateLimitAt > admitAt);
+
   // 3. Login must never consult the gate — existing users are never blocked.
   const loginSrc = fs.readFileSync(path.join(ROOT, "app/api/auth/login/route.ts"), "utf8");
   ok("login route does NOT reference the signup gate", !/signup-gate/.test(loginSrc));

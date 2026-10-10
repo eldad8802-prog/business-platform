@@ -31,6 +31,10 @@ on:
       - "app/api/transactional-email/**"
       - "app/api/auth/register/**"
       - "lib/auth/signup.ts"
+      - "lib/auth/signup-allowlist.ts"
+      - "lib/auth/signup-allowlist.test.ts"
+      - "lib/auth/signup-gate.ts"
+      - "app/register/**"
       - "lib/prisma-auth.ts"
       - "lib/services/account/**"
       - "prisma/schema.prisma"
@@ -80,10 +84,11 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
-      - name: 1. Pure — transactional email, register route, cron authority scope
+      - name: 1. Pure — transactional email, closed-beta allowlist, register route, cron authority scope
         run: |
           set -euo pipefail
           npx tsx lib/email/transactional/transactional-email.test.ts
+          npx tsx lib/auth/signup-allowlist.test.ts
           npx tsx app/api/auth/register/route.test.ts
           npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
 
