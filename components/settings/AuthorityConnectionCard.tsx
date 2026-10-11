@@ -223,7 +223,10 @@ export function AuthorityConnectionCard() {
               ישראל”.
             </p>
           </div>
-          {!loading && uiStatus && !loadFailed ? (
+          {/* Not configured reads "בקרוב", like the connect buttons it stands in for. */}
+          {!loading && uiStatus === "NOT_CONFIGURED" && !loadFailed ? (
+            <ComingSoonPill />
+          ) : !loading && uiStatus && !loadFailed ? (
             <WarmPill tone={STATUS_TONE[uiStatus]}>
               {STATUS_LABEL[uiStatus]}
             </WarmPill>
