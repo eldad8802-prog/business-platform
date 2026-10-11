@@ -11,6 +11,8 @@ import { WhatsAppMetaDataPrivacySection } from "@/components/whatsapp/WhatsAppMe
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import { WaBadge, WaPrimaryButton } from "@/components/whatsapp/wa-ui";
 import { settingsViewFor } from "@/components/whatsapp/connection-view";
+import { ComingSoonNote } from "@/components/beta/ComingSoonPill";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 import desk from "./wa-desk.module.css";
 
 /**
@@ -33,6 +35,13 @@ export default function WhatsAppSettingsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const state = useWhatsAppConnection(reloadKey);
   const view = settingsViewFor(state);
+  const beta = useBetaAccess();
+  // Closed beta: no connect invitation — "בקרוב" instead. Connected-state controls and the Meta-data
+  // privacy section stay (they are privacy actions). The invitation waits for the beta answer so a beta
+  // business never sees the connect button flash.
+  const invitationKind = view.kind !== "loading" && view.kind !== "load_error" && view.kind !== "connected" && view.kind !== "attention";
+  const waitingForBeta = invitationKind && !beta.ready;
+  const whatsappSoon = beta.comingSoon.META_WHATSAPP;
   const refresh = () => setReloadKey((k) => k + 1);
 
   return (
@@ -46,7 +55,7 @@ export default function WhatsAppSettingsPage() {
       <PageContainer intent="focused" className={desk.page} style={{ paddingBlock: "16px 96px" }}>
         <div className={desk.desk}>
           <div>
-            {view.kind === "loading" ? (
+            {view.kind === "loading" || waitingForBeta ? (
               <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
                 טוען…
               </div>
@@ -54,6 +63,14 @@ export default function WhatsAppSettingsPage() {
               <ConnectionLoadError onRetry={refresh} />
             ) : view.kind === "connected" || view.kind === "attention" ? (
               <WhatsAppConnectedCard connection={view.connection} onChanged={refresh} />
+            ) : view.kind === "disconnected" && whatsappSoon ? (
+              <div style={{ marginTop: 16 }}>
+                <PreviousConnectionNotice
+                  status={view.connection.status}
+                  displayPhoneNumber={view.connection.displayPhoneNumber}
+                />
+                <WhatsAppComingSoon />
+              </div>
             ) : view.kind === "disconnected" ? (
               <WhatsAppConnectInvitation
                 onConnected={refresh}
@@ -64,6 +81,10 @@ export default function WhatsAppSettingsPage() {
                   />
                 }
               />
+            ) : whatsappSoon ? (
+              <div style={{ marginTop: 16 }}>
+                <WhatsAppComingSoon />
+              </div>
             ) : (
               <WhatsAppConnectInvitation onConnected={refresh} />
             )}
@@ -72,6 +93,15 @@ export default function WhatsAppSettingsPage() {
         </div>
       </PageContainer>
     </div>
+  );
+}
+
+/** Closed beta: the WhatsApp Business connection is not open to this business yet. */
+function WhatsAppComingSoon() {
+  return (
+    <ComingSoonNote title="חיבור WhatsApp Business ייפתח בקרוב">
+      בינתיים אפשר לנהל שיחות ידניות במסך „שיחות”. אין צורך לעשות דבר.
+    </ComingSoonNote>
   );
 }
 

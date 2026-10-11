@@ -345,6 +345,9 @@ const operational = (reason: string): ModelCoverage => ({
 const OPERATIONAL: Record<string, ModelCoverage> = {
   Usage: operational("per-week feature counters"),
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
+  // Closed beta (migration 20261017090000_beta_cohort_enrollment): a format-checked cohort label and a
+  // one-value source vocabulary, keyed by the business; removed with the business by its cascade.
+  BusinessBetaEnrollment: operational("closed-beta cohort label and source of the business; closed, format-checked vocabularies; no person, no free text"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
   // Payables, secretary → ledger. Two timestamps and the id of the user who

@@ -1,0 +1,115 @@
+# Closed beta access policy (application PR) — pure proofs, then the application against the migrated
+# Production-shaped database as the real roles (ephemeral PG17).
+#
+#   1. Pure (no DB / network): lib/beta/beta-access.test.ts — the switch, the decision table, the route gate,
+#      the issue pre-check against the Tax Authority readiness rules over a grid of drafts, invitation codes,
+#      and the coverage of every route that STARTS a gated integration (and of those that must stay open);
+#      the register route (closed beta + invitation) and the signup gate's static coverage.
+#   2. App battery (.beta/app-battery.ts) on .beta/lab.sh --with-beta: enrollment through the signup plane,
+#      the policy and both gates as app_runtime under FORCE RLS, every pre-existing business untouched.
+#   3. Negative proof: with the issue pre-check removed from the route, the coverage test fails.
+#
+# The real signup transaction (createAccount + enrollment as app_auth) is proven by auth-plane-write-ci.yml.
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: beta access — closed beta policy CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/beta/**"
+      - "components/beta/**"
+      - "app/api/business/beta-access/**"
+      - "app/api/integrations/whatsapp/embedded-signup/**"
+      - "app/api/integrations/acquisition/meta/**"
+      - "app/api/taxes/oauth/**"
+      - "app/api/billing/documents/[[]id[]]/issue/**"
+      - "app/api/billing/documents/[[]id[]]/authority-decision/**"
+      - "app/api/auth/register/**"
+      - "app/register/**"
+      - "lib/auth/signup*.ts"
+      - "lib/services/billing/authority/billing-authority-readiness.ts"
+      - "prisma/schema.prisma"
+      - ".beta/**"
+      - ".github/workflows/beta-access-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  beta:
+    name: closed beta policy (pure + PG17 app battery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: beta_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: beta_ci_synthetic_super_pw
+      LAB_PASSWORD: beta_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Pure — policy, gates, issue pre-check grid, invitation codes, coverage; register route; signup gate coverage
+        env:
+          DATABASE_URL: postgresql://unused@localhost:5432/unused
+          DIRECT_URL: postgresql://unused@localhost:5432/unused
+        run: |
+          set -euo pipefail
+          npx prisma generate
+          npx tsx lib/beta/beta-access.test.ts
+          npx tsx app/api/auth/register/route.test.ts
+          npx tsx lib/auth/signup-gate-coverage.test.ts
+
+      - name: 2. App battery — the policy and both gates as app_runtime on the migrated lab
+        run: |
+          set -euo pipefail
+          bash .beta/lab.sh beta_app --with-beta
+          PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_app -v ON_ERROR_STOP=1 -qc \
+            "INSERT INTO \"Business\" (\"name\", \"updatedAt\") SELECT 'pre-existing ' || g, now() FROM generate_series(1, 5) g"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/beta_app" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/beta_app" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/beta_app" \
+          AUTH_URL="postgresql://beta_auth_login:$LAB_PASSWORD@localhost:5432/beta_app" \
+            npx tsx .beta/app-battery.ts
+
+      - name: 3. Negative proof — the issue route without its pre-check fails the coverage test
+        env:
+          DATABASE_URL: postgresql://unused@localhost:5432/unused
+          DIRECT_URL: postgresql://unused@localhost:5432/unused
+        run: |
+          F='app/api/billing/documents/[id]/issue/route.ts'
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/const betaRefusal = await betaIssueGate\(user\.businessId, billingDocumentId\);/const betaRefusal = null;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/beta/beta-access.test.ts > /tmp/neg.log 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: removing the issue pre-check went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          grep -q "FAIL  - F1 gated: app/api/billing/documents/\[id\]/issue/route.ts" /tmp/neg.log
+          echo "removing the issue pre-check is caught"

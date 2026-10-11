@@ -18,6 +18,8 @@ import {
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
 import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
+import { readSignupInvite, type SignupInvite } from "@/lib/auth/signup-invite";
+import { CLOSED_BETA_COHORT } from "@/lib/beta/beta-cohort";
 import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
@@ -67,6 +69,11 @@ export type RegisterDeps = {
    * while public signup is closed; fail-closed — not configured means no one.
    */
   signupAllowlist: () => SignupAllowlist;
+  /**
+   * The closed-beta invitation (lib/auth/signup-invite.ts): a listed address is admitted only with the
+   * personal code sent to it. Fail-closed — not configured means no one.
+   */
+  signupInvite: () => SignupInvite;
   rateLimit: typeof consumeRateLimit;
   hashPassword: (plain: string) => Promise<string>;
   /**
@@ -106,6 +113,7 @@ function scheduleWelcomeAfterResponse(welcomeEmailId: number, businessId: number
 const defaultDeps: RegisterDeps = {
   isSignupEnabled: isPublicSignupEnabled,
   signupAllowlist: readSignupAllowlist,
+  signupInvite: readSignupInvite,
   rateLimit: consumeRateLimit,
   hashPassword: hashSignupPassword,
   createAccount,
@@ -151,9 +159,10 @@ export async function handleRegister(
         // Ignored as a whole (fail closed). Counts and a code only — never an address.
         console.warn("[signup] allowlist ignored", { error: allowlist.error });
       }
-      // No (valid) list: exactly the closed gate — before the body is read.
-      if (!allowlist.configured) return signupDisabledResponse();
-      admitted = await admitAllowlisted(req, allowlist);
+      const invite = deps.signupInvite();
+      // No (valid) list, or no invitation secret: exactly the closed gate — before the body is read.
+      if (!allowlist.configured || !invite.configured) return signupDisabledResponse();
+      admitted = await admitAllowlisted(req, allowlist, invite);
       if (!admitted) return signupDisabledResponse();
     }
 
@@ -199,6 +208,8 @@ export async function handleRegister(
       now,
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
+      // Closed beta: the account is enrolled in the beta cohort in its own transaction, or not created.
+      betaCohort: admitted ? CLOSED_BETA_COHORT : null,
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the
@@ -308,14 +319,19 @@ export async function handleRegister(
 }
 
 /**
- * Closed beta: is this a valid signup for an allowlisted address? Returns the
- * normalised input, or null. A malformed body, an invalid field and an address
- * that is not listed are deliberately indistinguishable — the caller answers all
+ * Closed beta: is this a valid signup for an allowlisted address, carrying the
+ * personal invitation code sent to that address? Returns the normalised input, or
+ * null. A malformed body, an invalid field, an address that is not listed and a
+ * missing or wrong code are deliberately indistinguishable — the caller answers all
  * three with the closed gate's response, so nobody can learn from the reply
  * whether an address is on the list. Nothing is recorded and no rate-limit budget
  * is spent for a request that is not admitted, exactly as with no list at all.
  */
-async function admitAllowlisted(req: Request, allowlist: SignupAllowlist): Promise<NormalizedSignup | null> {
+async function admitAllowlisted(
+  req: Request,
+  allowlist: SignupAllowlist,
+  invite: SignupInvite
+): Promise<NormalizedSignup | null> {
   let body: unknown;
   try {
     body = await req.json();
@@ -328,7 +344,9 @@ async function admitAllowlisted(req: Request, allowlist: SignupAllowlist): Promi
   } catch {
     return null;
   }
-  return allowlist.has(input.email) ? input : null;
+  if (!allowlist.has(input.email)) return null;
+  const code = (body as { invite?: unknown } | null)?.invite;
+  return invite.verify(input.email, code) ? input : null;
 }
 
 export async function POST(req: Request) {

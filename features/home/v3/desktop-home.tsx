@@ -48,6 +48,8 @@ import { RecommendationCard } from "./recommendation-card";
 import type { HomeView } from "./home-v3";
 import { identityPromptDue, moneyFirstTime } from "./home-first-time";
 import { showsFirstTime, whatsAppAction } from "@/lib/services/home/home-history-model";
+import { WarmPill } from "@/components/ui/warm-surface/warm-surface";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 import {
   CHANNEL_LABEL,
   SOURCE_LABEL,
@@ -740,14 +742,24 @@ function DocumentsPanel({ view }: { view: HomeView }) {
  */
 function LeadsEmpty({ view }: { view: HomeView }) {
   const first = showsFirstTime(view.history, "leads", false);
+  const beta = useBetaAccess();
   const action = view.history ? whatsAppAction(view.history.whatsapp) : null;
+  // Closed beta: WhatsApp is "בקרוב" for this business — no connect/reconnect link (an existing
+  // connection needs no action, so whatsAppAction is already null then). The link also waits for the
+  // beta answer so it never flashes.
+  const waSoon = beta.comingSoon.META_WHATSAPP && action !== null;
   // A disconnected number receives nothing until it is reconnected — the line
-  // must not promise messages that cannot arrive.
-  const firstLeadLine = view.history?.whatsapp === "DISCONNECTED" ? "עוד אין לידים." : "פניות מוואטסאפ יופיעו כאן.";
+  // must not promise messages that cannot arrive (nor can a WhatsApp that is not open yet).
+  const firstLeadLine =
+    view.history?.whatsapp === "DISCONNECTED" || waSoon ? "עוד אין לידים." : "פניות מוואטסאפ יופיעו כאן.";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <Note>{first ? firstLeadLine : "אין לידים חדשים."}</Note>
-      {action ? (
+      {waSoon ? (
+        <span style={{ padding: "4px 0 8px", alignSelf: "flex-start" }}>
+          <WarmPill tone="sand">WhatsApp — בקרוב</WarmPill>
+        </span>
+      ) : action && beta.ready ? (
         <Link href={action.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "4px 0 8px", alignSelf: "flex-start" }}>
           {action.label}
         </Link>

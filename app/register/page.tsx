@@ -5,6 +5,7 @@ import {
   isPublicSignupEnabled,
 } from "@/lib/auth/signup-gate";
 import { CLOSED_BETA_ACCESS, readSignupAllowlist } from "@/lib/auth/signup-allowlist";
+import { INVITE_CODE_LENGTH, readSignupInvite } from "@/lib/auth/signup-invite";
 import RegisterForm from "./register-form";
 
 /**
@@ -19,6 +20,10 @@ import RegisterForm from "./register-form";
  * visible grants nothing: the API admits listed addresses only, and answers
  * everyone else exactly as the closed gate does. Without a valid list the entry
  * is the closed notice too, so removing the list restores today's page exactly.
+ * The entry also needs the invitation secret (SIGNUP_INVITE_SECRET): each tester's
+ * personal link carries `&invite=<code>`, which the form sends with the signup and
+ * the API verifies against the address (lib/auth/signup-invite.ts). The page only
+ * passes the code through; it never tells whether it is right.
  *
  * Styling follows the Dubiz Mist tokens used by the login/register screens —
  * no new colors.
@@ -96,9 +101,10 @@ export default async function RegisterPage({
 }) {
   if (isPublicSignupEnabled()) return <RegisterForm />;
 
-  const { access } = await searchParams;
-  if (access === CLOSED_BETA_ACCESS && readSignupAllowlist().configured) {
-    return <RegisterForm />;
+  const { access, invite } = await searchParams;
+  if (access === CLOSED_BETA_ACCESS && readSignupAllowlist().configured && readSignupInvite().configured) {
+    const code = typeof invite === "string" && invite.length <= INVITE_CODE_LENGTH * 2 ? invite : undefined;
+    return <RegisterForm invite={code} />;
   }
   return <SignupClosedNotice />;
 }

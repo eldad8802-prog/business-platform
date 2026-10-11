@@ -38,6 +38,7 @@ import {
 } from "@/lib/services/integrations/whatsapp/graph.service";
 import { persistFromEmbeddedSignup } from "@/lib/services/integrations/whatsapp/connection.service";
 import { completeEmbeddedSignup } from "@/lib/services/integrations/whatsapp/embedded-signup-complete";
+import { betaGate } from "@/lib/beta/beta-gate";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,10 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Closed beta: connecting WhatsApp is not open to beta businesses yet ("בקרוב"). Before anything else.
+  const betaRefusal = await betaGate(user.businessId, "META_WHATSAPP");
+  if (betaRefusal) return betaRefusal;
 
   let body: Record<string, unknown>;
   try {

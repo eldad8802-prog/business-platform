@@ -59,6 +59,9 @@ const M1_CASEFOLD = MIG("20261011090200_user_email_casefold_unique");
 // Transactional email: signup records the WELCOME it owes in the account transaction, so the
 // signup plane's INSERT on TransactionalEmail is part of the signup contract this lab proves.
 const TE = MIG("20261015090000_transactional_email_foundation");
+// Closed beta: a business opened through the closed-beta invitation is enrolled in the account
+// transaction, so the signup plane's INSERT on BusinessBetaEnrollment is part of the contract too.
+const BETA = MIG("20261017090000_beta_cohort_enrollment");
 
 const RUNTIME_ROLE = "app_runtime_battery";
 const RUNTIME_PW = "authfix_ci_synthetic_runtime_pw";
@@ -197,6 +200,15 @@ async function main() {
     );
     ok("transactional email migration applied: TransactionalEmail under FORCED row-level security", te[0]?.r === true && te[0]?.f === true);
   }
+  // db push built BusinessBetaEnrollment from the model, without the migration's RLS and grants.
+  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "BusinessBetaEnrollment" CASCADE`);
+  for (const s of statements(readFileSync(BETA, "utf8"))) await owner.$executeRawUnsafe(s);
+  {
+    const be = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(
+      `SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE relname = 'BusinessBetaEnrollment'`
+    );
+    ok("beta cohort migration applied: BusinessBetaEnrollment under FORCED row-level security", be[0]?.r === true && be[0]?.f === true);
+  }
   {
     const rls = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(
       `SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE relname = 'Business'`
@@ -295,6 +307,14 @@ async function main() {
   const { getAuthContext } = await import("@/lib/auth");
   const { verifyAuthTokenPayload } = await import("@/lib/auth-token");
   const { issueRefreshSession } = await import("@/lib/auth/refresh-session");
+
+  const betaRows = async (businessId: number) =>
+    Number(
+      (await owner.$queryRawUnsafe<Array<{ c: number }>>(
+        `SELECT count(*)::int AS c FROM "BusinessBetaEnrollment" WHERE "businessId" = $1`,
+        businessId
+      ))[0].c
+    );
 
   /** The same three writes createAccount makes, on a caller-chosen client. */
   async function createAccountVia(db: InstanceType<typeof PrismaClient>, address: string) {
@@ -493,6 +513,46 @@ async function main() {
       "...and writes exactly one session for the new owner",
       account !== null && (await sessionCount(account.userId)) === 1
     );
+    ok(
+      "...and a public signup writes no beta enrollment",
+      account !== null && (await betaRows(account.businessId)) === 0
+    );
+  }
+
+  // 2b — closed beta: the enrollment is written in the SAME account transaction, as app_auth.
+  {
+    const address = `battery-beta-${Date.now()}@lab.invalid`;
+    let threw: unknown = null;
+    let account: Awaited<ReturnType<typeof createAccount>> | null = null;
+    try {
+      account = await createAccount({
+        email: address,
+        passwordHash: hash,
+        name: "Beta Battery",
+        businessName: "Beta Lab",
+        now: new Date(),
+        userAgent: "battery",
+        betaCohort: "closed-beta",
+      });
+    } catch (e) {
+      threw = e;
+    }
+    ok("closed beta: REAL createAccount with a cohort succeeds as app_auth", threw === null, String(threw).slice(0, 200));
+    ok("closed beta: ...and enrolls exactly the new business", account !== null && (await betaRows(account.businessId)) === 1);
+
+    // Atomic: an enrollment that cannot be written rolls back the whole account.
+    const broken = `battery-beta-broken-${Date.now()}@lab.invalid`;
+    let brokenThrew = false;
+    try {
+      await createAccount({
+        email: broken, passwordHash: hash, name: "Broken", businessName: "Broken Beta Lab",
+        now: new Date(), userAgent: "battery", betaCohort: "Not A Valid Cohort",
+      });
+    } catch {
+      brokenThrew = true;
+    }
+    const leftover = await owner.user.count({ where: { email: broken } });
+    ok("closed beta: a failed enrollment leaves no User and no Business (one transaction)", brokenThrew && leftover === 0);
   }
 
   // 3 — the real route, end to end, compared with what login gives.

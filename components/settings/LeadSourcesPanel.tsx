@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadFacebookSdk } from "@/components/whatsapp/facebook-sdk";
 import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 
 /**
  * Settings → Connections → "מקורות לידים" (M6).
@@ -227,6 +228,7 @@ function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secr
 }
 
 export function LeadSourcesPanel() {
+  const beta = useBetaAccess();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -315,7 +317,8 @@ export function LeadSourcesPanel() {
       setMetaPick(null);
     });
 
-  if (!data) {
+  // Wait for the closed-beta answer too, so a beta business never sees the Facebook button flash.
+  if (!data || !beta.ready) {
     return (
       <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
         <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">מקורות לידים</h2>
@@ -336,7 +339,9 @@ export function LeadSourcesPanel() {
 
       <div className="mt-3 space-y-3">
         {SOURCES.map((s) => {
-          const enabled = data.sources[s.key];
+          // Closed beta: Meta lead ads are "בקרוב" for this business — same as a source that is not switched on.
+          const betaSoon = s.key === "meta.lead_ads" && beta.comingSoon.META_LEAD_ADS;
+          const enabled = data.sources[s.key] && !betaSoon;
           const metaReady = s.key !== "meta.lead_ads" || !!data.meta?.available;
           const live = data.connections.filter((c) => c.sourceKey === s.key && c.status !== "REVOKED");
           const available = enabled && metaReady;
@@ -353,7 +358,9 @@ export function LeadSourcesPanel() {
                 ) : null}
               </div>
               <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{s.description}</p>
-              {!available && s.key === "meta.lead_ads" ? (
+              {betaSoon ? (
+                <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">החיבור לפייסבוק ואינסטגרם ייפתח בקרוב.</p>
+              ) : !available && s.key === "meta.lead_ads" ? (
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
                   החיבור לפייסבוק ואינסטגרם ייפתח ברגע ש-Meta תאשר את Dubiz לקבלת לידים. אין צורך לעשות דבר בינתיים.
                 </p>
@@ -434,7 +441,7 @@ export function LeadSourcesPanel() {
                   </Action>
                 </div>
               ) : null}
-              {s.key === "meta.lead_ads" && metaPick ? (
+              {s.key === "meta.lead_ads" && metaPick && !betaSoon ? (
                 <div className="mt-3 space-y-2">
                   <p className="text-xs font-bold text-[var(--dz-text-primary)]">איזה דף לחבר?</p>
                   {metaPick.pages.map((p) => (

@@ -427,7 +427,9 @@ export const INFRASTRUCTURE = {
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion",
     // Transactional email (WELCOME): account mail delivery, not business learning evidence.
-    "TransactionalEmail"],
+    "TransactionalEmail",
+    // Closed-beta cohort enrollment: an access-policy fact about the account, not business learning evidence.
+    "BusinessBetaEnrollment"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "api/transactional-email",
     "page/settings", "page/login", "page/register", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",

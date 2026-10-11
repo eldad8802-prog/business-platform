@@ -8,6 +8,8 @@ import {
   WarmPill,
   type WarmPillTone,
 } from "@/components/ui/warm/warm-primitives";
+import { ComingSoonPill } from "@/components/beta/ComingSoonPill";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 
 /**
  * Israel Tax Authority ("חשבוניות ישראל") connection card — Settings › Connections.
@@ -107,6 +109,8 @@ function cleanCallbackParamsFromUrl(): void {
 }
 
 export function AuthorityConnectionCard() {
+  const beta = useBetaAccess();
+  const comingSoon = beta.comingSoon.TAX_AUTHORITY;
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<AuthorityStatusDto | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -188,6 +192,8 @@ export function AuthorityConnectionCard() {
     }
   }
 
+  // Wait for the closed-beta answer too, so a beta business never sees a connect button flash.
+  const showLoading = loading || !beta.ready;
   const uiStatus = status?.status ?? null;
   const showConnect = status?.canConnect ?? false;
   const showReconnect = status?.canReconnect ?? false;
@@ -222,14 +228,21 @@ export function AuthorityConnectionCard() {
               ישראל”.
             </p>
           </div>
-          {!loading && uiStatus && !loadFailed ? (
+          {comingSoon ? (
+            <ComingSoonPill />
+          ) : !showLoading && uiStatus && !loadFailed ? (
             <WarmPill tone={STATUS_TONE[uiStatus]}>
               {STATUS_LABEL[uiStatus]}
             </WarmPill>
           ) : null}
         </div>
 
-        {loading ? (
+        {comingSoon ? (
+          <p style={{ margin: 0, fontSize: 13, color: W.muted, lineHeight: 1.6 }}>
+            החיבור לרשות המסים ייפתח בקרוב. הנפקת מסמכים שאינם מחייבים מספר הקצאה
+            ממשיכה כרגיל.
+          </p>
+        ) : showLoading ? (
           <p style={{ margin: 0, fontSize: 13, color: W.muted2 }}>טוען…</p>
         ) : isNotConfigured ? (
           <p style={{ margin: 0, fontSize: 13, color: W.muted, lineHeight: 1.6 }}>
@@ -293,10 +306,10 @@ export function AuthorityConnectionCard() {
           </div>
         )}
 
-        {notice ? (
+        {notice && !comingSoon ? (
           <p style={{ margin: 0, fontSize: 12.5, color: W.tealDeep }}>{notice}</p>
         ) : null}
-        {error ? (
+        {error && !comingSoon ? (
           <p style={{ margin: 0, fontSize: 12.5, color: W.clay }}>{error}</p>
         ) : null}
       </div>

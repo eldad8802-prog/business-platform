@@ -20,7 +20,7 @@ type RegisterErrors = {
   form?: string;
 };
 
-export default function RegisterForm() {
+export default function RegisterForm({ invite }: { invite?: string } = {}) {
   const router = useRouter();
 
   const [name, setName] = useState("");
@@ -187,6 +187,8 @@ export default function RegisterForm() {
           password,
           acceptTerms,
           attribution: readAttribution(),
+          // Closed beta only: the personal invitation code from the tester's link.
+          ...(invite ? { invite } : {}),
         }),
       });
 

@@ -10,11 +10,15 @@ import { sealConnectHandle } from "@/lib/intake/acquisition/connect-handle";
 import { isMetaLeadAdsConfigured } from "@/lib/intake/acquisition/meta-config";
 import { enabledSources, withOwner } from "@/lib/intake/acquisition/owner-api";
 import { exchangeLoginCode, listManagedPages, MetaGraphError } from "@/lib/intake/acquisition/providers/meta-graph";
+import { betaGate } from "@/lib/beta/beta-gate";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   return withOwner(req, async ({ businessId }) => {
+    // Closed beta: Facebook / Instagram lead forms are not open to beta businesses yet ("בקרוב").
+    const betaRefusal = await betaGate(businessId, "META_LEAD_ADS");
+    if (betaRefusal) return betaRefusal;
     if (!(await enabledSources(businessId))["meta.lead_ads"]) return NextResponse.json({ error: "source_not_enabled" }, { status: 403 });
     if (!isMetaLeadAdsConfigured()) return NextResponse.json({ error: "unavailable" }, { status: 503 });
     const body = (await req.json().catch(() => null)) as { code?: unknown } | null;

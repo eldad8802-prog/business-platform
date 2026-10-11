@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { resolveAuthorityOAuthStart } from "@/lib/services/billing/authority/billing-authority-oauth-start-route.service";
 import { hasAdminElevation } from "@/lib/auth/platform-admin";
+import { betaGate } from "@/lib/beta/beta-gate";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,11 @@ export async function GET(req: NextRequest) {
     if (!user) {
       return authRequiredResponse(req);
     }
+
+    // Closed beta: connecting the Tax Authority is not open to beta businesses yet ("בקרוב").
+    // Nothing below — the OAuth start, its state, cookies or environment — is reached for them.
+    const betaRefusal = await betaGate(user.businessId, "TAX_AUTHORITY");
+    if (betaRefusal) return betaRefusal;
 
     const redirectBaseUrl = process.env[REDIRECT_BASE_VAR]?.trim();
     if (!redirectBaseUrl) {

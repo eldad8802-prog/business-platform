@@ -19,6 +19,7 @@ import {
 } from "@/components/documents/home/home-styles";
 import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 
 type LoadState =
   | { status: "loading" }
@@ -59,6 +60,8 @@ async function uploadFailureMessage(res: Response): Promise<string> {
 
 export default function DocumentsHome() {
   const router = useRouter();
+  // Closed beta: the WhatsApp import shows "בקרוב" instead of leading to the connect screen.
+  const beta = useBetaAccess();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -294,6 +297,7 @@ export default function DocumentsHome() {
               onCamera={pickCamera}
               onGmail={() => router.push("/documents/email")}
               onWhatsapp={() => router.push("/settings/whatsapp")}
+              whatsappComingSoon={beta.comingSoon.META_WHATSAPP}
               uploading={uploading}
             />
 

@@ -206,6 +206,8 @@ export default function BillingDocumentWorkspacePage() {
   );
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [lifecycleSuccess, setLifecycleSuccess] = useState<string | null>(null);
+  // Calm, non-failure notice (closed beta: allocation numbers are "בקרוב" — the draft stays editable).
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [issueConfirmOpen, setIssueConfirmOpen] = useState<boolean>(false);
   const [validUntilInput, setValidUntilInput] = useState<string>("");
   const validUntilScheduleRef = useRef(0);
@@ -652,6 +654,7 @@ export default function BillingDocumentWorkspacePage() {
     async (path: string, action: LifecycleAction) => {
       setLifecycleBusy(action);
       setLifecycleError(null);
+      setLifecycleNotice(null);
       try {
         const token = getAuthToken();
         const res = await fetch(`/api/billing/documents/${id}${path}`, {
@@ -677,12 +680,23 @@ export default function BillingDocumentWorkspacePage() {
               ? "לא הצלחנו להחזיר את המסמך לטיוטה."
               : "לא הצלחנו להפיק את המסמך.";
           let serverDetail: string | null = null;
+          let serverCode: string | null = null;
           try {
             const data = await res.json();
             if (data && typeof data.error === "string" && data.error.trim()) {
               serverDetail = data.error.trim();
             }
+            if (data && typeof data.code === "string") serverCode = data.code;
           } catch {
+          }
+          // Closed beta: this document needs an allocation number, which is not open to the business
+          // yet. Nothing was issued and the draft stays editable — say so calmly, not as a failure.
+          if (action === "issue" && res.status === 409 && serverCode === "BETA_ALLOCATION_COMING_SOON") {
+            setIssueConfirmOpen(false);
+            setLifecycleNotice(
+              serverDetail ?? "הנפקת מסמך שמחייב מספר הקצאה תיפתח בקרוב. המסמך נשמר כטיוטה וניתן להמשיך לערוך אותו."
+            );
+            return;
           }
           setLifecycleError(
             serverDetail ? `${baseMessage} - ${serverDetail}` : baseMessage
@@ -1021,6 +1035,8 @@ export default function BillingDocumentWorkspacePage() {
             lifecycleBusy={lifecycleBusy}
             lifecycleError={lifecycleError}
             lifecycleSuccess={lifecycleSuccess}
+            lifecycleNotice={lifecycleNotice}
+            onDismissLifecycleNotice={() => setLifecycleNotice(null)}
             onDismissLifecycleError={() => setLifecycleError(null)}
             onDismissLifecycleSuccess={() => setLifecycleSuccess(null)}
             onReloadDocument={() => void load()}
@@ -1028,6 +1044,7 @@ export default function BillingDocumentWorkspacePage() {
             onRevert={() => void runLifecycle("/revert", "revert")}
             onOpenIssueDialog={() => {
               setLifecycleError(null);
+              setLifecycleNotice(null);
               setIssueConfirmOpen(true);
               void fetchProfileForWarning();
             }}
@@ -1098,6 +1115,8 @@ function DocumentBody({
   lifecycleBusy,
   lifecycleError,
   lifecycleSuccess,
+  lifecycleNotice,
+  onDismissLifecycleNotice,
   onDismissLifecycleError,
   onDismissLifecycleSuccess,
   onReloadDocument,
@@ -1130,6 +1149,8 @@ function DocumentBody({
   lifecycleBusy: LifecycleAction | null;
   lifecycleError: string | null;
   lifecycleSuccess: string | null;
+  lifecycleNotice: string | null;
+  onDismissLifecycleNotice: () => void;
   onDismissLifecycleError: () => void;
   onDismissLifecycleSuccess: () => void;
   onReloadDocument: () => void;
@@ -1509,6 +1530,44 @@ function DocumentBody({
               border: "none",
               background: "transparent",
               color: TOKEN.semantic.success.ink,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 18,
+              lineHeight: 1,
+              padding: 0,
+            }}
+            aria-label="סגור"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {lifecycleNotice ? (
+        <div
+          role="status"
+          style={{
+            background: TOKEN.semantic.info.bg,
+            border: `1px solid ${TOKEN.semantic.info.border}`,
+            color: TOKEN.semantic.info.ink,
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontSize: 14,
+            lineHeight: 1.5,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "flex-start",
+          }}
+        >
+          <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{lifecycleNotice}</span>
+          <button
+            type="button"
+            onClick={onDismissLifecycleNotice}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: TOKEN.semantic.info.ink,
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 18,

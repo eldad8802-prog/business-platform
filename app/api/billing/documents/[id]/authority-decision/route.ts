@@ -7,6 +7,7 @@ import {
   INVOICE_DECISION_ACTIONS,
   type InvoiceDecisionAction,
 } from "@/lib/services/billing/authority/billing-authority-decision.types";
+import { betaGate } from "@/lib/beta/beta-gate";
 
 // Narrow, guarded endpoint exposing ONLY the three held-decision actions. Auth
 // and tenant isolation come from getCurrentUser + user.businessId (never a
@@ -40,6 +41,10 @@ export async function POST(
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Closed beta: Tax Authority actions are not open to beta businesses yet ("בקרוב").
+    const betaRefusal = await betaGate(user.businessId, "TAX_AUTHORITY");
+    if (betaRefusal) return betaRefusal;
 
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);

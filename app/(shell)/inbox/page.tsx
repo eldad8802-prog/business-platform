@@ -14,6 +14,8 @@ import {
   WhatsAppReconnectBanner,
 } from "@/components/inbox/WhatsAppConversationsGate";
 import { InboxConnectedEmptyState } from "@/components/inbox/InboxConnectedEmptyState";
+import { ComingSoonNote } from "@/components/beta/ComingSoonPill";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
 import { InboxContextPane, InboxStartPane } from "@/components/inbox/InboxDesktopPanels";
 import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
@@ -268,6 +270,8 @@ function InboxPageContent() {
   // status re-fetches and the onboarding/banner clears.
   const [waReloadKey, setWaReloadKey] = useState(0);
   const waConnection = useWhatsAppConnection(waReloadKey);
+  // Closed beta: WhatsApp is "בקרוב" for this business — the Inbox stays active for manual conversations.
+  const beta = useBetaAccess();
   // Friendly notice when an outbound WhatsApp reply couldn't be delivered.
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [takeOverBusy, setTakeOverBusy] = useState(false);
@@ -1135,7 +1139,15 @@ function InboxPageContent() {
   const waBroken =
     waConnection.phase === "disconnected" && waConnection.previousStatus !== null;
 
-  if (waNeverConnected) {
+  const waSoon = beta.comingSoon.META_WHATSAPP;
+
+  // Hold the loader until the closed-beta answer arrives, so a beta business never sees the
+  // onboarding (a connect invitation) flash.
+  if (waNeverConnected && !beta.ready) {
+    return <InboxConnectionLoader />;
+  }
+
+  if (waNeverConnected && !waSoon) {
     return <WhatsAppInboxOnboarding onConnected={reloadWaConnection} />;
   }
 
@@ -1149,9 +1161,15 @@ function InboxPageContent() {
     );
   }
 
-  const reconnectBanner = waBroken ? (
-    <WhatsAppReconnectBanner onConnected={reloadWaConnection} />
-  ) : null;
+  // Closed beta: a small non-blocking "בקרוב" notice instead of the onboarding / reconnect banner —
+  // the conversation list, manual conversations and notes stay fully usable. A broken connection's
+  // reconnect banner waits for the beta answer so it never flashes a reconnect button to a beta business.
+  const reconnectBanner =
+    (waNeverConnected || waBroken) && waSoon ? (
+      <WhatsAppComingSoonNotice />
+    ) : waBroken && beta.ready ? (
+      <WhatsAppReconnectBanner onConnected={reloadWaConnection} />
+    ) : null;
 
   const sendToast = sendNotice ? (
     <SendNoticeToast message={sendNotice} onClose={() => setSendNotice(null)} />
@@ -1379,6 +1397,20 @@ function InboxPageContent() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Closed beta: WhatsApp is not open to this business yet; the Inbox works for manual conversations. */
+function WhatsAppComingSoonNotice() {
+  return (
+    <div
+      dir="rtl"
+      style={{ maxWidth: 1280, margin: "0 auto", padding: "12px 16px 0", boxSizing: "border-box" }}
+    >
+      <ComingSoonNote title="WhatsApp">
+        חיבור WhatsApp Business ייפתח בקרוב. בינתיים אפשר לנהל כאן שיחות ידניות.
+      </ComingSoonNote>
+    </div>
   );
 }
 

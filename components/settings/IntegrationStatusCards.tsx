@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { ComingSoonPill } from "@/components/beta/ComingSoonPill";
+import { useBetaAccess } from "@/lib/beta/use-beta-access";
+
 /**
  * Read-only status cards for existing integrations (Settings → Connections).
  *
@@ -54,6 +57,10 @@ type CardProps = {
   status: CardStatus;
   detail?: string | null;
   manageHref: string;
+  /** Closed beta: the integration is not open to this business yet — "בקרוב", no manage/connect link. */
+  comingSoonNote?: string | null;
+  /** Hide the manage link (used briefly while the closed-beta answer loads). */
+  hideManage?: boolean;
 };
 
 function IntegrationCard({
@@ -62,7 +69,21 @@ function IntegrationCard({
   status,
   detail,
   manageHref,
+  comingSoonNote,
+  hideManage,
 }: CardProps) {
+  if (comingSoonNote) {
+    return (
+      <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{title}</h2>
+          <ComingSoonPill />
+        </div>
+        <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{description}</p>
+        <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">{comingSoonNote}</p>
+      </section>
+    );
+  }
   return (
     <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
       <div className="flex items-center justify-between gap-3">
@@ -83,7 +104,7 @@ function IntegrationCard({
         </p>
       ) : null}
 
-      <div className="mt-3">
+      <div className="mt-3" hidden={hideManage}>
         <Link
           href={manageHref}
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
@@ -96,6 +117,7 @@ function IntegrationCard({
 }
 
 export function IntegrationStatusCards() {
+  const beta = useBetaAccess();
   const [whatsapp, setWhatsapp] = useState<CardStatus>("loading");
   const [whatsappDetail, setWhatsappDetail] = useState<string | null>(null);
   const [gmail, setGmail] = useState<CardStatus>("loading");
@@ -161,6 +183,10 @@ export function IntegrationStatusCards() {
     };
   }, []);
 
+  // Closed beta: a business that never connected WhatsApp sees "בקרוב" and no link that starts the
+  // connection. An existing connection keeps its manage link (disconnect / Meta-data privacy live there).
+  const whatsappComingSoon = beta.comingSoon.META_WHATSAPP && whatsapp !== "connected";
+
   // `contents` from 1200 lets each card take its own cell in the parent grid.
   return (
     <div className="flex flex-col gap-4 min-[1200px]:contents">
@@ -170,6 +196,8 @@ export function IntegrationStatusCards() {
         status={whatsapp}
         detail={whatsappDetail}
         manageHref="/settings/whatsapp"
+        comingSoonNote={whatsappComingSoon ? "חיבור WhatsApp Business ייפתח בקרוב." : null}
+        hideManage={!beta.ready && whatsapp !== "connected"}
       />
       <IntegrationCard
         title="Gmail"

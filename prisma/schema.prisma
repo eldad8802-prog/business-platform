@@ -191,6 +191,7 @@ model Business {
   inboundEmailAuthorizedSenders InboundEmailAuthorizedSender[]
   inboundEmailSenderChallenges  InboundEmailSenderChallenge[]
   transactionalEmails           TransactionalEmail[]
+  betaEnrollment                BusinessBetaEnrollment?
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -6817,6 +6818,21 @@ model TransactionalEmail {
   @@index([status, nextAttemptAt])
   @@index([userId])
   @@index([businessId])
+}
+
+/// Closed-beta cohort: at most one row per business, written in the signup transaction of a business opened
+/// through the closed-beta invitation (lib/auth/signup.ts) and read by the beta access policy
+/// (lib/beta/beta-access-policy.ts). It restricts, never grants. RLS (app_auth INSERT of CLOSED_BETA_SIGNUP rows
+/// only; app_runtime SELECT of its own row only), the format CHECKs and the explicit grants live in migration
+/// 20261017090000_beta_cohort_enrollment.
+model BusinessBetaEnrollment {
+  businessId Int      @id
+  /// Lowercase label, e.g. closed-beta (CHECK).
+  cohort     String
+  /// CLOSED_BETA_SIGNUP (CHECK).
+  source     String
+  createdAt  DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 /// P3-E · Landing persistence. Lifecycle (DRAFT → APPROVED | SUPERSEDED | RETIRED; APPROVED → SUPERSEDED),

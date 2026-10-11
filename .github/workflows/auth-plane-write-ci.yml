@@ -45,6 +45,8 @@ on:
       - "prisma/migrations/20261011090000_onboarding_setup_state/**"
       - "prisma/migrations/20261011090100_signup_consent_business_rename/**"
       - "prisma/migrations/20261011090200_user_email_casefold_unique/**"
+      - "prisma/migrations/20261017090000_beta_cohort_enrollment/**"
+      - "lib/beta/**"
       - "lib/legal/**"
       - "lib/services/onboarding/**"
       - "app/api/business/setup/**"

@@ -1,0 +1,35 @@
+/* Calm inline "בקרוב" note for closed-beta integrations. */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--dz-warm-sand-border);
+  background: var(--dz-warm-sand-bg);
+  padding: 10px 12px;
+  min-width: 0;
+}
+.pill {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dz-warm-ink);
+  line-height: 1.5;
+}
+.text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--dz-warm-ink-2);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

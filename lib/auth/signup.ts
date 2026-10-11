@@ -41,6 +41,7 @@ import bcrypt from "bcrypt";
 import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
+import { CLOSED_BETA_SIGNUP_SOURCE } from "@/lib/beta/beta-cohort";
 
 import {
   EmailAlreadyRegisteredError,
@@ -77,6 +78,11 @@ export type CreateAccountInput = {
   userAgent?: string | null;
   /** Already sanitised by normalizeSignupAttribution — labels, naming nobody. */
   attribution?: SignupAttribution | null;
+  /**
+   * Closed beta: the cohort the new business is enrolled in (lib/beta/beta-cohort.ts), or null. Set by
+   * the route ONLY for an account admitted through the closed-beta invitation; never from the request.
+   */
+  betaCohort?: string | null;
 };
 
 export type CreatedAccount = {
@@ -125,6 +131,24 @@ export async function createAccount(
         data: { name: input.businessName },
         select: { id: true, name: true },
       });
+
+      // Closed beta: the enrollment is part of the account — written here or the account is not
+      // created at all, so a closed-beta business can never exist without it (the beta access policy
+      // reads it; lib/beta/beta-access-policy.ts). createMany sends no RETURNING: the signup plane holds
+      // INSERT on these four columns and nothing else on the table (migration
+      // 20261017090000_beta_cohort_enrollment), and the RLS policy admits only this source.
+      if (input.betaCohort) {
+        await tx.businessBetaEnrollment.createMany({
+          data: [
+            {
+              businessId: business.id,
+              cohort: input.betaCohort,
+              source: CLOSED_BETA_SIGNUP_SOURCE,
+              createdAt: input.now,
+            },
+          ],
+        });
+      }
 
       const user = await tx.user.create({
         data: {

@@ -1,0 +1,11 @@
+{
+  "note": "feat/beta-access-policy (PR-2): the closed-beta access policy — BETA_COHORT_RESTRICTIONS off by default; enrolled businesses (BusinessBetaEnrollment, written only by the closed-beta signup) see Meta / Tax Authority as coming soon and are refused on the server.",
+  "tests": {
+    "lib/beta/beta-access.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "beta-access-ci.yml",
+      "reason": "pure (no DB/network): the beta switch is off unless exactly 'on' and then never reads the enrollment; restrict-only decision table, fail-closed only while on; the 403 route gate per capability; the issue pre-check refuses exactly the drafts the Tax Authority readiness rules mark READY over a grid of drafts and never reads the draft for a non-restricted business; closed-beta invitation codes bound to one address, fail closed without a secret; coverage — every route that starts WhatsApp Embedded Signup, Meta lead ads, Tax Authority OAuth / decisions or issuing calls the gate, and the read / privacy / disconnect / webhook routes do not; run on pull_request by beta-access-ci.yml"
+    }
+  }
+}

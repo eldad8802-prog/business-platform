@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { issueBillingDocument } from "@/lib/services/billing/billing-issue.service";
+import { betaIssueGate } from "@/lib/beta/beta-gate";
 
 function parseBillingDocumentId(value: string): number {
   const num = Number(value);
@@ -29,6 +30,11 @@ export async function POST(
 
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);
+
+    // Closed beta: a tax invoice that would need an allocation number is refused BEFORE anything is
+    // written (lib/beta/beta-gate.ts). Every other document issues exactly as before.
+    const betaRefusal = await betaIssueGate(user.businessId, billingDocumentId);
+    if (betaRefusal) return betaRefusal;
 
     // The document is issued internally inside a transaction; the authority
     // (Approval) call runs post-commit and is reported alongside it. A post-commit

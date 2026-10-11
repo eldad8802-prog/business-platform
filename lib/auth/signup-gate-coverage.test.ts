@@ -157,9 +157,10 @@ function main() {
   // 2a. Closed beta (lib/auth/signup-allowlist.ts). With the gate closed, the body is
   // read ONLY after a valid list is confirmed; with no (valid) list the closed answer
   // is given before anything is read — exactly the gate as it was.
-  const noListAt = registerSrc.indexOf("if (!allowlist.configured) return signupDisabledResponse();");
-  const admitAt = registerSrc.indexOf("admitted = await admitAllowlisted(req, allowlist);");
-  ok("closed + no valid list: answered before the body is read",
+  // The invitation secret (lib/auth/signup-invite.ts) is part of the same pre-read answer.
+  const noListAt = registerSrc.indexOf("if (!allowlist.configured || !invite.configured) return signupDisabledResponse();");
+  const admitAt = registerSrc.indexOf("admitted = await admitAllowlisted(req, allowlist, invite);");
+  ok("closed + no valid list or no invitation secret: answered before the body is read",
     noListAt > gateAt && admitAt > noListAt && registerSrc.indexOf("if (!admitted) return signupDisabledResponse();") > admitAt);
   ok("closed beta: the rate limiter still runs only after admission", rateLimitAt > admitAt);
 

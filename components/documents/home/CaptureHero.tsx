@@ -6,6 +6,7 @@ import {
   GmailLogo,
   WhatsappLogo,
 } from "./home-icons";
+import { ComingSoonPill } from "@/components/beta/ComingSoonPill";
 
 type CaptureHeroProps = {
   /** Opens the file picker. Invoked synchronously inside the click handler so the
@@ -15,6 +16,8 @@ type CaptureHeroProps = {
   onGmail: () => void;
   onWhatsapp: () => void;
   uploading: boolean;
+  /** Closed beta: WhatsApp is not open to this business yet — the import shows "בקרוב" and does nothing. */
+  whatsappComingSoon?: boolean;
 };
 
 /**
@@ -29,6 +32,7 @@ export default function CaptureHero({
   onGmail,
   onWhatsapp,
   uploading,
+  whatsappComingSoon = false,
 }: CaptureHeroProps) {
   return (
     <section className="dz-hero" aria-label="קליטת מסמך">
@@ -71,12 +75,27 @@ export default function CaptureHero({
           </span>
           מ‑Gmail
         </button>
-        <button type="button" className="dz-himport" onClick={onWhatsapp}>
-          <span className="dz-hlogo">
-            <WhatsappLogo />
-          </span>
-          מ‑WhatsApp
-        </button>
+        {whatsappComingSoon ? (
+          <button
+            type="button"
+            className="dz-himport"
+            disabled
+            style={{ cursor: "default", transform: "none", flexWrap: "wrap", opacity: 0.9 }}
+          >
+            <span className="dz-hlogo">
+              <WhatsappLogo />
+            </span>
+            מ‑WhatsApp
+            <ComingSoonPill />
+          </button>
+        ) : (
+          <button type="button" className="dz-himport" onClick={onWhatsapp}>
+            <span className="dz-hlogo">
+              <WhatsappLogo />
+            </span>
+            מ‑WhatsApp
+          </button>
+        )}
       </div>
 
       <div className="dz-hero__hint">קובץ עד 4MB · PDF או תמונה</div>
