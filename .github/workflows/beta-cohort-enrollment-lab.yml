@@ -1,0 +1,187 @@
+# Beta cohort enrollment / migration 20261017090000_beta_cohort_enrollment — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17).
+#
+# .beta/lab.sh builds Production's topology: everything through M7-B/C by the real `prisma migrate deploy`
+# (.m7bc/lab.sh), then TransactionalEmail and the payments core each applied alone as release-migrate did,
+# then this migration the ONLY one applied next. The lab ledger then holds every migration main holds before
+# this one, so the preflight's by-name check (5) is met here too.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256;
+#      the migration names only BusinessBetaEnrollment and Business; no other migration names its objects.
+#   1. Baseline (pending): the PREFLIGHT passes whole; the proof refuses (no table).
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 14/14; the preflight then
+#      fails exactly its "not there yet" checks.
+#   3. Battery (.beta/battery.ts) as the real roles: nothing backfilled, signup plane, tenant plane,
+#      constraints, cascade. Then the invariants file passes on the result.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Faults: each is caught by the check meant for it.
+#   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again),
+#      and a re-apply makes the proof whole.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: beta cohort enrollment — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261017090000_beta_cohort_enrollment/**"
+      - "ops/evidence/beta-cohort-*.sql"
+      - ".beta/**"
+      - ".github/workflows/beta-cohort-enrollment-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: beta cohort enrollment (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: beta_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: beta_ci_synthetic_super_pw
+      LAB_PASSWORD: beta_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/beta-cohort-enrollment-preflight.sql
+      EVIDENCE: ops/evidence/beta-cohort-enrollment-production-evidence.sql
+      INVARIANTS: ops/evidence/beta-cohort-invariants.sql
+      BETA: prisma/migrations/20261017090000_beta_cohort_enrollment/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only its table and Business
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE" "$INVARIANTS"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$BETA" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$BETA sha256 $sum (pinned)"
+          others=$(grep -v '^ *--' "$BETA" | grep -oE '"[A-Z][A-Za-z]*"' | sort -u | grep -vxE '"BusinessBetaEnrollment"|"Business"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261017090000_beta_cohort_enrollment" ]] || continue
+            if grep -nE 'BusinessBetaEnrollment|beta_enrollment' "$d/migration.sql"; then echo "$n names a beta enrollment object"; exit 1; fi
+          done
+          echo "the migration names only BusinessBetaEnrollment and Business; no other migration names its objects"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .beta/lab.sh beta_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "baseline preflight is not whole"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "17" || { echo "expected 17 PASS"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline (the table does not exist yet)"
+
+      - name: 2. prisma migrate deploy applies it — proof 14/14; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .beta/lab.sh beta_post --with-beta | tee /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "14" || { echo "expected 14 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 6 7 8 " || { echo "after the release: expected '2 3 6 7 8 ', got: $fails"; exit 1; }
+
+      - name: 3. Battery — nothing backfilled, signup plane, tenant plane, constraints, cascade (real roles); invariants
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/beta_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/beta_post" \
+          AUTH_URL="postgresql://beta_auth_login:$LAB_PASSWORD@localhost:5432/beta_post" \
+            npx tsx .beta/battery.ts
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$INVARIANTS" | tee /tmp/inv.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/inv.out; then echo "invariants FAIL"; exit 1; fi
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .beta/lab.sh beta_broken --broken-beta
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -Atc "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'BusinessBetaEnrollment%') + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'beta_enrollment_%')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261017090000_beta_cohort_enrollment' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d beta_post -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test -z "$(failing)" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          T='"BusinessBetaEnrollment"'
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          fault "DELETE for app_auth" "11 " "GRANT DELETE ON $T TO app_auth" "REVOKE DELETE ON $T FROM app_auth"
+          fault "read for app_auth" "11 " "GRANT SELECT ON $T TO app_auth" "REVOKE SELECT ON $T FROM app_auth"
+          fault "INSERT for app_runtime" "10 " "GRANT INSERT ON $T TO app_runtime" "REVOKE INSERT ON $T FROM app_runtime"
+          fault "column change for app_runtime" "10 " "GRANT UPDATE (\"cohort\") ON $T TO app_runtime" "REVOKE UPDATE (\"cohort\") ON $T FROM app_runtime"
+          fault "NO FORCE row-level security" "4 " "ALTER TABLE $T NO FORCE ROW LEVEL SECURITY" "ALTER TABLE $T FORCE ROW LEVEL SECURITY"
+          fault "permissive FOR ALL policy" "5 6 " "CREATE POLICY beta_fault_all ON $T USING (true)" "DROP POLICY beta_fault_all ON $T"
+          fault "PUBLIC read" "13 " "GRANT SELECT ON $T TO PUBLIC" "REVOKE SELECT ON $T FROM PUBLIC"
+          fault "source CHECK dropped" "9 " "ALTER TABLE $T DROP CONSTRAINT \"BusinessBetaEnrollment_source\"" "ALTER TABLE $T ADD CONSTRAINT \"BusinessBetaEnrollment_source\" CHECK (\"source\" IN ('CLOSED_BETA_SIGNUP'))"
+          fault "signup policy admits any source" "7 " "ALTER POLICY beta_enrollment_auth_insert ON $T WITH CHECK (true)" "ALTER POLICY beta_enrollment_auth_insert ON $T WITH CHECK (\"source\" = 'CLOSED_BETA_SIGNUP')"
+          test -z "$(failing)" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 6. Rollback — refused while rows exist; reverts whole on an empty database; re-apply makes the proof whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          lab beta_post -q -c "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('rollback probe', now())"
+          lab beta_post -q -c "INSERT INTO \"BusinessBetaEnrollment\" (\"businessId\", \"cohort\", \"source\") SELECT max(id), 'closed-beta', 'CLOSED_BETA_SIGNUP' FROM \"Business\""
+          if lab beta_post -q -f .beta/rollback.sql 2>/tmp/rb.err; then echo "rollback ran despite rows"; exit 1; fi
+          grep -q "beta cohort enrollment rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          echo "rollback refused while rows exist; nothing changed"
+          bash .beta/lab.sh beta_rb --with-beta >/dev/null
+          lab beta_rb -q -f .beta/rollback.sql
+          if lab beta_rb -f "$PREFLIGHT" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "after rollback the preflight is not whole"; exit 1; fi
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+          cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" > "20261017090000_beta_cohort_enrollment" ]] || cp -r "$d" "$TMP/prisma/migrations/"
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/beta_rb"
+          DATABASE_URL="$U" DIRECT_URL="$U" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | grep -E "Applying migration"
+          got=$(lab beta_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "rollback reverted the migration whole; re-apply made the proof whole"

@@ -84,6 +84,9 @@ on:
           - 'ops/evidence/transactional-email-foundation-production-evidence.sql'
           - 'ops/evidence/payments-core-config-preflight.sql'
           - 'ops/evidence/payments-core-config-production-evidence.sql'
+          - 'ops/evidence/beta-cohort-enrollment-preflight.sql'
+          - 'ops/evidence/beta-cohort-enrollment-production-evidence.sql'
+          - 'ops/evidence/beta-cohort-invariants.sql'
 
 permissions:
   contents: read
