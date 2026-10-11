@@ -6,6 +6,7 @@ import {
   GmailLogo,
   WhatsappLogo,
 } from "./home-icons";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 type CaptureHeroProps = {
   /** Opens the file picker. Invoked synchronously inside the click handler so the
@@ -71,11 +72,13 @@ export default function CaptureHero({
           </span>
           מ‑Gmail
         </button>
-        <button type="button" className="dz-himport" onClick={onWhatsapp}>
+        {/* Importing from WhatsApp needs the WhatsApp Business connection, not open yet: inactive, "בקרוב". */}
+        <button type="button" className="dz-himport" onClick={onWhatsapp} disabled aria-disabled style={{ opacity: 0.6, cursor: "not-allowed" }}>
           <span className="dz-hlogo">
             <WhatsappLogo />
           </span>
           מ‑WhatsApp
+          <ComingSoonPill />
         </button>
       </div>
 

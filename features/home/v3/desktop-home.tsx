@@ -61,6 +61,7 @@ import {
   waitingSentence,
   type WaitingKind,
 } from "./home-v3-model";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 /**
  * Desktop Home (≥1280) — "גרסה 3 מאובזרת", per the approved desktop reference.
@@ -747,10 +748,12 @@ function LeadsEmpty({ view }: { view: HomeView }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <Note>{first ? firstLeadLine : "אין לידים חדשים."}</Note>
+      {/* Connecting WhatsApp Business is not open yet: the action stays, inactive, marked "בקרוב". */}
       {action ? (
-        <Link href={action.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "4px 0 8px", alignSelf: "flex-start" }}>
+        <span aria-disabled="true" style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, padding: "4px 0 8px", alignSelf: "flex-start", opacity: 0.6, cursor: "not-allowed" }}>
           {action.label}
-        </Link>
+          <ComingSoonPill />
+        </span>
       ) : null}
     </div>
   );

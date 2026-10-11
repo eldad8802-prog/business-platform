@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { loadFacebookSdk } from "@/components/whatsapp/facebook-sdk";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
 
 /**
@@ -374,7 +375,7 @@ export function LeadSourcesPanel() {
                   {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (
-                      <Action onClick={metaLogin} busy={busy === "meta:login"}>חיבור מחדש</Action>
+                      <Action onClick={metaLogin} busy={busy === "meta:login"} comingSoon>חיבור מחדש</Action>
                     ) : null}
                     {c.sourceKey !== "meta.lead_ads" ? (
                       <>
@@ -429,7 +430,7 @@ export function LeadSourcesPanel() {
               ) : null}
               {available && s.key === "meta.lead_ads" && !metaPick ? (
                 <div className="mt-3">
-                  <Action onClick={metaLogin} busy={busy === "meta:login"} primary>
+                  <Action onClick={metaLogin} busy={busy === "meta:login"} primary comingSoon>
                     {live.length ? "חיבור דף נוסף" : "התחברות עם Facebook"}
                   </Action>
                 </div>
@@ -488,13 +489,26 @@ export function Action({
   busy,
   primary,
   danger,
+  comingSoon = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   busy?: boolean;
   primary?: boolean;
   danger?: boolean;
+  /** Not open yet (the Facebook / Instagram connection): inactive, with "בקרוב" beside it. */
+  comingSoon?: boolean;
 }) {
+  if (comingSoon) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <button type="button" disabled aria-disabled className="cursor-not-allowed rounded-full border border-[var(--dz-border)] px-4 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
+          {children}
+        </button>
+        <ComingSoonPill />
+      </span>
+    );
+  }
   const tone = primary
     ? "bg-[var(--dz-text-primary)] text-[var(--dz-surface)]"
     : danger

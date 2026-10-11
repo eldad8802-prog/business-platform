@@ -3,6 +3,7 @@
 import { TOKEN } from "@/lib/design/tokens";
 import { WA_COPY } from "./wa-copy";
 import { WhatsAppGlyph } from "./wa-icons";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 /**
  * Small, presentational building blocks shared across the WhatsApp connection
@@ -41,29 +42,33 @@ export function WaPrimaryButton({
   onClick,
   disabled = false,
   showGlyph = true,
+  comingSoon = false,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   showGlyph?: boolean;
+  /** Not open yet: inactive, with the "בקרוב" pill beside the label. */
+  comingSoon?: boolean;
 }) {
+  const inactive = disabled || comingSoon;
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={disabled}
+      onClick={comingSoon ? undefined : onClick}
+      disabled={inactive}
       style={{
         height: 52,
         width: "100%",
         border: "none",
         borderRadius: TOKEN.radius.card,
-        background: disabled ? TOKEN.ink.disabled : TOKEN.brand.whatsapp.gradient,
+        background: inactive ? TOKEN.ink.disabled : TOKEN.brand.whatsapp.gradient,
         color: TOKEN.brand.whatsapp.ink,
-        boxShadow: disabled ? TOKEN.shadow.none : TOKEN.brand.whatsapp.shadow,
+        boxShadow: inactive ? TOKEN.shadow.none : TOKEN.brand.whatsapp.shadow,
         fontSize: TOKEN.font.title,
         fontWeight: TOKEN.weight.bold,
         fontFamily: "inherit",
-        cursor: disabled ? "wait" : "pointer",
+        cursor: comingSoon ? "not-allowed" : disabled ? "wait" : "pointer",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
@@ -78,6 +83,7 @@ export function WaPrimaryButton({
         />
       )}
       {label}
+      {comingSoon ? <ComingSoonPill /> : null}
     </button>
   );
 }
