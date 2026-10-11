@@ -5,6 +5,7 @@ import { useWhatsAppConnect } from "@/components/whatsapp/use-whatsapp-connect";
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import { IconAlertTriangle } from "@/components/whatsapp/wa-icons";
 import { WhatsAppConnectInvitation } from "@/components/whatsapp/WhatsAppConnectInvitation";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 /**
  * Inbox-facing composition of the WhatsApp connection surfaces.
@@ -30,7 +31,7 @@ export function WhatsAppReconnectBanner({
 }: {
   onConnected: () => void;
 }) {
-  const { status, detail, start, reset, cancel } = useWhatsAppConnect(
+  const { status, detail, cancel } = useWhatsAppConnect(
     () => onConnected(),
     () => onConnected()
   );
@@ -90,19 +91,16 @@ export function WhatsAppReconnectBanner({
             {failed ? c.failedSubtitle : c.subtitle}
           </div>
         </div>
+        {/* WhatsApp Business connection is not open yet: the reconnect button stays, inactive, marked "בקרוב". */}
         <button
           type="button"
-          onClick={
-            failed
-              ? () => {
-                  reset();
-                  start();
-                }
-              : start
-          }
-          disabled={connecting}
+          disabled
           style={{
             flex: "0 0 auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: TOKEN.space.xs,
+            opacity: 0.6,
             border: "none",
             borderRadius: TOKEN.radius.input,
             padding: `${TOKEN.space.sm}px ${TOKEN.space.md}px`,
@@ -111,10 +109,11 @@ export function WhatsAppReconnectBanner({
             fontSize: TOKEN.font.meta,
             fontWeight: TOKEN.weight.bold,
             fontFamily: "inherit",
-            cursor: connecting ? "wait" : "pointer",
+            cursor: "not-allowed",
           }}
         >
           {connecting ? c.connecting : failed ? c.retry : c.button}
+          <ComingSoonPill />
         </button>
       </div>
       {detail === "launching" && (

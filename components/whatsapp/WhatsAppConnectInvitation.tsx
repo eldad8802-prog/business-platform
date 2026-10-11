@@ -53,6 +53,7 @@ export function WhatsAppConnectInvitation({
               reset();
               start();
             }}
+            comingSoon
           />
         </div>
       </ConnectSurface>
@@ -100,11 +101,13 @@ export function WhatsAppConnectInvitation({
       </div>
 
       <div style={footerStyle}>
+        {/* WhatsApp Business connection is not open yet: the button stays, inactive, marked "בקרוב". */}
         <WaPrimaryButton
           label={launching ? c.connecting : c.cta}
           onClick={start}
           disabled={launching}
           showGlyph={!launching}
+          comingSoon
         />
         {launching ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>

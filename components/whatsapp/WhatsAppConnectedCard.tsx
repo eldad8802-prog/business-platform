@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import type { WhatsAppPublicConnection } from "./use-whatsapp-connection";
 import { WA_COPY, waConnectErrorText } from "./wa-copy";
 import { IconChevronStart, IconPower, IconRefresh, IconSwap } from "./wa-icons";
@@ -170,6 +171,7 @@ export function WhatsAppConnectedCard({
           subtitle={a.reconnect.subtitle}
           onClick={beginConnect}
           disabled={busy}
+          comingSoon
           divider={false}
         />
         <ActionRow
@@ -178,6 +180,7 @@ export function WhatsAppConnectedCard({
           subtitle={a.switch.subtitle}
           onClick={beginConnect}
           disabled={busy}
+          comingSoon
           divider
         />
         <ActionRow
@@ -260,6 +263,7 @@ function ActionRow({
   disabled,
   danger,
   divider,
+  comingSoon = false,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -268,12 +272,15 @@ function ActionRow({
   disabled: boolean;
   danger?: boolean;
   divider: boolean;
+  /** Not open yet (WhatsApp Business reconnect / switch): inactive, "בקרוב" instead of the chevron. */
+  comingSoon?: boolean;
 }) {
+  const inactive = disabled || comingSoon;
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={disabled}
+      onClick={comingSoon ? undefined : onClick}
+      disabled={inactive}
       style={{
         display: "flex",
         alignItems: "center",
@@ -284,8 +291,8 @@ function ActionRow({
         fontFamily: "inherit",
         textAlign: "right",
         padding: "15px 2px",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.6 : 1,
+        cursor: inactive ? "not-allowed" : "pointer",
+        opacity: inactive ? 0.6 : 1,
         borderTop: divider ? `1px solid ${TOKEN.border.DEFAULT}` : "none",
       }}
     >
@@ -327,9 +334,13 @@ function ActionRow({
           {subtitle}
         </span>
       </span>
-      <span aria-hidden style={{ color: TOKEN.ink.meta, display: "inline-flex" }}>
-        <IconChevronStart size={18} />
-      </span>
+      {comingSoon ? (
+        <ComingSoonPill />
+      ) : (
+        <span aria-hidden style={{ color: TOKEN.ink.meta, display: "inline-flex" }}>
+          <IconChevronStart size={18} />
+        </span>
+      )}
     </button>
   );
 }
