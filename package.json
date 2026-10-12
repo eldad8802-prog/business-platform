@@ -158,6 +158,7 @@
     "verify:notification-documents-wiring": "npx tsx lib/notifications/documents-review-queue-notifications.verify.test.ts",
     "verify:notification-read-api": "npx tsx lib/notifications/notification-read.integration.test.ts",
     "verify:notification-center": "npx tsx components/notifications/notification-center.test.tsx",
+    "verify:business-status-stale-drafts": "npx tsx lib/business-status/stale-drafts.integration.test.ts",
     "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
     "verify:documents-analyze": "npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts",
     "verify:documents-execute": "npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts",
