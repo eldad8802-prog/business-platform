@@ -16,7 +16,8 @@ name: daily tasks A — service on the real migration (ephemeral PG17)
 
 on:
   pull_request:
-    branches: [main]
+    # Also the migration branch: this PR is stacked on #727 until it merges (migration-first).
+    branches: [main, feat/daily-tasks-a-migration]
     paths:
       - "lib/services/tasks/**"
       - "lib/services/account/**"
