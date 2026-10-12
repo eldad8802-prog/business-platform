@@ -1,0 +1,101 @@
+# Account recovery — email verification, password reset, login hardening (ephemeral PG17).
+#
+#   1. Pure suite (lib/auth/account-recovery.test.ts): link derivation, payload contract, flags OFF and
+#      fail-closed, identical forgot-password answers, limits, honeypot, Hebrew messages, static scope.
+#   2. App battery (.aet/app-battery.ts): the REAL routes and libraries against the .aet lab with
+#      migration 20261017090000_auth_email_tokens applied, as the real planes (app_auth login for the auth
+#      plane, app_runtime_prod for the tenant plane): forgot → the recorded email → its rendered link →
+#      reset → the real login route; session revocation; verification; the per-account failure limit;
+#      another business untouched.
+#
+# The TE lab creates app_auth after the AuthSession privilege migrations ran (they are role-guarded and
+# idempotent), so the battery replays those two migrations first — exactly Production's grants.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network; no email is sent (delivery OFF).
+
+name: auth account recovery — pure suite + app battery (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/auth/**"
+      - "app/login/**"
+      - "app/register/**"
+      - "app/forgot-password/**"
+      - "app/reset-password/**"
+      - "app/verify-email/**"
+      - "components/auth/**"
+      - "lib/auth/**"
+      - "lib/auth.ts"
+      - "lib/email/transactional/**"
+      - "lib/security/rate-limit.ts"
+      - "lib/security/rate-limiter/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261017090000_auth_email_tokens/**"
+      - ".aet/**"
+      - ".github/workflows/auth-account-recovery-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-account-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    name: account recovery (pure + PG17 app battery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: aet_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: aet_ci_synthetic_super_pw
+      LAB_PASSWORD: aet_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Pure suite
+        run: npx tsx lib/auth/account-recovery.test.ts
+
+      - name: 2. App battery — real routes, real roles, migration applied
+        run: |
+          set -euo pipefail
+          bash .aet/lab.sh aet_app --with-aet
+          for m in 20260908200000_auth_session_privilege_contract 20260913120000_authsession_user_agent; do
+            PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d aet_app -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/aet_app"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/aet_app" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/aet_app" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=aet_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .aet/app-battery.ts
