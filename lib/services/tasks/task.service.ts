@@ -36,6 +36,7 @@ import {
   missedOccurrences,
   nextOccurrenceAfterClose,
   normalizeRule,
+  ruleOfSeries,
   occurrenceOnResume,
   validatePayload,
   validateRule,
@@ -122,6 +123,10 @@ export type TaskResult = {
   series: TaskSeries | null;
   nextTaskId: number | null;
   withdrawnTaskId: number | null;
+  /** Source-item display-state actions (handled for today, remind later, pin). */
+  sourceStateId: number | null;
+  /** The supplier payment recorded through "שילמת?" (the payment service's own id). */
+  paymentId: number | null;
   replayed: boolean;
 };
 
@@ -164,7 +169,7 @@ function assertDay(field: string, value: unknown): asserts value is JerusalemDay
   if (!isDayKey(value)) throw new TaskServiceError("INVALID_INPUT", { field });
 }
 
-function isUniqueViolation(e: unknown): boolean {
+export function isUniqueViolation(e: unknown): boolean {
   if (e instanceof Prisma.PrismaClientKnownRequestError) return e.code === "P2002";
   const msg = e instanceof Error ? e.message : String(e);
   return /23505|unique constraint/i.test(msg);
@@ -172,68 +177,101 @@ function isUniqueViolation(e: unknown): boolean {
 
 // ── The idempotent envelope ─────────────────────────────────────────────────────────────────────
 
-type Ctx = { tx: TaskTx; businessId: number; userId: number; now: Date; today: JerusalemDayKey; events: JournalEntry[] };
+export type TaskCtx = { tx: TaskTx; businessId: number; userId: number; now: Date; today: JerusalemDayKey; events: JournalEntry[] };
+type Ctx = TaskCtx;
+
+/** A request's identity: its key, its time, and its digest (12.9). */
+export type PreparedRequest = {
+  actor: TaskActor;
+  key: string;
+  now: Date;
+  keys: ReturnType<typeof digestKeysFromEnv>;
+  ident: RequestIdentity;
+  digest: { value: string; keyId: string };
+};
+
+export function prepareRequest(actor: TaskActor, req: TaskRequest, route: string, body: unknown): PreparedRequest {
+  const now = req.now ?? new Date();
+  const key = req.idempotencyKey;
+  if (typeof key !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(key)) throw new TaskServiceError("IDEMPOTENCY_KEY_INVALID");
+  const keys = digestKeysFromEnv();
+  const ident: RequestIdentity = { route, businessId: actor.businessId, userId: actor.userId, body };
+  return { actor, key, now, keys, ident, digest: { value: requestDigest(keys.current, ident), keyId: keys.current.id } };
+}
+
+/**
+ * An earlier answer to this key, if any: the fingerprint ledger first (a row older than 7 days counts as absent),
+ * then the journal. The same key with a different request — or a key whose digest was erased — is refused.
+ */
+export async function findPrior(tx: TaskTx, p: PreparedRequest): Promise<ResultRef | null> {
+  const businessId = p.actor.businessId;
+  const fp = await findFingerprint(tx, businessId, p.key, new Date(p.now.getTime() - FINGERPRINT_TTL_MS));
+  if (fp) {
+    const expected = digestWithKeyId(p.keys, fp.digestKeyId, p.ident);
+    if (!expected || !sameDigest(expected, fp.requestDigest)) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
+    return fp.resultRef as ResultRef;
+  }
+  const origin = await findJournalOrigin(tx, businessId, p.key);
+  if (origin) {
+    if (!origin.requestDigest || !origin.digestKeyId) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
+    const expected = digestWithKeyId(p.keys, origin.digestKeyId, p.ident);
+    if (!expected || !sameDigest(expected, origin.requestDigest)) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
+    const pl = (origin.payload ?? {}) as Record<string, unknown>;
+    return {
+      taskId: origin.taskId ?? (typeof pl.firstTaskId === "number" ? pl.firstTaskId : undefined),
+      seriesId: origin.seriesId ?? undefined,
+      nextTaskId: typeof pl.nextTaskId === "number" ? pl.nextTaskId : undefined,
+      withdrawnTaskId: typeof pl.withdrawnTaskId === "number" ? pl.withdrawnTaskId : undefined,
+    };
+  }
+  return null;
+}
+
+/** Only a young key may cause a write (12.9). */
+export function assertKeyMayWrite(p: PreparedRequest): void {
+  const verdict = checkIdempotencyKey(p.key, p.now);
+  if (!verdict.ok) throw new TaskServiceError(verdict.code);
+}
+
+/** Journal the request's events and record its fingerprint, in the request's transaction. */
+export async function commitRequest(tx: TaskTx, p: PreparedRequest, events: JournalEntry[], result: ResultRef): Promise<void> {
+  for (const e of events) {
+    const problem = validatePayload(e.eventType, e.payload);
+    if (problem) throw new Error(`task journal payload refused: ${e.eventType}.${problem.key} ${problem.problem}`);
+  }
+  await appendEvents(tx, p.actor.businessId, p.key, p.digest, p.now, events);
+  // A fingerprint older than 7 days counts as absent (T-T5); the retention path may not have removed it yet,
+  // so it is cleared here (this business, this key only) before the fresh one takes its place.
+  await tx.taskRequestLedger.deleteMany({
+    where: { businessId: p.actor.businessId, idempotencyKey: p.key, createdAt: { lt: new Date(p.now.getTime() - FINGERPRINT_TTL_MS) } },
+  });
+  await recordFingerprint(tx, p.actor.businessId, p.key, p.digest, result);
+}
 
 /**
  * One request = one transaction: look for an earlier answer to this key, else do the work, journal it, and
  * record the fingerprint — atomically. A concurrent first request loses on a unique key and is answered from
  * the winner's result in a fresh transaction (never a 500).
  */
-async function idempotent(
+export async function idempotent(
   actor: TaskActor,
   req: TaskRequest,
   route: string,
   body: unknown,
   work: (ctx: Ctx) => Promise<ResultRef>,
 ): Promise<TaskResult> {
-  const now = req.now ?? new Date();
-  const key = req.idempotencyKey;
-  if (typeof key !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(key)) throw new TaskServiceError("IDEMPOTENCY_KEY_INVALID");
-  const keys = digestKeysFromEnv();
-  const ident: RequestIdentity = { route, businessId: actor.businessId, userId: actor.userId, body };
-  const digest = { value: requestDigest(keys.current, ident), keyId: keys.current.id };
+  const p = prepareRequest(actor, req, route, body);
+  const { now, key, digest } = p;
 
   const attempt = () =>
     tenantTx(actor.businessId, async (tx) => {
-      // 1. The fingerprint ledger — a row older than 7 days counts as absent.
-      const fp = await findFingerprint(tx, actor.businessId, key, new Date(now.getTime() - FINGERPRINT_TTL_MS));
-      if (fp) {
-        const expected = digestWithKeyId(keys, fp.digestKeyId, ident);
-        if (!expected || !sameDigest(expected, fp.requestDigest)) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
-        return { replay: fp.resultRef as ResultRef };
-      }
-      // 2. The journal — the second line, for a fingerprint already gone.
-      const origin = await findJournalOrigin(tx, actor.businessId, key);
-      if (origin) {
-        if (!origin.requestDigest || !origin.digestKeyId) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
-        const expected = digestWithKeyId(keys, origin.digestKeyId, ident);
-        if (!expected || !sameDigest(expected, origin.requestDigest)) throw new TaskServiceError("IDEMPOTENCY_KEY_REUSED");
-        const p = (origin.payload ?? {}) as Record<string, unknown>;
-        return {
-          replay: {
-            taskId: origin.taskId ?? (typeof p.firstTaskId === "number" ? p.firstTaskId : undefined),
-            seriesId: origin.seriesId ?? undefined,
-            nextTaskId: typeof p.nextTaskId === "number" ? p.nextTaskId : undefined,
-            withdrawnTaskId: typeof p.withdrawnTaskId === "number" ? p.withdrawnTaskId : undefined,
-          } satisfies ResultRef,
-        };
-      }
-      // 3. A new write: only a young key may cause one.
-      const verdict = checkIdempotencyKey(key, now);
-      if (!verdict.ok) throw new TaskServiceError(verdict.code);
+      const prior = await findPrior(tx, p);
+      if (prior) return { replay: prior };
+      assertKeyMayWrite(p);
       const ctx: Ctx = { tx, businessId: actor.businessId, userId: actor.userId, now, today: jerusalemDayKey(now), events: [] };
       const result = await work(ctx);
-      for (const e of ctx.events) {
-        const problem = validatePayload(e.eventType, e.payload);
-        if (problem) throw new Error(`task journal payload refused: ${e.eventType}.${problem.key} ${problem.problem}`);
-      }
-      await appendEvents(tx, actor.businessId, key, digest, now, ctx.events);
-      // A fingerprint older than 7 days counts as absent (T-T5); the retention path may not have removed it yet,
-      // so it is cleared here (this business, this key only) before the fresh one takes its place.
-      await tx.taskRequestLedger.deleteMany({
-        where: { businessId: actor.businessId, idempotencyKey: key, createdAt: { lt: new Date(now.getTime() - FINGERPRINT_TTL_MS) } },
-      });
-      await recordFingerprint(tx, actor.businessId, key, digest, result);
+      await commitRequest(tx, p, ctx.events, result);
+      void key; void digest;
       return { written: result };
     });
 
@@ -254,22 +292,24 @@ async function idempotent(
   return materialize(actor.businessId, ref, "replay" in out);
 }
 
-async function materialize(businessId: number, ref: ResultRef, replayed: boolean): Promise<TaskResult> {
+export async function materialize(businessId: number, ref: ResultRef, replayed: boolean): Promise<TaskResult> {
   return tenantTx(businessId, async (tx) => ({
     task: ref.taskId ? await tx.task.findFirst({ where: { id: ref.taskId, businessId } }) : null,
     series: ref.seriesId ? await tx.taskSeries.findFirst({ where: { id: ref.seriesId, businessId } }) : null,
     nextTaskId: ref.nextTaskId ?? null,
     withdrawnTaskId: ref.withdrawnTaskId ?? null,
+    sourceStateId: ref.sourceStateId ?? null,
+    paymentId: ref.paymentId ?? null,
     replayed,
   }));
 }
 
 // ── Helpers inside a request ────────────────────────────────────────────────────────────────────
 
-function own(ctx: Ctx, e: Omit<JournalEntry, "actor" | "actorUserId">) {
+export function own(ctx: Ctx, e: Omit<JournalEntry, "actor" | "actorUserId">) {
   ctx.events.push({ ...e, actor: "OWNER_USER", actorUserId: ctx.userId, payload: compactPayload(e.payload) });
 }
-function system(ctx: Ctx, e: Omit<JournalEntry, "actor" | "actorUserId">) {
+export function system(ctx: Ctx, e: Omit<JournalEntry, "actor" | "actorUserId">) {
   ctx.events.push({ ...e, actor: "SYSTEM", actorUserId: null, payload: compactPayload(e.payload) });
 }
 
@@ -302,14 +342,7 @@ async function updateSeries(ctx: Ctx, series: TaskSeries, expectedVersion: numbe
   return (await ctx.tx.taskSeries.findFirst({ where: { id: series.id, businessId: ctx.businessId } }))!;
 }
 
-function ruleOf(s: TaskSeries): SeriesRule {
-  switch (s.ruleKind) {
-    case "DAILY": return { kind: "DAILY" };
-    case "WEEKDAYS": return { kind: "WEEKDAYS", weekdays: s.ruleWeekdays };
-    case "MONTH_DAY": return { kind: "MONTH_DAY", monthDay: s.ruleMonthDay ?? 1 };
-    case "EVERY_N_DAYS": return { kind: "EVERY_N_DAYS", intervalDays: s.ruleIntervalDays ?? 2 };
-  }
-}
+const ruleOf = (s: TaskSeries): SeriesRule => ruleOfSeries(s);
 
 function ruleColumns(rule: SeriesRule) {
   return {
@@ -626,3 +659,29 @@ export const endSeries = seriesState("END");
 
 /** Calendar day helper re-exported for callers that build agenda days (milestone B). */
 export { addCalendarDays };
+
+/**
+ * Sync only (8.6 step 4, 8.7): an active series with no open occurrence gets the one its rule expects, under the
+ * series lock — the same lock every owner action on the series takes, so a parallel "complete" and a repair end
+ * with one open occurrence in either order (T-Y6). Journaled as SYSTEM under a deterministic key, so two syncs
+ * cannot write it twice (T-C7). Returns the created task id, or null when nothing was missing.
+ */
+export async function repairSeries(tx: TaskTx, businessId: number, seriesId: number, now: Date): Promise<number | null> {
+  if (!(await lockSeries(tx, businessId, seriesId))) return null;
+  const series = await tx.taskSeries.findFirst({ where: { id: seriesId, businessId } });
+  if (!series || series.pausedAt || series.endedAt) return null;
+  if (await tx.task.findFirst({ where: { businessId, seriesId, status: "OPEN" }, select: { id: true } })) return null;
+  const ctx: Ctx = { tx, businessId, userId: 0, now, today: jerusalemDayKey(now), events: [] };
+  const rule = ruleOf(series);
+  const startOn = dbDateToDayKey(series.startOn);
+  const last = await tx.task.findFirst({ where: { businessId, seriesId, status: { not: "OPEN" } }, orderBy: { sequence: "desc" }, select: { dueOn: true } });
+  const lastDue = last?.dueOn ? dbDateToDayKey(last.dueOn) : null;
+  const dueOn = last ? nextOccurrenceAfterClose(rule, startOn, lastDue, ctx.today) : firstOccurrenceOnOrAfter(rule, startOn, ctx.today);
+  const created = await createOccurrence(ctx, series, dueOn, "SYSTEM");
+  for (const e of ctx.events) {
+    const problem = validatePayload(e.eventType, e.payload);
+    if (problem) throw new TaskServiceError("INVALID_INPUT", { payload: problem });
+  }
+  await appendEvents(tx, businessId, `sync:repair:${seriesId}:${created.sequence}`, null, now, ctx.events);
+  return created.id;
+}

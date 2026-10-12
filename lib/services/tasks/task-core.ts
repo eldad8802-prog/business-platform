@@ -253,3 +253,32 @@ export function validatePayload(eventType: string, payload: Record<string, unkno
 export function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined));
 }
+
+// ── Series rows and their cadence, in the owner's words ─────────────────────────────────────────
+
+/** The rule a stored series carries (TaskSeries columns). */
+export function ruleOfSeries(s: { ruleKind: string; ruleWeekdays: number[]; ruleMonthDay: number | null; ruleIntervalDays: number | null }): SeriesRule {
+  switch (s.ruleKind) {
+    case "WEEKDAYS": return { kind: "WEEKDAYS", weekdays: s.ruleWeekdays };
+    case "MONTH_DAY": return { kind: "MONTH_DAY", monthDay: s.ruleMonthDay ?? 1 };
+    case "EVERY_N_DAYS": return { kind: "EVERY_N_DAYS", intervalDays: s.ruleIntervalDays ?? 2 };
+    default: return { kind: "DAILY" };
+  }
+}
+
+const WEEKDAY_FULL = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+const WEEKDAY_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+/** "כל יום" · "כל יום שלישי" · "בימים א׳, ה׳" · "כל 15 בחודש" · "בסוף כל חודש" · "כל 3 ימים". */
+export function cadenceLabel(rule: SeriesRule): string {
+  switch (rule.kind) {
+    case "DAILY": return "כל יום";
+    case "WEEKDAYS": {
+      const days = [...new Set(rule.weekdays)].sort((a, b) => a - b);
+      if (days.length === 7) return "כל יום";
+      return days.length === 1 ? `כל יום ${WEEKDAY_FULL[days[0]]}` : `בימים ${days.map((d) => WEEKDAY_SHORT[d]).join(", ")}`;
+    }
+    case "MONTH_DAY": return rule.monthDay === 31 ? "בסוף כל חודש" : `כל ${rule.monthDay} בחודש`;
+    case "EVERY_N_DAYS": return `כל ${rule.intervalDays} ימים`;
+  }
+}

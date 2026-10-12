@@ -10,6 +10,7 @@ import {
   IconReceipt,
   IconSecretary,
   IconSettings,
+  IconTasks,
   IconUsers,
   type IconComponent,
 } from "./nav-icons";
@@ -39,6 +40,8 @@ export type NavDestination = {
   group: NavGroupKey;
   /** Shown in the mobile bottom bar and the tablet rail (the four primary tabs). */
   primary?: boolean;
+  /** Shown only while this platform feature is ON for the business (fail-closed until known). */
+  feature?: string;
 };
 
 export type NavGroup = {
@@ -78,11 +81,14 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, group: "main", primary: true },
   { key: "payments", label: "גבייה", href: "/collection", icon: IconCash, group: "money" },
   { key: "billing", label: "חשבוניות", href: "/billing", icon: IconReceipt, group: "money" },
-  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconCalendar, group: "money" },
   { key: "customers", label: "לקוחות", href: "/customers", icon: IconUsers, group: "customers" },
   { key: "leads", label: "לידים", href: "/leads", icon: IconLeads, group: "customers" },
-  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconBox, group: "business" },
+  // ניהול העסק (Daily Tasks B, owner-approved): the task centre, the secretary and the commitments sit together —
+  // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
+  { key: "tasks", label: "משימות", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
   { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary, group: "business" },
+  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconCalendar, group: "business" },
+  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconBox, group: "business" },
   { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings, group: "footer" },
 ];
 
