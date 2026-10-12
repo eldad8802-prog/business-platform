@@ -228,6 +228,11 @@ async function idempotent(
         if (problem) throw new Error(`task journal payload refused: ${e.eventType}.${problem.key} ${problem.problem}`);
       }
       await appendEvents(tx, actor.businessId, key, digest, now, ctx.events);
+      // A fingerprint older than 7 days counts as absent (T-T5); the retention path may not have removed it yet,
+      // so it is cleared here (this business, this key only) before the fresh one takes its place.
+      await tx.taskRequestLedger.deleteMany({
+        where: { businessId: actor.businessId, idempotencyKey: key, createdAt: { lt: new Date(now.getTime() - FINGERPRINT_TTL_MS) } },
+      });
       await recordFingerprint(tx, actor.businessId, key, digest, result);
       return { written: result };
     });

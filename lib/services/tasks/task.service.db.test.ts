@@ -215,10 +215,26 @@ async function main() {
   ok("T-I6: parallel first requests → one task, the same answer to both, no error",
     both[0] === both[1] && typeof both[0] === "number" && (await owner.task.count({ where: { businessId: bizA.id, title: "parallel first" } })) === 1, both);
 
+  // T-T5: a fingerprint row older than 7 days that the retention path has not removed yet counts as absent.
+  const k7 = key();
+  await owner.taskRequestLedger.create({
+    data: { businessId: bizA.id, idempotencyKey: k7, requestDigest: "f".repeat(64), digestKeyId: "lab1", resultRef: { taskId: 999999 },
+            createdAt: new Date(NOW.getTime() - (7 * 24 + 1) * 3600_000) },
+  });
+  const t5 = await svc.createTask(A, req(k7), { title: "stale fingerprint ignored" });
+  ok("T-T5: a 7-day-and-1-hour fingerprint row is treated as absent (not a reuse, not a replay)",
+    t5.replayed === false && t5.task?.title === "stale fingerprint ignored" && t5.task?.id !== 999999);
+
   // ── Erasure (12.6, T-P1) ─────────────────────────────────────────────────────────────────────
   console.log("erasure");
   const before = await owner.taskEvent.count({ where: { businessId: bizA.id } });
-  const evDigestBefore = JSON.stringify(await owner.taskEvent.findMany({ where: { businessId: bizA.id }, orderBy: { id: "asc" } }));
+  const strip = (rows: Record<string, unknown>[]) => JSON.stringify(rows.map(({ actorUserId: _a, requestDigest: _d, digestKeyId: _k, ...rest }) => rest));
+  const evRestBefore = strip(await owner.taskEvent.findMany({ where: { businessId: bizA.id }, orderBy: { id: "asc" } }));
+  ok("before erasure the journal names the acting user and carries digests",
+    (await owner.taskEvent.count({ where: { businessId: bizA.id, actorUserId: { not: null } } })) > 0
+    && (await owner.taskEvent.count({ where: { businessId: bizA.id, requestDigest: { not: null } } })) > 0);
+  // The erasure job runs after the quarantine stage (deletionRequestedAt), as in the real flow.
+  await owner.business.update({ where: { id: bizA.id }, data: { deletionRequestedAt: new Date() } });
   await prismaAccountDeletionStore.purgeOperationalData(bizA.id);
   const tasks = await owner.task.findMany({ where: { businessId: bizA.id } });
   const series = await owner.taskSeries.findMany({ where: { businessId: bizA.id } });
@@ -226,9 +242,12 @@ async function main() {
     tasks.length > 0 && tasks.every((t) => t.title === "" && t.description === null && t.erasedAt !== null));
   ok("T-P1: every series' title is blank, its note gone, erasedAt set", series.length > 0 && series.every((s) => s.title === "" && s.note === null && s.erasedAt !== null));
   ok("T-P1: the request fingerprints are removed", (await owner.taskRequestLedger.count({ where: { businessId: bizA.id } })) === 0);
-  ok("T-P1: the journal is untouched by the erasure (append-only)",
+  ok("T-P1: every journal event lost its acting user and its request digest",
+    (await owner.taskEvent.count({ where: { businessId: bizA.id, OR: [{ actorUserId: { not: null } }, { requestDigest: { not: null } }, { digestKeyId: { not: null } }] } })) === 0);
+  ok("T-P1: …and nothing else in the journal changed (no row removed, every other column identical)",
     (await owner.taskEvent.count({ where: { businessId: bizA.id } })) === before
-    && JSON.stringify(await owner.taskEvent.findMany({ where: { businessId: bizA.id }, orderBy: { id: "asc" } })) === evDigestBefore);
+    && strip(await owner.taskEvent.findMany({ where: { businessId: bizA.id }, orderBy: { id: "asc" } })) === evRestBefore);
+
   ok("business B is untouched by A's erasure", (await owner.task.count({ where: { businessId: bizB.id, erasedAt: { not: null } } })) === 0);
 
   console.log(failed === 0 ? `\ntask service (runtime role): all ${checks} checks hold.` : `\n${failed} of ${checks} FAILED`);
