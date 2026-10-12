@@ -394,6 +394,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // title). The runtime holds DELETE on this table, bound by RLS to the
           // erased business (task_request_ledger_runtime_delete, CI-AD-13).
           await tx.taskRequestLedger.deleteMany({ where: { businessId } });
+          // The journal: the acting user and the request digest of every event go
+          // (T-P1). The runtime cannot change the journal directly; this SECURITY
+          // DEFINER function is its one path, and it refuses unless the business in
+          // this tenant context is being deleted (deletionRequestedAt, set by the
+          // quarantine stage before this purge runs).
+          await tx.$queryRaw`SELECT public.task_retention_erase_business() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

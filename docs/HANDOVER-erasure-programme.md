@@ -504,10 +504,10 @@ All keyed `C12-UNMANAGED-PERSONAL-DATA::<Model>`.
 
 **Update (Daily Tasks, milestone A):** `Task` left this list. The erasure now blanks the text of every
 task and series in place (`title` = '', note NULL, `erasedAt` set; the runtime has no DELETE and the rows are
-the business's history) and deletes the request fingerprints (`TaskRequestLedger`). `TaskEvent` joined it
-instead, keyed `DAILY-TASKS-B-GATE`: its 7-day request digest is cleared by the retention path, which the runtime
-cannot run, so it stays unmanaged until that workflow is switched on — the gate before any business gets
-`daily_tasks`. No event exists while the flag is off.
+the business's history) and deletes the request fingerprints (`TaskRequestLedger`). The append-only journal (`TaskEvent`) loses its two
+identifying columns — the acting user and the request digest — through `task_retention_erase_business()`, a
+SECURITY DEFINER function the adapter calls in the erased business's tenant transaction; it refuses for a business
+that is not being deleted, and the runtime has no other way to change the journal.
 
 ### C13 — models needing an owner or design decision (21)
 
