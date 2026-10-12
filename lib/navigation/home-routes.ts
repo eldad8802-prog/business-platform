@@ -51,6 +51,8 @@ export type Tool = {
    * tint of the named existing tile. Reported, never invented.
    */
   colorSource: string;
+  /** Shown but not open yet: the row stays visible, inactive, marked "בקרוב" (UI only). */
+  comingSoon?: boolean;
 };
 
 export type ToolGroup = {
@@ -296,6 +298,7 @@ export const TOOLS: Tool[] = [
     color: "clay",
     group: "customers",
     colorSource: "borrowed:coupons",
+    comingSoon: true,
   },
   // --- ניהול העסק -----------------------------------------------------------
   {
