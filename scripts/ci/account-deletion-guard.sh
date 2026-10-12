@@ -232,7 +232,14 @@ run_guard() {
   # the address or a timestamp — bound to app.current_business_id, so erasure
   # deletes exactly the erased business's links. app_auth holds nothing on the
   # table (it reaches it only through four SECURITY DEFINER functions).
-  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete'
+  #
+  #   task_request_ledger_runtime_delete  TaskRequestLedger  account erasure ONLY
+  #
+  # Daily-tasks request fingerprints (HMAC of a request, 7-day operational record
+  # behind Idempotency-Key). app_runtime holds SELECT / INSERT / DELETE, bound to
+  # app.current_business_id, so erasure removes exactly the erased business's
+  # fingerprints. Every other task table has no DELETE policy and no DELETE grant.
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete|task_request_ledger_runtime_delete'
   local ci13
   ci13="$(
     grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \
