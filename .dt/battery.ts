@@ -135,11 +135,24 @@ async function main() {
     `SELECT coalesce(string_agg(DISTINCT pg_get_userbyid(x.grantee), ',' ORDER BY pg_get_userbyid(x.grantee)), '') AS g
        FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) x
       WHERE p.proname LIKE 'task\\_retention\\_%' AND x.grantee <> p.proowner`))[0].g);
-  ok("EXECUTE on the retention functions: task_maintenance only", exec === "task_maintenance", exec);
+  ok("EXECUTE on the retention functions: task_maintenance, plus app_runtime on the erasure entry point", exec === "app_runtime,task_maintenance", exec);
+  const execSplit = rows(await owner.$queryRawUnsafe(
+    `SELECT p.proname AS f, string_agg(pg_get_userbyid(x.grantee), ',' ORDER BY pg_get_userbyid(x.grantee)) AS g
+       FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) x
+      WHERE p.proname LIKE 'task\\_retention\\_%' AND x.grantee <> p.proowner GROUP BY p.proname ORDER BY 1`));
+  ok("…exactly: the five retention entry points → task_maintenance; task_retention_erase_business → app_runtime",
+    J(execSplit) === J([
+      { f: "task_retention_clear_event_digests", g: "task_maintenance" },
+      { f: "task_retention_clear_source_identifiers", g: "task_maintenance" },
+      { f: "task_retention_erase_business", g: "app_runtime" },
+      { f: "task_retention_purge_learning_events", g: "task_maintenance" },
+      { f: "task_retention_purge_request_ledger", g: "task_maintenance" },
+      { f: "task_retention_purge_source_state", g: "task_maintenance" },
+    ]), J(execSplit));
   const runtimeExec = num(await owner.$queryRawUnsafe(
     `SELECT count(*) AS n FROM pg_proc p WHERE p.proname LIKE 'task\\_%' AND has_function_privilege('app_runtime_prod', p.oid, 'EXECUTE')
-        AND p.proname LIKE 'task\\_retention\\_%'`));
-  ok("app_runtime_prod cannot EXECUTE any retention function", runtimeExec === 0, String(runtimeExec));
+        AND p.proname LIKE 'task\\_retention\\_%' AND p.proname <> 'task_retention_erase_business'`));
+  ok("app_runtime_prod cannot EXECUTE any retention function (the erasure entry point aside)", runtimeExec === 0, String(runtimeExec));
   const role = rows(await owner.$queryRawUnsafe(`SELECT rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'task_maintenance'`))[0];
   ok("task_maintenance is NOLOGIN NOSUPERUSER NOBYPASSRLS", role?.rolcanlogin === false && role?.rolsuper === false && role?.rolbypassrls === false);
   const flag = rows(await owner.$queryRawUnsafe(
@@ -354,6 +367,27 @@ async function main() {
   const openState = num(await owner.$queryRawUnsafe(`SELECT count(*) AS n FROM "TaskSourceState" WHERE "cycleKey" = 'open1'`));
   ok("source state: a cycle closed > 90 days ago is removed; an open one stays", st === 1 && openState === 1, `${st}/${openState}`);
   await owner.$executeRawUnsafe(`UPDATE "TaskRetentionPolicy" SET "days" = NULL WHERE "basis" = 'H3_PENDING'`);
+
+  // ── 7. Account erasure: the runtime's one path into the journal ──────────────────────────────
+  console.log("7. account erasure");
+  const erase = (guc: number | null) => q(runtime, guc, `SELECT public.task_retention_erase_business() AS n`);
+  ok("erasure without a tenant context is refused", refused(await erase(null), /TASK_ERASURE_NO_CONTEXT/));
+  ok("erasure of an ACTIVE business is refused", refused(await erase(bizA), /TASK_ERASURE_NOT_DELETING/));
+  const keyA = key("ev"), keyB = key("ev");
+  await owner.$executeRawUnsafe(`INSERT INTO "TaskEvent" ("businessId", "eventType", "actor", "actorUserId", "idempotencyKey", "requestDigest", "digestKeyId", "payload") VALUES ($1, 'TASK_EDITED', 'OWNER_USER', $2, $3, repeat('a', 64), 'k1', '{"fields": ["title"]}')`, bizA, userA, keyA);
+  await owner.$executeRawUnsafe(`INSERT INTO "TaskEvent" ("businessId", "eventType", "actor", "actorUserId", "idempotencyKey", "requestDigest", "digestKeyId") VALUES ($1, 'TASK_EDITED', 'OWNER_USER', $2, $3, repeat('b', 64), 'k1')`, bizB, userB, keyB);
+  const beforeA = rows(await owner.$queryRawUnsafe(`SELECT to_jsonb(e) - 'actorUserId' - 'requestDigest' - 'digestKeyId' AS j FROM "TaskEvent" e WHERE "idempotencyKey" = $1`, keyA))[0].j;
+  await owner.$executeRawUnsafe(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE "id" = $1`, bizA);
+  const erased = num(await erase(bizA));
+  const afterA = rows(await owner.$queryRawUnsafe(`SELECT "actorUserId" AS u, "requestDigest" AS d, "digestKeyId" AS k, to_jsonb(e) - 'actorUserId' - 'requestDigest' - 'digestKeyId' AS j FROM "TaskEvent" e WHERE "idempotencyKey" = $1`, keyA))[0];
+  const otherB = rows(await owner.$queryRawUnsafe(`SELECT "actorUserId" AS u, "requestDigest" AS d FROM "TaskEvent" WHERE "idempotencyKey" = $1`, keyB))[0];
+  ok("erasure of a business being deleted nulls actorUserId and the digest, and nothing else",
+    erased >= 1 && afterA.u === null && afterA.d === null && afterA.k === null && J(afterA.j) === J(beforeA), `${erased}`);
+  ok("erasure never reaches another business", otherB.u === userB && otherB.d !== null);
+  ok("A's context cannot erase B (B is active): refused", refused(await erase(bizB), /TASK_ERASURE_NOT_DELETING/));
+  ok("the runtime still cannot change the journal directly, even for a business being deleted",
+    refused(await x(runtime, bizA, `UPDATE "TaskEvent" SET "payload" = '{}' WHERE "businessId" = $1`, bizA), DENIED));
+  await owner.$executeRawUnsafe(`UPDATE "Business" SET "deletionRequestedAt" = NULL WHERE "id" = $1`, bizA);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n  - " + failures.join("\n  - ")); process.exitCode = 1; }

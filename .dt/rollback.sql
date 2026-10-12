@@ -26,6 +26,7 @@ $rb$;
 DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'daily_tasks';
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'daily_tasks';
 
+DROP FUNCTION public.task_retention_erase_business();
 DROP FUNCTION public.task_retention_purge_source_state();
 DROP FUNCTION public.task_retention_purge_learning_events();
 DROP FUNCTION public.task_retention_clear_source_identifiers();

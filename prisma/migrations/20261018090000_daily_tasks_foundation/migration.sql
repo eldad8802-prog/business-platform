@@ -43,6 +43,10 @@
 --   delete rows. TRUNCATE is refused by a statement trigger. "payload" is a closed shape: a JSON object
 --   whose strings are short tokens ([A-Za-z0-9_:.-]{0,64}) — no free text can be stored, by construction.
 --
+-- ACCOUNT ERASURE
+--   task_retention_erase_business(), EXECUTE for app_runtime: nulls actorUserId and the request digest of the
+--   journal of the business in the tenant context, and refuses unless that business is being deleted.
+--
 -- RETENTION (planning; NOTHING IS SCHEDULED OR RUN BY THIS MIGRATION)
 --   Five SECURITY DEFINER functions, owned by the migration role like every definer function in this
 --   repository (it carries BYPASSRLS in Production), are the only path that changes history. They read
@@ -493,7 +497,8 @@ DECLARE
 BEGIN
   DELETE FROM "TaskRequestLedger" l
    WHERE l."createdAt" < v_cutoff
-      OR EXISTS (SELECT 1 FROM "Business" b WHERE b."id" = l."businessId" AND b."deletedAt" IS NOT NULL);
+      OR EXISTS (SELECT 1 FROM "Business" b WHERE b."id" = l."businessId"
+                   AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL));
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END
@@ -515,7 +520,8 @@ BEGIN
   UPDATE "TaskEvent" e SET "requestDigest" = NULL, "digestKeyId" = NULL
    WHERE e."requestDigest" IS NOT NULL
      AND (e."occurredAt" < v_cutoff
-          OR EXISTS (SELECT 1 FROM "Business" b WHERE b."id" = e."businessId" AND b."deletedAt" IS NOT NULL));
+          OR EXISTS (SELECT 1 FROM "Business" b WHERE b."id" = e."businessId"
+                       AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL)));
   GET DIAGNOSTICS v_n = ROW_COUNT;
   PERFORM set_config('dubiz.task_retention', 'off', true);
   RETURN v_n;
@@ -585,6 +591,38 @@ DECLARE
 BEGIN
   DELETE FROM "TaskSourceState" s WHERE s."closedObservedAt" IS NOT NULL AND s."closedObservedAt" < v_cutoff;
   GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END
+$fn$;
+
+-- Account erasure (12.6, T-P1): the one path by which the RUNTIME may touch the journal. It nulls the acting user
+-- and the request digest of every event of the business in the tenant context — nothing else, no other column,
+-- no other business — and only while that business is being deleted (deletionRequestedAt or deletedAt set).
+-- The account-deletion flow calls it inside its tenant transaction; for an active business it refuses.
+CREATE OR REPLACE FUNCTION public.task_retention_erase_business()
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $fn$
+DECLARE
+  v_business integer := NULLIF(current_setting('app.current_business_id', true), '')::integer;
+  v_n integer;
+BEGIN
+  IF v_business IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZT04', MESSAGE = 'TASK_ERASURE_NO_CONTEXT: no tenant context; nothing was changed';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "Business" b WHERE b."id" = v_business
+                   AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL)) THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZT04', MESSAGE = 'TASK_ERASURE_NOT_DELETING: the business is not being deleted; nothing was changed';
+  END IF;
+  PERFORM set_config('dubiz.task_retention', 'on', true);
+  UPDATE "TaskEvent" e SET "actorUserId" = NULL, "requestDigest" = NULL, "digestKeyId" = NULL
+   WHERE e."businessId" = v_business
+     AND (e."actorUserId" IS NOT NULL OR e."requestDigest" IS NOT NULL);
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  PERFORM set_config('dubiz.task_retention', 'off', true);
   RETURN v_n;
 END
 $fn$;
@@ -727,11 +765,20 @@ REVOKE ALL ON FUNCTION public.task_retention_clear_event_digests() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.task_retention_clear_source_identifiers() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.task_retention_purge_learning_events() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.task_retention_purge_source_state() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.task_retention_erase_business() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.task_retention_purge_request_ledger() TO task_maintenance;
 GRANT EXECUTE ON FUNCTION public.task_retention_clear_event_digests() TO task_maintenance;
 GRANT EXECUTE ON FUNCTION public.task_retention_clear_source_identifiers() TO task_maintenance;
 GRANT EXECUTE ON FUNCTION public.task_retention_purge_learning_events() TO task_maintenance;
 GRANT EXECUTE ON FUNCTION public.task_retention_purge_source_state() TO task_maintenance;
+-- Account erasure runs as the runtime, inside the erased business's tenant transaction (the function checks both).
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
+    GRANT EXECUTE ON FUNCTION public.task_retention_erase_business() TO app_runtime;
+  END IF;
+END
+$do$;
 
 -- ── 15. The flag — OFF ─────────────────────────────────────────────────────────────────────────
 

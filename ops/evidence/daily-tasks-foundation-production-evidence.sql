@@ -16,7 +16,7 @@
 --   * "Task" has its 26 columns, its four checks, its eight new keys and four new indexes (one partial
 --     unique: one open occurrence per series); Supplier's tenant key; the six composite keys of the new
 --     tables, validated;
---   * the five triggers are enabled; the nine functions exist, the six retention ones SECURITY DEFINER with
+--   * the five triggers are enabled; the ten functions exist, the seven retention / erasure ones SECURITY DEFINER with
 --     a pinned search_path and owned by the migration role; EXECUTE on the five retention entry points is
 --     held by task_maintenance alone, and task_maintenance is a NOLOGIN NOSUPERUSER NOBYPASSRLS role with no
 --     member but its creator, the migration role (no login can run them);
@@ -52,8 +52,8 @@
 \echo '16 Supplier carries UNIQUE ("businessId", "id") (observed = constraints)'
 \echo '17 the composite tenant keys of TaskSeries (4) and TaskEvent (2) exist and are validated (observed = of 6)'
 \echo '18 the five triggers exist and are enabled (observed = of 5)'
-\echo '19 nine functions; the six retention ones SECURITY DEFINER, search_path pinned, owned by the migration role; the three guards are not definer functions (observed = matching, of 9)'
-\echo '20 EXECUTE: task_maintenance alone on the five retention entry points; nobody but the owner on the other four (observed = other grants)'
+\echo '19 ten functions; the seven retention / erasure ones SECURITY DEFINER, search_path pinned, owned by the migration role; the three guards are not definer functions (observed = matching, of 10)'
+\echo '20 EXECUTE: task_maintenance alone on the five retention entry points; app_runtime alone on the erasure entry point; nobody but the owner on the other four (observed = other grants)'
 \echo '21 task_maintenance: NOLOGIN NOSUPERUSER NOBYPASSRLS; no member besides the migration role (its creator, PostgreSQL 16+) (observed = other members)'
 \echo '22 retention periods: REQUEST_LEDGER and EVENT_DIGEST = 7 (OPERATIONAL); the three H3 periods NULL (observed = rows as reviewed, of 5)'
 \echo '23 flag daily_tasks: defaultEnabled false, globalEnabled false, emergencyDisabled false, no business override (observed = overrides)'
@@ -143,7 +143,8 @@ trg(tgname, tbl) AS (VALUES ('Task_user_same_business', 'Task'), ('TaskSeries_us
 fns AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl FROM pg_proc p
         WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname IN ('task_user_same_business', 'task_event_append_only_guard',
           'task_event_truncate_guard', 'task_retention_days', 'task_retention_purge_request_ledger', 'task_retention_clear_event_digests',
-          'task_retention_clear_source_identifiers', 'task_retention_purge_learning_events', 'task_retention_purge_source_state')),
+          'task_retention_clear_source_identifiers', 'task_retention_purge_learning_events', 'task_retention_purge_source_state',
+          'task_retention_erase_business')),
 entry_points(nm) AS (VALUES ('task_retention_purge_request_ledger'), ('task_retention_clear_event_digests'),
   ('task_retention_clear_source_identifiers'), ('task_retention_purge_learning_events'), ('task_retention_purge_source_state')),
 fn_exec AS (SELECT f.proname, x.grantee FROM fns f CROSS JOIN LATERAL aclexplode(f.proacl) x
@@ -160,7 +161,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261018090000_daily_tasks_foundation'
-                        AND checksum = '8f207d872b14a41435244602e89bf6bd55aec0753f188ddf5567251953a2ba87'), 1
+                        AND checksum = 'ee74fb53f414907a3563122f241e7c1af0de6b2c3d7e70e3215b8783f24ce608'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM rel WHERE (nm IN (SELECT nm FROM tenant_tables) OR nm = 'TaskRetentionPolicy')
                          AND relrowsecurity AND relforcerowsecurity) = 7,
                       (SELECT count(*) FROM rel WHERE (nm IN (SELECT nm FROM tenant_tables) OR nm = 'TaskRetentionPolicy')
@@ -232,15 +233,18 @@ checks(n, ok, observed_count) AS (
                           AND (CASE WHEN proname LIKE 'task\_retention\_%'
                                     THEN prosecdef AND proconfig IS NOT NULL
                                          AND EXISTS (SELECT 1 FROM unnest(proconfig) c WHERE c LIKE 'search\_path=%')
-                                    ELSE NOT prosecdef END)) = 9,
+                                    ELSE NOT prosecdef END)) = 10,
                        (SELECT count(*) FROM fns WHERE proowner = (SELECT oid FROM me)
                           AND (CASE WHEN proname LIKE 'task\_retention\_%'
                                     THEN prosecdef AND proconfig IS NOT NULL
                                          AND EXISTS (SELECT 1 FROM unnest(proconfig) c WHERE c LIKE 'search\_path=%')
                                     ELSE NOT prosecdef END))
   UNION ALL SELECT 20, (SELECT count(*) FROM fn_exec WHERE proname IN (SELECT nm FROM entry_points) AND grantee = (SELECT oid FROM tm)) = 5
-                       AND NOT EXISTS (SELECT 1 FROM fn_exec WHERE NOT (proname IN (SELECT nm FROM entry_points) AND grantee = (SELECT oid FROM tm))),
-                       (SELECT count(*) FROM fn_exec WHERE NOT (proname IN (SELECT nm FROM entry_points) AND grantee = (SELECT oid FROM tm)))
+                       AND (SELECT count(*) FROM fn_exec WHERE proname = 'task_retention_erase_business' AND grantee = (SELECT oid FROM rt)) = 1
+                       AND NOT EXISTS (SELECT 1 FROM fn_exec WHERE NOT (proname IN (SELECT nm FROM entry_points) AND grantee = (SELECT oid FROM tm))
+                                                             AND NOT (proname = 'task_retention_erase_business' AND grantee = (SELECT oid FROM rt))),
+                       (SELECT count(*) FROM fn_exec WHERE NOT (proname IN (SELECT nm FROM entry_points) AND grantee = (SELECT oid FROM tm))
+                                                       AND NOT (proname = 'task_retention_erase_business' AND grantee = (SELECT oid FROM rt)))
   UNION ALL SELECT 21, EXISTS (SELECT 1 FROM tm WHERE NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls)
                        AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE roleid = (SELECT oid FROM tm) AND member <> (SELECT oid FROM me)),
                        (SELECT count(*) FROM pg_auth_members WHERE roleid = (SELECT oid FROM tm) AND member <> (SELECT oid FROM me))

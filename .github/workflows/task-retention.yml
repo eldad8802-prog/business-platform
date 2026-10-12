@@ -1,0 +1,68 @@
+# Daily Tasks — operational retention (Daily Tasks spec 12.7 / 12.8 / 12.11).
+#
+# Runs ONLY the two operational functions of migration 20261018090000_daily_tasks_foundation:
+#   task_retention_purge_request_ledger  — request fingerprints older than 7 days, and every fingerprint of a
+#                                          business being deleted;
+#   task_retention_clear_event_digests   — the journal's request digest after 7 days, and at once for a business
+#                                          being deleted.
+# It never calls the three history functions (identifiers, learning events, source state): their periods are
+# owner decision H3 and are NULL until decided, and those functions refuse to run on a NULL period anyway.
+#
+# It connects as a LOGIN member of `task_maintenance` (secret TASK_RETENTION_DATABASE_URL), the only role besides
+# the owner that may EXECUTE the functions; that role can read or change no table directly. The output is two counts.
+#
+# NOT ACTIVE. Dispatch-only from main, in the protected `production-db` environment. Activation is an owner gate:
+#   1. a LOGIN role in task_maintenance with its own password (Production role change);
+#   2. the secret TASK_RETENTION_DATABASE_URL in `production-db`;
+#   3. a daily schedule (a scheduled secret holder needs a SANCTIONED entry in workflow-policy-guard) — required
+#      before any business gets `daily_tasks`, so the 7-day bound holds from the first write.
+
+name: task retention (operational, dispatch-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-retention
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    name: Operational retention (fingerprints, digests)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-db
+    steps:
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          TASK_RETENTION_DATABASE_URL: ${{ secrets.TASK_RETENTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${TASK_RETENTION_DATABASE_URL:-}" ]; then
+            echo "::error::TASK_RETENTION_DATABASE_URL is not set in the production-db environment (retention not activated)."; exit 1
+          fi
+          case "$TASK_RETENTION_DATABASE_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK." ;;
+            *) echo "::error::TASK_RETENTION_DATABASE_URL does not target the verified Production endpoint — aborting."; exit 1 ;;
+          esac
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run the two operational functions (counts only)
+        env:
+          TASK_RETENTION_DATABASE_URL: ${{ secrets.TASK_RETENTION_DATABASE_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          psql "$TASK_RETENTION_DATABASE_URL" --no-psqlrc -At --set=ON_ERROR_STOP=1 \
+            -c "SELECT 'fingerprints_removed=' || public.task_retention_purge_request_ledger()" \
+            -c "SELECT 'digests_cleared=' || public.task_retention_clear_event_digests()"

@@ -9,13 +9,13 @@
 --     BY NAME every one of the 182 migrations on main before it is finished, and the ledger holds no
 --     other name;
 --   * none of the names it introduces exists: five tables, their keys and indexes, the "Task" indexes and
---     constraints, the Supplier key, five types, nine functions, the task_* policies, the role
+--     constraints, the Supplier key, five types, ten functions, the task_* policies, the role
 --     task_maintenance and the daily_tasks flag rows;
 --   * "Task" is exactly what the D2 gate (run 38287077419) measured and the owner decided on: 9 columns,
 --     no row, FORCE RLS, the single policy p7w1_tenant, no trigger; the privileges it will take back are
 --     counted (INFO);
 --   * the targets of its composite keys exist: Customer / Lead (sec-C) and Document (businessId, id) unique
---     keys; Business carries deletedAt (the retention functions read it); every key column is integer;
+--     keys; Business carries deletionRequestedAt and deletedAt (the retention and erasure functions read them); every key column is integer;
 --   * the migration role owns every table it changes (Task, its sequence, Supplier) and every table it
 --     references, carries BYPASSRLS (its definer functions run as it, the policy table has no policy) and
 --     carries CREATEROLE;
@@ -41,7 +41,7 @@
 \echo ' 6 L5 no ledger row outside the 182 names (observed = unexpected)'
 \echo ' 7 N1 none of the relation names it introduces exists (observed = found)'
 \echo ' 8 N2 none of its five types exists (observed = found)'
-\echo ' 9 N3 none of its nine functions exists (observed = found)'
+\echo ' 9 N3 none of its ten functions exists (observed = found)'
 \echo '10 N4 no policy named task_* exists on any table (observed = found)'
 \echo '11 N5 the role task_maintenance does not exist'
 \echo '12 N6 no daily_tasks row in PlatformFeatureDefinition / PlatformFeaturePolicy / BusinessFeatureAccess (observed = rows)'
@@ -53,7 +53,7 @@
 \echo '18 T5 INFO: privileges on "Task" and its sequence held by roles other than the owner (observed = role x privilege pairs; the migration takes them back)'
 \echo '19 K1 the composite key targets exist: Customer / Lead (businessId, id) constraints, Document (businessId, id) unique index (observed = of 3)'
 \echo '20 K2 key columns are integer: id and businessId of Customer, Supplier, Lead, Document and User; Business.id (observed = of 11)'
-\echo '21 K3 Business carries deletedAt (observed = columns)'
+\echo '21 K3 Business carries deletionRequestedAt and deletedAt (observed = columns)'
 \echo '22 O1 the migration role owns Task, Task_id_seq, Supplier, Customer, Lead, Document, User, Business and the two flag tables (observed = of 10)'
 \echo '23 O2 the migration role carries BYPASSRLS or is a superuser, and carries CREATEROLE'
 \echo '24 R1 app_runtime exists, NOLOGIN NOSUPERUSER NOBYPASSRLS; its logins (migration role excluded) are NOSUPERUSER NOBYPASSRLS (observed = logins)'
@@ -106,7 +106,8 @@ rel_names(nm) AS (VALUES
 type_names(nm) AS (VALUES ('TaskOrigin'), ('TaskCloseReason'), ('TaskSeriesRuleKind'), ('TaskEventActor'), ('TaskEventType')),
 fn_names(nm) AS (VALUES ('task_user_same_business'), ('task_event_append_only_guard'), ('task_event_truncate_guard'),
   ('task_retention_days'), ('task_retention_purge_request_ledger'), ('task_retention_clear_event_digests'),
-  ('task_retention_clear_source_identifiers'), ('task_retention_purge_learning_events'), ('task_retention_purge_source_state')),
+  ('task_retention_clear_source_identifiers'), ('task_retention_purge_learning_events'), ('task_retention_purge_source_state'),
+  ('task_retention_erase_business')),
 new_cols(nm) AS (VALUES ('dueOn'), ('remindAt'), ('closeReason'), ('completedAt'), ('completedByUserId'), ('createdByUserId'),
   ('assigneeUserId'), ('seriesId'), ('sequence'), ('pinnedAt'), ('origin'), ('version'), ('customerId'), ('supplierId'),
   ('leadId'), ('documentId'), ('erasedAt')),
@@ -364,10 +365,10 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM int_cols ic JOIN rel r ON r.nm = ic.tbl
                           JOIN pg_attribute a ON a.attrelid = r.oid AND a.attname = ic.col AND NOT a.attisdropped
                          WHERE a.atttypid = 'integer'::regtype)
-  UNION ALL SELECT 21, EXISTS (SELECT 1 FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid
-                                WHERE r.nm = 'Business' AND a.attname = 'deletedAt' AND NOT a.attisdropped),
+  UNION ALL SELECT 21, (SELECT count(*) FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid
+                         WHERE r.nm = 'Business' AND a.attname IN ('deletionRequestedAt', 'deletedAt') AND NOT a.attisdropped) = 2,
                        (SELECT count(*) FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid
-                         WHERE r.nm = 'Business' AND a.attname = 'deletedAt' AND NOT a.attisdropped)
+                         WHERE r.nm = 'Business' AND a.attname IN ('deletionRequestedAt', 'deletedAt') AND NOT a.attisdropped)
   UNION ALL SELECT 22, (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM owned) AND relowner = (SELECT oid FROM me)) = 10,
                        (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM owned) AND relowner = (SELECT oid FROM me))
   UNION ALL SELECT 23, (SELECT (rolbypassrls OR rolsuper) AND (rolcreaterole OR rolsuper) FROM me), 1
