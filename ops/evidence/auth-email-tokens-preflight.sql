@@ -18,8 +18,9 @@
 --   * app_auth holds NO change privilege on "User"."password" today — the property the migration keeps;
 --   * the migration role's default privileges: on tables no grantee but app_runtime (whose defaults the
 --     migration revokes), and on functions no grantee at all (EXECUTE is named explicitly);
---   * the server supports what the migration uses (sha256(), policies naming CURRENT_USER);
---   * INFO: whether the migration role carries BYPASSRLS (the owner policies make either answer work).
+--   * the server supports what the migration uses (sha256());
+--   * the migration role carries BYPASSRLS (or is a superuser): the SECURITY DEFINER functions run as it
+--     and the table is under FORCE RLS with no policy for it.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -46,8 +47,8 @@
 \echo '18 A3 app_auth holds no change privilege on User.password (observed = 0 expected)'
 \echo '19 D1 default privileges (migration role, tables): no grantee other than app_runtime (observed = others)'
 \echo '20 D2 default privileges (migration role, functions): no grantee at all (observed = grantees)'
-\echo '21 V1 server supports sha256() and policies naming CURRENT_USER (observed = major version)'
-\echo '22 INFO the migration role carries BYPASSRLS (observed = 1 yes / 0 no; either is fine)'
+\echo '21 V1 server supports sha256() (observed = major version)'
+\echo '22 O1 the migration role carries BYPASSRLS or is a superuser (the definer functions run as it)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -62,7 +63,7 @@ fn_names(nm) AS (VALUES ('auth_email_token_issue'), ('auth_email_token_check'), 
 biz AS (SELECT c.oid, c.relowner FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'Business' AND c.relkind = 'r'),
 usr AS (SELECT c.oid, c.relowner FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'User' AND c.relkind = 'r'),
 ses AS (SELECT c.oid, c.relowner FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'AuthSession' AND c.relkind = 'r'),
-me AS (SELECT oid, rolbypassrls FROM pg_roles WHERE rolname = current_user),
+me AS (SELECT oid, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = current_user),
 rt AS (SELECT oid, rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_runtime'),
 rt_logins AS (SELECT r.oid, r.rolsuper, r.rolbypassrls FROM pg_roles r JOIN pg_auth_members m ON m.member = r.oid
               WHERE m.roleid = (SELECT oid FROM rt) AND r.rolcanlogin AND r.rolname <> current_user),
@@ -307,7 +308,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 20, NOT EXISTS (SELECT 1 FROM defacl_items WHERE kind = 'f'),
                        (SELECT count(*) FROM defacl_items WHERE kind = 'f')
   UNION ALL SELECT 21, current_setting('server_version_num')::int >= 110000, current_setting('server_version_num')::int / 10000
-  UNION ALL SELECT 22, true, (SELECT CASE WHEN rolbypassrls THEN 1 ELSE 0 END FROM me)
+  UNION ALL SELECT 22, (SELECT rolbypassrls OR rolsuper FROM me), (SELECT CASE WHEN rolbypassrls OR rolsuper THEN 1 ELSE 0 END FROM me)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;

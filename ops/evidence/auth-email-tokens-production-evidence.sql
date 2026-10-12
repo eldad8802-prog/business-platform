@@ -6,9 +6,8 @@
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, its sha256 is the reviewed one, nothing is unfinished or rolled back;
---   * AuthEmailToken exists with RLS ENABLED + FORCED and exactly five per-command policies: the
---     migration role read / add / change (the definer functions), app_runtime read / remove on the
---     app.current_business_id GUC; no catch-all policy, and no removal policy for anyone else;
+--   * AuthEmailToken exists with RLS ENABLED + FORCED and exactly two per-command policies: app_runtime
+--     read / remove on the app.current_business_id GUC; no catch-all policy, nothing for any other role;
 --   * both foreign keys (User, Business) cascade; the hash is unique; the issuance and tenant indexes
 --     exist; the five check constraints exist;
 --   * app_runtime holds exactly: removal on the table and read on (id, businessId), nothing else;
@@ -28,7 +27,7 @@
 \echo ' 2 no ledger row is unfinished or rolled back (observed = such rows)'
 \echo ' 3 the recorded checksum is the reviewed sha256 of migration.sql'
 \echo ' 4 AuthEmailToken exists with RLS ENABLED + FORCED'
-\echo ' 5 exactly five policies: migration role r / a / w, app_runtime r / d on the GUC (observed = policies)'
+\echo ' 5 exactly two policies: app_runtime r / d on the GUC (observed = policies)'
 \echo ' 6 no catch-all (*) policy and no removal (d) policy except app_runtime (observed = such policies)'
 \echo ' 7 foreign keys: User and Business, both cascading (observed = matching)'
 \echo ' 8 indexes: unique tokenHash + userId/purpose/createdAt + businessId (observed = of 3)'
@@ -84,10 +83,9 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261017090000_auth_email_tokens'
-                                AND checksum = '70ed742137488c3ca0f6806163bfd38852a0d45c131dfd92c1d745670ae2e0fa'), 1
+                                AND checksum = '42737f51f551e91ff86670a0be7a482a14a13d516c84c16d573b365ec104b769'), 1
   UNION ALL SELECT 4, EXISTS (SELECT 1 FROM tbl WHERE relrowsecurity AND relforcerowsecurity), (SELECT count(*) FROM tbl)
-  UNION ALL SELECT 5, (SELECT count(*) FROM pols) = 5
-                      AND (SELECT count(*) FROM pols WHERE polroles = ARRAY[(SELECT oid FROM me)] AND polcmd IN ('r', 'a', 'w')) = 3
+  UNION ALL SELECT 5, (SELECT count(*) FROM pols) = 2
                       AND (SELECT count(*) FROM pols WHERE polroles = ARRAY[(SELECT oid FROM rt)] AND polcmd IN ('r', 'd')
                              AND q LIKE '%app.current_business_id%') = 2,
                       (SELECT count(*) FROM pols)

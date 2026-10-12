@@ -32,8 +32,9 @@
 --                 purpose; this keeps that property for every other path).
 --   app_runtime — account erasure ONLY: DELETE, and SELECT on (id, businessId), both bound by RLS to
 --                 app.current_business_id. Never the hash, the address or any timestamp.
---   the migration role (owner of table and functions) — per-command policies, so the definer functions
---                 keep working under FORCE whether or not the owner carries BYPASSRLS.
+--   the migration role (owner of table and functions) — the definer functions run as it. It carries
+--                 BYPASSRLS in Production (the preflight requires it), so FORCE binds every application
+--                 role and no policy is needed — or written — for the functions themselves.
 --   PUBLIC      — nothing on the table, nothing on the functions.
 --
 -- WHAT IT DELIBERATELY DOES NOT ADD
@@ -84,16 +85,8 @@ ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_businessId_fkey"
 ALTER TABLE "AuthEmailToken" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY;
 
--- The definer functions run as the migration role. Named per command, never FOR ALL, and no DELETE:
--- a token leaves only by cascade (User / Business) or by the tenant erasure below.
-CREATE POLICY auth_email_token_owner_select ON "AuthEmailToken" FOR SELECT TO CURRENT_USER
-  USING (true);
-CREATE POLICY auth_email_token_owner_insert ON "AuthEmailToken" FOR INSERT TO CURRENT_USER
-  WITH CHECK (true);
-CREATE POLICY auth_email_token_owner_update ON "AuthEmailToken" FOR UPDATE TO CURRENT_USER
-  USING (true)
-  WITH CHECK (true);
-
+-- No policy for app_auth: it holds no privilege on the table at all. A token leaves only by cascade
+-- (User / Business) or by the tenant erasure below.
 -- Tenant plane: account erasure only, and only inside the tenant being erased.
 CREATE POLICY auth_email_token_runtime_select ON "AuthEmailToken" FOR SELECT TO app_runtime
   USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
