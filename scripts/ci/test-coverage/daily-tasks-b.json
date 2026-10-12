@@ -1,0 +1,20 @@
+{
+  "note": "Daily Tasks milestone B: the agenda, the sync, the owner actions on tasks and business items, the task centre, the shared secretary agenda and the owner-approved navigation — behind daily_tasks (OFF by default).",
+  "tests": {
+    "lib/services/tasks/agenda-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): buckets, the OVERDUE+TODAY count, grouping (never supplier payments or leads), the row cap, display state per cycle and evidence, the S16/S14 mute and the integrity states that gate the empty state; run on pull_request by daily-tasks-b-ci.yml"
+    },
+    "lib/services/tasks/tasks-boundary.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static: the agenda read path makes no write call; every /api/tasks handler goes through tasksRoute (session-derived business, 404 while the flag is OFF); exactly one call point into the payment service, after the request check, with the secretary's content-bound key; the owner-approved navigation placement and its flag gates; run on pull_request by security-gate (lab pure) and daily-tasks-b-ci.yml"
+    },
+    "lib/services/tasks/agenda.service.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "daily-tasks-b-ci.yml",
+      "reason": "AS the restricted runtime on the real migration: the flag per business, GET read-only (row counts and a READ ONLY session), the sync lease / repair / idempotence, cycles closed only from complete results, display state and domain routing, the payment boundary (replay, reuse refused before the payment service, one payment per content, no amount in the journal) and cross-business isolation; run on pull_request by daily-tasks-b-ci.yml"
+    }
+  }
+}
