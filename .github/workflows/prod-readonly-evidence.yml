@@ -84,6 +84,8 @@ on:
           - 'ops/evidence/transactional-email-foundation-production-evidence.sql'
           - 'ops/evidence/payments-core-config-preflight.sql'
           - 'ops/evidence/payments-core-config-production-evidence.sql'
+          - 'ops/evidence/auth-email-tokens-preflight.sql'
+          - 'ops/evidence/auth-email-tokens-production-evidence.sql'
 
 permissions:
   contents: read

@@ -224,7 +224,15 @@ run_guard() {
   # recipient or payload, no INSERT / UPDATE — and the policy binds it to
   # app.current_business_id, so erasure Stage 2 deletes exactly the erased
   # business's rows. The delivery plane (app_auth) has no DELETE at all.
-  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete'
+  #
+  #   auth_email_token_runtime_delete  AuthEmailToken  account erasure ONLY
+  #
+  # Single-use email verification / password reset links (hash only). app_runtime
+  # holds DELETE and SELECT ("id", "businessId") and nothing else — never the hash,
+  # the address or a timestamp — bound to app.current_business_id, so erasure
+  # deletes exactly the erased business's links. app_auth holds nothing on the
+  # table (it reaches it only through four SECURITY DEFINER functions).
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete'
   local ci13
   ci13="$(
     grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \
