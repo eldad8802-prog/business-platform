@@ -41,7 +41,7 @@ Use this model (or an equivalent set of stages) for every flow:
   
 Notes:
   
-- “Entity” = a Quote / Invoice / Purchase / Task / Document / Conversation / Import run / etc.
+- “Entity” = a Quote / Invoice / Purchase / Task / Document / Conversation / Import run / etc. (A Task follows `docs/dubiz-daily-tasks-spec-v1.md`: OPEN, DONE or CANCELED; a business item's task has no stored state of its own — only display state.)
 - Stage must be derived from **server state** (status, relationships, constraints), not only from UI local state.
   
 ---
@@ -80,7 +80,7 @@ Instead, pre‑surface:
 - how to fix it (with a direct CTA)
   
 ### 4) Closed/completed entities must change available actions
-If an entity moved stage (e.g., Quote converted, Invoice issued, Purchase approved, Task closed):
+If an entity moved stage (e.g., Quote converted, Invoice issued, Purchase approved, Task done or canceled):
   
 - old actions disappear or become disabled with an explicit reason
 - new, relevant actions appear for the new stage
