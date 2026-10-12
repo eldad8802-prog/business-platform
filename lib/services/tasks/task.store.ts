@@ -5,9 +5,18 @@
  * Kept deliberately thin: the decisions live in task-core.ts and task.service.ts. What lives here is how a
  * decision becomes rows — the series lock, the journal insert, the fingerprint ledger.
  */
-import type { Prisma, TaskEventActor, TaskEventType } from "@prisma/client";
+import { Prisma, type TaskEventActor, type TaskEventType } from "@prisma/client";
 
 export type TaskTx = Prisma.TransactionClient;
+
+/**
+ * An instant for a raw-SQL TIMESTAMP(3) column (stored as UTC wall time, like every Prisma write). A bare Date
+ * parameter would be read through the session's time zone; this is the codebase's convention (notification-writer,
+ * transactional email store). Null stays NULL.
+ */
+export function utcTs(d: Date | null | undefined): Prisma.Sql {
+  return d ? Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')` : Prisma.sql`NULL::timestamp`;
+}
 
 /** Serialises every action on one series (6.5): the second request sees the first one's result. */
 export async function lockSeries(tx: TaskTx, businessId: number, seriesId: number): Promise<boolean> {
@@ -34,6 +43,10 @@ export type JournalEntry = {
   actorUserId: number | null;
   taskId?: number | null;
   seriesId?: number | null;
+  /** Business-item events: which source, item and cycle (8.5). */
+  sourceKind?: string | null;
+  dedupeKey?: string | null;
+  cycleKey?: string | null;
   payload: Record<string, unknown>;
 };
 
@@ -55,6 +68,9 @@ export async function appendEvents(
         businessId,
         taskId: e.taskId ?? null,
         seriesId: e.seriesId ?? null,
+        sourceKind: e.sourceKind ?? null,
+        dedupeKey: e.dedupeKey ?? null,
+        cycleKey: e.cycleKey ?? null,
         eventType: e.eventType,
         actor: e.actor,
         actorUserId: e.actor === "SYSTEM" ? null : e.actorUserId,
@@ -68,7 +84,14 @@ export async function appendEvents(
   }
 }
 
-export type ResultRef = { taskId?: number; seriesId?: number; nextTaskId?: number; withdrawnTaskId?: number };
+export type ResultRef = {
+  taskId?: number;
+  seriesId?: number;
+  nextTaskId?: number;
+  withdrawnTaskId?: number;
+  sourceStateId?: number;
+  paymentId?: number;
+};
 
 export async function findFingerprint(tx: TaskTx, businessId: number, key: string, freshSince: Date) {
   return tx.taskRequestLedger.findFirst({

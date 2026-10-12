@@ -368,7 +368,8 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     reason: "Milestone A: the owner's tasks, series and the per-cycle display state are journaled in TaskEvent (owner actions apart from system observations); learning rules TASK-01..04 arrive in M7 behind the derive gate.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["Task", "TaskSeries", "TaskSourceState", "TaskEvent", "TaskPreferences", "TaskRequestLedger"],
-    sensors: [], legacyEvents: [], routes: [],
+    // Milestone B: the agenda, sync and action routes and the task centre page (flag daily_tasks, OFF by default).
+    sensors: [], legacyEvents: [], routes: ["api/tasks", "page/tasks"],
     target: { coverage: "LEARNS", plan: "M7: completion latency vs due day (TASK-01), snooze share per source (TASK-02), open load at day end (TASK-03), recurring done vs missed (TASK-04); SYSTEM events never count as owner habit." },
     outcome: NO_OUTCOME,
   },
