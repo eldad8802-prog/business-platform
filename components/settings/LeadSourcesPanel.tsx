@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadFacebookSdk } from "@/components/whatsapp/facebook-sdk";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { isComingSoon } from "@/lib/features/action-availability";
 import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
 
 /**
@@ -375,7 +376,7 @@ export function LeadSourcesPanel() {
                   {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (
-                      <Action onClick={metaLogin} busy={busy === "meta:login"} comingSoon>חיבור מחדש</Action>
+                      <Action onClick={metaLogin} busy={busy === "meta:login"} comingSoon={isComingSoon("meta_lead_ads.reconnect")}>חיבור מחדש</Action>
                     ) : null}
                     {c.sourceKey !== "meta.lead_ads" ? (
                       <>
@@ -430,7 +431,7 @@ export function LeadSourcesPanel() {
               ) : null}
               {available && s.key === "meta.lead_ads" && !metaPick ? (
                 <div className="mt-3">
-                  <Action onClick={metaLogin} busy={busy === "meta:login"} primary comingSoon>
+                  <Action onClick={metaLogin} busy={busy === "meta:login"} primary comingSoon={isComingSoon("meta_lead_ads.connect")}>
                     {live.length ? "חיבור דף נוסף" : "התחברות עם Facebook"}
                   </Action>
                 </div>

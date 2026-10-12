@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import BackButton from "@/components/ui/back-button";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { isComingSoon } from "@/lib/features/action-availability";
 import type {
   CreateObligationInput,
   ObligationApi,
@@ -1854,15 +1856,18 @@ function WatchingScreen({ obligations }: { obligations: ObligationApi[] }) {
 }
 
 function NotifyScreen({ obligations }: { obligations: ObligationApi[] }) {
-  const [enabled, setEnabled] = useState(true);
-  const [morning, setMorning] = useState(true);
-  const [quiet, setQuiet] = useState(false);
+  // R7: these preferences are not stored yet (milestone C replaces this with real ones). Until then they are
+  // shown inactive and marked "בקרוב", so they never promise a setting that does not exist.
+  const prefsSoon = isComingSoon("secretary.notification_preferences");
   const sample = obligations[0] ?? null;
-  return <SecretaryScreen title="התראות" backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>המזכירה שלך</strong><p>{sample ? `יש לי תזכורת על ${sample.obligeeName}.` : "אני אזכיר רק כשיש משהו שדורש אותך."}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>כך אני אדבר איתך כשמשהו מתקרב. ההתראות נשארות תזכורת שקטה, לא רשימת משימות.</Say><section className={styles.settingsGroup}><SettingRow title="התראות מהמזכירה" detail="כשמשהו מתקרב או חוזר מתזכורת" on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title="סיכום בוקר" detail="רק אם יש משהו שדורש אותך" on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title="שעות שקטות" detail="לא להפריע בערב" on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>מה תקבלי ממני</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>אזכיר לפני {formatDateValue(item.dueAt)}</em></div><small>בזמן</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>אין כרגע התחייבויות להתראות. כשיהיו, אציג כאן דוגמאות מהזיכרון האמיתי.</p> : null}</section></SecretaryScreen>;
+  return <SecretaryScreen title="התראות" backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>המזכירה שלך</strong><p>{sample ? `יש לי תזכורת על ${sample.obligeeName}.` : "אני אזכיר רק כשיש משהו שדורש אותך."}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>כך אני אדבר איתך כשמשהו מתקרב. ההתראות נשארות תזכורת שקטה, לא רשימת משימות.</Say><section className={styles.settingsGroup}><SettingRow title="התראות מהמזכירה" detail="כשמשהו מתקרב או חוזר מתזכורת" comingSoon={prefsSoon} /><SettingRow title="סיכום בוקר" detail="רק אם יש משהו שדורש אותך" comingSoon={prefsSoon} /><SettingRow title="שעות שקטות" detail="לא להפריע בערב" comingSoon={prefsSoon} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>מה תקבלי ממני</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>אזכיר לפני {formatDateValue(item.dueAt)}</em></div><small>בזמן</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>אין כרגע התחייבויות להתראות. כשיהיו, אציג כאן דוגמאות מהזיכרון האמיתי.</p> : null}</section></SecretaryScreen>;
 }
 
 function Horizon({ title, subtitle, count }: { title: string; subtitle: string; count: string }) { return <div className={styles.horizon}><EyeIcon /><span><strong>{title}</strong><em>{subtitle}</em></span><b>{count}</b></div>; }
-function SettingRow({ title, detail, on, onClick }: { title: string; detail: string; on?: boolean; onClick?: () => void }) { return <button type="button" className={styles.settingRow} onClick={onClick}><BellIcon /><span><strong>{title}</strong><em>{detail}</em></span><b className={on ? styles.toggleOn : ""} /></button>; }
+function SettingRow({ title, detail, on, onClick, comingSoon }: { title: string; detail: string; on?: boolean; onClick?: () => void; comingSoon?: boolean }) {
+  if (comingSoon) return <div className={styles.settingRow} aria-disabled="true"><BellIcon /><span><strong>{title}</strong><em>{detail}</em></span><ComingSoonPill /></div>;
+  return <button type="button" className={styles.settingRow} onClick={onClick}><BellIcon /><span><strong>{title}</strong><em>{detail}</em></span><b className={on ? styles.toggleOn : ""} /></button>;
+}
 
 export const TODAY_DEMO_MODELS: Record<TodayState, TodayModel> = {
   critical: {
