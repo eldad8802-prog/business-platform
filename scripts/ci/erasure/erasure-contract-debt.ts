@@ -132,7 +132,7 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "RecommendationOutcome", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Supplier", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraft", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Task", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "TaskEvent", why: "DAILY-TASKS-B-GATE" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "VendorLearning", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "Business", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBot", why: "E2" },
