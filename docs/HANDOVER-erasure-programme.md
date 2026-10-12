@@ -502,6 +502,13 @@ VendorLearning
 
 All keyed `C12-UNMANAGED-PERSONAL-DATA::<Model>`.
 
+**Update (Daily Tasks, milestone A):** `Task` left this list. The erasure now blanks the text of every
+task and series in place (`title` = '', note NULL, `erasedAt` set; the runtime has no DELETE and the rows are
+the business's history) and deletes the request fingerprints (`TaskRequestLedger`). `TaskEvent` joined it
+instead, keyed `DAILY-TASKS-B-GATE`: its 7-day request digest is cleared by the retention path, which the runtime
+cannot run, so it stays unmanaged until that workflow is switched on — the gate before any business gets
+`daily_tasks`. No event exists while the flag is off.
+
 ### C13 — models needing an owner or design decision (21)
 
 ```text
@@ -989,7 +996,8 @@ The seven C4 manifest-truth findings                    — no product change at
                                                            declaration; probably the safest
                                                            and most valuable Wave 2
 The two C1 delegate-name findings + posApiKey.hashedKey — same category
-Task, BusinessObligation, ReceivingSession, InventoryMovement notes — free text, low risk
+BusinessObligation, ReceivingSession, InventoryMovement notes — free text, low risk
+                                                           (Task: done in Daily Tasks milestone A)
 ```
 
 The C1 and C4 group deserves serious consideration as Wave 2 precisely because it changes
