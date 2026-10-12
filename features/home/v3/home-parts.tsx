@@ -294,7 +294,7 @@ export function SkeletonBlock({ h, r = 16, style }: { h: number; r?: number; sty
 const FAMILY_VISUAL: Record<string, { icon: IconComponent; color: string; bg: string; sub: string }> = {
   money: { icon: IconWallet, color: TEAL, bg: "#E3F2F0", sub: "חשבוניות · גבייה" },
   customers: { icon: IconUsers, color: "#5B4FA8", bg: "#ECE9F7", sub: "לקוחות · לידים" },
-  operations: { icon: IconBriefcase, color: "#A0601F", bg: "#FBEEDD", sub: "מלאי · ספקים" },
+  operations: { icon: IconBriefcase, color: "#A0601F", bg: "#FBEEDD", sub: "מזכירה · התחייבויות · מלאי" },
 };
 
 /** The three families, symmetric — no "כל הכלים" tile (approved design). */
