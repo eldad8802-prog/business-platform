@@ -24,7 +24,19 @@ export const AUTH_MESSAGES_HE = {
   verificationSent: "שלחנו קישור אימות לכתובת האימייל שלכם.",
   alreadyVerified: "כתובת האימייל כבר מאומתת.",
   featureUnavailable: "האפשרות הזו עדיין לא זמינה.",
+  /** After the third failed sign-in for an address — the owner-approved wording, verbatim. */
+  loginLastAttemptWarning: "שים לב, נותר לך ניסיון התחברות אחד לפני חסימה זמנית ל־15 דקות.",
 } as const;
+
+/**
+ * The temporary sign-in lock, with the time left. Worded about the ADDRESS that was typed, never about
+ * an account, and given identically whether or not that address has one.
+ */
+export function loginLockedMessage(retryAfterMs: number): string {
+  const minutes = Math.max(1, Math.ceil(retryAfterMs / 60_000));
+  const left = minutes === 1 ? "דקה אחת" : `${minutes} דקות`;
+  return `מטעמי אבטחה, הכניסה עם כתובת האימייל הזו נחסמה זמנית אחרי כמה ניסיונות שגויים. אפשר לנסות שוב בעוד ${left}.`;
+}
 
 /** What a link check / consume answers, as the database functions name it. */
 export type EmailTokenStatus = "VALID" | "INVALID" | "EXPIRED" | "USED" | "SUPERSEDED";

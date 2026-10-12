@@ -23,6 +23,12 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 process.env.AUTH_TOKEN_SECRET = "a".repeat(64);
+process.env.RATE_LIMIT_BACKEND = "memory";
+
+import { reserveAttempt } from "@/lib/security/rate-limit";
+import { LOGIN_FAILURE_POLICY, loginAccountRateKey } from "@/lib/auth/account-rate-key";
+import { LOGIN_DEVICE_COOKIE, readLoginDevice, setLoginDevice } from "@/lib/auth/login-device";
+import { AUTH_MESSAGES_HE, loginLockedMessage } from "@/lib/auth/auth-messages";
 
 import {
   buildEmailLink,
@@ -287,13 +293,21 @@ async function main() {
   // ── 8. login (static) ──────────────────────────────────────────────────────
   {
     const login = code("app/api/auth/login/route.ts");
-    const peek = login.indexOf("peekRateLimit({ key: accountKey");
+    const reserve = login.indexOf("await reserveAttempt(");
     const firstCompare = login.indexOf("bcrypt.compare(");
-    ok("login: the per-account limit is READ before any password is compared", peek > 0 && firstCompare > peek);
-    ok("login: it is SPENT only on the two failure paths (unknown account, wrong password)",
-      (login.match(/consumeRateLimit\(\{ key: accountKey/g) ?? []).length === 2);
-    const success = login.indexOf("issueRefreshSession(");
-    ok("login: nothing is spent on the success path", login.slice(success).indexOf("accountKey") === -1);
+    const ipLimit = login.indexOf("key: `auth:login:${ip}`");
+    ok("login: the per-IP limit is still there, first", ipLimit > 0 && ipLimit < reserve);
+    ok("login: the per-address attempt is RESERVED (atomically) before any password is compared", reserve > 0 && firstCompare > reserve);
+    ok("login: a refused reservation answers the lock and compares nothing",
+      /if \(!attempt\.allowed\) \{[\s\S]{0,160}return lockedResponse\(attempt\.retryAfterMs\)/.test(login));
+    ok("login: both failure paths (unknown address, wrong password) go through the SAME failedSignIn",
+      (login.match(/return failedSignIn\(/g) ?? []).length === 2);
+    const clear = login.indexOf("await attempt.clear()");
+    ok("login: a right password clears the ledger before the session is issued (a success is never a failure)",
+      clear > firstCompare && clear < login.indexOf("issueRefreshSession("));
+    ok("login: the 4th failure locks; the 3rd warns", login.includes("attempt.count >= LOGIN_FAILURE_POLICY.limit") && login.includes("attempt.count === LOGIN_FAILURE_POLICY.warnAtFailure"));
+    ok("login: the device cookie is set only on success", login.indexOf("setLoginDevice(") > login.indexOf("issueRefreshSession("));
+    ok("login: the ledger key is per address (digest) — never per IP", /loginAccountRateKey\(normalizedEmail, deviceNonce\)/.test(login) && !/loginAccountRateKey\([^)]*ip/.test(login));
     ok("login: no English message is left for a person to read", !/"(Too many requests|Missing email or password|Invalid email or password|Server error|Server configuration error)[^"]*"/.test(login));
     const reg = code("app/api/auth/register/route.ts");
     ok("register: no English message is left for a person to read", !/"(Too many requests|Invalid request body|Server error|Server configuration error)[^"]*"/.test(reg));
@@ -324,6 +338,97 @@ async function main() {
     const pages = ["app/reset-password/page.tsx", "app/verify-email/page.tsx"].map(src).join("\n");
     ok("pages: the token is taken from the fragment and dropped from the address bar", (pages.match(/history\.replaceState/g) ?? []).length === 2 && pages.includes("window.location.hash"));
     ok("pages: both account-link pages send no Referer", ["app/reset-password/layout.tsx", "app/verify-email/layout.tsx"].every((f) => src(f).includes('referrer: "no-referrer"')));
+  }
+
+  // ── 10. the sign-in failure ledger (memory backend, synthetic clock) ──────
+  {
+    const P = LOGIN_FAILURE_POLICY;
+    ok("policy: 4 failures in a rolling 15 minutes → a 15-minute lock; the warning at the 3rd",
+      P.limit === 4 && P.windowMs === 15 * 60_000 && P.lockMs === 15 * 60_000 && P.warnAtFailure === 3);
+    const t0 = 1_800_000_000_000;
+    const key = loginAccountRateKey("ledger@x.test");
+    const r = (dt: number) => reserveAttempt({ key, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + dt });
+    const a1 = await r(0), a2 = await r(60_000), a3 = await r(120_000), a4 = await r(180_000);
+    ok("ledger: attempts 1–4 are reserved and counted 1, 2, 3, 4",
+      a1.allowed && a2.allowed && a3.allowed && a4.allowed && [a1, a2, a3, a4].map((a) => (a.allowed ? a.count : -1)).join() === "1,2,3,4");
+    const a5 = await r(181_000);
+    ok("ledger: a 5th inside the window is refused before anything runs", !a5.allowed && !a5.locked);
+    if (a4.allowed) await a4.lock(P.lockMs);
+    const k2 = loginAccountRateKey("lock@x.test");
+    const rr = (dt: number) => reserveAttempt({ key: k2, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + dt });
+    for (let i = 0; i < 4; i++) await rr(i * 1000);
+    const lockAt = Date.now();
+    const four = await reserveAttempt({ key: k2, limit: P.limit, windowMs: P.windowMs, nowMs: lockAt });
+    ok("ledger: with the window full, a further attempt is refused", !four.allowed);
+    // Lock it explicitly (as the 4th failure does) and read it back on a synthetic clock.
+    const k3 = loginAccountRateKey("lock3@x.test");
+    const first = await reserveAttempt({ key: k3, limit: P.limit, windowMs: P.windowMs, nowMs: t0 });
+    if (first.allowed) await first.lock(P.lockMs);
+    const now = Date.now();
+    const during = await reserveAttempt({ key: k3, limit: P.limit, windowMs: P.windowMs, nowMs: now + 14 * 60_000 });
+    ok("ledger: 14 minutes into the lock — still locked, about a minute left",
+      !during.allowed && during.locked && during.retryAfterMs > 0 && during.retryAfterMs <= 60_000 + 1000, JSON.stringify(during));
+    const after = await reserveAttempt({ key: k3, limit: P.limit, windowMs: P.windowMs, nowMs: now + 15 * 60_000 + 1000 });
+    ok("ledger: once the 15 minutes pass, signing in can be tried again (window empty)", after.allowed && after.count === 1);
+
+    // Rolling window: four failures spread over 20 minutes never fill a 15-minute window.
+    const k4 = loginAccountRateKey("rolling@x.test");
+    const counts: number[] = [];
+    for (const dt of [0, 6, 12, 18].map((m) => m * 60_000)) {
+      const x = await reserveAttempt({ key: k4, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + dt });
+      counts.push(x.allowed ? x.count : -1);
+    }
+    ok("ledger: the window ROLLS — at 18 minutes the failure from 0 has left it (counts 1,2,3,3)", counts.join() === "1,2,3,3", counts.join());
+
+    // Clearing: a success empties the ledger.
+    const k5 = loginAccountRateKey("clear@x.test");
+    for (let i = 0; i < 3; i++) await reserveAttempt({ key: k5, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + i });
+    const ok4 = await reserveAttempt({ key: k5, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + 10 });
+    if (ok4.allowed) await ok4.clear();
+    const next = await reserveAttempt({ key: k5, limit: P.limit, windowMs: P.windowMs, nowMs: t0 + 20 });
+    ok("ledger: a success clears the failures before it (the next attempt counts 1)", next.allowed && next.count === 1);
+
+    // A parallel burst: ten at once, at most four get through.
+    const k6 = loginAccountRateKey("burst@x.test");
+    const burst = await Promise.all(Array.from({ length: 10 }, () => reserveAttempt({ key: k6, limit: P.limit, windowMs: P.windowMs, nowMs: t0 })));
+    ok("ledger: a parallel burst of 10 — exactly 4 reserved, 6 refused", burst.filter((b) => b.allowed).length === 4 && burst.filter((b) => !b.allowed).length === 6);
+
+    // Per address: case and whitespace fold to the same ledger; another address is separate.
+    ok("ledger: the key is the folded address (case / spaces cannot open a second ledger)",
+      loginAccountRateKey("Owner@X.test".trim().toLowerCase()) === loginAccountRateKey("owner@x.test"));
+    ok("ledger: the key never contains the address", !loginAccountRateKey("owner@x.test").includes("owner"));
+  }
+
+  // ── 11. lock / warning messages ────────────────────────────────────────────
+  {
+    ok("message: the warning is the owner-approved sentence", AUTH_MESSAGES_HE.loginLastAttemptWarning === "שים לב, נותר לך ניסיון התחברות אחד לפני חסימה זמנית ל־15 דקות.");
+    ok("message: the lock states the time left (15 minutes)", loginLockedMessage(15 * 60_000).includes("בעוד 15 דקות"));
+    ok("message: …and one minute in the singular", loginLockedMessage(30_000).includes("בעוד דקה אחת"));
+    ok("message: the lock never speaks of an account", !/חשבון/.test(loginLockedMessage(60_000)));
+  }
+
+  // ── 12. the known-device cookie ────────────────────────────────────────────
+  {
+    const { NextResponse } = await import("next/server");
+    const res = NextResponse.json({});
+    setLoginDevice(res, "owner@x.test", null);
+    const set = res.cookies.get(LOGIN_DEVICE_COOKIE);
+    const value = set?.value ?? "";
+    const reqWith = (v: string) => new Request("http://x/api/auth/login", { headers: { cookie: `a=b; ${LOGIN_DEVICE_COOKIE}=${v}` } });
+    ok("device: httpOnly, strict, only sent to /api/auth/login", set?.httpOnly === true && set?.sameSite === "strict" && set?.path === "/api/auth/login");
+    ok("device: the address is not in the cookie", !value.includes("owner") && !value.includes("@"));
+    const nonce = readLoginDevice(reqWith(value), "owner@x.test");
+    ok("device: valid for its own address", typeof nonce === "string" && nonce.length === 22);
+    ok("device: NOT valid for another address", readLoginDevice(reqWith(value), "other@x.test") === null);
+    const [n, exp, sig] = value.split(".");
+    ok("device: a forged signature is refused", readLoginDevice(reqWith(`${n}.${exp}.${"A".repeat(sig.length)}`), "owner@x.test") === null);
+    ok("device: a changed nonce is refused", readLoginDevice(reqWith(`${"B".repeat(22)}.${exp}.${sig}`), "owner@x.test") === null);
+    ok("device: an expired cookie is refused", readLoginDevice(reqWith(value), "owner@x.test", (Number(exp) + 1) * 1000) === null);
+    ok("device: it selects a SEPARATE ledger, never the shared one",
+      loginAccountRateKey("owner@x.test", nonce) !== loginAccountRateKey("owner@x.test") && loginAccountRateKey("owner@x.test", nonce).startsWith(loginAccountRateKey("owner@x.test")));
+    const res2 = NextResponse.json({});
+    setLoginDevice(res2, "owner@x.test", nonce);
+    ok("device: a later sign-in keeps the same device ledger", readLoginDevice(reqWith(res2.cookies.get(LOGIN_DEVICE_COOKIE)!.value), "owner@x.test") === nonce);
   }
 
   console.log(`\n[account-recovery] ${passed} passed, ${failed} failed`);

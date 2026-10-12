@@ -13,6 +13,7 @@ import { RateLimiterBackendError } from "./errors";
 import { memoryBackend } from "./memory-backend";
 import { redisBackend } from "./redis-backend";
 import type {
+  AttemptReservation,
   BucketName,
   RateLimitBackend,
   RateLimitDecision,
@@ -177,29 +178,43 @@ export async function checkRateLimit(
  * errors still propagate (hard fail in production).
  */
 /**
- * Read a raw-key limit without spending it: `exhausted` is true when the next
- * consume would be refused. Same failure posture as `consumeRawLimit`: a
- * transient backend error reads as NOT exhausted (fail open, logged); a config
- * error propagates.
+ * The attempt ledger (see RateLimitBackend.reserveAttempt). Same failure posture as
+ * `consumeRawLimit`: a transient backend error ALLOWS the attempt (fail open, logged) and reports
+ * count 0 ("unknown"); clear / lock errors are logged and swallowed. A config error propagates.
  */
-export async function peekRawLimit(params: {
+const ATTEMPT_PREFIX = "rl:attempt";
+
+export async function reserveRawAttempt(params: {
   key: string;
+  member: string;
   limit: number;
-  windowSeconds: number;
-}): Promise<{ exhausted: boolean; resetAt: number }> {
-  const backend = getBackend();
+  windowMs: number;
+  nowMs: number;
+}): Promise<AttemptReservation> {
   try {
-    const result = await backend.peek("rl:legacy", params.key, params.limit, params.windowSeconds);
-    return { exhausted: result.remaining <= 0, resetAt: result.resetAt };
+    return await getBackend().reserveAttempt(ATTEMPT_PREFIX, params.key, params.member, params.limit, params.windowMs, params.nowMs);
   } catch (error) {
     if (error instanceof RateLimiterBackendError) {
-      console.error(
-        `[rate-limit] backend_unavailable legacy-peek key=${params.key} failMode=open -> allow (degraded)`,
-        error.message
-      );
-      return { exhausted: false, resetAt: Date.now() + params.windowSeconds * 1000 };
+      console.error(`[rate-limit] backend_unavailable attempt-reserve key=${params.key} failMode=open -> allow (degraded)`, error.message);
+      return { allowed: true, count: 0 };
     }
     throw error;
+  }
+}
+
+export async function clearRawAttempts(key: string): Promise<void> {
+  try {
+    await getBackend().clearAttempts(ATTEMPT_PREFIX, key);
+  } catch (error) {
+    console.error(`[rate-limit] attempt-clear failed key=${key}`, error instanceof Error ? error.name : "unknown");
+  }
+}
+
+export async function lockRawAttempts(key: string, lockMs: number, nowMs: number): Promise<void> {
+  try {
+    await getBackend().lockAttempts(ATTEMPT_PREFIX, key, lockMs, nowMs);
+  } catch (error) {
+    console.error(`[rate-limit] attempt-lock failed key=${key}`, error instanceof Error ? error.name : "unknown");
   }
 }
 

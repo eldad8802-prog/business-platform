@@ -13,7 +13,7 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { RateLimiterBackendError, RateLimiterConfigError } from "./errors";
-import type { RateLimitBackend, RuleResult } from "./types";
+import type { AttemptReservation, RateLimitBackend, RuleResult } from "./types";
 
 /**
  * Max time we wait for a single Redis decision before applying fail mode.
@@ -48,6 +48,42 @@ function getRedis(): Redis {
 }
 
 const limiterCache = new Map<string, Ratelimit>();
+
+/** [window sorted set, lock key] for one identifier. Same hash tag, so a cluster keeps them together. */
+function attemptKeys(prefix: string, identifier: string): [string, string] {
+  return [`${prefix}:{${identifier}}:attempts`, `${prefix}:{${identifier}}:lock`];
+}
+
+/**
+ * Atomic reserve. KEYS = [window zset, lock]; ARGV = [nowMs, windowMs, limit, member].
+ * Returns {1, count, 0} when reserved; {0, 1, lockTtlMs} while locked; {0, 0, waitMs} while the
+ * window is full (reservations in flight count, so a parallel burst cannot exceed `limit`).
+ */
+const RESERVE_ATTEMPT_LUA = [
+  "local ttl = redis.call('PTTL', KEYS[2])",
+  "if ttl > 0 then return {0, 1, ttl} end",
+  "local now = tonumber(ARGV[1])",
+  "local win = tonumber(ARGV[2])",
+  "local limit = tonumber(ARGV[3])",
+  "redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - win)",
+  "local count = redis.call('ZCARD', KEYS[1])",
+  "if count >= limit then",
+  "  local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')",
+  "  local wait = win",
+  "  if oldest[2] then wait = tonumber(oldest[2]) + win - now end",
+  "  return {0, 0, wait}",
+  "end",
+  "redis.call('ZADD', KEYS[1], now, ARGV[4])",
+  "redis.call('PEXPIRE', KEYS[1], win)",
+  "return {1, count + 1, 0}",
+].join("\n");
+
+/** Atomic lock: set the lock for lockMs and clear the window. KEYS = [window zset, lock]; ARGV = [lockMs]. */
+const LOCK_ATTEMPTS_LUA = [
+  "redis.call('SET', KEYS[2], '1', 'PX', tonumber(ARGV[1]))",
+  "redis.call('DEL', KEYS[1])",
+  "return 1",
+].join("\n");
 
 function getLimiter(
   prefix: string,
@@ -113,15 +149,19 @@ export const redisBackend: RateLimitBackend = {
       resetAt: res.reset,
     };
   },
-  async peek(
-    prefix: string,
-    identifier: string,
-    limit: number,
-    windowSeconds: number
-  ): Promise<{ remaining: number; resetAt: number }> {
-    const limiter = getLimiter(prefix, limit, windowSeconds);
-    const res = await withTimeout(limiter.getRemaining(identifier), REDIS_TIMEOUT_MS);
-    return { remaining: res.remaining, resetAt: res.reset };
+  async reserveAttempt(prefix, identifier, member, limit, windowMs, nowMs): Promise<AttemptReservation> {
+    const res = (await withTimeout(
+      getRedis().eval(RESERVE_ATTEMPT_LUA, attemptKeys(prefix, identifier), [String(nowMs), String(windowMs), String(limit), member]),
+      REDIS_TIMEOUT_MS
+    )) as [number, number, number];
+    const [ok, n, wait] = res.map(Number);
+    return ok === 1 ? { allowed: true, count: n } : { allowed: false, locked: n === 1, retryAfterMs: Math.max(0, wait) };
+  },
+  async clearAttempts(prefix, identifier) {
+    await withTimeout(getRedis().del(attemptKeys(prefix, identifier)[0]), REDIS_TIMEOUT_MS);
+  },
+  async lockAttempts(prefix, identifier, lockMs) {
+    await withTimeout(getRedis().eval(LOCK_ATTEMPTS_LUA, attemptKeys(prefix, identifier), [String(lockMs)]), REDIS_TIMEOUT_MS);
   },
 };
 

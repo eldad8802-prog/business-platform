@@ -12,7 +12,9 @@
  * instead of raw keys.
  */
 
-import { consumeRawLimit, peekRawLimit } from "./rate-limiter";
+import { randomUUID } from "node:crypto";
+
+import { clearRawAttempts, consumeRawLimit, lockRawAttempts, reserveRawAttempt } from "./rate-limiter";
 
 export function getClientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
@@ -30,17 +32,31 @@ export function getClientIp(req: Request): string {
   return "unknown";
 }
 
-/** Whether `key` is exhausted, without spending any of it (see peekRawLimit). */
-export async function peekRateLimit(params: {
+export type AttemptTicket =
+  | { allowed: true; count: number; clear: () => Promise<void>; lock: (lockMs: number) => Promise<void> }
+  | { allowed: false; locked: boolean; retryAfterMs: number };
+
+/**
+ * Reserve one attempt in an exact rolling window for `key` (atomic — a parallel burst cannot exceed
+ * `limit`). The ticket is then either cleared (the attempt proved legitimate: the window empties) or
+ * turned into a lock. `count` includes this attempt; 0 means the backend was unavailable (fail open).
+ */
+export async function reserveAttempt(params: {
   key: string;
   limit: number;
   windowMs: number;
-}): Promise<{ exhausted: boolean; resetAt: number }> {
-  return peekRawLimit({
-    key: params.key,
-    limit: params.limit,
-    windowSeconds: Math.max(1, Math.ceil(params.windowMs / 1000)),
-  });
+  nowMs?: number;
+}): Promise<AttemptTicket> {
+  const nowMs = params.nowMs ?? Date.now();
+  const member = `${nowMs}:${randomUUID()}`;
+  const r = await reserveRawAttempt({ key: params.key, member, limit: params.limit, windowMs: params.windowMs, nowMs });
+  if (!r.allowed) return r;
+  return {
+    allowed: true,
+    count: r.count,
+    clear: () => clearRawAttempts(params.key),
+    lock: (lockMs: number) => lockRawAttempts(params.key, lockMs, Date.now()),
+  };
 }
 
 export async function consumeRateLimit(params: {

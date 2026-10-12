@@ -66,6 +66,11 @@ export type RateLimitDecision = {
 };
 
 /** A backend evaluates a single rule and consumes one token. */
+/** reserveAttempt's answer. `count` includes this attempt; `locked` = an explicit lock is set. */
+export type AttemptReservation =
+  | { allowed: true; count: number }
+  | { allowed: false; locked: boolean; retryAfterMs: number };
+
 export interface RateLimitBackend {
   readonly name: "redis" | "memory";
   evaluate(
@@ -75,14 +80,21 @@ export interface RateLimitBackend {
     windowSeconds: number
   ): Promise<RuleResult>;
   /**
-   * How much of the window is left WITHOUT spending any of it. For limits that
-   * count only some events (e.g. failed logins), where the check happens before
-   * the outcome is known.
+   * Attempt ledger — an EXACT rolling window of attempts for one identifier, plus a lock.
+   * `reserveAttempt` is atomic: it refuses while a lock is set or while `limit` attempts already
+   * sit in the window (reservations included, so a parallel burst cannot exceed it), and otherwise
+   * records this attempt. The caller then `clearAttempts` (the attempt proved legitimate — e.g. a
+   * successful login — so the window is emptied) or `lockAttempts` (sets the lock for lockMs and
+   * clears the window).
    */
-  peek(
+  reserveAttempt(
     prefix: string,
     identifier: string,
+    member: string,
     limit: number,
-    windowSeconds: number
-  ): Promise<{ remaining: number; resetAt: number }>;
+    windowMs: number,
+    nowMs: number
+  ): Promise<AttemptReservation>;
+  clearAttempts(prefix: string, identifier: string): Promise<void>;
+  lockAttempts(prefix: string, identifier: string, lockMs: number, nowMs: number): Promise<void>;
 }

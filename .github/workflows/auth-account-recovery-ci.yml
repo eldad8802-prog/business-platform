@@ -7,6 +7,10 @@
 #      plane, app_runtime_prod for the tenant plane): forgot → the recorded email → its rendered link →
 #      reset → the real login route; session revocation; verification; the per-account failure limit;
 #      another business untouched.
+#   3. Ledger battery (.aet/ledger-battery.ts): the sign-in failure ledger on a REAL Redis through the
+#      Upstash REST emulator (the production Lua scripts: atomic reserve, rolling window, lock, clear,
+#      a parallel burst of 20 → exactly 4) — and on the in-memory backend.
+#   4. The app battery again with the REAL Redis limiter: the 4-failure lock end to end on Lua.
 #
 # The TE lab creates app_auth after the AuthSession privilege migrations ran (they are role-guarded and
 # idempotent), so the battery replays those two migrations first — exactly Production's grants.
@@ -64,6 +68,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # The sign-in failure ledger runs as Lua inside Redis in Production (Upstash). These two run the
+      # REAL scripts: a real Redis, behind serverless-redis-http — the Upstash REST emulator the
+      # @upstash/redis client speaks to. Local only, synthetic token.
+      redis:
+        image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis-http:
+        image: hiett/serverless-redis-http:0.0.10@sha256:65128347949bca511e448fd7238780d624573d74c22b79155a7563db19e9b678
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: aet_ci_synthetic_upstash_token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
 
     env:
       PGHOST: localhost
@@ -98,4 +120,33 @@ jobs:
           AUTH_PLANE_ENABLED=true \
           AUTH_TOKEN_SECRET=aet_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
           RATE_LIMIT_BACKEND=memory \
+            npx tsx .aet/app-battery.ts
+
+      - name: 3. Sign-in failure ledger on REAL Redis (the Lua scripts, via the Upstash REST emulator) — and on memory
+        env:
+          UPSTASH_REDIS_REST_URL: http://localhost:8079
+          UPSTASH_REDIS_REST_TOKEN: aet_ci_synthetic_upstash_token
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do curl -sf -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" "$UPSTASH_REDIS_REST_URL/ping" >/dev/null && break; sleep 1; done
+          RATE_LIMIT_BACKEND=redis npx tsx .aet/ledger-battery.ts
+          RATE_LIMIT_BACKEND=memory npx tsx .aet/ledger-battery.ts
+
+      - name: 4. App battery again with the REAL Redis limiter (the login lock end to end on Lua)
+        env:
+          UPSTASH_REDIS_REST_URL: http://localhost:8079
+          UPSTASH_REDIS_REST_TOKEN: aet_ci_synthetic_upstash_token
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d postgres -qc "CREATE DATABASE aet_app_redis TEMPLATE aet_app" || bash .aet/lab.sh aet_app_redis --with-aet
+          for m in 20260908200000_auth_session_privilege_contract 20260913120000_authsession_user_agent; do
+            PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d aet_app_redis -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/aet_app_redis"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/aet_app_redis" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/aet_app_redis" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=aet_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=redis \
             npx tsx .aet/app-battery.ts

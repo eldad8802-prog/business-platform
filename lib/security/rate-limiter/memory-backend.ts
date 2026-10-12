@@ -7,11 +7,13 @@
  * production unless explicitly forced via RATE_LIMIT_BACKEND=memory.
  */
 
-import type { RateLimitBackend, RuleResult } from "./types";
+import type { AttemptReservation, RateLimitBackend, RuleResult } from "./types";
 
 type Bucket = { count: number; resetAt: number };
 
 const store = new Map<string, Bucket>();
+const attempts = new Map<string, { member: string; t: number }[]>();
+const locks = new Map<string, number>();
 
 export const memoryBackend: RateLimitBackend = {
   name: "memory",
@@ -44,20 +46,33 @@ export const memoryBackend: RateLimitBackend = {
       resetAt: existing.resetAt,
     };
   },
-  async peek(
-    prefix: string,
-    identifier: string,
-    limit: number,
-    windowSeconds: number
-  ): Promise<{ remaining: number; resetAt: number }> {
-    const existing = store.get(`${prefix}|${identifier}`);
-    const now = Date.now();
-    if (!existing || existing.resetAt <= now) return { remaining: limit, resetAt: now + windowSeconds * 1000 };
-    return { remaining: Math.max(0, limit - existing.count), resetAt: existing.resetAt };
+  async reserveAttempt(prefix, identifier, member, limit, windowMs, nowMs): Promise<AttemptReservation> {
+    const key = `${prefix}|${identifier}`;
+    const lockedUntil = locks.get(key) ?? 0;
+    if (lockedUntil > nowMs) return { allowed: false, locked: true, retryAfterMs: lockedUntil - nowMs };
+    const live = (attempts.get(key) ?? []).filter((a) => a.t > nowMs - windowMs);
+    if (live.length >= limit) {
+      const oldest = Math.min(...live.map((a) => a.t));
+      attempts.set(key, live);
+      return { allowed: false, locked: false, retryAfterMs: oldest + windowMs - nowMs };
+    }
+    live.push({ member, t: nowMs });
+    attempts.set(key, live);
+    return { allowed: true, count: live.length };
+  },
+  async clearAttempts(prefix, identifier) {
+    attempts.delete(`${prefix}|${identifier}`);
+  },
+  async lockAttempts(prefix, identifier, lockMs, nowMs) {
+    const key = `${prefix}|${identifier}`;
+    locks.set(key, nowMs + lockMs);
+    attempts.delete(key);
   },
 };
 
 /** Test-only helper to reset state between cases. */
 export function resetMemoryBackendForTests(): void {
+  attempts.clear();
+  locks.clear();
   store.clear();
 }

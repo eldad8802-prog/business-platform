@@ -14,8 +14,10 @@
  *   3. tenant isolation: another business's owner is untouched by all of it.
  *   4. verification: a verify link stamps emailVerifiedAt for that owner only; resend then says
  *      "already verified"; a reset link cannot verify and a verify link cannot reset.
- *   5. login: ten failed attempts on one account → even the RIGHT password is refused (429, Hebrew)
- *      until the window passes — and another account signs in normally meanwhile.
+ *   5. login (4 failures / rolling 15 min / 15-minute lock): the 3rd failure warns, the 4th locks; the lock
+ *      holds across IPs and case variants, refuses even the right password, and is answered identically
+ *      for an address with no account; a parallel burst runs at most 4 comparisons; a success clears
+ *      the ledger; a known device (its cookie) keeps its own ledger; the per-IP limit still applies.
  *
  * env: OWNER_URL, DATABASE_URL, AUTH_DATABASE_URL, AUTH_PLANE_ENABLED=true, AUTH_TOKEN_SECRET,
  * RATE_LIMIT_BACKEND=memory. Synthetic only. ZERO network.
@@ -169,21 +171,98 @@ async function main() {
   ok("C reads as verified; B (never verified) does not", (await readEmailVerified(C.userId)) === true && (await readEmailVerified(B.userId)) === false);
   ok("resend now answers 'already verified'", (await requestEmailVerification(C.userId, new Date())).status === "ALREADY_VERIFIED");
 
-  console.log("\n— 5. login: the per-account failure limit —");
+  console.log("\n— 5. login: 4 failures / rolling 15 minutes / 15-minute lock —");
+  // Every request from a NEW IP: nothing below can be the per-IP limit.
+  let ipN = 0;
+  const freshIp = () => `198.18.${Math.floor(++ipN / 250)}.${ipN % 250}`;
+  const signIn = async (email: string, password: string, cookie?: string) => {
+    const r = new Request("http://lab/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": freshIp(), "user-agent": "aet-app-battery", ...(cookie ? { cookie } : {}) },
+      body: JSON.stringify({ email, password }),
+    });
+    const res = await login(r);
+    return { status: res.status, body: await res.json(), retryAfter: res.headers.get("retry-after"), setCookie: res.headers.get("set-cookie") ?? "" };
+  };
+  const shape = (x: { status: number; body: Record<string, unknown> }) =>
+    JSON.stringify({ s: x.status, code: x.body.code, error: x.body.error, warning: x.body.warning ?? null, left: x.body.attemptsLeft ?? null });
+
   const E = await account("E");
-  const statuses: number[] = [];
-  for (let i = 0; i < 10; i++) statuses.push((await login(post("/api/auth/login", { email: E.email, password: `wrong-${i}` }, `198.51.100.${100 + i}`))).status);
-  ok("ten wrong passwords from ten addresses: ten 401s", statuses.every((s) => s === 401), statuses.join(","));
-  const blocked = await login(post("/api/auth/login", { email: E.email, password: OLD_PW }, "198.51.100.150"));
-  const blockedBody = await blocked.json();
-  ok("the 11th attempt — even with the RIGHT password — is 429 (Hebrew), before any compare",
-    blocked.status === 429 && blockedBody.code === "RATE_LIMITED" && /[֐-׿]/.test(blockedBody.error));
-  const other = await login(post("/api/auth/login", { email: B.email, password: OLD_PW }, "198.51.100.151"));
+  const seq = [];
+  for (let i = 1; i <= 4; i++) seq.push(await signIn(E.email, `wrong-${i}`));
+  ok("failures 1–2: the ordinary Hebrew error, no warning",
+    seq[0].status === 401 && seq[1].status === 401 && !seq[0].body.warning && !seq[1].body.warning && seq[0].body.error === "האימייל או הסיסמה שגויים");
+  ok("failure 3: the error PLUS the owner-approved warning (one attempt left)",
+    seq[2].status === 401 && seq[2].body.warning === "שים לב, נותר לך ניסיון התחברות אחד לפני חסימה זמנית ל־15 דקות." && seq[2].body.attemptsLeft === 1);
+  ok("failure 4: a 15-minute lock — 429 LOGIN_LOCKED, Retry-After 900, the Hebrew time left",
+    seq[3].status === 429 && seq[3].body.code === "LOGIN_LOCKED" && seq[3].body.retryAfterSeconds === 900 && seq[3].retryAfter === "900" &&
+      String(seq[3].body.error).includes("בעוד 15 דקות"), JSON.stringify(seq[3]));
+  const right = await signIn(E.email, OLD_PW);
+  ok("while locked — even the RIGHT password, from a new IP — is refused with the time left",
+    right.status === 429 && right.body.code === "LOGIN_LOCKED" && Number(right.body.retryAfterSeconds) > 850 && Number(right.body.retryAfterSeconds) <= 900);
+  const upper = await signIn(E.email.toUpperCase(), OLD_PW);
+  ok("…and a case variant of the address is the same lock", upper.status === 429 && upper.body.code === "LOGIN_LOCKED");
+  ok("the lock message names no account and no address", !String(right.body.error).includes("@") && !/חשבון/.test(String(right.body.error)));
+  const other = await signIn(B.email, OLD_PW);
   ok("another account signs in normally meanwhile", other.status === 200);
-  const F = await account("F");
-  for (let i = 0; i < 12; i++) await login(post("/api/auth/login", { email: F.email, password: OLD_PW }, `198.51.101.${i}`));
-  const stillOk = await login(post("/api/auth/login", { email: F.email, password: OLD_PW }, "198.51.101.99"));
-  ok("successful logins spend nothing: the 13th correct login still succeeds", stillOk.status === 200);
+
+  // No enumeration: an address with NO account walks exactly the same sequence.
+  const ghost = `nobody-${Date.now()}@lab.invalid`;
+  const gseq = [];
+  for (let i = 1; i <= 5; i++) gseq.push(await signIn(ghost, `wrong-${i}`));
+  ok("an address with NO account gets the identical 1–2 / warning / lock / locked sequence",
+    gseq.map(shape).slice(0, 4).join("|") === seq.map(shape).join("|") && gseq[4].status === 429 && gseq[4].body.code === "LOGIN_LOCKED",
+    `${gseq.map(shape).join("|")} vs ${seq.map(shape).join("|")}`);
+
+  // A parallel burst: at most four comparisons, whatever the IPs.
+  const G = await account("G");
+  const burst = await Promise.all(Array.from({ length: 10 }, (_, i) => signIn(G.email, `burst-${i}`)));
+  const s401 = burst.filter((b) => b.status === 401).length;
+  const s429 = burst.filter((b) => b.status === 429).length;
+  ok("a parallel burst of 10 from 10 IPs: only 4 compared (3 × 401 + the 4th locks) — 7 × 429", s401 === 3 && s429 === 7, `401=${s401} 429=${s429}`);
+  const gRight = await signIn(G.email, OLD_PW);
+  ok("…and the address is locked afterwards", gRight.status === 429 && gRight.body.code === "LOGIN_LOCKED");
+
+  // A success is not a failure — and clears the ones before it.
+  const H = await account("H");
+  for (let i = 1; i <= 3; i++) await signIn(H.email, `wrong-${i}`);
+  const hOk = await signIn(H.email, OLD_PW);
+  ok("three failures then the right password: signed in (200)", hOk.status === 200);
+  const after1 = await signIn(H.email, "wrong-again-1");
+  const after3 = [after1, await signIn(H.email, "wrong-again-2"), await signIn(H.email, "wrong-again-3")];
+  ok("…the ledger restarted: the next failures are 1, 2, then the warning — not a lock",
+    after3.every((x) => x.status === 401) && !after3[0].body.warning && after3[2].body.warning !== undefined);
+
+  // The owner's known device keeps its own ledger: a stranger cannot lock the owner out of it.
+  const K = await account("K");
+  const known = await signIn(K.email, OLD_PW);
+  const deviceCookie = (/dubiz_ld=[^;]+/.exec(known.setCookie) ?? [""])[0];
+  ok("a successful sign-in sets the known-device cookie (httpOnly, only for /api/auth/login)",
+    deviceCookie.length > 10 && /HttpOnly/i.test(known.setCookie) && /Path=\/api\/auth\/login/i.test(known.setCookie));
+  for (let i = 1; i <= 4; i++) await signIn(K.email, `attacker-${i}`);
+  const strangerNow = await signIn(K.email, OLD_PW);
+  ok("an attacker's 4 failures lock the address for any browser WITHOUT the cookie", strangerNow.status === 429);
+  const ownerDevice = await signIn(K.email, OLD_PW, deviceCookie);
+  ok("…but the owner's known device still signs in (its own ledger)", ownerDevice.status === 200);
+  const Kb = await account("Kb");
+  const kbCookie = (/dubiz_ld=[^;]+/.exec((await signIn(Kb.email, OLD_PW)).setCookie) ?? [""])[0];
+  const borrowed = await signIn(K.email, OLD_PW, kbCookie);
+  ok("another account's device cookie does not open this address's lock", borrowed.status === 429);
+  const forged = await signIn(K.email, OLD_PW, deviceCookie.replace(/.$/, (c) => (c === "A" ? "B" : "A")));
+  ok("a tampered device cookie does not open it either", forged.status === 429);
+
+  // The per-IP limit is still in force (10 a minute from one IP), whatever the addresses.
+  const sameIp = "203.0.113.77";
+  const ipStatuses: number[] = [];
+  for (let i = 0; i < 11; i++) {
+    const r = new Request("http://lab/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": sameIp },
+      body: JSON.stringify({ email: `ip-${i}-${Date.now()}@lab.invalid`, password: "x" }),
+    });
+    ipStatuses.push((await login(r)).status);
+  }
+  ok("the per-IP limit still applies: the 11th request from one IP in a minute is 429", ipStatuses[10] === 429 && ipStatuses.slice(0, 10).every((s) => s === 401), ipStatuses.join(","));
 
   console.log(`\n[aet-app-battery] PASS=${pass} FAIL=${failures.length}`);
   if (failures.length) { for (const f of failures) console.log(`  - ${f}`); process.exitCode = 1; }
