@@ -137,6 +137,11 @@ export const ANONYMIZE_MODELS = [
   // on this table. `reason` and `href` are not declared because they are not
   // erased — a fixed policy string and an internal route name nobody.
   { model: "notification", fields: { title: "blank", summary: "null" } },
+  // Daily Tasks (milestone A). The owner's own words on a task or a series are blanked in place: the runtime
+  // holds no DELETE on either table, and due days, states and rules are the business's history. erasedAt
+  // records the erasure.
+  { model: "task", fields: { title: "blank", description: "null", erasedAt: "now" } },
+  { model: "taskSeries", fields: { title: "blank", note: "null", erasedAt: "now" } },
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -233,6 +238,9 @@ export const DELETE_MODELS = [
   // Single-use account links (hash + the address each was sent to). Deleted under
   // the tenant context through its tenant-scoped policy, like transactionalEmail.
   "authEmailToken",
+  // Daily Tasks request fingerprints (HMAC of a request that may have carried a title). Deleted under the
+  // tenant context through its tenant-scoped DELETE policy (task_request_ledger_runtime_delete).
+  "taskRequestLedger",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.

@@ -1,0 +1,15 @@
+{
+  "note": "Daily Tasks milestone A (application layer): TaskService and its pure core, on the real migration 20261018090000_daily_tasks_foundation.",
+  "tests": {
+    "lib/services/tasks/task-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): recurrence rules, the manual-task state machine, the closed journal payload (no free text, no amounts), UUIDv7 key age and the HMAC request digest with key rotation; run on pull_request by daily-tasks-a-ci.yml"
+    },
+    "lib/services/tasks/task.service.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "daily-tasks-a-ci.yml",
+      "reason": "tenant isolation and repeated-request safety of the task engine AS the restricted runtime (NOSUPERUSER NOBYPASSRLS) on the real migration: cross-business reads, links and user references refused, context-less reads empty, one open occurrence under concurrency, same-key replay / reuse / stale / parallel-first, account erasure; run on pull_request by daily-tasks-a-ci.yml"
+    }
+  }
+}
