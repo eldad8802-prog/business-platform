@@ -1,6 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/tokens";
+import { isComingSoon } from "@/lib/features/action-availability";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
 import { WA_COPY, waConnectErrorText } from "./wa-copy";
 import { IconLock } from "./wa-icons";
@@ -53,7 +54,7 @@ export function WhatsAppConnectInvitation({
               reset();
               start();
             }}
-            comingSoon
+            comingSoon={isComingSoon("whatsapp.connect")}
           />
         </div>
       </ConnectSurface>
@@ -107,7 +108,7 @@ export function WhatsAppConnectInvitation({
           onClick={start}
           disabled={launching}
           showGlyph={!launching}
-          comingSoon
+          comingSoon={isComingSoon("whatsapp.connect")}
         />
         {launching ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>

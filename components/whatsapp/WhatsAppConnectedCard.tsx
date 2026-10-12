@@ -4,6 +4,7 @@ import { useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { isComingSoon } from "@/lib/features/action-availability";
 import type { WhatsAppPublicConnection } from "./use-whatsapp-connection";
 import { WA_COPY, waConnectErrorText } from "./wa-copy";
 import { IconChevronStart, IconPower, IconRefresh, IconSwap } from "./wa-icons";
@@ -171,7 +172,7 @@ export function WhatsAppConnectedCard({
           subtitle={a.reconnect.subtitle}
           onClick={beginConnect}
           disabled={busy}
-          comingSoon
+          comingSoon={isComingSoon("whatsapp.reconnect")}
           divider={false}
         />
         <ActionRow
@@ -180,7 +181,7 @@ export function WhatsAppConnectedCard({
           subtitle={a.switch.subtitle}
           onClick={beginConnect}
           disabled={busy}
-          comingSoon
+          comingSoon={isComingSoon("whatsapp.switch_number")}
           divider
         />
         <ActionRow

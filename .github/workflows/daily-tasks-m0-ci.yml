@@ -1,0 +1,50 @@
+name: daily tasks — M0 foundations (pure)
+
+# Daily Tasks, milestone A (M0), no database:
+#   - action availability (spec 4.5, T-A3): the screens that show WhatsApp / Tax Authority / Meta connection
+#     actions and the secretary's notification preferences read ONE registry — no local "coming soon"
+#     literal left; the registry keeps exactly today's states (a move, not a change);
+#   - R7: the secretary's notification preferences render inactive with the coming-soon pill;
+#   - day boundaries: the task engine's day, the leads day and the supplier-payments day agree at every edge,
+#     both 2026 DST transitions included;
+#   - the Jerusalem calendar-day helpers themselves (lib/utils/jerusalem-day.verify.test.ts, previously not
+#     run by any workflow).
+
+on:
+  pull_request:
+    paths:
+      - "lib/features/**"
+      - "lib/utils/jerusalem-day.ts"
+      - "lib/utils/*.verify.test.ts"
+      - "lib/services/crm/lead-core.ts"
+      - "lib/services/payables/payables-core.ts"
+      - "components/whatsapp/**"
+      - "components/settings/AuthorityConnectionCard.tsx"
+      - "components/settings/LeadSourcesPanel.tsx"
+      - "app/(shell)/secretary/**"
+      - ".github/workflows/daily-tasks-m0-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m0:
+    name: Daily tasks M0 (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Action availability — one registry, R7
+        run: npm run verify:action-availability
+      - name: Day boundaries — three helpers agree (DST included)
+        run: npm run verify:day-boundary-agreement
+      - name: Jerusalem calendar day helpers
+        run: npm run verify:jerusalem-day

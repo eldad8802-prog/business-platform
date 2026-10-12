@@ -9,6 +9,7 @@ import {
   type WarmPillTone,
 } from "@/components/ui/warm/warm-primitives";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { isComingSoon } from "@/lib/features/action-availability";
 
 /**
  * Israel Tax Authority ("חשבוניות ישראל") connection card — Settings › Connections.
@@ -277,16 +278,16 @@ export function AuthorityConnectionCard() {
             {/* The Tax Authority connection is not open yet: its buttons stay, inactive, marked "בקרוב". */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {showConnect ? (
-                <WarmButton height={42} onClick={startConnect} disabled>
+                <WarmButton height={42} onClick={startConnect} disabled={isComingSoon("tax_authority.connect")}>
                   חיבור לרשות המסים
                 </WarmButton>
               ) : null}
               {showReconnect ? (
-                <WarmButton height={42} onClick={startConnect} disabled>
+                <WarmButton height={42} onClick={startConnect} disabled={isComingSoon("tax_authority.reconnect")}>
                   חיבור מחדש
                 </WarmButton>
               ) : null}
-              {showConnect || showReconnect ? <ComingSoonPill /> : null}
+              {(showConnect && isComingSoon("tax_authority.connect")) || (showReconnect && isComingSoon("tax_authority.reconnect")) ? <ComingSoonPill /> : null}
             </div>
           </div>
         )}
