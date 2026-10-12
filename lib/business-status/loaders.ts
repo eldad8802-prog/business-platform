@@ -1,5 +1,6 @@
 import {
   BillingDocumentStatus,
+  BillingDocumentType,
   BillingPdfRenderStatus,
   MessageDirection,
   MessageSenderType,
@@ -705,14 +706,23 @@ export type StaleBillingDraftRaw = {
   currency: string;
 };
 
-/** Drafts that were never issued. DRAFT only — PENDING_REVIEW is someone's queue, not neglect. */
+/**
+ * Drafts that were never issued. DRAFT only — PENDING_REVIEW is someone's queue, not neglect.
+ * A quote is never issued (billing-issue.service refuses QUOTE), so every quote stays DRAFT for life:
+ * it is a quote, not a forgotten invoice, and is left out here (R4).
+ */
 export async function loadBillingStaleDrafts(
   businessId: number,
   now: Date
 ): Promise<StaleBillingDraftRaw[]> {
   const cutoff = new Date(now.getTime() - BS_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000);
   const rows = await dbStep((db) => db.billingDocument.findMany({
-    where: { businessId, status: BillingDocumentStatus.DRAFT, createdAt: { lt: cutoff } },
+    where: {
+      businessId,
+      status: BillingDocumentStatus.DRAFT,
+      documentType: { not: BillingDocumentType.QUOTE },
+      createdAt: { lt: cutoff },
+    },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: BS_BILLING_STALE_DRAFT_CAP,
     select: { id: true, createdAt: true, customerNameSnapshot: true, totalAmount: true, currency: true },
