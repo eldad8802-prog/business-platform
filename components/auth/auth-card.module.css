@@ -1,0 +1,215 @@
+/* The account-link screens (forgot / reset password, verify email) — the login screen's frame:
+   Dubiz Mist tokens only, RTL, one card, fluid from 320px up. */
+
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  direction: rtl;
+  padding: 24px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at top right, rgba(30, 106, 74, 0.1), transparent 28%),
+    linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-brand-soft) 45%, var(--dz-surface-flat) 100%);
+}
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--dz-border);
+  border-radius: 28px;
+  box-shadow: 0 20px 60px rgba(52, 60, 50, 0.12);
+  overflow: hidden;
+}
+
+.head {
+  padding: 28px 24px 18px;
+  background: linear-gradient(135deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 55%, var(--dz-success-bg-soft) 100%);
+  border-bottom: 1px solid var(--dz-border);
+}
+
+.logo {
+  margin-bottom: 18px;
+}
+
+.title {
+  margin: 0 0 8px 0;
+  font-size: 26px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--dz-text-primary);
+}
+
+.lede {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--dz-text-secondary);
+}
+
+.body {
+  padding: 22px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dz-text-primary);
+}
+
+.inputShell {
+  position: relative;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--dz-border-strong);
+  background: var(--dz-surface-flat);
+  color: var(--dz-text-primary);
+  font-size: 16px; /* 16px: no zoom-on-focus on iOS */
+  outline: none;
+  box-shadow: 0 1px 2px rgba(52, 60, 50, 0.04);
+}
+
+.input:focus-visible {
+  border-color: var(--dz-brand);
+  box-shadow: 0 0 0 3px var(--dz-focus-ring);
+}
+
+.inputWithToggle {
+  padding-inline-start: 64px;
+}
+
+.inputBad {
+  border-color: var(--dz-danger-border);
+  box-shadow: 0 0 0 3px rgba(155, 70, 52, 0.1);
+}
+
+.toggle {
+  position: absolute;
+  inset-inline-start: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--dz-surface-muted);
+  color: var(--dz-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: 3px solid var(--dz-focus-ring);
+}
+
+.helper {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dz-text-muted);
+}
+
+.fieldError {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dz-danger);
+}
+
+.alert,
+.success,
+.info {
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--dz-text-primary);
+}
+
+.alert {
+  background: var(--dz-danger-bg-soft);
+  border: 1px solid var(--dz-danger-border);
+}
+
+.success {
+  background: var(--dz-success-bg-soft);
+  border: 1px solid var(--dz-success-border);
+}
+
+.info {
+  background: var(--dz-surface-muted);
+  border: 1px solid var(--dz-border);
+}
+
+.footer {
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--dz-text-secondary);
+}
+
+.link {
+  color: var(--dz-brand);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link:focus-visible {
+  outline: 3px solid var(--dz-focus-ring);
+  border-radius: 4px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--dz-border-strong);
+  border-top-color: var(--dz-brand);
+  animation: dz-auth-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-inline-end: 8px;
+}
+
+@keyframes dz-auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .head {
+    padding: 32px 32px 20px;
+  }
+  .body {
+    padding: 24px 32px 30px;
+  }
+  .title {
+    font-size: 28px;
+  }
+}

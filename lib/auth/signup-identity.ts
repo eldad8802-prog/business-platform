@@ -26,7 +26,7 @@ export const MAX_NAME_LENGTH = 120;
  * adjudicate RFC 5322 — an over-strict pattern rejects addresses that genuinely
  * deliver, and a rejected signup is a lost customer.
  */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type SignupInput = {
   email: unknown;

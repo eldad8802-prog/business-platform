@@ -230,6 +230,9 @@ export const DELETE_MODELS = [
   // Transactional email to the owner (address + template parameters). No fiscal
   // linkage; deleted under the tenant context through its tenant-scoped policy.
   "transactionalEmail",
+  // Single-use account links (hash + the address each was sent to). Deleted under
+  // the tenant context through its tenant-scoped policy, like transactionalEmail.
+  "authEmailToken",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.

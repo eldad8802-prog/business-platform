@@ -135,7 +135,7 @@
     "verify:home-history": "npx tsx lib/services/home/home-history-model.test.ts",
     "verify:token-revocation": "npx tsx lib/auth/token-revocation.verify.test.ts",
     "verify:jerusalem-day": "npx tsx lib/utils/jerusalem-day.verify.test.ts",
-    "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage && npm run verify:session-bound-token && npm run verify:consent-version && npm run verify:setup-model && npm run verify:home-history",
+    "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage && npm run verify:session-bound-token && npm run verify:consent-version && npm run verify:setup-model && npm run verify:home-history && npm run verify:account-recovery",
     "verify:notification-policy": "npx tsx lib/notifications/notification-policy.verify.test.ts",
     "verify:data-transfer-format": "npx tsx lib/data-transfer/format/format.verify.test.ts",
     "verify:financial-records-csv": "npx tsx lib/reports/financial-records-csv.verify.test.ts",
@@ -202,7 +202,8 @@
     "verify:home-collection": "npx tsx lib/services/home/home-collection.verify.test.ts",
     "verify:home-collection-diagnostics": "npx tsx lib/services/home/home-collection-diagnostics.verify.test.ts",
     "verify:home-collection-timeline": "node --expose-gc --import tsx lib/services/home/home-collection-timeline.verify.test.ts",
-    "qa:home-mobile": "node scripts/qa/ui/home-mobile-states.mjs"
+    "qa:home-mobile": "node scripts/qa/ui/home-mobile-states.mjs",
+    "verify:account-recovery": "npx tsx lib/auth/account-recovery.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

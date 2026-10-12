@@ -38,6 +38,7 @@
  *
  * Synthetic pw-ad2a fixtures only. ZERO network, ZERO Neon, ZERO Production.
  */
+import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { scanConversationIntegrity } from "../scripts/security/conversation-integrity-scan.mjs";
 import {
@@ -278,6 +279,10 @@ async function main() {
   await owner.$executeRawUnsafe(`REVOKE ALL ON "TransactionalEmail" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "TransactionalEmail" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE "TransactionalEmail_id_seq" FROM ${RT_ROLE}`);
+  // Account links — migration 20261017090000_auth_email_tokens, mirrored exactly: DELETE and SELECT on
+  // (id, businessId), never the hash or the address. Account erasure is its one consumer.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON "AuthEmailToken" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "AuthEmailToken" TO ${RT_ROLE}`);
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
@@ -601,6 +606,20 @@ async function main() {
         toEmail: `${tag}-owner@ad2a.test`,
         payload: { firstName: `${MARK}first` },
         expiresAt: new Date(Date.now() + 24 * 3600_000),
+      },
+    });
+    // An account link (password reset) for this owner, with the address it was sent to. Seeded for
+    // BOTH businesses for the same reason.
+    await owner.authEmailToken.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: u.id,
+        businessId: b.id,
+        purpose: "PASSWORD_RESET",
+        email: `${tag}-owner@ad2a.test`,
+        tokenHash: crypto.createHash("sha256").update(`${MARK}${tag}`).digest("hex"),
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 3600_000),
       },
     });
 
@@ -1271,6 +1290,8 @@ async function main() {
     (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: A.biz.id } })) === 0);
   ok("A's transactional email rows are gone (tenant-scoped DELETE)",
     (await owner.transactionalEmail.count({ where: { businessId: A.biz.id } })) === 0);
+  ok("A's account links are gone (tenant-scoped DELETE)",
+    (await owner.authEmailToken.count({ where: { businessId: A.biz.id } })) === 0);
   const custA = await owner.customer.findFirst({ where: { businessId: A.biz.id } });
   ok("A's customer is ANONYMIZED, not deleted (invoice FK)", custA !== null && custA.name === "לקוח שנמחק");
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
@@ -1515,6 +1536,8 @@ async function main() {
     (await owner.inboundEmailSenderChallenge.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's transactional email row survives (the DELETE policy is bound to the erased tenant)",
     (await owner.transactionalEmail.count({ where: { businessId: B.biz.id } })) === 1);
+  ok("B's account link survives (the DELETE policy is bound to the erased tenant)",
+    (await owner.authEmailToken.count({ where: { businessId: B.biz.id } })) === 1);
 
   // C12-E1 cross-tenant. The line is the one that can actually go wrong: it has no
   // businessId, so it is reached through the PurchaseOrder relation, and a filter

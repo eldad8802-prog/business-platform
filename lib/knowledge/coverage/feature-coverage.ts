@@ -427,10 +427,12 @@ export const INFRASTRUCTURE = {
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion",
     // Transactional email (WELCOME): account mail delivery, not business learning evidence.
-    "TransactionalEmail"],
+    "TransactionalEmail",
+    // Single-use account links (email verification / password reset): authentication, not business evidence.
+    "AuthEmailToken"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "api/transactional-email",
-    "page/settings", "page/login", "page/register", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
+    "page/settings", "page/login", "page/register", "page/forgot-password", "page/reset-password", "page/verify-email", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */
   platformTelemetry: ["ProductUsageEvent"],

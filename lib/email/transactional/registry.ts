@@ -13,6 +13,12 @@
  */
 
 import {
+  parseAccountLinkPayload,
+  renderEmailVerify,
+  renderPasswordReset,
+  type AccountLinkPayload,
+} from "./templates/account-links";
+import {
   parseWelcomePayload,
   renderWelcome,
   type RenderedEmail,
@@ -31,6 +37,10 @@ export type EmailKindSpec<P> = {
 };
 
 export const WELCOME_TTL_MS = 24 * 60 * 60 * 1000;
+/** A verification link lives 24h; an email that cannot go out within 12h is better re-requested. */
+export const EMAIL_VERIFY_TTL_MS = 12 * 60 * 60 * 1000;
+/** A reset link lives 1h: an email that cannot go out within it carries a dead link. */
+export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 
 export const EMAIL_KINDS = {
   WELCOME: {
@@ -38,6 +48,16 @@ export const EMAIL_KINDS = {
     parse: parseWelcomePayload,
     render: renderWelcome,
   } satisfies EmailKindSpec<WelcomePayload>,
+  EMAIL_VERIFY: {
+    ttlMs: EMAIL_VERIFY_TTL_MS,
+    parse: parseAccountLinkPayload,
+    render: renderEmailVerify,
+  } satisfies EmailKindSpec<AccountLinkPayload>,
+  PASSWORD_RESET: {
+    ttlMs: PASSWORD_RESET_TTL_MS,
+    parse: parseAccountLinkPayload,
+    render: renderPasswordReset,
+  } satisfies EmailKindSpec<AccountLinkPayload>,
 } as const;
 
 export type EmailKind = keyof typeof EMAIL_KINDS;
@@ -49,6 +69,11 @@ export function isEmailKind(value: string): value is EmailKind {
 /** One WELCOME per user, ever: a signup creates the user, so its id names the act. */
 export function welcomeDedupeKey(userId: number): string {
   return `welcome:user:${userId}`;
+}
+
+/** One email per issued link: the token id names the act (a re-request mints a new token). */
+export function accountLinkDedupeKey(kind: "EMAIL_VERIFY" | "PASSWORD_RESET", tokenId: string): string {
+  return `${kind === "EMAIL_VERIFY" ? "email_verify" : "password_reset"}:token:${tokenId}`;
 }
 
 /** Renders a stored row's payload, or null when the kind is unknown or the payload invalid. */

@@ -5,8 +5,11 @@ import { NextResponse } from "next/server";
 import { authDb } from "@/lib/prisma-auth";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
+import { AUTH_MESSAGES_HE, loginLockedMessage } from "@/lib/auth/auth-messages";
+import { LOGIN_FAILURE_POLICY, loginAccountRateKey } from "@/lib/auth/account-rate-key";
+import { readLoginDevice, setLoginDevice } from "@/lib/auth/login-device";
 import bcrypt from "bcrypt";
-import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { consumeRateLimit, getClientIp, reserveAttempt } from "@/lib/security/rate-limit";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
@@ -54,6 +57,18 @@ const LOGIN_USER_SELECT = {
   business: { select: { name: true } },
 } as const;
 
+/**
+ * The temporary lock, answered the same for every address: 429, the Hebrew message with the time
+ * left, and Retry-After. Nothing in it is about an account.
+ */
+function lockedResponse(retryAfterMs: number): NextResponse {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  return NextResponse.json(
+    { error: loginLockedMessage(retryAfterMs), code: "LOGIN_LOCKED", retryAfterSeconds },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds), "Cache-Control": "no-store" } }
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
@@ -66,7 +81,7 @@ export async function POST(req: Request) {
     if (!rl.allowed) {
       await recordLoginFailure({ reason: "rate_limited" });
       return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
+        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
         { status: 429 }
       );
     }
@@ -85,7 +100,7 @@ export async function POST(req: Request) {
     ) {
       await recordLoginFailure({ reason: "missing_credentials" });
       return NextResponse.json(
-        { error: "Missing email or password" },
+        { error: AUTH_MESSAGES_HE.missingCredentials, code: "MISSING_CREDENTIALS" },
         { status: 400 }
       );
     }
@@ -107,6 +122,45 @@ export async function POST(req: Request) {
     // same unique index, never a scan.
     const normalizedEmail = normalizeEmail(email);
 
+    // The per-IP limit above stops one source; this one stops many sources aimed
+    // at ONE address (LOGIN_FAILURE_POLICY: 4 failures in a rolling 15 minutes →
+    // a 15-minute lock; a warning at the third). The attempt is RESERVED here,
+    // atomically and before any password is compared — so a parallel burst runs at
+    // most four comparisons, and a locked address compares nothing — and the
+    // ledger is cleared below if the password is right: a success is never a failure.
+    // Keyed on a digest of the folded address, for every address alike, so no
+    // answer here says whether an account exists. A browser that already signed in
+    // to this address counts on its own ledger, out of a stranger's reach.
+    const deviceNonce = readLoginDevice(req, normalizedEmail);
+    const attempt = await reserveAttempt({
+      key: loginAccountRateKey(normalizedEmail, deviceNonce),
+      limit: LOGIN_FAILURE_POLICY.limit,
+      windowMs: LOGIN_FAILURE_POLICY.windowMs,
+    });
+    if (!attempt.allowed) {
+      await recordLoginFailure({ reason: "locked_account" });
+      return lockedResponse(attempt.retryAfterMs);
+    }
+
+    // A wrong password (or no such account — answered identically): counted; the
+    // third failure warns, the fourth locks.
+    const failedSignIn = async (businessId: number | null) => {
+      await recordLoginFailure({ businessId, reason: "invalid_credentials" });
+      if (attempt.count >= LOGIN_FAILURE_POLICY.limit) {
+        await attempt.lock(LOGIN_FAILURE_POLICY.lockMs);
+        return lockedResponse(LOGIN_FAILURE_POLICY.lockMs);
+      }
+      const warn = attempt.count === LOGIN_FAILURE_POLICY.warnAtFailure;
+      return NextResponse.json(
+        {
+          error: AUTH_MESSAGES_HE.invalidCredentials,
+          code: "INVALID_CREDENTIALS",
+          ...(warn ? { warning: AUTH_MESSAGES_HE.loginLastAttemptWarning, attemptsLeft: 1 } : {}),
+        },
+        { status: 401, headers: { "Cache-Control": "no-store" } }
+      );
+    };
+
     let user = await authDb().user.findUnique({
       where: { email: normalizedEmail },
       select: LOGIN_USER_SELECT,
@@ -124,25 +178,19 @@ export async function POST(req: Request) {
       // an unknown address measurably faster than a wrong password, which told
       // anyone timing the endpoint which addresses have an account.
       await bcrypt.compare(password, TIMING_EQUALISER_HASH);
-      await recordLoginFailure({ reason: "invalid_credentials" });
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
+      return failedSignIn(null);
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      await recordLoginFailure({
-        businessId: user.businessId,
-        reason: "invalid_credentials",
-      });
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
+      return failedSignIn(user.businessId);
     }
+
+    // The right password: not a failure — and the failures before it on this ledger
+    // are cleared (whoever typed them now proved the password). Before anything else
+    // can fail, so a server error after this point never counts against the owner.
+    await attempt.clear();
 
     const sessionId = randomUUID();
     const now = new Date();
@@ -173,7 +221,7 @@ export async function POST(req: Request) {
         "LOGIN_SESSION_ISSUE_ERROR:",
         error instanceof Error ? error.name : "UnknownError"
       );
-      return NextResponse.json({ error: "Server error" }, { status: 500 });
+      return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
     }
 
     // `select` is not cosmetic. Without it Prisma appends RETURNING over every
@@ -223,6 +271,10 @@ export async function POST(req: Request) {
       absoluteExpiresAt: session.absoluteExpiresAt,
     });
 
+    // This browser has now signed in to this address: from here on its failures
+    // count on its own ledger (lib/auth/login-device.ts). Not a credential.
+    setLoginDevice(res, normalizedEmail, deviceNonce);
+
     return res;
   } catch (error) {
     if (error instanceof AuthTokenConfigError) {
@@ -231,7 +283,7 @@ export async function POST(req: Request) {
         {
           error:
             process.env.NODE_ENV === "production"
-              ? "Server configuration error"
+              ? AUTH_MESSAGES_HE.serviceUnavailable
               : error.message,
         },
         { status: 503 }
@@ -240,6 +292,6 @@ export async function POST(req: Request) {
 
     console.error("LOGIN_ERROR:", error);
 
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
   }
 }

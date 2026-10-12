@@ -95,13 +95,14 @@ async function main() {
 
   // ── 2. registry ──────────────────────────────────────────────────────────────
   {
-    ok("registry: WELCOME is the only kind", JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME"]));
+    ok("registry: the kinds are exactly WELCOME, EMAIL_VERIFY and PASSWORD_RESET",
+      JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME", "EMAIL_VERIFY", "PASSWORD_RESET"]));
     ok("registry: WELCOME TTL is 24h", WELCOME_TTL_MS === 24 * 3600_000 && EMAIL_KINDS.WELCOME.ttlMs === WELCOME_TTL_MS);
     ok("registry: no kind outlives the provider's 24h idempotency window",
       Object.values(EMAIL_KINDS).every((k) => k.ttlMs <= PROVIDER_IDEMPOTENCY_WINDOW_MS));
     ok("registry: every kind name satisfies the table's CHECK", Object.keys(EMAIL_KINDS).every((k) => /^[A-Z][A-Z0-9_]{1,63}$/.test(k)));
     ok("registry: the WELCOME dedupe key names the user, stably", welcomeDedupeKey(42) === "welcome:user:42" && welcomeDedupeKey(42) === welcomeDedupeKey(42));
-    ok("registry: unknown kinds are not kinds", !isEmailKind("PASSWORD_RESET") && !isEmailKind("toString"));
+    ok("registry: unknown kinds are not kinds", !isEmailKind("INVOICE_COPY") && !isEmailKind("toString"));
     ok("registry: an unknown kind renders nothing", renderStored("NOPE", {}, { appBaseUrl: "https://a.test" }) === null);
   }
 
@@ -323,12 +324,17 @@ async function main() {
     walk("app");
     walk("lib");
     const code = (f: string) => fs.readFileSync(path.join(root, f), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: only signup enqueues — login, setup, refresh and every other flow do not",
-      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/signup.ts"]), JSON.stringify(enqueuers));
-    const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: delivery is reached only from the register route (after the response) and the sweep route",
-      JSON.stringify(deliverers) === JSON.stringify(["app/api/auth/register/route.ts", "app/api/transactional-email/sweep/route.ts"]), JSON.stringify(deliverers));
+    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional|AccountLink)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
+    ok("scope: only signup (WELCOME) and the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) enqueue — login, setup, refresh and every other flow do not",
+      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
+    const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
+    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route",
+      JSON.stringify(deliverers) === JSON.stringify([
+        "app/api/auth/email/resend/route.ts",
+        "app/api/auth/password/forgot/route.ts",
+        "app/api/auth/register/route.ts",
+        "app/api/transactional-email/sweep/route.ts",
+      ]), JSON.stringify(deliverers));
     const authImporters = files.filter((f) => f.startsWith("lib/email/") && /@\/lib\/prisma-auth/.test(code(f))).sort();
     ok("scope: in lib/email only delivery and sweep hold the auth client",
       JSON.stringify(authImporters) === JSON.stringify(["lib/email/transactional/delivery.ts", "lib/email/transactional/sweep.ts"]), JSON.stringify(authImporters));

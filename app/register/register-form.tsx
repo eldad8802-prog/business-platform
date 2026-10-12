@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
+import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 
 import styles from "./register.module.css";
 
@@ -28,6 +29,8 @@ export default function RegisterForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
+  // The honeypot (lib/auth/signup-honeypot.ts): uncontrolled, read once at submit.
+  const honeypotRef = useRef<HTMLInputElement>(null);
 
   const [showPassword, setShowPassword] = useState(false);
 
@@ -187,6 +190,7 @@ export default function RegisterForm() {
           password,
           acceptTerms,
           attribution: readAttribution(),
+          [SIGNUP_HONEYPOT_FIELD]: honeypotRef.current?.value ?? "",
         }),
       });
 
@@ -224,7 +228,7 @@ export default function RegisterForm() {
       // Signup now returns the session itself. There is no second login call to
       // fail, so a created account can no longer strand its owner.
       if (!registerData?.token) {
-        throw new Error("לא התקבל token מהשרת");
+        throw new Error("החשבון נפתח, אבל לא הצלחנו להשלים את הכניסה. אפשר להתחבר מהמסך הבא.");
       }
 
       // Stored exactly as login stores it; the refresh credential arrived as an
@@ -311,6 +315,14 @@ export default function RegisterForm() {
         </div>
 
         <form className={styles.form} onSubmit={handleRegister} noValidate>
+          {/* Not for people: clipped to nothing, out of the tab order, hidden from assistive technology. */}
+          <div
+            aria-hidden="true"
+            style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", opacity: 0, pointerEvents: "none" }}
+          >
+            <label htmlFor="dz-confirm-field">יש להשאיר ריק</label>
+            <input ref={honeypotRef} id="dz-confirm-field" name={SIGNUP_HONEYPOT_FIELD} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+          </div>
           <div className={styles.head}>
             <h1 className={styles.title}>פתיחת חשבון</h1>
             <p className={styles.loginLine}>

@@ -30,7 +30,15 @@ type LoginErrors = {
   form?: string;
 };
 
-export default function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
+export default function LoginForm({
+  signupEnabled,
+  passwordResetEnabled = false,
+  notice = null,
+}: {
+  signupEnabled: boolean;
+  passwordResetEnabled?: boolean;
+  notice?: "reset-done" | null;
+}) {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -111,8 +119,9 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
     }
 
     if (field === "password") {
-      if (!value.trim()) return "יש להזין סיסמה";
-      if (value.length < 6) return "הסיסמה חייבת להכיל לפחות 6 תווים";
+      // Required, nothing more: the server decides whether a password is right, and an
+      // account created under an older rule must never be refused here before it is asked.
+      if (!value) return "יש להזין סיסמה";
       return "";
     }
 
@@ -144,9 +153,31 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
     }));
   }
 
+  // The server's word on failed attempts: a warning before the lock, and the lock's end time. The
+  // count lives on the server (a refresh changes nothing); this only shows it.
+  const [warning, setWarning] = useState<string | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (lockedUntil === null) return;
+    const timer = window.setInterval(() => {
+      const t = Date.now();
+      setNowMs(t);
+      if (t >= lockedUntil) {
+        setLockedUntil(null);
+        setErrors((prev) => ({ ...prev, form: undefined }));
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [lockedUntil]);
+
+  const lockLeftMs = lockedUntil === null ? 0 : Math.max(0, lockedUntil - nowMs);
+  const lockLeftLabel = `${Math.floor(lockLeftMs / 60_000)}:${String(Math.floor((lockLeftMs % 60_000) / 1000)).padStart(2, "0")}`;
+
   const isSubmitDisabled = useMemo(() => {
-    return loading || !email.trim() || !password.trim();
-  }, [loading, email, password]);
+    return loading || lockedUntil !== null || !email.trim() || !password.trim();
+  }, [loading, lockedUntil, email, password]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -181,11 +212,20 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
       const data = await res.json();
 
       if (!res.ok) {
+        if (data?.code === "LOGIN_LOCKED" && typeof data?.retryAfterSeconds === "number") {
+          const until = Date.now() + data.retryAfterSeconds * 1000;
+          setNowMs(Date.now());
+          setLockedUntil(until);
+          setWarning(null);
+        } else {
+          setWarning(typeof data?.warning === "string" ? data.warning : null);
+        }
         throw new Error(data?.error || "שגיאה בהתחברות");
       }
+      setWarning(null);
 
       if (!data?.token) {
-        throw new Error("לא התקבל token מהשרת");
+        throw new Error("לא הצלחנו להשלים את הכניסה. כדאי לנסות שוב.");
       }
 
       window.localStorage.setItem("token", data.token);
@@ -373,6 +413,43 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
     background: "var(--dz-surface-muted)",
   };
 
+  const warningStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "var(--dz-warning-bg)",
+    border: "1px solid var(--dz-warning-accent)",
+    color: "var(--dz-warning)",
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.6,
+    marginBottom: 14,
+  };
+
+  const lockStyle: React.CSSProperties = {
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "var(--dz-danger-bg-soft)",
+    border: "1px solid var(--dz-danger-border)",
+    color: "var(--dz-text-primary)",
+    fontSize: 14,
+    lineHeight: 1.7,
+    marginBottom: 14,
+  };
+
+  const noticeStyle: React.CSSProperties = {
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "var(--dz-success-bg-soft)",
+    border: "1px solid var(--dz-success-border)",
+    color: "var(--dz-text-primary)",
+    fontSize: 14,
+    lineHeight: 1.6,
+    marginBottom: 14,
+  };
+
   const footerTextStyle: React.CSSProperties = {
     marginTop: 0,
     marginBottom: 0,
@@ -526,13 +603,42 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>הסיסמה חייבת להכיל לפחות 6 תווים.</p>
+              <p id="login-password-msg" style={helperTextStyle}>הסיסמה שבחרת בהרשמה.</p>
             )}
+            {passwordResetEnabled ? (
+              <p style={{ ...helperTextStyle, marginTop: 6 }}>
+                <a href="/forgot-password" style={{ ...linkButtonStyle, fontSize: "inherit" }} data-testid="forgot-password-link">
+                  שכחתי סיסמה
+                </a>
+              </p>
+            ) : null}
           </div>
 
-          {errors.form && (
+          {notice === "reset-done" && !errors.form ? (
+            <div role="status" aria-live="polite" style={noticeStyle} data-testid="reset-done-notice">
+              הסיסמה עודכנה. מעכשיו נכנסים עם הסיסמה החדשה.
+            </div>
+          ) : null}
+
+          {lockedUntil !== null ? (
+            <div role="alert" aria-live="assertive" style={lockStyle} data-testid="login-locked">
+              <strong style={{ display: "block", marginBottom: 4 }}>הכניסה נחסמה זמנית</strong>
+              {/* The server's sentence carries a fixed number of minutes; the live countdown below replaces it. */}
+              מטעמי אבטחה, הכניסה עם כתובת האימייל הזו נחסמה זמנית אחרי כמה ניסיונות שגויים.
+              <span style={{ display: "block", marginTop: 8, fontWeight: 700 }} aria-live="off">
+                אפשר לנסות שוב בעוד <span dir="ltr" data-testid="login-lock-countdown">{lockLeftLabel}</span>
+              </span>
+            </div>
+          ) : errors.form ? (
             <div role="alert" aria-live="assertive" style={formErrorStyle}>{errors.form}</div>
-          )}
+          ) : null}
+
+          {warning && lockedUntil === null ? (
+            <div role="alert" style={warningStyle} data-testid="login-warning">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+              <span>{warning}</span>
+            </div>
+          ) : null}
 
           <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
             {loading ? "מתחבר..." : "התחבר למערכת"}

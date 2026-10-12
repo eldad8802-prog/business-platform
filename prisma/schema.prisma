@@ -191,6 +191,7 @@ model Business {
   inboundEmailAuthorizedSenders InboundEmailAuthorizedSender[]
   inboundEmailSenderChallenges  InboundEmailSenderChallenge[]
   transactionalEmails           TransactionalEmail[]
+  authEmailTokens               AuthEmailToken[]
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -327,6 +328,10 @@ model User {
   /// Sanitised utm_* values and the referrer host captured at signup — it cannot
   /// be recovered later. Names nobody; bounded by lib/auth/signup-identity.ts.
   signupAttribution                          Json?
+  /// When the owner proved control of this address (an EMAIL_VERIFY or PASSWORD_RESET link, migration
+  /// 20261017090000_auth_email_tokens). NULL = not verified — a state the product shows, never a
+  /// lock-out. Written only by the token functions; app_auth may read it, nobody else may change it.
+  emailVerifiedAt                            DateTime?
   createdAt                                  DateTime                     @default(now())
   updatedAt                                  DateTime                     @updatedAt
   business                                   Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -344,6 +349,7 @@ model User {
   platformAdminMfa                           PlatformAdminMfa?
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
+  authEmailTokens                            AuthEmailToken[]
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -6816,6 +6822,32 @@ model TransactionalEmail {
 
   @@index([status, nextAttemptAt])
   @@index([userId])
+  @@index([businessId])
+}
+
+/// A single-use account link (migration 20261017090000_auth_email_tokens): EMAIL_VERIFY (24h) or
+/// PASSWORD_RESET (1h). Holds only sha256 of the link's secret. The auth plane (app_auth) holds NO
+/// privilege on the table — it reaches it only through the four SECURITY DEFINER functions
+/// (auth_email_token_issue / _check, auth_email_verify_consume, auth_password_reset_consume). The tenant
+/// plane (app_runtime) holds DELETE and SELECT ("id", "businessId") only, bound to
+/// app.current_business_id — account erasure, nothing else. CHECK constraints live in the migration.
+model AuthEmailToken {
+  id            String    @id @db.Uuid
+  userId        Int
+  businessId    Int
+  /// EMAIL_VERIFY | PASSWORD_RESET (CHECK)
+  purpose       String
+  /// The address the link was sent to; a link dies if the account's address changes.
+  email         String
+  tokenHash     String    @unique
+  createdAt     DateTime
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  invalidatedAt DateTime?
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
   @@index([businessId])
 }
 
