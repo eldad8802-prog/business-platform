@@ -13,6 +13,7 @@ import { groupStatus, type GroupStatus } from "@/features/home/lib/home-model";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import { categoryToneCss } from "@/features/tools/category-tones";
 import { EntityIcon } from "@/components/ui/entity/entity-icon";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 /**
  * A category screen — /tools/money, /tools/customers, /tools/operations.
@@ -109,18 +110,37 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
         <ul className="clist" aria-labelledby="cat-tools">
           {tools.map((tool) => (
             <li key={tool.key}>
-              <Link href={tool.href} className="crow" data-tool={tool.key}>
-                <span className="crow-ic" aria-hidden>
-                  <EntityIcon entity={tool.entity} size={26} />
-                </span>
-                <span className="crow-tx">
-                  <span className="crow-name">{tool.label}</span>
-                  <span className="crow-desc">{tool.description}</span>
-                </span>
-                <span className="crow-chev" aria-hidden>
-                  ‹
-                </span>
-              </Link>
+              {tool.comingSoon ? (
+                // Not open yet: the same row, inactive (no link), "בקרוב" in place of the chevron.
+                <div
+                  className="crow"
+                  data-tool={tool.key}
+                  aria-disabled="true"
+                  style={{ opacity: 0.6, cursor: "not-allowed" }}
+                >
+                  <span className="crow-ic" aria-hidden>
+                    <EntityIcon entity={tool.entity} size={26} />
+                  </span>
+                  <span className="crow-tx">
+                    <span className="crow-name">{tool.label}</span>
+                    <span className="crow-desc">{tool.description}</span>
+                  </span>
+                  <ComingSoonPill />
+                </div>
+              ) : (
+                <Link href={tool.href} className="crow" data-tool={tool.key}>
+                  <span className="crow-ic" aria-hidden>
+                    <EntityIcon entity={tool.entity} size={26} />
+                  </span>
+                  <span className="crow-tx">
+                    <span className="crow-name">{tool.label}</span>
+                    <span className="crow-desc">{tool.description}</span>
+                  </span>
+                  <span className="crow-chev" aria-hidden>
+                    ‹
+                  </span>
+                </Link>
+              )}
             </li>
           ))}
         </ul>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
 type ActionSheetProps = {
   open: boolean;
@@ -41,6 +42,8 @@ const QUICK_ACTIONS: {
     | "secretary"
     | "payments"
     | "lead";
+  /** Shown but not open yet: inactive, marked "בקרוב" (UI only). */
+  comingSoon?: boolean;
 }[] = [
   { label: "חשבונית חדשה", href: "/billing?create=1", icon: "invoice" },
   { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
@@ -48,7 +51,7 @@ const QUICK_ACTIONS: {
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
   { label: "התחייבות חדשה", href: "/payables?new=1", icon: "secretary" },
   { label: "מוצר חדש", href: "/inventory/items/create", icon: "inventory" },
-  { label: "יצירת תוכן", href: "/content/create", icon: "content" },
+  { label: "יצירת תוכן", href: "/content/create", icon: "content", comingSoon: true },
 ];
 
 /**
@@ -245,7 +248,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             <button
               key={item.href}
               type="button"
-              onClick={() => go(item.href)}
+              onClick={item.comingSoon ? undefined : () => go(item.href)}
+              disabled={item.comingSoon}
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -258,7 +262,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 border: "1px solid rgba(102, 111, 101, 0.35)",
                 background:
                   "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)",
-                cursor: "pointer",
+                cursor: item.comingSoon ? "not-allowed" : "pointer",
                 textAlign: "right",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
@@ -284,12 +288,13 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                     flex: 1,
                     fontSize: 14,
                     fontWeight: 700,
-                    color: "var(--dz-text-primary)",
+                    color: item.comingSoon ? "var(--dz-text-muted)" : "var(--dz-text-primary)",
                     lineHeight: 1.25,
                   }}
                 >
                   {item.label}
                 </span>
+                {item.comingSoon ? <ComingSoonPill /> : null}
                 <span
                   style={{
                     flexShrink: 0,
@@ -301,6 +306,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                     justifyContent: "center",
                     background: "rgba(43, 90, 133, 0.08)",
                     color: "var(--dz-info)",
+                    opacity: item.comingSoon ? 0.5 : 1,
                   }}
                   aria-hidden
                 >
