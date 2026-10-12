@@ -5,7 +5,9 @@ import { RESET_REQUEST_ACCOUNT_LIMIT, resetRequestAccountRateKey } from "@/lib/a
 import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
 import { requestPasswordReset, type IssuedLink } from "@/lib/auth/email-tokens";
 import { EMAIL_SHAPE, normalizeEmail } from "@/lib/auth/signup-identity";
-import { deliverNow } from "@/lib/email/transactional/schedule";
+import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
+import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
+import { runTenantJob } from "@/lib/tenant/job";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +29,23 @@ export type ForgotDeps = {
   defer: (work: () => Promise<void>) => void;
 };
 
+/**
+ * The continuation after the response: the lookup and the token run on the auth plane (no tenant —
+ * the requester is not signed in), and the delivery gets an EXPLICIT tenant handoff to the business
+ * the link was issued for (CI-W4-1), never anything inherited from the request.
+ */
+async function deliverForBusiness(emailId: number, businessId: number): Promise<void> {
+  if (!isTransactionalEmailEnabled()) return;
+  await runTenantJob({ businessId }, async () => {
+    await deliverTransactionalEmail(emailId);
+  });
+}
+
 const defaultDeps: ForgotDeps = {
   enabled: isPasswordResetEnabled,
   rateLimit: consumeRateLimit,
   request: requestPasswordReset,
-  deliver: deliverNow,
+  deliver: deliverForBusiness,
   defer: (work) => after(work),
 };
 

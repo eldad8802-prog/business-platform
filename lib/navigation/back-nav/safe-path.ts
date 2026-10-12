@@ -12,7 +12,7 @@
  *    scheme ("https:", "javascript:") — i.e. everything that can leave Dubiz;
  *  - control characters (header/log injection, CR/LF tricks);
  *  - technical / auth surfaces that must never be a "previous screen":
- *    /api, /_next, /login, /register, /logout, /auth, /onboarding, static files.
+ *    /api, /_next, /login, /register, /forgot-password, /reset-password, /verify-email, /logout, /auth, /onboarding, static files.
  *
  * The hash is dropped: it never identifies a screen in this app.
  */
@@ -26,6 +26,9 @@ const TECHNICAL_PREFIXES = [
   "/_next",
   "/login",
   "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
   "/logout",
   "/auth",
   "/onboarding",

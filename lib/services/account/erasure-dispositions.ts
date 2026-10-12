@@ -132,6 +132,14 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
         "nobody once email and name are gone.",
       basis: "UNPROVEN",
     },
+    emailVerifiedAt: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "when the owner proved control of the address — a timestamp that names nobody once " +
+        "email and name are gone; it can never be acted on again (the erasure deletes every " +
+        "AuthEmailToken, and the token functions refuse a business in deletion)",
+      basis: "SECURITY/AUDIT",
+    },
     termsVersion: {
       disposition: "RETAIN_BY_DESIGN",
       purpose: "which terms text was accepted — a version label, naming nobody",
