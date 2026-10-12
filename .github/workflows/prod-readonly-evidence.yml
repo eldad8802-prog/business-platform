@@ -87,6 +87,7 @@ on:
           - 'ops/evidence/auth-email-tokens-preflight.sql'
           - 'ops/evidence/auth-email-tokens-production-evidence.sql'
           - 'ops/evidence/tasks-d2-gate-preflight.sql'
+          - 'ops/evidence/welcome-pending-inspection.sql'
 
 permissions:
   contents: read
