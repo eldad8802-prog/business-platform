@@ -72,6 +72,14 @@ fi
 # transaction, and only app_auth may claim, read and settle it — the tenant runtime
 # holds DELETE + SELECT ("id", "businessId") on that table and nothing else. The
 # two modules touch TransactionalEmail only; nothing in them reads User or Business.
+#
+# lib/auth/email-tokens.ts is the account-link half of the same plane (email
+# verification, password reset; migration 20261017090000_auth_email_tokens). It
+# reaches AuthEmailToken ONLY through the four SECURITY DEFINER functions (app_auth
+# holds no privilege on the table), reads User (id, name, emailVerifiedAt) to find
+# the account a request names, and records the link's email in TransactionalEmail
+# in the same transaction. It never changes a password itself: only
+# auth_password_reset_consume does, given a valid unused link.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -82,6 +90,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
     | grep -vE "(^|/)lib/auth/admin-mfa\\.service\\.ts:" \
     | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
+    | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

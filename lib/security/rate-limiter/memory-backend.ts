@@ -44,6 +44,17 @@ export const memoryBackend: RateLimitBackend = {
       resetAt: existing.resetAt,
     };
   },
+  async peek(
+    prefix: string,
+    identifier: string,
+    limit: number,
+    windowSeconds: number
+  ): Promise<{ remaining: number; resetAt: number }> {
+    const existing = store.get(`${prefix}|${identifier}`);
+    const now = Date.now();
+    if (!existing || existing.resetAt <= now) return { remaining: limit, resetAt: now + windowSeconds * 1000 };
+    return { remaining: Math.max(0, limit - existing.count), resetAt: existing.resetAt };
+  },
 };
 
 /** Test-only helper to reset state between cases. */

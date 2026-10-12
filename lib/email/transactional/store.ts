@@ -12,7 +12,8 @@
 
 import { Prisma } from "@prisma/client";
 
-import { EMAIL_KINDS, welcomeDedupeKey, type EmailKind } from "./registry";
+import { EMAIL_KINDS, accountLinkDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
+import type { AccountLinkPayload } from "./templates/account-links";
 import { firstNameOf, type WelcomePayload } from "./templates/welcome";
 
 type SqlClient = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
@@ -48,6 +49,35 @@ export async function enqueueTransactionalEmail(tx: SqlClient, input: EnqueueInp
     SELECT "id" FROM "TransactionalEmail" WHERE "dedupeKey" = ${input.dedupeKey}`;
   if (rows.length !== 1) throw new Error("transactional email: enqueue did not produce a row");
   return rows[0].id;
+}
+
+/**
+ * The email that carries a freshly issued account link (verification or reset). Called in the SAME
+ * transaction that issued the token, so the row exists iff the token does. The payload is the token id
+ * and the first name — never the link's secret (it is derived when the email is rendered).
+ */
+export function enqueueAccountLinkEmail(
+  tx: SqlClient,
+  input: {
+    kind: "EMAIL_VERIFY" | "PASSWORD_RESET";
+    tokenId: string;
+    userId: number;
+    businessId: number;
+    toEmail: string;
+    name: string | null;
+    now: Date;
+  }
+): Promise<number> {
+  const payload: AccountLinkPayload = { tokenId: input.tokenId, firstName: firstNameOf(input.name) };
+  return enqueueTransactionalEmail(tx, {
+    kind: input.kind,
+    dedupeKey: accountLinkDedupeKey(input.kind, input.tokenId),
+    userId: input.userId,
+    businessId: input.businessId,
+    toEmail: input.toEmail,
+    payload,
+    now: input.now,
+  });
 }
 
 /** The WELCOME a new account owes its owner. Only signup calls this. */

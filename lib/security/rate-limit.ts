@@ -12,7 +12,7 @@
  * instead of raw keys.
  */
 
-import { consumeRawLimit } from "./rate-limiter";
+import { consumeRawLimit, peekRawLimit } from "./rate-limiter";
 
 export function getClientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
@@ -28,6 +28,19 @@ export function getClientIp(req: Request): string {
   if (cfIp) return cfIp;
 
   return "unknown";
+}
+
+/** Whether `key` is exhausted, without spending any of it (see peekRawLimit). */
+export async function peekRateLimit(params: {
+  key: string;
+  limit: number;
+  windowMs: number;
+}): Promise<{ exhausted: boolean; resetAt: number }> {
+  return peekRawLimit({
+    key: params.key,
+    limit: params.limit,
+    windowSeconds: Math.max(1, Math.ceil(params.windowMs / 1000)),
+  });
 }
 
 export async function consumeRateLimit(params: {

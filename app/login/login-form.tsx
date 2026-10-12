@@ -30,7 +30,15 @@ type LoginErrors = {
   form?: string;
 };
 
-export default function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
+export default function LoginForm({
+  signupEnabled,
+  passwordResetEnabled = false,
+  notice = null,
+}: {
+  signupEnabled: boolean;
+  passwordResetEnabled?: boolean;
+  notice?: "reset-done" | null;
+}) {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -111,8 +119,9 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
     }
 
     if (field === "password") {
-      if (!value.trim()) return "יש להזין סיסמה";
-      if (value.length < 6) return "הסיסמה חייבת להכיל לפחות 6 תווים";
+      // Required, nothing more: the server decides whether a password is right, and an
+      // account created under an older rule must never be refused here before it is asked.
+      if (!value) return "יש להזין סיסמה";
       return "";
     }
 
@@ -185,7 +194,7 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
       }
 
       if (!data?.token) {
-        throw new Error("לא התקבל token מהשרת");
+        throw new Error("לא הצלחנו להשלים את הכניסה. כדאי לנסות שוב.");
       }
 
       window.localStorage.setItem("token", data.token);
@@ -373,6 +382,17 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
     background: "var(--dz-surface-muted)",
   };
 
+  const noticeStyle: React.CSSProperties = {
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "var(--dz-success-bg-soft)",
+    border: "1px solid var(--dz-success-border)",
+    color: "var(--dz-text-primary)",
+    fontSize: 14,
+    lineHeight: 1.6,
+    marginBottom: 14,
+  };
+
   const footerTextStyle: React.CSSProperties = {
     marginTop: 0,
     marginBottom: 0,
@@ -526,9 +546,22 @@ export default function LoginForm({ signupEnabled }: { signupEnabled: boolean })
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>הסיסמה חייבת להכיל לפחות 6 תווים.</p>
+              <p id="login-password-msg" style={helperTextStyle}>הסיסמה שבחרת בהרשמה.</p>
             )}
+            {passwordResetEnabled ? (
+              <p style={{ ...helperTextStyle, marginTop: 6 }}>
+                <a href="/forgot-password" style={{ ...linkButtonStyle, fontSize: "inherit" }} data-testid="forgot-password-link">
+                  שכחתי סיסמה
+                </a>
+              </p>
+            ) : null}
           </div>
+
+          {notice === "reset-done" && !errors.form ? (
+            <div role="status" aria-live="polite" style={noticeStyle} data-testid="reset-done-notice">
+              הסיסמה עודכנה. מעכשיו נכנסים עם הסיסמה החדשה.
+            </div>
+          ) : null}
 
           {errors.form && (
             <div role="alert" aria-live="assertive" style={formErrorStyle}>{errors.form}</div>

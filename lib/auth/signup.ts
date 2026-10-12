@@ -41,6 +41,7 @@ import bcrypt from "bcrypt";
 import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
+import { issueAccountLink } from "@/lib/auth/email-tokens";
 
 import {
   EmailAlreadyRegisteredError,
@@ -77,6 +78,11 @@ export type CreateAccountInput = {
   userAgent?: string | null;
   /** Already sanitised by normalizeSignupAttribution — labels, naming nobody. */
   attribution?: SignupAttribution | null;
+  /**
+   * Issue an email-verification link with the account (AUTH_EMAIL_VERIFICATION_ENABLED, decided by the
+   * route). Only on the auth plane: the token functions are app_auth's.
+   */
+  sendVerification?: boolean;
 };
 
 export type CreatedAccount = {
@@ -97,6 +103,8 @@ export type CreatedAccount = {
    * active (only the signup plane may write it; see below).
    */
   welcomeEmailId: number | null;
+  /** The EMAIL_VERIFY row written with the account, or null when verification is off. */
+  verificationEmailId: number | null;
 };
 
 export function hashSignupPassword(plain: string): Promise<string> {
@@ -166,6 +174,15 @@ export async function createAccount(
           })
         : null;
 
+      // The verification link, issued in the same transaction: the account and
+      // its link exist together or not at all. Never blocks the signup: the
+      // database issues nothing (and this is null) only in states a brand-new
+      // account cannot be in.
+      const verification =
+        input.sendVerification && isAuthPlaneActive()
+          ? await issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: input.name, now: input.now })
+          : null;
+
       return {
         userId: user.id,
         businessId: business.id,
@@ -175,6 +192,7 @@ export async function createAccount(
         tokenVersion: user.tokenVersion,
         session,
         welcomeEmailId,
+        verificationEmailId: verification?.emailId ?? null,
       };
     });
   } catch (error) {

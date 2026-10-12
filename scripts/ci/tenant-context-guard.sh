@@ -80,6 +80,7 @@ ALLOW_GLOBAL_PILOT="lib/services/platform-admin/"
 #
 # Format: "<path>|<CLASSIFICATION>". Anything else fails CI-TC-7b.
 KNOWN_BARE_TX_CLASSIFIED="lib/auth/signup.ts|BOOTSTRAP
+lib/auth/email-tokens.ts|BOOTSTRAP
 lib/services/account/account-deletion.prisma-store.ts|ADMIN
 lib/services/platform-admin/update-business-feature-access.service.ts|CONTROL_PLANE
 lib/services/redeem.service.ts|GLOBAL_NON_TENANT
@@ -96,6 +97,13 @@ lib/tenant/transaction.ts|CANONICAL"
 #   EXISTENCE. A tenant-scoped transaction is not merely unused here, it is
 #   impossible: there is no businessId to scope to until this transaction commits
 #   one. Reachable only from the gated registration route.
+#
+#   lib/auth/email-tokens.ts — BOOTSTRAP. The account-link flows run for a person who
+#   is NOT signed in (forgot password, a link opened on another device): there is no
+#   session, so no tenant to scope to. Its transactions run on the auth plane
+#   (app_auth), reach AuthEmailToken only through SECURITY DEFINER functions, and
+#   write TransactionalEmail, whose app_auth INSERT policy binds the row's user to
+#   the row's business in the database.
 #
 #   account-deletion.prisma-store.ts — ADMIN. The erasure boundary, designed in AD-2A:
 #   quarantine commits BEFORE the destructive purge, and the purge itself already runs

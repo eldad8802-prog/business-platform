@@ -455,6 +455,16 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // anonymised in place above, not deleted.
           await tx.transactionalEmail.deleteMany({ where: { businessId } });
 
+          // ── B.2.3 — account links (email verification / password reset) ──
+          //
+          // Hash-only single-use links for this account's owner, with the address
+          // each was sent to. The same tenant-bound DELETE (migration
+          // 20261017090000; CI-AD-13), the same reason it is explicit: the user is
+          // anonymised in place, so the User cascade never fires. Before this, a
+          // reset link could not be spent anyway — the functions refuse a business
+          // in deletion — but its address would otherwise outlive the erasure.
+          await tx.authEmailToken.deleteMany({ where: { businessId } });
+
           // ── B.3 — the conversation graph, ANONYMISED IN PLACE ──────────────
           //
           // This used to be `conversation.deleteMany`, and it deleted nothing.

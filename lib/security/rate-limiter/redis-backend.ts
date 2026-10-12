@@ -113,6 +113,16 @@ export const redisBackend: RateLimitBackend = {
       resetAt: res.reset,
     };
   },
+  async peek(
+    prefix: string,
+    identifier: string,
+    limit: number,
+    windowSeconds: number
+  ): Promise<{ remaining: number; resetAt: number }> {
+    const limiter = getLimiter(prefix, limit, windowSeconds);
+    const res = await withTimeout(limiter.getRemaining(identifier), REDIS_TIMEOUT_MS);
+    return { remaining: res.remaining, resetAt: res.reset };
+  },
 };
 
 /** Test-only helper. */

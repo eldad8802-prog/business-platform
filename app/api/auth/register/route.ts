@@ -18,6 +18,9 @@ import {
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
 import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
+import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
+import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
+import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
@@ -67,6 +70,8 @@ export type RegisterDeps = {
    * while public signup is closed; fail-closed — not configured means no one.
    */
   signupAllowlist: () => SignupAllowlist;
+  /** AUTH_EMAIL_VERIFICATION_ENABLED, effective only with a ready mail path (account-recovery-config). */
+  isVerificationEnabled: () => boolean;
   rateLimit: typeof consumeRateLimit;
   hashPassword: (plain: string) => Promise<string>;
   /**
@@ -106,6 +111,7 @@ function scheduleWelcomeAfterResponse(welcomeEmailId: number, businessId: number
 const defaultDeps: RegisterDeps = {
   isSignupEnabled: isPublicSignupEnabled,
   signupAllowlist: readSignupAllowlist,
+  isVerificationEnabled: isEmailVerificationEnabled,
   rateLimit: consumeRateLimit,
   hashPassword: hashSignupPassword,
   createAccount,
@@ -167,7 +173,7 @@ export async function handleRegister(
     if (!rl.allowed) {
       await recordSignupFailure(deps, "rate_limited");
       return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
+        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
         { status: 429 }
       );
     }
@@ -182,7 +188,17 @@ export async function handleRegister(
       } catch {
         await recordSignupFailure(deps, "malformed_body");
         return NextResponse.json(
-          { error: "Invalid request body" },
+          { error: AUTH_MESSAGES_HE.invalidBody, code: "INVALID_BODY" },
+          { status: 400 }
+        );
+      }
+      // A field no person can see or reach (register-form's honeypot). Filled in
+      // means a script filled in every field it found: refused like a malformed
+      // request, before any hashing or write, and recorded as such.
+      if (isHoneypotFilled(body)) {
+        await recordSignupFailure(deps, "honeypot");
+        return NextResponse.json(
+          { error: AUTH_MESSAGES_HE.signupRejected, code: "SIGNUP_REJECTED" },
           { status: 400 }
         );
       }
@@ -199,6 +215,7 @@ export async function handleRegister(
       now,
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
+      sendVerification: deps.isVerificationEnabled(),
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the
@@ -246,6 +263,19 @@ export async function handleRegister(
 
     // Last, and contained: the account and its session are done. Nothing about
     // the email — scheduling included — may turn a successful signup into an error.
+    // The verification link, when one was issued — scheduled exactly like the
+    // WELCOME and contained the same way.
+    if (account.verificationEmailId !== null) {
+      try {
+        deps.scheduleWelcome(account.verificationEmailId, account.businessId);
+      } catch (error) {
+        console.error("[transactional-email] schedule_failed", {
+          id: account.verificationEmailId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    }
+
     if (account.welcomeEmailId !== null) {
       try {
         deps.scheduleWelcome(account.welcomeEmailId, account.businessId);
@@ -294,7 +324,7 @@ export async function handleRegister(
         {
           error:
             process.env.NODE_ENV === "production"
-              ? "Server configuration error"
+              ? AUTH_MESSAGES_HE.serviceUnavailable
               : error.message,
         },
         { status: 503 }
@@ -303,7 +333,7 @@ export async function handleRegister(
 
     console.error("REGISTER_ERROR:", error);
     await recordSignupFailure(deps, "server_error");
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
   }
 }
 

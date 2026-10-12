@@ -176,6 +176,33 @@ export async function checkRateLimit(
  * "never spuriously blocked" behavior), but the degradation is logged. Config
  * errors still propagate (hard fail in production).
  */
+/**
+ * Read a raw-key limit without spending it: `exhausted` is true when the next
+ * consume would be refused. Same failure posture as `consumeRawLimit`: a
+ * transient backend error reads as NOT exhausted (fail open, logged); a config
+ * error propagates.
+ */
+export async function peekRawLimit(params: {
+  key: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<{ exhausted: boolean; resetAt: number }> {
+  const backend = getBackend();
+  try {
+    const result = await backend.peek("rl:legacy", params.key, params.limit, params.windowSeconds);
+    return { exhausted: result.remaining <= 0, resetAt: result.resetAt };
+  } catch (error) {
+    if (error instanceof RateLimiterBackendError) {
+      console.error(
+        `[rate-limit] backend_unavailable legacy-peek key=${params.key} failMode=open -> allow (degraded)`,
+        error.message
+      );
+      return { exhausted: false, resetAt: Date.now() + params.windowSeconds * 1000 };
+    }
+    throw error;
+  }
+}
+
 export async function consumeRawLimit(params: {
   key: string;
   limit: number;

@@ -74,4 +74,15 @@ export interface RateLimitBackend {
     limit: number,
     windowSeconds: number
   ): Promise<RuleResult>;
+  /**
+   * How much of the window is left WITHOUT spending any of it. For limits that
+   * count only some events (e.g. failed logins), where the check happens before
+   * the outcome is known.
+   */
+  peek(
+    prefix: string,
+    identifier: string,
+    limit: number,
+    windowSeconds: number
+  ): Promise<{ remaining: number; resetAt: number }>;
 }

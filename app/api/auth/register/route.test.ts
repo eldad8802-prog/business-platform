@@ -64,6 +64,8 @@ function makeDeps(
     isSignupEnabled: () => enabled,
     // No closed-beta list unless a test sets one: the gate as it is today.
     signupAllowlist: () => parseSignupAllowlist(undefined),
+    // Email verification OFF unless a test turns it on: the signup as it is today.
+    isVerificationEnabled: () => false,
     rateLimit: async () => {
       calls.rateLimit += 1;
       return { allowed: true, remaining: 2, resetAt: 0 };
@@ -88,6 +90,7 @@ function makeDeps(
         tokenVersion: 0,
         session: FAKE_SESSION,
         welcomeEmailId: 501,
+        verificationEmailId: input.sendVerification ? 502 : null,
       };
     },
     signToken: (_userId, _tv, sessionId) => {
@@ -471,9 +474,49 @@ async function main() {
       tokenVersion: 0,
       session: FAKE_SESSION,
       welcomeEmailId: null,
+      verificationEmailId: null,
     });
     const res = await handleRegister(req(), deps);
     ok("welcome -> no recorded row (legacy auth plane) -> nothing scheduled, signup 200", res.status === 200 && calls.scheduled.length === 0);
+  }
+  // ── email verification (AUTH_EMAIL_VERIFICATION_ENABLED, decided by the route) ──
+  {
+    const { deps, calls } = makeDeps(true);
+    let asked: boolean | undefined;
+    const inner = deps.createAccount;
+    deps.createAccount = async (input) => { asked = input.sendVerification; return inner(input); };
+    const res = await handleRegister(req(), deps);
+    ok("verify -> OFF: createAccount is told not to issue a link, only the WELCOME is scheduled",
+      res.status === 200 && asked === false && JSON.stringify(calls.scheduled) === JSON.stringify([501]), JSON.stringify(calls.scheduled));
+  }
+  {
+    const { deps, calls } = makeDeps(true, { isVerificationEnabled: () => true });
+    const res = await handleRegister(req(), deps);
+    ok("verify -> ON: the verification email AND the WELCOME are scheduled after the response",
+      res.status === 200 && calls.scheduled.includes(502) && calls.scheduled.includes(501), JSON.stringify(calls.scheduled));
+  }
+  // ── honeypot ──
+  {
+    const { deps, calls } = makeDeps(true);
+    const r = new Request("http://x/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...(VALID as Record<string, unknown>), dz_confirm_field: "https://spam.test" }),
+    });
+    const res = await handleRegister(r, deps);
+    const body = await res.json();
+    ok("honeypot -> a filled hidden field is refused (400 SIGNUP_REJECTED), nothing hashed or created",
+      res.status === 400 && body.code === "SIGNUP_REJECTED" && calls.hash === 0 && calls.createAccount === 0, JSON.stringify(body));
+  }
+  {
+    const { deps, calls } = makeDeps(true);
+    const r = new Request("http://x/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...(VALID as Record<string, unknown>), dz_confirm_field: "" }),
+    });
+    const res = await handleRegister(r, deps);
+    ok("honeypot -> an EMPTY hidden field (every real visitor) signs up normally", res.status === 200 && calls.createAccount === 1);
   }
   {
     const { deps, calls } = makeDeps(true, {

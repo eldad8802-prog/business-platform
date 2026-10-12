@@ -456,6 +456,19 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "transactional_email_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
     ],
   },
+  // Account links (email verification / password reset). Stage 2 deletes the erased business's rows
+  // through the tenant plane's DELETE policy — the one consumer CI-AD-13 registers for it. The three
+  // owner policies (TO CURRENT_USER: the SECURITY DEFINER functions' role) are not reproduced: the
+  // erasure never runs as the owner, and no application role is named by them.
+  {
+    table: "AuthEmailToken",
+    migration: "20261017090000_auth_email_tokens",
+    why: "stage 2 deletes the owner's account-link rows under a tenant context",
+    policies: [
+      { name: "auth_email_token_runtime_select", command: "SELECT", roles: ["app_runtime"], using: TENANT },
+      { name: "auth_email_token_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -670,6 +683,11 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   TransactionalEmail: {
     verbs: ["DELETE"],
     basis: "migration 20261015090000_transactional_email_foundation: DELETE + SELECT (id, businessId) only",
+  },
+  // Same shape: DELETE at table level, SELECT ("id", "businessId") at column level.
+  AuthEmailToken: {
+    verbs: ["DELETE"],
+    basis: "migration 20261017090000_auth_email_tokens: DELETE + SELECT (id, businessId) only",
   },
 };
 

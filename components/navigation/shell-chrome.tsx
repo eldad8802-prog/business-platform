@@ -8,6 +8,8 @@ import { useShellChromeHidden } from "./shell-chrome-visibility";
 
 type ShellChromeProps = {
   children: ReactNode;
+  /** A thin line above the screen (e.g. the email-verification banner); hidden with the chrome. */
+  topSlot?: ReactNode;
 };
 
 /** Routes drawn in the warm language — see `[data-dz-ground]` in dubiz-mist.css. */
@@ -172,7 +174,7 @@ button.dz-rail__item { padding-inline: 0; }
  * Shell chrome: main scroll area + adaptive navigation (bottom bar / rail /
  * sidebar). Wrapped by `app/(shell)/layout.tsx`.
  */
-export function ShellChrome({ children }: ShellChromeProps) {
+export function ShellChrome({ children, topSlot = null }: ShellChromeProps) {
   const chromeHidden = useShellChromeHidden();
   const pathname = usePathname() || "/";
 
@@ -210,6 +212,7 @@ export function ShellChrome({ children }: ShellChromeProps) {
         className="shell-content min-h-0 min-w-0 flex-1 overflow-x-hidden"
         style={{ position: "relative", zIndex: 1 }}
       >
+        {chromeHidden ? null : topSlot}
         {children}
       </div>
 

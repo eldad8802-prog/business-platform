@@ -158,6 +158,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   InboundEmailSenderChallenge: { disposition: "ERASURE_MANAGED" },
   // Deleted by account erasure stage 2 (DELETE_MODELS) through its tenant-scoped DELETE policy.
   TransactionalEmail: { disposition: "ERASURE_MANAGED" },
+  // Deleted by account erasure stage 2 (DELETE_MODELS) through its tenant-scoped DELETE policy.
+  AuthEmailToken: { disposition: "ERASURE_MANAGED" },
   // C12-E1. Moved out of UNMANAGED_PERSONAL_DATA because the adapter now clears
   // their one free-text column each, not because the finding was inconvenient:
   // every other column on both models carries an explicit disposition in

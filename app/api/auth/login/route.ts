@@ -5,8 +5,10 @@ import { NextResponse } from "next/server";
 import { authDb } from "@/lib/prisma-auth";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
+import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
+import { LOGIN_ACCOUNT_FAILURE_LIMIT, loginAccountRateKey } from "@/lib/auth/account-rate-key";
 import bcrypt from "bcrypt";
-import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { consumeRateLimit, getClientIp, peekRateLimit } from "@/lib/security/rate-limit";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
@@ -66,7 +68,7 @@ export async function POST(req: Request) {
     if (!rl.allowed) {
       await recordLoginFailure({ reason: "rate_limited" });
       return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
+        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
         { status: 429 }
       );
     }
@@ -85,7 +87,7 @@ export async function POST(req: Request) {
     ) {
       await recordLoginFailure({ reason: "missing_credentials" });
       return NextResponse.json(
-        { error: "Missing email or password" },
+        { error: AUTH_MESSAGES_HE.missingCredentials, code: "MISSING_CREDENTIALS" },
         { status: 400 }
       );
     }
@@ -107,6 +109,23 @@ export async function POST(req: Request) {
     // same unique index, never a scan.
     const normalizedEmail = normalizeEmail(email);
 
+    // The per-IP limit above stops one source; this one stops many sources aimed
+    // at ONE account (a distributed guess). It counts FAILED attempts only — a
+    // successful login spends nothing — and is read here, before any password is
+    // compared, so a guess beyond the limit learns nothing at all. Keyed on a
+    // digest of the folded address, never the address, and answered exactly like
+    // the per-IP limit: it says nothing about whether the address has an account.
+    // The window slides; once it has passed, the owner signs in as usual.
+    const accountKey = loginAccountRateKey(normalizedEmail);
+    const accountRl = await peekRateLimit({ key: accountKey, ...LOGIN_ACCOUNT_FAILURE_LIMIT });
+    if (accountRl.exhausted) {
+      await recordLoginFailure({ reason: "rate_limited_account" });
+      return NextResponse.json(
+        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
+        { status: 429 }
+      );
+    }
+
     let user = await authDb().user.findUnique({
       where: { email: normalizedEmail },
       select: LOGIN_USER_SELECT,
@@ -124,9 +143,10 @@ export async function POST(req: Request) {
       // an unknown address measurably faster than a wrong password, which told
       // anyone timing the endpoint which addresses have an account.
       await bcrypt.compare(password, TIMING_EQUALISER_HASH);
+      await consumeRateLimit({ key: accountKey, ...LOGIN_ACCOUNT_FAILURE_LIMIT });
       await recordLoginFailure({ reason: "invalid_credentials" });
       return NextResponse.json(
-        { error: "Invalid email or password" },
+        { error: AUTH_MESSAGES_HE.invalidCredentials, code: "INVALID_CREDENTIALS" },
         { status: 401 }
       );
     }
@@ -134,12 +154,13 @@ export async function POST(req: Request) {
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
+      await consumeRateLimit({ key: accountKey, ...LOGIN_ACCOUNT_FAILURE_LIMIT });
       await recordLoginFailure({
         businessId: user.businessId,
         reason: "invalid_credentials",
       });
       return NextResponse.json(
-        { error: "Invalid email or password" },
+        { error: AUTH_MESSAGES_HE.invalidCredentials, code: "INVALID_CREDENTIALS" },
         { status: 401 }
       );
     }
@@ -173,7 +194,7 @@ export async function POST(req: Request) {
         "LOGIN_SESSION_ISSUE_ERROR:",
         error instanceof Error ? error.name : "UnknownError"
       );
-      return NextResponse.json({ error: "Server error" }, { status: 500 });
+      return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
     }
 
     // `select` is not cosmetic. Without it Prisma appends RETURNING over every
@@ -231,7 +252,7 @@ export async function POST(req: Request) {
         {
           error:
             process.env.NODE_ENV === "production"
-              ? "Server configuration error"
+              ? AUTH_MESSAGES_HE.serviceUnavailable
               : error.message,
         },
         { status: 503 }
@@ -240,6 +261,6 @@ export async function POST(req: Request) {
 
     console.error("LOGIN_ERROR:", error);
 
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
   }
 }

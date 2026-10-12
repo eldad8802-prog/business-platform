@@ -1,4 +1,5 @@
 import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
+import { isPasswordResetEnabled } from "@/lib/auth/account-recovery-config";
 import LoginForm from "./login-form";
 
 /**
@@ -9,6 +10,22 @@ import LoginForm from "./login-form";
  */
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
-  return <LoginForm signupEnabled={isPublicSignupEnabled()} />;
+/**
+ * The same server-side resolution for "forgot password": the link is rendered only when the reset flow
+ * can actually deliver its email (AUTH_PASSWORD_RESET_ENABLED + a ready mail path). `?reset=done` is
+ * where the reset page sends the owner afterwards — a notice, nothing more.
+ */
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { reset } = await searchParams;
+  return (
+    <LoginForm
+      signupEnabled={isPublicSignupEnabled()}
+      passwordResetEnabled={isPasswordResetEnabled()}
+      notice={reset === "done" ? "reset-done" : null}
+    />
+  );
 }
