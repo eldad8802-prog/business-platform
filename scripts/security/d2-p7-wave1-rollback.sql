@@ -24,9 +24,9 @@ ALTER TABLE "PricingProfile" DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS p7w1_tenant ON "PricingCalculation";
 ALTER TABLE "PricingCalculation" NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE "PricingCalculation" DISABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS p7w1_tenant ON "Task";
-ALTER TABLE "Task" NO FORCE ROW LEVEL SECURITY;
-ALTER TABLE "Task" DISABLE ROW LEVEL SECURITY;
+-- "Task" left wave 1 with 20261018090000_daily_tasks_foundation (per-command task_tenant_* policies, owner
+-- decision G4); its reversal is .dt/rollback.sql. Rolled back here only while that migration is absent.
+DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'task_tenant_select' AND polrelid = '"Task"'::regclass) THEN DROP POLICY IF EXISTS p7w1_tenant ON "Task"; ALTER TABLE "Task" NO FORCE ROW LEVEL SECURITY; ALTER TABLE "Task" DISABLE ROW LEVEL SECURITY; END IF; END $;
 DROP POLICY IF EXISTS p7w1_tenant ON "CollaborationDeal";
 ALTER TABLE "CollaborationDeal" NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE "CollaborationDeal" DISABLE ROW LEVEL SECURITY;
