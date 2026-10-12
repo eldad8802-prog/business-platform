@@ -623,7 +623,8 @@ export default function LoginForm({
           {lockedUntil !== null ? (
             <div role="alert" aria-live="assertive" style={lockStyle} data-testid="login-locked">
               <strong style={{ display: "block", marginBottom: 4 }}>הכניסה נחסמה זמנית</strong>
-              {errors.form}
+              {/* The server's sentence carries a fixed number of minutes; the live countdown below replaces it. */}
+              מטעמי אבטחה, הכניסה עם כתובת האימייל הזו נחסמה זמנית אחרי כמה ניסיונות שגויים.
               <span style={{ display: "block", marginTop: 8, fontWeight: 700 }} aria-live="off">
                 אפשר לנסות שוב בעוד <span dir="ltr" data-testid="login-lock-countdown">{lockLeftLabel}</span>
               </span>
