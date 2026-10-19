@@ -452,6 +452,24 @@ export function editTask(actor: TaskActor, req: TaskRequest, taskId: number, inp
   });
 }
 
+/**
+ * "חשוב" on an own task (7.3: a pinned row comes first in its bucket). A change of the task, journaled as
+ * TASK_EDITED { fields: ["pinned"] } — the closed schema needs no separate pin event for tasks.
+ * Applies to this occurrence only; the series' next occurrence starts unpinned.
+ */
+export function pinTask(actor: TaskActor, req: TaskRequest, taskId: number, input: { expectedVersion: number; pinned: boolean }): Promise<TaskResult> {
+  return idempotent(actor, req, "task.pin", { taskId, ...input }, async (ctx) => {
+    if (typeof input.pinned !== "boolean") throw new TaskServiceError("INVALID_INPUT", { field: "pinned" });
+    await lockTask(ctx.tx, ctx.businessId, taskId);
+    const task = await loadTask(ctx, taskId);
+    if (!canTransition("EDIT", task.status as TaskState)) throw new TaskServiceError("INVALID_STATE", { status: task.status });
+    if (!!task.pinnedAt === input.pinned) throw new TaskServiceError("INVALID_STATE", { problem: "ALREADY_SO" });
+    await updateTask(ctx, task, input.expectedVersion, { pinnedAt: input.pinned ? ctx.now : null });
+    own(ctx, { eventType: "TASK_EDITED", taskId, seriesId: task.seriesId, payload: { fields: ["pinned"] } });
+    return { taskId };
+  });
+}
+
 /** A new due day from a form (RESCHEDULE) or from the agenda (SNOOZE — the learning signal, kept apart). */
 function moveTask(kind: "RESCHEDULE" | "SNOOZE") {
   return (actor: TaskActor, req: TaskRequest, taskId: number, input: { expectedVersion: number; dueOn: JerusalemDayKey }): Promise<TaskResult> =>

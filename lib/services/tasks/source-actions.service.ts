@@ -110,6 +110,34 @@ export async function setDisplayState(actor: TaskActor, req: TaskRequest, ref: S
   });
 }
 
+/**
+ * "טופל להיום" on a grouped queue (T-C5): every member the owner saw, each in its own cycle row with its own
+ * evidence, in ONE request — so a member that arrives or changes afterwards brings the queue back with
+ * "חדשים: N". Every key must be an item the source shows this business now (12.3).
+ */
+export const QUEUE_ACK_MAX = 100;
+
+export async function acknowledgeQueue(actor: TaskActor, req: TaskRequest, sourceKind: string, dedupeKeys: string[]): Promise<TaskResult & { acknowledged: number }> {
+  const now = req.now ?? new Date();
+  if (!SOURCE_KINDS.includes(sourceKind as SourceKind)) throw new TaskServiceError("INVALID_INPUT", { field: "sourceKind" });
+  if (!Array.isArray(dedupeKeys) || dedupeKeys.length === 0 || dedupeKeys.length > QUEUE_ACK_MAX) throw new TaskServiceError("INVALID_INPUT", { field: "dedupeKeys" });
+  const keys = [...new Set(dedupeKeys.map(String))].sort();
+  if (!keys.every((k) => /^[A-Za-z0-9:_.-]{1,200}$/.test(k))) throw new TaskServiceError("INVALID_INPUT", { field: "dedupeKeys" });
+  const result = await runAdapter(sourceKind as SourceKind, { businessId: actor.businessId, now, today: jerusalemDayKey(now) }, new Set());
+  if (result.status === "FAILED") throw new TaskServiceError("CONFLICT", { problem: "SOURCE_UNAVAILABLE" });
+  const byKey = new Map(result.items.map((i) => [i.dedupeKey, i]));
+  const items = keys.map((k) => byKey.get(k));
+  if (items.some((i) => !i)) throw new TaskServiceError("NOT_FOUND", { problem: "ITEM_NOT_CURRENT" });
+  const out = await idempotent(actor, req, "source.acknowledge_queue", { sourceKind, keys, cycles: items.map((i) => i!.cycleKey) }, async (ctx) => {
+    for (const item of items as SourceItem[]) {
+      await upsertState(ctx, item, { acknowledgedOn: ctx.today, ackEvidenceVersion: item.evidenceVersion });
+      own(ctx, { eventType: "SOURCE_ITEM_ACKNOWLEDGED", ...sourceEvent(item), payload: { dayKey: ctx.today, evidenceVersion: item.evidenceVersion } });
+    }
+    return {};
+  });
+  return { ...out, acknowledged: items.length };
+}
+
 // ── Routed domain actions ───────────────────────────────────────────────────────────────────────
 
 export type RoutedOp = "lead_done" | "lead_snooze" | "payment_handled" | "payment_snooze";

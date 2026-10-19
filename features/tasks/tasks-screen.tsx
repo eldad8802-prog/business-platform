@@ -506,6 +506,7 @@ function Row({
         <div className={s.rbody}>
           <span className={s.rtitle}>{row.title}</span>
           <span className={s.rfact}>{row.fact}</span>
+          <Tags tags={row.tags} />
         </div>
         <Link href={row.action.href} prefetch={false} className={`${s.btn} ${s.soft}`} onClick={(e) => e.stopPropagation()}>
           {row.action.label}

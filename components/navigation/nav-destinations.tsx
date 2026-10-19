@@ -86,7 +86,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // ניהול העסק (Daily Tasks B, owner-approved): the task centre, the secretary and the commitments sit together —
   // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
   { key: "tasks", label: "משימות", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
-  { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary, group: "business" },
+  { key: "secretary", label: "המזכירה שלי", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", href: "/payables", icon: IconCalendar, group: "business" },
   { key: "inventory", label: "מלאי", href: "/inventory", icon: IconBox, group: "business" },
   { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings, group: "footer" },

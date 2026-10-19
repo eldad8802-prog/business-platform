@@ -295,7 +295,7 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "secretary",
-    label: "המזכירה",
+    label: "המזכירה שלי",
     description: "תזכורות לתשלומים שהעסק צריך לשלם",
     entity: "secretary",
     href: "/secretary",

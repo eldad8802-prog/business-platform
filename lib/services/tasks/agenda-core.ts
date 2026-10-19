@@ -149,12 +149,14 @@ export const ROW_CAP = 12;
 export const UPCOMING_DAYS = 7;
 export const GROUP_OVER = 3;
 
-export type Tag = { tone: "over" | "snooze" | "pin" | "today" | "rep" | "upd"; text: string };
+export type Tag = { tone: "over" | "snooze" | "pin" | "today" | "rep" | "upd" | "new"; text: string };
 
 export type AgendaRow =
   | { type: "TASK"; key: string; bucket: Bucket; pinned: boolean; task: ManualTask; tags: Tag[] }
   | { type: "SOURCE"; key: string; bucket: Bucket; pinned: boolean; item: SourceItem; tags: Tag[]; dimmed: boolean }
-  | { type: "QUEUE"; key: string; bucket: Bucket; pinned: false; sourceKind: SourceKind; title: string; fact: string; members: SourceItem[]; action: { label: string; href: string } }
+  | { type: "QUEUE"; key: string; bucket: Bucket; pinned: false; sourceKind: SourceKind; title: string; fact: string; members: SourceItem[]; action: { label: string; href: string };
+      /** T-C5: members already handled today, and how many arrived (or changed) since — shown as "חדשים: N". */
+      handledToday: SourceItem[]; newCount: number | null; tags: Tag[] }
   | { type: "REPAIR"; key: string; bucket: Bucket; pinned: false; repair: PendingRepair; tags: Tag[] };
 
 export type BucketView = { bucket: Bucket; title: string; rows: AgendaRow[]; shown: number; total: number; items: number };
@@ -197,6 +199,15 @@ export function applyDisplayState(items: SourceItem[], states: StoredState[], to
     out.push({ item, pinned: !!s?.pinnedAt });
   }
   return out;
+}
+
+/** The items "handled for today" hides — still on the same evidence. A grouped queue needs them (T-C5). */
+export function acknowledgedToday(items: SourceItem[], states: StoredState[], today: JerusalemDayKey): SourceItem[] {
+  const byKey = new Map(states.map((s) => [`${s.dedupeKey}|${s.cycleKey}`, s]));
+  return items.filter((item) => {
+    const s = byKey.get(`${item.dedupeKey}|${item.cycleKey}`);
+    return !!s && s.acknowledgedOn === today && s.ackEvidenceVersion === item.evidenceVersion;
+  });
 }
 
 /** S16 is muted when an S14 lead row is shown for the same customer (8.2). */
@@ -322,7 +333,15 @@ export function buildAgenda(input: AgendaInput): Agenda {
     rows.push({ type: "REPAIR", key: `repair:${r.seriesId}`, bucket, pinned: false, repair: r, tags });
   }
 
-  const visible = muteDuplicates(applyDisplayState(input.results.flatMap((r) => (r.status === "DISABLED" ? [] : r.items)), input.states, today, now));
+  const allItems = input.results.flatMap((r) => (r.status === "DISABLED" ? [] : r.items));
+  const visible = muteDuplicates(applyDisplayState(allItems, input.states, today, now));
+  const handled = new Map<string, SourceItem[]>();
+  for (const item of acknowledgedToday(allItems, input.states, today)) {
+    const bucket = bucketFor(item.placement, item.dueOn, today);
+    if (!bucket) continue;
+    const k = `${item.sourceKind}|${bucket}`;
+    handled.set(k, [...(handled.get(k) ?? []), item]);
+  }
   const bySourceBucket = new Map<string, { bucket: Bucket; items: VisibleItem[] }>();
   for (const v of visible) {
     const bucket = bucketFor(v.item.placement, v.item.dueOn, today);
@@ -336,19 +355,26 @@ export function buildAgenda(input: AgendaInput): Agenda {
     const kind = k.split("|")[0] as SourceKind;
     const pinnedOnes = g.items.filter((v) => v.pinned);
     const rest = g.items.filter((v) => !v.pinned);
-    const groupable = !NEVER_GROUPED.has(kind) && rest.length > GROUP_OVER;
+    // A queue handled for today comes back as ONE row when something new arrives (T-C5): the handled members
+    // stay in the group, only the new ones are counted ("חדשים: N").
+    const handledHere = NEVER_GROUPED.has(kind) ? [] : handled.get(k) ?? [];
+    const groupable = !NEVER_GROUPED.has(kind) && (rest.length > GROUP_OVER || (handledHere.length > 0 && rest.length > 0 && rest.length + handledHere.length > GROUP_OVER));
     for (const v of groupable ? pinnedOnes : g.items) {
       const dimmed = !!v.item.reminderPostponed;
       rows.push({ type: "SOURCE", key: v.item.dedupeKey, bucket: g.bucket, pinned: v.pinned, item: v.item, tags: sourceTags(v.item, g.bucket, today, v.pinned), dimmed });
     }
     if (groupable) {
       const members = rest.map((v) => v.item);
-      const oldest = members.map((m) => m.factAt).filter((x): x is string => !!x).sort()[0] ?? null;
+      const all = [...members, ...handledHere];
+      const oldest = all.map((m) => m.factAt).filter((x): x is string => !!x).sort()[0] ?? null;
+      const newCount = handledHere.length > 0 ? members.length : null;
       rows.push({
         type: "QUEUE", key: `queue:${kind}:${g.bucket}`, bucket: g.bucket, pinned: false, sourceKind: kind,
-        title: queueTitle(kind, members.length),
+        title: queueTitle(kind, all.length),
         fact: oldest ? `הוותיק מחכה מ־${shortDate(oldest.slice(0, 10))} · פתח לרשימה` : "פתח לרשימה",
-        members, action: { label: "פתח", href: members[0].action.href },
+        members, action: { label: "פתח", href: all[0].action.href },
+        handledToday: handledHere, newCount,
+        tags: newCount !== null ? [{ tone: "new", text: `חדשים: ${newCount}` }] : [],
       });
     }
   }

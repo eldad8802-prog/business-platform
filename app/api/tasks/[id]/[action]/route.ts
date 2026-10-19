@@ -1,6 +1,7 @@
 import {
   cancelTask,
   completeTask,
+  pinTask,
   reopenTask,
   rescheduleTask,
   skipOccurrence,
@@ -12,7 +13,7 @@ export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string; action: string }> };
 
-/** POST — a task transition (spec 6.1): complete, cancel, skip, reopen, reschedule, snooze. */
+/** POST — a task transition (spec 6.1): complete, cancel, skip, reopen, reschedule, snooze; pin / unpin ("חשוב"). */
 export async function POST(req: Request, { params }: Params) {
   return tasksRoute(req, async ({ actor }) => {
     const { id: rawId, action } = await params;
@@ -34,6 +35,9 @@ export async function POST(req: Request, { params }: Params) {
         return json(await rescheduleTask(actor, r, id, { expectedVersion, dueOn: b.dueOn as string }));
       case "snooze":
         return json(await snoozeTask(actor, r, id, { expectedVersion, dueOn: b.dueOn as string }));
+      case "pin":
+      case "unpin":
+        return json(await pinTask(actor, r, id, { expectedVersion, pinned: action === "pin" }));
       default:
         throw new TasksHttpError(404, "NOT_FOUND");
     }

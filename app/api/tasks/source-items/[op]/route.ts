@@ -1,4 +1,5 @@
 import {
+  acknowledgeQueue,
   recordPaidViaTasks,
   routeDomainAction,
   setDisplayState,
@@ -28,6 +29,10 @@ export async function POST(req: Request, { params }: Params) {
     const until = typeof b.until === "string" ? b.until : undefined;
     if (DISPLAY.includes(op)) return json(await setDisplayState(actor, r, ref, op as DisplayOp, until));
     if (ROUTED.includes(op)) return json(await routeDomainAction(actor, r, ref, op as RoutedOp, until));
+    if (op === "acknowledge_queue") {
+      const keys = Array.isArray(b.dedupeKeys) ? b.dedupeKeys.map(String) : [];
+      return json(await acknowledgeQueue(actor, r, String(b.sourceKind ?? ""), keys));
+    }
     if (op === "payment_paid") {
       return json(await recordPaidViaTasks(actor, r, { ...ref, amount: String(b.amount ?? ""), paidAt: String(b.paidAt ?? ""), method: String(b.method ?? "") }));
     }

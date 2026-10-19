@@ -156,6 +156,38 @@ console.log("postponed payment reminder");
   ok("tagged 'התזכורת נדחתה למחר · עדיין לא שולם'", tags.includes("התזכורת נדחתה למחר · עדיין לא שולם"), tags);
 }
 
+console.log("queue handled for today (T-C5)");
+{
+  const five = [1, 2, 3, 4, 5].map(() => item("stock", { placement: "NO_DATE", dueOn: null }));
+  const ackAll: StoredState[] = five.map((m) => ({ dedupeKey: m.dedupeKey, cycleKey: m.cycleKey, evidenceVersion: m.evidenceVersion, acknowledgedOn: TODAY, ackEvidenceVersion: m.evidenceVersion, snoozedUntil: null, pinnedAt: null, dismissedAt: null }));
+  const quiet = buildAgenda(input({ results: [ok_("stock", five)], states: ackAll }));
+  ok("a queue handled for today is gone", bucket(quiet, "NO_DATE").rows.length === 0);
+  const sixth = item("stock", { placement: "NO_DATE", dueOn: null });
+  const back = buildAgenda(input({ results: [ok_("stock", [...five, sixth])], states: ackAll }));
+  const rows = bucket(back, "NO_DATE").rows;
+  const q = rows[0];
+  ok("T-C5: a sixth member brings the queue back as one row", rows.length === 1 && q.type === "QUEUE");
+  ok("T-C5: …tagged 'חדשים: 1', counting the new member only", q.type === "QUEUE" && q.newCount === 1 && q.tags.some((t) => t.text === "חדשים: 1") && bucket(back, "NO_DATE").items === 1);
+  ok("T-C5: …and its title names all six", q.type === "QUEUE" && q.title.startsWith("6 ") && q.handledToday.length === 5);
+  const changed = buildAgenda(input({ results: [ok_("stock", [{ ...five[0], evidenceVersion: "v2" }, ...five.slice(1)])], states: ackAll }));
+  const cq = bucket(changed, "NO_DATE").rows[0];
+  ok("T-C5: new evidence on a handled member counts as new too", cq?.type === "QUEUE" && cq.newCount === 1);
+  const unhandled = buildAgenda(input({ results: [ok_("stock", five)] }));
+  const uq = bucket(unhandled, "NO_DATE").rows[0];
+  ok("an untouched queue carries no 'חדשים' tag", uq.type === "QUEUE" && uq.newCount === null && uq.tags.length === 0);
+  const two = [1, 2].map(() => item("stock", { placement: "NO_DATE", dueOn: null }));
+  const one = item("stock", { placement: "NO_DATE", dueOn: null });
+  const small = buildAgenda(input({ results: [ok_("stock", [...two, one])], states: ackAll.slice(0, 0).concat(two.map((m) => ({ dedupeKey: m.dedupeKey, cycleKey: m.cycleKey, evidenceVersion: m.evidenceVersion, acknowledgedOn: TODAY, ackEvidenceVersion: m.evidenceVersion, snoozedUntil: null, pinnedAt: null, dismissedAt: null }))) }));
+  ok("three or fewer in all: the new one is its own row", bucket(small, "NO_DATE").rows.length === 1 && bucket(small, "NO_DATE").rows[0].type === "SOURCE");
+}
+
+console.log("important (own task)");
+{
+  const a = buildAgenda(input({ tasks: [task({ title: "x" }), task({ title: "pinned", pinned: true })] }));
+  const r = bucket(a, "TODAY").rows[0];
+  ok("a pinned own task is first in its bucket, tagged 'חשוב'", r.type === "TASK" && r.task.title === "pinned" && r.tags.some((t) => t.text === "חשוב"));
+}
+
 console.log("integrity");
 {
   const complete = buildAgenda(input({ results: [ok_("stock", [])] }));

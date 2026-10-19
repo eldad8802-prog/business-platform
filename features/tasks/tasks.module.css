@@ -110,6 +110,7 @@
 .tag_snooze { background: var(--dz-warning-bg); color: var(--dz-warning); }
 .tag_pin { background: var(--dz-brand-soft); color: var(--dz-brand); }
 .tag_upd { background: var(--dz-info-bg); color: var(--dz-info); }
+.tag_new { background: var(--dz-brand-soft); color: var(--dz-brand); font-weight: 500; }
 
 .btn {
   font: inherit; font-size: 13px; border-radius: 9px; padding: 6px 12px; border: 1px solid var(--dz-border);

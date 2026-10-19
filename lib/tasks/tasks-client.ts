@@ -106,7 +106,7 @@ export const createSeries = (intent: string, input: { title: string; note?: stri
 export const editTask = (id: number, input: { expectedVersion: number; title?: string; note?: string | null; link?: LinkInput }) =>
   write(`edit:${id}:${input.expectedVersion}`, "PATCH", `/api/tasks/${id}`, input);
 
-export type TaskAction = "complete" | "cancel" | "skip" | "reopen" | "reschedule" | "snooze";
+export type TaskAction = "complete" | "cancel" | "skip" | "reopen" | "reschedule" | "snooze" | "pin" | "unpin";
 export const taskAction = (id: number, action: TaskAction, input: { expectedVersion: number; dueOn?: string }) =>
   write(`task:${id}:${action}:${input.expectedVersion}:${input.dueOn ?? ""}`, "POST", `/api/tasks/${id}/${action}`, input);
 
@@ -122,6 +122,13 @@ export type SourceOp =
   | "lead_done" | "lead_snooze" | "payment_handled" | "payment_snooze" | "payment_paid";
 export const sourceOp = (op: SourceOp, ref: { sourceKind: string; dedupeKey: string }, extra: Record<string, string> = {}) =>
   write(`source:${op}:${ref.dedupeKey}:${JSON.stringify(extra)}`, "POST", `/api/tasks/source-items/${op}`, { ...ref, ...extra });
+
+export const ackQueue = (sourceKind: string, dedupeKeys: string[]) =>
+  write(`queue-ack:${sourceKind}:${[...dedupeKeys].sort().join(",")}`, "POST", "/api/tasks/source-items/acknowledge_queue", { sourceKind, dedupeKeys });
+
+export type ItemHistoryEntry = { kind: string; at: string; actor: "OWNER_USER" | "SYSTEM"; until?: string | null };
+export const fetchItemHistory = (sourceKind: string, dedupeKey: string) =>
+  call<{ history: ItemHistoryEntry[] }>("GET", `/api/tasks/source-items/history?sourceKind=${encodeURIComponent(sourceKind)}&dedupeKey=${encodeURIComponent(dedupeKey)}`);
 
 export type LinkOption = { kind: "customer" | "supplier"; id: number; label: string };
 export const searchLinks = (q: string) => call<{ options: LinkOption[] }>("GET", `/api/tasks/links?q=${encodeURIComponent(q)}`);

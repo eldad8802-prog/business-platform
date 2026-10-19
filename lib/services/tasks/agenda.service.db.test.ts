@@ -245,6 +245,51 @@ async function main() {
     const ackEv = await owner.taskEvent.findFirst({ where: { businessId: A.businessId, eventType: "SOURCE_ITEM_ACKNOWLEDGED" } });
     ok("the owner's action is journaled as OWNER_USER with the item's keys", ackEv?.actor === "OWNER_USER" && ackEv.dedupeKey === ref2.dedupeKey && !!ackEv.cycleKey);
 
+    // ── "חשוב" on an own task ────────────────────────────────────────────────────────────────
+    console.log("important (own task)");
+    const own1 = await as(A.businessId, () => svc.createTask(A, { idempotencyKey: key(), now: NOW }, { title: "pin me", dueOn: TODAY }));
+    const pk1 = key();
+    const pinA = await as(A.businessId, () => svc.pinTask(A, { idempotencyKey: pk1, now: NOW }, own1.task!.id, { expectedVersion: own1.task!.version, pinned: true }));
+    const pinB = await as(A.businessId, () => svc.pinTask(A, { idempotencyKey: pk1, now: NOW }, own1.task!.id, { expectedVersion: own1.task!.version, pinned: true }));
+    ok("pin: pinnedAt set, version raised; the replay is the same answer", !!pinA.task?.pinnedAt && pinA.task.version === own1.task!.version + 1 && pinB.replayed && pinB.task?.id === pinA.task.id);
+    const pinEv = await owner.taskEvent.findMany({ where: { businessId: A.businessId, taskId: own1.task!.id, eventType: "TASK_EDITED" } });
+    ok("pin is journaled once as TASK_EDITED { fields: ['pinned'] }", pinEv.length === 1 && JSON.stringify(pinEv[0].payload) === JSON.stringify({ fields: ["pinned"] }));
+    const pinnedRow = (await as(A.businessId, () => getAgenda(A.businessId))).buckets.find((b) => b.bucket === "TODAY")!.rows[0];
+    ok("the pinned task is first in TODAY", pinnedRow?.type === "TASK" && pinnedRow.task.id === own1.task!.id && pinnedRow.pinned);
+    ok("a stale version is refused", (await code(as(A.businessId, () => svc.pinTask(A, { idempotencyKey: key(), now: NOW }, own1.task!.id, { expectedVersion: own1.task!.version, pinned: false })))) === "VERSION_CONFLICT");
+    ok("B cannot pin A's task", (await code(as(B.businessId, () => svc.pinTask(B, { idempotencyKey: key(), now: NOW }, own1.task!.id, { expectedVersion: pinA.task!.version, pinned: false })))) === "NOT_FOUND");
+
+    // ── "טופל להיום" on a grouped queue (T-C5) ───────────────────────────────────────────────
+    console.log("queue handled for today (T-C5)");
+    await prefs.setSourceEnabled(A, { idempotencyKey: key() }, "stock", true).catch(() => undefined);
+    for (let i = 0; i < 5; i++) await owner.inventoryAlert.create({ data: { businessId: A.businessId, type: "LOW_STOCK", message: `low ${i}` } });
+    const queueRow = async () => (await as(A.businessId, () => getAgenda(A.businessId))).buckets.flatMap((b) => b.rows).find((r) => r.type === "QUEUE" && r.sourceKind === "stock");
+    const q0 = await queueRow();
+    ok("five low-stock alerts are one queue row", q0?.type === "QUEUE" && q0.members.length === 5);
+    const qKeys = q0?.type === "QUEUE" ? q0.members.map((m) => m.dedupeKey) : [];
+    const qk = key();
+    const ackQ = await as(A.businessId, () => actions.acknowledgeQueue(A, { idempotencyKey: qk }, "stock", qKeys));
+    const ackQ2 = await as(A.businessId, () => actions.acknowledgeQueue(A, { idempotencyKey: qk }, "stock", qKeys));
+    ok("the queue was acknowledged member by member, once", ackQ.acknowledged === 5 && ackQ2.replayed && (await owner.taskEvent.count({ where: { businessId: A.businessId, eventType: "SOURCE_ITEM_ACKNOWLEDGED", sourceKind: "stock" } })) === 5);
+    ok("…and the queue is gone for today", !(await queueRow()));
+    await owner.inventoryAlert.create({ data: { businessId: A.businessId, type: "LOW_STOCK", message: "low 6" } });
+    const q1 = await queueRow();
+    ok("T-C5: a sixth alert brings the queue back as one row, 'חדשים: 1'", q1?.type === "QUEUE" && q1.newCount === 1 && q1.handledToday.length === 5 && q1.tags.some((t) => t.text === "חדשים: 1"));
+    ok("an unknown member is refused (12.3)", (await code(as(A.businessId, () => actions.acknowledgeQueue(A, { idempotencyKey: key() }, "stock", ["inventory_alert:999999999"])))) === "NOT_FOUND");
+    ok("B cannot acknowledge A's queue", (await code(as(B.businessId, () => actions.acknowledgeQueue(B, { idempotencyKey: key() }, "stock", qKeys)))) === "NOT_FOUND");
+
+    // ── Item history ─────────────────────────────────────────────────────────────────────────
+    console.log("item history");
+    const { getItemHistory } = await import("./item-history.service");
+    const hist = await as(A.businessId, () => getItemHistory(A.businessId, ref.sourceKind, ref.dedupeKey));
+    const kinds = hist.map((h) => h.kind);
+    ok("a business item's history lists its display actions (pinned)", kinds.includes("SOURCE_ITEM_PINNED"), kinds);
+    ok("…newest first, and carries no names, amounts or user ids", hist.every((h, i) => i === 0 || hist[i - 1].at >= h.at) && !JSON.stringify(hist).match(/ספק|500|userId|actorUserId/));
+    const stockHist = await as(A.businessId, () => getItemHistory(A.businessId, "stock", qKeys[0]));
+    ok("a queue member's history shows 'handled for today'", stockHist.some((h) => h.kind === "SOURCE_ITEM_ACKNOWLEDGED"));
+    ok("isolation: B reads no history of A's item", (await as(B.businessId, () => getItemHistory(B.businessId, ref.sourceKind, ref.dedupeKey))).length === 0);
+    ok("a malformed key is refused", (await code(as(A.businessId, () => getItemHistory(A.businessId, "stock", "x y")))) === "INVALID_INPUT");
+
     // ── Preferences ──────────────────────────────────────────────────────────────────────────
     console.log("preferences");
     const pk = key();

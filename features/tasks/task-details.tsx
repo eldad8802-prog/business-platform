@@ -19,7 +19,9 @@ import { useEffect, useState } from "react";
 import type { AgendaRow, SourceItem } from "@/lib/services/tasks/agenda-core";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 import {
+  ackQueue,
   changeSeries,
+  fetchItemHistory,
   editTask,
   seriesAction,
   sourceOp,
@@ -59,6 +61,7 @@ export function TaskDetails({
   if (row.type === "TASK") return <OwnTask row={row} agenda={agenda} act={act} onClosed={onClosed} />;
   if (row.type === "SOURCE") return <SourceDetail item={row.item} pinned={row.pinned} act={act} onAskPaid={onAskPaid} onClosed={onClosed} />;
   if (row.type === "QUEUE") {
+    const everyone = [...row.members, ...row.handledToday];
     return (
       <>
         <div className={s.detH}>
@@ -68,17 +71,30 @@ export function TaskDetails({
             <p className={s.hint}>{SOURCE_HINT[row.sourceKind] ?? ""}</p>
           </div>
         </div>
+        {row.newCount !== null ? (
+          <p className={`${s.fact} ${s.factNeutral}`}>
+            {row.handledToday.length} סומנו היום כ&quot;טופל&quot;. חדשים מאז: {row.newCount}.
+          </p>
+        ) : null}
         <ul className={s.hist}>
-          {row.members.slice(0, 8).map((m) => (
+          {everyone.slice(0, 8).map((m) => (
             <li key={m.dedupeKey}>
               <span>{m.title}</span>
             </li>
           ))}
-          {row.members.length > 8 ? <li className={s.hint}>ועוד {row.members.length - 8}</li> : null}
+          {everyone.length > 8 ? <li className={s.hint}>ועוד {everyone.length - 8}</li> : null}
         </ul>
         <div className={s.actions}>
           <Link href={row.action.href} prefetch={false} className={`${s.btn} ${s.pri}`}>{row.action.label}</Link>
+          <button
+            type="button"
+            className={s.btn}
+            onClick={() => void act(() => ackQueue(row.sourceKind, everyone.map((m) => m.dedupeKey)), "טופל להיום").then((ok) => ok && onClosed())}
+          >
+            טופל להיום
+          </button>
         </div>
+        <p className={s.hint}>&quot;טופל להיום&quot; מסתיר את התור עד מחר. פריט חדש, או חדשות על פריט קיים — והתור חוזר עם &quot;חדשים&quot;.</p>
       </>
     );
   }
@@ -162,6 +178,7 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
       <dl className={s.kv}>
         <dt>מועד</dt>
         <dd>{t.dueOn ? (t.dueOn === today ? `היום, ${short(t.dueOn)}` : chipLabel(t.dueOn)) : "ללא תאריך"}</dd>
+        {t.pinned ? (<><dt>סימון</dt><dd>חשוב</dd></>) : null}
         {t.cadence ? (<><dt>חזרה</dt><dd>{t.cadence}{series?.paused ? " · מושהית" : ""}</dd></>) : null}
         {t.note ? (<><dt>הערה</dt><dd>{t.note}</dd></>) : null}
         {t.link ? (<><dt>קשור ל</dt><dd>{t.link.label ?? (t.link.kind === "customer" ? "לקוח" : t.link.kind === "supplier" ? "ספק" : "קישור")}</dd></>) : null}
@@ -179,6 +196,14 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
           </div>
           <div className={s.actions}>
             <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("edit")}>{t.seriesId ? "עריכת הסדרה" : "עריכה"}</button>
+            <button
+              type="button"
+              className={`${s.btn} ${s.ghost}`}
+              aria-pressed={t.pinned}
+              onClick={() => void act(() => taskAction(t.id, t.pinned ? "unpin" : "pin", v), t.pinned ? "הוסר הסימון" : "סומן כחשוב")}
+            >
+              {t.pinned ? "בטל \"חשוב\"" : "סמן כחשוב"}
+            </button>
             {series ? (
               <button
                 type="button"
@@ -290,6 +315,52 @@ function EditForm({ title, note, onSave, onCancel }: { title: string; note: stri
 
 // ── business item ───────────────────────────────────────────────────────────────────────────────
 
+function sourceHistoryText(kind: string, until?: string | null): string {
+  switch (kind) {
+    case "APPEARED": return "הופיע ברשימה";
+    case "SOURCE_ITEM_ACKNOWLEDGED": return "סומן \"טופל להיום\"";
+    case "SOURCE_ITEM_SNOOZED": return until ? `נדחה עד ${short(until)}` : "נדחה";
+    case "SOURCE_ITEM_PINNED": return "סומן כחשוב";
+    case "SOURCE_ITEM_UNPINNED": return "הוסר הסימון \"חשוב\"";
+    case "SOURCE_CLOSED_OBSERVED": return "נסגר במקור";
+    default: return "";
+  }
+}
+
+/** The item's handling history: its cycles and display actions (journal), plus its domain facts (the item itself). */
+function ItemHistory({ item }: { item: SourceItem }) {
+  const [entries, setEntries] = useState<{ day: string; text: string }[] | null>(null);
+  const postponedUntil = item.reminderPostponed?.until ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    fetchItemHistory(item.sourceKind, item.dedupeKey)
+      .then((r) => {
+        if (cancelled) return;
+        const list = r.history.map((h) => ({ day: todayKey(new Date(h.at)), text: sourceHistoryText(h.kind, h.until) })).filter((x) => x.text);
+        // Domain facts, from the item as the source shows it now (11.1: the domain keeps its own record).
+        if (item.sourceKind === "supplier_payment" && item.dueOn && item.dueOn <= todayKey()) list.push({ day: item.dueOn, text: "הגיע מועד התשלום" });
+        if (postponedUntil) list.push({ day: todayKey(), text: `התזכורת נדחתה עד ${short(postponedUntil)} · עדיין לא שולם` });
+        list.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
+        setEntries(list);
+      })
+      .catch(() => !cancelled && setEntries([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [item.sourceKind, item.dedupeKey, item.dueOn, postponedUntil]);
+  if (!entries || entries.length === 0) return null;
+  return (
+    <ul className={s.hist} aria-label="היסטוריית טיפול">
+      {entries.map((e, i) => (
+        <li key={i}>
+          <time dateTime={e.day}>{short(e.day)}</time>
+          <span>{e.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function SourceDetail({ item, pinned, act, onAskPaid, onClosed }: { item: SourceItem; pinned: boolean; act: Act; onAskPaid: (item: SourceItem) => void; onClosed: () => void }) {
   const [pick, setPick] = useState<null | "remind">(null);
   const ref = { sourceKind: item.sourceKind, dedupeKey: item.dedupeKey };
@@ -358,6 +429,7 @@ function SourceDetail({ item, pinned, act, onAskPaid, onClosed }: { item: Source
 
       {isPay ? <p className={s.hint}>&quot;טופל&quot; לא רושם תשלום. אחריו נשאל &quot;שילמת?&quot;, ורק &quot;כן&quot; רושם תשלום.</p> : null}
       {!isPay && !isLead ? <p className={s.hint}>&quot;טופל להיום&quot; מסתיר את הפריט עד מחר. אם יגיע משהו חדש — הוא יחזור מיד.</p> : null}
+      <ItemHistory item={item} />
     </>
   );
 }
