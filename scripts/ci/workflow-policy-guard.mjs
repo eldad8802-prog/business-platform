@@ -43,7 +43,7 @@ import { createRequire } from "node:module";
 
 const yaml = createRequire(import.meta.url)("js-yaml");
 
-export const PROD_SECRETS = /secrets\.(NEON_API_KEY|CRON_SECRET|KNOWLEDGE_DERIVE_SECRET|DIRECT_URL|DATABASE_URL|W1_RUNTIME_URL|W1_RUNTIME_PW|W2G_ADMIN_PW|PW2_CTL_PW|PREVIEW_RUNTIME_PW|COLLECTION_QA_PASSWORD_HASH|PROD_[A-Z_]+|BILLING_AUTHORITY_[A-Z_]+)\b/g;
+export const PROD_SECRETS = /secrets\.(NEON_API_KEY|CRON_SECRET|KNOWLEDGE_DERIVE_SECRET|DIRECT_URL|DATABASE_URL|TASK_RETENTION_DATABASE_URL|W1_RUNTIME_URL|W1_RUNTIME_PW|W2G_ADMIN_PW|PW2_CTL_PW|PREVIEW_RUNTIME_PW|COLLECTION_QA_PASSWORD_HASH|PROD_[A-Z_]+|BILLING_AUTHORITY_[A-Z_]+)\b/g;
 const PROTECTED_ENVS = new Set(["production-db", "neon-preview", "cron", "knowledge-derive"]);
 /** WP-6: secret -> the ONE environment allowed to hold it. */
 export const SECRET_ENV = new Map([
@@ -77,6 +77,11 @@ export const EXEMPT = {
  * transactional-email-sweep.yml is the same shape again: a transactional email (WELCOME) whose
  * immediate send failed is retried on its backoff, and one past its lifetime is settled EXPIRED.
  * While TRANSACTIONAL_EMAIL_ENABLED is off the endpoint answers without touching the database.
+ *
+ * task-retention.yml must run DAILY while holding TASK_RETENTION_DATABASE_URL: request fingerprints are bounded
+ * to 7 days for every business, including ones nobody opens again, and only a scheduled run deletes them. Its
+ * authority is bounded instead: the job is bound to production-db, main-only, inert until the repository
+ * variable TASK_RETENTION_ENABLED is "true", and the login can EXECUTE only the two operational functions.
  */
 export const SANCTIONED = [
   {
@@ -96,6 +101,12 @@ export const SANCTIONED = [
     file: "transactional-email-sweep.yml",
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: 10-minute transactional email retry / expiry (WELCOME); CRON authority bound to the `cron` environment, main-only",
+  },
+  {
+    rule: "WP-5",
+    file: "task-retention.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: daily 7-day purge of task request fingerprints / journal digests for every business; bound to production-db, main-only, inert until TASK_RETENTION_ENABLED; EXECUTE on the two operational functions only",
   },
 ];
 

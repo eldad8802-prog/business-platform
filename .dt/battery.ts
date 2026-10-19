@@ -320,10 +320,29 @@ async function main() {
   const oldKey = key("rq"), newKey = key("rq");
   await owner.$executeRawUnsafe(`INSERT INTO "TaskRequestLedger" ("businessId", "idempotencyKey", "requestDigest", "digestKeyId", "resultRef", "createdAt") VALUES ($1, $2, repeat('d', 64), 'k1', '{}', now() - interval '8 days')`, bizA, oldKey);
   await owner.$executeRawUnsafe(`INSERT INTO "TaskRequestLedger" ("businessId", "idempotencyKey", "requestDigest", "digestKeyId", "resultRef", "createdAt") VALUES ($1, $2, repeat('e', 64), 'k1', '{}', now() - interval '6 days 23 hours')`, bizA, newKey);
+  // A business nobody opens again (no context, no sign-in): its old fingerprint goes too, by the same run.
+  const idleKey = key("rq");
+  await owner.$executeRawUnsafe(`INSERT INTO "TaskRequestLedger" ("businessId", "idempotencyKey", "requestDigest", "digestKeyId", "resultRef", "createdAt") VALUES ($1, $2, repeat('9', 64), 'k1', '{}', now() - interval '30 days')`, bizB, idleKey);
+  // History is everything but the fingerprint ledger: tasks, series, the journal, source state, preferences.
+  const history = async () => String(rows(await owner.$queryRawUnsafe(
+    `SELECT md5(concat_ws('|',
+       (SELECT string_agg(to_jsonb(t)::text, ',' ORDER BY "id") FROM "Task" t),
+       (SELECT string_agg(to_jsonb(s)::text, ',' ORDER BY "id") FROM "TaskSeries" s),
+       (SELECT string_agg(to_jsonb(e)::text, ',' ORDER BY "id") FROM "TaskEvent" e),
+       (SELECT string_agg(to_jsonb(c)::text, ',' ORDER BY "id") FROM "TaskSourceState" c),
+       (SELECT string_agg(to_jsonb(p)::text, ',' ORDER BY "businessId") FROM "TaskPreferences" p),
+       (SELECT string_agg(to_jsonb(r)::text, ',' ORDER BY "kind") FROM "TaskRetentionPolicy" r))) AS h`))[0].h);
+  const historyBefore = await history();
+  const h3Null = num(await owner.$queryRawUnsafe(`SELECT count(*) AS n FROM "TaskRetentionPolicy" WHERE "basis" = 'H3_PENDING' AND "days" IS NULL`));
   const purged = num(await maint.$queryRawUnsafe(`SELECT public.task_retention_purge_request_ledger() AS n`));
   const stillOld = num(await owner.$queryRawUnsafe(`SELECT count(*) AS n FROM "TaskRequestLedger" WHERE "idempotencyKey" = $1`, oldKey));
   const stillNew = num(await owner.$queryRawUnsafe(`SELECT count(*) AS n FROM "TaskRequestLedger" WHERE "idempotencyKey" = $1`, newKey));
   ok("fingerprints older than 7 days are removed; a 6-day-23-hour one stays", purged >= 1 && stillOld === 0 && stillNew === 1, `${purged}/${stillOld}/${stillNew}`);
+  ok("…in every business: an idle business's 30-day fingerprint is removed by the same run, no context needed",
+    num(await owner.$queryRawUnsafe(`SELECT count(*) AS n FROM "TaskRequestLedger" WHERE "idempotencyKey" = $1`, idleKey)) === 0);
+  ok("the purge deletes fingerprint rows only: tasks, series, journal, source state, preferences and policy are byte-identical",
+    (await history()) === historyBefore);
+  ok("…and it ran with all three H3 periods still NULL (the operational path does not depend on H3)", h3Null === 3, String(h3Null));
   const dOld = key("ev"), dNew = key("ev");
   await owner.$executeRawUnsafe(`INSERT INTO "TaskEvent" ("businessId", "eventType", "actor", "actorUserId", "idempotencyKey", "requestDigest", "digestKeyId", "occurredAt") VALUES ($1, 'TASK_EDITED', 'OWNER_USER', $2, $3, repeat('f', 64), 'k1', now() - interval '8 days')`, bizA, userA, dOld);
   await owner.$executeRawUnsafe(`INSERT INTO "TaskEvent" ("businessId", "eventType", "actor", "actorUserId", "idempotencyKey", "requestDigest", "digestKeyId", "occurredAt") VALUES ($1, 'TASK_EDITED', 'OWNER_USER', $2, $3, repeat('f', 64), 'k1', now() - interval '1 day')`, bizA, userA, dNew);

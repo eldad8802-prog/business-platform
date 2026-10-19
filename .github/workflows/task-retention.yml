@@ -11,15 +11,21 @@
 # It connects as a LOGIN member of `task_maintenance` (secret TASK_RETENTION_DATABASE_URL), the only role besides
 # the owner that may EXECUTE the functions; that role can read or change no table directly. The output is two counts.
 #
-# NOT ACTIVE. Dispatch-only from main, in the protected `production-db` environment. Activation is an owner gate:
-#   1. a LOGIN role in task_maintenance with its own password (Production role change);
-#   2. the secret TASK_RETENTION_DATABASE_URL in `production-db`;
-#   3. a daily schedule (a scheduled secret holder needs a SANCTIONED entry in workflow-policy-guard) — required
-#      before any business gets `daily_tasks`, so the 7-day bound holds from the first write.
+# Scheduled DAILY, but INERT until the owner activates it. The job runs only when ALL of these hold:
+#   - the run is on main;
+#   - the repository variable TASK_RETENTION_ENABLED is exactly "true" (the activation switch — unset today);
+#   - the protected `production-db` environment holds TASK_RETENTION_DATABASE_URL, a LOGIN member of
+#     task_maintenance (Production role change, owner gate).
+# The two operational periods are fixed at 7 days in "TaskRetentionPolicy" (basis OPERATIONAL); they do not
+# depend on H3. The purge covers every business, including ones whose owner never signs in again: it takes no
+# business context and no date from the caller.
 
-name: task retention (operational, dispatch-only)
+name: task retention (operational, daily)
 
 on:
+  schedule:
+    # 02:17 UTC daily — off the hour, outside Israeli business hours.
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +38,7 @@ concurrency:
 jobs:
   retention:
     name: Operational retention (fingerprints, digests)
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.TASK_RETENTION_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production-db
