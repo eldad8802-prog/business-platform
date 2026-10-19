@@ -46,7 +46,7 @@ function walk(dir: string): string[] {
 const WRITE_CALL = /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|INSERT\s+INTO|UPDATE\s+"|DELETE\s+FROM/;
 
 console.log("read path (8.6)");
-for (const f of ["lib/services/tasks/agenda.service.ts", "lib/services/tasks/sources.ts", "lib/services/tasks/agenda-core.ts"]) {
+for (const f of ["lib/services/tasks/agenda.service.ts", "lib/services/tasks/sources.ts", "lib/services/tasks/agenda-core.ts", "lib/services/tasks/item-history.service.ts"]) {
   const src = code(f);
   ok(`${path.basename(f)} makes no write call`, !WRITE_CALL.test(src), src.match(WRITE_CALL)?.[0]);
   ok(`${path.basename(f)} imports no task write path`, !/from "\.\/(task\.service|task\.store|sync\.service|source-actions\.service|preferences\.service)"/.test(src));
@@ -108,6 +108,24 @@ console.log("navigation (owner-approved placement)");
   ok("the family screen hides a gated tool until the flag is ON", /filter\(\(t\) => !t\.feature/.test(cat));
   const sec = code("app/(shell)/secretary/page.tsx");
   ok("the secretary keeps today's screen unless daily_tasks is ON", /route\.showToday && sharedToday\)/.test(sec) && /<TodayScreen/.test(sec));
+}
+
+console.log("operational retention (12.7, 12.8)");
+{
+  const wf = read(".github/workflows/task-retention.yml");
+  const body = wf.replace(/^\s*#.*$/gm, "");
+  ok("the retention workflow is scheduled daily", /schedule:\s*\n\s*- cron: "\d+ \d+ \* \* \*"/.test(body));
+  ok("…inert until activated: main only AND vars.TASK_RETENTION_ENABLED == 'true'", /if: github\.ref == 'refs\/heads\/main' && vars\.TASK_RETENTION_ENABLED == 'true'/.test(body));
+  ok("…bound to the protected production-db environment", /environment: production-db/.test(body));
+  const calls = [...body.matchAll(/public\.(task_retention_[a-z_]+)\(\)/g)].map((m) => m[1]).sort();
+  ok("…calls exactly the two operational functions — never an H3 function", calls.join() === "task_retention_clear_event_digests,task_retention_purge_request_ledger", calls);
+  ok("…and prints counts only", !/SELECT \*|to_jsonb|RETURNING/.test(body));
+  const guard = read("scripts/ci/workflow-policy-guard.mjs");
+  ok("its secret is classified production-capable and its schedule is SANCTIONED", /TASK_RETENTION_DATABASE_URL/.test(guard) && /file: "task-retention\.yml"/.test(guard));
+}
+{
+  const secretary = NAV_DESTINATIONS.find((d) => d.key === "secretary");
+  ok("navigation names the secretary 'המזכירה שלי'", secretary?.label === "המזכירה שלי" && TOOLS.find((t) => t.key === "secretary")?.label === "המזכירה שלי");
 }
 
 if (failed > 0) {

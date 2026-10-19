@@ -282,13 +282,14 @@ async function main() {
     console.log("item history");
     const { getItemHistory } = await import("./item-history.service");
     const hist = await as(A.businessId, () => getItemHistory(A.businessId, ref.sourceKind, ref.dedupeKey));
-    const kinds = hist.map((h) => h.kind);
+    const kinds = (hist ?? []).map((h) => h.kind);
     ok("a business item's history lists its display actions (pinned)", kinds.includes("SOURCE_ITEM_PINNED"), kinds);
-    ok("…newest first, and carries no names, amounts or user ids", hist.every((h, i) => i === 0 || hist[i - 1].at >= h.at) && !JSON.stringify(hist).match(/ספק|500|userId|actorUserId/));
+    const hl = hist ?? [];
+    ok("…newest first, and carries no names, amounts or user ids", hl.every((h, i) => i === 0 || hl[i - 1].at >= h.at) && !JSON.stringify(hl).match(/ספק|500|userId|actorUserId/));
     const stockHist = await as(A.businessId, () => getItemHistory(A.businessId, "stock", qKeys[0]));
-    ok("a queue member's history shows 'handled for today'", stockHist.some((h) => h.kind === "SOURCE_ITEM_ACKNOWLEDGED"));
-    ok("isolation: B reads no history of A's item", (await as(B.businessId, () => getItemHistory(B.businessId, ref.sourceKind, ref.dedupeKey))).length === 0);
-    ok("a malformed key is refused", (await code(as(A.businessId, () => getItemHistory(A.businessId, "stock", "x y")))) === "INVALID_INPUT");
+    ok("a queue member's history shows 'handled for today'", (stockHist ?? []).some((h) => h.kind === "SOURCE_ITEM_ACKNOWLEDGED"));
+    ok("isolation: B reads no history of A's item", (await as(B.businessId, () => getItemHistory(B.businessId, ref.sourceKind, ref.dedupeKey)))?.length === 0);
+    ok("a malformed key reads nothing (the route answers 400)", (await as(A.businessId, () => getItemHistory(A.businessId, "stock", "x y"))) === null);
 
     // ── Preferences ──────────────────────────────────────────────────────────────────────────
     console.log("preferences");

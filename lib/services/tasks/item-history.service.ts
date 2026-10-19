@@ -11,16 +11,20 @@
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import { SOURCE_KINDS, type SourceKind } from "./agenda-core";
-import { TaskServiceError } from "./task.service";
 
 export type ItemHistoryEntry = { kind: string; at: string; actor: "OWNER_USER" | "SYSTEM"; until?: string | null };
 
 const OWNER_EVENTS = ["SOURCE_ITEM_ACKNOWLEDGED", "SOURCE_ITEM_SNOOZED", "SOURCE_ITEM_PINNED", "SOURCE_ITEM_UNPINNED", "SOURCE_CLOSED_OBSERVED"] as const;
 const HISTORY_MAX = 12;
 
-export async function getItemHistory(businessId: number, sourceKind: string, dedupeKey: string): Promise<ItemHistoryEntry[]> {
-  if (!SOURCE_KINDS.includes(sourceKind as SourceKind)) throw new TaskServiceError("INVALID_INPUT", { field: "sourceKind" });
-  if (typeof dedupeKey !== "string" || !/^[A-Za-z0-9:_.-]{1,200}$/.test(dedupeKey)) throw new TaskServiceError("INVALID_INPUT", { field: "dedupeKey" });
+/** A well-formed reference to a source item — checked before any read (the route answers 400 otherwise). */
+export function isItemRef(sourceKind: string, dedupeKey: string): boolean {
+  return SOURCE_KINDS.includes(sourceKind as SourceKind) && /^[A-Za-z0-9:_.-]{1,200}$/.test(dedupeKey);
+}
+
+/** Null for a malformed reference; otherwise the entries, newest first. */
+export async function getItemHistory(businessId: number, sourceKind: string, dedupeKey: string): Promise<ItemHistoryEntry[] | null> {
+  if (!isItemRef(sourceKind, dedupeKey)) return null;
   return tenantTx(businessId, async (tx) => {
     const cycles = await tx.taskSourceState.findMany({
       where: { businessId, sourceKind, dedupeKey },
