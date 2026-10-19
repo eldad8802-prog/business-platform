@@ -52,6 +52,36 @@ export function TasksScreen() {
   const [paidFor, setPaidFor] = useState<SourceItem | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const quickRef = useRef<HTMLInputElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
+
+  // The details panel stays in view while the list scrolls (tablet / desktop). CSS sticky cannot do it here: the
+  // shell's content element clips overflow-x, which makes it the sticky container, and it never scrolls itself.
+  useEffect(() => {
+    const el = detailRef.current;
+    if (bp === "mobile" || !el) return;
+    let frame = 0;
+    const place = () => {
+      frame = 0;
+      const column = el.parentElement;
+      if (!column) return;
+      const top = column.getBoundingClientRect().top;
+      const room = column.getBoundingClientRect().height - el.offsetHeight;
+      const offset = Math.max(0, Math.min(12 - top, room));
+      el.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(place);
+    };
+    document.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    window.addEventListener("resize", onScroll);
+    place();
+    return () => {
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+      el.style.transform = "";
+    };
+  }, [bp]);
 
   useEffect(() => {
     if (params?.get("new") === "1") router.replace("/tasks", { scroll: false });
@@ -188,8 +218,9 @@ export function TasksScreen() {
           {agenda ? <WeekColumn agenda={agenda} onSelect={(k) => { setCreating(false); setSelected(k); }} /> : null}
         </aside>
 
-        <aside className={s.detail} aria-label="פרטים">
-          {bp === "desktop" && creating ? form : details ?? (
+        <aside ref={detailRef} className={s.detail} aria-label="פרטים">
+          {/* mobile shows the details in a bottom sheet only — never a second, hidden copy here */}
+          {bp === "mobile" ? null : bp === "desktop" && creating ? form : details ?? (
             <div className={s.placeholder}>
               <span>בחר שורה כדי לראות את הפרטים והפעולות.</span>
               <button type="button" className={`${s.btn} ${s.soft}`} onClick={() => setCreating(true)}>

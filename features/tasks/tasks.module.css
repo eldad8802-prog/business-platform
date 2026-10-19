@@ -47,7 +47,8 @@
 .detail {
   display: none; background: var(--dz-surface-raised); border: 1px solid var(--dz-border);
   border-radius: 14px; padding: 18px; flex-direction: column; gap: 14px; min-width: 0;
-  position: sticky; top: 12px;
+  /* kept in view by tasks-screen.tsx (sticky cannot work under the shell's overflow-x clip) */
+  will-change: transform;
 }
 @media (min-width: 768px) { .detail { display: flex; } }
 
