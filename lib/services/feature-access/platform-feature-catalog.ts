@@ -24,6 +24,7 @@ export const PLATFORM_FEATURE_KEYS = {
   COMMERCE_WIX: "commerce_wix",
   TELEPHONY_CLOUDTALK: "telephony_cloudtalk",
   TELEPHONY_VOICENTER: "telephony_voicenter",
+  DAILY_TASKS: "daily_tasks",
 } as const;
 
 export type PlatformFeatureKey =
@@ -40,7 +41,8 @@ export type PlatformFeatureCategory =
   | "integrations"
   | "bot"
   | "reports"
-  | "intelligence";
+  | "intelligence"
+  | "tasks";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -218,6 +220,16 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "המלצות Dubiz",
       category: "intelligence",
       description: "הצגת המלצות Dubiz לבעל העסק וקבלת החלטתו — כבויה כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Daily Tasks — the task centre and the agenda shared with the secretary. OFF by default (migration
+    // 20261018090000): the first routes ship in milestone B, each checking this flag first (404 when off).
+    {
+      key: PLATFORM_FEATURE_KEYS.DAILY_TASKS,
+      displayName: "היום שלי — משימות",
+      category: "tasks",
+      description: "מרכז המשימות היומי וסדר היום המשותף עם המזכירה — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

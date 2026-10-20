@@ -229,7 +229,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   {
     key: "secretary", name: "Payment Secretary (obligations)", coverage: "LEARNS",
     rules: ["SEC-01", "SEC-02"], temporalRules: ["T-SEC-02"], otherUnits: [], l0: [],
-    models: ["BusinessObligation", "BusinessObligationOrientation", "InstallmentWorkflow", "Task"],
+    models: ["BusinessObligation", "BusinessObligationOrientation", "InstallmentWorkflow"],
     sensors: ["OBLIGATION_CHANGED"], legacyEvents: [], routes: ["api/obligations", "page/secretary"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): lag between 'handled' and the real payment, snooze habit (InstallmentWorkflow) — handled ≠ paid." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "LOW" },
@@ -358,6 +358,19 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     reason: "A what-if calculator with no ledger of prices actually charged (orphan page); actual prices are learned from billing and offering.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     models: ["PricingProfile", "PricingCalculation", "PricingRecommendation"], sensors: [], legacyEvents: [], routes: ["api/pricing", "page/pricing"],
+    outcome: NO_OUTCOME,
+  },
+  {
+    // Daily Tasks (milestone A): Task moved here from "secretary" (spec 11.2). Every owner action and system
+    // observation is journaled in TaskEvent from day one; the rules (TASK-01..04, T-TASK-01) come in M7, when this
+    // becomes LEARNS. No LearningEvent is written by the task engine (record-sensor stays the only writer).
+    key: "tasks", name: "Daily tasks (task centre, series, agenda state)", coverage: "L0_ONLY",
+    reason: "Milestone A: the owner's tasks, series and the per-cycle display state are journaled in TaskEvent (owner actions apart from system observations); learning rules TASK-01..04 arrive in M7 behind the derive gate.",
+    rules: [], temporalRules: [], otherUnits: [], l0: [],
+    models: ["Task", "TaskSeries", "TaskSourceState", "TaskEvent", "TaskPreferences", "TaskRequestLedger"],
+    // Milestone B: the agenda, sync and action routes and the task centre page (flag daily_tasks, OFF by default).
+    sensors: [], legacyEvents: [], routes: ["api/tasks", "page/tasks"],
+    target: { coverage: "LEARNS", plan: "M7: completion latency vs due day (TASK-01), snooze share per source (TASK-02), open load at day end (TASK-03), recurring done vs missed (TASK-04); SYSTEM events never count as owner habit." },
     outcome: NO_OUTCOME,
   },
   {

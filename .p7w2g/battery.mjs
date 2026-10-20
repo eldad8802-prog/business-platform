@@ -21,6 +21,18 @@
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
+// After 20261018090000_daily_tasks_foundation, "Task" carries exactly task_tenant_select / _insert / _update
+// instead of p7w1_tenant (owner decision G4), so wave 1 counts 13 there. Exact, never a range: either state
+// is fully one or fully the other.
+async function wave1Expected(owner) {
+  const r = (await owner.$queryRawUnsafe(
+    `SELECT (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname IN ('task_tenant_select', 'task_tenant_insert', 'task_tenant_update')) AS dt,
+            (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname = 'p7w1_tenant') AS w1`))[0];
+  if (r.dt === 3 && r.w1 === 0) return 13;
+  if (r.dt === 0 && r.w1 === 1) return 14;
+  throw new Error(`DRIFT: "Task" policies are neither wave 1 nor daily tasks (task_tenant_*=${r.dt}, p7w1_tenant=${r.w1}) — STOP`);
+}
+
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN_ROLE || (TARGET === "neon" ? "app_admin_preview" : "app_admin_lab");
 const ADMIN_PW = process.env.W2G_ADMIN_PW || "p7w2g_ci_synthetic_admin_pw";
@@ -107,7 +119,8 @@ async function main() {
     // Wave-1 grows additively (13 at IMPL-1 time; #264 added BusinessProfile
     // → 14 once applied to Preview). Gate on a sane floor, report the count.
     const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    if (w1 < 13 || w1 > 14) throw new Error(`DRIFT: wave1 p7w1_tenant=${w1}, expected 13-14 — STOP`);
+    const w1Expected = await wave1Expected(owner);
+    if (w1 !== w1Expected) throw new Error(`DRIFT: wave1 p7w1_tenant=${w1}, expected ${w1Expected} — STOP`);
     const rt = (await owner.$queryRawUnsafe(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='app_runtime_preview_p4b'`))[0];
     if (!rt || rt.rolsuper || rt.rolbypassrls) throw new Error("DRIFT: tenant runtime role posture — STOP");
     console.log(`[pre-state] pilot=5, wave1=${w1}, tenant runtime posture OK`);
@@ -401,7 +414,8 @@ async function main() {
   if (TARGET === "neon") {
     const pilotAfter = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'`))[0].c);
     const w1After = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    ok("pilot + wave1 substrate intact after admin foundation", pilotAfter === 5 && w1After === 13, `pilot=${pilotAfter} w1=${w1After}`);
+    const w1ExpAfter = await wave1Expected(owner);
+    ok("pilot + wave1 substrate intact after admin foundation", pilotAfter === 5 && w1After === w1ExpAfter, `pilot=${pilotAfter} w1=${w1After} expected=${w1ExpAfter}`);
   }
 
   await owner.$disconnect();

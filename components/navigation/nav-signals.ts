@@ -25,6 +25,8 @@ import { fetchJsonCached } from "@/lib/ui/cached-json";
  *                share one response and can never disagree.
  *   מלאי         GET /api/inventory/alerts?type=CRITICAL_STOCK&isResolved=false
  *                → "קריטי" when at least one is open
+ *   משימות       GET /api/tasks/agenda → count (overdue + today, the same number the task centre and the
+ *                secretary show); "N+" when the agenda says the count is partial. Only with daily_tasks ON.
  * A source that fails simply leaves its badge off — a badge that guesses is
  * worse than no badge.
  */
@@ -48,6 +50,7 @@ type StatusWire = { items?: BusinessStatusItem[] };
 const STATUS_URL = "/api/business-status";
 const STATUS_TTL_MS = 15_000;
 type AlertsWire = { alerts?: unknown[] };
+type AgendaWire = { count?: number; countPartial?: boolean };
 type MeWire = { user?: { name?: string | null; businessName?: string | null } };
 type UnreadWire = { unreadCount?: number };
 
@@ -57,7 +60,7 @@ function countBadge(n: number, cap: number | null, tone: "brand" | "warn" | "new
   return { kind: "count", text, tone };
 }
 
-export function useNavBadges(enabled: boolean, pathname: string): NavBadges {
+export function useNavBadges(enabled: boolean, pathname: string, tasksOn = false): NavBadges {
   const [badges, setBadges] = useState<NavBadges>({});
 
   useEffect(() => {
@@ -98,6 +101,24 @@ export function useNavBadges(enabled: boolean, pathname: string): NavBadges {
       cancelled = true;
     };
   }, [enabled]);
+
+  // The agenda follows navigation (an action on /tasks or /secretary changes it); the flag gates the read.
+  useEffect(() => {
+    if (!enabled || !tasksOn) return;
+    let cancelled = false;
+    fetchJsonCached<AgendaWire>("/api/tasks/agenda", 15_000)
+      .then((j) => {
+        if (cancelled) return;
+        const n = j.count ?? 0;
+        setBadges((prev) => ({ ...prev, tasks: n > 0 ? { kind: "count", text: j.countPartial ? `${n}+` : String(n), tone: "brand" } : undefined }));
+      })
+      .catch(() => {
+        /* No source, no badge. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, tasksOn, pathname]);
 
   useEffect(() => {
     if (!enabled) return;

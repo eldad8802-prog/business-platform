@@ -1,4 +1,6 @@
 import { Component, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { TaskForm } from "@/features/tasks/task-form";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -1264,6 +1266,10 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<ObligationApi | null>(null);
+  // Daily Tasks: "משימה" joins the capture kinds only while daily_tasks is ON (the same form as /tasks).
+  const tasksOn = useFeatureEnabled("daily_tasks");
+  const [taskMode, setTaskMode] = useState(false);
+  const [taskSaved, setTaskSaved] = useState(false);
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
   useEffect(() => {
@@ -1373,7 +1379,21 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
       <section className={styles.captureSheet} aria-label="התחייבות חדשה">
         <div className={styles.sheetGrip} />
         <Link href={screenHref("bank")} className={styles.captureClose} aria-label="סגירת החלונית">×</Link>
-        {created ? (
+        {taskMode ? (
+          taskSaved ? (
+            <section style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
+              <Say>רשמתי. המשימה מחכה לך ב&quot;היום שלי&quot;.</Say>
+              <div className={styles.loopFoot}>
+                <PrimaryLink href="/secretary?today=1">להיום שלי</PrimaryLink>
+                <GhostLink href="/tasks">כל המשימות</GhostLink>
+              </div>
+            </section>
+          ) : (
+            <div style={{ padding: "8px 4px 16px" }}>
+              <TaskForm origin="SECRETARY" onDone={() => setTaskSaved(true)} onCancel={() => setTaskMode(false)} />
+            </div>
+          )
+        ) : created ? (
           <LoopResult mode="created" obligation={created} />
         ) : <>
         <div className={styles.topbar}>
@@ -1383,6 +1403,24 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
         </div>
         <Say>{captureSayForKind(kind)}</Say>
         <div className={styles.captureTypeList} aria-label="סוג התחייבות">
+          {tasksOn ? (
+            <button
+              type="button"
+              className={styles.captureTypeCard}
+              onClick={() => {
+                setTaskMode(true);
+                setTaskSaved(false);
+                setError(null);
+              }}
+              aria-pressed={false}
+            >
+              <span className={styles.captureTypeIcon}>✓</span>
+              <span className={styles.captureTypeBody}>
+                <strong>משימה</strong>
+                <small>משהו לעשות, בלי סכום — נכנס לסדר היום</small>
+              </span>
+            </button>
+          ) : null}
           {CAPTURE_KINDS.map((item) => (
             <button
               key={item.key}

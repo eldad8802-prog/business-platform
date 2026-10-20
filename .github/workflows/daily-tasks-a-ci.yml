@@ -1,0 +1,84 @@
+# Daily Tasks — milestone A application layer (TaskService, erasure, coverage) on the REAL migration
+# 20261018090000_daily_tasks_foundation, in Production's role topology (ephemeral PG17).
+#
+# .dt/lab.sh builds the lab exactly as the migration lab does (non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN
+# app_runtime + LOGIN app_runtime_prod, the owner's default privileges, wave 1 on "Task") and applies the
+# migration with `prisma migrate deploy`; the schema.prisma of this PR is what `db push` builds first, and the
+# lab removes the task objects again so the migration builds them as Production will have them.
+#
+#   1. The pure core (rules, transitions, closed payload, keys, digest).
+#   2. TaskService AS app_runtime_prod (NOSUPERUSER NOBYPASSRLS): isolation, lifecycle, series T-R1..T-R9,
+#      repeated requests T-I1..T-I6, account erasure T-P1.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: daily tasks A — service on the real migration (ephemeral PG17)
+
+on:
+  pull_request:
+    # Also the migration branch: this PR is stacked on #727 until it merges (migration-first).
+    branches: [main, feat/daily-tasks-a-migration]
+    paths:
+      - "lib/services/tasks/**"
+      - "lib/services/account/**"
+      - "lib/tenant/**"
+      - "lib/utils/jerusalem-day.ts"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261018090000_daily_tasks_foundation/**"
+      - ".dt/**"
+      - ".github/workflows/daily-tasks-a-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    name: daily tasks A (PG17, runtime role, real migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: dta_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: dta_ci_synthetic_super_pw
+      LAB_PASSWORD: dta_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Pure core — rules, transitions, closed payload, keys, digest
+        run: npm run verify:tasks-core
+
+      - name: 2. TaskService as the restricted runtime on the real migration
+        run: |
+          set -euo pipefail
+          bash .dt/lab.sh dta --with-dt
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dta" \
+            npm run verify:tasks-service-db

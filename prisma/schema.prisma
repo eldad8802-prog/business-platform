@@ -231,6 +231,11 @@ model Business {
   replySuggestions              ReplySuggestion[]
   supplierPurchaseDrafts        SupplierPurchaseDraft[]
   tasks                         Task[]
+  taskSeries                    TaskSeries[]
+  taskSourceStates              TaskSourceState[]
+  taskEvents                    TaskEvent[]
+  taskPreferences               TaskPreferences?
+  taskRequestLedger             TaskRequestLedger[]
   appointments                  Appointment[]
   users                         User[]
   vendorLearnings               VendorLearning[]
@@ -1414,17 +1419,153 @@ model PricingCalculation {
   @@index([businessId, createdAt])
 }
 
+/// Daily Tasks (milestone A, migration 20261018090000_daily_tasks_foundation). An owner task or one occurrence of a
+/// series. FORCE RLS, per-command policies; app_runtime holds SELECT / INSERT / UPDATE only (owner decision G4).
+/// DB-only objects the schema cannot express: composite (businessId, x) tenant keys for seriesId and the entity links
+/// (ON DELETE SET NULL (col)), user-reference triggers, CHECKs, and the partial unique index "one OPEN occurrence per
+/// series" (Task_one_open_per_series). Legacy columns description (= the owner's note), dueDate and sourceType are
+/// kept; the engine reads and writes dueOn, never dueDate.
 model Task {
-  id          Int        @id @default(autoincrement())
-  businessId  Int
-  title       String
-  description String?
-  sourceType  String?
-  status      TaskStatus @default(OPEN)
-  dueDate     DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id                Int              @id @default(autoincrement())
+  businessId        Int
+  title             String
+  description       String?
+  sourceType        String?
+  status            TaskStatus       @default(OPEN)
+  dueDate           DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  dueOn             DateTime?        @db.Date
+  remindAt          DateTime?
+  closeReason       TaskCloseReason?
+  completedAt       DateTime?
+  completedByUserId Int?
+  createdByUserId   Int?
+  assigneeUserId    Int?
+  seriesId          Int?
+  sequence          Int?
+  pinnedAt          DateTime?
+  origin            TaskOrigin       @default(OWNER)
+  version           Int              @default(1)
+  customerId        Int?
+  supplierId        Int?
+  leadId            Int?
+  documentId        Int?
+  erasedAt          DateTime?
+  business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, id])
+  @@unique([seriesId, sequence])
+  @@index([businessId, status, dueOn])
+}
+
+/// A recurrence rule; its occurrences are Task rows (seriesId, sequence). D6: at most one OPEN occurrence.
+model TaskSeries {
+  id               Int                @id @default(autoincrement())
+  businessId       Int
+  title            String
+  note             String?
+  customerId       Int?
+  supplierId       Int?
+  leadId           Int?
+  documentId       Int?
+  ruleKind         TaskSeriesRuleKind
+  ruleWeekdays     Int[]
+  ruleMonthDay     Int?
+  ruleIntervalDays Int?
+  startOn          DateTime           @db.Date
+  pausedAt         DateTime?
+  endedAt          DateTime?
+  createdByUserId  Int?
+  version          Int                @default(1)
+  erasedAt         DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  business         Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, id])
+}
+
+/// Display state over a business item (lead, payment, conversation…), one row per treatment cycle (spec 8.5).
+model TaskSourceState {
+  id                 Int       @id @default(autoincrement())
+  businessId         Int
+  sourceKind         String
+  dedupeKey          String
+  cycleKey           String
+  evidenceVersion    String
+  firstSeenAt        DateTime
+  closedObservedAt   DateTime?
+  snoozedUntil       DateTime?
+  acknowledgedOn     DateTime? @db.Date
+  ackEvidenceVersion String?
+  dismissedAt        DateTime?
+  pinnedAt           DateTime?
+  version            Int       @default(1)
+  updatedAt          DateTime  @updatedAt
+  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dedupeKey, cycleKey])
+  @@index([closedObservedAt])
+}
+
+/// The append-only journal. app_runtime holds SELECT / INSERT only; a trigger refuses UPDATE / DELETE for everyone
+/// (the owner included) except a business cascade, the actorUserId FK action, and the retention functions.
+/// payload is a closed shape (DB CHECK): an object of numbers, booleans, arrays and short tokens — never free text.
+model TaskEvent {
+  id             Int            @id @default(autoincrement())
+  businessId     Int
+  taskId         Int?
+  seriesId       Int?
+  sourceKind     String?
+  dedupeKey      String?
+  cycleKey       String?
+  eventType      TaskEventType
+  actor          TaskEventActor
+  actorUserId    Int?
+  occurredAt     DateTime       @default(now())
+  payload        Json           @default("{}")
+  idempotencyKey String
+  requestDigest  String?
+  digestKeyId    String?
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, taskId])
+  @@index([businessId, seriesId])
+  @@index([businessId, occurredAt])
+}
+
+/// One row per business: disabled sources, morning summary, and the sync bookkeeping (lease, versions).
+model TaskPreferences {
+  businessId            Int       @id
+  disabledSources       String[]  @default([])
+  morningSummaryEnabled Boolean   @default(false)
+  morningSummaryHour    Int?
+  syncVersion           Int       @default(0)
+  syncLeaseUntil        DateTime?
+  lastSyncAt            DateTime?
+  lastSyncFailedAt      DateTime?
+  version               Int       @default(1)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Request fingerprints behind Idempotency-Key (HMAC, operational, 7 days). Removed by account erasure and by the
+/// retention path; never read as history.
+model TaskRequestLedger {
+  id             Int      @id @default(autoincrement())
+  businessId     Int
+  idempotencyKey String
+  requestDigest  String
+  digestKeyId    String
+  resultRef      Json
+  createdAt      DateTime @default(now())
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([createdAt])
 }
 
 /// Business Obligation (Payment Secretary) — an OUTBOUND, forward-looking
@@ -3157,6 +3298,55 @@ enum TaskStatus {
   IN_PROGRESS
   DONE
   CANCELED
+}
+
+enum TaskOrigin {
+  OWNER
+  SECRETARY
+  RECOMMENDATION
+}
+
+enum TaskCloseReason {
+  SKIPPED
+  SERIES_CHANGED
+  WITHDRAWN_BY_REOPEN
+}
+
+enum TaskSeriesRuleKind {
+  DAILY
+  WEEKDAYS
+  MONTH_DAY
+  EVERY_N_DAYS
+}
+
+enum TaskEventActor {
+  OWNER_USER
+  SYSTEM
+}
+
+enum TaskEventType {
+  TASK_CREATED
+  TASK_EDITED
+  TASK_RESCHEDULED
+  TASK_SNOOZED
+  TASK_COMPLETED
+  TASK_CANCELED
+  TASK_REOPENED
+  OCCURRENCES_MISSED
+  SERIES_CREATED
+  SERIES_CHANGED
+  SERIES_PAUSED
+  SERIES_RESUMED
+  SERIES_ENDED
+  SOURCE_ITEM_ACKNOWLEDGED
+  SOURCE_ITEM_SNOOZED
+  SOURCE_ITEM_DISMISSED
+  SOURCE_ITEM_PINNED
+  SOURCE_ITEM_UNPINNED
+  SOURCE_DISABLED
+  SOURCE_ENABLED
+  SOURCE_CLOSED_OBSERVED
+  PREFERENCES_CHANGED
 }
 
 enum PricingItemType {

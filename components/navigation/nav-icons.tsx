@@ -145,6 +145,18 @@ export const IconCalendar: IconComponent = (p) => (
   </Svg>
 );
 
+/** Daily tasks: a checklist (the mockup's list mark). */
+export const IconTasks: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M9 6h11" />
+    <path d="M9 12h11" />
+    <path d="M9 18h7" />
+    <path d="M4 6l1 1 2-2" />
+    <path d="M4 12l1 1 2-2" />
+    <path d="M4 18h.01" />
+  </Svg>
+);
+
 export const IconCalendarSimple: IconComponent = (p) => (
   <Svg {...p}>
     <rect x="3" y="4" width="18" height="18" rx="2" />

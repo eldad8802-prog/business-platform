@@ -509,6 +509,9 @@ async function main() {
   const eraseErr = await rejects(() => prismaAccountDeletionStore.purgeOperationalData(bizB.id));
   const bLead = await asT(bizB.id, (tx) => leadService.createLead({ businessId: bizB.id, name: "B lead", phone: "0501110000", actor: { type: "OWNER_USER", userId: userB.id }, source: "OWNER_UI" }, { tx }));
   await patchLead(tokB, bLead.id, { status: "OPEN" });
+  // The purge runs only for a business whose deletion was requested, as the real lifecycle does (the Daily
+  // Tasks erasure entry point refuses an ACTIVE business — a defence, not a defect).
+  await o.business.update({ where: { id: bizB.id }, data: { deletionRequestedAt: new Date() } });
   const eraseErr2 = await rejects(() => prismaAccountDeletionStore.purgeOperationalData(bizB.id));
   const bLeadAfter = await o.lead.findUnique({ where: { id: bLead.id } });
   const bHist = await o.leadLifecycleEvent.findMany({ where: { leadId: bLead.id } });

@@ -19,6 +19,18 @@
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
+// After 20261018090000_daily_tasks_foundation, "Task" carries exactly task_tenant_select / _insert / _update
+// instead of p7w1_tenant (owner decision G4), so wave 1 counts 13 there. Exact, never a range: either state
+// is fully one or fully the other.
+async function wave1Expected(owner) {
+  const r = (await owner.$queryRawUnsafe(
+    `SELECT (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname IN ('task_tenant_select', 'task_tenant_insert', 'task_tenant_update')) AS dt,
+            (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname = 'p7w1_tenant') AS w1`))[0];
+  if (r.dt === 3 && r.w1 === 0) return 13;
+  if (r.dt === 0 && r.w1 === 1) return 14;
+  throw new Error(`DRIFT: "Task" policies are neither wave 1 nor daily tasks (task_tenant_*=${r.dt}, p7w1_tenant=${r.w1}) — STOP`);
+}
+
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const ROLE = process.env.RUNTIME_ROLE || (TARGET === "neon" ? "app_runtime_preview_p4b" : "wave1_runtime");
 const RUNTIME_URL = process.env.RUNTIME_URL;
@@ -73,7 +85,9 @@ async function main() {
   const preOwn = await owner.$queryRawUnsafe(
     `SELECT tablename, policyname FROM pg_policies WHERE tablename = ANY($1)`.replace("$1", `ARRAY[${WAVE1_TABLES.map((t) => `'${t}'`).join(",")}]`)
   );
-  const foreign = preOwn.filter((r) => r.policyname !== "p7w1_tenant");
+  const w1Expected = TARGET === "neon" ? await wave1Expected(owner) : 14;
+  const dtTask = new Set(["task_tenant_select", "task_tenant_insert", "task_tenant_update"]);
+  const foreign = preOwn.filter((r) => r.policyname !== "p7w1_tenant" && !(w1Expected === 13 && r.tablename === "Task" && dtTask.has(r.policyname)));
   if (foreign.length > 0) {
     throw new Error(`DRIFT: unexpected policies on Wave-1 tables: ${JSON.stringify(foreign)} — STOP, reconcile first`);
   }
@@ -114,7 +128,7 @@ async function main() {
   // posture. Here we only COUNT — no apply, no fixtures, no runtime session.
   if (VERIFY_ONLY) {
     const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    ok("verify-only: 14 Wave-1 policies present", w1 === 14, `found ${w1}`);
+    ok(`verify-only: ${w1Expected} Wave-1 policies present`, w1 === w1Expected, `found ${w1}`);
     const forcedV = Number((await owner.$queryRawUnsafe(
       `SELECT count(*)::int AS c FROM pg_class WHERE relname = ANY(ARRAY[${WAVE1_TABLES.map((t) => `'${t}'`).join(",")}]) AND relrowsecurity AND relforcerowsecurity`
     ))[0].c);
@@ -125,7 +139,8 @@ async function main() {
     );
     ok("verify-only: synthetic residue = 0", Number(resV[0].biz) === 0 && Number(resV[0].usr) === 0, JSON.stringify(resV[0]));
     const grantSel = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('${ROLE}', '"BusinessObligation"', 'SELECT') AS a, has_table_privilege('${ROLE}', '"Task"', 'SELECT') AS b`))[0];
-    ok("verify-only: grants posture (obligation=yes, Task=no)", grantSel.a === true && grantSel.b === false, JSON.stringify(grantSel));
+    // G4: after the daily tasks foundation the runtime reads "Task" (granted explicitly to app_runtime).
+    ok(`verify-only: grants posture (obligation=yes, Task=${w1Expected === 13 ? "yes" : "no"})`, grantSel.a === true && grantSel.b === (w1Expected === 13), JSON.stringify(grantSel));
     await owner.$disconnect();
     console.log(`\n[battery] target=${TARGET} mode=verify-only PASS=${pass} FAIL=${fail}`);
     if (fail > 0) { console.log("FAILURES:\n - " + failures.join("\n - ")); process.exit(1); }

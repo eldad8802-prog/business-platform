@@ -376,6 +376,31 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             data: { title: "", summary: null },
           });
 
+          // ── Daily Tasks — the owner's task and series text ─────────────────
+          //
+          // Blanked in place, not deleted: the runtime holds no DELETE on either
+          // table (a deleteMany would match zero rows and raise nothing), and the
+          // rows — due days, states, the series rules — are the business's own
+          // history. erasedAt records that the text was taken.
+          await tx.task.updateMany({
+            where: { businessId, erasedAt: null },
+            data: { title: "", description: null, erasedAt: new Date() },
+          });
+          await tx.taskSeries.updateMany({
+            where: { businessId, erasedAt: null },
+            data: { title: "", note: null, erasedAt: new Date() },
+          });
+          // The request fingerprints (HMAC of a request, which may have carried a
+          // title). The runtime holds DELETE on this table, bound by RLS to the
+          // erased business (task_request_ledger_runtime_delete, CI-AD-13).
+          await tx.taskRequestLedger.deleteMany({ where: { businessId } });
+          // The journal: the acting user and the request digest of every event go
+          // (T-P1). The runtime cannot change the journal directly; this SECURITY
+          // DEFINER function is its one path, and it refuses unless the business in
+          // this tenant context is being deleted (deletionRequestedAt, set by the
+          // quarantine stage before this purge runs).
+          await tx.$queryRaw`SELECT public.task_retention_erase_business() AS n`;
+
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
           // Free text, and nothing else on either model. The receiving session keeps
