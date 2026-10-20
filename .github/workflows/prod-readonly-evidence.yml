@@ -90,6 +90,7 @@ on:
           - 'ops/evidence/welcome-pending-inspection.sql'
           - 'ops/evidence/daily-tasks-foundation-preflight.sql'
           - 'ops/evidence/daily-tasks-foundation-production-evidence.sql'
+          - 'ops/evidence/daily-tasks-task-access-diagnostic.sql'
 
 permissions:
   contents: read
