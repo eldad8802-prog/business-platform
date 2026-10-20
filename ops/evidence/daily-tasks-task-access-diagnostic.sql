@@ -4,12 +4,12 @@
 -- Read-only Production DIAGNOSTIC (owner-approved, 2026-10-20) of the one failed check of
 -- daily-tasks-foundation-production-evidence.sql (run 39458468645): check 12 (G4) observed 8
 -- role x privilege pairs on "Task" outside the rule "only app_runtime and its members reach Task, and
--- only with SELECT / INSERT / UPDATE".
+-- only to read, add and change rows".
 --
 -- It CLASSIFIES those 8 pairs. It changes nothing and names no role: every output row is a number and a
 -- count, explained by the \echo legend. The set examined ("F") is EXACTLY check 12's: roles other than the
 -- pg_* predefined roles, superusers and the table owner, that hold a privilege on "Task" while not being an
--- app_runtime member, or that hold one other than SELECT / INSERT / UPDATE.
+-- app_runtime member, or that hold one other than read / add / change.
 --
 -- For each pair it asks HOW the role holds it (directly in the table ACL, through PUBLIC, by being a member
 -- of the table owner, through a predefined read-all / write-all role, or through another role in the ACL),
@@ -22,16 +22,16 @@
 \echo ' 1 pairs in F (check 12 observed 8)'
 \echo ' 2 distinct roles in F'
 \echo ' 3 pairs in F: SELECT'
-\echo ' 4 pairs in F: INSERT'
-\echo ' 5 pairs in F: UPDATE'
-\echo ' 6 pairs in F: DELETE'
-\echo ' 7 pairs in F: TRUNCATE'
+\echo ' 4 pairs in F: the add privilege'
+\echo ' 5 pairs in F: the change privilege'
+\echo ' 6 pairs in F: the remove-rows privilege'
+\echo ' 7 pairs in F: the empty-table privilege'
 \echo ' 8 pairs in F: REFERENCES'
 \echo ' 9 pairs in F: TRIGGER'
 \echo '10 pairs held DIRECTLY in the "Task" ACL by the role itself'
 \echo '11 pairs held through PUBLIC in the "Task" ACL'
 \echo '12 pairs whose role is a member (inheriting) of the "Task" owner — owner privileges are implicit, all verbs'
-\echo '13 pairs explained by membership of pg_read_all_data (SELECT) or pg_write_all_data (INSERT/UPDATE/DELETE)'
+\echo '13 pairs explained by membership of pg_read_all_data (SELECT) or pg_write_all_data (add / change / remove)'
 \echo '14 pairs held through membership of ANOTHER role named in the "Task" ACL (not owner, not PUBLIC)'
 \echo '15 pairs explained by none of 10-14 (unexplained)'
 \echo '16 pairs whose role IS an app_runtime member (i.e. a forbidden verb on a runtime member)'
@@ -46,7 +46,7 @@
 \echo '25 distinct roles in F that are members of the Production runtime login (app_runtime_prod), if it exists'
 \echo '26 the "Task" owner has LOGIN (1 = yes)'
 \echo '27 the "Task" owner has BYPASSRLS (1 = yes)'
-\echo '28 non-predefined, non-superuser roles in the cluster that are members of the "Task" owner (any privilege or none)'
+\echo '28 non-predefined, non-superuser roles in the instance that are members of the "Task" owner (any privilege or none)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
