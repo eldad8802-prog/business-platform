@@ -78,6 +78,9 @@ test("authority is pinned exactly as approved (attributes, two EXECUTE grants, n
   assert.match(src, /const OPERATIONAL = \["task_retention_purge_request_ledger", "task_retention_clear_event_digests"\];/);
   assert.match(src, /const CONNECTION_LIMIT = 2;/);
   assert.match(src, /`LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT \$\{CONNECTION_LIMIT\}`/);
+  assert.match(src, /const rotateAttrs = `LOGIN NOINHERIT CONNECTION LIMIT \$\{CONNECTION_LIMIT\}`;/, "rotation changes nothing but login, inherit and the limit");
+  assert.match(src, /CREATE ROLE \$\{LOGIN\} \$\{attrs\} PASSWORD/);
+  assert.match(src, /ALTER ROLE \$\{LOGIN\} \$\{rotateAttrs\} PASSWORD/);
   const grants = src.match(/\bGRANT\s+[^`]*/g) ?? [];
   assert.deepEqual(grants, ["GRANT EXECUTE ON FUNCTION public.${f}() TO ${LOGIN}"], "the only GRANT is EXECUTE on an OPERATIONAL function");
   assert.match(src, /for \(const f of OPERATIONAL\) await tx\.\$executeRawUnsafe\(`GRANT EXECUTE/, "the grant loops over OPERATIONAL only");
