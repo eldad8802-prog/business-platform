@@ -13,6 +13,13 @@
 --     no other role reaches "Task" except app_runtime and its members, and none of them can remove,
 --     empty, reference or trigger on it; the exact ACL of every other task table and sequence; no
 --     column-level privilege; the retention policy table is the owner's alone;
+--   * G4 exception (check 12, counted by check 28): the Neon platform admin access diagnosed in run
+--     39461027340 (PR #733). A pair is set aside ONLY when every one of these holds: the verb is read, add,
+--     change or remove-rows; it reaches the role through pg_read_all_data (read) or pg_write_all_data (the
+--     other three); no "Task" ACL item for that verb names PUBLIC, the role itself or any role it inherits;
+--     the role does not inherit the "Task" owner, does not own the database, is not an app_runtime member and
+--     no runtime role inherits it; the role carries the platform admin profile (BYPASSRLS, CREATEROLE,
+--     CREATEDB). Check 28 caps the set at what the diagnosis found: at most 2 roles, at most 8 pairs.
 --   * "Task" has its 26 columns, its four checks, its eight new keys and four new indexes (one partial
 --     unique: one open occurrence per series); Supplier's tenant key; the six composite keys of the new
 --     tables, validated;
@@ -45,7 +52,7 @@
 \echo ' 9 the other task tables and sequences carry exactly their reviewed ACL (observed = objects that differ)'
 \echo '10 TaskRetentionPolicy: no grantee but the owner (observed = grants)'
 \echo '11 no column-level privilege on any task table (observed = column grants)'
-\echo '12 G4: no role reaches "Task" except app_runtime and its members, and none holds removal / emptying / REFERENCES / TRIGGER (observed = role x privilege pairs outside that)'
+\echo '12 G4: no role reaches "Task" except app_runtime and its members, and none holds removal / emptying / REFERENCES / TRIGGER (observed = role x privilege pairs outside that, after the check 28 exception)'
 \echo '13 "Task" has 26 columns; origin and version NOT NULL with defaults; the other 15 new ones nullable (observed = columns)'
 \echo '14 "Task" checks (4) and new keys (8) with their on-removal actions (observed = of 12)'
 \echo '15 "Task" indexes: (businessId,id) unique, (seriesId,sequence) unique, one-open-per-series partial unique, (businessId,status,dueOn) (observed = of 4)'
@@ -59,6 +66,7 @@
 \echo '23 flag daily_tasks: defaultEnabled false, globalEnabled false, emergencyDisabled false, no business override (observed = overrides)'
 \echo '24 the five new enums carry their reviewed labels (observed = of 5); TaskStatus unchanged (4 labels)'
 \echo '25 nothing written: "Task" and the five new tenant tables hold no row (observed = rows)'
+\echo '28 G4 exception: pairs set aside by check 12 as Neon platform admin access (run 39461027340 path only); at most 2 roles and 8 pairs (observed = pairs set aside)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -79,7 +87,7 @@ checks(n, ok, observed_count) AS (
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
 
-\echo '== evidence checks (1-25) =='
+\echo '== evidence checks (1-25, 28) =='
 WITH
 pub AS (SELECT oid FROM pg_namespace WHERE nspname = 'public'),
 rel(nm, oid, relowner, relrowsecurity, relforcerowsecurity, relacl) AS (
@@ -120,9 +128,26 @@ expected_acl(nm, letters) AS (VALUES
   ('TaskSourceState', 'arw'), ('TaskSourceState_id_seq', 'Ur'), ('TaskEvent', 'ar'), ('TaskEvent_id_seq', 'Ur'),
   ('TaskPreferences', 'arw'), ('TaskRequestLedger', 'adr'), ('TaskRequestLedger_id_seq', 'Ur')),
 verbs(v) AS (VALUES ('SELECT'), ('INS' || 'ERT'), ('UPD' || 'ATE'), ('DEL' || 'ETE'), ('TRUN' || 'CATE'), ('REFERENCES'), ('TRIGGER')),
-reachers AS (SELECT r.rolname, v.v FROM pg_roles r CROSS JOIN verbs v
+reachers AS (SELECT r.oid AS rid, r.rolname, v.v FROM pg_roles r CROSS JOIN verbs v
              WHERE r.rolname NOT LIKE 'pg\_%' AND NOT r.rolsuper AND r.oid <> (SELECT relowner FROM rel WHERE nm = 'Task')
                AND has_table_privilege(r.oid, (SELECT oid FROM rel WHERE nm = 'Task'), v.v)),
+-- Check 28: the Neon platform admin path proven by run 39461027340, and nothing wider (see the header).
+admin_path AS (SELECT x.rid, x.v FROM reachers x JOIN pg_roles p ON p.oid = x.rid
+               WHERE x.v IN ('SELECT', 'INS' || 'ERT', 'UPD' || 'ATE', 'DEL' || 'ETE')
+                 AND CASE WHEN x.v = 'SELECT' THEN pg_has_role(x.rid, 'pg_read_all_data', 'USAGE')
+                          ELSE pg_has_role(x.rid, 'pg_write_all_data', 'USAGE') END
+                 AND p.rolbypassrls AND p.rolcreaterole AND p.rolcreatedb
+                 AND NOT pg_has_role(x.rid, 'app_runtime', 'USAGE')
+                 AND NOT pg_has_role('app_runtime', x.rid, 'MEMBER')
+                 AND NOT EXISTS (SELECT 1 FROM pg_roles l WHERE l.rolname = 'app_runtime_prod' AND pg_has_role(l.oid, x.rid, 'MEMBER'))
+                 AND NOT pg_has_role(x.rid, (SELECT relowner FROM rel WHERE nm = 'Task'), 'USAGE')
+                 AND NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datname = current_database() AND d.datdba = x.rid)
+                 AND NOT EXISTS (SELECT 1 FROM rel t CROSS JOIN LATERAL aclexplode(t.relacl) a
+                                 WHERE t.nm = 'Task' AND a.privilege_type = x.v
+                                   AND (a.grantee = 0 OR pg_has_role(x.rid, a.grantee, 'USAGE')))),
+g4_outside AS (SELECT x.rid, x.v FROM reachers x
+               WHERE (NOT pg_has_role(x.rid, 'app_runtime', 'USAGE') OR x.v NOT IN ('SELECT', 'INS' || 'ERT', 'UPD' || 'ATE'))
+                 AND NOT EXISTS (SELECT 1 FROM admin_path a WHERE a.rid = x.rid AND a.v = x.v)),
 task_cols AS (SELECT a.attname, a.attnotnull, a.atthasdef FROM pg_attribute a
               WHERE a.attrelid = (SELECT oid FROM rel WHERE nm = 'Task') AND a.attnum > 0 AND NOT a.attisdropped),
 new_nullable(nm) AS (VALUES ('dueOn'), ('remindAt'), ('closeReason'), ('completedAt'), ('completedByUserId'), ('createdByUserId'),
@@ -196,10 +221,7 @@ checks(n, ok, observed_count) AS (
                                     WHERE r.nm IN (SELECT nm FROM tenant_tables) OR r.nm = 'TaskRetentionPolicy'),
                        (SELECT count(*) FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid CROSS JOIN LATERAL aclexplode(a.attacl) x
                          WHERE r.nm IN (SELECT nm FROM tenant_tables) OR r.nm = 'TaskRetentionPolicy')
-  UNION ALL SELECT 12, NOT EXISTS (SELECT 1 FROM reachers WHERE NOT pg_has_role(rolname, 'app_runtime', 'USAGE')
-                                     OR v NOT IN ('SELECT', 'INS' || 'ERT', 'UPD' || 'ATE')),
-                       (SELECT count(*) FROM reachers WHERE NOT pg_has_role(rolname, 'app_runtime', 'USAGE')
-                          OR v NOT IN ('SELECT', 'INS' || 'ERT', 'UPD' || 'ATE'))
+  UNION ALL SELECT 12, NOT EXISTS (SELECT 1 FROM g4_outside), (SELECT count(*) FROM g4_outside)
   UNION ALL SELECT 13, (SELECT count(*) FROM task_cols) = 26
                        AND EXISTS (SELECT 1 FROM task_cols WHERE attname = 'origin' AND attnotnull AND atthasdef)
                        AND EXISTS (SELECT 1 FROM task_cols WHERE attname = 'version' AND attnotnull AND atthasdef)
@@ -268,6 +290,8 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM "Task") + (SELECT count(*) FROM "TaskSeries") + (SELECT count(*) FROM "TaskSourceState")
                        + (SELECT count(*) FROM "TaskEvent") + (SELECT count(*) FROM "TaskPreferences")
                        + (SELECT count(*) FROM "TaskRequestLedger")
+  UNION ALL SELECT 28, (SELECT count(*) FROM admin_path) <= 8 AND (SELECT count(DISTINCT rid) FROM admin_path) <= 2,
+                       (SELECT count(*) FROM admin_path)
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
