@@ -116,6 +116,11 @@ export type ModelCoverage = {
 // write or a delete. The guard cross-checks both directions.
 // ─────────────────────────────────────────────────────────────────────────────
 const ERASURE_MANAGED: Record<string, ModelCoverage> = {
+  // Daily Tasks (milestone A): the owner's task and series text is blanked in place (title '', note NULL,
+  // erasedAt set; the rows are the business's history and stay), and the request fingerprints are removed.
+  Task: { disposition: "ERASURE_MANAGED" },
+  TaskSeries: { disposition: "ERASURE_MANAGED" },
+  TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -266,7 +271,6 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 const UNMANAGED: Record<string, ModelCoverage> = {
   Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
-  Task: unmanaged("title and description as free text"),
   BusinessObligation: unmanaged("obligeeName and note"),
   // Payables, Phase 1a. A payee is the counterparty the business pays and may
   // well be a person — a landlord, an employee — so it sits beside Supplier
@@ -346,6 +350,15 @@ const operational = (reason: string): ModelCoverage => ({
 
 const OPERATIONAL: Record<string, ModelCoverage> = {
   Usage: operational("per-week feature counters"),
+  // Daily Tasks (milestone A): per-cycle display state over the business's own items. Keys are CHECK-limited
+  // tokens ([A-Za-z0-9:_.-]) naming the business's entities by id; day keys, times and versions; no text.
+  TaskSourceState: operational("per-cycle display state (acknowledged / snoozed / dismissed / pinned) over the business's own items: CHECK-limited id tokens, day keys and times, no text"),
+  TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
+  // Daily Tasks journal (append-only). Account erasure nulls its two identifying columns — the acting user and the
+  // request digest — through task_retention_erase_business(), the SECURITY DEFINER function the adapter calls in the
+  // erased business's tenant transaction (the runtime holds no UPDATE on the table). What stays is closed vocabulary:
+  // event type, actor role, times, day keys, counts and CHECK-limited id tokens; the payload can hold no text.
+  TaskEvent: operational("append-only task journal: event type, actor role, times, day keys, counts and CHECK-limited id tokens (no text by DB CHECK); the acting user and the request digest are erased with the account by task_retention_erase_business()"),
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),

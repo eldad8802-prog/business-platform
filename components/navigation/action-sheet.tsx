@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 
 type ActionSheetProps = {
   open: boolean;
@@ -41,10 +42,14 @@ const QUICK_ACTIONS: {
     | "inventory"
     | "secretary"
     | "payments"
-    | "lead";
+    | "lead"
+    | "task";
   /** Shown but not open yet: inactive, marked "בקרוב" (UI only). */
   comingSoon?: boolean;
+  /** Listed only while this platform feature is ON for the business. */
+  feature?: string;
 }[] = [
+  { label: "משימה חדשה", href: "/tasks?new=1", icon: "task", feature: "daily_tasks" },
   { label: "חשבונית חדשה", href: "/billing?create=1", icon: "invoice" },
   { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
   { label: "ליד חדש", href: "/leads?new=1", icon: "lead" },
@@ -60,6 +65,8 @@ const QUICK_ACTIONS: {
  */
 export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const router = useRouter();
+  const tasksOn = useFeatureEnabled("daily_tasks", open);
+  const actions = QUICK_ACTIONS.filter((a) => !a.feature || (a.feature === "daily_tasks" && tasksOn));
   const [isPresent, setIsPresent] = useState(open);
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -244,7 +251,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             gap: 10,
           }}
         >
-          {QUICK_ACTIONS.map((item, index) => (
+          {actions.map((item, index) => (
             <button
               key={item.href}
               type="button"
@@ -269,8 +276,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
                 transition:
                   "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
-                ...(index === QUICK_ACTIONS.length - 1 &&
-                QUICK_ACTIONS.length % 2 === 1
+                ...(index === actions.length - 1 &&
+                actions.length % 2 === 1
                   ? { gridColumn: "1 / -1" }
                   : {}),
               }}
@@ -353,11 +360,24 @@ function ActionGlyph({
     | "inventory"
     | "secretary"
     | "payments"
-    | "lead";
+    | "lead"
+    | "task";
 }) {
   const stroke = 1.85;
   const size = 22;
   switch (kind) {
+    case "task":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M9 6h11M9 12h11M9 18h7M4 6l1 1 2-2M4 12l1 1 2-2"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
     case "lead":
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">

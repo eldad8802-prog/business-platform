@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { ActionSheet } from "./action-sheet";
 import {
   NAV_GROUPS,
@@ -114,8 +115,9 @@ function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean
 export function NavSidebar() {
   const pathname = usePathname() || "/";
   const visible = useMediaQuery(SIDEBAR_QUERY);
+  const tasksOn = useFeatureEnabled("daily_tasks", visible);
   const hasUnread = useHasUnreadNotifications(pathname, visible);
-  const badges = useNavBadges(visible, pathname);
+  const badges = useNavBadges(visible, pathname, tasksOn);
   const { businessName } = useSessionIdentity(visible);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -176,7 +178,7 @@ export function NavSidebar() {
               <span style={{ width: 7, height: 7, borderRadius: 2, background: g.dot }} />
               {g.label}
             </div>
-            {destinationsIn(g.key).map((d) => (
+            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn)).map((d) => (
               <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
             ))}
           </div>

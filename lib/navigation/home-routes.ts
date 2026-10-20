@@ -53,6 +53,8 @@ export type Tool = {
   colorSource: string;
   /** Shown but not open yet: the row stays visible, inactive, marked "בקרוב" (UI only). */
   comingSoon?: boolean;
+  /** Listed only while this platform feature is ON for the business (fail-closed until known). */
+  feature?: string;
 };
 
 export type ToolGroup = {
@@ -108,8 +110,8 @@ export const TOOL_GROUPS: ToolGroup[] = [
   {
     key: "money",
     label: "כסף וחשבוניות",
-    capabilityLine: "חשבוניות · גבייה · התחייבויות",
-    icons: ["invoice", "collection", "payables"],
+    capabilityLine: "חשבוניות · גבייה · מסמכים",
+    icons: ["invoice", "collection", "documents"],
     slug: "money",
     domains: ["billing", "documents"],
   },
@@ -123,13 +125,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     key: "operations",
-    // Two, honestly. This family holds stock and the people who supply it;
-    // pricing has no screen of its own and Connections is configuration. Three
-    // would look tidier than the product is, and visual symmetry is not a
-    // reason to invent product importance.
+    // Running the business day to day: the secretary and the commitments she
+    // reminds about (moved here from money — owner decision, Daily Tasks B),
+    // the task centre when daily_tasks is ON, and stock with its suppliers.
     label: "ניהול העסק",
-    capabilityLine: "מלאי · ספקים",
-    icons: ["inventory", "suppliers"],
+    capabilityLine: "מזכירה · התחייבויות · מלאי",
+    icons: ["secretary", "payables", "inventory"],
     slug: "operations",
     domains: ["inventory", "supplier"],
   },
@@ -214,30 +215,6 @@ export const TOOLS: Tool[] = [
     group: "money",
     colorSource: "borrowed:documents",
   },
-  // Outbound money: the Secretary REMINDS about what the business owes, and
-  // Payables is where the money paid against it is tracked. Both are money
-  // leaving, so both belong with money — a navigation decision only, neither
-  // product changes.
-  {
-    key: "payables",
-    label: "התחייבויות",
-    description: "מה העסק חייב, מתי, וכמה כבר שולם",
-    entity: "payables",
-    href: "/payables",
-    color: "amber",
-    group: "money",
-    colorSource: "borrowed:secretary",
-  },
-  {
-    key: "secretary",
-    label: "המזכירה",
-    description: "תזכורות לתשלומים שהעסק צריך לשלם",
-    entity: "secretary",
-    href: "/secretary",
-    color: "amber",
-    group: "money",
-    colorSource: "carried",
-  },
   // --- לקוחות ומכירות ------------------------------------------------------
   {
     key: "customers",
@@ -301,6 +278,41 @@ export const TOOLS: Tool[] = [
     comingSoon: true,
   },
   // --- ניהול העסק -----------------------------------------------------------
+  // The day's work first: the task centre (only with daily_tasks ON), the
+  // Secretary that REMINDS about what the business owes, and Payables where the
+  // money paid against it is tracked. A placement decision only (owner-approved,
+  // Daily Tasks B) — no screen, route or permission changes.
+  {
+    key: "tasks",
+    label: "משימות",
+    description: "מה דורש אותך היום — משימות שלך ומהעסק",
+    entity: "tasks",
+    href: "/tasks",
+    color: "teal",
+    group: "operations",
+    colorSource: "borrowed:collection",
+    feature: "daily_tasks",
+  },
+  {
+    key: "secretary",
+    label: "המזכירה שלי",
+    description: "תזכורות לתשלומים שהעסק צריך לשלם",
+    entity: "secretary",
+    href: "/secretary",
+    color: "amber",
+    group: "operations",
+    colorSource: "carried",
+  },
+  {
+    key: "payables",
+    label: "התחייבויות",
+    description: "מה העסק חייב, מתי, וכמה כבר שולם",
+    entity: "payables",
+    href: "/payables",
+    color: "amber",
+    group: "operations",
+    colorSource: "borrowed:secretary",
+  },
   {
     key: "inventory",
     label: "מלאי",

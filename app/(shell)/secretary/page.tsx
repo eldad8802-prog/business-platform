@@ -24,6 +24,8 @@ import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibil
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { recordPayment } from "@/lib/payables/payables-client";
 import { PaidQuestionSheet, type PaidDetails } from "./paid-question";
+import { SecretaryToday } from "@/features/tasks/secretary-today";
+import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import {
   SecretaryErrorBoundary,
   SecretaryFlowScreen,
@@ -97,6 +99,8 @@ export default function SecretaryPage() {
 
 function SecretaryPageInner() {
   const router = useRouter();
+  // Daily Tasks: with daily_tasks ON, "היום שלי" reads the shared agenda; OFF (or unknown) keeps today's screen.
+  const sharedToday = useFeatureState("daily_tasks");
   const searchParams = useSearchParams();
   const routeKey = searchParams.toString();
   const tokenRef = useRef<string | null>(null);
@@ -402,6 +406,18 @@ function SecretaryPageInner() {
             onSnooze={onSnoozeFlow}
             onRelease={onReleaseFlow}
           />
+          {paidSheet}
+          {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
+        </SecretaryErrorBoundary>
+      );
+    }
+
+    if (route.showToday && sharedToday === null) return <SecretaryHomeSkeleton />;
+
+    if (route.showToday && sharedToday) {
+      return (
+        <SecretaryErrorBoundary>
+          <SecretaryToday onPaymentHandled={(id) => onCompleteFlow(id)} aside={<LeadsBriefingCard />} />
           {paidSheet}
           {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
         </SecretaryErrorBoundary>

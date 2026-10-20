@@ -65,4 +65,5 @@ Non-negotiables:
 - The Payment Secretary is an **operational coordinator only** — not a ledger, not a payment processor, not an accounting system.
 - A Business Obligation is **outbound only** (the business is the payer); inbound stays a **Receivable**.
 - Do **not** change ontology, ownership, or lifecycle without first updating the relevant canonical document.
+- The Daily Tasks layer (`docs/dubiz-daily-tasks-spec-v1.md`) **never writes money and never closes an obligation by itself**: "handled" writes `handledAt` only, and a payment is recorded only through the existing "שילמת?" flow that the owner triggers.
 <!-- END:payment-secretary-rules -->

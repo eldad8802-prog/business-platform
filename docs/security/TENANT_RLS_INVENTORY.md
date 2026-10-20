@@ -55,6 +55,19 @@ Isolation comes from the table's own tenant key, or through its parent (22 child
 Migration-only tables that have no Prisma model yet are held to the same bar by guard rule R0 (for
 example the P1 offering tables, which ship their own RLS).
 
+**Daily Tasks (20261018090000_daily_tasks_foundation, after the 2026-09-29 baseline above).** `Task` stays in
+class A with a new posture: its wave-1 `FOR ALL` policy `p7w1_tenant` is replaced by per-command
+`task_tenant_select` / `_insert` / `_update` (no DELETE policy), and every privilege the gate run found on it
+(owner decision G4: default privileges, never granted by a migration) is revoked, then exactly
+SELECT / INSERT / UPDATE is granted to `app_runtime`. Five new class-A tables carry ENABLE + FORCE RLS and
+per-command policies on `app.current_business_id`: `TaskSeries`, `TaskSourceState`, `TaskPreferences`
+(SELECT / INSERT / UPDATE), `TaskEvent` (SELECT / INSERT only; an append-only trigger refuses UPDATE / DELETE /
+TRUNCATE for every role, the owner included) and `TaskRequestLedger` (SELECT / INSERT, plus a DELETE policy for
+account erasure, CI-AD-13). `TaskRetentionPolicy` is not tenant data: FORCE RLS with no policy, no grant, read only
+by the SECURITY DEFINER retention functions. Cross-business references are refused by composite
+`(businessId, x)` keys and, for users, by a trigger. Proven by `.dt/battery.ts` (lab) and
+`ops/evidence/daily-tasks-foundation-production-evidence.sql` (Production, after the release).
+
 ### C: repaired by `20260929090000_tenant_rls_closure`
 
 | Table | Tenant key | Policies (per command) | Runtime grant | Before |

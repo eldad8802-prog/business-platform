@@ -39,6 +39,8 @@
  * Synthetic pw-ad2a fixtures only. ZERO network, ZERO Neon, ZERO Production.
  */
 import crypto from "node:crypto";
+import { readFileSync as readMigrationFile } from "node:fs";
+import migrationPath from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { scanConversationIntegrity } from "../scripts/security/conversation-integrity-scan.mjs";
 import {
@@ -283,6 +285,27 @@ async function main() {
   // (id, businessId), never the hash or the address. Account erasure is its one consumer.
   await owner.$executeRawUnsafe(`REVOKE ALL ON "AuthEmailToken" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "AuthEmailToken" TO ${RT_ROLE}`);
+  // Daily Tasks — migration 20261018090000_daily_tasks_foundation, mirrored exactly for the tables the
+  // erasure reaches: SELECT, INSERT, UPDATE on Task / TaskSeries (DELETE revoked — text is blanked in place),
+  // SELECT, INSERT, DELETE on TaskRequestLedger (fingerprints are removed, never updated).
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "Task", "TaskSeries" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "Task", "TaskSeries" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, DELETE ON "TaskRequestLedger" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE UPDATE, TRUNCATE ON "TaskRequestLedger" FROM ${RT_ROLE}`);
+  // The journal is reached only through task_retention_erase_business() (SECURITY DEFINER, EXECUTE to the
+  // runtime alone). The lab schema is pushed, not migrated, so the function is created from the migration's
+  // own text — never a hand-written copy — and owned by the lab owner, as Production's is by the migration role.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261018090000_daily_tasks_foundation/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.task_retention_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("task_retention_erase_business() not found in migration 20261018090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.task_retention_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.task_retention_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

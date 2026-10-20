@@ -132,6 +132,15 @@ const DRAW: Record<string, (t: EntityTone) => ReactNode> = {
     </>
   ),
   // operations — Sage
+  // the day's work — a clipboard with one item ticked (Daily Tasks)
+  tasks: (t) => (
+    <>
+      <rect x="7" y="5.5" width="18" height="22" rx="2" fill={PAPER} {...S} />
+      <rect x="12" y="3.5" width="8" height="4" rx="1.2" fill={t.solid} {...S} />
+      <path d="M11 14l1.8 1.8 3.2-3.4" {...S} />
+      <path d="M18.5 14.2H22M11 21h11" {...S} />
+    </>
+  ),
   inventory: (t) => (
     <>
       <path d="M16 4l11 5.5L16 15 5 9.5z" fill={t.solid} {...S} />

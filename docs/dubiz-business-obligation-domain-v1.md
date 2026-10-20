@@ -245,7 +245,9 @@ not create a second source of truth.
 
 **Forbidden terms — never use these for this domain:**
 - **Task / To-do / Reminder** — implies a user-invented note, not a real
-  commitment. (Reminder-list drift.)
+  commitment. (Reminder-list drift.) The Daily Tasks engine (`docs/dubiz-daily-tasks-spec-v1.md`)
+  is a separate surface that may *point at* an obligation's installment; it
+  never holds, renames or closes the obligation, and this domain keeps its terms.
 - **Ledger / posting / journal / balance** — accounting truth, owned elsewhere.
 - **Receivable / debt-owed-to-us** — the inbound inverse; never this domain.
 - **Invoice / bill** *as the obligation itself* — those are documents/sources,
@@ -318,7 +320,8 @@ responsibility. They are not to be reopened by later technical waves.
 - **Not an ERP module** — it does not absorb procurement, inventory, HR, or
   finance functions.
 - **Not a reminder or to-do list** — it coordinates *real commitments reconciled
-  with truth*, never user-invented notes.
+  with truth*, never user-invented notes. The owner's own notes live in the Daily
+  Tasks engine (`docs/dubiz-daily-tasks-spec-v1.md`); an obligation is still not a to-do.
 - **Not a payment processor** — it never moves or verifies money.
 - **Not a document store** — it references evidence owned by Documents.
 - **Not a system of record for financial truth** — truth lives in the originating

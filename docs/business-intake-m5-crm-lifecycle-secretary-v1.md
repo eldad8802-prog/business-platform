@@ -26,7 +26,7 @@ The CRM was not empty. M5 extends it rather than replacing it.
 | `LEAD_*` audit events (`logAuditEvent` → `LearningEvent`) | Live. No idempotency key. | Kept unchanged for comparability. **Not** operational truth. |
 | `lead-attention.ts` + the business-status leads loader/translator | Live. One contract for the Inbox, Home and Attention. | **Extended** with new reasons. Still one contract for every surface. |
 | "Secretary" (`lib/services/obligations`) | The **payment** Secretary only: `BusinessObligation`, the commitment ledger, and a derived briefing. | Not reused for CRM (its model is financial and payer-side). M5 adds the Secretary's **lead** briefing beside it. |
-| `Task` model | Dead: no reader or writer. | Not revived. A second follow-up engine would compete with `nextFollowUpAt`. |
+| `Task` model | Dead: no reader or writer. | Not revived *as a lead follow-up engine*: that would compete with `nextFollowUpAt`. **Updated by the Daily Tasks decision (`docs/dubiz-daily-tasks-spec-v1.md`, D2):** `Task` now holds the owner's own tasks and recurring series; a lead's follow-up stays in `nextFollowUpAt` ("tomorrow" on a lead writes `nextFollowUpAt`), a manual task may reference only a closed lead, and there is no second follow-up engine. |
 | `BusinessObligation` | Financial obligations. | Not used. A follow-up is not an obligation. |
 | `Conversation.pendingFollowUp` | JSON with no due date; not surfaced anywhere. | Not used. |
 | `BusinessInsight`, M9 `OutcomeRecommendation` | Owner proposals. M9 explicitly excludes leads. | Not used in v1. Suggestions are derived at read time, and a dismissal is a lifecycle step (see §6). |

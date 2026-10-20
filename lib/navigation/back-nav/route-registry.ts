@@ -49,6 +49,8 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/billing", root: true },
   { pattern: "/secretary", root: true, identityParams: ["screen", "today", "id", "loopMode"] },
   { pattern: "/payables", root: true },
+  // Daily Tasks (flag daily_tasks): the task centre. `new` opens the create form from "+"; `item` is the selection.
+  { pattern: "/tasks", root: true },
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },

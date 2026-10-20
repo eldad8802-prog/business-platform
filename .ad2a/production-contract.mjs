@@ -469,6 +469,41 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "auth_email_token_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
     ],
   },
+  // Daily Tasks — migration 20261018090000_daily_tasks_foundation. Account erasure (stage 2) blanks the text
+  // of the business's tasks and series in place (UPDATE: rows and history stay), deletes its request
+  // fingerprints (the one runtime DELETE policy on the task tables), and nulls the journal's actor and digest
+  // through task_retention_erase_business() — a SECURITY DEFINER function, so TaskEvent itself is not a table
+  // the runtime reaches and is not declared here. No DELETE policy on Task / TaskSeries, by design.
+  {
+    table: "Task",
+    migration: "20261018090000_daily_tasks_foundation",
+    why: "stage 2 blanks the owner's task titles and notes with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "task_tenant_select", command: "SELECT", using: TENANT },
+      { name: "task_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "task_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "TaskSeries",
+    migration: "20261018090000_daily_tasks_foundation",
+    why: "stage 2 blanks the owner's series titles and notes with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "task_series_tenant_select", command: "SELECT", using: TENANT },
+      { name: "task_series_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "task_series_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "TaskRequestLedger",
+    migration: "20261018090000_daily_tasks_foundation",
+    why: "stage 2 deletes the owner's request fingerprints under a tenant context",
+    policies: [
+      { name: "task_request_ledger_tenant_select", command: "SELECT", using: TENANT },
+      { name: "task_request_ledger_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "task_request_ledger_runtime_delete", command: "DELETE", using: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -688,6 +723,12 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   AuthEmailToken: {
     verbs: ["DELETE"],
     basis: "migration 20261017090000_auth_email_tokens: DELETE + SELECT (id, businessId) only",
+  },
+  Task: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  TaskSeries: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  TaskRequestLedger: {
+    verbs: ["SELECT", "INSERT", "DELETE"],
+    basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, DELETE — fingerprints are deleted, never updated",
   },
 };
 

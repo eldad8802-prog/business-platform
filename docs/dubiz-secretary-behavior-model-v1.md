@@ -206,6 +206,19 @@ The short, binding list. Every secretary follows all of them.
 
 ---
 
+## 8. The shared agenda (Daily Tasks)
+
+From the Daily Tasks milestones on (`docs/dubiz-daily-tasks-spec-v1.md`), the secretary's "היום שלי"
+and the task centre are two screens over ONE agenda service: the same items, the
+same counts, the same state. The secretary holds no task state of its own. Every
+principle above applies to tasks exactly as to payments: silence by default (an
+empty, complete day says so once, and only when the agenda is known to be whole),
+one thing at a time (grouped items, capped lists), and follow up once, at the right
+moment ("דחה תזכורת" postpones the reminder, never the debt). A reminder about a
+payment that is due today or overdue is never hidden; only its reminder moves.
+
+---
+
 ## Appendix — inheritance
 
 This model is the system-wide behavioral layer. It is consistent with the Dubiz
