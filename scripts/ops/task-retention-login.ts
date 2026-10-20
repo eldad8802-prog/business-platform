@@ -65,7 +65,14 @@ export function parseRetentionUrl(raw: string | undefined, allowHost: string | n
 
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 
-/** What the login can reach. Every count except `operationalExecutable` must be 0. */
+/**
+ * What the login can reach. Every count except `operationalExecutable` and `triggerDefinerExecutable` must be 0.
+ *
+ * A definer function whose declared return type (pg_proc.prorettype) is `trigger` or `event_trigger` cannot be
+ * called directly — PostgreSQL refuses it outside a trigger — so it is reported in its own count and does not fail
+ * the post-assertion (run 39496955377 found one such function executable through PUBLIC). The split is by the
+ * catalog return type only, never by name: every other callable definer function still fails it.
+ */
 async function reach(tx: Tx) {
   const [r] = await tx.$queryRawUnsafe<Record<string, number>[]>(
     `SELECT
@@ -76,7 +83,13 @@ async function reach(tx: Tx) {
        (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE ${SYSTEM_SCHEMA} AND p.prosecdef AND NOT (n.nspname = 'public' AND p.proname = ANY($2::text[]))
            AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+           AND p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype)
            AND has_function_privilege($1, p.oid, 'EXECUTE')) AS "otherDefinerExecutable",
+       (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE ${SYSTEM_SCHEMA} AND p.prosecdef
+           AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+           AND p.prorettype IN ('trigger'::regtype, 'event_trigger'::regtype)
+           AND has_function_privilege($1, p.oid, 'EXECUTE')) AS "triggerDefinerExecutable",
        (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE ${SYSTEM_SCHEMA}
            AND CASE WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f')
