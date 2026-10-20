@@ -1,0 +1,215 @@
+# Daily Tasks — the retention login provisioner (scripts/ops/task-retention-login.ts) proven on PostgreSQL BEFORE
+# it is ever run in Production (ephemeral PG17, the real migration 20261018090000 via the Daily Tasks lab).
+#
+#   0. Pure safety tests: URL preconditions, redaction, authority pinned in the source.
+#   1. Provision on the lab (non-superuser CREATEROLE owner, as in Production): created, post-assertions pass.
+#   2. As the login: the two operational functions run (and do their job: an old fingerprint goes, a fresh one
+#      stays), exactly the commands task-retention.yml runs work; every H3 function, task_retention_days and the
+#      erasure function are DENIED — also after an H3 period is set; every task table, Business, User, the ledger,
+#      a sequence, SET ROLE task_maintenance and CREATE in public are DENIED.
+#   3. Rotation: a second provision rotates and passes.
+#   4. Refusals (exit 3, nothing changed): foreign user, host or database differs, weak password, an existing
+#      login with an elevated attribute, an existing login with a role membership.
+#   5. Post-assertion faults (exit 1, the whole transaction rolled back): PUBLIC EXECUTE on an H3 function, PUBLIC
+#      read on a task table, a PUBLIC-executable definer function; at creation time nothing is left behind.
+#   6. Disable: NOLOGIN, no EXECUTE left, the login cannot connect.
+#   7. No password appears in any output.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: task retention login — provisioner lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/task-retention-login*.ts"
+      - ".github/workflows/prod-task-retention-login.yml"
+      - ".github/workflows/task-retention-login-lab.yml"
+      - "prisma/migrations/20261018090000_daily_tasks_foundation/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: task retention login (PG17, real migration, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: dt_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: dt_ci_synthetic_super_pw
+      LAB_PASSWORD: dt_ci_synthetic_role_pw
+      RET_PW: lab_only_retention_login_pw_0123456789abcdefghij
+      DB: dt_ret
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Pure safety tests
+        run: node_modules/.bin/tsx --test scripts/ops/task-retention-login.test.ts
+
+      - name: 1. Provision on the lab — created, post-assertions pass
+        run: |
+          set -euo pipefail
+          bash .dt/lab.sh "$DB" --with-dt > /tmp/lab.log
+          export OWNER_DATABASE_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$DB"
+          export TASK_RETENTION_DATABASE_URL="postgresql://task_retention_login:$RET_PW@localhost:5432/$DB"
+          node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost | tee /tmp/out-1.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/out-1.json","utf8")); if(!(r.pass===true && r.created===true && r.reach.operationalExecutable===2)) process.exit(1)'
+
+      - name: 2. As the login — only the two operational functions; H3, tables and everything else denied
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d "$DB" -c "$1"; }
+          ret() { PGPASSWORD="$RET_PW" psql -X -q -At -v ON_ERROR_STOP=1 -U task_retention_login -d "$DB" "$@"; }
+          # The functions do their job: an 8-day-old fingerprint is removed, a fresh one stays.
+          b=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('ret-lab', now()) RETURNING \"id\"")
+          su "INSERT INTO \"TaskRequestLedger\" (\"businessId\", \"idempotencyKey\", \"requestDigest\", \"digestKeyId\", \"resultRef\", \"createdAt\")
+              VALUES ($b, 'old_key_0001', repeat('a', 64), 'k1', '{}', timezone('UTC', now()) - interval '8 days'),
+                     ($b, 'new_key_0001', repeat('b', 64), 'k1', '{}', timezone('UTC', now()))" >/dev/null
+          removed=$(ret -c "SELECT public.task_retention_purge_request_ledger()")
+          left=$(su "SELECT count(*) FROM \"TaskRequestLedger\" WHERE \"businessId\" = $b")
+          test "$removed" = "1" && test "$left" = "1" || { echo "purge: removed=$removed left=$left"; exit 1; }
+          echo "operational purge: removed the old fingerprint, kept the fresh one"
+          # Exactly the commands task-retention.yml runs.
+          ret -c "SELECT 'fingerprints_removed=' || public.task_retention_purge_request_ledger()" \
+              -c "SELECT 'digests_cleared=' || public.task_retention_clear_event_digests()"
+          denied() {  # denied <label> <sql>
+            if ret -c "$2" >/tmp/d.out 2>/tmp/d.err; then echo "NOT DENIED: $1"; exit 1; fi
+            grep -qiE "permission denied" /tmp/d.err || { echo "$1: failed for another reason:"; cat /tmp/d.err; exit 1; }
+            echo "denied [$1]"
+          }
+          probe_all() {
+            denied "H3 clear_source_identifiers" "SELECT public.task_retention_clear_source_identifiers()"
+            denied "H3 purge_learning_events" "SELECT public.task_retention_purge_learning_events()"
+            denied "H3 purge_source_state" "SELECT public.task_retention_purge_source_state()"
+          }
+          probe_all
+          # Still denied once an H3 period exists: the barrier is the privilege, not the NULL period.
+          su "UPDATE \"TaskRetentionPolicy\" SET \"days\" = 365 WHERE \"kind\" IN ('SOURCE_IDENTIFIERS', 'LEARNING_EVENTS', 'SOURCE_STATE')"
+          probe_all
+          su "UPDATE \"TaskRetentionPolicy\" SET \"days\" = NULL WHERE \"kind\" IN ('SOURCE_IDENTIFIERS', 'LEARNING_EVENTS', 'SOURCE_STATE')"
+          denied "task_retention_days" "SELECT public.task_retention_days('REQUEST_LEDGER')"
+          denied "erasure function" "SELECT public.task_retention_erase_business()"
+          for t in Task TaskSeries TaskSourceState TaskEvent TaskPreferences TaskRequestLedger TaskRetentionPolicy Business User _prisma_migrations; do
+            denied "read $t" "SELECT count(*) FROM \"$t\""
+          done
+          denied "change a retention period" "UPDATE \"TaskRetentionPolicy\" SET \"days\" = 1 WHERE \"kind\" = 'LEARNING_EVENTS'"
+          denied "remove journal rows" "DELETE FROM \"TaskEvent\""
+          denied "remove fingerprints directly" "DELETE FROM \"TaskRequestLedger\""
+          denied "a sequence" "SELECT nextval('\"Task_id_seq\"')"
+          denied "SET ROLE task_maintenance" "SET ROLE task_maintenance"
+          denied "CREATE in public" "CREATE TABLE public.ret_probe (x int)"
+
+      - name: 3. Rotation — a second provision rotates and passes
+        run: |
+          set -euo pipefail
+          export OWNER_DATABASE_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$DB"
+          export TASK_RETENTION_DATABASE_URL="postgresql://task_retention_login:$RET_PW@localhost:5432/$DB"
+          node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost | tee /tmp/out-3.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/out-3.json","utf8")); if(!(r.pass===true && r.rotated===true)) process.exit(1)'
+
+      - name: 4. Refusals — exit 3, nothing changed
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d "$DB" -c "$1"; }
+          OWNER="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$DB"
+          state() { su "SELECT r.rolcanlogin::text || r.rolbypassrls::text || (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid)
+                           || has_function_privilege(r.oid, 'public.task_retention_purge_request_ledger()', 'EXECUTE')::text
+                           || has_function_privilege(r.oid, 'public.task_retention_purge_source_state()', 'EXECUTE')::text
+                         FROM pg_roles r WHERE r.rolname = 'task_retention_login'"; }
+          before=$(state)
+          refuse() {  # refuse <label> <retention url>
+            set +e; OWNER_DATABASE_URL="$OWNER" TASK_RETENTION_DATABASE_URL="$2" \
+              node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost >/tmp/out-4.txt 2>&1; rc=$?; set -e
+            cat /tmp/out-4.txt >> /tmp/all-4.txt
+            test "$rc" = "3" || { echo "$1: expected exit 3, got $rc"; cat /tmp/out-4.txt; exit 1; }
+            echo "refused [$1]"
+          }
+          refuse "the maintenance group as user" "postgresql://task_maintenance:$RET_PW@localhost:5432/$DB"
+          refuse "the runtime as user" "postgresql://app_runtime_prod:$RET_PW@localhost:5432/$DB"
+          refuse "host differs from the owner's" "postgresql://task_retention_login:$RET_PW@127.0.0.1:5432/$DB"
+          refuse "database differs from the owner's" "postgresql://task_retention_login:$RET_PW@localhost:5432/postgres"
+          refuse "weak password" "postgresql://task_retention_login:short@localhost:5432/$DB"
+          GOOD="postgresql://task_retention_login:$RET_PW@localhost:5432/$DB"
+          su "ALTER ROLE task_retention_login BYPASSRLS"
+          refuse "existing login with BYPASSRLS" "$GOOD"
+          su "ALTER ROLE task_retention_login NOBYPASSRLS"
+          su "GRANT task_maintenance TO task_retention_login"
+          refuse "existing login that joined task_maintenance" "$GOOD"
+          su "REVOKE task_maintenance FROM task_retention_login"
+          test "$(state)" = "$before" || { echo "state changed: $before -> $(state)"; exit 1; }
+          echo "every refusal left the login unchanged ($before)"
+
+      - name: 5. Post-assertion faults — exit 1, rolled back whole
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d "$DB" -c "$1"; }
+          export OWNER_DATABASE_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$DB"
+          export TASK_RETENTION_DATABASE_URL="postgresql://task_retention_login:$RET_PW@localhost:5432/$DB"
+          failpost() {  # failpost <label> <inject> <undo>
+            su "$2"; set +e
+            node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost >/tmp/out-5.txt 2>&1; rc=$?; set -e
+            su "$3"; cat /tmp/out-5.txt >> /tmp/all-5.txt
+            test "$rc" = "1" && grep -q "post-assertion failed" /tmp/out-5.txt || { echo "$1: expected a post-assertion failure, got $rc"; cat /tmp/out-5.txt; exit 1; }
+            echo "post-assertion caught [$1]"
+          }
+          failpost "PUBLIC EXECUTE on an H3 function" \
+            'GRANT EXECUTE ON FUNCTION public.task_retention_purge_learning_events() TO PUBLIC' \
+            'REVOKE EXECUTE ON FUNCTION public.task_retention_purge_learning_events() FROM PUBLIC'
+          failpost "PUBLIC read on a task table" 'GRANT SELECT ON "TaskEvent" TO PUBLIC' 'REVOKE SELECT ON "TaskEvent" FROM PUBLIC'
+          failpost "a PUBLIC-executable definer function" \
+            'CREATE FUNCTION public.ret_probe_definer() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$' \
+            'DROP FUNCTION public.ret_probe_definer()'
+          # At creation time a failure leaves nothing behind.
+          su "REVOKE EXECUTE ON FUNCTION public.task_retention_purge_request_ledger() FROM task_retention_login"
+          su "REVOKE EXECUTE ON FUNCTION public.task_retention_clear_event_digests() FROM task_retention_login"
+          su "DROP ROLE task_retention_login"
+          failpost "creation with PUBLIC read on Task" 'GRANT SELECT ON "Task" TO PUBLIC' 'REVOKE SELECT ON "Task" FROM PUBLIC'
+          test "$(su "SELECT count(*) FROM pg_roles WHERE rolname = 'task_retention_login'")" = "0" || { echo "a failed creation left the role behind"; exit 1; }
+          echo "failed creation rolled back: no role left"
+          node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost | tee /tmp/out-5b.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/out-5b.json","utf8")); if(!(r.pass===true && r.created===true)) process.exit(1)'
+
+      - name: 6. Disable — NOLOGIN, no EXECUTE left, cannot connect
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d "$DB" -c "$1"; }
+          OWNER_DATABASE_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$DB" \
+            node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action disable --allow-host localhost | tee /tmp/out-6.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/out-6.json","utf8")); if(!(r.pass===true && r.login===false && r.operationalExecutable===0)) process.exit(1)'
+          if PGPASSWORD="$RET_PW" psql -X -U task_retention_login -d "$DB" -c "SELECT 1" >/dev/null 2>&1; then echo "disabled login still connects"; exit 1; fi
+          test "$(su "SELECT has_function_privilege('task_retention_login', 'public.task_retention_purge_request_ledger()', 'EXECUTE')")" = "f"
+          echo "disabled: no login, no EXECUTE"
+
+      - name: 7. No password in any output
+        run: |
+          set -euo pipefail
+          if cat /tmp/out-*.json /tmp/out-*.txt /tmp/all-*.txt 2>/dev/null | grep -qF "$RET_PW"; then echo "the password appeared in an output"; exit 1; fi
+          echo "no password in any output"

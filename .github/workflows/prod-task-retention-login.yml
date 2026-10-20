@@ -1,0 +1,78 @@
+name: "Prod task retention — LOGIN role (OWNER GATE, writes roles)"
+
+# Provisions or disables the ONE Production login that runs Daily Tasks operational retention
+# (task-retention.yml). scripts/ops/task-retention-login.ts. This WRITES to Production roles — it runs only on
+# manual dispatch from main, in the production-db environment (owner approval), and only after migration
+# 20261018090000_daily_tasks_foundation is applied.
+#
+#   provision  create-once / rotate-password task_retention_login (LOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS,
+#              NOCREATEDB, NOCREATEROLE, NOREPLICATION, CONNECTION LIMIT 2), member of NO role. Its only authority:
+#              EXECUTE on task_retention_purge_request_ledger() and task_retention_clear_event_digests(). It does
+#              not join task_maintenance, so the three H3 functions stay out of its reach. The post-assertions
+#              (same transaction) require: no table, sequence, schema CREATE or other definer function reachable.
+#              Password = the one inside the production-db secret TASK_RETENTION_DATABASE_URL (the same secret
+#              task-retention.yml connects with); plaintext over TLS (Neon); [A-Za-z0-9_-] only; redacted.
+#   disable    containment: NOLOGIN + revoke both EXECUTE grants + terminate sessions. Immediate; the role is
+#              never dropped.
+# Output: booleans and counts only. No URL or password is ever printed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "provision (create/rotate the login) or disable (containment)"
+        required: true
+        type: choice
+        options: ["provision", "disable"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-task-retention-login
+  cancel-in-progress: false
+
+jobs:
+  login:
+    name: Task retention login (${{ inputs.action }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Secrets present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          TASK_RETENTION_DATABASE_URL: ${{ secrets.TASK_RETENTION_DATABASE_URL }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db."; exit 1; fi
+          if [ "$ACTION" = provision ] && [ -z "${TASK_RETENTION_DATABASE_URL:-}" ]; then
+            echo "::error::TASK_RETENTION_DATABASE_URL is not set in production-db — NOT RUN."; exit 1; fi
+          if [ -n "${TASK_RETENTION_DATABASE_URL:-}" ] && [ "$DIRECT_URL" = "$TASK_RETENTION_DATABASE_URL" ]; then
+            echo "::error::the retention URL equals the owner URL — refusing."; exit 1; fi
+          echo "Secrets present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Task retention login
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          TASK_RETENTION_DATABASE_URL: ${{ secrets.TASK_RETENTION_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action ${{ inputs.action }} --allow-host ep-flat-brook-am4bhq1y

@@ -1,0 +1,11 @@
+{
+  "note": "Daily Tasks release: the Production retention login provisioner (owner gate; not run in Production by CI).",
+  "tests": {
+    "scripts/ops/task-retention-login.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "task-retention-login-lab.yml",
+      "reason": "the Production retention login provisioner refuses every non-approved TASK_RETENTION_DATABASE_URL (user, endpoint, pooler, host/database vs owner, password charset), never prints a password/URL/PASSWORD literal, and grants exactly EXECUTE on the two operational retention functions with pinned attributes and no role membership (no H3, no table); run by task-retention-login-lab.yml, which also proves on PG17 what the login can and cannot reach"
+    }
+  }
+}
