@@ -16,6 +16,18 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
+// After 20261018090000_daily_tasks_foundation, "Task" carries exactly task_tenant_select / _insert / _update
+// instead of p7w1_tenant (owner decision G4), so wave 1 counts 13 there. Exact, never a range: either state
+// is fully one or fully the other.
+async function wave1Expected(owner) {
+  const r = (await owner.$queryRawUnsafe(
+    `SELECT (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname IN ('task_tenant_select', 'task_tenant_insert', 'task_tenant_update')) AS dt,
+            (SELECT count(*)::int FROM pg_policies WHERE tablename = 'Task' AND policyname = 'p7w1_tenant') AS w1`))[0];
+  if (r.dt === 3 && r.w1 === 0) return 13;
+  if (r.dt === 0 && r.w1 === 1) return 14;
+  throw new Error(`DRIFT: "Task" policies are neither wave 1 nor daily tasks (task_tenant_*=${r.dt}, p7w1_tenant=${r.w1}) — STOP`);
+}
+
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const RT_ROLE = TARGET === "neon" ? "app_runtime_preview_p4b" : "wave1_runtime";
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN_ROLE || (TARGET === "neon" ? "app_admin_preview" : "app_admin_lab");
@@ -103,7 +115,8 @@ async function main() {
     const pilot = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'`))[0].c);
     if (pilot !== 5) throw new Error(`DRIFT: pilot=${pilot} — STOP`);
     const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    if (w1 !== 14) throw new Error(`DRIFT: wave1=${w1}, expected 14 — STOP`);
+    const w1Expected = await wave1Expected(owner);
+    if (w1 !== w1Expected) throw new Error(`DRIFT: wave1=${w1}, expected ${w1Expected} — STOP`);
     const w2 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w2_tenant'`))[0].c);
     if (w2 !== 24) throw new Error(`DRIFT: wave2=${w2}, expected 24 — STOP`);
     const adm = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument','ContentRun') AND tablename IN ('Conversation','BillingDocument','ContentRun')`))[0].c);
@@ -483,7 +496,8 @@ async function main() {
     const w1a = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
     const w2a = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w2_tenant'`))[0].c);
     const ada = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument','ContentRun') AND tablename IN ('Conversation','BillingDocument','ContentRun')`))[0].c);
-    ok("pilot(5)+wave1(14)+wave2(24)+admin(3) intact after Wave 3", p5 === 5 && w1a === 14 && w2a === 24 && ada === 3, `p=${p5} w1=${w1a} w2=${w2a} a=${ada}`);
+    const w1ExpA = await wave1Expected(owner);
+    ok(`pilot(5)+wave1(${w1ExpA})+wave2(24)+admin(3) intact after Wave 3`, p5 === 5 && w1a === w1ExpA && w2a === 24 && ada === 3, `p=${p5} w1=${w1a} w2=${w2a} a=${ada}`);
   }
 
   await owner.$disconnect();
