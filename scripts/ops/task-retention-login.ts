@@ -78,11 +78,14 @@ async function reach(tx: Tx) {
            AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
            AND has_function_privilege($1, p.oid, 'EXECUTE')) AS "otherDefinerExecutable",
        (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE ${SYSTEM_SCHEMA} AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-           AND (has_table_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR has_any_column_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'))) AS "tablesReachable",
+         WHERE ${SYSTEM_SCHEMA}
+           AND CASE WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                    THEN has_table_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+                         OR has_any_column_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
+                    ELSE false END) AS "tablesReachable",
        (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE ${SYSTEM_SCHEMA} AND c.relkind = 'S' AND has_sequence_privilege($1, c.oid, 'USAGE, SELECT, UPDATE')) AS "sequencesReachable",
+         WHERE ${SYSTEM_SCHEMA}
+           AND CASE WHEN c.relkind = 'S' THEN has_sequence_privilege($1, c.oid, 'USAGE, SELECT, UPDATE') ELSE false END) AS "sequencesReachable",
        (SELECT count(*)::int FROM pg_namespace n WHERE ${SYSTEM_SCHEMA} AND has_schema_privilege($1, n.oid, 'CREATE')) AS "schemasCreatable",
        (CASE WHEN has_database_privilege($1, current_database(), 'CREATE') THEN 1 ELSE 0 END) AS "databaseCreate"`,
     LOGIN, OPERATIONAL, NOT_ALLOWED);
