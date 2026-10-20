@@ -223,7 +223,7 @@ jobs:
           fault "read through another role the admin inherits" "7 12 21 25 " \
             'CREATE ROLE dt_via NOLOGIN; GRANT SELECT ON "Task" TO dt_via; GRANT dt_via TO dt_neon_admin' \
             'REVOKE dt_via FROM dt_neon_admin; REVOKE SELECT ON "Task" FROM dt_via; DROP ROLE dt_via'
-          fault "runtime removal, direct""7 12 21 25 " 'GRANT DELETE ON "Task" TO app_runtime' 'REVOKE DELETE ON "Task" FROM app_runtime'
+          fault "runtime removal, direct" "7 12 21 25 " 'GRANT DELETE ON "Task" TO app_runtime' 'REVOKE DELETE ON "Task" FROM app_runtime'
           fault "runtime removal through pg_write_all_data" "12 21 25 " 'GRANT pg_write_all_data TO app_runtime' 'REVOKE pg_write_all_data FROM app_runtime'
           fault "runtime login inherits the admin role" "12 21 25 " 'GRANT dt_neon_admin TO app_runtime_prod' 'REVOKE dt_neon_admin FROM app_runtime_prod'
           fault "admin role is a runtime member" "12 21 25 " 'GRANT app_runtime TO dt_neon_admin' 'REVOKE app_runtime FROM dt_neon_admin'
