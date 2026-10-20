@@ -146,7 +146,7 @@ async function main(): Promise<void> {
         throw new RefusedError(`${LOGIN} exists with an elevated attribute or a role membership — refusing to reuse it`);
       }
       const attrs = `LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT ${CONNECTION_LIMIT}`;
-      // Rotation names only what a CREATEROLE (non-superuser) owner may change: PostgreSQL 16+ refuses an ALTER ROLE
+      // Rotation names only what a role-creating (non-superuser) owner may change: PostgreSQL 16+ refuses an ALTER ROLE
       // that names an elevated attribute (even in its negative form) the caller does not hold. The precondition above
       // already refused an existing role holding any of them, and the post-assertions re-check every attribute.
       const rotateAttrs = `LOGIN NOINHERIT CONNECTION LIMIT ${CONNECTION_LIMIT}`;
