@@ -1,0 +1,101 @@
+# Daily Tasks — milestone B (agenda, sync, actions, the task centre, the shared secretary agenda, navigation) on
+# the REAL migration 20261018090000_daily_tasks_foundation, in Production's role topology (ephemeral PG17).
+#
+#   1. The agenda's pure rules (buckets, counting, grouping, cap, display state, mute, integrity).
+#   2. Static boundaries: the read path writes nothing; every /api/tasks route is session-scoped and flag-gated;
+#      ONE call point into the payment service, after the request check; the owner-approved navigation.
+#   3. Navigation: destinations, the Home families, back-navigation classification of /tasks.
+#   4. Agenda / sync / actions AS app_runtime_prod (NOSUPERUSER NOBYPASSRLS) — with the database session in
+#      Asia/Jerusalem, so a raw timestamp read through the session zone cannot pass by accident.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network. The feature flag stays OFF everywhere but the
+# test's own synthetic business.
+
+name: daily tasks B — agenda, sync and actions on the real migration (ephemeral PG17)
+
+on:
+  pull_request:
+    # Stacked on #728 (milestone A code) until it merges.
+    branches: [main, feat/daily-tasks-a-code]
+    paths:
+      - "lib/services/tasks/**"
+      - "lib/tasks/**"
+      - "features/tasks/**"
+      - "app/api/tasks/**"
+      - "app/(shell)/tasks/**"
+      - "app/(shell)/secretary/**"
+      - "components/navigation/**"
+      - "lib/navigation/**"
+      - "features/tools/**"
+      - "lib/ui/use-feature-enabled.ts"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261018090000_daily_tasks_foundation/**"
+      - ".dt/**"
+      - ".github/workflows/daily-tasks-b-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agenda:
+    name: daily tasks B (PG17, runtime role, real migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: dtb_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: dtb_ci_synthetic_super_pw
+      LAB_PASSWORD: dtb_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Agenda rules (pure)
+        run: npm run verify:tasks-agenda-core
+
+      - name: 2. Static boundaries (read path, routes, money, navigation)
+        run: npm run verify:tasks-boundary
+
+      - name: 3. Navigation and back-navigation
+        run: |
+          set -euo pipefail
+          npx tsx components/navigation/nav-destinations.test.tsx
+          npx tsx lib/navigation/home-routes.test.ts
+          npm run verify:back-nav
+
+      - name: 4. Agenda, sync and actions as the restricted runtime (session in Asia/Jerusalem)
+        run: |
+          set -euo pipefail
+          bash .dt/lab.sh dtb --with-dt
+          TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtb?$TZ_OPT" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtb?$TZ_OPT" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dtb" \
+            npm run verify:tasks-agenda-db
