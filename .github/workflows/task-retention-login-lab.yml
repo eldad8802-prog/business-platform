@@ -11,7 +11,9 @@
 #   4. Refusals (exit 3, nothing changed): foreign user, host or database differs, weak password, an existing
 #      login with an elevated attribute, an existing login with a role membership.
 #   5. Post-assertion faults (exit 1, the whole transaction rolled back): PUBLIC EXECUTE on an H3 function, PUBLIC
-#      read on a task table, a PUBLIC-executable definer function; at creation time nothing is left behind.
+#      read on a task table, a PUBLIC-executable definer function (also one NAMED like a trigger guard); at creation
+#      time nothing is left behind. PUBLIC-executable definer functions whose catalog return type is trigger /
+#      event_trigger (not callable directly) pass and are reported in their own count.
 #   6. Disable: NOLOGIN, no EXECUTE left, the login cannot connect.
 #   7. No password appears in any output.
 #
@@ -187,6 +189,25 @@ jobs:
           failpost "a PUBLIC-executable definer function" \
             'CREATE FUNCTION public.ret_probe_definer() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$' \
             'DROP FUNCTION public.ret_probe_definer()'
+          # Not by name: a CALLABLE definer function named like a trigger guard still fails.
+          failpost "a callable definer function named like a trigger" \
+            'CREATE FUNCTION public.ret_probe_same_tenant() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$' \
+            'DROP FUNCTION public.ret_probe_same_tenant()'
+          # By catalog return type: PUBLIC-executable definer trigger / event-trigger functions (Production's shape,
+          # run 39496955377) are not callable, so provisioning passes and they are reported in their own count.
+          trig() { node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(r.pass!==true||r.reach.otherDefinerExecutable!==0) process.exit(1); console.log(r.reach.triggerDefinerExecutable)' "$1"; }
+          node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost > /tmp/out-5t0.json
+          base=$(trig /tmp/out-5t0.json)
+          su 'CREATE FUNCTION public.ret_probe_trigger() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN RETURN NEW; END $$'
+          su 'CREATE FUNCTION public.ret_probe_event_trigger() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN END $$'
+          test "$(su "SELECT count(*) FROM pg_proc WHERE proname IN ('ret_probe_trigger', 'ret_probe_event_trigger') AND prosecdef AND has_function_privilege('task_retention_login', oid, 'EXECUTE')")" = "2"
+          node_modules/.bin/tsx scripts/ops/task-retention-login.ts --action provision --allow-host localhost > /tmp/out-5t1.json
+          with=$(trig /tmp/out-5t1.json)
+          test "$with" = "$((base + 2))" || { echo "trigger count: base=$base with=$with"; exit 1; }
+          if PGPASSWORD="$RET_PW" psql -X -q -At -U task_retention_login -d "$DB" -c "SELECT public.ret_probe_trigger()" 2>/tmp/t.err; then echo "a trigger function was callable"; exit 1; fi
+          grep -qi "trigger functions can only be called as triggers" /tmp/t.err || { cat /tmp/t.err; exit 1; }
+          su 'DROP FUNCTION public.ret_probe_trigger()'; su 'DROP FUNCTION public.ret_probe_event_trigger()'
+          echo "definer trigger functions: reported separately ($base → $with), provisioning passes, a direct call is refused by PostgreSQL"
           # At creation time a failure leaves nothing behind.
           su "REVOKE EXECUTE ON FUNCTION public.task_retention_purge_request_ledger() FROM task_retention_login"
           su "REVOKE EXECUTE ON FUNCTION public.task_retention_clear_event_digests() FROM task_retention_login"

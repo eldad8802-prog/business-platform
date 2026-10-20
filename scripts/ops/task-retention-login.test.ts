@@ -97,6 +97,13 @@ test("authority is pinned exactly as approved (attributes, two EXECUTE grants, n
   assert.ok(!/\b(SUPERUSER|BYPASSRLS|CREATEROLE|CREATEDB|REPLICATION)\b/.test(withoutNegations.replace(/rol(super|bypassrls|createrole|createdb|replication)/g, "")),
     "no elevated attribute is ever granted");
   assert.ok(!/DROP\s+ROLE/i.test(src), "the role is never dropped");
+  // Trigger functions are split off by their catalog return type only — never by name — and a callable definer
+  // function still fails the post-assertion.
+  assert.equal(src.split(`p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype)`).length - 1, 1);
+  assert.equal(src.split(`p.prorettype IN ('trigger'::regtype, 'event_trigger'::regtype)`).length - 1, 1);
+  assert.ok(!/content_variant_same_tenant/.test(src), "no function is exempted by name");
+  assert.match(src, /reachable\.otherDefinerExecutable === 0/);
+  assert.ok(!/triggerDefinerExecutable ===/.test(src), "the trigger count is reported, it is not a pass condition");
   for (const m of src.match(/PASSWORD '\$\{(\w+)\}'/g) ?? []) assert.equal(m, "PASSWORD '${password}'");
   assert.match(src, /if \(!\/\^\[A-Za-z0-9_-\]\{32,128\}\$\/\.test\(password\)\) throw new RefusedError\("password shape"\);/);
 });
