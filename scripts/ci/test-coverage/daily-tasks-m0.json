@@ -1,0 +1,14 @@
+{
+  "note": "Daily Tasks milestone A (M0): action-availability registry (spec 4.5), R7, day-boundary agreement.",
+  "tests": {
+    "lib/features/action-availability.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (reads source files, no DB/network): the WhatsApp / Tax Authority / Meta connection screens and the secretary notification preferences read one availability registry with no local coming-soon literal left, the registry keeps exactly today's states, and R7 renders the unpersisted preferences inactive; run on pull_request by daily-tasks-m0-ci.yml"
+    },
+    "lib/utils/day-boundary-agreement.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): jerusalemDayKey, leadDayKey and civilDayStart name the same Israeli calendar day at every day edge, both 2026 DST transitions, the duplicated autumn hour and every hour of 2026 and 2028; run on pull_request by daily-tasks-m0-ci.yml",
+      "notSecurityBecause": "\"boundary\" here is the calendar-day edge (midnight in Asia/Jerusalem), not a trust or tenant boundary; the test compares three pure date helpers and touches no identity, tenant or privilege"
+    }
+  }
+}
