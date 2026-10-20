@@ -11,13 +11,16 @@
 #
 #   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256.
 #   1. Baseline (pending): PREFLIGHT passes all but 5 (lab topology); the proof refuses (no tables).
-#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 27/27; the preflight then
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 28/28; the preflight then
 #      fails exactly its "not there yet" checks (+ 5).
 #   3. Battery (.dt/battery.ts) as the real roles: catalog, four-sided isolation per table, cross-business
 #      references refused by the database, one open occurrence per series, the append-only journal (the
 #      owner included), retention (refusal while H3 is open; what it would touch once approved).
 #   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   5. Faults: each injected defect is caught by the proof check meant for it.
+#  5b. G4 exception (checks 12 / 28): Production's Neon platform admin topology (run 39461027340) is set aside
+#      and counted; a direct grant, PUBLIC, another inherited grantee, a runtime member, a third admin role or
+#      a non-admin reader through the same predefined roles still fails.
 #   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again),
 #      and a re-apply makes the proof whole.
 #
@@ -111,7 +114,7 @@ jobs:
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           echo "the proof refuses on the baseline (the tables do not exist yet)"
 
-      - name: 2. prisma migrate deploy applies it — proof 27/27; preflight fails exactly its "not there yet" checks
+      - name: 2. prisma migrate deploy applies it — proof 28/28; preflight fails exactly its "not there yet" checks
         run: |
           set -euo pipefail
           bash .dt/lab.sh dt_post --with-dt | tee /tmp/post.log
@@ -119,7 +122,7 @@ jobs:
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dt_post -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$EVIDENCE" | tee /tmp/ev.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "27" || { echo "expected 27 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "28" || { echo "expected 28 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "2 3 5 6 7 8 9 10 11 12 13 14 16 17 " || { echo "after the release: expected '2 3 5 6 7 8 9 10 11 12 13 14 16 17 ', got: $fails"; exit 1; }
 
@@ -191,6 +194,47 @@ jobs:
           fault "the flag switched on" "21 23 25 " \
             "UPDATE \"PlatformFeaturePolicy\" SET \"globalEnabled\" = true WHERE \"featureKey\" = 'daily_tasks'" "UPDATE \"PlatformFeaturePolicy\" SET \"globalEnabled\" = false WHERE \"featureKey\" = 'daily_tasks'"
           test "$(failing)" = "21 25 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 5b. G4 exception — the diagnosed Neon admin path is set aside and counted; every other path still fails
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dt_post -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d dt_post -c "$1"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          aside() { lab -f "$EVIDENCE" | awk -F'|' '$1 ~ /^ *28 *$/ {gsub(/ /, "", $3); print $3}'; }
+          test "$(failing)" = "21 25 " && test "$(aside)" = "0" || { echo "unexpected start: $(failing) / set aside $(aside)"; exit 1; }
+          # Production's shape as run 39461027340 counted it: two admin-profile roles reaching "Task" only through
+          # pg_read_all_data / pg_write_all_data, one of them a login, the "Task" owner inheriting from the other.
+          su "CREATE ROLE dt_neon_admin NOLOGIN BYPASSRLS CREATEROLE CREATEDB IN ROLE pg_read_all_data, pg_write_all_data"
+          su "CREATE ROLE dt_neon_login LOGIN BYPASSRLS CREATEROLE CREATEDB IN ROLE dt_neon_admin"
+          su "GRANT dt_neon_admin TO lab_owner"
+          test "$(failing)" = "21 25 " && test "$(aside)" = "8" || { echo "Neon topology: expected 21 25 / 8, got $(failing) / $(aside)"; exit 1; }
+          echo "Neon admin topology: check 12 PASS, check 28 PASS with 8 pairs set aside"
+          fault() {  # fault <label> <expected failing> <inject> <undo>  (as the superuser: predefined roles need it)
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "still caught [$1] → FAIL $got"
+          }
+          fault "direct read for the admin role" "7 12 21 25 " 'GRANT SELECT ON "Task" TO dt_neon_admin' 'REVOKE SELECT ON "Task" FROM dt_neon_admin'
+          fault "direct removal for the admin login" "7 12 21 25 " 'GRANT DELETE ON "Task" TO dt_neon_login' 'REVOKE DELETE ON "Task" FROM dt_neon_login'
+          fault "direct emptying for the admin role" "7 12 21 25 " 'GRANT TRUNCATE ON "Task" TO dt_neon_admin' 'REVOKE TRUNCATE ON "Task" FROM dt_neon_admin'
+          fault "PUBLIC read" "7 12 21 25 " 'GRANT SELECT ON "Task" TO PUBLIC' 'REVOKE SELECT ON "Task" FROM PUBLIC'
+          fault "PUBLIC change" "7 12 21 25 " 'GRANT UPDATE ON "Task" TO PUBLIC' 'REVOKE UPDATE ON "Task" FROM PUBLIC'
+          fault "read through another role the admin inherits" "7 12 21 25 " \
+            'CREATE ROLE dt_via NOLOGIN; GRANT SELECT ON "Task" TO dt_via; GRANT dt_via TO dt_neon_admin' \
+            'REVOKE dt_via FROM dt_neon_admin; REVOKE SELECT ON "Task" FROM dt_via; DROP ROLE dt_via'
+          fault "runtime removal, direct" "7 12 21 25 " 'GRANT DELETE ON "Task" TO app_runtime' 'REVOKE DELETE ON "Task" FROM app_runtime'
+          fault "runtime removal through pg_write_all_data" "12 21 25 " 'GRANT pg_write_all_data TO app_runtime' 'REVOKE pg_write_all_data FROM app_runtime'
+          fault "runtime login inherits the admin role" "12 21 25 " 'GRANT dt_neon_admin TO app_runtime_prod' 'REVOKE dt_neon_admin FROM app_runtime_prod'
+          fault "admin role is a runtime member" "12 21 25 " 'GRANT app_runtime TO dt_neon_admin' 'REVOKE app_runtime FROM dt_neon_admin'
+          fault "a third admin-profile role" "21 25 28 " \
+            'CREATE ROLE dt_neon_extra NOLOGIN BYPASSRLS CREATEROLE CREATEDB IN ROLE pg_read_all_data' 'DROP ROLE dt_neon_extra'
+          fault "a non-admin reader through pg_read_all_data" "12 21 25 " \
+            'CREATE ROLE dt_reader NOLOGIN IN ROLE pg_read_all_data' 'DROP ROLE dt_reader'
+          test "$(failing)" = "21 25 " && test "$(aside)" = "8" || { echo "not back to the topology baseline: $(failing) / $(aside)"; exit 1; }
+          su "DROP ROLE dt_neon_login"; su "DROP ROLE dt_neon_admin"
+          test "$(failing)" = "21 25 " && test "$(aside)" = "0" || { echo "not back to baseline: $(failing) / $(aside)"; exit 1; }
+          echo "G4 exception is exactly the diagnosed path"
 
       - name: 6. Rollback — refused while rows exist; reverts whole on an empty database; re-apply makes the proof whole
         run: |
