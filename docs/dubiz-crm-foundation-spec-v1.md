@@ -27,7 +27,7 @@
 ### Explicitly NOT in scope (do not build in Epic 1)
 - Business Brain, insights, recommendations, learning, any AI. *(Profitability here = a deterministic rollup, not a Brain insight.)*
 - Intra-business RBAC / team roles (permissions in v1 = tenant-scoping only — see §11).
-- Reminders delivery, tasks, bulk actions, tags (separate Epics).
+- Reminders delivery, tasks, bulk actions, tags (separate Epics). Tasks are now specified in `docs/dubiz-daily-tasks-spec-v1.md` (the owner's tasks and the shared agenda; a lead's follow-up stays in `nextFollowUpAt`).
 - Multi-currency picker, i18n, customer portal (later waves).
 - Changing the billing/receivable **financial source of truth**. CRM only *reads/aggregates* it (compliance non-negotiable).
 
