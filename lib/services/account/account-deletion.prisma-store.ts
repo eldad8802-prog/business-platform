@@ -400,6 +400,15 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // this tenant context is being deleted (deletionRequestedAt, set by the
           // quarantine stage before this purge runs).
           await tx.$queryRaw`SELECT public.task_retention_erase_business() AS n`;
+          // Web Push subscriptions: the push address and keys go and the row is revoked (no DELETE for the
+          // runtime). erased:<id> satisfies PushSubscription_endpoint_shape and keeps (businessId, endpoint)
+          // unique; a business has a handful of these rows (one per browser that accepted push).
+          for (const sub of await tx.pushSubscription.findMany({ where: { businessId }, select: { id: true } })) {
+            await tx.pushSubscription.updateMany({
+              where: { id: sub.id, businessId },
+              data: { endpoint: `erased:${sub.id}`, p256dh: "", auth: "", revokedAt: new Date() },
+            });
+          }
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

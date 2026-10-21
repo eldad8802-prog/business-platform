@@ -25,7 +25,7 @@ import { fetchJsonCached } from "@/lib/ui/cached-json";
  *                share one response and can never disagree.
  *   מלאי         GET /api/inventory/alerts?type=CRITICAL_STOCK&isResolved=false
  *                → "קריטי" when at least one is open
- *   משימות       GET /api/tasks/agenda → count (overdue + today, the same number the task centre and the
+ *   משימות       GET /api/tasks/agenda?scope=personal → count (overdue + today, the same number the task centre and the
  *                secretary show); "N+" when the agenda says the count is partial. Only with daily_tasks ON.
  * A source that fails simply leaves its badge off — a badge that guesses is
  * worse than no badge.
@@ -106,7 +106,8 @@ export function useNavBadges(enabled: boolean, pathname: string, tasksOn = false
   useEffect(() => {
     if (!enabled || !tasksOn) return;
     let cancelled = false;
-    fetchJsonCached<AgendaWire>("/api/tasks/agenda", 15_000)
+    // The badge counts the owner's OWN tasks (overdue + today) — the business items have their own surfaces.
+    fetchJsonCached<AgendaWire>("/api/tasks/agenda?scope=personal", 15_000)
       .then((j) => {
         if (cancelled) return;
         const n = j.count ?? 0;

@@ -244,6 +244,7 @@ model Business {
   productUsageEvents            ProductUsageEvent[]
   businessFeatureAccess         BusinessFeatureAccess[]
   notifications                 Notification[]
+  pushSubscriptions             PushSubscription[]
   notificationDeliveries        NotificationDelivery[]
   whatsappConnection            WhatsAppConnection?
   purchaseOrders                PurchaseOrder[]
@@ -355,6 +356,7 @@ model User {
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
   authEmailTokens                            AuthEmailToken[]
+  pushSubscriptions                          PushSubscription[]
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -1437,6 +1439,12 @@ model Task {
   updatedAt         DateTime         @updatedAt
   dueOn             DateTime?        @db.Date
   remindAt          DateTime?
+  /// Time of day, minutes after midnight (Asia/Jerusalem); null = no time. Migration 20261022090000.
+  dueMinute         Int?             @db.SmallInt
+  /// How long before the due moment to remind (0 = at the moment); null = no reminder.
+  remindOffsetMinutes Int?           @db.SmallInt
+  /// The dispatch claim for the current remindAt (a snooze resets it).
+  reminderSentAt    DateTime?
   closeReason       TaskCloseReason?
   completedAt       DateTime?
   completedByUserId Int?
@@ -1474,6 +1482,8 @@ model TaskSeries {
   ruleMonthDay     Int?
   ruleIntervalDays Int?
   startOn          DateTime           @db.Date
+  dueMinute        Int?               @db.SmallInt
+  remindOffsetMinutes Int?            @db.SmallInt
   pausedAt         DateTime?
   endedAt          DateTime?
   createdByUserId  Int?
@@ -7126,4 +7136,29 @@ model LandingPageVersion {
   @@unique([businessId, landingPageId, versionNumber])
   @@unique([businessId, idempotencyKey])
   @@index([businessId, status])
+}
+
+
+/// A browser / installed web app that accepted Web Push for a user of a business (migration 20261022090000).
+/// Tenant table under FORCE RLS; the runtime may read / add / change, never remove: revocation is revokedAt,
+/// account erasure blanks the row in place (endpoint = 'erased:<id>', keys '').
+model PushSubscription {
+  id            Int       @id @default(autoincrement())
+  businessId    Int
+  userId        Int
+  endpoint      String
+  p256dh        String
+  auth          String
+  /// 'android' | 'ios' | 'desktop' | 'other'
+  platform      String
+  failureCount  Int       @default(0)
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, endpoint])
 }

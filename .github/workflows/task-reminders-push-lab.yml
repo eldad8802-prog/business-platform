@@ -197,9 +197,12 @@ jobs:
           test "$(rt "" "SELECT count(*) FROM public.task_reminders_due(timezone('UTC', now())::timestamp(3), 1)")" = "1" || { echo "limit not applied"; exit 1; }
           psql -X -q -U "$SUPER" -d trp_post -c "CREATE ROLE trp_other NOLOGIN" -c "GRANT USAGE ON SCHEMA public TO trp_other"
           if psql -X -q -At -U "$SUPER" -d trp_post -c "SET ROLE trp_other" -c "SELECT count(*) FROM public.task_reminders_due(now()::timestamp(3), 1)" 2>/tmp/x.err; then echo "another role executed the due function"; exit 1; fi
-          grep -qi "permission denied" /tmp/x.err && echo "refused [EXECUTE for another role]"
-          if PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -U app_auth -d trp_post -c "SELECT 1 FROM public.task_reminders_due(now()::timestamp(3), 1)" 2>/tmp/x2.err; then echo "app_auth executed the due function"; exit 1; fi
-          grep -qi "permission denied" /tmp/x2.err && echo "refused [EXECUTE for app_auth]"
+          grep -qi "permission denied" /tmp/x.err || { echo "another role: refused for another reason"; cat /tmp/x.err; exit 1; }
+          echo "refused [EXECUTE for another role]"
+          # app_auth is NOLOGIN in the lab (as in Production): take its identity with SET ROLE.
+          if psql -X -q -At -U "$SUPER" -d trp_post -c "SET ROLE app_auth" -c "SELECT 1 FROM public.task_reminders_due(now()::timestamp(3), 1)" 2>/tmp/x2.err; then echo "app_auth executed the due function"; exit 1; fi
+          grep -qi "permission denied" /tmp/x2.err || { echo "app_auth: refused for another reason"; cat /tmp/x2.err; exit 1; }
+          echo "refused [EXECUTE for app_auth]"
           # The claim: one winner, and only while the scheduled moment is still the task's moment.
           claim="UPDATE \"Task\" SET \"reminderSentAt\" = timezone('UTC', now()), \"updatedAt\" = now() WHERE \"id\" = $T_DUE AND \"status\" = 'OPEN' AND \"reminderSentAt\" IS NULL AND \"remindAt\" = (SELECT \"remindAt\" FROM \"Task\" WHERE \"id\" = $T_DUE) RETURNING \"id\""
           test "$(rt "$A" "$claim" | wc -l)" = "1" || { echo "first claim lost"; exit 1; }

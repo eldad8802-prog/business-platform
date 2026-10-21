@@ -1,5 +1,6 @@
 import { createTask, type TaskLink } from "@/lib/services/tasks/task.service";
 import { idempotencyKeyOf, json, jsonBody, tasksRoute } from "@/lib/services/tasks/tasks-http";
+import { reminderFollowUp } from "@/lib/services/tasks/reminder-follow-up";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,10 @@ export async function POST(req: Request) {
       dueOn: (b.dueOn as string | null | undefined) ?? null,
       link: (b.link as TaskLink | undefined) ?? null,
       origin: b.origin === "SECRETARY" ? "SECRETARY" : "OWNER",
+      dueMinute: (b.dueMinute as number | null | undefined) ?? null,
+      remindOffsetMinutes: (b.remindOffsetMinutes as number | null | undefined) ?? null,
     });
+    await reminderFollowUp(actor.businessId, result, "schedule");
     return json(result, result.replayed ? 200 : 201);
   });
 }

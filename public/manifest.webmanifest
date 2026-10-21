@@ -1,0 +1,16 @@
+{
+  "name": "Dubiz",
+  "short_name": "Dubiz",
+  "description": "Dubiz — ניהול היום־יום של העסק",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FBF8F3",
+  "theme_color": "#246966",
+  "icons": [
+    { "src": "/icons/dubiz-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/dubiz-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

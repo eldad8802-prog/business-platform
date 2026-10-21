@@ -62,6 +62,10 @@ export function toManualTask(t: Task, seriesById: Map<number, TaskSeries>, names
     cadence: s ? cadenceLabel(ruleOfSeries(s)) : null,
     link: linkOf(t, names),
     createdAt: t.createdAt.toISOString(),
+    dueMinute: t.dueMinute,
+    remindOffsetMinutes: t.remindOffsetMinutes,
+    remindAt: t.remindAt?.toISOString() ?? null,
+    reminderSent: !!t.reminderSentAt,
   };
 }
 
@@ -72,9 +76,15 @@ export function expectedOccurrence(series: TaskSeries, lastClosedDueOn: Jerusale
   return lastClosedDueOn ? nextOccurrenceAfterClose(rule, startOn, lastClosedDueOn, today) : firstOccurrenceOnOrAfter(rule, startOn, today);
 }
 
-export async function getAgenda(businessId: number, now: Date = new Date()): Promise<AgendaResponse> {
+/**
+ * The agenda. `personal` (the task centre, owner decision 2026-10-21): only the tasks and series the owner created —
+ * no business items (they stay in the notifications and in "מה ממתין לך") — and a year ahead instead of a week.
+ * The secretary keeps the full agenda.
+ */
+export async function getAgenda(businessId: number, now: Date = new Date(), opts: { personal?: boolean } = {}): Promise<AgendaResponse> {
   const today = jerusalemDayKey(now);
-  const horizon = dayKeyToDbDate(addCalendarDays(today, 7));
+  const upcomingDays = opts.personal ? 366 : 7;
+  const horizon = dayKeyToDbDate(addCalendarDays(today, upcomingDays));
   const { from, toExclusive } = jerusalemDayUtcHalfOpen(today);
 
   const stored = await tenantTx(businessId, async (tx) => {
@@ -108,7 +118,7 @@ export async function getAgenda(businessId: number, now: Date = new Date()): Pro
     .map((s) => ({ seriesId: s.id, title: s.title, dueOn: expectedOccurrence(s, lastClosedBySeries.get(s.id) ?? null, today), cadence: cadenceLabel(ruleOfSeries(s)) }));
 
   const disabled = new Set(stored.prefs?.disabledSources ?? []);
-  const results = await runAllAdapters({ businessId, now, today }, disabled);
+  const results = opts.personal ? [] : await runAllAdapters({ businessId, now, today }, disabled);
   const states: StoredState[] = stored.states.map((s) => ({
     dedupeKey: s.dedupeKey, cycleKey: s.cycleKey, evidenceVersion: s.evidenceVersion,
     acknowledgedOn: s.acknowledgedOn ? dbDateToDayKey(s.acknowledgedOn) : null, ackEvidenceVersion: s.ackEvidenceVersion,
@@ -117,7 +127,7 @@ export async function getAgenda(businessId: number, now: Date = new Date()): Pro
   const syncFailed = !!stored.prefs?.lastSyncFailedAt && (!stored.prefs.lastSyncAt || stored.prefs.lastSyncFailedAt > stored.prefs.lastSyncAt);
 
   const agenda = buildAgenda({
-    today, now, repairs, results, states, doneToday: stored.doneToday, syncFailed,
+    today, now, repairs, results, states: opts.personal ? [] : states, doneToday: stored.doneToday, syncFailed, upcomingDays,
     tasks: stored.tasks.map((t) => toManualTask(t, seriesById, stored.names)),
   });
   return {
