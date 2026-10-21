@@ -13,6 +13,7 @@ import {
 } from "@/lib/billing/business-identity";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import { primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -61,6 +62,7 @@ export function BillingIdentityBanner({
 }: {
   onIdentityResolved?: (complete: boolean) => void;
 }) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [identityComplete, setIdentityComplete] = useState(false);
   const [form, setForm] = useState<InvoiceProfileFormState>(
@@ -125,7 +127,7 @@ export function BillingIdentityBanner({
         body: JSON.stringify(form),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("billing.identity.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = j.error;
@@ -148,7 +150,7 @@ export function BillingIdentityBanner({
       setSavedOk(true);
       window.setTimeout(() => setSavedOk(false), 2200);
     } catch {
-      setError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
+      setError(t("billing.identity.saveConnectFailed"));
     } finally {
       setSaving(false);
     }
@@ -166,7 +168,7 @@ export function BillingIdentityBanner({
           color: TOKEN.ink.meta,
         }}
       >
-        טוען פרטי עסק…
+        {t("billing.identity.bannerLoading")}
       </div>
     );
   }
@@ -179,9 +181,7 @@ export function BillingIdentityBanner({
       BILLING_BUSINESS_KIND_LABELS[
         mini.billingBusinessKind as BillingBusinessKind
       ]
-        ? BILLING_BUSINESS_KIND_LABELS[
-            mini.billingBusinessKind as BillingBusinessKind
-          ]
+        ? t(`billing.identity.kind.${mini.billingBusinessKind as BillingBusinessKind}`)
         : null;
 
     return (
@@ -243,7 +243,7 @@ export function BillingIdentityBanner({
               marginBottom: 2,
             }}
           >
-            {mini.billingLegalName || "שם העסק"}
+            {mini.billingLegalName || t("billing.identity.bannerNameFallback")}
           </div>
           <div
             style={{
@@ -257,15 +257,15 @@ export function BillingIdentityBanner({
           >
             {kindLabel ? <span>{kindLabel}</span> : null}
             {mini.billingTaxId ? (
-              <span style={{ direction: "ltr" }}>ע.מ./ח.פ. {mini.billingTaxId}</span>
+              <span style={{ direction: "ltr" }}>{t("billing.identity.bannerTaxId", { taxId: mini.billingTaxId })}</span>
             ) : (
               <span style={{ color: TOKEN.semantic.attention.ink, fontWeight: 600 }}>
-                חסר מזהה מס
+                {t("billing.identity.bannerTaxIdMissing")}
               </span>
             )}
           </div>
           <div style={{ fontSize: 11, color: TOKEN.ink.meta, marginTop: 4 }}>
-            פרטי העסק נשמרים כדי שהמסמכים ללקוחות ייראו אמינים ועקביים.
+            {t("billing.identity.bannerSavedNote")}
           </div>
         </div>
         <Link
@@ -282,7 +282,7 @@ export function BillingIdentityBanner({
             flexShrink: 0,
           }}
         >
-          עריכת פרטי עסק
+          {t("billing.identity.bannerEdit")}
         </Link>
       </section>
     );
@@ -304,15 +304,14 @@ export function BillingIdentityBanner({
         }}
       >
         <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
-          כדי להתחיל צריך רק את פרטי העסק שיופיעו במסמך
+          {t("billing.identity.setupTitle")}
         </div>
         <p style={{ margin: "8px 0 0", fontSize: 13, color: TOKEN.semantic.info.ink }}>
-          מלאו את הפרטים הבסיסיים עכשיו. מראה המסמך והעדפות נוספות אפשר לדייק
-          בהמשך דרך{" "}
+          {t("billing.identity.setupHelpBeforeLink")}{" "}
           <Link href="/business" style={{ fontWeight: 600, color: TOKEN.semantic.info.ink }}>
-            העסק שלי
+            {t("billing.identity.setupHelpLink")}
           </Link>
-          .
+          {t("billing.identity.setupHelpAfterLink")}
         </p>
       </div>
 
@@ -346,12 +345,12 @@ export function BillingIdentityBanner({
               fontWeight: 600,
             }}
           >
-            {saving ? "שומר…" : "שמור והמשך למסמכים"}
+            {saving ? t("common.saving") : t("billing.identity.saveAndContinue")}
           </button>
         </div>
         {savedOk ? (
           <div style={{ fontSize: 13, color: TOKEN.semantic.success.ink, fontWeight: 600 }}>
-            נשמר. אפשר להמשיך ליצירת מסמכים.
+            {t("billing.identity.savedOk")}
           </div>
         ) : null}
       </div>

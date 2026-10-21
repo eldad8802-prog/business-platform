@@ -13,6 +13,7 @@ import {
   createCoupon,
 } from "@/lib/revenue/issue/issue.helpers";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 import type {
   IssueFlowState,
@@ -21,6 +22,7 @@ import type {
 } from "@/lib/revenue/issue/issue.types";
 
 export default function IssueScreen() {
+  const { t } = useI18n();
   const [flowState, setFlowState] = useState<IssueFlowState>("idle");
   const [offers, setOffers] = useState<IssueOffer[]>([]);
   const [selectedOffer, setSelectedOffer] = useState<IssueOffer | null>(null);
@@ -40,12 +42,12 @@ export default function IssueScreen() {
   useEffect(() => {
     if (!token) {
       setFlowState("error");
-      setErrorMessage("אין הרשאה — התחבר מחדש");
+      setErrorMessage(t("billing.couponIssue.errorUnauthorized"));
       return;
     }
 
     loadOffers();
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!offerIdFromQuery) return;
@@ -59,7 +61,7 @@ export default function IssueScreen() {
 
     if (!match) {
       setFlowState("error");
-      setErrorMessage("לא מצאנו את ההצעה שנבחרה");
+      setErrorMessage(t("billing.couponIssue.errorOfferNotFound"));
       return;
     }
 
@@ -69,7 +71,7 @@ export default function IssueScreen() {
       autoIssuedRef.current = true;
       handleCreateCoupon(match);
     }
-  }, [offerIdFromQuery, offers, coupon, autoIssue]);
+  }, [offerIdFromQuery, offers, coupon, autoIssue, t]);
 
   const loadOffers = async () => {
     try {
@@ -79,7 +81,7 @@ export default function IssueScreen() {
       setErrorMessage("");
     } catch {
       setFlowState("error");
-      setErrorMessage("שגיאה בטעינת הצעות");
+      setErrorMessage(t("billing.couponIssue.errorLoadOffers"));
     }
   };
 
@@ -95,7 +97,7 @@ export default function IssueScreen() {
       setFlowState("ready");
     } catch {
       setFlowState("error");
-      setErrorMessage("שגיאה ביצירת קופון");
+      setErrorMessage(t("billing.couponIssue.errorCreate"));
     }
   };
 
@@ -152,7 +154,7 @@ export default function IssueScreen() {
                 marginBottom: 8,
               }}
             >
-              ההצעה שנבחרה
+              {t("billing.couponIssue.selectedOffer")}
             </div>
 
             <div
@@ -174,7 +176,7 @@ export default function IssueScreen() {
                 marginBottom: 16,
               }}
             >
-              {selectedOffer.description || "ללא תיאור"}
+              {selectedOffer.description || t("billing.couponIssue.noDescription")}
             </div>
 
             <button
@@ -191,7 +193,7 @@ export default function IssueScreen() {
                 cursor: "pointer",
               }}
             >
-              הנפק קופון
+              {t("billing.couponIssue.issueCoupon")}
             </button>
           </div>
         )}
@@ -212,7 +214,7 @@ export default function IssueScreen() {
                 marginBottom: 8,
               }}
             >
-              ההצעה שנבחרה
+              {t("billing.couponIssue.selectedOffer")}
             </div>
 
             <div
@@ -233,7 +235,7 @@ export default function IssueScreen() {
                 lineHeight: 1.6,
               }}
             >
-              {selectedOffer.description || "ללא תיאור"}
+              {selectedOffer.description || t("billing.couponIssue.noDescription")}
             </div>
           </div>
         )}
@@ -259,9 +261,9 @@ export default function IssueScreen() {
 
         {flowState === "error" && (
           <IssueEmptyState
-            title="משהו השתבש"
+            title={t("billing.couponIssue.errorTitle")}
             description={errorMessage}
-            actionLabel="נסה שוב"
+            actionLabel={t("billing.couponIssue.tryAgain")}
             onAction={loadOffers}
           />
         )}

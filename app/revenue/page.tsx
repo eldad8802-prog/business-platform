@@ -31,6 +31,7 @@ import { fetchActiveCoupons, fetchCouponCode, publishDraft, type GeoPoint } from
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import { LAYOUT, type PageIntent, type PageSurfaceIntent } from "@/lib/design/tokens";
 import { PageContainer } from "@/components/ui/page-container";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /** The shell's desktop tier — where its navigation becomes a sidebar. */
 const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
@@ -116,6 +117,7 @@ function parseView(raw: string | null): View {
 
 function CouponFeature() {
   const router = useRouter();
+  const { t } = useI18n();
   // Leaving "my coupons" returns to where the user came from (Home, Tools,
   // the business page…); the registry fallback (Home) covers a direct link.
   const goBack = useGoBack();
@@ -176,7 +178,7 @@ function CouponFeature() {
   };
 
   const confirmDiscard = () =>
-    !draftDirty || window.confirm("לצאת מהיצירה? הקופון עדיין לא פורסם והפרטים יימחקו.");
+    !draftDirty || window.confirm(t("billing.revenuePage.confirmDiscard"));
 
   // Close (X) / "done": return to the "my coupons" entry the flow was opened
   // from by popping history (no duplicate entry, so back from there keeps
@@ -222,10 +224,9 @@ function CouponFeature() {
             justifyContent: "center",
             color: "var(--dz-text-secondary)",
             fontFamily: "'Heebo', system-ui, sans-serif",
-            direction: "rtl",
           }}
         >
-          טוען הטבות…
+          {t("billing.revenuePage.loadingBenefits")}
         </div>
       );
     }
@@ -256,9 +257,10 @@ function CouponFeature() {
 }
 
 function Loading() {
+  const { t } = useI18n();
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dz-text-secondary)", fontFamily: "'Heebo', system-ui, sans-serif", direction: "rtl" }}>
-      טוען…
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dz-text-secondary)", fontFamily: "'Heebo', system-ui, sans-serif" }}>
+      {t("common.loading")}
     </div>
   );
 }

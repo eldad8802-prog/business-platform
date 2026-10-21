@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Business VISUAL signature / stamp editor (Phase 1).
@@ -27,6 +28,7 @@ function isValidSignature(v: string | null): boolean {
 }
 
 export function BillingSignatureField() {
+  const { t } = useI18n();
   const fileRef = useRef<HTMLInputElement>(null);
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,10 +70,10 @@ export function BillingSignatureField() {
         const raw = data?.profile?.billingSignatureDataUrl;
         setSignatureUrl(typeof raw === "string" ? raw : null);
       } else {
-        setError("לא הצלחנו לשמור את החתימה. נסו שוב.");
+        setError(t("billing.signature.saveFailed"));
       }
     } catch {
-      setError("לא הצלחנו לשמור את החתימה. נסו שוב.");
+      setError(t("billing.signature.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -81,11 +83,11 @@ export function BillingSignatureField() {
     setError(null);
     if (!file) return;
     if (!/^image\/(png|jpeg|webp)$/i.test(file.type)) {
-      setError("יש להעלות קובץ תמונה מסוג PNG, JPEG או WebP.");
+      setError(t("billing.signature.badType"));
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError("הקובץ גדול מדי (עד 500KB).");
+      setError(t("billing.signature.tooLarge"));
       return;
     }
     const reader = new FileReader();
@@ -94,10 +96,10 @@ export function BillingSignatureField() {
       if (typeof r === "string" && isValidSignature(r)) {
         void save(r);
       } else {
-        setError("קובץ לא תקין.");
+        setError(t("billing.signature.invalidFile"));
       }
     };
-    reader.onerror = () => setError("קריאת הקובץ נכשלה.");
+    reader.onerror = () => setError(t("billing.signature.readFailed"));
     reader.readAsDataURL(file);
   }
 
@@ -129,11 +131,10 @@ export function BillingSignatureField() {
             color: TOKEN.ink.primary,
           }}
         >
-          חתימה / חותמת של העסק
+          {t("billing.signature.title")}
         </h3>
         <p style={{ margin: 0, fontSize: 12, color: TOKEN.ink.secondary, lineHeight: 1.5 }}>
-          חתימה או חותמת ויזואלית שתופיע במסמכים ללקוח, כמו חשבוניות והצעות מחיר. זוהי תמונה
-          בלבד — אינה חתימה דיגיטלית או קריפטוגרפית ואינה מהווה אימות של המסמך.
+          {t("billing.signature.help")}
         </p>
       </div>
 
@@ -171,11 +172,11 @@ export function BillingSignatureField() {
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={signatureUrl as string}
-              alt="חתימת העסק"
+              alt={t("billing.signature.imageAlt")}
               style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
             />
           ) : (
-            <span style={{ fontSize: 12, color: TOKEN.ink.muted }}>אין חתימה</span>
+            <span style={{ fontSize: 12, color: TOKEN.ink.muted }}>{t("billing.signature.none")}</span>
           )}
         </div>
 
@@ -205,7 +206,7 @@ export function BillingSignatureField() {
               opacity: busy ? 0.6 : 1,
             }}
           >
-            {busy ? "שומר…" : has ? "החלפת חתימה" : "העלאת חתימה"}
+            {busy ? t("common.saving") : has ? t("billing.signature.replace") : t("billing.signature.upload")}
           </button>
           {has ? (
             <button
@@ -220,7 +221,7 @@ export function BillingSignatureField() {
                 opacity: busy ? 0.6 : 1,
               }}
             >
-              הסרה
+              {t("billing.signature.remove")}
             </button>
           ) : null}
         </div>

@@ -12,9 +12,8 @@
  */
 import type { ReactNode } from "react";
 import { TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
-  DOCUMENT_TYPE_LABEL,
-  STATUS_LABEL,
   STATUS_STYLE,
   formatDate,
   formatDateTime,
@@ -22,12 +21,14 @@ import {
   formatPercent,
   formatQuantity,
   getDocumentTypeLabel,
+  getStatusLabel,
   type BillingDocumentDetail,
   type BillingDocumentLine,
   type BillingStatus,
 } from "@/lib/billing/document-view-model";
 
 export function StatusBadge({ status }: { status: BillingStatus }) {
+  const { t } = useI18n();
   const style = STATUS_STYLE[status];
   return (
     <span
@@ -42,7 +43,7 @@ export function StatusBadge({ status }: { status: BillingStatus }) {
         whiteSpace: "nowrap",
       }}
     >
-      {STATUS_LABEL[status]}
+      {getStatusLabel(status, t)}
     </span>
   );
 }
@@ -79,6 +80,7 @@ export function CollapsiblePanel({
 }
 
 export function CustomerSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
+  const { t } = useI18n();
   return (
     <section
       style={{
@@ -89,19 +91,20 @@ export function CustomerSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
         color: TOKEN.ink.secondary,
         fontSize: 13,
       }}
-      aria-label="לקוח במסמך"
+      aria-label={t("billing.doc.customerAria")}
     >
-      <span style={{ color: TOKEN.ink.muted }}>לקוח: </span>
+      <span style={{ color: TOKEN.ink.muted }}>{t("billing.doc.customerPrefix")}</span>
       <span style={{ color: TOKEN.ink.primary, fontWeight: 600 }}>
-        {doc.customerNameSnapshot ?? "לא הוגדר"}
+        {doc.customerNameSnapshot ?? t("billing.doc.notSet")}
       </span>
     </section>
   );
 }
 
 export function ReviewSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
-  const customer = doc.customerNameSnapshot ?? "לא הוגדר";
-  const total = formatMoney(doc.totalAmount, doc.currency);
+  const { t, locale } = useI18n();
+  const customer = doc.customerNameSnapshot ?? t("billing.doc.notSet");
+  const total = formatMoney(doc.totalAmount, doc.currency, locale);
   const itemCount = doc.lines.length;
   const isQuote = doc.documentType === "QUOTE";
 
@@ -115,25 +118,25 @@ export function ReviewSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
         display: "grid",
         gap: 10,
       }}
-      aria-label="בדיקת המסמך"
+      aria-label={t("billing.doc.reviewAria")}
     >
       <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.ink.primary }}>
-        בדיקה קצרה
+        {t("billing.doc.reviewTitle")}
       </div>
       <div style={{ display: "grid", gap: 8 }}>
-        <ReviewSummaryRow label="לקוח" value={customer} />
+        <ReviewSummaryRow label={t("billing.doc.customer")} value={customer} />
         <ReviewSummaryRow
-          label="פריטים"
-          value={itemCount === 1 ? "פריט אחד" : `${itemCount} פריטים`}
+          label={t("billing.doc.items")}
+          value={itemCount === 1 ? t("billing.doc.itemsOne") : t("billing.doc.itemsMany", { count: itemCount })}
         />
-        <ReviewSummaryRow label="סכום" value={total} emphasized />
+        <ReviewSummaryRow label={t("billing.doc.amount")} value={total} emphasized />
       </div>
       <div style={{ fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
         {isQuote
-          ? "זה מה שהלקוח יקבל בהצעה."
+          ? t("billing.doc.reviewQuoteNote")
           : doc.status === "ISSUED"
-          ? "זה המסמך הרשמי שמוכן לשיתוף."
-          : "לאחר ההפקה המסמך יקבל מספר רשמי ויינעל לעריכה."}
+          ? t("billing.doc.reviewIssuedNote")
+          : t("billing.doc.reviewDraftNote")}
       </div>
     </section>
   );
@@ -163,7 +166,7 @@ export function ReviewSummaryRow({
           fontSize: emphasized ? 16 : 14,
           color: TOKEN.ink.primary,
           fontWeight: 600,
-          textAlign: "left",
+          textAlign: "end",
         }}
       >
         {value}
@@ -179,12 +182,13 @@ export function DetailsCard({
   doc: BillingDocumentDetail;
   hideCustomer?: boolean;
 }) {
+  const { t, locale } = useI18n();
   const customer = doc.customerNameSnapshot ?? "—";
-  const created = formatDateTime(doc.createdAt);
-  const issued = formatDateTime(doc.issuedAt);
+  const created = formatDateTime(doc.createdAt, locale);
+  const issued = formatDateTime(doc.issuedAt, locale);
   const validUntil =
     doc.documentType === "QUOTE" && doc.validUntil
-      ? formatDate(doc.validUntil)
+      ? formatDate(doc.validUntil, locale)
       : "";
 
   return (
@@ -205,20 +209,20 @@ export function DetailsCard({
           letterSpacing: "0.02em",
         }}
       >
-        פרטי המסמך ללקוח
+        {t("billing.doc.detailsTitle")}
       </h2>
       <dl style={{ display: "grid", gap: 10, margin: 0 }}>
-        {hideCustomer ? null : <DetailRow label="לקוח" value={customer} />}
+        {hideCustomer ? null : <DetailRow label={t("billing.doc.customer")} value={customer} />}
         <DetailRow
-          label="סוג מסמך"
-          value={getDocumentTypeLabel(doc.documentType)}
+          label={t("billing.doc.docType")}
+          value={getDocumentTypeLabel(doc.documentType, t)}
         />
-        <DetailRow label="סטטוס" value={STATUS_LABEL[doc.status] ?? doc.status} />
+        <DetailRow label={t("billing.doc.status")} value={getStatusLabel(doc.status, t)} />
         {validUntil ? (
-          <DetailRow label="בתוקף עד" value={validUntil} />
+          <DetailRow label={t("billing.doc.validUntil")} value={validUntil} />
         ) : null}
-        {created ? <DetailRow label="נוצר" value={created} /> : null}
-        {issued ? <DetailRow label="הופק" value={issued} /> : null}
+        {created ? <DetailRow label={t("billing.doc.created")} value={created} /> : null}
+        {issued ? <DetailRow label={t("billing.doc.issued")} value={issued} /> : null}
       </dl>
     </section>
   );
@@ -251,7 +255,7 @@ export function DetailRow({ label, value }: { label: string; value: string }) {
           color: TOKEN.ink.primary,
           margin: 0,
           fontWeight: 600,
-          textAlign: "left",
+          textAlign: "end",
         }}
       >
         {value}
@@ -267,9 +271,10 @@ export function TotalsCard({
   doc: BillingDocumentDetail;
   showUnsavedLinesHint?: boolean;
 }) {
-  const subtotal = formatMoney(doc.subtotalAmount, doc.currency);
-  const vat = formatMoney(doc.vatAmount, doc.currency);
-  const total = formatMoney(doc.totalAmount, doc.currency);
+  const { t, locale } = useI18n();
+  const subtotal = formatMoney(doc.subtotalAmount, doc.currency, locale);
+  const vat = formatMoney(doc.vatAmount, doc.currency, locale);
+  const total = formatMoney(doc.totalAmount, doc.currency, locale);
 
   return (
     <section
@@ -289,7 +294,7 @@ export function TotalsCard({
           letterSpacing: "0.02em",
         }}
       >
-        סיכום לתשלום
+        {t("billing.doc.totalsTitle")}
       </h2>
       {showUnsavedLinesHint ? (
         <div
@@ -304,12 +309,12 @@ export function TotalsCard({
             border: `1px solid ${TOKEN.border.DEFAULT}`,
           }}
         >
-          יש שינויים שלא נשמרו — הסכומים משקפים את הגרסה האחרונה שנשמרה
+          {t("billing.doc.unsavedHint")}
         </div>
       ) : null}
       <div style={{ display: "grid", gap: 8 }}>
-        <TotalRow label="סכום ביניים" value={subtotal} />
-        <TotalRow label='מע"מ' value={vat} />
+        <TotalRow label={t("billing.doc.subtotal")} value={subtotal} />
+        <TotalRow label={t("billing.doc.vat")} value={vat} />
         <div
           style={{
             height: 1,
@@ -317,16 +322,16 @@ export function TotalsCard({
             margin: "4px 0",
           }}
         />
-        <TotalRow label='סה"כ לתשלום' value={total} emphasized />
+        <TotalRow label={t("billing.doc.totalDue")} value={total} emphasized />
         <div
           style={{
             fontSize: 12,
             color: TOKEN.ink.meta,
             marginTop: 4,
-            textAlign: "left",
+            textAlign: "end",
           }}
         >
-          סכומים ב־{doc.currency}
+          {t("billing.doc.amountsIn", { currency: doc.currency })}
         </div>
       </div>
     </section>
@@ -380,6 +385,7 @@ export function LinesSection({
   lines: BillingDocumentLine[];
   currency: string;
 }) {
+  const { t } = useI18n();
   return (
     <section
       style={{
@@ -398,7 +404,7 @@ export function LinesSection({
           letterSpacing: "0.02em",
         }}
       >
-        פריטים במסמך ({lines.length})
+        {t("billing.doc.linesTitle", { count: lines.length })}
       </h2>
       {lines.length === 0 ? (
         <div
@@ -411,7 +417,7 @@ export function LinesSection({
             fontSize: 14,
           }}
         >
-          אין פריטים במסמך
+          {t("billing.doc.noLines")}
         </div>
       ) : (
         <ul
@@ -439,12 +445,13 @@ export function LineCard({
   line: BillingDocumentLine;
   currency: string;
 }) {
-  const qty = formatQuantity(line.quantity);
-  const unit = formatMoney(line.unitPrice, currency);
-  const subtotal = formatMoney(line.lineSubtotal, currency);
-  const vatLabel = formatPercent(line.vatRatePercent);
-  const vat = formatMoney(line.vatAmount, currency);
-  const total = formatMoney(line.lineTotal, currency);
+  const { t, locale } = useI18n();
+  const qty = formatQuantity(line.quantity, locale);
+  const unit = formatMoney(line.unitPrice, currency, locale);
+  const subtotal = formatMoney(line.lineSubtotal, currency, locale);
+  const vatLabel = formatPercent(line.vatRatePercent, locale);
+  const vat = formatMoney(line.vatAmount, currency, locale);
+  const total = formatMoney(line.lineTotal, currency, locale);
 
   return (
     <li
@@ -512,11 +519,11 @@ export function LineCard({
           gap: 6,
         }}
       >
-        <span>כמות: {qty}</span>
+        <span>{t("billing.doc.lineQty", { qty })}</span>
         <span style={{ color: TOKEN.border.hover }}>·</span>
-        <span>מחיר ליחידה: {unit}</span>
+        <span>{t("billing.doc.lineUnitPrice", { price: unit })}</span>
         <span style={{ color: TOKEN.border.hover }}>·</span>
-        <span>סכום: {subtotal}</span>
+        <span>{t("billing.doc.lineSubtotal", { amount: subtotal })}</span>
       </div>
 
       <div
@@ -528,7 +535,7 @@ export function LineCard({
           gap: 6,
         }}
       >
-        <span>מע&quot;מ {vatLabel}:</span>
+        <span>{t("billing.doc.lineVat", { rate: vatLabel })}</span>
         <span style={{ fontWeight: 600, color: TOKEN.ink.primary }}>{vat}</span>
       </div>
 
@@ -542,7 +549,7 @@ export function LineCard({
         }}
       >
         <span style={{ fontSize: 13, color: TOKEN.ink.secondary, fontWeight: 500 }}>
-          סה&quot;כ פריט
+          {t("billing.doc.lineTotal")}
         </span>
         <span style={{ fontSize: 15, fontWeight: 600, color: TOKEN.ink.primary }}>
           {total}

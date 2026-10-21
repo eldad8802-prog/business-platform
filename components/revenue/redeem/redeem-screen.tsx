@@ -6,6 +6,9 @@ import { useFlowStep } from "@/hooks/useFlowStep";
 import { useSearchParams } from "next/navigation";
 import RedeemScanner from "./redeem-scanner";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 type FlowState = "scan" | "idle" | "validating" | "success" | "error";
 
@@ -39,6 +42,7 @@ function InlineRedeemInput({
   onSubmit,
   onBackToScan,
 }: InputProps) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -54,10 +58,10 @@ function InlineRedeemInput({
           fontWeight: 700,
           color: "var(--dz-text-primary)",
           marginBottom: 8,
-          textAlign: "right",
+          textAlign: "start",
         }}
       >
-        מימוש קופון
+        {t("billing.redeem.title")}
       </div>
 
       <div
@@ -65,17 +69,17 @@ function InlineRedeemInput({
           fontSize: 14,
           color: "var(--dz-text-muted)",
           marginBottom: 16,
-          textAlign: "right",
+          textAlign: "start",
           lineHeight: 1.5,
         }}
       >
-        הדבק או הקלד קוד קופון כדי לאמת מימוש במערכת
+        {t("billing.redeem.manualHelp")}
       </div>
 
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="הדבק או הקלד קוד קופון"
+        placeholder={t("billing.redeem.manualPlaceholder")}
         style={{
           width: "100%",
           padding: "14px",
@@ -106,7 +110,7 @@ function InlineRedeemInput({
           marginBottom: 10,
         }}
       >
-        אמת קופון
+        {t("billing.redeem.verify")}
       </button>
 
       <button
@@ -124,13 +128,14 @@ function InlineRedeemInput({
           cursor: "pointer",
         }}
       >
-        סרוק באמצעות מצלמה
+        {t("billing.redeem.scanWithCamera")}
       </button>
     </div>
   );
 }
 
 function InlineRedeemLoading() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -149,7 +154,7 @@ function InlineRedeemLoading() {
           marginBottom: 8,
         }}
       >
-        מאמת קופון...
+        {t("billing.redeem.validating")}
       </div>
 
       <div
@@ -158,7 +163,7 @@ function InlineRedeemLoading() {
           color: "var(--dz-text-muted)",
         }}
       >
-        מבצע בדיקת תקינות ואישור מימוש
+        {t("billing.redeem.validatingHelp")}
       </div>
     </div>
   );
@@ -169,7 +174,7 @@ type SuccessProps = {
   onReset: () => void;
 };
 
-function formatRedeemedAt(value?: string) {
+function formatRedeemedAt(value: string | undefined, locale: Locale) {
   if (!value) return "";
 
   const date = new Date(value);
@@ -178,19 +183,20 @@ function formatRedeemedAt(value?: string) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("he-IL", {
+  return new Intl.DateTimeFormat(intlTag(locale), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
 function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
-  const title = result?.coupon?.offer?.title || "המימוש אושר בהצלחה";
+  const { t, locale } = useI18n();
+  const title = result?.coupon?.offer?.title || t("billing.redeem.approvedFallbackTitle");
   const benefit =
     result?.coupon?.offer?.customerBenefitText ||
     result?.coupon?.offer?.description ||
     "";
-  const redeemedAtText = formatRedeemedAt(result?.redemptionEvent?.redeemedAt);
+  const redeemedAtText = formatRedeemedAt(result?.redemptionEvent?.redeemedAt, locale);
 
   return (
     <div
@@ -210,7 +216,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           color: "var(--dz-text-primary)",
         }}
       >
-        המימוש אושר בהצלחה 🎉
+        {t("billing.redeem.approvedSuccess")}
       </div>
 
       <div
@@ -245,7 +251,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           marginBottom: redeemedAtText ? 8 : 16,
         }}
       >
-        המימוש נרשם במערכת
+        {t("billing.redeem.recorded")}
       </div>
 
       {redeemedAtText ? (
@@ -256,7 +262,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
             marginBottom: 16,
           }}
         >
-          מועד מימוש: {redeemedAtText}
+          {t("billing.redeem.redeemedAt", { date: redeemedAtText })}
         </div>
       ) : null}
 
@@ -273,7 +279,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           cursor: "pointer",
         }}
       >
-        מימוש קופון נוסף
+        {t("billing.redeem.redeemAnotherCoupon")}
       </button>
     </div>
   );
@@ -286,6 +292,7 @@ type ErrorProps = {
 };
 
 function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -304,7 +311,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           color: "var(--dz-danger)",
         }}
       >
-        לא ניתן לממש את הקופון
+        {t("billing.redeem.cannotRedeem")}
       </div>
 
       <div
@@ -332,7 +339,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           marginBottom: 10,
         }}
       >
-        סרוק שוב
+        {t("billing.redeem.scanAgain")}
       </button>
 
       <button
@@ -349,43 +356,44 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           cursor: "pointer",
         }}
       >
-        עבור להזנה ידנית
+        {t("billing.redeem.switchToManual")}
       </button>
     </div>
   );
 }
 
-function mapRedeemError(data: any) {
+function mapRedeemError(data: any, t: Translator) {
   const backendError = data?.error;
 
   if (backendError === "Coupon was already redeemed") {
-    return "הקופון כבר מומש בעבר";
+    return t("billing.redeem.errorAlreadyRedeemed");
   }
 
   if (backendError === "Coupon has expired") {
-    return "תוקף הקופון פג ולא ניתן לממש אותו";
+    return t("billing.redeem.errorExpired");
   }
 
   if (backendError === "Coupon not found") {
-    return "הקופון לא נמצא. נסה לסרוק שוב או להזין ידנית";
+    return t("billing.redeem.errorNotFound");
   }
 
   if (backendError === "Unauthorized") {
-    return "אין הרשאה לבצע מימוש. התחבר מחדש";
+    return t("billing.redeem.errorUnauthorized");
   }
 
   if (backendError === "Coupon was cancelled") {
-    return "הקופון בוטל ולא ניתן לממש אותו";
+    return t("billing.redeem.errorCancelled");
   }
 
   if (typeof backendError === "string" && backendError.trim()) {
     return backendError;
   }
 
-  return "שגיאה במימוש קופון";
+  return t("billing.redeem.errorGeneric");
 }
 
 export default function RedeemScreen() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
 
   const [tokenInput, setTokenInput] = useState("");
@@ -422,13 +430,13 @@ export default function RedeemScreen() {
     const finalToken = (tokenValue || tokenInput).trim();
 
     if (!finalToken) {
-      setErrorMessage("יש להזין קוד קופון");
+      setErrorMessage(t("billing.redeem.errorCodeRequired"));
       flow.go("error");
       return;
     }
 
     if (!authToken) {
-      setErrorMessage("אין הרשאה לבצע מימוש. התחבר מחדש");
+      setErrorMessage(t("billing.redeem.errorUnauthorized"));
       flow.go("error");
       return;
     }
@@ -448,7 +456,7 @@ export default function RedeemScreen() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(mapRedeemError(data));
+        throw new Error(mapRedeemError(data, t));
       }
 
       setResult(data);
@@ -457,7 +465,7 @@ export default function RedeemScreen() {
       // earlier entry/error steps are consumed; back returns to the scanner.
       flow.complete("done", ["manual", "error"]);
     } catch (err: any) {
-      setErrorMessage(err?.message || "שגיאה לא ידועה");
+      setErrorMessage(err?.message || t("billing.redeem.errorUnknown"));
       setValidating(false);
       flow.go("error");
       redeemInFlightRef.current = false;
@@ -531,10 +539,10 @@ export default function RedeemScreen() {
                 fontWeight: 700,
                 color: "var(--dz-text-primary)",
                 marginBottom: 8,
-                textAlign: "right",
+                textAlign: "start",
               }}
             >
-              מימוש קופון
+              {t("billing.redeem.title")}
             </div>
 
             <div
@@ -542,11 +550,11 @@ export default function RedeemScreen() {
                 fontSize: 14,
                 color: "var(--dz-text-muted)",
                 marginBottom: 8,
-                textAlign: "right",
+                textAlign: "start",
                 lineHeight: 1.5,
               }}
             >
-              סרוק קופון כדי לאמת ולבצע מימוש במערכת
+              {t("billing.redeem.scanHelp")}
             </div>
 
             <div
@@ -554,11 +562,11 @@ export default function RedeemScreen() {
                 fontSize: 13,
                 color: "var(--dz-text-muted)",
                 marginBottom: 16,
-                textAlign: "right",
+                textAlign: "start",
                 lineHeight: 1.5,
               }}
             >
-              המערכת תבדוק אם הקופון תקף ותאשר את המימוש באופן מיידי
+              {t("billing.redeem.scanHelpDetail")}
             </div>
 
             <RedeemScanner
@@ -583,7 +591,7 @@ export default function RedeemScreen() {
                 cursor: "pointer",
               }}
             >
-              הקלד קוד במקום סריקה
+              {t("billing.redeem.typeInstead")}
             </button>
           </div>
         )}
