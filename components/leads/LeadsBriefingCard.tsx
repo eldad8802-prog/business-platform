@@ -121,7 +121,7 @@ export function LeadsBriefingCard({ embedded = false }: { embedded?: boolean } =
           יש יותר לידים פתוחים ממה שנסקר — המספרים הם לפחות.
         </p>
       ) : null}
-      <Link href="/attention" style={{ display: "inline-block", marginTop: 12, color: DS.accent }}>
+      <Link href="/attention" style={{ display: "inline-flex", alignItems: "center", minHeight: 32, marginTop: 8, color: DS.accent }}>
         לתור הטיפול ›
       </Link>
     </section>

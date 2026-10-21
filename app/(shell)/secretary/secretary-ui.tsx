@@ -76,7 +76,7 @@ const CAPTURE_KINDS: CaptureKindOption[] = [
   {
     key: "postdated-check",
     title: "צ'ק דחוי",
-    description: "פירעון ותזכורת לפני",
+    description: "תאריך פירעון ומספר צ׳ק",
     icon: "📝",
     supported: true,
   },

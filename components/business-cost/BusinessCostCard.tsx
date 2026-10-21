@@ -327,4 +327,5 @@ function ReliabilityNote({ lines }: { lines: string[] }) {
   );
 }
 
-const linkButton = { marginTop: 6, padding: 0, border: 0, background: "none", color: DS.accent, fontSize: 13, cursor: "pointer", font: "inherit" } as const;
+// 32px tall: a comfortable touch target without changing the card layout.
+const linkButton = { marginTop: 6, padding: 0, minHeight: 32, display: "inline-flex", alignItems: "center", border: 0, background: "none", color: DS.accent, fontSize: 13, cursor: "pointer", font: "inherit" } as const;
