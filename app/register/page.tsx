@@ -1,9 +1,6 @@
 import Link from "next/link";
-import {
-  SIGNUP_DISABLED_MESSAGE_HE,
-  SIGNUP_DISABLED_TITLE_HE,
-  isPublicSignupEnabled,
-} from "@/lib/auth/signup-gate";
+import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
+import { getServerI18n } from "@/lib/i18n/server";
 import { CLOSED_BETA_ACCESS, readSignupAllowlist } from "@/lib/auth/signup-allowlist";
 import RegisterForm from "./register-form";
 
@@ -29,7 +26,6 @@ const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
   background:
     "radial-gradient(circle at top right, rgba(30, 106, 74,0.10), transparent 28%), linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-brand-soft) 45%, var(--dz-surface-flat) 100%)",
-  direction: "rtl",
   padding: "24px 16px",
   display: "flex",
   alignItems: "center",
@@ -75,14 +71,16 @@ const linkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 
-function SignupClosedNotice() {
+// The copy is SIGNUP_DISABLED_TITLE_HE / SIGNUP_DISABLED_MESSAGE_HE (lib/auth/signup-gate.ts), verbatim, in the dictionary.
+async function SignupClosedNotice() {
+  const { t } = await getServerI18n();
   return (
     <div style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={titleStyle}>{SIGNUP_DISABLED_TITLE_HE}</h1>
-        <p style={messageStyle}>{SIGNUP_DISABLED_MESSAGE_HE}</p>
+        <h1 style={titleStyle}>{t("account.auth.register.closed.title")}</h1>
+        <p style={messageStyle}>{t("account.auth.register.closed.message")}</p>
         <Link href="/login" style={linkStyle}>
-          כניסה למשתמשים קיימים
+          {t("account.auth.register.closed.toLogin")}
         </Link>
       </div>
     </div>

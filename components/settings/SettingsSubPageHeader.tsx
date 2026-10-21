@@ -1,5 +1,6 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import BackButton from "@/components/ui/back-button";
 
 type Props = {
@@ -13,6 +14,7 @@ export function SettingsSubPageHeader({
   subtitle,
   backHref = "/settings",
 }: Props) {
+  const { t } = useI18n();
   return (
     <header className="mb-5 rounded-3xl dz-mist px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -23,7 +25,7 @@ export function SettingsSubPageHeader({
           {subtitle ? (
             <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{subtitle}</p>
           ) : (
-            <p className="mt-1 text-xs text-[var(--dz-text-muted)]">הגדרות מערכת</p>
+            <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{t("account.settings.subHeader.defaultSubtitle")}</p>
           )}
         </div>
 

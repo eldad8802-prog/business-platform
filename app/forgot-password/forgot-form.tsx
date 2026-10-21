@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { AuthCard, authCardStyles as s } from "@/components/auth/auth-card";
 import { PrimaryCta } from "@/components/ui/primary-cta";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -13,6 +14,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * says whether an account exists, and neither does this page.
  */
 export default function ForgotForm() {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export default function ForgotForm() {
     e.preventDefault();
     setFormError(null);
     if (!EMAIL.test(email.trim())) {
-      setFieldError("יש להזין כתובת אימייל תקינה");
+      setFieldError(t("account.auth.common.emailInvalid"));
       return;
     }
     setFieldError(null);
@@ -36,14 +38,14 @@ export default function ForgotForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setSentMessage(data?.message ?? "אם הכתובת רשומה אצלנו, שלחנו אליה קישור לבחירת סיסמה חדשה.");
+        setSentMessage(data?.message ?? t("account.auth.forgot.sentFallback"));
       } else if (data?.field === "email") {
         setFieldError(data.error);
       } else {
-        setFormError(data?.error ?? "משהו השתבש אצלנו. כדאי לנסות שוב בעוד רגע.");
+        setFormError(data?.error ?? t("account.auth.common.serverError"));
       }
     } catch {
-      setFormError("אין חיבור כרגע. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.");
+      setFormError(t("account.auth.common.offline"));
     } finally {
       setLoading(false);
     }
@@ -51,22 +53,22 @@ export default function ForgotForm() {
 
   if (sentMessage) {
     return (
-      <AuthCard title="בדקו את תיבת המייל" lede={sentMessage}>
+      <AuthCard title={t("account.auth.forgot.sent.title")} lede={sentMessage}>
         <p className={s.info} role="status" data-testid="forgot-sent">
-          לא הגיע תוך כמה דקות? כדאי לבדוק בתיקיית הספאם, או לבקש שוב. נשלח קישור אחד בכל פעם — הקישור האחרון הוא זה שעובד.
+          {t("account.auth.forgot.sent.body")}
         </p>
         <p className={s.footer}>
-          <Link href="/login" className={s.link}>חזרה לכניסה</Link>
+          <Link href="/login" className={s.link}>{t("account.auth.common.backToLogin")}</Link>
         </p>
       </AuthCard>
     );
   }
 
   return (
-    <AuthCard title="שכחתי סיסמה" lede="נשלח קישור לבחירת סיסמה חדשה לכתובת האימייל של החשבון.">
+    <AuthCard title={t("account.auth.forgot.title")} lede={t("account.auth.forgot.lede")}>
       <form onSubmit={submit} noValidate style={{ display: "contents" }}>
         <div className={s.field}>
-          <label className={s.label} htmlFor="forgot-email">אימייל</label>
+          <label className={s.label} htmlFor="forgot-email">{t("account.auth.common.emailLabel")}</label>
           <input
             id="forgot-email"
             type="email"
@@ -84,15 +86,15 @@ export default function ForgotForm() {
           {fieldError ? (
             <p id="forgot-email-msg" role="alert" className={s.fieldError}>{fieldError}</p>
           ) : (
-            <p id="forgot-email-msg" className={s.helper}>הכתובת שאיתה נכנסים ל־Dubiz.</p>
+            <p id="forgot-email-msg" className={s.helper}>{t("account.auth.forgot.emailHelp")}</p>
           )}
         </div>
         {formError ? <div role="alert" aria-live="assertive" className={s.alert}>{formError}</div> : null}
         <PrimaryCta type="submit" block disabled={loading}>
-          {loading ? <><span className={s.spinner} aria-hidden="true" />שולחים…</> : "שליחת קישור"}
+          {loading ? <><span className={s.spinner} aria-hidden="true" />{t("account.auth.common.sending")}</> : t("account.auth.forgot.submit")}
         </PrimaryCta>
         <p className={s.footer}>
-          נזכרת? <Link href="/login" className={s.link}>חזרה לכניסה</Link>
+          {t("account.auth.forgot.remembered")} <Link href="/login" className={s.link}>{t("account.auth.common.backToLogin")}</Link>
         </p>
       </form>
     </AuthCard>

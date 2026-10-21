@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -40,6 +41,7 @@ export default function LoginForm({
   notice?: "reset-done" | null;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -113,15 +115,15 @@ export default function LoginForm({
 
   function validateField(field: "email" | "password", value: string) {
     if (field === "email") {
-      if (!value.trim()) return "יש להזין אימייל";
-      if (!emailRegex.test(value.trim())) return "יש להזין כתובת אימייל תקינה";
+      if (!value.trim()) return t("account.auth.login.errors.emailRequired");
+      if (!emailRegex.test(value.trim())) return t("account.auth.login.errors.emailInvalid");
       return "";
     }
 
     if (field === "password") {
       // Required, nothing more: the server decides whether a password is right, and an
       // account created under an older rule must never be refused here before it is asked.
-      if (!value) return "יש להזין סיסמה";
+      if (!value) return t("account.auth.login.errors.passwordRequired");
       return "";
     }
 
@@ -162,9 +164,9 @@ export default function LoginForm({
   useEffect(() => {
     if (lockedUntil === null) return;
     const timer = window.setInterval(() => {
-      const t = Date.now();
-      setNowMs(t);
-      if (t >= lockedUntil) {
+      const now = Date.now();
+      setNowMs(now);
+      if (now >= lockedUntil) {
         setLockedUntil(null);
         setErrors((prev) => ({ ...prev, form: undefined }));
       }
@@ -220,12 +222,12 @@ export default function LoginForm({
         } else {
           setWarning(typeof data?.warning === "string" ? data.warning : null);
         }
-        throw new Error(data?.error || "שגיאה בהתחברות");
+        throw new Error(data?.error || t("account.auth.login.errors.loginFailed"));
       }
       setWarning(null);
 
       if (!data?.token) {
-        throw new Error("לא הצלחנו להשלים את הכניסה. כדאי לנסות שוב.");
+        throw new Error(t("account.auth.login.errors.noToken"));
       }
 
       window.localStorage.setItem("token", data.token);
@@ -245,7 +247,7 @@ export default function LoginForm({
     } catch (err) {
       console.error("login error:", err);
       setErrors({
-        form: err instanceof Error ? err.message : "שגיאה בהתחברות",
+        form: err instanceof Error ? err.message : t("account.auth.login.errors.loginFailed"),
       });
     } finally {
       setLoading(false);
@@ -256,7 +258,6 @@ export default function LoginForm({
     minHeight: "100vh",
     background:
       "radial-gradient(circle at top right, rgba(30, 106, 74,0.10), transparent 28%), linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-brand-soft) 45%, var(--dz-surface-flat) 100%)",
-    direction: "rtl",
     padding: "24px 16px",
     display: "flex",
     alignItems: "center",
@@ -351,12 +352,12 @@ export default function LoginForm({
 
   const passwordInputStyle: React.CSSProperties = {
     ...baseInputStyle,
-    paddingLeft: 84,
+    paddingInlineEnd: 84,
   };
 
   const passwordToggleStyle: React.CSSProperties = {
     position: "absolute",
-    left: 10,
+    insetInlineEnd: 10,
     top: "50%",
     transform: "translateY(-50%)",
     border: "none",
@@ -490,7 +491,7 @@ export default function LoginForm({
   return (
     <div style={pageStyle}>
       {/* The accessibility entry has a fixed place here, so the floating button stands down. */}
-      <AccessibilityTrigger label="הגדרות נגישות" style={LOGIN_A11Y_STYLE} />
+      <AccessibilityTrigger label={t("account.auth.login.a11ySettings")} style={LOGIN_A11Y_STYLE} />
       <div style={cardStyle}>
         <div style={headerStyle}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
@@ -499,20 +500,17 @@ export default function LoginForm({
 
           <div style={badgeStyle}>
             <span>🔐</span>
-            <span>כניסה מאובטחת למערכת</span>
+            <span>{t("account.auth.login.badge")}</span>
           </div>
 
-          <h1 style={titleStyle}>ברוך הבא</h1>
+          <h1 style={titleStyle}>{t("account.auth.login.title")}</h1>
 
-          <p style={subtitleStyle}>
-            התחבר כדי להמשיך לניהול העסק שלך, לצפות בשיחות, לבדוק תמחור,
-            ולעבוד מתוך מערכת אחת חכמה, מסודרת ומקצועית.
-          </p>
+          <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>
         </div>
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
           <div style={fieldWrapStyle}>
-            <label style={labelStyle} htmlFor="login-email">אימייל</label>
+            <label style={labelStyle} htmlFor="login-email">{t("account.auth.login.emailLabel")}</label>
             <div style={inputShellStyle}>
               <input
                 type="email"
@@ -550,13 +548,13 @@ export default function LoginForm({
               <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
               <p id="login-email-msg" style={helperTextStyle}>
-                השתמש באימייל שאיתו נרשמת למערכת.
+                {t("account.auth.login.emailHelp")}
               </p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle} htmlFor="login-password">סיסמה</label>
+            <label style={labelStyle} htmlFor="login-password">{t("account.auth.login.passwordLabel")}</label>
             <div style={inputShellStyle}>
               <input
                 type={showPassword ? "text" : "password"}
@@ -584,7 +582,7 @@ export default function LoginForm({
                       ? "0 0 0 3px rgba(155, 70, 52,0.10)"
                       : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
-                placeholder="הכנס סיסמה"
+                placeholder={t("account.auth.login.passwordPlaceholder")}
                 autoComplete="current-password"
                 spellCheck={false}
               />
@@ -592,23 +590,23 @@ export default function LoginForm({
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 style={passwordToggleStyle}
-                aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                aria-label={showPassword ? t("account.auth.login.hidePasswordAria") : t("account.auth.login.showPasswordAria")}
                 aria-pressed={showPassword}
                 aria-controls="login-password"
               >
-                {showPassword ? "הסתר" : "הצג"}
+                {showPassword ? t("account.auth.login.hidePassword") : t("account.auth.login.showPassword")}
               </button>
             </div>
 
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>הסיסמה שבחרת בהרשמה.</p>
+              <p id="login-password-msg" style={helperTextStyle}>{t("account.auth.login.passwordHelp")}</p>
             )}
             {passwordResetEnabled ? (
               <p style={{ ...helperTextStyle, marginTop: 6 }}>
                 <a href="/forgot-password" style={{ ...linkButtonStyle, fontSize: "inherit" }} data-testid="forgot-password-link">
-                  שכחתי סיסמה
+                  {t("account.auth.login.forgotPassword")}
                 </a>
               </p>
             ) : null}
@@ -616,17 +614,17 @@ export default function LoginForm({
 
           {notice === "reset-done" && !errors.form ? (
             <div role="status" aria-live="polite" style={noticeStyle} data-testid="reset-done-notice">
-              הסיסמה עודכנה. מעכשיו נכנסים עם הסיסמה החדשה.
+              {t("account.auth.login.resetDoneNotice")}
             </div>
           ) : null}
 
           {lockedUntil !== null ? (
             <div role="alert" aria-live="assertive" style={lockStyle} data-testid="login-locked">
-              <strong style={{ display: "block", marginBottom: 4 }}>הכניסה נחסמה זמנית</strong>
+              <strong style={{ display: "block", marginBottom: 4 }}>{t("account.auth.login.lockedTitle")}</strong>
               {/* The server's sentence carries a fixed number of minutes; the live countdown below replaces it. */}
-              מטעמי אבטחה, הכניסה עם כתובת האימייל הזו נחסמה זמנית אחרי כמה ניסיונות שגויים.
+              {t("account.auth.login.lockedBody")}
               <span style={{ display: "block", marginTop: 8, fontWeight: 700 }} aria-live="off">
-                אפשר לנסות שוב בעוד <span dir="ltr" data-testid="login-lock-countdown">{lockLeftLabel}</span>
+                {t("account.auth.login.lockedRetryIn")}{" "}<span dir="ltr" data-testid="login-lock-countdown">{lockLeftLabel}</span>
               </span>
             </div>
           ) : errors.form ? (
@@ -641,29 +639,29 @@ export default function LoginForm({
           ) : null}
 
           <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
-            {loading ? "מתחבר..." : "התחבר למערכת"}
+            {loading ? t("account.auth.login.submitting") : t("account.auth.login.submit")}
           </PrimaryCta>
 
           <div style={dividerStyle}>
             <div style={lineStyle} />
-            <span>כניסה מהירה ונקייה</span>
+            <span>{t("account.auth.login.divider")}</span>
             <div style={lineStyle} />
           </div>
 
           {signupEnabled ? (
             <p style={footerTextStyle}>
-              אין לך חשבון?{" "}
+              {t("account.auth.login.noAccount")}{" "}
               <button
                 type="button"
                 style={linkButtonStyle}
                 onClick={() => router.push("/register")}
               >
-                להרשמה
+                {t("account.auth.login.toRegister")}
               </button>
             </p>
           ) : (
             <p style={footerTextStyle}>
-              ההרשמה למערכת סגורה כרגע. המסך הזה מיועד למשתמשים קיימים.
+              {t("account.auth.login.signupClosed")}
             </p>
           )}
         </form>

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 /**
  * Read-only account summary for Settings → Team.
  *
@@ -33,6 +35,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function AccountSummaryCard() {
+  const { t } = useI18n();
   const [me, setMe] = useState<Me | null>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
 
@@ -69,23 +72,23 @@ export function AccountSummaryCard() {
 
   return (
     <section className="rounded-[24px] dz-mist p-4 shadow-sm">
-      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">המשתמש שלך</h2>
+      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{t("account.settings.accountSummary.title")}</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-        פרטי החשבון והעסק המחוברים כרגע.
+        {t("account.settings.accountSummary.description")}
       </p>
 
       {status === "loading" ? (
-        <p className="mt-4 text-xs text-[var(--dz-text-muted)]">טוען…</p>
+        <p className="mt-4 text-xs text-[var(--dz-text-muted)]">{t("common.loading")}</p>
       ) : status === "error" ? (
         <p className="mt-4 text-xs leading-5 text-[var(--dz-danger)]">
-          לא הצלחנו לטעון את פרטי החשבון כרגע.
+          {t("account.settings.accountSummary.loadError")}
         </p>
       ) : me ? (
         <div className="mt-3 divide-y divide-[var(--dz-border-subtle)]">
-          <Row label="שם" value={me.name?.trim() ? me.name : "—"} />
-          <Row label="אימייל" value={me.email} />
+          <Row label={t("account.settings.accountSummary.name")} value={me.name?.trim() ? me.name : "—"} />
+          <Row label={t("account.settings.accountSummary.email")} value={me.email} />
           <Row
-            label="עסק"
+            label={t("account.settings.accountSummary.business")}
             value={me.businessName?.trim() ? me.businessName : "—"}
           />
         </div>

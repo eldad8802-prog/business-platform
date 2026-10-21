@@ -11,6 +11,8 @@
  * accept is returned.
  */
 
+import type { MessageKey } from "@/lib/i18n/translate";
+
 export const LOGO_ACCEPT = "image/png,image/jpeg,image/webp";
 export const LOGO_MAX_CHARS = 500_000;
 
@@ -80,10 +82,11 @@ export async function prepareLogo(file: File): Promise<LogoPrepResult> {
   return { ok: false, reason: "too_large" };
 }
 
-export const LOGO_ERROR_MESSAGE: Record<"type" | "unreadable" | "too_large" | "rejected" | "failed", string> = {
-  type: "אפשר להעלות לוגו בפורמט PNG, JPEG או WebP.",
-  unreadable: "לא הצלחנו לקרוא את התמונה. נסו קובץ אחר.",
-  too_large: "התמונה גדולה מדי גם לאחר הקטנה. נסו קובץ קטן יותר.",
-  rejected: "הלוגו לא התקבל. נסו תמונה אחרת בפורמט PNG, JPEG או WebP.",
-  failed: "שמירת הלוגו נכשלה. נסו שוב.",
+/** Dictionary keys of the messages a failed logo upload shows (account.profile.logo.errors.*). */
+export const LOGO_ERROR_MESSAGE: Record<"type" | "unreadable" | "too_large" | "rejected" | "failed", MessageKey> = {
+  type: "account.profile.logo.errors.type",
+  unreadable: "account.profile.logo.errors.unreadable",
+  too_large: "account.profile.logo.errors.tooLarge",
+  rejected: "account.profile.logo.errors.rejected",
+  failed: "account.profile.logo.errors.failed",
 };

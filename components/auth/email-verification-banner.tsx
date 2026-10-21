@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 
 /**
@@ -15,6 +16,7 @@ const HIDDEN_KEY = "dz:verify-banner-hidden";
 type State = { kind: "hidden" } | { kind: "show"; note: string | null; sending: boolean };
 
 export function EmailVerificationBanner() {
+  const { t } = useI18n();
   const [state, setState] = useState<State>({ kind: "hidden" });
 
   useEffect(() => {
@@ -46,9 +48,9 @@ export function EmailVerificationBanner() {
         setState({ kind: "hidden" });
         return;
       }
-      setState({ kind: "show", sending: false, note: d?.message ?? d?.error ?? "משהו השתבש. כדאי לנסות שוב." });
+      setState({ kind: "show", sending: false, note: d?.message ?? d?.error ?? t("account.auth.banner.error") });
     } catch {
-      setState({ kind: "show", sending: false, note: "אין חיבור כרגע. כדאי לנסות שוב." });
+      setState({ kind: "show", sending: false, note: t("account.auth.banner.offline") });
     }
   }
 
@@ -64,9 +66,8 @@ export function EmailVerificationBanner() {
   return (
     <div
       role="region"
-      aria-label="אימות כתובת האימייל"
+      aria-label={t("account.auth.banner.regionLabel")}
       data-testid="verify-banner"
-      dir="rtl"
       style={{
         display: "flex",
         flexWrap: "wrap",
@@ -81,7 +82,7 @@ export function EmailVerificationBanner() {
       }}
     >
       <span style={{ flex: "1 1 220px", minWidth: 0 }}>
-        {state.note ?? "כדי לאבטח את החשבון, כדאי לאמת את כתובת האימייל — שלחנו אליה קישור."}
+        {state.note ?? t("account.auth.banner.message")}
       </span>
       <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
         <button
@@ -100,12 +101,12 @@ export function EmailVerificationBanner() {
             cursor: state.sending ? "default" : "pointer",
           }}
         >
-          {state.sending ? "שולחים…" : "שליחה חוזרת"}
+          {state.sending ? t("account.auth.common.sending") : t("account.auth.banner.resend")}
         </button>
         <button
           type="button"
           onClick={hide}
-          aria-label="הסתרת ההודעה"
+          aria-label={t("account.auth.banner.hide")}
           style={{ minHeight: 36, minWidth: 36, borderRadius: 10, border: 0, background: "transparent", color: "var(--dz-text-secondary)", fontSize: 18, cursor: "pointer" }}
         >
           ×
