@@ -68,18 +68,24 @@ const PER_PERIOD: Record<string, string> = { DAILY: "ביום", WEEKLY: "בשב�
  * period); an unconfirmed backbone or foreign currency stays silent in the gate.
  * Nothing here interprets, recommends or decides.
  */
-export function BusinessCostCard() {
+export function BusinessCostCard({ embedded = false }: { embedded?: boolean } = {}) {
   const [summary, setSummary] = useState<BusinessCostSummaryApi | null>(null);
   const [learned, setLearned] = useState<LearnedCostInsightApi[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [affirming, setAffirming] = useState<"idle" | "saving" | "failed">("idle");
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadSummary = (signal?: AbortSignal) =>
     fetchBusinessCostSummary(signal)
-      .then(setSummary)
-      .catch(() => {
-        /* silent: never block the Secretary */
+      .then((s) => {
+        setSummary(s);
+        setLoadFailed(false);
+      })
+      .catch((e: unknown) => {
+        // Never block the Secretary; say so instead of silently vanishing, so
+        // "no data" and "could not load" never look the same.
+        if (!(e instanceof DOMException && e.name === "AbortError")) setLoadFailed(true);
       });
 
   useEffect(() => {
@@ -93,6 +99,13 @@ export function BusinessCostCard() {
     return () => controller.abort();
   }, []);
 
+  if (!summary && loadFailed) {
+    return (
+      <p role="status" style={{ margin: embedded ? 0 : "16px 0 0", padding: "12px 14px", borderRadius: 12, background: DS.surface2, color: DS.muted, fontSize: 13 }}>
+        הסיכום של כמה העסק עולה לא זמין כרגע. שאר המזכירה עובדת כרגיל.
+      </p>
+    );
+  }
   if (!summary || summary.baseline.completeness.state === "EMPTY") return null;
   const b = summary.baseline;
   const { affirmed, affirmedOn } = b.affirmation;
@@ -135,7 +148,7 @@ export function BusinessCostCard() {
       aria-label="כמה העסק עולה"
       style={{
         // Rendered inside the Secretary home shell, in its column.
-        marginTop: 16,
+        marginTop: embedded ? 0 : 16,
         width: "100%",
         boxSizing: "border-box",
         background: DS.card,
@@ -215,8 +228,15 @@ export function BusinessCostCard() {
         </div>
       ) : null}
       {row("יצא היום בפועל", ils(summary.periods.today.cashOut), `החודש: ${ils(summary.periods.thisMonth.cashOut)}`)}
-      {row("צפוי לצאת ב־7 הימים הקרובים", ils(summary.upcoming.next7Days.total), `ב־30 יום: ${ils(summary.upcoming.next30Days.total)}`)}
-      {overdue ? row("באיחור", ils(summary.upcoming.overdue.total)) : null}
+      {row(
+        "צפוי לצאת ב־7 הימים הקרובים",
+        ils(summary.upcoming.next7Days.total),
+        // The server already splits recorded due dates from projected ones;
+        // a projection is an estimate, never something owed yet.
+        `ב־30 יום: ${ils(summary.upcoming.next30Days.total)}` +
+          (Number(summary.upcoming.next30Days.projected) > 0 ? ` · מתוכם ${ils(summary.upcoming.next30Days.projected)} תחזית לפי ההתחייבויות המתחדשות` : ""),
+      )}
+      {overdue ? row("באיחור", ils(summary.upcoming.overdue.total), "מועדים שעברו ועדיין לא שולמו במלואם") : null}
       {changes.length > 0 ? (
         <div style={{ marginTop: 12 }}>
           <h3 style={{ margin: "0 0 6px", fontSize: 15, color: DS.ink }}>מה השתנה</h3>
@@ -307,4 +327,5 @@ function ReliabilityNote({ lines }: { lines: string[] }) {
   );
 }
 
-const linkButton = { marginTop: 6, padding: 0, border: 0, background: "none", color: DS.accent, fontSize: 13, cursor: "pointer", font: "inherit" } as const;
+// 32px tall: a comfortable touch target without changing the card layout.
+const linkButton = { marginTop: 6, padding: 0, minHeight: 32, display: "inline-flex", alignItems: "center", border: 0, background: "none", color: DS.accent, fontSize: 13, cursor: "pointer", font: "inherit" } as const;

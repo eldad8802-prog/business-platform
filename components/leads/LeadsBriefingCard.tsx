@@ -16,7 +16,7 @@ const DS = TOKEN.dsv1;
  * Read-only: it links to the lead; it never changes a stage, sends a message
  * or contacts anyone. Silent when there is nothing to say.
  */
-export function LeadsBriefingCard() {
+export function LeadsBriefingCard({ embedded = false }: { embedded?: boolean } = {}) {
   const [briefing, setBriefing] = useState<LeadBriefing | null>(null);
 
   useEffect(() => {
@@ -73,8 +73,9 @@ export function LeadsBriefingCard() {
       dir="rtl"
       aria-label="לידים שמחכים לכם"
       style={{
-        margin: "16px auto",
-        width: "min(100% - 32px, 720px)",
+        // Embedded: a card in the Secretary's side column, aligned to its grid.
+        margin: embedded ? 0 : "16px auto",
+        width: embedded ? "100%" : "min(100% - 32px, 720px)",
         boxSizing: "border-box",
         background: DS.card,
         border: `1px solid ${DS.line}`,
@@ -120,7 +121,7 @@ export function LeadsBriefingCard() {
           יש יותר לידים פתוחים ממה שנסקר — המספרים הם לפחות.
         </p>
       ) : null}
-      <Link href="/attention" style={{ display: "inline-block", marginTop: 12, color: DS.accent }}>
+      <Link href="/attention" style={{ display: "inline-flex", alignItems: "center", minHeight: 32, marginTop: 8, color: DS.accent }}>
         לתור הטיפול ›
       </Link>
     </section>

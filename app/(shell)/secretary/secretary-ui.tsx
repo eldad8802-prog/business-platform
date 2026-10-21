@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Component, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { TaskForm } from "@/features/tasks/task-form";
 import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import Link from "next/link";
@@ -12,9 +12,19 @@ import type {
   UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
 import styles from "./secretary.module.css";
+import {
+  ConfirmDialog,
+  Money,
+  Notice,
+  ObligationRow,
+  RowList,
+  StatusChip,
+  hebrewErrorMessage,
+} from "@/components/finance-ui";
+import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
+import type { HomeRow } from "./secretary-home-model";
 
 export type TodayState = "critical" | "busy" | "calm";
-export type SecretaryHomeState = "due" | "calm" | "new";
 
 export type SecretaryLoopMode = "met" | "snooze" | "release" | "created";
 
@@ -26,8 +36,7 @@ export type SecretaryScreenName =
   | "capture"
   | "loops"
   | "remind"
-  | "watching"
-  | "notify";
+  | "watching";
 
 type CaptureKind = "regular" | "installments" | "postdated-check" | "net-terms";
 
@@ -67,7 +76,7 @@ const CAPTURE_KINDS: CaptureKindOption[] = [
   {
     key: "postdated-check",
     title: "צ'ק דחוי",
-    description: "פירעון ותזכורת לפני",
+    description: "תאריך פירעון ומספר צ׳ק",
     icon: "📝",
     supported: true,
   },
@@ -80,77 +89,6 @@ const CAPTURE_KINDS: CaptureKindOption[] = [
   },
 ];
 
-export type SecretaryHomeModel = {
-  state: SecretaryHomeState;
-  title: string;
-  subtitle: string;
-  todayHref: string;
-  allHref: string;
-  addHref: string;
-  today: {
-    label: string;
-    badge?: string;
-    body: string;
-    amount?: string;
-  };
-  all?: {
-    line: string;
-    amount: string;
-    suffix: string;
-  };
-  queue?: Array<{ id: number; name: string; amount: string; reason: string }>;
-};
-
-export const SECRETARY_HOME_DEMO_MODELS: Record<SecretaryHomeState, SecretaryHomeModel> = {
-  due: {
-    state: "due",
-    title: "יש דבר אחד שכדאי\nלסגור היום.",
-    subtitle: "כל השאר שמור אצלי — אזכיר לך בזמן.",
-    todayHref: "/secretary?today=1",
-    allHref: "/secretary?screen=all",
-    addHref: "/secretary?screen=bank",
-    today: {
-      label: "היום שלי",
-      badge: "להיום",
-      body: "התחייבות לדוגמה",
-      amount: "₪0",
-    },
-    all: {
-      line: "9 במעקב החודש",
-      amount: "₪0",
-      suffix: "להוצאה",
-    },
-  },
-  calm: {
-    state: "calm",
-    title: "הכל רגוע.\nאין מה שדורש אותך.",
-    subtitle: "אני שומרת 9 התחייבויות ואזכיר לך כשמשהו יתקרב.",
-    todayHref: "/secretary?today=1",
-    allHref: "/secretary?screen=all",
-    addHref: "/secretary?screen=bank",
-    today: {
-      label: "היום שלי",
-      body: "אין תשלום שדורש אותך היום",
-    },
-    all: {
-      line: "9 במעקב החודש",
-      amount: "₪0",
-      suffix: "להוצאה",
-    },
-  },
-  new: {
-    state: "new",
-    title: "שלום, אני\nהמזכירה שלך.",
-    subtitle: "מסור לי את התשלומים שהעסק צריך להוציא — ואני אזכור אותם בשבילך.",
-    todayHref: "/secretary?today=1",
-    allHref: "/secretary?screen=all",
-    addHref: "/secretary?screen=bank",
-    today: {
-      label: "בוא נתחיל",
-      body: "מסור לי את ההתחייבות הראשונה",
-    },
-  },
-};
 type SecretaryVars = CSSProperties & Record<`--sec-${string}`, string>;
 
 export function secretaryVars(): SecretaryVars {
@@ -228,7 +166,10 @@ export type SecretaryFocus = {
   tone: "urgent" | "soon" | "calm";
   tag: string;
   name: string;
+  /** The server's decimal string (remaining when ledger-backed). */
   amount: string;
+  amountCaption?: string;
+  currency?: string;
   meta: string;
   chip?: string;
   note?: string;
@@ -240,130 +181,14 @@ export type TodayModel = {
   title: string;
   subtitle: string;
   focus?: SecretaryFocus;
+  /** Every other item that needs the owner, after the focus. */
+  others?: HomeRow[];
   watching: {
     line: string;
     subline: string;
   };
   showCapture?: boolean;
 };
-
-export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeModel; children?: ReactNode }) {
-  const isNew = model.state === "new";
-  const isDue = model.state === "due";
-  return (
-    <main className={styles.homeRoot} style={secretaryVars()}>
-      <section className={styles.homeShell} aria-label="המזכירה שלך">
-        <header className={styles.homeHead}>
-          <div className={styles.homeAvatar} aria-hidden="true"><PersonIcon /></div>
-          <div>
-            <div className={styles.homeWho}>המזכירה שלך</div>
-            <div className={styles.homeHello}>שלום 👋</div>
-          </div>
-        </header>
-
-        <section className={styles.homeStatus}>
-          <h1>{model.title.split("\n").map((part) => <span key={part}>{part}</span>)}</h1>
-          <p>{model.subtitle}</p>
-        </section>
-
-        {model.queue && model.queue.length > 0 ? (
-          <ul className={styles.homeQueue}>
-            {model.queue.map((item) => (
-              <li key={item.id}>
-                <strong>{item.name}</strong>
-                <span>{item.reason}</span>
-                <b>{item.amount}</b>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <div className={styles.homeCards}>
-          {isNew ? (
-            <Link href={model.addHref} className={`${styles.homeCard} ${styles.homeSetupCard}`}>
-              <div className={styles.homeCardRow}>
-                <div className={styles.homeIcon}><PlusIcon /></div>
-                <strong>{model.today.label}</strong>
-                <span className={styles.homeGo}><ChevronLeftIcon /></span>
-              </div>
-              <p>{model.today.body}</p>
-            </Link>
-          ) : (
-            <>
-              <Link href={model.todayHref} className={`${styles.homeCard} ${isDue ? styles.homeTodayUrgent : styles.homeTodayCalm}`}>
-                <div className={styles.homeCardRow}>
-                  <div className={styles.homeIcon}><SunIcon /></div>
-                  <strong>{model.today.label}</strong>
-                  {model.today.badge ? <span className={styles.homeBadge}>{model.today.badge}</span> : <span className={styles.homeGo}><ChevronLeftIcon /></span>}
-                </div>
-                <p>
-                  {model.today.body}
-                  {model.today.amount ? <span className={styles.homeNumber}>{model.today.amount}</span> : null}
-                </p>
-              </Link>
-
-              {model.all ? (
-                <Link href={model.allHref} className={`${styles.homeCard} ${styles.homeAllCard}`}>
-                  <div className={styles.homeCardRow}>
-                    <div className={styles.homeIcon}><CalendarIcon /></div>
-                    <strong>כל ההתחייבויות</strong>
-                    <span className={styles.homeGo}><ChevronLeftIcon /></span>
-                  </div>
-                  <p>
-                    {model.all.line}
-                    {model.all.amount ? <span className={styles.homeNumber}>{model.all.amount} <small>{model.all.suffix}</small></span> : <span className={styles.homeSubline}>{model.all.suffix}</span>}
-                  </p>
-                </Link>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        {isNew ? (
-          <div className={styles.homeSetNote}>
-            <div className={styles.homeMiniAvatar} aria-hidden="true"><PersonIcon /></div>
-            <p>ברגע שיהיה לי מה לזכור, היום שלי וכל ההתחייבויות יופיעו כאן.</p>
-          </div>
-        ) : (
-          <Link href={model.addHref} className={styles.homeAddRow}>
-            <PlusIcon />
-            הוספה למעקב
-          </Link>
-        )}
-        {children}
-      </section>
-    </main>
-  );
-}
-/**
- * Instant home skeleton shown while the first briefing loads. Mirrors the home
- * shell layout so the transition to real content is seamless and entry feels
- * immediate — no blank screen, no blocking "checking…" page.
- */
-export function SecretaryHomeSkeleton() {
-  return (
-    <main className={styles.homeRoot} style={secretaryVars()}>
-      <section className={styles.homeShell} aria-busy="true" aria-label="טוען את המזכירה">
-        <header className={styles.homeHead}>
-          <div className={styles.homeAvatar} aria-hidden="true"><PersonIcon /></div>
-          <div>
-            <div className={styles.homeWho}>המזכירה שלך</div>
-            <div className={styles.homeHello}>שלום 👋</div>
-          </div>
-        </header>
-        <section className={styles.homeStatus}>
-          <div className={`${styles.skelLine} ${styles.skelTitle}`} />
-          <div className={`${styles.skelLine} ${styles.skelTitleShort}`} />
-          <div className={`${styles.skelLine} ${styles.skelSub}`} />
-        </section>
-        <div className={styles.homeCards}>
-          <div className={`${styles.homeCard} ${styles.skelCard}`} />
-          <div className={`${styles.homeCard} ${styles.skelCard}`} />
-        </div>
-      </section>
-    </main>
-  );
-}
 
 export function SecretaryScreen({
   children,
@@ -509,7 +334,10 @@ export function FocusCard({ focus, href }: { focus: SecretaryFocus; href?: strin
         {href ? <span className={styles.focusGo} aria-hidden="true"><ChevronLeftIcon /></span> : null}
       </div>
       <div className={styles.focusName}>{focus.name}</div>
-      <div className={styles.focusAmount}>{focus.amount}</div>
+      <div className={styles.focusAmount}>
+        <Money amount={focus.amount} currency={focus.currency} />
+        {focus.amountCaption ? <small style={{ fontSize: 13, fontWeight: 500, marginInlineStart: 8 }}>{focus.amountCaption}</small> : null}
+      </div>
       <div className={styles.focusMeta}>
         {focus.meta}
         {focus.chip ? <span className={styles.chip}>{focus.chip}</span> : null}
@@ -533,6 +361,7 @@ export function FocusActions({
   onRelease?: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className={styles.actions}>
       <button
@@ -542,8 +371,11 @@ export function FocusActions({
         onClick={async () => {
           if (!onComplete || busy) return;
           setBusy(true);
+          setError(null);
           try {
             await onComplete();
+          } catch (e) {
+            setError(hebrewErrorMessage(e, "לא הצלחנו לסמן שטופל. שום דבר לא השתנה, ואפשר לנסות שוב."));
           } finally {
             setBusy(false);
           }
@@ -557,6 +389,7 @@ export function FocusActions({
         </button>
       </div>
       <ReleaseControl onRelease={onRelease} />
+      {error ? <Notice tone="danger" role="alert">{error}</Notice> : null}
     </div>
   );
 }
@@ -599,7 +432,7 @@ export function CalmCenter({
       {showCapture ? (
         <Link className={styles.capture} href={screenHref("capture")}>
           <PlusIcon />
-          יש עוד תשלום שאזכור בשבילך?
+          למסור למזכירה תשלום נוסף
         </Link>
       ) : null}
     </>
@@ -632,6 +465,25 @@ export function TodayScreen({
           <HeroText title={model.title} subtitle={model.subtitle} />
           {model.focus ? <FocusCard focus={model.focus} href={screenHref("detail", model.focus.id)} /> : null}
           <FocusActions onComplete={onComplete} onSnooze={onSnooze} onRelease={onRelease} />
+          {model.others && model.others.length > 0 ? (
+            <section aria-labelledby="today-others" style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              <h2 id="today-others" style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>
+                {model.others.length === 1 ? "ועוד אחד שדורש טיפול" : `ועוד ${model.others.length} שדורשים טיפול`}
+              </h2>
+              <RowList ariaLabelledBy="today-others">
+                {model.others.map((row) => (
+                  <ObligationRow
+                    key={row.obligation.id}
+                    title={row.name}
+                    href={screenHref("detail", row.obligation.id)}
+                    chips={<StatusChip status={{ domain: "secretary", state: row.status }} />}
+                    meta={`${row.cadence} · ${formatDateValue(row.obligation.dueAt)}`}
+                    amount={{ value: row.amount, currency: row.obligation.currency, caption: row.amountCaption ?? undefined }}
+                  />
+                ))}
+              </RowList>
+            </section>
+          ) : null}
           <WatchingPill line={model.watching.line} subline={model.watching.subline} href={screenHref("watching")} />
         </>
       )}
@@ -920,6 +772,8 @@ type SecretaryFlowScreenProps = {
   obligations: ObligationApi[];
   selectedId?: number | null;
   loopMode?: SecretaryLoopMode | null;
+  /** The result follows a recorded payment ("שילמתי"), not a handled-only mark. */
+  paidRecorded?: boolean;
   prefillName?: string;
   obligationsLoading?: boolean;
   obligationsHasMore?: boolean;
@@ -932,7 +786,7 @@ type SecretaryFlowScreenProps = {
   onRelease?: FlowAction;
 };
 
-export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode, prefillName, obligationsLoading = false, obligationsHasMore = false, onLoadMore, onCreate, onCreateMany, onUpdate, onComplete, onSnooze, onRelease }: SecretaryFlowScreenProps) {
+export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode, paidRecorded = false, prefillName, obligationsLoading = false, obligationsHasMore = false, onLoadMore, onCreate, onCreateMany, onUpdate, onComplete, onSnooze, onRelease }: SecretaryFlowScreenProps) {
   const openItems = openObligations(obligations);
   const selected = obligations.find((item) => item.id === selectedId) ?? openItems[0] ?? obligations[0] ?? null;
   const loadMore = <LoadMoreObligations loading={obligationsLoading} hasMore={obligationsHasMore} onLoadMore={onLoadMore} />;
@@ -943,11 +797,10 @@ export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode,
     // Key by the resolved id so the edit form re-seeds its fields once the
     // obligation loads (deep-link / refresh), never showing an empty form.
     case "update": return <UpdateScreen key={selected ? selected.id : "none"} obligation={selected} onUpdate={onUpdate} />;
-    case "capture": return <CaptureScreen obligations={openItems} onCreate={onCreate} onCreateMany={onCreateMany} prefillName={prefillName} />;
-    case "loops": return <LoopsScreen obligation={selected} initialMode={loopMode ?? "met"} />;
+    case "capture": return <CaptureScreen onCreate={onCreate} onCreateMany={onCreateMany} prefillName={prefillName} />;
+    case "loops": return <LoopsScreen obligation={selected} initialMode={loopMode ?? "met"} paidRecorded={paidRecorded} />;
     case "remind": return <RemindScreen obligation={selected} onSnooze={onSnooze} />;
     case "watching": return <WatchingScreen obligations={openItems} />;
-    case "notify": return <NotifyScreen obligations={openItems} />;
   }
 }
 
@@ -985,7 +838,7 @@ function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; l
       <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> התחייבות אחרת</Link>
       <GhostLink href={screenHref("all")}>לראות את כל ההתחייבויות</GhostLink>
       {loadMore}
-      <PrimaryLink href="/secretary">סיימתי, חזרה ליום שלי</PrimaryLink>
+      <PrimaryLink href="/secretary">סיימתי, חזרה למזכירה</PrimaryLink>
     </SecretaryScreen>
   );
 }
@@ -1148,74 +1001,83 @@ function DetailMemoryCard({ obligation }: { obligation: ObligationApi }) {
 }
 
 function HistoryCard({ obligation, obligations }: { obligation: ObligationApi; obligations: ObligationApi[] }) {
+  // Items of the same series the owner marked handled. A handled mark is not a
+  // payment record — payments live in Payables — so the card says "סומן".
   const history = obligations.filter((item) => item.state === "MET" && item.id !== obligation.id && ((item.recurrenceSeriesId && item.recurrenceSeriesId === obligation.recurrenceSeriesId) || item.obligeeName === obligation.obligeeName)).slice(0, 3);
   if (obligation.state === "MET") history.unshift(obligation);
   return (
     <section className={styles.historyCard}>
-      <div className={styles.historyTitle}>מה שכבר טופל</div>
-      {history.length > 0 ? history.map((item) => <div className={styles.historyRow} key={item.id}><span>✓</span><strong>טופל ב-{formatDateValue(item.metAt ?? item.updatedAt)}</strong><b>{formatMoneyValue(item.amount, item.currency)}</b></div>) : <p>אין לי עדיין היסטוריית תשלומים על ההתחייבות הזאת.</p>}
+      <div className={styles.historyTitle}>מה שכבר סומן כטופל</div>
+      {history.length > 0 ? history.map((item) => <div className={styles.historyRow} key={item.id}><span>✓</span><strong>סומן כטופל ב-{formatDateValue(item.metAt ?? item.updatedAt)}</strong><b><Money amount={item.amount} currency={item.currency} /></b></div>) : <p>עוד לא סומן כטופל אף מועד של ההתחייבות הזאת.</p>}
     </section>
   );
 }
 
-
 /**
- * Remove ("כבר לא רלוונטי") with a light, explicit confirm + an immediate
- * loading state — a destructive action never fires on a single tap and never
- * looks frozen while it runs. Reused by the detail screen and the today focus.
+ * Remove ("כבר לא רלוונטי"): always behind an explicit confirmation dialog with
+ * progress, and a failure is said in Hebrew inside the dialog — never silent.
+ * Reused by the detail screen and the today focus.
  */
 function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
   if (!onRelease) return null;
-  if (confirming) {
-    return (
-      <div className={styles.confirmBox} role="group" aria-label="אישור הסרה">
-        <p className={styles.confirmText}>להסיר את ההתחייבות הזאת?</p>
-        <div className={styles.confirmActions}>
-          <button
-            type="button"
-            className={`${styles.button} ${styles.primary} ${styles.block}`}
-            disabled={busy}
-            onClick={async () => {
-              if (busy) return;
-              setBusy(true);
-              try {
-                await onRelease();
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "רגע…" : "כן, להסיר"}
-          </button>
-          <button type="button" className={`${styles.button} ${styles.ghostWide}`} disabled={busy} onClick={() => setConfirming(false)}>
-            לא, להשאיר
-          </button>
-        </div>
-      </div>
-    );
-  }
   return (
-    <button type="button" className={`${styles.button} ${styles.ghostWide}`} disabled={disabled} onClick={() => setConfirming(true)}>
-      כבר לא רלוונטי
-    </button>
+    <>
+      <button type="button" className={`${styles.button} ${styles.ghostWide}`} disabled={disabled} onClick={() => setConfirming(true)}>
+        כבר לא רלוונטי
+      </button>
+      <ConfirmDialog
+        open={confirming}
+        title="להסיר את ההתחייבות מהמעקב?"
+        body="היא לא תופיע יותר במזכירה. תשלומים שכבר נרשמו לא משתנים, ואפשר למסור אותה מחדש בכל רגע."
+        confirmLabel="כן, להסיר"
+        cancelLabel="לא, להשאיר"
+        translateError={hebrewErrorMessage}
+        errorFallback="לא הצלחנו להסיר. ההתחייבות נשארה במעקב, ואפשר לנסות שוב."
+        onCancel={() => setConfirming(false)}
+        onConfirm={async () => {
+          await onRelease();
+          setConfirming(false);
+        }}
+      />
+    </>
   );
 }
 
 function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obligation: ObligationApi | null; obligations: ObligationApi[]; onComplete?: FlowAction; onRelease?: FlowAction }) {
   const [busy, setBusy] = useState(false);
-  async function run(action?: FlowAction) { if (!obligation || !action || busy) return; setBusy(true); try { await action(obligation.id); } finally { setBusy(false); } }
+  const [error, setError] = useState<string | null>(null);
+  async function run(action?: FlowAction) {
+    if (!obligation || !action || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await action(obligation.id);
+    } catch (e) {
+      setError(hebrewErrorMessage(e, "הפעולה לא הצליחה. שום דבר לא השתנה, ואפשר לנסות שוב."));
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!obligation) return <SecretaryScreen title="התחייבות" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לבחור" body="ברגע שתהיה התחייבות אמיתית, הפרטים שלה יופיעו כאן." /><PrimaryLink href={screenHref("capture")}>למסור התחייבות ראשונה</PrimaryLink></SecretaryScreen>;
   const name = displayName(obligation.obligeeName);
   const tone = obligation.state === "MET" ? "calm" : isInstallmentObligation(obligation) ? "purple" : obligationTone(obligation);
   const isMet = obligation.state === "MET";
   const isInstallment = isInstallmentObligation(obligation);
+  const ledger = obligation.ledger ?? null;
+  const owesSomething = Boolean(ledger && Number(ledger.remaining) > 0);
   const metaText = isMet
-    ? (obligation.recurrence === "NONE" ? "נסגר" : "התשלום הבא יחושב לפי " + recurrenceText(obligation.recurrence))
+    ? (obligation.recurrence === "NONE" ? "נסגר במזכירה" : "המועד הבא נוצר לפי " + recurrenceText(obligation.recurrence))
     : isInstallment
       ? "פריסת תשלומים במעקב"
       : "לתשלום ב-" + formatDateValue(obligation.dueAt);
+  const say = isMet
+    ? owesSomething
+      ? "סומן כטופל, אבל בהתחייבויות לא נרשם תשלום מלא. הסכום שנותר מופיע כאן למטה."
+      : "סומן כטופל. אין צורך לזכור אותו שוב."
+    : isInstallment
+      ? "זה תשלום אחד מתוך פריסה שאני שומרת עבורך."
+      : "זה מה שאני זוכרת על ההתחייבות הזאת.";
   return (
     <SecretaryScreen title={name} backHref={screenHref("all")}>
       <div className={styles.detailDesk}>
@@ -1224,27 +1086,39 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
             <div className={styles.detailObjectTile}>{emojiForObligation(obligation)}</div>
             <div className={styles.detailObjectInfo}>
               <strong>{name}</strong>
-              <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+              <b>
+                <Money amount={ledger ? ledger.remaining : obligation.amount} currency={obligation.currency} />
+                {ledger ? <small style={{ fontSize: 13, fontWeight: 500, marginInlineStart: 6 }}>נותר</small> : null}
+              </b>
             </div>
           </section>
           <div className={styles.detailMetaLine}>
-            <StatusPill tone={tone}>{isMet ? "טופל החודש" : isInstallment ? "פריסת תשלומים" : shortDueLabel(obligation)}</StatusPill>
+            <StatusPill tone={tone}>{isMet ? "סומן כטופל" : isInstallment ? "פריסת תשלומים" : shortDueLabel(obligation)}</StatusPill>
             <span>{metaText}</span>
           </div>
-          <Say>{isMet ? "כבר טיפלת בזה החודש. אני שומרת את הזיכרון כדי שלא תצטרך לזכור שוב." : isInstallment ? "זה תשלום אחד מתוך פריסה שאני שומרת עבורך." : "זה מה שאני זוכרת על ההתחייבות הזאת."}</Say>
+          <Say>{say}</Say>
           <DetailMemoryCard obligation={obligation} />
+          {ledger ? (
+            <section className={styles.memoryDetailCard} aria-label="מצב התשלום">
+              <div className={styles.memoryDetailRow}><span>₪</span><small>לתשלום במועד הזה</small><strong><Money amount={obligation.amount} currency={obligation.currency} /></strong></div>
+              <div className={styles.memoryDetailRow}><span>✓</span><small>שולם</small><strong><Money amount={ledger.paid} currency={obligation.currency} /></strong></div>
+              <div className={styles.memoryDetailRow}><span>•</span><small>נותר</small><strong><Money amount={ledger.remaining} currency={obligation.currency} /></strong></div>
+            </section>
+          ) : null}
           {obligation.note ? <p className={styles.inspectNote}>{obligation.note}</p> : null}
         </div>
         <div>
           <HistoryCard obligation={obligation} obligations={obligations} />
-          <p className={styles.inspectNote}>הזיכרון נשאר אצל המזכירה. רישום תשלום נמצא ב<Link href="/payables">התחייבויות</Link>. סימון כטופל אינו תשלום.</p>
+          <p className={styles.inspectNote}>סימון כטופל סוגר את התזכורת ואינו רושם תשלום. תשלומים נרשמים בהתחייבויות.</p>
           <div className={styles.actions}>
-            {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? "רגע…" : "סמן שטופל"}</PrimaryButton> : null}
+            {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? "רגע…" : owesSomething ? "שילמתי / טופל" : "סמן שטופל"}</PrimaryButton> : null}
             <div className={styles.ghosts}>
+              {ledger ? <GhostLink href={"/payables/" + ledger.commitmentId}>פתיחה בהתחייבויות</GhostLink> : null}
               {!isMet ? <GhostLink href={screenHref("remind", obligation.id)}>להזכיר לי אחר כך</GhostLink> : null}
               <GhostLink href={screenHref("update", obligation.id)}>עריכת התחייבות</GhostLink>
             </div>
             {!isMet ? <ReleaseControl disabled={busy} onRelease={onRelease ? () => onRelease(obligation.id) : undefined} /> : null}
+            {error ? <Notice tone="danger" role="alert">{error}</Notice> : null}
           </div>
         </div>
       </div>
@@ -1252,7 +1126,7 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
   );
 }
 
-function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { obligations: ObligationApi[]; onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
+function CaptureScreen({ onCreate, onCreateMany, prefillName }: { onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
   const [obligeeName, setObligeeName] = useState(prefillName ?? "");
   const [amount, setAmount] = useState("");
   const [dueAt, setDueAt] = useState("");
@@ -1270,16 +1144,16 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const tasksOn = useFeatureEnabled("daily_tasks");
   const [taskMode, setTaskMode] = useState(false);
   const [taskSaved, setTaskSaved] = useState(false);
-  // Lock background scroll while the capture sheet is open — only the sheet
-  // itself scrolls, so the page behind never moves under the modal.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // Closing returns to wherever the owner opened it from (home, bank, Today);
+  // a deep link with no history falls back to the Secretary home.
+  const router = useRouter();
+  const closeSheet = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    else router.replace("/secretary");
+  };
+  // A real modal: focus moves in and is trapped, Escape closes, and the page
+  // behind is scroll-locked (the shared accessible-dialog contract).
+  const sheetRef = useAccessibleDialog<HTMLElement>({ isOpen: true, onClose: closeSheet });
   const selectedKind = CAPTURE_KINDS.find((item) => item.key === kind) ?? CAPTURE_KINDS[0];
   const installmentCountNumber = normalizeInstallmentCount(installmentCount);
   const scheduleRows = buildInstallmentRows(amount, dueAt, installmentCountNumber);
@@ -1355,30 +1229,12 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
 
   return (
     <main className={[styles.root, styles.captureOverlayRoot].join(" ")} style={secretaryVars()}>
-      <div className={styles.captureBackdrop} aria-hidden="true">
-        <div className={styles.captureBackdropBlur}>
-          <div className={styles.shell}>
-            <div className={styles.topbar}>
-              <div className={styles.topSpacer} />
-              <div className={styles.topTitle}>נגדיר את ההתחייבויות</div>
-              <div className={styles.topSpacer} />
-            </div>
-            <Say>אפשר ללחוץ על כל הוצאה שיש לך, ואמלא איתך את הפרטים.</Say>
-            {obligations[0] ? <RememberedObligationCard item={cardFromObligation(obligations[0])} /> : null}
-            <div className={styles.category}>קבועות חודשיות</div>
-            <div className={styles.bankGrid}>
-              <BankChip emoji="🏠" label="שכירות" obligation={findCategoryObligation("שכירות", obligations)} />
-              <BankChip emoji="🏛️" label="ארנונה" obligation={findCategoryObligation("ארנונה", obligations)} />
-              <BankChip emoji="⚡" label="חשמל" obligation={findCategoryObligation("חשמל", obligations)} />
-              <BankChip emoji="💧" label="מים" obligation={findCategoryObligation("מים", obligations)} />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className={styles.captureDim} aria-hidden="true" />
-      <section className={styles.captureSheet} aria-label="התחייבות חדשה">
+      {/* A plain dimmed ground. The old blurred copy of the bank screen held
+          real links behind an aria-hidden layer; nothing interactive sits here. */}
+      <div className={styles.captureDim} aria-hidden="true" onClick={closeSheet} style={{ pointerEvents: "auto" }} />
+      <section ref={sheetRef} className={styles.captureSheet} role="dialog" aria-modal="true" aria-label="מסירה למזכירה" tabIndex={-1}>
         <div className={styles.sheetGrip} />
-        <Link href={screenHref("bank")} className={styles.captureClose} aria-label="סגירת החלונית">×</Link>
+        <button type="button" onClick={closeSheet} className={styles.captureClose} aria-label="סגירה">×</button>
         {taskMode ? (
           taskSaved ? (
             <section style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
@@ -1503,7 +1359,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
               </CaptureField>
             </div>
             <CaptureDateInput label="תאריך פירעון" value={dueAt} fallback="בחר פירעון" onChange={setDueAt} />
-            <div className={styles.captureCalmNote}>אזכיר לך יומיים לפני הפירעון לוודא שהחשבון מכוסה, כדי שיהיה לך זמן לטפל בזה ברוגע.</div>
+            <div className={styles.captureCalmNote}>הצ׳ק יופיע ב&quot;דורש טיפול&quot; שבוע לפני תאריך הפירעון, כדי שיהיה זמן לוודא שהחשבון מכוסה. לא נשלחת התראה.</div>
           </> : null}
 
           {kind === "net-terms" ? <>
@@ -1521,7 +1377,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 ))}
               </div>
             </div>
-            <div className={styles.captureCalmNote}>{netDueDate ? "חישבתי: שוטף+" + termsDays + " יוצא לתשלום ב-" + netDueDate + ". אזכיר לך כמה ימים לפני." : "אחרי בחירת תאריך החשבונית אחשב את מועד התשלום בפועל."}</div>
+            <div className={styles.captureCalmNote}>{netDueDate ? "חישבתי: שוטף+" + termsDays + " יוצא לתשלום ב-" + netDueDate + ". הוא יופיע ב\"דורש טיפול\" שבוע לפני." : "אחרי בחירת תאריך החשבונית אחשב את מועד התשלום בפועל."}</div>
           </> : null}
 
           {error ? <div className={styles.formError}>{error}</div> : null}
@@ -1615,7 +1471,7 @@ function captureSayForKind(kind: CaptureKind): string {
     case "installments":
       return "כמה תשלומים, ואני אראה את הלוח לפני שאזכור אותו.";
     case "postdated-check":
-      return "אפשר למסור לי את פרטי הצ'ק, ואזכיר לך לפני יום הפירעון.";
+      return "אפשר למסור לי את פרטי הצ'ק, ואציג אותו לפני יום הפירעון.";
     case "net-terms":
       return "אחרי מועד החשבונית אחשב את מועד התשלום.";
     case "regular":
@@ -1627,7 +1483,9 @@ function captureSayForKind(kind: CaptureKind): string {
 
 function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | null; onUpdate?: (id: number, input: UpdateObligationInput) => Promise<void> | void }) {
   const [name, setName] = useState(obligation?.obligeeName ?? "");
-  const [amount, setAmount] = useState(obligation ? String(Math.round(amountNumber(obligation))) : "");
+  // The exact server value ("15.50" stays 15.50; "3500.00" shows as 3500).
+  // Rounding here once turned an untouched 15.50 into a saved 16.
+  const [amount, setAmount] = useState(obligation ? obligation.amount.replace(/\.00$/, "") : "");
   const [date, setDate] = useState(obligation?.dueAt.slice(0, 10) ?? "");
   const [recurrence, setRecurrence] = useState<RecurrenceCadence>(obligation?.recurrence ?? "NONE");
   const [note, setNote] = useState(obligation?.note ?? "");
@@ -1734,8 +1592,8 @@ const LOOP_TITLE: Record<SecretaryLoopMode, string> = {
   created: "נשמר",
 };
 
-function LoopsScreen({ obligation, initialMode = "met" }: { obligation: ObligationApi | null; initialMode?: SecretaryLoopMode }) {
-  return <SecretaryScreen title={LOOP_TITLE[initialMode]} backHref={obligation ? screenHref("detail", obligation.id) : "/secretary"}><LoopResult mode={initialMode} obligation={obligation} /></SecretaryScreen>;
+function LoopsScreen({ obligation, initialMode = "met", paidRecorded = false }: { obligation: ObligationApi | null; initialMode?: SecretaryLoopMode; paidRecorded?: boolean }) {
+  return <SecretaryScreen title={LOOP_TITLE[initialMode]} backHref={obligation ? screenHref("detail", obligation.id) : "/secretary"}><LoopResult mode={initialMode} obligation={obligation} paidRecorded={paidRecorded} /></SecretaryScreen>;
 }
 
 /** The due date of the next occurrence of a recurring obligation, or null. */
@@ -1764,45 +1622,92 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence): string | 
   }
 }
 
-function reminderLeadDate(iso: string): string {
+/**
+ * When an item enters "דורש טיפול": the briefing's attention window is 7 days
+ * before the due date (obligation-core DEFAULT_ATTENTION_WINDOW_DAYS). There is
+ * no notification — the item appears in the Secretary.
+ */
+function attentionFromLabel(iso: string): string {
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "בזמן";
-  date.setDate(date.getDate() - 2);
-  return formatDateValue(date.toISOString());
+  if (Number.isNaN(date.getTime())) return "שבוע לפני המועד";
+  date.setDate(date.getDate() - 7);
+  if (date.getTime() <= Date.now()) return "כבר עכשיו";
+  return "מ־" + formatDateValue(date.toISOString());
 }
 
-function LoopResult({ mode, obligation }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null }) {
+function LoopResult({ mode, obligation, paidRecorded = false }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; paidRecorded?: boolean }) {
   const name = obligation ? displayName(obligation.obligeeName) : "ההתחייבות";
-  const amount = obligation ? formatMoneyValue(obligation.amount, obligation.currency) : "";
-  const reminder = obligation ? reminderLeadDate(obligation.dueAt) : "בזמן";
+  const appearsFrom = obligation ? attentionFromLabel(obligation.dueAt) : "שבוע לפני המועד";
   const nextDate = obligation ? nextOccurrenceLabel(obligation.dueAt, obligation.recurrence) : null;
+  const recurring = obligation ? obligation.recurrence !== "NONE" : false;
   const config = mode === "met"
-    ? { tone: "green", title: `סימנתי ש${name} טופל.`, body: obligation?.recurrence === "NONE" ? "סגרתי את זה ולא אזכיר שוב." : "רשמתי את התשלום הבא לפי החזרתיות. אין צורך לזכור אותו.", primary: "המשך לדבר הבא", secondary: "סגור" }
+    ? {
+        tone: "green",
+        title: paidRecorded ? `התשלום ל${name} נרשם.` : `סימנתי ש${name} טופל.`,
+        body: paidRecorded
+          ? "התשלום נשמר בהתחייבויות, והתזכורת במזכירה נסגרה." + (recurring ? " המועד הבא כבר במעקב." : "")
+          : "התזכורת נסגרה. לא נרשם תשלום — אם הכסף יצא, אפשר לרשום אותו בהתחייבויות." + (recurring ? " המועד הבא כבר במעקב." : ""),
+        primary: "חזרה למזכירה",
+        secondary: undefined as string | undefined,
+      }
     : mode === "snooze"
-      ? { tone: "calm", title: "בסדר, אזכיר לך שוב.", body: "עד אז זה יישאר במעקב שקט ולא ידרוש אותך.", primary: "סגור", secondary: undefined }
+      ? { tone: "calm", title: "נדחה.", body: "עד התאריך שבחרת זה לא יופיע ב\"דורש טיפול\".", primary: "חזרה למזכירה", secondary: undefined }
       : mode === "release"
-        ? { tone: "neutral", title: "הבנתי. הסרתי את זה.", body: "לא אזכיר לך יותר על ההתחייבות הזאת. אפשר להוסיף אותה מחדש בכל רגע.", primary: "סגור", secondary: undefined }
-        : { tone: "brand", title: "מצוין, אני זוכרת את זה עכשיו.", body: obligation ? `אזכיר לך על ${name} ב-${reminder} — יומיים לפני מועד התשלום.` : "אזכיר לך בזמן, בלי צורך לעקוב לבד.", primary: "הוסף עוד", secondary: "סיימתי" };
+        ? { tone: "neutral", title: "הוסר מהמעקב.", body: "ההתחייבות לא תופיע יותר במזכירה. תשלומים שכבר נרשמו לא השתנו, ואפשר למסור אותה מחדש בכל רגע.", primary: "חזרה למזכירה", secondary: undefined }
+        : {
+            tone: "brand",
+            title: "שמרתי. היא במעקב עכשיו.",
+            body: obligation
+              ? `${name} תופיע ב"דורש טיפול" ${appearsFrom === "כבר עכשיו" ? "כבר עכשיו" : appearsFrom + ", שבוע לפני מועד התשלום"}. לא נשלחת התראה; את הרשימה רואים במזכירה.`
+              : "ההתחייבות תופיע ב\"דורש טיפול\" שבוע לפני מועד התשלום.",
+            primary: "מסירת תשלום נוסף",
+            secondary: "סיימתי",
+          };
   const resultClass = [styles.loopResult, mode === "created" ? styles.loopResultCreated : ""].join(" ");
   const echoClass = [styles.echoCard, mode === "created" ? styles.echoCardCreated : ""].join(" ");
   const badgeClass = [styles.loopBadge, styles[`loopBadge_${config.tone}`]].join(" ");
   const echoMeta =
-    mode === "created" ? `אזכיר: ${reminder}` :
-    mode === "snooze" ? "אזכיר שוב בקרוב" :
-    mode === "met" ? (nextDate ? `התשלום הבא: ${nextDate}` : "טופל ונסגר") :
+    mode === "created" ? `ב"דורש טיפול": ${appearsFrom}` :
+    mode === "snooze" ? "נדחה" :
+    mode === "met" ? (nextDate ? `המועד הבא: ${nextDate}` : paidRecorded ? "שולם ונסגר" : "סומן כטופל") :
     recurrenceText(obligation?.recurrence ?? "NONE");
-  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}><PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
+  return (
+    <section className={resultClass}>
+      <div className={badgeClass}>✓</div>
+      <h2>{config.title}</h2>
+      <p>{config.body}</p>
+      {obligation && mode !== "release" ? (
+        <section className={echoClass}>
+          <span>{emojiForObligation(obligation)}</span>
+          <div><strong>{name}</strong><small>{echoMeta}</small></div>
+          <b><Money amount={obligation.amount} currency={obligation.currency} /></b>
+        </section>
+      ) : null}
+      <div className={styles.loopFoot}>
+        <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary"}>{config.primary}</PrimaryLink>
+        {config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}
+        {mode === "met" && !paidRecorded && obligation?.ledger ? <GhostLink href={"/payables/" + obligation.ledger.commitmentId}>רישום תשלום בהתחייבויות</GhostLink> : null}
+      </div>
+    </section>
+  );
 }
 
+/**
+ * "להזכיר לי אחר כך" = snooze (followUpAt). What it really does: the item
+ * leaves "דורש טיפול" until the chosen day and comes back then. No message is
+ * sent. An item whose due date already arrived stays in "דורש טיפול" anyway —
+ * the server never hides a today-or-overdue payment — and the screen says so.
+ */
 function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | null; onSnooze?: (id: number, followUpAt: string) => Promise<void> | void }) {
   const [choiceKey, setChoiceKey] = useState<string>("week");
   const [customDate, setCustomDate] = useState<string>("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!obligation) return <SecretaryScreen title="תזכורת" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לדחות" body="כשיהיה פריט אמיתי במעקב, אפשר יהיה לבחור מתי להזכיר שוב." /></SecretaryScreen>;
+  if (!obligation) return <SecretaryScreen title="להזכיר אחר כך" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לדחות" body="כשיהיה פריט אמיתי במעקב, אפשר יהיה לבחור מתי להחזיר אותו לרשימה." /></SecretaryScreen>;
   const obligationId = obligation.id;
   const now = new Date();
+  const dueArrived = (dueDaysFromNow(obligation) ?? 1) <= 0;
   const presets = [
     { key: "tomorrow", label: "מחר בבוקר", date: atMorning(addDays(now, 1)) },
     { key: "week", label: "בעוד שבוע", date: atMorning(addDays(now, 7)) },
@@ -1821,7 +1726,7 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
     if (busy) return;
     const target = resolveTarget();
     if (!target || Number.isNaN(target.getTime())) {
-      setError("צריך לבחור מתי להזכיר.");
+      setError("צריך לבחור מתי להחזיר את זה לרשימה.");
       return;
     }
     if (target.getTime() <= now.getTime()) {
@@ -1833,8 +1738,8 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
     try {
       await onSnooze?.(obligationId, target.toISOString());
       setDone(true);
-    } catch {
-      setError("לא הצלחתי לשמור עכשיו. אפשר לנסות שוב עוד רגע.");
+    } catch (e) {
+      setError(hebrewErrorMessage(e, "לא הצלחתי לשמור עכשיו. אפשר לנסות שוב עוד רגע."));
     } finally {
       setBusy(false);
     }
@@ -1842,39 +1747,57 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
 
   if (done) {
     const target = resolveTarget() ?? now;
-    return <SecretaryScreen title="תזכורת" backHref={screenHref("detail", obligation.id)}><section className={styles.loopResult}><div className={`${styles.loopBadge} ${styles.loopBadge_calm}`}>⏱</div><h2>אזכיר לך ב-{formatDateValue(target.toISOString())} בבוקר.</h2><p>עד אז זה יישאר אצלי במעקב שקט. אין צורך לחשוב על זה - אני אחזור אליך.</p><PrimaryLink href="/secretary?today=1">סגור</PrimaryLink></section></SecretaryScreen>;
+    return (
+      <SecretaryScreen title="להזכיר אחר כך" backHref={screenHref("detail", obligation.id)}>
+        <section className={styles.loopResult}>
+          <div className={`${styles.loopBadge} ${styles.loopBadge_calm}`}>⏱</div>
+          <h2>{dueArrived ? "נשמר." : `עד ${formatDateValue(target.toISOString())} זה לא יופיע ב"דורש טיפול".`}</h2>
+          <p>
+            {dueArrived
+              ? "מועד התשלום כבר הגיע, ולכן הוא נשאר ב\"דורש טיפול\" עד שיטופל."
+              : `ב־${formatDateValue(target.toISOString())} זה יחזור לרשימה במזכירה. לא נשלחת התראה.`}
+          </p>
+          <PrimaryLink href="/secretary">חזרה למזכירה</PrimaryLink>
+        </section>
+      </SecretaryScreen>
+    );
   }
 
   return (
-    <SecretaryScreen title="תזכורת" backHref={screenHref("detail", obligation.id)}>
+    <SecretaryScreen title="להזכיר אחר כך" backHref={screenHref("detail", obligation.id)}>
       <section className={styles.sheetStage}>
         <div className={styles.sheetGrip} />
-        <Say>מתי שאזכיר לך שוב?</Say>
+        <Say>מתי להחזיר את זה לרשימת &quot;דורש טיפול&quot;?</Say>
         <section className={styles.contextCard}>
           <span>{emojiForObligation(obligation)}</span>
           <div><strong>{displayName(obligation.obligeeName)}</strong><small>לתשלום ב-{formatDateValue(obligation.dueAt)}</small></div>
-          <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+          <b><Money amount={obligation.ledger ? obligation.ledger.remaining : obligation.amount} currency={obligation.currency} /></b>
         </section>
+        {dueArrived ? (
+          <Notice tone="warning">מועד התשלום כבר הגיע, ולכן הפריט יישאר ב&quot;דורש טיפול&quot; גם אחרי הדחייה. הדחייה תשפיע רק אם המועד ישתנה.</Notice>
+        ) : (
+          <Notice tone="neutral">עד התאריך שנבחר, הפריט לא יופיע ב&quot;דורש טיפול&quot;. באותו בוקר הוא יחזור לרשימה. לא נשלחת התראה.</Notice>
+        )}
         <div className={styles.remindOptions}>
           {presets.map((option) => (
-            <button key={option.key} type="button" className={`${styles.remindOption} ${choiceKey === option.key ? styles.remindOptionSelected : ""}`} onClick={() => { setChoiceKey(option.key); setError(null); }}>
+            <button key={option.key} type="button" className={`${styles.remindOption} ${choiceKey === option.key ? styles.remindOptionSelected : ""}`} aria-pressed={choiceKey === option.key} onClick={() => { setChoiceKey(option.key); setError(null); }}>
               <span>⏱</span><strong>{option.label}</strong><em>{formatDateValue(option.date.toISOString())}</em><b />
             </button>
           ))}
           <label className={`${styles.remindOption} ${choiceKey === "custom" ? styles.remindOptionSelected : ""}`}>
-            <span>🔔</span><strong>בחר תאריך אחר</strong><em>{customValue ? formatDateValue(customValue.toISOString()) : "בחירת תאריך"}</em><b />
+            <span>📅</span><strong>תאריך אחר</strong><em>{customValue ? formatDateValue(customValue.toISOString()) : "בחירת תאריך"}</em><b />
             <input
               className={styles.captureDateOverlay}
               type="date"
               min={minDate}
               value={customDate}
               onChange={(event) => { const v = event.target.value; setCustomDate(v); if (v) { setChoiceKey("custom"); setError(null); } }}
-              aria-label="בחירת תאריך לתזכורת"
+              aria-label="בחירת תאריך"
             />
           </label>
         </div>
-        {error ? <div className={styles.formError}>{error}</div> : null}
-        <PrimaryButton disabled={busy} onClick={() => void submit()}>{busy ? "רגע…" : "אזכיר לי אז"}</PrimaryButton>
+        {error ? <div className={styles.formError} role="alert">{error}</div> : null}
+        <PrimaryButton disabled={busy} onClick={() => void submit()}>{busy ? "רגע…" : "שמירה"}</PrimaryButton>
       </section>
     </SecretaryScreen>
   );
@@ -1888,63 +1811,10 @@ function WatchingScreen({ obligations }: { obligations: ObligationApi[] }) {
   const month = obligations.filter((item) => { const due = dateValue(item.dueAt); return due && due > weekEnd && due <= monthEnd; }).length;
   const far = Math.max(0, obligations.length - week - month);
   const allQuiet = obligations.length === 0 || week === 0;
-  return <SecretaryScreen title="מה שאני שומרת" backHref="/secretary"><Say>{allQuiet ? "הכל רגוע כרגע. אני שומרת את הדברים הרחוקים ואחזיר אותם בזמן." : "הכל כאן, אצלי. שום דבר לא ידרוש אותך לפני הזמן - אני אזכיר לך בדיוק כשצריך."}</Say>{allQuiet ? <section className={styles.allQuiet}><div>✓</div><h2>הכל רגוע כרגע.</h2><p>אני שומרת {obligations.length} דברים - אף אחד מהם לא דחוף. תוכל לחזור לעיסוקים שלך.</p><b>כולם רחוקים · אזכיר לך לפני כל אחד</b></section> : <><section className={styles.watchPeace}><div className={styles.watchRing}><strong>{obligations.length}</strong><span>במעקב</span></div><p>אלה הדברים שאני שומרת בשבילך עכשיו, מסודרים לפי כמה שהם קרובים.</p></section><div className={styles.watchHorizons}><Horizon title="השבוע" subtitle="כולם עם תזכורת - אזכיר לך בזמן" count={String(week)} /><Horizon title="בהמשך החודש" subtitle="עוד רחוקים, אין מה לעשות עכשיו" count={String(month)} /><Horizon title="רחוק יותר" subtitle="אשמור אותם עד שיתקרבו" count={String(far)} /></div></>}<section className={styles.reassurePanel}><p>אתה לא צריך לעבור על זה. אני עושה את זה בשבילך.</p><GhostLink href={screenHref("all")}>לראות את הכל בפירוט</GhostLink></section></SecretaryScreen>;
-}
-
-function NotifyScreen({ obligations }: { obligations: ObligationApi[] }) {
-  const [enabled, setEnabled] = useState(true);
-  const [morning, setMorning] = useState(true);
-  const [quiet, setQuiet] = useState(false);
-  const sample = obligations[0] ?? null;
-  return <SecretaryScreen title="התראות" backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>המזכירה שלך</strong><p>{sample ? `יש לי תזכורת על ${sample.obligeeName}.` : "אני אזכיר רק כשיש משהו שדורש אותך."}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>כך אני אדבר איתך כשמשהו מתקרב. ההתראות נשארות תזכורת שקטה, לא רשימת משימות.</Say><section className={styles.settingsGroup}><SettingRow title="התראות מהמזכירה" detail="כשמשהו מתקרב או חוזר מתזכורת" on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title="סיכום בוקר" detail="רק אם יש משהו שדורש אותך" on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title="שעות שקטות" detail="לא להפריע בערב" on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>מה תקבלי ממני</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>אזכיר לפני {formatDateValue(item.dueAt)}</em></div><small>בזמן</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>אין כרגע התחייבויות להתראות. כשיהיו, אציג כאן דוגמאות מהזיכרון האמיתי.</p> : null}</section></SecretaryScreen>;
+  return <SecretaryScreen title="מה שאני שומרת" backHref="/secretary"><Say>{allQuiet ? "הכול רגוע כרגע. כל התחייבות תופיע ב\"דורש טיפול\" שבוע לפני המועד שלה." : "הכול שמור כאן. כל התחייבות עוברת ל\"דורש טיפול\" שבוע לפני המועד שלה. לא נשלחת התראה, את הרשימה רואים במזכירה."}</Say>{allQuiet ? <section className={styles.allQuiet}><div>✓</div><h2>הכול רגוע כרגע.</h2><p>{obligations.length === 1 ? "התחייבות אחת במעקב" : `${obligations.length} התחייבויות במעקב`}, ואף אחת מהן לא בשבוע הקרוב.</p><b>כל אחת תופיע במזכירה שבוע לפני המועד</b></section> : <><section className={styles.watchPeace}><div className={styles.watchRing}><strong>{obligations.length}</strong><span>במעקב</span></div><p>אלה הדברים שאני שומרת בשבילך עכשיו, מסודרים לפי כמה שהם קרובים.</p></section><div className={styles.watchHorizons}><Horizon title="השבוע" subtitle={"כבר מופיעים ב\"דורש טיפול\""} count={String(week)} /><Horizon title="בהמשך החודש" subtitle="יופיעו שבוע לפני המועד" count={String(month)} /><Horizon title="רחוק יותר" subtitle="נשמרים במעקב עד שיתקרבו" count={String(far)} /></div></>}<section className={styles.reassurePanel}><p>אין צורך לעבור על הרשימה הזאת כל יום. מה שמתקרב מופיע בעמוד הראשי של המזכירה.</p><GhostLink href={screenHref("all")}>לכל ההתחייבויות</GhostLink></section></SecretaryScreen>;
 }
 
 function Horizon({ title, subtitle, count }: { title: string; subtitle: string; count: string }) { return <div className={styles.horizon}><EyeIcon /><span><strong>{title}</strong><em>{subtitle}</em></span><b>{count}</b></div>; }
-function SettingRow({ title, detail, on, onClick }: { title: string; detail: string; on?: boolean; onClick?: () => void }) { return <button type="button" className={styles.settingRow} onClick={onClick}><BellIcon /><span><strong>{title}</strong><em>{detail}</em></span><b className={on ? styles.toggleOn : ""} /></button>; }
-
-export const TODAY_DEMO_MODELS: Record<TodayState, TodayModel> = {
-  critical: {
-    state: "critical",
-    status: "בדקתי את היום שלך",
-    title: "יש דבר אחד שכדאי לסגור היום.",
-    subtitle: "בוא נטפל בו קודם — אני כבר שומרת את כל השאר.",
-    focus: {
-      tone: "urgent",
-      tag: "להיום",
-      name: "התחייבות לדוגמה",
-      amount: "₪0",
-      meta: "לתשלום היום",
-      chip: "כל חודש",
-      note: "העברה בנקאית לחשבון שמסתיים ב-4471",
-    },
-    watching: {
-      line: "אני שומרת עוד 4 דברים לימים הקרובים",
-      subline: "אין מה לעשות בהם עכשיו — אזכיר בזמן.",
-    },
-  },
-  busy: {
-    state: "busy",
-    status: "עברתי על השבוע שלך",
-    title: "יש כמה דברים השבוע. בוא נתחיל מהחשוב.",
-    subtitle: "נסגור אחד-אחד. אני כאן לאורך כל הדרך.",
-    focus: { tone: "soon", tag: "קרוב", name: "התחייבות לדוגמה", amount: "₪0", meta: "לתצוגת מצב בלבד" },
-    watching: {
-      line: "ועוד 2 דברים אחרי זה השבוע",
-      subline: "אמשיך להזכיר לך כל אחד בזמנו.",
-    },
-  },
-  calm: {
-    state: "calm",
-    status: "הכל תחת מעקב",
-    title: "אין משהו שדורש אותך עכשיו.",
-    subtitle: "עברתי על הכל. אני ממשיכה לעקוב, וברגע שמשהו יתקרב — אני כבר אגיד לך.",
-    watching: {
-      line: "אני שומרת 6 התחייבויות לחודש הקרוב",
-      subline: "הכל רגוע — אזכיר כשמשהו יתקרב.",
-    },
-  },
-};
-
 export function PersonIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1980,15 +1850,6 @@ export function PlusIcon() {
   );
 }
 
-function SunIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-    </svg>
-  );
-}
-
 function CalendarIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2005,14 +1866,7 @@ function ChevronLeftIcon() {
     </svg>
   );
 }
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-    </svg>
-  );
-}
+
 
 
 
