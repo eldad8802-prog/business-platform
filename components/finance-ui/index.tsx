@@ -236,15 +236,32 @@ export type ObligationRowProps = {
   markLabel?: string;
 };
 
+/**
+ * One obligation, the same on both screens. The title is the row's link (or
+ * selection button); its ::after stretches over the whole row, so the row is
+ * one big target while the action buttons above it stay separate tab stops.
+ */
 export function ObligationRow({ title, meta, chips, amount, progress, actions, href, onSelect, selected, markLabel }: ObligationRowProps) {
-  const body = (
-    <>
+  const interactive = Boolean(href || onSelect);
+  const titleNode = href ? (
+    <Link href={href} className={s.stretch} aria-current={selected ? "true" : undefined}>
+      {title}
+    </Link>
+  ) : onSelect ? (
+    <button type="button" onClick={onSelect} className={s.stretch} aria-pressed={selected ?? false}>
+      {title}
+    </button>
+  ) : (
+    title
+  );
+  return (
+    <li className={cx(s.row, interactive && s.rowInteractive, selected && s.rowSelected)}>
       <span className={s.mark} aria-hidden="true">
         {(markLabel ?? title).trim().charAt(0) || "·"}
       </span>
       <span className={s.main}>
         <span className={s.rowTitle}>
-          <span className={s.rowTitleText}>{title}</span>
+          <span className={s.rowTitleText}>{titleNode}</span>
           {chips}
         </span>
         {meta || progress ? (
@@ -262,36 +279,7 @@ export function ObligationRow({ title, meta, chips, amount, progress, actions, h
       ) : (
         <span />
       )}
-    </>
-  );
-
-  const interactive = Boolean(href || onSelect);
-  const rowClass = cx(s.row, interactive && s.rowInteractive, selected && s.rowSelected);
-
-  // Actions sit beside (not inside) the link/button, so every control stays a
-  // separate, valid tab stop.
-  if (!interactive) {
-    return (
-      <li className={rowClass}>
-        {body}
-        {actions ? <span className={s.rowActions}>{actions}</span> : null}
-      </li>
-    );
-  }
-  return (
-    <li className={s.row} style={{ padding: 0, display: "grid", gridTemplateColumns: "1fr", gridTemplateAreas: "none" }}>
-      <div className={rowClass} style={{ borderBlockStart: 0 }}>
-        {href ? (
-          <Link href={href} className={s.row} style={{ display: "contents" }} aria-current={selected ? "true" : undefined}>
-            {body}
-          </Link>
-        ) : (
-          <button type="button" onClick={onSelect} className={s.row} style={{ display: "contents" }} aria-pressed={selected}>
-            {body}
-          </button>
-        )}
-        {actions ? <span className={s.rowActions}>{actions}</span> : null}
-      </div>
+      {actions ? <span className={s.rowActions}>{actions}</span> : null}
     </li>
   );
 }
