@@ -578,14 +578,10 @@ export function ConfirmDialog({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) {
-      setBusy(false);
-      setError(null);
-    }
-  }, [open]);
   const cancel = () => {
-    if (!busy) onCancel();
+    if (busy) return;
+    setError(null);
+    onCancel();
   };
   return (
     <DialogFrame
@@ -603,6 +599,7 @@ export function ConfirmDialog({
               setError(null);
               try {
                 await onConfirm();
+                setBusy(false);
               } catch (e) {
                 setError(translateError ? translateError(e, errorFallback) : errorFallback);
                 setBusy(false);
@@ -625,6 +622,46 @@ export function ConfirmDialog({
       ) : null}
     </DialogFrame>
   );
+}
+
+export type ConfirmOptions = {
+  title: string;
+  body?: ReactNode;
+  confirmLabel: string;
+  cancelLabel?: string;
+  tone?: "danger" | "primary";
+};
+
+/**
+ * `await confirm({...})` → true / false, rendered in the shared dialog. A
+ * drop-in for `window.confirm` in existing async handlers: the question, the
+ * wording and the action that follows stay exactly where they were.
+ */
+export function useConfirm(): [ReactNode, (options: ConfirmOptions) => Promise<boolean>] {
+  const [pending, setPending] = useState<(ConfirmOptions & { resolve: (ok: boolean) => void }) | null>(null);
+  const confirm = useCallback(
+    (options: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ ...options, resolve })),
+    [],
+  );
+  const settle = (ok: boolean) => {
+    setPending((current) => {
+      current?.resolve(ok);
+      return null;
+    });
+  };
+  const node = (
+    <ConfirmDialog
+      open={pending !== null}
+      title={pending?.title ?? ""}
+      body={pending?.body}
+      confirmLabel={pending?.confirmLabel ?? "אישור"}
+      cancelLabel={pending?.cancelLabel ?? "ביטול"}
+      tone={pending?.tone ?? "danger"}
+      onConfirm={() => settle(true)}
+      onCancel={() => settle(false)}
+    />
+  );
+  return [node, confirm];
 }
 
 /* ───────────────────────────── Form field ────────────────────────────────── */
