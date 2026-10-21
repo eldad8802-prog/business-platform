@@ -11,6 +11,26 @@ import { contentEn } from "./areas/content";
 
 /** English. Must provide every key of the Hebrew source dictionary (the type enforces it). */
 export const en: Messages = {
+  meta: {
+    titles: {
+      home: "Home",
+      documents: "Documents",
+      inventory: "Inventory",
+      suppliers: "Suppliers",
+      billing: "Invoices",
+      settings: "Settings",
+      login: "Sign in",
+      register: "Sign up",
+      forgotPassword: "Forgot password",
+      resetPassword: "Choose a new password",
+      verifyEmail: "Verify your email",
+      collectionThread: "Collection file",
+      collectionNew: "New collection",
+      collection: "Collection",
+      profile: "Profile",
+      identity: "Your business's digital presence",
+    },
+  },
   common: {
     loading: "Loading…",
     save: "Save",

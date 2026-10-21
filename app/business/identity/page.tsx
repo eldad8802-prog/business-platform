@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
+import { getServerI18n } from "@/lib/i18n/server";
 
 import { IdentityScreen } from "@/components/business/identity/landing/IdentityScreen";
 
-export const metadata: Metadata = { title: "הנוכחות הדיגיטלית של העסק" };
+// Tab title in the interface language (Hebrew source "הנוכחות הדיגיטלית של העסק": lib/i18n/messages/he.ts → meta.titles.identity).
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n();
+  return { title: t("meta.titles.identity") };
+}
 
 /**
  * What Dubiz knows about the business, on its way to a future landing page. The canonical read

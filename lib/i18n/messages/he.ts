@@ -17,6 +17,26 @@ import { contentHe } from "./areas/content";
  * and LLM prompts are NOT interface strings and never belong here.
  */
 export const he = {
+  meta: {
+    titles: {
+      home: "בית",
+      documents: "מסמכים",
+      inventory: "מלאי",
+      suppliers: "ספקים",
+      billing: "חשבוניות",
+      settings: "הגדרות",
+      login: "התחברות",
+      register: "הרשמה",
+      forgotPassword: "שכחתי סיסמה",
+      resetPassword: "בחירת סיסמה חדשה",
+      verifyEmail: "אימות כתובת האימייל",
+      collectionThread: "תיק גבייה",
+      collectionNew: "גבייה חדשה",
+      collection: "גבייה",
+      profile: "פרופיל",
+      identity: "הנוכחות הדיגיטלית של העסק",
+    },
+  },
   common: {
     loading: "טוען…",
     save: "שמירה",

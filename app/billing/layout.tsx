@@ -1,8 +1,13 @@
 import { Suspense, type ReactNode } from "react";
 import type { Metadata } from "next";
+import { getServerI18n } from "@/lib/i18n/server";
 import { ShellChrome } from "@/components/navigation/shell-chrome";
 
-export const metadata: Metadata = { title: "חשבוניות" };
+// Tab title in the interface language (Hebrew source "חשבוניות": lib/i18n/messages/he.ts → meta.titles.billing).
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n();
+  return { title: t("meta.titles.billing") };
+}
 
 // Product screen outside the (shell) route group — wrap in the same ShellChrome
 // so it inherits the one shared bottom navigation bar. Presentation only.
