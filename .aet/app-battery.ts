@@ -214,9 +214,9 @@ async function main() {
   const welcomeRows = (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME");
   ok("exactly ONE WELCOME, PENDING, to the account's own address, filed under its own business",
     welcomeRows.length === 1 && welcomeRows[0].toEmail === cEmail && Number(welcomeRows[0].businessId) === C.businessId && welcomeRows[0].status === "PENDING");
-  const replay = await consumeEmailVerification(vToken);
+  const vReplay = await consumeEmailVerification(vToken);
   ok("replaying the link → USED, and no second WELCOME",
-    replay.status === "USED" && (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME").length === 1);
+    vReplay.status === "USED" && (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME").length === 1);
   ok("C reads VERIFIED; B (existing) still NOT_REQUIRED and untouched",
     (await readVerificationState(C.userId)) === "VERIFIED" && (await readEmailVerified(C.userId)) === true &&
       (await readVerificationState(B.userId)) === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
