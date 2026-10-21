@@ -16,7 +16,9 @@
  *      nothing; signup with verification ON records only the link (no WELCOME); resend supersedes;
  *      verifying stamps emailVerifiedAt and records exactly one WELCOME for that account's own address
  *      and business; replay is USED with no second WELCOME; a reset link cannot verify and a verify
- *      link cannot reset; signup with verification OFF still records the WELCOME at signup.
+ *      link cannot reset; an account that already has its WELCOME gets no second one. (createAccount's
+ *      own rule — link XOR welcome at signup — is covered by the register route test and the browser E2E:
+ *      this lab does not hold the signup plane's grants.)
  *   5. login (4 failures / rolling 15 min / 15-minute lock): the 3rd failure warns, the 4th locks; the lock
  *      holds across IPs and case variants, refuses even the right password, and is answered identically
  *      for an address with no account; a parallel burst runs at most 4 comparisons; a success clears
@@ -39,7 +41,7 @@ import {
   requestPasswordReset,
   consumeEmailVerification,
 } from "@/lib/auth/email-tokens";
-import { createAccount } from "@/lib/auth/signup";
+import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 import { renderStored } from "@/lib/email/transactional/registry";
 import { handleReset } from "@/app/api/auth/password/reset/route";
 import { handleForgot } from "@/app/api/auth/password/forgot/route";
@@ -176,26 +178,18 @@ async function main() {
   ok("…and 'send again' issues nothing for it (NOT_REQUIRED), no email row written",
     (await requestEmailVerification(B.userId, new Date())).status === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
 
-  // Regression: a signup with verification OFF records the WELCOME at signup, as before.
-  const plain = await createAccount({
-    email: `aet-app-plain-${Date.now()}@lab.invalid`, passwordHash: await bcrypt.hash(OLD_PW, 10), name: "נועה פלאן",
-    businessName: "aet-app-plain", now: new Date(), sendVerification: false,
-  });
-  ok("signup, verification OFF: WELCOME recorded at signup, no link",
-    plain.welcomeEmailId !== null && plain.verificationEmailId === null && (await kinds(plain.userId)) === "WELCOME", await kinds(plain.userId));
-
-  // A NEW account opened with verification ON — the real signup transaction.
-  const cEmail = `aet-app-c-${Date.now()}@lab.invalid`;
-  const C = await createAccount({
-    email: cEmail, passwordHash: await bcrypt.hash(OLD_PW, 10), name: "דנה C",
-    businessName: "aet-app-C", now: new Date(), sendVerification: true,
-  });
-  ok("signup, verification ON: ONLY the verification email is recorded — no WELCOME yet",
-    C.verificationEmailId !== null && C.welcomeEmailId === null && (await kinds(C.userId)) === "EMAIL_VERIFY", await kinds(C.userId));
-  ok("…one user for the address (no duplicates)",
-    Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "User" WHERE lower("email") = lower($1)`, cEmail)) as { c: number }[])[0].c) === 1);
+  // A NEW account opened with verification ON. This lab does not hold the signup plane's grants
+  // (createAccount itself is covered by the register route test and the browser E2E), so the account
+  // is a fixture and its signup link is issued exactly as signup issues it: issueAccountLink in a
+  // transaction, which records the EMAIL_VERIFY email — and, by signup's rule, no WELCOME.
+  const C = await account("C");
+  const cEmail = C.email;
+  const signupLink = await owner.$transaction((tx) =>
+    issueAccountLink(tx, { userId: C.userId, purpose: "EMAIL_VERIFY", name: "דנה C", now: new Date() }));
+  ok("an account opened with verification has ONLY the verification email — no WELCOME yet",
+    signupLink !== null && (await kinds(C.userId)) === "EMAIL_VERIFY", await kinds(C.userId));
   ok("the new account reads PENDING (the banner shows)", (await readVerificationState(C.userId)) === "PENDING");
-  const firstRow = C.verificationEmailId !== null ? await emailRow(C.verificationEmailId) : undefined;
+  const firstRow = signupLink ? await emailRow(signupLink.emailId) : undefined;
   const firstToken = firstRow ? tokenFrom("EMAIL_VERIFY", firstRow.payload) : "";
 
   const v = await requestEmailVerification(C.userId, new Date());
@@ -222,8 +216,11 @@ async function main() {
       (await readVerificationState(B.userId)) === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
   ok("resend now answers 'already verified'", (await requestEmailVerification(C.userId, new Date())).status === "ALREADY_VERIFIED");
 
-  // An account that already has its WELCOME (opened with verification OFF) and later verifies through a
-  // link never gets a second one.
+  // An account that already has its WELCOME (opened with verification OFF: signup recorded it) and later
+  // verifies through a link never gets a second one.
+  const plain = await account("plain");
+  await owner.$transaction((tx) =>
+    enqueueWelcomeEmail(tx, { userId: plain.userId, businessId: plain.businessId, toEmail: plain.email, name: "נועה פלאן", now: new Date() }));
   const plainLink = await owner.$transaction((tx) =>
     issueAccountLink(tx, { userId: plain.userId, purpose: "EMAIL_VERIFY", name: "נועה פלאן", now: new Date() }));
   const plainRow = plainLink ? await emailRow(plainLink.emailId) : undefined;
