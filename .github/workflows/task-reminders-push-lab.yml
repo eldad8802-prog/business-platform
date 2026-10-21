@@ -168,7 +168,8 @@ jobs:
           test "$(rt "$A" 'SELECT count(*) FROM "PushSubscription"')" = "1" || { echo "A does not see its own"; exit 1; }
           test "$(rt "$B" "UPDATE \"PushSubscription\" SET \"revokedAt\" = now() WHERE \"id\" = $SA RETURNING 1" | wc -l)" = "0" || { echo "B changed A"; exit 1; }
           rt "$A" "UPDATE \"PushSubscription\" SET \"failureCount\" = 1, \"updatedAt\" = now() WHERE \"id\" = $SA" >/dev/null
-          refused "move a row to another business" "row-level security" "$A" "UPDATE \"PushSubscription\" SET \"businessId\" = $B WHERE \"id\" = $SA"
+          refused "move a row to another business (with its user)" "row-level security" "$A" "UPDATE \"PushSubscription\" SET \"businessId\" = $B, \"userId\" = $UB WHERE \"id\" = $SA"
+          refused "move a row to another business (user stays)" "DZT03|TASK_USER_OTHER_BUSINESS|row-level security" "$A" "UPDATE \"PushSubscription\" SET \"businessId\" = $B WHERE \"id\" = $SA"
           refused "removal" "permission denied" "$A" "DELETE FROM \"PushSubscription\" WHERE \"id\" = $SA"
           refused "emptying" "permission denied" "$A" 'TRUNCATE "PushSubscription"'
           refused "a plain-http endpoint" "PushSubscription_endpoint_shape" "$A" "$(ins $A $UA http://push.example/a3)"
