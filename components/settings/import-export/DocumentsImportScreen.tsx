@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
 import { DocumentsExportPanel } from "@/components/settings/import-export/DocumentsExportPanel";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 /**
  * הגדרות → ייבוא וייצוא → ייבוא מסמכים.
@@ -90,21 +93,21 @@ type ExecuteResult = {
 };
 
 /** Owner-facing wording. No file-format jargon, no hashes, no MIME. */
-const STATUS_LABEL: Record<FileStatus, string> = {
-  NEW: "חדש — יתווסף לאחר אישור",
-  DUPLICATE: "כבר קיים בדוביז — ידולג",
-  IN_FILE_DUPLICATE: "כפילות בתוך הקבצים שבחרת",
-  UNSUPPORTED: "קובץ לא נתמך",
+const STATUS_LABEL: Record<FileStatus, MessageKey> = {
+  NEW: "account.settings.importExport.documentsImport.status.new",
+  DUPLICATE: "account.settings.importExport.documentsImport.status.duplicate",
+  IN_FILE_DUPLICATE: "account.settings.importExport.documentsImport.status.inFileDuplicate",
+  UNSUPPORTED: "account.settings.importExport.documentsImport.status.unsupported",
 };
 
-const OUTCOME_LABEL: Record<ResultRow["outcome"], string> = {
-  CREATED: "נקלט",
-  SKIPPED: "דולג",
-  FAILED: "לא נקלט",
+const OUTCOME_LABEL: Record<ResultRow["outcome"], MessageKey> = {
+  CREATED: "account.settings.importExport.documentsImport.outcome.created",
+  SKIPPED: "account.settings.importExport.documentsImport.outcome.skipped",
+  FAILED: "account.settings.importExport.documentsImport.outcome.failed",
 };
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} בייט`;
+function formatSize(bytes: number, t: Translator): string {
+  if (bytes < 1024) return t("account.settings.importExport.documentsImport.bytes", { count: bytes });
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
@@ -115,11 +118,20 @@ function authHeader(): Record<string, string> | null {
   return token?.trim() ? { Authorization: `Bearer ${token.trim()}` } : null;
 }
 
+/** A translated template whose {placeholders} render bold (the numbers in a sentence). */
+function withStrong(template: string, values: Record<string, string>): ReactNode[] {
+  return template.split(/(\{\w+\})/).map((part, i) => {
+    const name = /^\{(\w+)\}$/.exec(part)?.[1];
+    return name !== undefined && name in values ? <strong key={i}>{values[name]}</strong> : part;
+  });
+}
+
 function isCreate(action: FileAction): boolean {
   return action === "CREATE" || action === "CREATE_ANYWAY";
 }
 
 export function DocumentsImportScreen() {
+  const { t, locale } = useI18n();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
@@ -156,13 +168,13 @@ export function DocumentsImportScreen() {
   async function post(path: string, body: FormData) {
     const auth = authHeader();
     if (!auth) {
-      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      setError(t("account.settings.importExport.common.noToken"));
       return null;
     }
     const response = await fetch(path, { method: "POST", headers: auth, body });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
-      setError(data?.error ?? `הפעולה נכשלה (${response.status}).`);
+      setError(data?.error ?? t("account.settings.importExport.documentsImport.actionFailed", { status: response.status }));
       return null;
     }
     return data;
@@ -194,7 +206,7 @@ export function DocumentsImportScreen() {
     try {
       await runAnalyze(chosen);
     } catch {
-      setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+      setError(t("account.settings.importExport.common.network"));
     } finally {
       setBusy(false);
     }
@@ -220,7 +232,7 @@ export function DocumentsImportScreen() {
       const rebound = await runAnalyze(files, decisions);
       if (rebound) setStage("confirm");
     } catch {
-      setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+      setError(t("account.settings.importExport.common.network"));
     } finally {
       setBusy(false);
     }
@@ -244,7 +256,7 @@ export function DocumentsImportScreen() {
       // The request may well have succeeded. Say so rather than inviting a
       // blind retry — though a retry is safe, and the copy says that too.
       setError(
-        "החיבור נקטע לפני שהתקבלה תשובה. אפשר ללחוץ שוב — קובץ שכבר נקלט לא ייקלט פעמיים."
+        t("account.settings.importExport.documentsImport.interrupted")
       );
     } finally {
       setBusy(false);
@@ -256,23 +268,21 @@ export function DocumentsImportScreen() {
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
           {stage === "check"
-            ? "בדיקה בלבד — שום קובץ לא נשמר בשלב הזה."
+            ? t("account.settings.importExport.documentsImport.stage.check")
             : stage === "confirm"
-              ? "אישור אחרון לפני הקליטה."
-              : "הקליטה הסתיימה."}
+              ? t("account.settings.importExport.documentsImport.stage.confirm")
+              : t("account.settings.importExport.documentsImport.stage.done")}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          בחרו מסמכים ונראה לכם מה יקרה לכל אחד: מה יתווסף, מה כבר קיים אצלכם,
-          ומה לא נתמך. את מה שכתוב בתוך המסמכים דוביז תזהה אחרי הקליטה, ותציג
-          לאישורכם במסך המסמכים.
+          {t("account.settings.importExport.documentsImport.intro")}
         </p>
       </SettingsSection>
 
       {stage === "check" ? (
         <div className="mt-4">
           <SettingsSection
-            title="בחרו מסמכים"
-            description="PDF או תמונה (JPG/PNG), עד 20 קבצים ועד 15MB לקובץ."
+            title={t("account.settings.importExport.documentsImport.chooseTitle")}
+            description={t("account.settings.importExport.documentsImport.chooseDescription")}
           >
             <input
               ref={inputRef}
@@ -292,11 +302,11 @@ export function DocumentsImportScreen() {
               disabled={busy}
               className="w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy ? "בודק את הקבצים…" : "בחרו קבצים"}
+              {busy ? t("account.settings.importExport.documentsImport.checking") : t("account.settings.importExport.documentsImport.chooseFiles")}
             </button>
             {files.length > 0 && !busy ? (
               <p className="mt-2 text-center text-[11px] text-[var(--dz-text-muted)]">
-                נבחרו {files.length.toLocaleString("he-IL")} קבצים
+                {t(files.length === 1 ? "account.settings.importExport.documentsImport.selectedOne" : "account.settings.importExport.documentsImport.selectedMany", { count: files.length.toLocaleString(intlTag(locale)) })}
               </p>
             ) : null}
           </SettingsSection>
@@ -305,13 +315,13 @@ export function DocumentsImportScreen() {
 
       {stage === "check" && result ? (
         <div className="mt-4">
-          <SettingsSection title="תוצאות הבדיקה">
+          <SettingsSection title={t("account.settings.importExport.documentsImport.resultsTitle")}>
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                ["סה״כ קבצים", result.summary.total],
-                ["יתווספו", willCreate],
-                ["ידולגו", willSkip],
-                ["לא נתמכים", result.summary.unsupported],
+                [t("account.settings.importExport.documentsImport.summary.total"), result.summary.total],
+                [t("account.settings.importExport.documentsImport.summary.willCreate"), willCreate],
+                [t("account.settings.importExport.documentsImport.summary.willSkip"), willSkip],
+                [t("account.settings.importExport.documentsImport.summary.unsupported"), result.summary.unsupported],
               ].map(([label, value]) => (
                 <div
                   key={String(label)}
@@ -319,7 +329,7 @@ export function DocumentsImportScreen() {
                 >
                   <dt className="text-[11px] text-[var(--dz-text-muted)]">{label}</dt>
                   <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                    {Number(value).toLocaleString("he-IL")}
+                    {Number(value).toLocaleString(intlTag(locale))}
                   </dd>
                 </div>
               ))}
@@ -333,11 +343,11 @@ export function DocumentsImportScreen() {
                       {f.filename}
                     </span>
                     <span className="shrink-0 text-[11px] text-[var(--dz-text-muted)]">
-                      {formatSize(f.sizeBytes)}
+                      {formatSize(f.sizeBytes, t)}
                     </span>
                   </div>
                   <p className="mt-1 text-xs font-semibold text-[var(--dz-text-primary)]">
-                    {STATUS_LABEL[f.status]}
+                    {t(STATUS_LABEL[f.status])}
                   </p>
                   {f.reason ? (
                     <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
@@ -361,7 +371,7 @@ export function DocumentsImportScreen() {
                           }));
                         }}
                       />
-                      הוסיפו בכל זאת עותק נוסף
+                      {t("account.settings.importExport.documentsImport.addAnyway")}
                     </label>
                   ) : null}
                 </li>
@@ -374,11 +384,11 @@ export function DocumentsImportScreen() {
               disabled={busy || willCreate === 0}
               className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy ? "רגע…" : "המשיכו לאישור"}
+              {busy ? t("account.settings.importExport.documentsImport.wait") : t("account.settings.importExport.documentsImport.continue")}
             </button>
             {willCreate === 0 ? (
               <p className="mt-2 text-center text-[11px] text-[var(--dz-text-muted)]">
-                אין קובץ שייקלט. בחרו קבצים אחרים.
+                {t("account.settings.importExport.documentsImport.nothingToImport")}
               </p>
             ) : null}
           </SettingsSection>
@@ -387,18 +397,20 @@ export function DocumentsImportScreen() {
 
       {stage === "confirm" && result ? (
         <div className="mt-4">
-          <SettingsSection title="לאישורכם">
+          <SettingsSection title={t("account.settings.importExport.documentsImport.confirmTitle")}>
             <p className="text-sm text-[var(--dz-text-primary)]">
-              ייקלטו <strong>{willCreate.toLocaleString("he-IL")}</strong> מסמכים,
-              ו־<strong>{willSkip.toLocaleString("he-IL")}</strong> ידולגו.
+              {withStrong(t("account.settings.importExport.documentsImport.confirmCounts"), {
+                created: willCreate.toLocaleString(intlTag(locale)),
+                skipped: willSkip.toLocaleString(intlTag(locale)),
+              })}
             </p>
 
             {overrides.length > 0 ? (
               <div className="mt-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3">
                 <p className="text-xs font-bold text-[var(--dz-text-primary)]">
-                  ביקשתם להוסיף עותק נוסף לקבצים שכבר קיימים אצלכם:
+                  {t("account.settings.importExport.documentsImport.overridesTitle")}
                 </p>
-                <ul className="mt-1 list-disc pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
+                <ul className="mt-1 list-disc ps-4 text-xs leading-5 text-[var(--dz-text-muted)]">
                   {overrides.map((f) => (
                     <li key={f.index}>{f.filename}</li>
                   ))}
@@ -407,8 +419,7 @@ export function DocumentsImportScreen() {
             ) : null}
 
             <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-              אחרי הקליטה דוביז תזהה את תוכן המסמכים, ותציג כל אחד לאישורכם במסך
-              המסמכים. שום דבר לא יאושר אוטומטית.
+              {t("account.settings.importExport.documentsImport.afterImport")}
             </p>
 
             <button
@@ -417,7 +428,7 @@ export function DocumentsImportScreen() {
               disabled={busy}
               className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy ? "קולט את הקבצים…" : "אשרו וקלטו"}
+              {busy ? t("account.settings.importExport.documentsImport.importing") : t("account.settings.importExport.documentsImport.confirm")}
             </button>
             <button
               type="button"
@@ -425,7 +436,7 @@ export function DocumentsImportScreen() {
               disabled={busy}
               className="mt-2 w-full rounded-2xl px-4 py-3 text-sm font-bold text-[var(--dz-text-muted)] transition disabled:opacity-50"
             >
-              חזרה
+              {t("common.back")}
             </button>
           </SettingsSection>
         </div>
@@ -433,12 +444,12 @@ export function DocumentsImportScreen() {
 
       {stage === "done" && executed ? (
         <div className="mt-4">
-          <SettingsSection title="מה נקלט">
+          <SettingsSection title={t("account.settings.importExport.documentsImport.doneTitle")}>
             <dl className="grid grid-cols-3 gap-2">
               {[
-                ["נקלטו", executed.counts.createdCount],
-                ["דולגו", executed.counts.skippedCount],
-                ["לא נקלטו", executed.counts.failedCount],
+                [t("account.settings.importExport.documentsImport.done.created"), executed.counts.createdCount],
+                [t("account.settings.importExport.documentsImport.done.skipped"), executed.counts.skippedCount],
+                [t("account.settings.importExport.documentsImport.done.failed"), executed.counts.failedCount],
               ].map(([label, value]) => (
                 <div
                   key={String(label)}
@@ -446,7 +457,7 @@ export function DocumentsImportScreen() {
                 >
                   <dt className="text-[11px] text-[var(--dz-text-muted)]">{label}</dt>
                   <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                    {Number(value).toLocaleString("he-IL")}
+                    {Number(value).toLocaleString(intlTag(locale))}
                   </dd>
                 </div>
               ))}
@@ -454,18 +465,17 @@ export function DocumentsImportScreen() {
 
             {executed.alreadyExecuted ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                הקבצים האלה כבר נקלטו קודם. שום דבר לא נקלט פעם נוספת.
+                {t("account.settings.importExport.documentsImport.alreadyExecuted")}
               </p>
             ) : null}
 
             {executed.unexecutedFiles > 0 ? (
               <div className="mt-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3">
                 <p className="text-xs font-bold text-[var(--dz-text-primary)]">
-                  {executed.unexecutedFiles.toLocaleString("he-IL")} קבצים לא
-                  הספיקו להיקלט.
+                  {t(executed.unexecutedFiles === 1 ? "account.settings.importExport.documentsImport.unexecutedOne" : "account.settings.importExport.documentsImport.unexecutedMany", { count: executed.unexecutedFiles.toLocaleString(intlTag(locale)) })}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  אפשר לשלוח את אותם קבצים שוב — מה שכבר נקלט לא ייקלט שוב.
+                  {t("account.settings.importExport.documentsImport.resend")}
                 </p>
               </div>
             ) : null}
@@ -479,7 +489,7 @@ export function DocumentsImportScreen() {
                         {f.filename}
                       </span>
                       <span className="shrink-0 text-[11px] font-semibold text-[var(--dz-text-muted)]">
-                        {OUTCOME_LABEL[f.outcome]}
+                        {t(OUTCOME_LABEL[f.outcome])}
                       </span>
                     </div>
                     {f.message ? (
@@ -502,7 +512,7 @@ export function DocumentsImportScreen() {
               }}
               className="mt-4 w-full rounded-2xl px-4 py-3 text-sm font-bold text-[var(--dz-text-muted)] transition"
             >
-              ייבוא נוסף
+              {t("account.settings.importExport.documentsImport.again")}
             </button>
           </SettingsSection>
         </div>

@@ -51,6 +51,7 @@ import { buildXlsxBuffer } from "@/lib/data-transfer/format/xlsx-writer";
 import { writeCsvBuffer } from "@/lib/data-transfer/format/csv-writer";
 import { domainAliasMap } from "@/lib/data-transfer/import/domain-aliases";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 process.env.AUTH_TOKEN_SECRET ||= "i5_verifier_synthetic_secret";
 
@@ -1075,7 +1076,8 @@ check("the Import UI's promise stops at the confirmation, and says so", () => {
   // I-5 promised "nothing is saved" unconditionally. I-6 makes that FALSE after
   // the owner confirms, so the copy had to change with the behaviour — a screen
   // that still promised it would be lying at exactly the moment it matters.
-  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  // The screen's copy lives in the i18n dictionary: the screen is its source plus that section.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx") + JSON.stringify(accountHe.settings.importExport.import);
   assert.equal(
     src.includes("שום מידע לא יישמר בדוביז"),
     false,
@@ -1093,7 +1095,8 @@ check("the Import UI's promise stops at the confirmation, and says so", () => {
 
 check("the confirm control names the exact number of rows it will create", () => {
   // A button that says only "import" hides the size of what it does.
-  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  // The screen's copy lives in the i18n dictionary: the screen is its source plus that section.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx") + JSON.stringify(accountHe.settings.importExport.import);
   assert.equal(src.includes("אשרו וייבאו "), true);
   assert.equal(src.includes("createCount.toLocaleString"), true);
 });
@@ -1101,7 +1104,8 @@ check("the confirm control names the exact number of rows it will create", () =>
 check("an interrupted import tells the owner the safe thing to do", () => {
   // The one case where a user could otherwise do real damage by guessing:
   // re-running the same file is safe, and they have to be told that.
-  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  // The screen's copy lives in the i18n dictionary: the screen is its source plus that section.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx") + JSON.stringify(accountHe.settings.importExport.import);
   assert.equal(src.includes("הריצו את אותו קובץ שוב"), true);
 });
 
