@@ -210,6 +210,9 @@ const EXEMPT_PREFIXES = [
   "/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/onboarding", "/dev", "/test-upload", "/posts", "/upload",
   "/coupon-design", "/home", "/home-prototype", "/about", "/contact", "/privacy", "/terms", "/data-deletion",
   "/revenue/issue", "/offers", "/promotions", "/dashboard", "/opportunities", "/",
+  // The accountant's download link (monthly accountant workflow): a public page outside the app shell, opened
+  // from an email by someone with no Dubiz account — like the account-link pages above, never a back target.
+  "/a",
 ];
 function pageRoutes(dir: string): string[] {
   const out: string[] = [];
