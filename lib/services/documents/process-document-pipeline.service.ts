@@ -40,6 +40,7 @@ import {
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
 import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
+import { noteDocumentChangeForAccountant } from "@/lib/accountant/change-hooks";
 
 export type ProcessDocumentInput = {
   documentId: number;
@@ -268,5 +269,8 @@ export async function processDocumentPipeline(
     // It cannot affect anything: the document state is durable, this function
     // never throws by contract, and the sync swallows its own errors.
     await syncDocumentsReviewQueueNotification(businessId, new Date());
+    // A document arriving (or failing) for a closed month changes what that month's accountant
+    // package lists as open. Never throws.
+    await noteDocumentChangeForAccountant(businessId, documentId, new Date());
   }
 }

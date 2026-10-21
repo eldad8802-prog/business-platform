@@ -401,6 +401,29 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // quarantine stage before this purge runs).
           await tx.$queryRaw`SELECT public.task_retention_erase_business() AS n`;
 
+          // ── Monthly accountant workflow ─────────────────────────────────────
+          //
+          // The accountant's name and address are a third person's data. Every
+          // delivery's recipient snapshot is erased in place and every link revoked
+          // (a revoked link stays revoked, so only open ones are stamped). A send
+          // still waiting can then never go out: claiming needs an address and the
+          // database refuses SENDING without one. Then the recipient row goes (its
+          // tenant-scoped DELETE policy, CI-AD-13). Periods and packages stay: they
+          // are copies of the fiscal records this erasure retains (LEGAL/FISCAL).
+          await tx.accountantDelivery.updateMany({
+            where: { businessId, linkRevokedAt: null },
+            data: { recipientName: null, recipientEmail: null, linkRevokedAt: new Date() },
+          });
+          await tx.accountantDelivery.updateMany({
+            where: { businessId },
+            data: { recipientName: null, recipientEmail: null },
+          });
+          await tx.accountantRecipient.deleteMany({ where: { businessId } });
+          // The trail is append-only for the runtime too: this SECURITY DEFINER
+          // function is its one path, and it refuses unless the business in this
+          // tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.accountant_erase_business() AS n`;
+
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
           // Free text, and nothing else on either model. The receiving session keeps

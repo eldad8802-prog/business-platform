@@ -104,6 +104,15 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
     basis: "LEGAL/FISCAL",
   },
   {
+    model: "AccountantPackage",
+    field: "storageKey",
+    kind: "STORAGE_KEY",
+    domain: "exports",
+    state: "RETAINED",
+    reason: "a monthly accountant package is a stored copy of the retained fiscal records it was built from; retained with its row for the same reason they are",
+    basis: "LEGAL/FISCAL",
+  },
+  {
     model: "FinancialDocument",
     field: "fileUrl",
     kind: "STORAGE_KEY",

@@ -9,6 +9,7 @@ import { buildReviewEventCreateData } from "@/lib/services/documents/ledger/corr
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 import { runShadowMaterialization } from "@/lib/business-memory/shadow";
 import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
+import { noteDocumentChangeForAccountant } from "@/lib/accountant/change-hooks";
 
 export async function POST(
   req: Request,
@@ -381,6 +382,9 @@ export async function POST(
     await runWithTenantContext({ businessId: user.businessId }, () =>
       syncDocumentsReviewQueueNotification(user.businessId, new Date())
     );
+    // A late approval changes a closed month's accountant package: mark that month for
+    // re-evaluation (a revised version is prepared; nothing is re-sent without approval).
+    await noteDocumentChangeForAccountant(user.businessId, documentId, new Date());
 
     return Response.json({
       success: true,

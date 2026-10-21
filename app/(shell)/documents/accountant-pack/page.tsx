@@ -1,266 +1,151 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CATEGORIES } from "@/lib/constants/categories";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
-import { formatNumber } from "@/lib/i18n/format";
-import { categoryLabel } from "@/lib/documents/category-label";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
-import { TOKEN } from "@/lib/design/documents-theme";
-import { chipActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
+import { TOKEN, chipActionStyle } from "@/lib/design/documents-theme";
+import { isPeriodKey } from "@/lib/accountant/period";
+import type { PeriodView } from "@/lib/accountant/view.service";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
+import { AccountantMonthPanel } from "@/components/accountant/AccountantMonthPanel";
+import { AdHocExport } from "@/components/accountant/AdHocExport";
+import { fetchPeriod, fetchPeriods, type PeriodListItem } from "@/components/accountant/accountant-client";
 
-type PeriodType = "month" | "quarter" | "year";
-
-function currentMonthValue(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function currentMonthLabel(value: string, locale: Locale = DEFAULT_LOCALE): string {
-  const [year, month] = value.split("-").map(Number);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return value;
-  return new Date(year, month - 1, 1).toLocaleDateString(intlTag(locale), {
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
+/**
+ * חבילת רו״ח — the monthly accountant workflow (when the feature is on for the business) and an
+ * export for any period on demand.
+ *
+ * A notification links here as /documents/accountant-pack?period=YYYY-MM: the screen opens that exact
+ * month of the signed-in business (the server reads the business from the session, never from the URL).
+ */
 export default function AccountantPackPage() {
   const router = useRouter();
-  const { t, locale, fmt } = useI18n();
+  const { t } = useI18n();
   const [token, setToken] = useState<string | null>(null);
-  const [type, setType] = useState<PeriodType>("month");
-  const [period, setPeriod] = useState(currentMonthValue());
-  const [categories, setCategories] = useState<string[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [periods, setPeriods] = useState<PeriodListItem[] | null | undefined>(undefined);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<PeriodView | null>(null);
+  const [pendingAllTime, setPendingAllTime] = useState(0);
+  const [loadError, setLoadError] = useState("");
+  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    void Promise.resolve().then(() => {
-      const nextToken = window.localStorage.getItem("token");
-      if (!nextToken) {
-        router.replace("/login");
-        return;
-      }
-      setToken(nextToken);
-      void fetchDocumentsHubSummary(nextToken)
-        .then((snapshot) =>
-          setPendingCount(snapshot.financialPulse.inboxDocumentCounts.pendingReview ?? 0)
-        )
-        .catch(() => setPendingCount(0));
-    });
+    const t = window.localStorage.getItem("token");
+    if (!t) {
+      router.replace("/login");
+      return;
+    }
+    setToken(t);
+    const fromUrl = new URLSearchParams(window.location.search).get("period");
+    void fetchPeriods(t)
+      .then((list) => {
+        setPeriods(list);
+        if (list && list.length > 0) setSelected(fromUrl && isPeriodKey(fromUrl) ? fromUrl : list[0].periodKey);
+      })
+      .catch(() => {
+        setPeriods(null);
+        setLoadError("לא הצלחנו לטעון את החודשים. נסו לרענן.");
+      });
+    void fetchDocumentsHubSummary(t)
+      .then((s) => setPendingAllTime(s.financialPulse.inboxDocumentCounts.pendingReview ?? 0))
+      .catch(() => setPendingAllTime(0));
   }, [router]);
 
-  const visibleCategories = useMemo(
-    () =>
-      ["fuel", "services", "salary", "marketing"]
-        .map((value) => CATEGORIES.find((category) => category.value === value))
-        .filter((category): category is (typeof CATEGORIES)[number] => Boolean(category)),
-    []
-  );
-  const periodLabel = type === "month" ? currentMonthLabel(period, locale) : period;
-  const selectedCategoriesLabel =
-    categories.length === 0
-      ? t("documents.pack.allCategories")
-      : visibleCategories
-          .filter((category) => categories.includes(category.value))
-          .map((category) => categoryLabel(t, category.value))
-          .join(" · ");
+  const reload = useCallback(async () => {
+    if (!token || !selected) return;
+    try {
+      setView(await fetchPeriod(token, selected));
+      setLoadError("");
+    } catch {
+      setLoadError("לא הצלחנו לטעון את החודש. נסו לרענן.");
+    }
+  }, [token, selected]);
 
-  function toggleCategory(value: string) {
-    setCategories((current) =>
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value]
+  useEffect(() => {
+    setView(null);
+    void reload();
+    if (selected) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("period", selected);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [reload, selected]);
+
+  // While a send is on its way, follow it for a minute.
+  useEffect(() => {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    if (view?.status !== "SENDING") return;
+    let n = 0;
+    pollRef.current = window.setInterval(() => {
+      n += 1;
+      if (n > 15) {
+        if (pollRef.current) window.clearInterval(pollRef.current);
+        return;
+      }
+      void reload();
+    }, 4000);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+  }, [view?.status, reload]);
+
+  function onChange(next: PeriodView | null) {
+    if (!next) return;
+    setView(next);
+    setPeriods((list) =>
+      list?.map((p) => (p.periodKey === next.periodKey ? { ...p, status: next.status, statusLabel: next.statusLabel } : p)) ?? list
     );
   }
 
-  async function handleDownload() {
-    if (!token) return;
-    try {
-      setLoading(true);
-      setError("");
-      const response = await fetch("/api/reports/export-zip", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          type,
-          month: type === "month" ? period : "",
-          year: type === "year" ? period : "",
-          quarter: type === "quarter" ? period : "",
-          categories,
-        }),
-      });
-      if (!response.ok) throw new Error(t("documents.pack.errCreate"));
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "accountant-pack.zip";
-      link.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(errorMessage(err, t("documents.pack.errGeneric")));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const monthly = Array.isArray(periods) && periods.length > 0;
 
   return (
-    <div style={pageStyle}>
+    <div dir="rtl" style={pageStyle}>
       <PageContainer intent="standard" className="dz-pack" style={{ paddingBlock: "14px 40px" }}>
-        <div className="dz-pack-desk">
-        <header className="dz-pack-span" style={headStyle}>
+        <header style={headStyle}>
           <DocumentsBackButton />
           <h1 style={titleStyle}>{t("documents.pack.title")}</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
-        <div>
-        <section>
-          <div style={labelStyle}>{t("documents.pack.period")}</div>
-          <div style={segStyle}>
-            {[
-              { key: "month" as const, label: t("documents.pack.month") },
-              { key: "quarter" as const, label: t("documents.pack.quarter") },
-              { key: "year" as const, label: t("documents.pack.year") },
-            ].map((item) => (
+        {loadError ? <div style={errorStyle} role="alert">{loadError}</div> : null}
+
+        {monthly ? (
+          <nav aria-label="חודשים" style={monthsStyle}>
+            {periods!.map((p) => (
               <button
-                key={item.key}
+                key={p.periodKey}
                 type="button"
-                onClick={() => setType(item.key)}
-                style={type === item.key ? segButtonActiveStyle : segButtonStyle}
+                onClick={() => setSelected(p.periodKey)}
+                aria-current={p.periodKey === selected ? "true" : undefined}
+                style={{ ...chipActionStyle(p.periodKey === selected), minHeight: 52, flexDirection: "column", gap: 2, padding: "6px 12px", whiteSpace: "nowrap" }}
               >
-                {item.label}
+                <span>{p.label}</span>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>{p.statusLabel ?? "טרם הוכן"}</span>
               </button>
             ))}
-          </div>
-          <label style={periodFieldStyle}>
-            <CalendarIcon />
-            <input
-              value={period}
-              onChange={(event) => setPeriod(event.target.value)}
-              type={type === "month" ? "month" : "text"}
-              placeholder={type === "quarter" ? "2026-Q2" : "2026"}
-              aria-label={t("documents.pack.period")}
-              className={type === "month" ? "dz-native-date" : undefined}
-              style={periodInputStyle}
-            />
-          </label>
-          <div style={periodPreviewStyle}>{periodLabel}</div>
-        </section>
-
-        <section style={{ marginTop: 18 }}>
-          <div style={labelStyle}>{t("documents.pack.categories")}</div>
-          <div style={filtersStyle}>
-            <button
-              type="button"
-              onClick={() => setCategories([])}
-              style={categories.length === 0 ? chipActiveStyle : chipStyle}
-            >
-              {t("documents.pack.all")}
-            </button>
-            {visibleCategories.map((category) => (
-              <button
-                key={category.value}
-                type="button"
-                onClick={() => toggleCategory(category.value)}
-                style={
-                  categories.includes(category.value) ? chipActiveStyle : chipStyle
-                }
-              >
-                {categoryLabel(t, category.value)}
-              </button>
-            ))}
-          </div>
-        </section>
-        </div>
-        <aside className="dz-pack-side">
-        <section>
-          <div style={labelStyle}>{t("documents.pack.included")}</div>
-          <div style={summaryCardStyle}>
-            <div style={summaryRowStyle}>
-              <span style={summaryKeyStyle}>{t("documents.pack.period")}</span>
-              <span style={summaryValStyle}>{periodLabel}</span>
-            </div>
-            <div style={{ ...summaryRowStyle, borderBottom: "none" }}>
-              <span style={summaryKeyStyle}>{t("documents.pack.categories")}</span>
-              <span style={summaryValStyle}>{selectedCategoriesLabel}</span>
-            </div>
-            <p style={summaryHintStyle}>
-              {t("documents.pack.hint")}
-            </p>
-          </div>
-        </section>
-
-        {pendingCount > 0 ? (
-          <div style={blockerStyle}>
-            <WarningIcon />
-            <span>
-              {t("documents.pack.pendingBlocker", { count: formatNumber(pendingCount, fmt) })}
-            </span>
-          </div>
+          </nav>
         ) : null}
 
-        {error ? <div style={errorStyle}>{error}</div> : null}
-        <button
-          type="button"
-          className="dz-pack-download"
-          disabled={loading}
-          onClick={() => void handleDownload()}
-          style={{ ...downloadButtonStyle, display: "none", opacity: loading ? 0.7 : 1 }}
-        >
-          {loading ? t("documents.pack.preparing") : t("documents.pack.download")}
-        </button>
-        </aside>
+        <div className="dz-pack-desk">
+          <div>
+            {monthly && view && token ? (
+              <AccountantMonthPanel token={token} period={view} onChange={onChange} onReload={reload} />
+            ) : monthly || periods === undefined ? (
+              <div style={skeleton} aria-busy="true">טוען…</div>
+            ) : null}
+            {!monthly && token && periods !== undefined ? <AdHocExport token={token} pendingAllTime={pendingAllTime} /> : null}
+          </div>
+          {monthly && token ? (
+            <aside className="dz-pack-side">
+              <AdHocExport token={token} pendingAllTime={pendingAllTime} />
+            </aside>
+          ) : null}
         </div>
       </PageContainer>
-
-      <div className="dz-pack-bottom" style={bottomBarStyle}>
-        <button
-          type="button"
-          disabled={loading}
-          onClick={() => void handleDownload()}
-          style={{
-            ...downloadButtonStyle,
-            opacity: loading ? 0.7 : 1,
-            cursor: loading ? "not-allowed" : "pointer",
-          }}
-        >
-          {loading ? t("documents.pack.preparing") : t("documents.pack.download")}
-        </button>
-      </div>
     </div>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <rect x="3" y="5" width="18" height="16" rx="2.5" stroke={TOKEN.ink.muted} strokeWidth="1.8" fill="none" />
-      <path d="M3 9h18M8 3v4M16 3v4" stroke={TOKEN.ink.muted} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function WarningIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path d="M12 9v4m0 4h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
   );
 }
 
@@ -268,16 +153,15 @@ const pageStyle = {
   minHeight: "100vh",
   background: TOKEN.surface.page,
   color: TOKEN.ink.primary,
-  paddingBottom: 110,
+  paddingBottom: 40,
 } as const;
-
 
 const headStyle = {
   display: "grid",
   gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
-  marginBottom: 20,
+  marginBottom: 16,
 } as const;
 
 const titleStyle = {
@@ -289,165 +173,30 @@ const titleStyle = {
   lineHeight: 1.25,
 } as const;
 
-const labelStyle = {
-  color: TOKEN.ink.secondary,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.bold,
-  marginBottom: 10,
-} as const;
-
-const segStyle = {
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.surface.card,
-  boxShadow: TOKEN.shadow.elevated,
-  padding: 6,
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 6,
-} as const;
-
-const segButtonStyle = {
-  ...chipActionStyle(false),
-  minHeight: 42,
-  fontSize: TOKEN.font.body,
-} as const;
-
-const segButtonActiveStyle = {
-  ...chipActionStyle(true),
-  minHeight: 42,
-  fontSize: TOKEN.font.body,
-} as const;
-
-const periodFieldStyle = {
-  minHeight: 52,
-  marginTop: 12,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.surface.card,
-  boxShadow: TOKEN.shadow.elevated,
-  padding: "0 14px",
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-} as const;
-
-const periodInputStyle = {
-  position: "relative",
-  width: "100%",
-  border: "none",
-  outline: "none",
-  background: "transparent",
-  color: TOKEN.ink.primary,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-} as const;
-
-const periodPreviewStyle = {
-  marginTop: 8,
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.semibold,
-} as const;
-
-const filtersStyle = {
+const monthsStyle = {
   display: "flex",
   gap: 8,
-  flexWrap: "wrap",
+  overflowX: "auto",
+  paddingBottom: 6,
+  marginBottom: 14,
+  scrollbarWidth: "thin",
 } as const;
 
-const chipStyle = {
-  ...chipActionStyle(false),
-  minHeight: 36,
-  padding: "0 12px",
-  fontSize: TOKEN.font.body,
-} as const;
-
-const chipActiveStyle = {
-  ...chipActionStyle(true),
-  minHeight: 36,
-  padding: "0 12px",
-  fontSize: TOKEN.font.body,
-} as const;
-
-const summaryCardStyle = {
+const skeleton = {
   border: `1px solid ${TOKEN.border.DEFAULT}`,
   borderRadius: TOKEN.radius.card,
   background: TOKEN.surface.card,
-  boxShadow: TOKEN.shadow.elevated,
-  padding: "4px 16px 14px",
-} as const;
-
-const summaryRowStyle = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  padding: "12px 0",
-  borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
-} as const;
-
-const summaryKeyStyle = {
+  padding: 24,
   color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.semibold,
-} as const;
-
-const summaryValStyle = {
-  color: TOKEN.ink.primary,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  textAlign: "end" as const,
-  minWidth: 0,
-} as const;
-
-const summaryHintStyle = {
-  margin: "12px 0 0",
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.semibold,
-  lineHeight: 1.6,
-} as const;
-
-const blockerStyle = {
-  border: `1px solid ${TOKEN.semantic.attention.border}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.semantic.attention.bgSoft,
-  color: TOKEN.semantic.attention.ink,
-  minHeight: 52,
-  marginTop: 18,
-  padding: "0 14px",
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  lineHeight: 1.5,
+  marginBottom: 14,
 } as const;
 
 const errorStyle = {
-  ...blockerStyle,
   border: `1px solid ${TOKEN.semantic.urgent.border}`,
+  borderRadius: TOKEN.radius.card,
   background: TOKEN.semantic.urgent.bgSoft,
   color: TOKEN.semantic.urgent.ink,
-} as const;
-
-const bottomBarStyle = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: TOKEN.surface.card,
-  borderTop: `1px solid ${TOKEN.border.DEFAULT}`,
-  padding: "12px 14px 22px",
-  boxShadow: TOKEN.shadow.floating,
-} as const;
-
-const downloadButtonStyle = {
-  ...primaryActionStyle({ height: 52 }),
-  width: "min(492px, 100%)",
-  minHeight: 52,
-  margin: "0 auto",
-  display: "block",
-  fontSize: TOKEN.font.body,
+  padding: "12px 14px",
+  fontWeight: TOKEN.weight.bold,
+  marginBottom: 14,
 } as const;

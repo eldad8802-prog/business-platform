@@ -149,6 +149,14 @@ const RULES: Record<string, Rule> = {
     cooldownHours: 72,
     reason: "documents backlog, low urgency",
   },
+  // The monthly accountant package was approved for sending and the email provider refused or bounced
+  // it: the owner believes the accountant has the month when they do not. In the app only — documents
+  // never push — and once a day at most while it stays unresolved.
+  [ruleKey("documents", "FAILURE_EVENT", "HIGH")]: {
+    channels: ["IN_APP"],
+    cooldownHours: 24,
+    reason: "an approved accountant package was not delivered",
+  },
 
   // ── Leads ──────────────────────────────────────────────────────────────────
   // A follow-up the owner already scheduled. In-app only: they chose the date,
