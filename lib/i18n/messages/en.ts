@@ -1,4 +1,13 @@
 import type { Messages } from "./types";
+import { homeEn } from "./areas/home";
+import { inboxEn } from "./areas/inbox";
+import { documentsEn } from "./areas/documents";
+import { billingEn } from "./areas/billing";
+import { moneyEn } from "./areas/money";
+import { customersEn } from "./areas/customers";
+import { tasksEn } from "./areas/tasks";
+import { accountEn } from "./areas/account";
+import { contentEn } from "./areas/content";
 
 /** English. Must provide every key of the Hebrew source dictionary (the type enforces it). */
 export const en: Messages = {
@@ -79,4 +88,13 @@ export const en: Messages = {
     comingSoon: "Coming soon",
     languageSaved: "Language updated",
   },
+  home: homeEn,
+  inbox: inboxEn,
+  documents: documentsEn,
+  billing: billingEn,
+  money: moneyEn,
+  customers: customersEn,
+  tasks: tasksEn,
+  account: accountEn,
+  content: contentEn,
 };

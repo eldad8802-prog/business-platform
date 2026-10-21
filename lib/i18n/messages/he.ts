@@ -1,3 +1,13 @@
+import { homeHe } from "./areas/home";
+import { inboxHe } from "./areas/inbox";
+import { documentsHe } from "./areas/documents";
+import { billingHe } from "./areas/billing";
+import { moneyHe } from "./areas/money";
+import { customersHe } from "./areas/customers";
+import { tasksHe } from "./areas/tasks";
+import { accountHe } from "./areas/account";
+import { contentHe } from "./areas/content";
+
 /**
  * Hebrew — the SOURCE dictionary. Every other language must provide exactly these keys
  * (enforced by the `Messages` type). Text here is the product's existing Hebrew copy, moved
@@ -80,4 +90,13 @@ export const he = {
     comingSoon: "בקרוב",
     languageSaved: "השפה עודכנה",
   },
+  home: homeHe,
+  inbox: inboxHe,
+  documents: documentsHe,
+  billing: billingHe,
+  money: moneyHe,
+  customers: customersHe,
+  tasks: tasksHe,
+  account: accountHe,
+  content: contentHe,
 } as const;
