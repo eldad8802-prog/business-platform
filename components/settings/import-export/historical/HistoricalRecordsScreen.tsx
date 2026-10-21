@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
 import {
   EXTERNAL_ORIGIN_BADGE,
   EXTERNAL_ORIGIN_EXPLANATION,
@@ -106,11 +108,11 @@ function formatDay(day: string | null): string | null {
   return y && m && d ? `${d}/${m}/${y}` : day;
 }
 
-function formatMoney(amount: string | null, currency: string | null): string | null {
+function formatMoney(amount: string | null, currency: string | null, locale: Locale): string | null {
   if (amount === null) return null;
   const number = Number(amount);
   const text = Number.isFinite(number)
-    ? number.toLocaleString("he-IL", {
+    ? number.toLocaleString(intlTag(locale), {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })
@@ -123,6 +125,7 @@ export function HistoricalRecordsScreen({
   importHref,
   recordsBase,
 }: Props) {
+  const { t, locale } = useI18n();
   const [filters, setFilters] = useEntryState<Filters>("filters", NO_FILTERS);
   // What the CURRENT result was fetched with, so the controls can be edited
   // without the list changing underneath the owner mid-typing.
@@ -171,7 +174,7 @@ export function HistoricalRecordsScreen({
         const body = await response.json().catch(() => null);
 
         if (response.status === 401) {
-          return { kind: "error", message: "צריך להתחבר מחדש כדי להמשיך." };
+          return { kind: "error", message: t("account.settings.historical.import.signInAgain") };
         }
         if (!response.ok || !body?.ok) {
           return {
@@ -181,10 +184,10 @@ export function HistoricalRecordsScreen({
         }
         return { kind: "page", value: body as Page };
       } catch {
-        return { kind: "error", message: "שגיאת רשת — בדקו את החיבור ונסו שוב." };
+        return { kind: "error", message: t("account.settings.importExport.common.network") };
       }
     },
-    []
+    [t]
   );
 
   function applyOutcome(outcome: Outcome) {
@@ -254,25 +257,25 @@ export function HistoricalRecordsScreen({
           {EXTERNAL_ORIGIN_EXPLANATION}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          המסמכים כאן נשמרים לצפייה בלבד ואי אפשר לערוך אותם.
+          {t("account.settings.historical.records.viewOnly")}
         </p>
       </SettingsSection>
       </div>
 
       {/* Filters */}
       <div className="mt-4" data-records-filters>
-        <SettingsSection title="סינון">
+        <SettingsSection title={t("account.settings.historical.records.filters.title")}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-records-filter-grid>
             <label className="block">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
-                סוג מסמך
+                {t("account.settings.historical.records.filters.type")}
               </span>
               <select
                 value={filters.type}
                 onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
                 className="mt-1 min-h-[44px] w-full rounded-xl border border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-3 text-sm text-[var(--dz-text-primary)]"
               >
-                <option value="">הכול</option>
+                <option value="">{t("account.settings.historical.records.filters.all")}</option>
                 {documentTypes.map((type) => (
                   <option key={type.code} value={type.code}>
                     {type.label}
@@ -283,14 +286,14 @@ export function HistoricalRecordsScreen({
 
             <label className="block">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
-                מערכת מקור
+                {t("account.settings.historical.records.filters.source")}
               </span>
               <select
                 value={filters.source}
                 onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
                 className="mt-1 min-h-[44px] w-full rounded-xl border border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-3 text-sm text-[var(--dz-text-primary)]"
               >
-                <option value="">הכול</option>
+                <option value="">{t("account.settings.historical.records.filters.all")}</option>
                 {(data?.sourceSystems ?? []).map((code) => (
                   <option key={code} value={code}>
                     {code}
@@ -301,7 +304,7 @@ export function HistoricalRecordsScreen({
 
             <label className="block sm:col-span-2">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
-                מספר מסמך מקורי
+                {t("account.settings.historical.records.filters.number")}
               </span>
               <input
                 type="search"
@@ -312,14 +315,14 @@ export function HistoricalRecordsScreen({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") apply();
                 }}
-                placeholder="חלק מהמספר מספיק"
+                placeholder={t("account.settings.historical.records.filters.numberPlaceholder")}
                 className="mt-1 min-h-[44px] w-full rounded-xl border border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-3 text-sm text-[var(--dz-text-primary)]"
               />
             </label>
 
             <label className="block">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
-                מתאריך
+                {t("account.settings.historical.records.filters.from")}
               </span>
               <input
                 type="date"
@@ -331,7 +334,7 @@ export function HistoricalRecordsScreen({
 
             <label className="block">
               <span className="block text-xs font-semibold text-[var(--dz-text-primary)]">
-                עד תאריך
+                {t("account.settings.historical.records.filters.to")}
               </span>
               <input
                 type="date"
@@ -349,7 +352,7 @@ export function HistoricalRecordsScreen({
               disabled={loading}
               className="min-h-[44px] flex-1 rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              סננו
+              {t("account.settings.historical.records.filters.apply")}
             </button>
             {filtered ? (
               <button
@@ -358,7 +361,7 @@ export function HistoricalRecordsScreen({
                 disabled={loading}
                 className="min-h-[44px] rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-sm font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:opacity-60"
               >
-                נקו סינון
+                {t("account.settings.historical.records.filters.clear")}
               </button>
             ) : null}
           </div>
@@ -368,15 +371,17 @@ export function HistoricalRecordsScreen({
       {/* The list */}
       <div className="mt-4" data-records-list>
         <SettingsSection
-          title="המסמכים ההיסטוריים"
+          title={t("account.settings.historical.records.list.title")}
           description={
             data && !loading
-              ? `${data.total.toLocaleString("he-IL")} מסמכים${filtered ? " מתאימים לסינון" : ""}`
+              ? t(filtered ? "account.settings.historical.records.list.countFiltered" : "account.settings.historical.records.list.count", {
+                  count: data.total.toLocaleString(intlTag(locale)),
+                })
               : undefined
           }
         >
           {loading ? (
-            <ul className="flex flex-col gap-2" aria-label="טוען מסמכים">
+            <ul className="flex flex-col gap-2" aria-label={t("account.settings.historical.records.list.loading")}>
               {[0, 1, 2].map((i) => (
                 <li
                   key={i}
@@ -394,35 +399,35 @@ export function HistoricalRecordsScreen({
                 onClick={retry}
                 className="mt-2 min-h-[44px] rounded-full border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
               >
-                נסו שוב
+                {t("account.settings.historical.records.list.retry")}
               </button>
             </div>
           ) : data && data.emptyHistory ? (
             <div className="rounded-2xl bg-[var(--dz-background)] px-4 py-5 text-center">
               <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-                עדיין לא נקלטו מסמכים היסטוריים.
+                {t("account.settings.historical.records.list.emptyTitle")}
               </p>
               <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-                כאן יופיעו המסמכים שהפקתם במערכת הקודמת שלכם, אחרי שתעלו אותם.
+                {t("account.settings.historical.records.list.emptyBody")}
               </p>
               <Link
                 href={importHref}
                 className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition"
               >
-                להעלאת מסמכים מהמערכת הקודמת
+                {t("account.settings.historical.records.list.toImport")}
               </Link>
             </div>
           ) : data && data.items.length === 0 ? (
             <div className="rounded-2xl bg-[var(--dz-background)] px-4 py-5 text-center">
               <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-                אין מסמכים שמתאימים לסינון.
+                {t("account.settings.historical.records.list.noMatches")}
               </p>
               <button
                 type="button"
                 onClick={clear}
                 className="mt-3 min-h-[44px] rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-sm font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
               >
-                נקו סינון
+                {t("account.settings.historical.records.filters.clear")}
               </button>
             </div>
           ) : (
@@ -432,12 +437,12 @@ export function HistoricalRecordsScreen({
             <table data-records-table>
               <thead>
                 <tr>
-                  <th scope="col">סוג</th>
-                  <th scope="col">מספר מקורי</th>
-                  <th scope="col">תאריך</th>
-                  <th scope="col">סכום</th>
-                  <th scope="col">לקוח</th>
-                  <th scope="col">מערכת מקור</th>
+                  <th scope="col">{t("account.settings.historical.records.table.type")}</th>
+                  <th scope="col">{t("account.settings.historical.records.table.number")}</th>
+                  <th scope="col">{t("account.settings.historical.records.table.date")}</th>
+                  <th scope="col">{t("account.settings.historical.records.table.amount")}</th>
+                  <th scope="col">{t("account.settings.historical.records.table.customer")}</th>
+                  <th scope="col">{t("account.settings.historical.records.table.source")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -454,7 +459,7 @@ export function HistoricalRecordsScreen({
                     </td>
                     <td>{item.originalDocumentNumber ?? "—"}</td>
                     <td>{formatDay(item.originalIssueDate) ?? "—"}</td>
-                    <td>{formatMoney(item.totalAmount, item.currency) ?? "—"}</td>
+                    <td>{formatMoney(item.totalAmount, item.currency, locale) ?? "—"}</td>
                     <td>{item.customerNameSnapshot ?? "—"}</td>
                     <td>{item.sourceSystemNameRaw || item.sourceSystemCode}</td>
                   </tr>
@@ -463,7 +468,7 @@ export function HistoricalRecordsScreen({
             </table>
             <ul data-records-cards className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
               {(data?.items ?? []).map((item) => {
-                const money = formatMoney(item.totalAmount, item.currency);
+                const money = formatMoney(item.totalAmount, item.currency, locale);
                 const day = formatDay(item.originalIssueDate);
                 return (
                   <li key={item.id}>
@@ -495,7 +500,7 @@ export function HistoricalRecordsScreen({
                         </span>
                       </span>
                       <span
-                        className="shrink-0 self-center text-lg text-[var(--dz-text-muted)]"
+                        className="shrink-0 self-center text-lg text-[var(--dz-text-muted)] ltr:-scale-x-100"
                         aria-hidden
                       >
                         ←
@@ -510,7 +515,7 @@ export function HistoricalRecordsScreen({
 
           {data && !loading && !error && data.totalPages > 1 ? (
             <nav
-              aria-label="עמודים"
+              aria-label={t("account.settings.historical.records.pager.label")}
               className="mt-4 flex items-center justify-between gap-2"
             >
               <button
@@ -519,11 +524,10 @@ export function HistoricalRecordsScreen({
                 disabled={data.page <= 1}
                 className="min-h-[44px] rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                הקודם
+                {t("account.settings.historical.records.pager.previous")}
               </button>
               <span className="text-xs text-[var(--dz-text-muted)]">
-                עמוד {data.page.toLocaleString("he-IL")} מתוך{" "}
-                {data.totalPages.toLocaleString("he-IL")}
+                {t("account.settings.historical.records.pager.position", { page: data.page.toLocaleString(intlTag(locale)), total: data.totalPages.toLocaleString(intlTag(locale)) })}
               </span>
               <button
                 type="button"
@@ -531,7 +535,7 @@ export function HistoricalRecordsScreen({
                 disabled={!data.hasMore}
                 className="min-h-[44px] rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                הבא
+                {t("account.settings.historical.records.pager.next")}
               </button>
             </nav>
           ) : null}
