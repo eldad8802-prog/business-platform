@@ -129,4 +129,11 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "global", limit: 600, windowSeconds: 60 * 60 },
     ],
   },
+  // TEMPORARY — the one-shot Resend smoke send (lib/email/transactional/smoke.ts). ONE send, globally,
+  // per 30 days — longer than the smoke route lives (SMOKE_NOT_AFTER). Fail-CLOSED: a limiter outage
+  // must never become a second email. Removed together with the smoke route.
+  TRANSACTIONAL_EMAIL_SMOKE: {
+    failMode: "closed",
+    rules: [{ scope: "global", limit: 1, windowSeconds: 30 * 24 * 60 * 60 }],
+  },
 };
