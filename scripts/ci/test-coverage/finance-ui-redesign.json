@@ -9,6 +9,10 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure: the Secretary home headline and groups come only from the server briefing counts, rows lead with the ledger remaining amount, no client-side money sum (the audited Prod case 3 overdue + 1 quiet); run by finance-ui-ci.yml",
       "notSecurityBecause": "a pure view-model over an already-fetched briefing: no auth, tenant, token, payment write or network path is exercised; it only proves presentation wording and which server fields are shown"
+    },
+    "app/(shell)/payables/payables-list-model.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure: Payables list grouping, filters and search; the passed-due group reconciles with the cost engine overdue items, due-today is not passed, paid never counts; run by finance-ui-ci.yml"
     }
   }
 }
