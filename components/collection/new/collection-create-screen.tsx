@@ -6,17 +6,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useFlowStep } from "@/hooks/useFlowStep";
 import { TOKEN } from "@/lib/design/tokens";
 import { WarmButton, WarmCard, warmInputStyle } from "@/components/ui/warm/warm-primitives";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { CustomerFinancialThread } from "@/lib/services/billing/collection/customer-financial-thread.service";
 import type { CollectionReadiness } from "@/lib/services/billing/collection/collection-readiness.service";
 import { buildPaymentRequestMessage } from "@/lib/services/billing/collection/collection-message";
 import { currencySymbol, toWhatsAppNumber } from "@/lib/services/billing/collection/collection-display";
 import {
-  BLOCKER_TEXT,
+  blockerText,
   collectionFetch,
   copyText,
-  money,
   recordCollectionAction,
   shareOrCopy,
+  useCollectionFormat,
   whatsAppHref,
   type BlockerCode,
 } from "../collection-client";
@@ -37,6 +38,8 @@ type Created = { id: number; paymentUrl: string | null; amount: string; currency
  * is for the customer, and the owner's next step is to send it.
  */
 export function CollectionCreateScreen() {
+  const { t: tr } = useI18n();
+  const { money } = useCollectionFormat();
   const router = useRouter();
   const params = useSearchParams();
   const [readiness, setReadiness] = useState<CollectionReadiness | null>(null);
@@ -69,8 +72,8 @@ export function CollectionCreateScreen() {
   useEffect(() => {
     collectionFetch<CollectionReadiness>("/api/collection/readiness")
       .then(setReadiness)
-      .catch(() => setError("לא הצלחנו לבדוק אם אפשר לגבות כרגע."));
-  }, []);
+      .catch(() => setError(tr("money.collection.create.checkFailed")));
+  }, [tr]);
 
   useEffect(() => {
     if (customerId === null) return;
@@ -89,7 +92,7 @@ export function CollectionCreateScreen() {
         }
       })
       .catch(() => {
-        if (!cancelled) setError("לא הצלחנו לטעון את הלקוח.");
+        if (!cancelled) setError(tr("money.collection.create.customerLoadFailed"));
       });
     return () => {
       cancelled = true;
@@ -97,7 +100,7 @@ export function CollectionCreateScreen() {
     // Only a CHANGE OF CUSTOMER reloads and re-defaults the target/amount.
     // Depending on the search params would re-run on every step change and
     // overwrite what the owner typed when they come back to this step.
-  }, [customerId, entryInvoiceId]);
+  }, [customerId, entryInvoiceId, tr]);
 
   const invoice = useMemo(
     () => (target && target !== AD_HOC ? thread?.openInvoices.find((i) => String(i.id) === target) ?? null : null),
@@ -108,11 +111,11 @@ export function CollectionCreateScreen() {
   const amountError = useMemo(() => {
     if (!amount) return null;
     const n = Number(amount);
-    if (!Number.isFinite(n) || n <= 0) return "הסכום צריך להיות גדול מאפס";
-    if (!/^\d+(\.\d{1,2})?$/.test(amount)) return "עד שתי ספרות אחרי הנקודה";
-    if (invoice && n > Number(invoice.outstanding)) return `אפשר לגבות עד ${money(invoice.outstanding, invoice.currency)} על החשבונית הזו`;
+    if (!Number.isFinite(n) || n <= 0) return tr("money.collection.create.amountPositive");
+    if (!/^\d+(\.\d{1,2})?$/.test(amount)) return tr("money.collection.create.amountDecimals");
+    if (invoice && n > Number(invoice.outstanding)) return tr("money.collection.create.amountMax", { amount: money(invoice.outstanding, invoice.currency) });
     return null;
-  }, [amount, invoice]);
+  }, [amount, invoice, money, tr]);
 
   async function create() {
     if (!thread || !target || !amount || amountError) return;
@@ -138,7 +141,7 @@ export function CollectionCreateScreen() {
       // would create a duplicate request.
       flow.complete("send", ["customer", "details"]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "לא הצלחנו ליצור בקשת תשלום");
+      setError(e instanceof Error ? e.message : tr("money.collection.create.createFailed"));
     } finally {
       setCreating(false);
     }
@@ -157,7 +160,7 @@ export function CollectionCreateScreen() {
       : "";
 
   return (
-    <div dir="rtl" className="col-create" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
+    <div className="col-create" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-create { max-width: 560px; margin: 0 auto; display: grid; gap: 16px; }
         .col-create__aside { display: none; }
@@ -170,7 +173,11 @@ export function CollectionCreateScreen() {
         <div className="col-create__head" style={{ display: "grid", gap: 8 }}>
           <div><BackButton /></div>
           <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>
-            {flow.step === "send" && created ? "הבקשה מוכנה — איך לשלוח?" : flow.step === "details" && thread ? `גבייה מ${thread.customer.name}` : "ממי לגבות?"}
+            {flow.step === "send" && created
+              ? tr("money.collection.create.titleSend")
+              : flow.step === "details" && thread
+                ? tr("money.collection.create.titleDetails", { name: thread.customer.name })
+                : tr("money.collection.create.titleCustomer")}
           </h1>
         </div>
 
@@ -179,7 +186,7 @@ export function CollectionCreateScreen() {
         {readiness && !readiness.ready ? (
           <div className="col-create__span" style={{ display: "grid", gap: 16 }}>
           {readiness.blockers.map((b) => {
-            const t = BLOCKER_TEXT[b as BlockerCode];
+            const t = blockerText(b as BlockerCode, tr);
             return (
               <WarmCard key={b}>
                 <h2 style={{ margin: 0, fontSize: 17, color: W.ink }}>{t.title}</h2>
@@ -190,12 +197,13 @@ export function CollectionCreateScreen() {
           })}
           </div>
         ) : !readiness ? (
-          <p className="col-create__span" style={{ color: W.muted }}>בודק…</p>
+          <p className="col-create__span" style={{ color: W.muted }}>{tr("money.collection.create.checking")}</p>
         ) : flow.step === "send" && created ? (
           <>
           <WarmCard>
             <p style={{ margin: 0, color: W.ink, fontSize: 16 }}>
-              בקשת תשלום של <strong>{money(created.amount, created.currency)}</strong> מ{thread?.customer.name} נוצרה.
+              {tr("money.collection.create.createdBefore")} <strong>{money(created.amount, created.currency)}</strong>{" "}
+              {tr("money.collection.create.createdAfter", { name: thread?.customer.name ?? "" })}
             </p>
             {created.paymentUrl ? (
               <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
@@ -206,10 +214,10 @@ export function CollectionCreateScreen() {
                     // Opening WhatsApp is the whole of what is observed — which is exactly what the
                     // notice below already tells the owner. The record says the same thing.
                     recordCollectionAction("WHATSAPP_OPENED", "WHATSAPP", { customerId: thread?.customer.id, paymentRequestId: created.id });
-                    setChannelNote("וואטסאפ נפתח עם ההודעה. Dubiz לא רואה אם ההודעה נשלחה.");
+                    setChannelNote(tr("money.collection.create.whatsappOpened"));
                   }}
                 >
-                  שליחה בוואטסאפ
+                  {tr("money.collection.create.sendWhatsapp")}
                 </WarmButton>
                 <WarmButton
                   variant="secondary"
@@ -217,10 +225,10 @@ export function CollectionCreateScreen() {
                   onClick={async () => {
                     const copied = await copyText(message);
                     if (copied) recordCollectionAction("MESSAGE_COPIED", "CLIPBOARD", { customerId: thread?.customer.id, paymentRequestId: created.id });
-                    setChannelNote(copied ? "ההודעה עם הקישור הועתקה." : "לא הצלחנו להעתיק.");
+                    setChannelNote(copied ? tr("money.collection.create.messageCopied") : tr("money.collection.shared.copyFailed"));
                   }}
                 >
-                  העתק הודעה וקישור
+                  {tr("money.collection.create.copyMessage")}
                 </WarmButton>
                 <WarmButton
                   variant="text"
@@ -234,28 +242,28 @@ export function CollectionCreateScreen() {
                         { customerId: thread?.customer.id, paymentRequestId: created.id },
                       );
                     }
-                    setChannelNote(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
+                    setChannelNote(r === "shared" ? tr("money.collection.shared.shareOpened") : r === "copied" ? tr("money.collection.shared.linkCopied") : tr("money.collection.shared.shareFailed"));
                   }}
                 >
-                  שיתוף בדרך אחרת
+                  {tr("money.collection.create.shareOther")}
                 </WarmButton>
                 {channelNote ? <p role="status" style={{ margin: 0, color: W.muted, fontSize: 13 }}>{channelNote}</p> : null}
               </div>
             ) : (
-              <p style={{ color: W.clay }}>הבקשה נוצרה אבל לא התקבל קישור תשלום. נסו ליצור בקשה חדשה.</p>
+              <p style={{ color: W.clay }}>{tr("money.collection.create.noLink")}</p>
             )}
             <div style={{ marginTop: 14 }}>
-              <WarmButton variant="text" onClick={() => router.push(`/collection/c/${thread?.customer.id}?request=${created.id}`)}>סיום — לתיק הלקוח</WarmButton>
+              <WarmButton variant="text" onClick={() => router.push(`/collection/c/${thread?.customer.id}?request=${created.id}`)}>{tr("money.collection.create.finish")}</WarmButton>
             </div>
           </WarmCard>
           <aside className="col-create__aside">
-            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>לפני השליחה</h2>
+            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>{tr("money.collection.create.beforeSend")}</h2>
             <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>
               {thread?.customer.name} · {money(created.amount, created.currency)}
-              {invoice?.number ? ` · חשבונית ${invoice.number}` : " · בלי חשבונית"}
+              {invoice?.number ? ` · ${tr("money.collection.shared.invoiceN", { number: invoice.number })}` : ` · ${tr("money.collection.create.noInvoice")}`}
             </p>
             <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>
-              השליחה לא מסמנת את התשלום כשולם. Dubiz רואה תשלום רק אחרי אימות ספק הסליקה.
+              {tr("money.collection.create.sendNotPaid")}
             </p>
           </aside>
           </>
@@ -270,17 +278,17 @@ export function CollectionCreateScreen() {
             />
           </WarmCard>
           <aside className="col-create__aside">
-            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>מה רואים לפני יצירה</h2>
-            <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>הלקוח, החשבוניות הפתוחות, והסכום. הבקשה נוצרת רק אחרי לחיצה מפורשת.</p>
+            <h2 style={{ margin: 0, fontSize: 16, color: W.ink }}>{tr("money.collection.create.seeBefore")}</h2>
+            <p style={{ margin: 0, color: W.muted, fontSize: 14, lineHeight: 1.5 }}>{tr("money.collection.create.seeBeforeBody")}</p>
           </aside>
           </>
         ) : !thread ? (
-          <p className="col-create__span" style={{ color: W.muted }}>טוען…</p>
+          <p className="col-create__span" style={{ color: W.muted }}>{tr("money.common.loading")}</p>
         ) : (
           <>
           <WarmCard>
             <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
-              <legend style={{ fontWeight: 700, color: W.ink, marginBottom: 6 }}>על מה?</legend>
+              <legend style={{ fontWeight: 700, color: W.ink, marginBottom: 6 }}>{tr("money.collection.create.whatFor")}</legend>
               {thread.openInvoices.map((i) => (
                 <label key={i.id} style={choiceStyle(target === String(i.id))}>
                   <input
@@ -292,25 +300,25 @@ export function CollectionCreateScreen() {
                       setAmount(Number(i.outstanding).toString());
                     }}
                   />
-                  <span style={{ flex: 1 }}>חשבונית {i.number ?? ""}</span>
-                  <span style={{ fontWeight: 700 }}>נותר {money(i.outstanding, i.currency)}</span>
+                  <span style={{ flex: 1 }}>{tr("money.collection.shared.invoiceN", { number: i.number ?? "" })}</span>
+                  <span style={{ fontWeight: 700 }}>{tr("money.collection.create.remainingN", { amount: money(i.outstanding, i.currency) })}</span>
                 </label>
               ))}
               <label style={choiceStyle(target === AD_HOC)}>
                 <input type="radio" name="target" checked={target === AD_HOC} onChange={() => { setTarget(AD_HOC); setAmount(""); }} />
-                <span>תשלום שלא קשור לחשבונית</span>
+                <span>{tr("money.collection.create.notInvoice")}</span>
               </label>
             </fieldset>
             {thread.totals ? (
               <p style={{ margin: "12px 0 0", color: W.muted, fontSize: 13 }}>
-                יתרה פתוחה {money(thread.totals.outstanding, thread.totals.currency ?? "ILS")}
+                {tr("money.collection.create.openBalance", { amount: money(thread.totals.outstanding, thread.totals.currency ?? "ILS") })}
               </p>
             ) : null}
           </WarmCard>
           <WarmCard>
             {target ? (
               <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
-                <label htmlFor="amount" style={{ fontWeight: 700, color: W.ink }}>כמה לגבות? ({currencySymbol(currency)})</label>
+                <label htmlFor="amount" style={{ fontWeight: 700, color: W.ink }}>{tr("money.collection.create.howMuch", { symbol: currencySymbol(currency) })}</label>
                 <input
                   id="amount"
                   inputMode="decimal"
@@ -321,18 +329,24 @@ export function CollectionCreateScreen() {
                 />
                 {amountError ? <span role="alert" style={{ color: W.clay, fontSize: 13 }}>{amountError}</span> : null}
                 {invoice && Number(amount) > 0 && Number(amount) < Number(invoice.outstanding) && !amountError ? (
-                  <span style={{ color: W.muted, fontSize: 13 }}>גבייה חלקית — יישארו {money(Number(invoice.outstanding) - Number(amount), invoice.currency)} פתוחים.</span>
+                  <span style={{ color: W.muted, fontSize: 13 }}>
+                    {tr("money.collection.create.partial", { amount: money(Number(invoice.outstanding) - Number(amount), invoice.currency) })}
+                  </span>
                 ) : null}
               </div>
             ) : null}
 
             <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
               <WarmButton disabled={!target || !amount || !!amountError || creating} onClick={() => void create()}>
-                {creating ? "יוצר בקשה…" : amount && !amountError ? `צור בקשה על ${money(amount, currency)}` : "צור בקשת תשלום"}
+                {creating
+                  ? tr("money.collection.create.creatingRequest")
+                  : amount && !amountError
+                    ? tr("money.collection.create.createFor", { amount: money(amount, currency) })
+                    : tr("money.collection.create.createRequest")}
               </WarmButton>
               {/* Forward to the customer step (an entry), not a reset: back from
                   it returns to this customer with what was entered. */}
-              <WarmButton variant="text" onClick={() => flow.go("customer")}>לקוח אחר</WarmButton>
+              <WarmButton variant="text" onClick={() => flow.go("customer")}>{tr("money.collection.create.otherCustomer")}</WarmButton>
             </div>
           </WarmCard>
           </>

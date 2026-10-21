@@ -15,6 +15,12 @@
  * link; it cannot see what happens after.
  */
 
+import { useMemo } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import { formatAmount } from "@/lib/i18n/format";
+import { moneyHe } from "@/lib/i18n/messages/areas/money";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { currencySymbol } from "@/lib/services/billing/collection/collection-display";
 
 export function authToken(): string | null {
@@ -55,89 +61,122 @@ export async function collectionFetch<T>(url: string, init: RequestInit = {}): P
   return body as T;
 }
 
-export function money(amount: string | number, currency = "ILS"): string {
+export function money(amount: string | number, currency = "ILS", locale: Locale = "he"): string {
   const n = typeof amount === "number" ? amount : Number(amount);
+  // Non-Hebrew locales use the shared formatter; Hebrew keeps its exact legacy shape ("1,500 ₪").
+  if (locale !== "he") {
+    return Number.isFinite(n) ? formatAmount(n, currency, { locale }, { fixedFraction: n % 1 !== 0 }) : String(amount);
+  }
   const formatted = Number.isFinite(n)
     ? n.toLocaleString("he-IL", { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })
     : String(amount);
   return `${formatted} ${currencySymbol(currency)}`;
 }
 
-export function shortDate(iso: string | null | undefined): string {
+export function shortDate(iso: string | null | undefined, locale: Locale = "he"): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric", year: "2-digit" });
+  return d.toLocaleDateString(intlTag(locale), { day: "numeric", month: "numeric", year: "2-digit" });
 }
 
-export function dateTime(iso: string | null | undefined): string {
+export function dateTime(iso: string | null | undefined, locale: Locale = "he"): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleString("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(intlTag(locale), { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 /** Why a verified payment's receipt is paused — and what the owner can do. */
 export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAME_CUSTOMER" | "FIX_BUSINESS" | "RETRY" | "REVIEW" }> = {
   // M1 — the provider charged a different sum or currency than was requested.
   // Retrying cannot change what the provider charged, so it is not the lead action.
-  VERIFIED_AMOUNT_MISMATCH: { title: "התשלום התקבל בסכום שונה מהבקשה — הקבלה לא הופקה", action: "REVIEW" },
-  VERIFIED_CURRENCY_MISMATCH: { title: "התשלום התקבל במטבע שונה מהבקשה — הקבלה לא הופקה", action: "REVIEW" },
-  NO_CUSTOMER: { title: "התשלום התקבל, אבל לא ידוע מי שילם", action: "NAME_CUSTOMER" },
-  BILLING_IDENTITY_INCOMPLETE: { title: "התשלום התקבל — חסרים פרטי העסק כדי להפיק קבלה", action: "FIX_BUSINESS" },
-  RETRY_EXHAUSTED: { title: "התשלום התקבל — הפקת הקבלה נכשלה שוב ושוב", action: "RETRY" },
-  CURRENCY_MISMATCH: { title: "התשלום התקבל במטבע שונה מהחשבונית", action: "RETRY" },
-  DOCUMENT_NOT_ALLOCATABLE: { title: "התשלום התקבל — החשבונית שלו אינה זמינה לשיוך", action: "RETRY" },
-  CUSTOMER_MISMATCH: { title: "התשלום התקבל — הלקוח שונה מלקוח החשבונית", action: "RETRY" },
-  TRANSACTION_NOT_ELIGIBLE: { title: "התשלום אינו זמין להפקת קבלה", action: "RETRY" },
+  VERIFIED_AMOUNT_MISMATCH: { title: moneyHe.collection.attention.VERIFIED_AMOUNT_MISMATCH, action: "REVIEW" },
+  VERIFIED_CURRENCY_MISMATCH: { title: moneyHe.collection.attention.VERIFIED_CURRENCY_MISMATCH, action: "REVIEW" },
+  NO_CUSTOMER: { title: moneyHe.collection.attention.NO_CUSTOMER, action: "NAME_CUSTOMER" },
+  BILLING_IDENTITY_INCOMPLETE: { title: moneyHe.collection.attention.BILLING_IDENTITY_INCOMPLETE, action: "FIX_BUSINESS" },
+  RETRY_EXHAUSTED: { title: moneyHe.collection.attention.RETRY_EXHAUSTED, action: "RETRY" },
+  CURRENCY_MISMATCH: { title: moneyHe.collection.attention.CURRENCY_MISMATCH, action: "RETRY" },
+  DOCUMENT_NOT_ALLOCATABLE: { title: moneyHe.collection.attention.DOCUMENT_NOT_ALLOCATABLE, action: "RETRY" },
+  CUSTOMER_MISMATCH: { title: moneyHe.collection.attention.CUSTOMER_MISMATCH, action: "RETRY" },
+  TRANSACTION_NOT_ELIGIBLE: { title: moneyHe.collection.attention.TRANSACTION_NOT_ELIGIBLE, action: "RETRY" },
   // Core safety — paused ON PURPOSE. "Try again" would issue exactly the
   // document the pause withholds, so none of these offers a retry.
   PROVIDER_ISSUED_DOCUMENT: {
-    title: "התשלום התקבל — חברת הסליקה כבר הפיקה עליו מסמך, ולכן דוביז לא הפיקה קבלה נוספת",
+    title: moneyHe.collection.attention.PROVIDER_ISSUED_DOCUMENT,
     action: "REVIEW",
   },
   DOCUMENT_ISSUER_NOT_CONFIGURED: {
-    title: "התשלום התקבל ונרשם — הקבלה תופק אחרי שתגדירו מי מפיק את המסמכים (דוביז או חברת הסליקה)",
+    title: moneyHe.collection.attention.DOCUMENT_ISSUER_NOT_CONFIGURED,
     action: "REVIEW",
   },
   PROVIDER_IS_DOCUMENT_ISSUER: {
-    title: "התשלום התקבל — לפי הגדרות העסק חברת הסליקה מפיקה את המסמך, ולכן דוביז לא הפיקה קבלה",
+    title: moneyHe.collection.attention.PROVIDER_IS_DOCUMENT_ISSUER,
     action: "REVIEW",
   },
   TEST_ENVIRONMENT_PAYMENT: {
-    title: "התשלום בוצע דרך מסוף בדיקה — לא הופקה קבלה כי זה לא כסף אמיתי",
+    title: moneyHe.collection.attention.TEST_ENVIRONMENT_PAYMENT,
     action: "REVIEW",
   },
   REFUND_ACCOUNTING_DECISION_REQUIRED: {
-    title: "בוצע החזר ללקוח — עדכון הספרים (מסמך הזיכוי) ממתין להחלטה",
+    title: moneyHe.collection.attention.REFUND_ACCOUNTING_DECISION_REQUIRED,
     action: "REVIEW",
   },
 };
 
-export function attentionText(reason: string | null | undefined) {
-  return ATTENTION_REASON_TEXT[reason ?? ""] ?? { title: "התשלום התקבל — הקבלה ממתינה לטיפול", action: "RETRY" as const };
+/** With a translator the title is localized; without one it is the Hebrew text (unchanged behaviour). */
+export function attentionText(reason: string | null | undefined, t?: Translator) {
+  const hit = ATTENTION_REASON_TEXT[reason ?? ""];
+  if (!hit) {
+    const title = t ? t("money.collection.attention.fallback") : moneyHe.collection.attention.fallback;
+    return { title, action: "RETRY" as const };
+  }
+  return t ? { ...hit, title: t(`money.collection.attention.${reason}` as MessageKey) } : hit;
 }
 
 export type BlockerCode = "NO_PAYMENT_PROVIDER" | "PAYMENT_PROVIDER_AMBIGUOUS" | "BILLING_IDENTITY_INCOMPLETE";
 
 export const BLOCKER_TEXT: Record<BlockerCode, { title: string; body: string; href: string; cta: string }> = {
   NO_PAYMENT_PROVIDER: {
-    title: "צריך לחבר חברת סליקה",
-    body: "כדי שלקוחות יוכלו לשלם בקישור, חברו פעם אחת את חשבון הסליקה של העסק.",
+    title: moneyHe.collection.blockers.NO_PAYMENT_PROVIDER.title,
+    body: moneyHe.collection.blockers.NO_PAYMENT_PROVIDER.body,
     href: "/settings/connections",
-    cta: "לחיבור סליקה",
+    cta: moneyHe.collection.blockers.NO_PAYMENT_PROVIDER.cta,
   },
   PAYMENT_PROVIDER_AMBIGUOUS: {
-    title: "מחוברות כמה חברות סליקה",
-    body: "השאירו חיבור פעיל אחד, כדי שכל גבייה תעבור בדרך אחת וקבועה.",
+    title: moneyHe.collection.blockers.PAYMENT_PROVIDER_AMBIGUOUS.title,
+    body: moneyHe.collection.blockers.PAYMENT_PROVIDER_AMBIGUOUS.body,
     href: "/settings/connections",
-    cta: "לניהול החיבורים",
+    cta: moneyHe.collection.blockers.PAYMENT_PROVIDER_AMBIGUOUS.cta,
   },
   BILLING_IDENTITY_INCOMPLETE: {
-    title: "חסרים פרטי העסק לקבלות",
-    body: "כשלקוח משלם, Dubiz מפיק קבלה אוטומטית. לשם כך צריך את שם העסק, מספר עוסק וכתובת.",
+    title: moneyHe.collection.blockers.BILLING_IDENTITY_INCOMPLETE.title,
+    body: moneyHe.collection.blockers.BILLING_IDENTITY_INCOMPLETE.body,
     href: "/business",
-    cta: "להשלמת פרטי העסק",
+    cta: moneyHe.collection.blockers.BILLING_IDENTITY_INCOMPLETE.cta,
   },
 };
+
+/** BLOCKER_TEXT, localized. */
+export function blockerText(code: BlockerCode, t: Translator) {
+  return {
+    title: t(`money.collection.blockers.${code}.title`),
+    body: t(`money.collection.blockers.${code}.body`),
+    href: BLOCKER_TEXT[code].href,
+    cta: t(`money.collection.blockers.${code}.cta`),
+  };
+}
+
+/** The money/date helpers above, bound to the active interface language. */
+export function useCollectionFormat() {
+  const { locale } = useI18n();
+  return useMemo(
+    () => ({
+      money: (amount: string | number, currency?: string) => money(amount, currency, locale),
+      shortDate: (iso: string | null | undefined) => shortDate(iso, locale),
+      dateTime: (iso: string | null | undefined) => dateTime(iso, locale),
+    }),
+    [locale],
+  );
+}
 
 /** Share a link through the device, falling back to copy. Returns what actually happened. */
 export async function shareOrCopy(text: string, url: string): Promise<"shared" | "copied" | "failed"> {

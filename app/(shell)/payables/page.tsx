@@ -6,10 +6,12 @@ import { useConsumeQueryFlag } from "@/hooks/useConsumeQueryFlag";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 import {
-  CADENCE_LABEL,
-  SCHEDULE_LABEL,
-  STATE_LABEL,
+  cadenceLabel,
+  scheduleLabel,
+  stateLabel,
   createCommitment,
   fetchCommitments,
   formatDate,
@@ -35,11 +37,16 @@ const BADGE_CLASS: Record<DerivedState, string> = {
 };
 
 function Badge({ state }: { state: DerivedState }) {
+  const { t } = useI18n();
   return (
     <span className={`${styles.badge} ${BADGE_CLASS[state]}`}>
-      {STATE_LABEL[state]}
+      {stateLabel(t, state)}
     </span>
   );
+}
+
+function installmentsText(t: Translator, count: number): string {
+  return t(count === 1 ? "money.payables.list.installmentsOne" : "money.payables.list.installmentsMany", { count });
 }
 
 function todayISO(): string {
@@ -47,6 +54,7 @@ function todayISO(): string {
 }
 
 export default function PayablesPage() {
+  const { t, locale } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<CommitmentListApi[] | null>(null);
@@ -76,20 +84,20 @@ export default function PayablesPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "טעינה נכשלה");
+        setError(e instanceof Error ? e.message : t("money.payables.list.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [scope, reloadToken]);
+  }, [scope, reloadToken, t]);
 
   return (
-    <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+    <div className={styles.page} style={PAYABLES_THEME}>
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
-          <h1 className={styles.title}>התחייבויות</h1>
+          <h1 className={styles.title}>{t("money.payables.list.title")}</h1>
           <p className={styles.subtitle}>
-            מה העסק חייב, מתי, וכמה כבר שולם.
+            {t("money.payables.list.subtitle")}
           </p>
         </div>
         <div className={styles.toolbar}>
@@ -98,21 +106,21 @@ export default function PayablesPage() {
             className={styles.buttonQuiet}
             onClick={() => router.push("/payables/cheques")}
           >
-            צ׳קים וחשבונות בנק
+            {t("money.payables.list.chequesAndAccounts")}
           </button>
           <button
             type="button"
             className={styles.buttonQuiet}
             onClick={() => router.push("/payables/bank")}
           >
-            תנועות בנק
+            {t("money.payables.list.bankLines")}
           </button>
           <button
             type="button"
             className={styles.buttonQuiet}
             onClick={() => setScope((s) => (s === "open" ? "all" : "open"))}
           >
-            {scope === "open" ? "הצג הכול" : "הצג פתוחות בלבד"}
+            {scope === "open" ? t("money.payables.list.showAll") : t("money.payables.list.showOpenOnly")}
           </button>
           <button
             type="button"
@@ -120,7 +128,7 @@ export default function PayablesPage() {
             onClick={() => setShowForm((v) => !v)}
             aria-expanded={showForm}
           >
-            {showForm ? "סגור" : "התחייבות חדשה"}
+            {showForm ? t("money.common.close") : t("money.payables.list.newCommitment")}
           </button>
         </div>
       </header>
@@ -136,7 +144,7 @@ export default function PayablesPage() {
             />
           </div>
         ) : (
-          <aside className={`${styles.side} ${styles.inspectOnly}`} aria-label="ההתחייבות שנבחרה">
+          <aside className={`${styles.side} ${styles.inspectOnly}`} aria-label={t("money.payables.list.selectedAria")}>
             <PayableInspector row={rows?.find((row) => row.id === selectedId) ?? rows?.[0] ?? null} />
           </aside>
         )}
@@ -150,17 +158,17 @@ export default function PayablesPage() {
               className={styles.buttonQuiet}
               onClick={() => setReloadToken((n) => n + 1)}
             >
-              נסה שוב
+              {t("money.common.retry")}
             </button>
           </div>
         </div>
       )}
 
-      {rows === null && !error && <div className={styles.empty}>טוען…</div>}
+      {rows === null && !error && <div className={styles.empty}>{t("money.common.loading")}</div>}
 
       {rows !== null && rows.length === 0 && (
         <div className={styles.empty}>
-          אין התחייבויות להצגה. אפשר להוסיף התחייבות חדשה.
+          {t("money.payables.list.empty")}
         </div>
       )}
 
@@ -181,7 +189,7 @@ export default function PayablesPage() {
                   <Badge state={row.attention} />
                   {row.isLegacy && (
                     <span className={`${styles.badge} ${styles.badgeQuiet}`}>
-                      הועבר מהמזכירה
+                      {t("money.payables.list.legacyBadge")}
                     </span>
                   )}
                 </span>
@@ -191,35 +199,38 @@ export default function PayablesPage() {
 
               <div className={styles.figures}>
                 <span className={styles.figure}>
-                  <span className={styles.figureLabel}>שולם</span>
+                  <span className={styles.figureLabel}>{t("money.payables.list.paid")}</span>
                   <span className={styles.figureValue}>
-                    {formatMoney(row.paid, row.currency)}
+                    {formatMoney(row.paid, row.currency, locale)}
                   </span>
                 </span>
                 <span className={styles.figure}>
-                  <span className={styles.figureLabel}>נותר</span>
+                  <span className={styles.figureLabel}>{t("money.payables.list.remaining")}</span>
                   <span className={styles.figureValue}>
                     {row.remaining === null
                       ? /* RECURRING has no end, so it has no remaining total.
                            Inventing one would be a number nobody owes. */
                         "—"
-                      : formatMoney(row.remaining, row.currency)}
+                      : formatMoney(row.remaining, row.currency, locale)}
                   </span>
                 </span>
                 <span className={styles.figure}>
-                  <span className={styles.figureLabel}>סוג</span>
+                  <span className={styles.figureLabel}>{t("money.payables.list.kind")}</span>
                   <span className={styles.figureValueMuted}>
-                    {SCHEDULE_LABEL[row.scheduleKind]}
+                    {scheduleLabel(t, row.scheduleKind)}
                     {row.scheduleKind === "INSTALLMENT_PLAN" &&
-                      ` · ${row.installmentCount} תשלומים`}
+                      ` · ${installmentsText(t, row.installmentCount)}`}
                   </span>
                 </span>
               </div>
 
               {row.next && (
                 <span className={styles.nextLine}>
-                  הבא: תשלום {row.next.sequence} · {formatDate(row.next.dueAt)} ·{" "}
-                  {formatMoney(row.next.remaining, row.currency)}
+                  {t("money.payables.list.nextLine", {
+                    sequence: row.next.sequence,
+                    date: formatDate(row.next.dueAt, locale),
+                    amount: formatMoney(row.next.remaining, row.currency, locale),
+                  })}
                 </span>
               )}
             </button>
@@ -233,8 +244,9 @@ export default function PayablesPage() {
 }
 
 function PayableInspector({ row }: { row: CommitmentListApi | null }) {
+  const { t, locale } = useI18n();
   if (!row) {
-    return <p className={styles.subtitle}>אין שורה להצגה. התור עצמו נשאר ריק עד שיש התחייבות אמיתית.</p>;
+    return <p className={styles.subtitle}>{t("money.payables.list.inspectorEmpty")}</p>;
   }
   return (
     <div className={styles.card}>
@@ -245,23 +257,27 @@ function PayableInspector({ row }: { row: CommitmentListApi | null }) {
       <span className={styles.payee}>{row.payeeNameSnapshot}</span>
       <div className={styles.figures}>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>שולם</span>
-          <span className={styles.figureValue}>{formatMoney(row.paid, row.currency)}</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.paid")}</span>
+          <span className={styles.figureValue}>{formatMoney(row.paid, row.currency, locale)}</span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>נותר</span>
-          <span className={styles.figureValue}>{row.remaining === null ? "—" : formatMoney(row.remaining, row.currency)}</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.remaining")}</span>
+          <span className={styles.figureValue}>{row.remaining === null ? "—" : formatMoney(row.remaining, row.currency, locale)}</span>
         </span>
       </div>
       <span className={styles.nextLine}>
-        {SCHEDULE_LABEL[row.scheduleKind]}
-        {row.scheduleKind === "INSTALLMENT_PLAN" ? ` · ${row.installmentCount} תשלומים` : ""}
-        {row.next ? ` · הבא ${formatDate(row.next.dueAt)}` : ""}
+        {scheduleLabel(t, row.scheduleKind)}
+        {row.scheduleKind === "INSTALLMENT_PLAN" ? ` · ${installmentsText(t, row.installmentCount)}` : ""}
+        {row.next ? ` · ${t("money.payables.list.nextShort", { date: formatDate(row.next.dueAt, locale) })}` : ""}
       </span>
-      {row.isLegacy ? <p className={styles.subtitle}>הועבר מהמזכירה. זה אינו תשלום שנרשם.</p> : null}
-      <p className={styles.subtitle}>המסמך שמוכיח חיוב נשאר ב<Link href="/billing">חשבוניות</Link>. כאן מנהלים את מהלך התשלום.</p>
+      {row.isLegacy ? <p className={styles.subtitle}>{t("money.payables.list.legacyNote")}</p> : null}
+      <p className={styles.subtitle}>
+        {t("money.payables.list.billingNoteBefore")}
+        <Link href="/billing">{t("money.payables.list.billingLink")}</Link>
+        {t("money.payables.list.billingNoteAfter")}
+      </p>
       <div className={styles.formActions}>
-        <Link className={styles.buttonPrimary} href={`/payables/${row.id}`}>פתח את מהלך התשלום</Link>
+        <Link className={styles.buttonPrimary} href={`/payables/${row.id}`}>{t("money.payables.list.openFlow")}</Link>
       </div>
     </div>
   );
@@ -270,6 +286,7 @@ function PayableInspector({ row }: { row: CommitmentListApi | null }) {
 /* ──────────────────────────── create commitment ──────────────────────────── */
 
 function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
+  const { t, locale } = useI18n();
   const [title, setTitle] = useState("");
   const [payee, setPayee] = useState<{ payeeId: number | null; payeeName: string }>({
     payeeId: null,
@@ -338,7 +355,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
       });
       onCreated(commitment.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "היצירה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.payables.form.createFailed"));
     } finally {
       setBusy(false);
     }
@@ -348,14 +365,14 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
     <form className={styles.form} onSubmit={submit}>
       <div className={styles.field}>
         <label className={styles.label} htmlFor="pay-title">
-          שם ההתחייבות
+          {t("money.payables.form.titleLabel")}
         </label>
         <input
           id="pay-title"
           className={styles.input}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="ארנונה 2027"
+          placeholder={t("money.payables.form.titlePlaceholder")}
           required
         />
       </div>
@@ -369,7 +386,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="pay-kind">
-          אופן התשלום
+          {t("money.payables.form.scheduleLabel")}
         </label>
         <select
           id="pay-kind"
@@ -377,9 +394,9 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
           value={scheduleKind}
           onChange={(e) => setScheduleKind(e.target.value as ScheduleKind)}
         >
-          <option value="ONE_OFF">{SCHEDULE_LABEL.ONE_OFF}</option>
-          <option value="INSTALLMENT_PLAN">{SCHEDULE_LABEL.INSTALLMENT_PLAN}</option>
-          <option value="RECURRING">{SCHEDULE_LABEL.RECURRING}</option>
+          <option value="ONE_OFF">{scheduleLabel(t, "ONE_OFF")}</option>
+          <option value="INSTALLMENT_PLAN">{scheduleLabel(t, "INSTALLMENT_PLAN")}</option>
+          <option value="RECURRING">{scheduleLabel(t, "RECURRING")}</option>
         </select>
       </div>
 
@@ -387,7 +404,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
         {scheduleKind === "RECURRING" ? (
           <div className={styles.field}>
             <label className={styles.label} htmlFor="pay-recurring">
-              סכום לכל תשלום
+              {t("money.payables.form.recurringAmount")}
             </label>
             <input
               id="pay-recurring"
@@ -402,7 +419,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
         ) : (
           <div className={styles.field}>
             <label className={styles.label} htmlFor="pay-total">
-              סכום כולל
+              {t("money.payables.form.totalAmount")}
             </label>
             <input
               id="pay-total"
@@ -418,7 +435,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pay-first-due">
-            מועד התשלום הראשון
+            {t("money.payables.form.firstDue")}
           </label>
           <input
             id="pay-first-due"
@@ -436,7 +453,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
           {scheduleKind === "INSTALLMENT_PLAN" && (
             <div className={styles.field}>
               <label className={styles.label} htmlFor="pay-count">
-                מספר תשלומים
+                {t("money.payables.form.installmentCount")}
               </label>
               <input
                 id="pay-count"
@@ -450,7 +467,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
           )}
           <div className={styles.field}>
             <label className={styles.label} htmlFor="pay-cadence">
-              תדירות
+              {t("money.payables.form.cadence")}
             </label>
             <select
               id="pay-cadence"
@@ -458,12 +475,12 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
               value={recurrence}
               onChange={(e) => setRecurrence(e.target.value as Cadence)}
             >
-              <option value="WEEKLY">{CADENCE_LABEL.WEEKLY}</option>
-              <option value="MONTHLY">{CADENCE_LABEL.MONTHLY}</option>
-              <option value="BIMONTHLY">{CADENCE_LABEL.BIMONTHLY}</option>
-              <option value="QUARTERLY">{CADENCE_LABEL.QUARTERLY}</option>
-              <option value="SEMIANNUAL">{CADENCE_LABEL.SEMIANNUAL}</option>
-              <option value="YEARLY">{CADENCE_LABEL.YEARLY}</option>
+              <option value="WEEKLY">{cadenceLabel(t, "WEEKLY")}</option>
+              <option value="MONTHLY">{cadenceLabel(t, "MONTHLY")}</option>
+              <option value="BIMONTHLY">{cadenceLabel(t, "BIMONTHLY")}</option>
+              <option value="QUARTERLY">{cadenceLabel(t, "QUARTERLY")}</option>
+              <option value="SEMIANNUAL">{cadenceLabel(t, "SEMIANNUAL")}</option>
+              <option value="YEARLY">{cadenceLabel(t, "YEARLY")}</option>
             </select>
           </div>
         </div>
@@ -471,37 +488,41 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
 
       {scheduleKind === "RECURRING" && (
         <div className={styles.notice}>
-          התחייבות מתחדשת היא פתוחה — אין לה סכום כולל ואין לה תאריך סיום. ייווצר
-          תשלום אחד למועד הקרוב, והבא אחריו ייווצר לאחר שיוסדר.
+          {t("money.payables.form.recurringNotice")}
         </div>
       )}
 
       {preview && (
         <div className={styles.preview}>
           <div className={styles.previewHead}>
-            לוח התשלומים שייווצר ({preview.length})
+            {t("money.payables.form.previewHead", { count: preview.length })}
           </div>
           <div className={styles.previewScroll}>
             {preview.slice(0, 6).map((p) => (
               <div key={p.sequence} className={styles.previewRow}>
                 <span>
-                  תשלום {p.sequence} · {formatDate(p.dueAt.toISOString())}
+                  {t("money.payables.form.previewRow", { sequence: p.sequence, date: formatDate(p.dueAt.toISOString(), locale) })}
                 </span>
                 <span style={{ unicodeBidi: "isolate" }}>
-                  {formatMoney(fromMinorUnits(p.amountMinor))}
+                  {formatMoney(fromMinorUnits(p.amountMinor), undefined, locale)}
                 </span>
               </div>
             ))}
             {preview.length > 6 && (
               <div className={styles.previewRow}>
-                <span>…ועוד {preview.length - 6} תשלומים</span>
+                <span>
+                  {t(preview.length - 6 === 1 ? "money.payables.form.previewMoreOne" : "money.payables.form.previewMoreMany", {
+                    count: preview.length - 6,
+                  })}
+                </span>
                 <span style={{ unicodeBidi: "isolate" }}>
-                  סה״כ{" "}
-                  {formatMoney(
-                    fromMinorUnits(
-                      preview.reduce((s, p) => s + p.amountMinor, 0),
+                  {t("money.payables.form.previewTotal", {
+                    amount: formatMoney(
+                      fromMinorUnits(preview.reduce((s, p) => s + p.amountMinor, 0)),
+                      undefined,
+                      locale,
                     ),
-                  )}
+                  })}
                 </span>
               </div>
             )}
@@ -511,7 +532,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="pay-note">
-          הערה (רשות)
+          {t("money.payables.form.note")}
         </label>
         <input
           id="pay-note"
@@ -525,7 +546,7 @@ function CommitmentForm({ onCreated }: { onCreated: (id: number) => void }) {
 
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-          {busy ? "יוצר…" : "צור התחייבות"}
+          {busy ? t("money.common.creating") : t("money.payables.form.submit")}
         </button>
       </div>
     </form>

@@ -8,6 +8,9 @@
  */
 
 import { buildClientAuthHeaders } from "@/lib/client-session";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import { moneyHe } from "@/lib/i18n/messages/areas/money";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 export type DerivedState =
   | "SCHEDULED"
@@ -259,33 +262,15 @@ export function cancelInstallment(installmentId: number, reason?: string) {
 
 /* ───────────────────────────── presentation ──────────────────────────────── */
 
-export const STATE_LABEL: Record<DerivedState, string> = {
-  SCHEDULED: "מתוכנן",
-  DUE: "לתשלום",
-  OVERDUE: "באיחור",
-  PARTIALLY_PAID: "שולם חלקית",
-  PAID: "שולם",
-  CANCELLED: "בוטל",
-  // NOT "שולם". The owner asserted they handled it before this ledger existed;
-  // no payment was ever observed, and the wording must not imply one.
-  SETTLED_LEGACY: "סומן כטופל",
-};
+/**
+ * Hebrew label maps, kept for existing imports. The text itself lives in the money dictionary
+ * (lib/i18n/messages/areas/money.ts); screens use the localized `*Label(t, …)` helpers below.
+ */
+export const STATE_LABEL: Record<DerivedState, string> = moneyHe.payables.state;
 
-export const SCHEDULE_LABEL: Record<ScheduleKind, string> = {
-  ONE_OFF: "חד-פעמי",
-  RECURRING: "מתחדש",
-  INSTALLMENT_PLAN: "פריסת תשלומים",
-};
+export const SCHEDULE_LABEL: Record<ScheduleKind, string> = moneyHe.payables.schedule;
 
-export const CADENCE_LABEL: Record<Cadence, string> = {
-  NONE: "ללא",
-  WEEKLY: "שבועי",
-  MONTHLY: "חודשי",
-  BIMONTHLY: "כל חודשיים",
-  QUARTERLY: "רבעוני",
-  SEMIANNUAL: "חצי-שנתי",
-  YEARLY: "שנתי",
-};
+export const CADENCE_LABEL: Record<Cadence, string> = moneyHe.payables.cadence;
 
 /** "From <effectiveFrom> the amount is <amount>" — history before it is kept. */
 export function changeRecurringAmount(commitmentId: number, body: { effectiveFrom: string; amount: string }) {
@@ -303,33 +288,23 @@ export function endCommitment(commitmentId: number, body: { endsOn: string }) {
   );
 }
 
-export const METHOD_LABEL: Record<string, string> = {
-  CASH: "מזומן",
-  BANK_TRANSFER: "העברה בנקאית",
-  CREDIT_CARD: "כרטיס אשראי",
-  CHECK: "צ'ק",
-  DIRECT_DEBIT: "הוראת קבע בחיוב",
-  STANDING_ORDER: "הוראת קבע",
-  BIT: "ביט",
-  PAYBOX: "פייבוקס",
-  OTHER: "אחר",
-};
+export const METHOD_LABEL: Record<string, string> = moneyHe.payables.method;
 
 /** ILS with grouping. The VALUE is never recomputed — only formatted. */
-export function formatMoney(amount: string, currency = "ILS"): string {
+export function formatMoney(amount: string, currency = "ILS", locale: Locale = "he"): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return amount;
-  return new Intl.NumberFormat("he-IL", {
+  return new Intl.NumberFormat(intlTag(locale), {
     style: "currency",
     currency,
     minimumFractionDigits: 2,
   }).format(n);
 }
 
-export function formatDate(iso: string): string {
+export function formatDate(iso: string, locale: Locale = "he"): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat("he-IL", {
+  return new Intl.DateTimeFormat(intlTag(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -427,17 +402,11 @@ export function revokeEvidence(evidenceId: number, reason?: string) {
   });
 }
 
-export const CONFIDENCE_LABEL: Record<Confidence, string> = {
-  // Never "certain" and never "matched" — the engine narrows the field, the
-  // owner settles identity.
-  STRONG: "התאמה חזקה",
-  POSSIBLE: "ייתכן",
-  WEAK: "התאמה חלשה",
-};
+export const CONFIDENCE_LABEL: Record<Confidence, string> = moneyHe.payables.confidence;
 
 /** Minor units → a display string. Formatting only; the value is not recomputed. */
-export function minorToDisplay(minor: number, currency = "ILS"): string {
-  return formatMoney((minor / 100).toFixed(2), currency);
+export function minorToDisplay(minor: number, currency = "ILS", locale: Locale = "he"): string {
+  return formatMoney((minor / 100).toFixed(2), currency, locale);
 }
 
 /* ─────────────────────── phase 3: cheques and bank accounts ──────────────── */
@@ -607,22 +576,9 @@ export function replaceCheque(
  * CLEARED reads as the owner's statement, because that is all it is. The
  * label must never say "confirmed" or "verified" — there is no bank feed.
  */
-export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = {
-  PLANNED: "מתוכנן",
-  ISSUED: "נכתב",
-  DELIVERED: "נמסר",
-  PRESENTED: "הופקד",
-  CLEARED: "נפרע (לפי דיווחך)",
-  BOUNCED: "חזר",
-  CANCELLED: "בוטל",
-  REPLACED: "הוחלף",
-};
+export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = moneyHe.payables.chequeStatus;
 
-export const CHEQUE_ADVANCE_LABEL: Partial<Record<ChequeStatus, string>> = {
-  ISSUED: "סמן כנכתב",
-  DELIVERED: "סמן כנמסר",
-  PRESENTED: "סמן כהופקד",
-};
+export const CHEQUE_ADVANCE_LABEL: Partial<Record<ChequeStatus, string>> = moneyHe.payables.chequeAdvance;
 
 /* ───────── phases 4–6: destinations, prepared payments, bank lines ───────── */
 
@@ -858,17 +814,26 @@ export function revokeBankEvidence(evidenceId: number) {
   return call<{ revoked: boolean }>(`/api/payables/bank-evidence/${evidenceId}/revoke`, { method: "POST", body: "{}" });
 }
 
-export const PREPARATION_STATUS_LABEL: Record<PreparationStatus, string> = {
-  PREPARED: "הוכן — ממתין לאישורך",
-  APPROVED: "אושר — טרם בוצע",
-  SUBMITTED: "נשלח לביצוע",
-  COMPLETED: "בוצע",
-  FAILED: "הביצוע נכשל — לא שולם",
-  CANCELLED: "בוטל",
-};
+export const PREPARATION_STATUS_LABEL: Record<PreparationStatus, string> = moneyHe.payables.preparationStatus;
 
-export const COMPLETION_SOURCE_LABEL: Record<string, string> = {
-  OWNER_REPORTED: "לפי דיווחך",
-  BANK_OBSERVED: "לפי שורת בנק שאישרת",
-  PROVIDER_SETTLED: "לפי ספק התשלום",
-};
+export const COMPLETION_SOURCE_LABEL: Record<string, string> = moneyHe.payables.completionSource;
+
+/* ─────────────────────── localized label helpers (i18n) ─────────────────────── */
+
+export const stateLabel = (t: Translator, s: DerivedState) => t(`money.payables.state.${s}`);
+export const scheduleLabel = (t: Translator, k: ScheduleKind) => t(`money.payables.schedule.${k}`);
+export const cadenceLabel = (t: Translator, c: Cadence) => t(`money.payables.cadence.${c}`);
+export const confidenceLabel = (t: Translator, c: Confidence) => t(`money.payables.confidence.${c}`);
+export const chequeStatusLabel = (t: Translator, s: ChequeStatus) => t(`money.payables.chequeStatus.${s}`);
+export const preparationStatusLabel = (t: Translator, s: PreparationStatus) =>
+  t(`money.payables.preparationStatus.${s}`);
+
+/** A known code → its label; an unknown code → undefined (callers keep their `?? code` fallback). */
+function openLabel(t: Translator, map: Record<string, string>, ns: string, code: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(map, code) ? t(`${ns}.${code}` as MessageKey) : undefined;
+}
+export const methodLabel = (t: Translator, m: string) => openLabel(t, METHOD_LABEL, "money.payables.method", m);
+export const completionSourceLabel = (t: Translator, s: string) =>
+  openLabel(t, COMPLETION_SOURCE_LABEL, "money.payables.completionSource", s);
+export const chequeAdvanceLabel = (t: Translator, s: ChequeStatus) =>
+  openLabel(t, CHEQUE_ADVANCE_LABEL as Record<string, string>, "money.payables.chequeAdvance", s);

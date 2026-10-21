@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { collectionFetch } from "@/components/collection/collection-client";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Legacy: a collection request page. The request now lives inside its
@@ -10,6 +11,7 @@ import { collectionFetch } from "@/components/collection/collection-client";
  * through the authenticated API (the business comes from the session only).
  */
 export default function LegacyPaymentRequestRedirect() {
+  const { t } = useI18n();
   const router = useRouter();
   const params = useParams<{ id: string }>();
   useEffect(() => {
@@ -26,5 +28,5 @@ export default function LegacyPaymentRequestRedirect() {
       )
       .catch(() => router.replace("/collection"));
   }, [params.id, router]);
-  return <p dir="rtl" style={{ padding: 24 }}>מעביר לתיק הלקוח…</p>;
+  return <p style={{ padding: 24 }}>{t("money.collection.shared.redirecting")}</p>;
 }
