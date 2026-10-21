@@ -313,7 +313,9 @@ export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
             style={{
               textDecoration: "none",
               color: INK,
-              height,
+              // A minimum, not a fixed height: where the tile is narrow its sub-line wraps and the row grows
+              // evenly (grid stretch) instead of the text spilling out of the card.
+              minHeight: height,
               boxSizing: "border-box",
               borderRadius: 20,
               padding: "16px 6px",
@@ -332,8 +334,8 @@ export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
               <Icon size={22} />
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, maxWidth: "100%" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap" }}>{group.label}</span>
-              <span style={{ fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{v.sub}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{group.label}</span>
+              <span style={{ fontSize: 12, lineHeight: 1.35, color: MUTED, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{v.sub}</span>
             </span>
           </Link>
         );
