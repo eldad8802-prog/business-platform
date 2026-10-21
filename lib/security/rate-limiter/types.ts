@@ -29,7 +29,8 @@ export type BucketName =
   | "CRM_ATTACHMENT_UPLOAD"
   | "DATA_TRANSFER_IMPORT_EXECUTE"
   | "DATA_TRANSFER_DOCUMENTS_IMPORT"
-  | "LANDING_COMPOSE";
+  | "LANDING_COMPOSE"
+  | "TRANSACTIONAL_EMAIL_SMOKE";
 
 export type BucketConfig = {
   failMode: FailMode;
