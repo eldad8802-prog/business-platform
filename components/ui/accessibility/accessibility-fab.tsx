@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
   A11Y_STATE_EVENT,
   A11Y_TOGGLE_EVENT,
@@ -92,6 +94,7 @@ function applyPrefs(prefs: Prefs) {
 }
 
 export function AccessibilityFab() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   // See the trigger below — the Home route (/app) keeps the pre-Mist FAB skin.
   const isHomeRoute = (usePathname() || "/") === "/app";
@@ -264,7 +267,7 @@ export function AccessibilityFab() {
          */
         data-dz-home={isHomeRoute ? "1" : undefined}
         data-dz-action="primary"
-        aria-label="פתח תפריט נגישות"
+        aria-label={t("home.ui.a11yOpenMenu")}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls="dubiz-a11y-panel"
@@ -324,8 +327,7 @@ export function AccessibilityFab() {
           ref={panelRef}
           id="dubiz-a11y-panel"
           role="dialog"
-          aria-label="תפריט נגישות"
-          dir="rtl"
+          aria-label={t("home.ui.a11yMenu")}
           style={{
             position: "fixed",
             ...panelPlacement(anchor, bottomInset),
@@ -349,10 +351,10 @@ export function AccessibilityFab() {
               marginBottom: 12,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>נגישות</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{t("home.ui.a11yTitle")}</h2>
             <button
               type="button"
-              aria-label="סגור תפריט נגישות"
+              aria-label={t("home.ui.a11yCloseMenu")}
               onClick={() => {
                 setOpen(false);
                 (openerRef.current ?? triggerRef.current)?.focus();
@@ -373,11 +375,11 @@ export function AccessibilityFab() {
 
           {/* Text size */}
           <div style={rowStyle}>
-            <span style={labelStyle}>גודל טקסט</span>
+            <span style={labelStyle}>{t("home.ui.textSize")}</span>
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 type="button"
-                aria-label="הקטן טקסט"
+                aria-label={t("home.ui.textSmaller")}
                 onClick={() =>
                   update({ zoomStep: Math.max(0, prefs.zoomStep - 1) })
                 }
@@ -388,7 +390,7 @@ export function AccessibilityFab() {
               </button>
               <button
                 type="button"
-                aria-label="הגדל טקסט"
+                aria-label={t("home.ui.textLarger")}
                 onClick={() =>
                   update({
                     zoomStep: Math.min(ZOOM_LEVELS.length - 1, prefs.zoomStep + 1),
@@ -404,14 +406,14 @@ export function AccessibilityFab() {
 
           {/* Underline links */}
           <ToggleRow
-            label="הדגשת קישורים"
+            label={t("home.ui.highlightLinks")}
             checked={prefs.underlineLinks}
             onChange={(v) => update({ underlineLinks: v })}
           />
 
           {/* Reduce motion */}
           <ToggleRow
-            label="הפחתת אנימציות"
+            label={t("home.ui.reduceMotion")}
             checked={prefs.reduceMotion}
             onChange={(v) => update({ reduceMotion: v })}
           />
@@ -434,7 +436,7 @@ export function AccessibilityFab() {
               cursor: anyActive ? "pointer" : "not-allowed",
             }}
           >
-            איפוס הגדרות
+            {t("home.ui.resetSettings")}
           </button>
         </div>
       )}

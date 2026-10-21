@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const W = TOKEN.warm;
 const WEIGHT = TOKEN.weight; // 400 / 500 / 600 only used here
@@ -279,6 +280,7 @@ export type WarmTimelineStep = {
 
 /** Read-only business-milestone timeline (created → sent → paid → verified). */
 export function WarmTimeline({ steps }: { steps: WarmTimelineStep[] }) {
+  const { t } = useI18n();
   return (
     <div style={{ margin: "4px 0" }}>
       {steps.map((step, i) => {
@@ -298,7 +300,7 @@ export function WarmTimeline({ steps }: { steps: WarmTimelineStep[] }) {
                 aria-hidden
                 style={{
                   position: "absolute",
-                  right: 9,
+                  insetInlineStart: 9,
                   top: 20,
                   bottom: 0,
                   width: 2,
@@ -346,7 +348,7 @@ export function WarmTimeline({ steps }: { steps: WarmTimelineStep[] }) {
                       padding: "1px 8px",
                     }}
                   >
-                    כאן עכשיו
+                    {t("home.ui.hereNow")}
                   </span>
                 ) : null}
               </div>

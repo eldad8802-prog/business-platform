@@ -16,6 +16,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { homeHe } from "../../lib/i18n/messages/areas/home";
+
 import {
   activateNotification,
   isSafeInternalHref,
@@ -39,6 +41,9 @@ const NAV = readFileSync(join(REPO_ROOT, "components", "navigation", "nav-destin
 const HOME_DATA = readFileSync(join(REPO_ROOT, "features", "home", "v3", "use-home-data.ts"), "utf8");
 const CACHED_JSON = readFileSync(join(REPO_ROOT, "lib", "ui", "cached-json.ts"), "utf8");
 const CLIENT_SESSION = readFileSync(join(REPO_ROOT, "lib", "client-session.ts"), "utf8");
+// The centre's copy lives in the i18n dictionary (Hebrew is the source); the markup references keys.
+const N = homeHe.notifications;
+const uses = (key: keyof typeof N) => CENTER.includes(`t("home.notifications.${key}")`);
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -96,9 +101,10 @@ console.log("\nRead is not resolved");
   check("unread is derived from readAt", /const unread = n\.readAt === null/.test(CENTER));
   check("resolved is derived from resolvedAt", /const resolved = n\.resolvedAt !== null/.test(CENTER));
   check("a resolved item is labelled נפתר and an open one פעיל",
-    /resolved \? "נפתר" : "פעיל"/.test(CENTER));
+    /resolved \? t\("home\.notifications\.resolved"\) : t\("home\.notifications\.active"\)/.test(CENTER) &&
+      N.resolved === "נפתר" && N.active === "פעיל");
   check("state is also announced in words, not colour alone",
-    /sr-only/.test(CENTER) && /הבעיה עדיין פעילה/.test(CENTER) && /לא נקראה/.test(CENTER));
+    /sr-only/.test(CENTER) && uses("srActive") && N.srActive === "הבעיה עדיין פעילה." && uses("srUnread") && N.srUnread === "לא נקראה.");
   check("marking read never writes resolvedAt",
     !/resolvedAt:\s*(new Date|[^n])/.test(CENTER.slice(CENTER.indexOf("const markRead"), CENTER.indexOf("const markAllRead"))));
   check("a read item still shows as active when unresolved",
@@ -113,7 +119,8 @@ console.log("\nDismiss is not exposed");
   const fetchUrls = [...CENTER.matchAll(/fetch\(\s*["'\x60]([^"'\x60$]*)/g)].map((m) => m[1]);
   check("no dismiss endpoint is called", !fetchUrls.some((u) => /dismiss/i.test(u)), fetchUrls.join(" "));
   check("no handler dismisses anything", !/dismiss[A-Z]\w*\(/.test(CENTER));
-  check("no dismiss control is rendered", !/סגור לצמיתות|התעלם|swipe/i.test(CENTER));
+  check("no dismiss control is rendered",
+    !/סגור לצמיתות|התעלם|swipe/i.test(CENTER) && !Object.values(N).some((v) => typeof v === "string" && /סגור לצמיתות|התעלם/.test(v)));
   check("nothing is hidden client-side to fake dismissal",
     !/filter\(\(n\) => !n\./.test(CENTER));
 }
@@ -146,20 +153,21 @@ console.log("\nRefresh behaviour");
 /* ── states the owner can actually hit ────────────────────────────────────── */
 console.log("\nLoading, empty and error states");
 {
-  check("a loading state exists", /status === "loading"/.test(CENTER) && /טוען התראות/.test(CENTER));
-  check("an empty state exists and speaks plainly", /אין התראות/.test(CENTER));
-  check("the unread filter has its own empty state", /אין התראות שלא נקראו/.test(CENTER));
+  check("a loading state exists", /status === "loading"/.test(CENTER) && uses("loading") && /טוען התראות/.test(N.loading));
+  check("an empty state exists and speaks plainly", uses("empty") && /אין התראות/.test(N.empty));
+  check("the unread filter has its own empty state", uses("emptyUnread") && /אין התראות שלא נקראו/.test(N.emptyUnread));
   check("an error state exists and is recoverable",
-    /role="alert"/.test(CENTER) && /נסה שוב/.test(CENTER));
+    /role="alert"/.test(CENTER) && uses("retry") && /נסה שוב/.test(N.retry));
   check("load-more appears only when the API offers a cursor",
-    /cursor !== null \? \(/.test(CENTER) && /טען עוד/.test(CENTER));
+    /cursor !== null \? \(/.test(CENTER) && uses("loadMore") && /טען עוד/.test(N.loadMore));
 }
 
 /* ── shell integration ────────────────────────────────────────────────────── */
 console.log("\nShell integration");
 {
   check("the page declares a width intent", /intent="focused"/.test(PAGE));
-  check("the centre is right-to-left", /dir="rtl"/.test(CENTER));
+  // Direction is inherited from <html> (rtl for Hebrew, ltr for English) — never hard-coded.
+  check("the centre inherits its direction", !/dir="rtl"/.test(CENTER) && !/direction: "rtl"/.test(CENTER));
   check("the bell tab points at the notification centre", /href: "\/notifications"/.test(NAV));
   check("the bell's unread flag comes from the real count",
     /setHasUnread\(json\.unreadCount > 0\)/.test(BAR) && /api\/notifications\/unread-count/.test(BAR));
@@ -169,7 +177,7 @@ console.log("\nShell integration");
   check("the dot is shown only on the notifications tab",
     /unread=\{hasUnread && tabs\[\d\]\.key === "notifications"\}/.test(BAR));
   check("mark-all-read is offered only when something is unread",
-    /unreadCount > 0 \? \([\s\S]{0,600}סמן הכל כנקרא/.test(CENTER));
+    /unreadCount > 0 \? \([\s\S]{0,600}t\("home\.notifications\.markAllRead"\)/.test(CENTER) && N.markAllRead === "סמן הכל כנקרא");
 }
 
 /* ── touch targets ────────────────────────────────────────────────────────── */
@@ -181,7 +189,7 @@ console.log("\nMobile ergonomics");
   check("long Hebrew titles wrap rather than overflow",
     (CENTER.match(/overflowWrap: "anywhere"/g) || []).length >= 2);
   check("the filter group is labelled for assistive tech",
-    /role="group"/.test(CENTER) && /aria-label="סינון התראות"/.test(CENTER));
+    /role="group"/.test(CENTER) && /aria-label=\{t\("home\.notifications\.filterAria"\)\}/.test(CENTER) && N.filterAria === "סינון התראות");
   check("filter buttons expose their pressed state", /aria-pressed=\{filter === f\}/.test(CENTER));
   check("a non-link card is still keyboard reachable",
     /onKeyDown/.test(CENTER) && /e\.key === "Enter"/.test(CENTER));

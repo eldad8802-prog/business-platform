@@ -12,6 +12,7 @@ import {
 } from "@/lib/navigation/back-nav/trail-runtime";
 import { fallbackFor, labelForDestination, screenKeyOf, HOME_FALLBACK } from "@/lib/navigation/back-nav/route-registry";
 import { pathnameOf, toSafeInternalPath } from "@/lib/navigation/back-nav/safe-path";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import styles from "./back-button.module.css";
 
 /**
@@ -125,6 +126,7 @@ export default function BackButton({
   className,
   style,
 }: BackButtonProps) {
+  const { t } = useI18n();
   const lastClick = useRef(0);
   const { target, fallback: fb, pathname } = useBackDestination(fallback, fallbackLabel);
   const navigate = useGoBack(fb.url);
@@ -144,7 +146,7 @@ export default function BackButton({
   if (hideWithoutOrigin && !onClick && target?.kind !== "history") return null;
 
   const showFallbackLabel = !onClick && target?.kind === "none";
-  const accessibleName = onClick ? (label ?? "חזרה") : showFallbackLabel ? fb.label : "חזרה";
+  const accessibleName = onClick ? (label ?? t("common.back")) : showFallbackLabel ? fb.label : t("common.back");
   const mode = onClick ? "step" : !target ? "pending" : target.kind === "history" ? "history" : "fallback";
 
   return (
@@ -195,7 +197,7 @@ export function BackArrowIcon() {
  */
 export function CloseButton({
   onClick,
-  label = "סגירה",
+  label: labelProp,
   className,
   style,
 }: {
@@ -204,6 +206,8 @@ export function CloseButton({
   className?: string;
   style?: CSSProperties;
 }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("common.close");
   return (
     <button
       type="button"
