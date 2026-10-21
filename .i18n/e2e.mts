@@ -3,9 +3,11 @@
  * Languages + currencies — FULL-STACK end-to-end on the built app (next start) and an ephemeral
  * PostgreSQL (CI service container only), with a signed-in owner in a real browser.
  *
- * Two servers from ONE build:
- *   ON   http://localhost:3611  DUBIZ_I18N_ENABLED=true
- *   OFF  http://localhost:3612  flag unset (= Production today)
+ * The flag is read when pages render, and with the flag OFF at BUILD time Next pre-renders the root
+ * layout statically — so the flag takes effect per BUILD (on Vercel: set the env var + redeploy).
+ * Two phases, two builds:
+ *   E2E_PHASE=on   http://localhost:3611  built + started with DUBIZ_I18N_ENABLED=true  (E1–E4, E6)
+ *   E2E_PHASE=off  http://localhost:3612  built + started without the flag (= today)   (E5)
  *
  *   E1  every main screen × {he, en} × {phone 390, tablet 820, desktop 1440}: <html lang/dir>,
  *       no horizontal overflow, English chrome (nav) in English, screenshots as artifacts
@@ -26,6 +28,7 @@ import { signAuthToken } from "../lib/auth-token";
 const ON = process.env.I18N_ON_BASE ?? "http://localhost:3611";
 const OFF = process.env.I18N_OFF_BASE ?? "http://localhost:3612";
 const SHOTS = process.env.E2E_SHOTS ?? "";
+const PHASE = process.env.E2E_PHASE ?? "on";
 if (!/@localhost:5432\//.test(process.env.DATABASE_URL ?? "")) {
   console.error("ABORT: e2e runs only against the local CI service container");
   process.exit(2);
@@ -107,6 +110,7 @@ async function main() {
   const a = await business("A", "Alpha Customer", [["1000.00", "ILS"], ["300.00", "USD"]]);
   const b = await business("B", "לקוח בטא", [["500.00", "ILS"]]);
   const browser = await chromium.launch();
+  if (PHASE === "on") {
 
   console.log("\n== E1 / E6 — every screen × language × width ==");
   const gaps: Record<string, string[]> = {};
@@ -184,6 +188,9 @@ async function main() {
     await ctx.close();
   }
 
+  }
+
+  if (PHASE === "off") {
   console.log("\n== E5 — flag OFF is today's behaviour ==");
   {
     const ctx = await contextFor(browser, OFF, a, "en");
@@ -201,6 +208,7 @@ async function main() {
     const r = await fetch(`${OFF}/api/preferences/locale`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ locale: "en" }) });
     ok("E5 — locale endpoint 404", r.status === 404, String(r.status));
   }
+  }
 
   await browser.close();
 }
@@ -209,10 +217,10 @@ main()
   .catch((e) => { failures.push(`crash: ${e instanceof Error ? e.stack ?? e.message : String(e)}`); console.error(e); })
   .finally(async () => {
     await prisma.$disconnect();
-    if (SHOTS) writeFileSync(`${SHOTS}/report.json`, JSON.stringify({ pass, failures, ...report }, null, 2));
+    if (SHOTS) writeFileSync(`${SHOTS}/report-${PHASE}.json`, JSON.stringify({ pass, failures, ...report }, null, 2));
     const gaps = (report.englishHebrewGaps ?? {}) as Record<string, string[]>;
     console.log(`\nEnglish screens with Hebrew still visible (reported, not failed): ${Object.keys(gaps).length}`);
     for (const [k, v] of Object.entries(gaps)) console.log(`  ${k}: ${v.slice(0, 6).join(" | ")}`);
-    console.log(`\ni18n e2e: ${pass} passed, ${failures.length} failed`);
+    console.log(`\ni18n e2e (${PHASE}): ${pass} passed, ${failures.length} failed`);
     if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exit(1); }
   });

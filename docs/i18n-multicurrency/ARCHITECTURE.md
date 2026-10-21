@@ -66,6 +66,7 @@ Changing one never changes another. Language changes strings and direction only 
 - `lib/i18n/server.ts` (`getServerI18n`) for server components/route handlers; `components/i18n/I18nProvider.tsx` (`useI18n`) for client components. Only the active language's dictionary is sent to the browser.
 - `lib/i18n/format.ts` — the single locale-aware money/number/date formatter. **Hebrew output is byte-identical to the legacy `lib/ui/money.ts`** (verified). Dates always render in the business time zone.
 - `POST /api/preferences/locale` writes the cookie (no tenant data → no session needed; refuses unknown locales).
+- **The flag takes effect per BUILD:** with the flag off at build time Next pre-renders the root layout statically, so turning it on in Production = set `DUBIZ_I18N_ENABLED=true` **and redeploy** (found by CI e2e).
 - **Release flag:** with `DUBIZ_I18N_ENABLED` unset, the root layout never reads cookies and renders `he/rtl` exactly as before (static pages stay static); the language buttons show "בקרוב".
 - **Direction rule:** components never set `dir="rtl"`; they inherit from `<html>`. Use logical properties (`inset-inline-*`, `padding-inline-*`, `text-start`). Keep `dir="ltr"` only on intrinsically-LTR values (phones, e-mails, IBANs, codes).
 - **Not in the dictionaries:** user content, issued documents, uniform tax file, parsing keywords, LLM prompts.
