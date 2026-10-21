@@ -1,6 +1,5 @@
 export const orderWizardCss = `
 [data-order-wizard] {
-  direction: rtl;
   display: flex;
   flex-direction: column;
   gap: 16px;

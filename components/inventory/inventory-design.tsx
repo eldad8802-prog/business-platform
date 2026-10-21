@@ -13,6 +13,9 @@ import {
   type InventoryHeaderAction as InventoryHeaderActionType,
 } from "@/components/inventory/inventory-primitives";
 import { glassActionStyle, primaryActionStyle } from "@/components/inventory/inventory-tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { inventoryHebrewT } from "@/lib/inventory/inventory-labels";
+import type { Translator } from "@/lib/i18n/translate";
 
 export const inventoryTheme = inventoryTokenTheme;
 
@@ -61,7 +64,6 @@ export function inventoryPageStyle(): CSSProperties {
   return {
     minHeight: "100vh",
     background: inventoryTheme.pageBg,
-    direction: "rtl",
   };
 }
 
@@ -98,7 +100,7 @@ export function AttentionCard({
   tone,
   icon,
   onClick,
-  unitLabel = "פריטים",
+  unitLabel,
 }: {
   label: string;
   count: number;
@@ -107,6 +109,7 @@ export function AttentionCard({
   onClick?: () => void;
   unitLabel?: string;
 }) {
+  const i18n = useI18n();
   const t = toneStyles[tone];
   return (
     <button
@@ -117,7 +120,7 @@ export function AttentionCard({
         borderRadius: inventoryRadius.lg,
         background: t.bg,
         padding: `${inventorySpacing.lg}px ${inventorySpacing.md}px`,
-        textAlign: "right",
+        textAlign: "start",
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         flexDirection: "column",
@@ -149,7 +152,7 @@ export function AttentionCard({
         {label}
       </div>
       <div style={{ fontSize: 11, fontWeight: 500, color: inventoryTheme.textMuted }}>
-        {unitLabel}
+        {unitLabel ?? i18n.t("customers.inventoryKit.common.items")}
       </div>
     </button>
   );
@@ -776,8 +779,8 @@ export const inventoryResponsiveCss = `
     display: none;
     position: fixed;
     bottom: 0;
-    left: 0;
-    right: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
     z-index: 50;
     background: rgba(251, 250, 246, 0.96);
     backdrop-filter: blur(12px);
@@ -812,10 +815,10 @@ export function getStockTone(item: {
   return "ok";
 }
 
-export function getStockStatusLabel(tone: "ok" | "critical" | "low") {
-  if (tone === "critical") return "מלאי קריטי";
-  if (tone === "low") return "מלאי נמוך";
-  return "תקין";
+export function getStockStatusLabel(tone: "ok" | "critical" | "low", t: Translator = inventoryHebrewT) {
+  if (tone === "critical") return t("customers.inventoryKit.labels.stockStatus.critical");
+  if (tone === "low") return t("customers.inventoryKit.labels.stockStatus.low");
+  return t("customers.inventoryKit.labels.stockStatus.ok");
 }
 
 export function getStockRatio(item: {
@@ -1026,7 +1029,7 @@ export function HubActionCard({
       style={{
         ...inventoryCardStyle({
           width: "100%",
-          textAlign: "right",
+          textAlign: "start",
           cursor: "pointer",
           border: accent
             ? `1px solid ${inventoryTheme.accent}`
@@ -1087,6 +1090,7 @@ export function NoticeBanner({
   tone?: "error" | "success" | "info";
   onRetry?: () => void;
 }) {
+  const { t } = useI18n();
   const styles =
     tone === "success"
       ? {
@@ -1134,7 +1138,7 @@ export function NoticeBanner({
             cursor: "pointer",
           }}
         >
-          נסה שוב
+          {t("customers.inventoryKit.common.retry")}
         </button>
       ) : null}
     </section>

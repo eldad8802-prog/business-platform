@@ -20,24 +20,24 @@ import { AttachmentList } from "@/components/crm/AttachmentList";
 import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
 import { SupplierForm } from "@/components/suppliers/SupplierForm";
 import {
+  formatSupplierPaymentTermsT,
   supplierCompleteness,
   supplierFormToPayload,
+  supplierPaymentMethodLabelT,
+  supplierTaxIdLabelT,
+  supplierTaxIdTypeLabelT,
   supplierToFormState,
   validateSupplierForm,
   type SupplierFormState,
 } from "@/components/suppliers/supplier-form-model";
-import {
-  formatSupplierPaymentTerms,
-  SUPPLIER_PAYMENT_METHOD_LABELS,
-  SUPPLIER_TAX_ID_TYPE_LABELS,
-  supplierTaxIdLabel,
-} from "@/lib/services/inventory/supplier-profile";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
 
-function formatDate(iso: string | null): string | null {
+function formatDate(iso: string | null, locale: Locale): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("he-IL", {
+  return new Intl.DateTimeFormat(intlTag(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -45,6 +45,7 @@ function formatDate(iso: string | null): string | null {
 }
 
 export default function SupplierCardPage() {
+  const { t } = useI18n();
   const params = useParams<{ id: string }>();
   const id = Number(params?.id);
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -80,11 +81,11 @@ export default function SupplierCardPage() {
         setNotFound(true);
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את הספק");
+      setError(err instanceof Error ? err.message : t("customers.suppliers.card.errorLoad"));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     void load();
@@ -103,18 +104,18 @@ export default function SupplierCardPage() {
         </div>
       ) : notFound ? (
         <div className="crm-panel">
-          <p className="crm-panel__title">הספק לא נמצא</p>
-          <p className="crm-panel__body">ייתכן שהספק הוסר או שאין לך גישה אליו.</p>
+          <p className="crm-panel__title">{t("customers.suppliers.card.notFoundTitle")}</p>
+          <p className="crm-panel__body">{t("customers.suppliers.card.notFoundBody")}</p>
           <Link className="crm-btn crm-btn--ghost" href="/suppliers">
-            לרשימת הספקים
+            {t("customers.suppliers.card.backToList")}
           </Link>
         </div>
       ) : error ? (
         <div className="crm-panel crm-panel--error">
-          <p className="crm-panel__title">משהו השתבש</p>
+          <p className="crm-panel__title">{t("customers.suppliers.common.errorTitle")}</p>
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={() => void load()}>
-            נסו שוב
+            {t("customers.suppliers.common.retry")}
           </button>
         </div>
       ) : supplier ? (
@@ -154,46 +155,47 @@ function SupplierCardView({
   supplier: Supplier;
   onEdit: () => void;
 }) {
-  const createdAt = formatDate(supplier.createdAt);
-  const completeness = supplierCompleteness(supplier);
+  const { t, locale } = useI18n();
+  const createdAt = formatDate(supplier.createdAt, locale);
+  const completeness = supplierCompleteness(supplier, t);
 
   const identityFields: Array<{ label: string; value: string | null }> = [
-    { label: "שם רשום", value: supplier.legalName },
+    { label: t("customers.suppliers.card.legalName"), value: supplier.legalName },
     {
-      label: supplierTaxIdLabel(supplier.taxIdType),
+      label: supplierTaxIdLabelT(t, supplier.taxIdType),
       value: supplier.taxId,
     },
     {
-      label: "סוג ישות",
+      label: t("customers.suppliers.card.entityType"),
       value: supplier.taxIdType
-        ? SUPPLIER_TAX_ID_TYPE_LABELS[supplier.taxIdType]
+        ? supplierTaxIdTypeLabelT(t, supplier.taxIdType)
         : null,
     },
-    { label: "קטגוריה", value: supplier.category },
-    { label: "אתר", value: supplier.website },
+    { label: t("customers.suppliers.card.category"), value: supplier.category },
+    { label: t("customers.suppliers.card.website"), value: supplier.website },
   ];
 
   const contactFields: Array<{ label: string; value: string | null }> = [
     {
-      label: "טלפון",
+      label: t("customers.suppliers.card.phone"),
       value: supplier.phone ? formatPhoneForDisplay(supplier.phone) : null,
     },
-    { label: "אימייל", value: supplier.email },
+    { label: t("customers.suppliers.card.email"), value: supplier.email },
     {
-      label: "איש קשר",
+      label: t("customers.suppliers.card.contact"),
       value: [supplier.contactName, supplier.contactRole]
         .filter(Boolean)
         .join(" · ") || null,
     },
     {
-      label: "טלפון ישיר",
+      label: t("customers.suppliers.card.directPhone"),
       value: supplier.contactPhone
         ? formatPhoneForDisplay(supplier.contactPhone)
         : null,
     },
-    { label: "אימייל איש קשר", value: supplier.contactEmail },
+    { label: t("customers.suppliers.card.contactEmail"), value: supplier.contactEmail },
     {
-      label: "כתובת",
+      label: t("customers.suppliers.card.address"),
       value: [
         supplier.addressStreet,
         supplier.addressCity,
@@ -206,20 +208,20 @@ function SupplierCardView({
 
   const termsFields: Array<{ label: string; value: string | null }> = [
     {
-      label: "תנאי תשלום",
-      value: formatSupplierPaymentTerms(supplier.paymentTermsDays),
+      label: t("customers.suppliers.card.paymentTerms"),
+      value: formatSupplierPaymentTermsT(t, supplier.paymentTermsDays),
     },
     {
-      label: "צורת תשלום",
+      label: t("customers.suppliers.card.paymentMethod"),
       value: supplier.preferredPaymentMethod
-        ? SUPPLIER_PAYMENT_METHOD_LABELS[supplier.preferredPaymentMethod]
+        ? supplierPaymentMethodLabelT(t, supplier.preferredPaymentMethod)
         : null,
     },
     {
-      label: "זמן אספקה ברירת מחדל",
+      label: t("customers.suppliers.card.defaultLeadTime"),
       value:
         supplier.defaultLeadTimeDays != null
-          ? `${supplier.defaultLeadTimeDays} ימים`
+          ? t("customers.suppliers.card.leadTimeDays", { days: supplier.defaultLeadTimeDays })
           : null,
     },
   ];
@@ -237,7 +239,7 @@ function SupplierCardView({
             onClick={onEdit}
             style={{ flexShrink: 0 }}
           >
-            עריכה
+            {t("customers.suppliers.card.edit")}
           </button>
         </div>
 
@@ -247,35 +249,36 @@ function SupplierCardView({
               supplier.isActive ? "crm-badge crm-badge--success" : "crm-badge"
             }
           >
-            {supplier.isActive ? "פעיל" : "לא פעיל"}
+            {supplier.isActive ? t("customers.suppliers.card.active") : t("customers.suppliers.card.inactive")}
           </span>
           {supplier.category ? (
             <span className="crm-chip">{supplier.category}</span>
           ) : null}
-          {createdAt ? <span className="crm-chip">נוצר · {createdAt}</span> : null}
+          {createdAt ? <span className="crm-chip">{t("customers.suppliers.card.createdAt", { date: createdAt })}</span> : null}
         </div>
       </div>
 
-      <SupplierFieldSection title="פרטי ספק" fields={identityFields} />
-      <SupplierFieldSection title="פרטי קשר" fields={contactFields} />
-      <SupplierFieldSection title="תנאי התקשרות" fields={termsFields} />
+      <SupplierFieldSection title={t("customers.suppliers.card.sectionIdentity")} fields={identityFields} />
+      <SupplierFieldSection title={t("customers.suppliers.card.sectionContact")} fields={contactFields} />
+      <SupplierFieldSection title={t("customers.suppliers.card.sectionTerms")} fields={termsFields} />
 
       {completeness.missing.length > 0 ? (
         <div className="crm-panel">
-          <p className="crm-panel__title">השלמת פרטי ספק</p>
+          <p className="crm-panel__title">{t("customers.suppliers.card.completenessTitle")}</p>
           <p className="crm-panel__body">
-            חסרים עדיין: {completeness.missing.join(" · ")}. השלמה עכשיו תחסוך
-            חיפוש בהמשך.
+            {t("customers.suppliers.card.completenessBody", {
+              missing: completeness.missing.join(" · "),
+            })}
           </p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
-            השלמת פרטים
+            {t("customers.suppliers.card.completenessAction")}
           </button>
         </div>
       ) : null}
 
       {supplier.notes && supplier.notes.trim() ? (
         <div className="crm-note">
-          <div className="crm-note__label">הערה כללית</div>
+          <div className="crm-note__label">{t("customers.suppliers.card.generalNote")}</div>
           <div className="crm-note__body">{supplier.notes}</div>
         </div>
       ) : null}
@@ -331,6 +334,7 @@ function EditSupplierModal({
   onClose: () => void;
   onSaved: (updated: Supplier) => void;
 }) {
+  const { t } = useI18n();
   const [form, setForm] = useState<SupplierFormState>(() =>
     supplierToFormState(supplier)
   );
@@ -344,7 +348,7 @@ function EditSupplierModal({
   }, []);
 
   async function handleSubmit() {
-    const invalid = validateSupplierForm(form);
+    const invalid = validateSupplierForm(form, t);
     if (invalid) {
       setError(invalid);
       return;
@@ -365,7 +369,7 @@ function EditSupplierModal({
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו לשמור את הספק");
+      setError(err instanceof Error ? err.message : t("customers.suppliers.edit.errorSave"));
       setSaving(false);
     }
   }
@@ -377,8 +381,8 @@ function EditSupplierModal({
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="עריכת ספק">
-        <h2 className="crm-modal__title">עריכת ספק</h2>
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label={t("customers.suppliers.edit.title")}>
+        <h2 className="crm-modal__title">{t("customers.suppliers.edit.title")}</h2>
 
         <SupplierForm
           form={form}
@@ -396,7 +400,7 @@ function EditSupplierModal({
             onClick={() => void handleSubmit()}
             disabled={saving}
           >
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? t("customers.suppliers.common.saving") : t("customers.suppliers.common.save")}
           </button>
           <button
             type="button"
@@ -404,7 +408,7 @@ function EditSupplierModal({
             onClick={onClose}
             disabled={saving}
           >
-            ביטול
+            {t("customers.suppliers.common.cancel")}
           </button>
         </div>
       </div>

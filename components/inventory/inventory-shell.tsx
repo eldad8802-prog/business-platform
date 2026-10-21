@@ -2,6 +2,8 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import {
   IconAlert,
   IconBox,
@@ -34,24 +36,24 @@ export type InventoryFlowStepId =
 
 export const INVENTORY_FLOW_STEPS: Array<{
   id: InventoryFlowStepId;
-  label: string;
-  shortLabel: string;
+  label: MessageKey;
+  shortLabel: MessageKey;
 }> = [
-  { id: "sale", label: "מכירה בקופה", shortLabel: "מכירה" },
-  { id: "shortage", label: "מלאי חסר", shortLabel: "חסר" },
-  { id: "plan", label: "המלצות/תכנון", shortLabel: "תכנון" },
-  { id: "order", label: "יצירת הזמנה", shortLabel: "הזמנה" },
-  { id: "send", label: "שליחה לספק", shortLabel: "שליחה" },
-  { id: "receive", label: "קליטת סחורה", shortLabel: "קליטה" },
-  { id: "updated", label: "המלאי עודכן", shortLabel: "עודכן" },
+  { id: "sale", label: "customers.inventoryKit.shell.flow.sale", shortLabel: "customers.inventoryKit.shell.flow.saleShort" },
+  { id: "shortage", label: "customers.inventoryKit.shell.flow.shortage", shortLabel: "customers.inventoryKit.shell.flow.shortageShort" },
+  { id: "plan", label: "customers.inventoryKit.shell.flow.plan", shortLabel: "customers.inventoryKit.shell.flow.planShort" },
+  { id: "order", label: "customers.inventoryKit.shell.flow.order", shortLabel: "customers.inventoryKit.shell.flow.orderShort" },
+  { id: "send", label: "customers.inventoryKit.shell.flow.send", shortLabel: "customers.inventoryKit.shell.flow.sendShort" },
+  { id: "receive", label: "customers.inventoryKit.shell.flow.receive", shortLabel: "customers.inventoryKit.shell.flow.receiveShort" },
+  { id: "updated", label: "customers.inventoryKit.shell.flow.updated", shortLabel: "customers.inventoryKit.shell.flow.updatedShort" },
 ];
 
-function getGreeting() {
+function getGreeting(t: Translator) {
   const hour = new Date().getHours();
-  if (hour < 12) return "בוקר טוב";
-  if (hour < 17) return "צהריים טובים";
-  if (hour < 21) return "ערב טוב";
-  return "לילה טוב";
+  if (hour < 12) return t("customers.inventoryKit.shell.greeting.morning");
+  if (hour < 17) return t("customers.inventoryKit.shell.greeting.afternoon");
+  if (hour < 21) return t("customers.inventoryKit.shell.greeting.evening");
+  return t("customers.inventoryKit.shell.greeting.night");
 }
 
 function IconBell() {
@@ -120,6 +122,7 @@ export function InventoryAppHeader({
   notificationCount?: number;
   onMenuClick?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <header className="inv-app-header">
       <div
@@ -140,7 +143,7 @@ export function InventoryAppHeader({
           type="button"
           className="inv-hamburger"
           onClick={onMenuClick}
-          aria-label="תפריט"
+          aria-label={t("customers.inventoryKit.shell.menu")}
           style={{
             width: 40,
             height: 40,
@@ -171,7 +174,7 @@ export function InventoryAppHeader({
         >
           <button
             type="button"
-            aria-label="התראות"
+            aria-label={t("customers.inventoryKit.shell.notifications")}
             style={{
               position: "relative",
               width: 42,
@@ -193,7 +196,7 @@ export function InventoryAppHeader({
                 style={{
                   position: "absolute",
                   top: -4,
-                  left: -4,
+                  insetInlineEnd: -4,
                   minWidth: 18,
                   height: 18,
                   borderRadius: 999,
@@ -238,19 +241,20 @@ export function InventoryGreeting({
   /** Home workspace: business context only — no greeting hero */
   variant?: "default" | "workspace";
 }) {
+  const { t } = useI18n();
   const businessSelector = (
     <label className="inv-greeting-business">
-      <span className="inv-greeting-business__label">עסק</span>
+      <span className="inv-greeting-business__label">{t("customers.inventoryKit.shell.business")}</span>
       <select className="inv-greeting-business__select" defaultValue="default">
-        <option value="default">העסק שלי</option>
+        <option value="default">{t("customers.inventoryKit.shell.myBusiness")}</option>
       </select>
     </label>
   );
 
   if (variant === "workspace") {
     return (
-      <section className="inv-greeting inv-greeting--workspace" aria-label="הקשר עסק">
-        <span className="inv-greeting-module">מלאי</span>
+      <section className="inv-greeting inv-greeting--workspace" aria-label={t("customers.inventoryKit.shell.businessContext")}>
+        <span className="inv-greeting-module">{t("customers.inventoryKit.shell.module")}</span>
         {businessSelector}
       </section>
     );
@@ -260,9 +264,9 @@ export function InventoryGreeting({
     <section className="inv-greeting inv-greeting--default">
       <div className="inv-greeting-copy">
         <h1 className="inv-greeting-title">
-          {getGreeting()}, {userName}
+          {getGreeting(t)}, {userName}
         </h1>
-        <p className="inv-greeting-sub">מה מחכה לי היום?</p>
+        <p className="inv-greeting-sub">{t("customers.inventoryKit.shell.whatsToday")}</p>
       </div>
       {businessSelector}
     </section>
@@ -274,6 +278,7 @@ export function InventoryFlowStepper({
 }: {
   activeStep: InventoryFlowStepId;
 }) {
+  const { t } = useI18n();
   const activeIndex = INVENTORY_FLOW_STEPS.findIndex((s) => s.id === activeStep);
 
   return (
@@ -380,8 +385,8 @@ export function InventoryFlowStepper({
                   maxWidth: 84,
                 }}
               >
-                <span className="inv-flow-step-label-full">{step.label}</span>
-                <span className="inv-flow-step-label-short">{step.shortLabel}</span>
+                <span className="inv-flow-step-label-full">{t(step.label)}</span>
+                <span className="inv-flow-step-label-short">{t(step.shortLabel)}</span>
               </span>
             </div>
           );
@@ -400,11 +405,11 @@ type InboxItem = {
   href: string;
 };
 
-function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
+function inboxItemsFromCounts(counts: InventoryInboxCounts, t: Translator): InboxItem[] {
   return [
     {
       key: "unmatched-sales",
-      label: "מכירות שעדיין לא זוהו",
+      label: t("customers.inventoryKit.shell.inbox.unmatchedSales"),
       count: counts.unmatched,
       tone: "info",
       icon: <IconQuestion />,
@@ -412,7 +417,7 @@ function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
     },
     {
       key: "drafts",
-      label: "פריטים לבדיקה",
+      label: t("customers.inventoryKit.shell.inbox.drafts"),
       count: counts.drafts,
       tone: "purple",
       icon: <IconClipboard />,
@@ -420,7 +425,7 @@ function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
     },
     {
       key: "pending",
-      label: "הזמנות ממתינות",
+      label: t("customers.inventoryKit.shell.inbox.pendingOrders"),
       count: counts.pendingOrders,
       tone: "warning",
       icon: <IconBox />,
@@ -428,7 +433,7 @@ function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
     },
     {
       key: "critical",
-      label: "מלאי קריטי",
+      label: t("customers.inventoryKit.shell.inbox.criticalStock"),
       count: counts.criticalStock,
       tone: "danger",
       icon: <IconAlert />,
@@ -436,7 +441,7 @@ function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
     },
     {
       key: "reorder",
-      label: "התראות חוסר",
+      label: t("customers.inventoryKit.shell.inbox.reorderAlerts"),
       count: counts.reorderAlerts,
       tone: "neutral",
       icon: <IconAlert />,
@@ -459,9 +464,10 @@ export function InventoryInboxSidebar({
   counts?: InventoryInboxCounts;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const { counts: fetched } = useInventoryInboxCounts();
   const counts = countsProp ?? fetched;
-  const items = inboxItemsFromCounts(counts);
+  const items = inboxItemsFromCounts(counts, t);
 
   return (
     <aside
@@ -482,7 +488,7 @@ export function InventoryInboxSidebar({
           color: inventoryTheme.text,
         }}
       >
-        מה מחכה לי? (Inbox)
+        {t("customers.inventoryKit.shell.inbox.title")}
       </div>
       <ul style={{ listStyle: "none", margin: 0, padding: "8px 0" }}>
         {items.map((item) => (
@@ -500,7 +506,7 @@ export function InventoryInboxSidebar({
                 justifyContent: "space-between",
                 gap: 10,
                 padding: "12px 16px",
-                textAlign: "right",
+                textAlign: "start",
                 fontSize: 13,
                 fontWeight: 600,
                 color: inventoryTheme.text,
@@ -559,7 +565,7 @@ export function InventoryInboxSidebar({
             cursor: "pointer",
           }}
         >
-          לכל המשימות
+          {t("customers.inventoryKit.shell.inbox.allTasks")}
         </button>
       </div>
     </aside>

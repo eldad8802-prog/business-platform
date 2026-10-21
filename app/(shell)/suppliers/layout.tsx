@@ -22,7 +22,7 @@ const SURFACE_INTENT: PageSurfaceIntent = "workspace";
 
 export default function SuppliersLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="crm-scope" dir="rtl" data-page-intent={SURFACE_INTENT}>
+    <div className="crm-scope" data-page-intent={SURFACE_INTENT}>
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <SuppliersWorkspace>{children}</SuppliersWorkspace>
     </div>

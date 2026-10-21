@@ -20,7 +20,9 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { LeadRow } from "@/components/leads/LeadRow";
-import { LEAD_SOURCE_OPTIONS } from "@/components/leads/lead-display";
+import { LEAD_SOURCE_OPTION_KEYS } from "@/components/leads/lead-display";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * Leads Inbox (master).
@@ -36,11 +38,11 @@ import { LEAD_SOURCE_OPTIONS } from "@/components/leads/lead-display";
 
 type FilterKey = "needsAction" | "open" | "closed" | "all";
 
-const FILTERS: Array<{ key: FilterKey; label: string }> = [
-  { key: "needsAction", label: "דורש טיפול" },
-  { key: "open", label: "פתוחים" },
-  { key: "closed", label: "סגורים" },
-  { key: "all", label: "הכול" },
+const FILTERS: Array<{ key: FilterKey; label: MessageKey }> = [
+  { key: "needsAction", label: "customers.leads.list.filters.needsAction" },
+  { key: "open", label: "customers.leads.list.filters.open" },
+  { key: "closed", label: "customers.leads.list.filters.closed" },
+  { key: "all", label: "customers.leads.list.filters.all" },
 ];
 
 function toQuery(filter: FilterKey): {
@@ -55,6 +57,7 @@ function toQuery(filter: FilterKey): {
 
 export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
+  const { t } = useI18n();
   // Home links here with ?view=needsAction so the count it showed and the rows
   // shown here are the same set. Any other value falls back to the work queue.
   const searchParams = useSearchParams();
@@ -98,11 +101,11 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
         }
         return {
           error:
-            err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת הלידים",
+            err instanceof Error ? err.message : t("customers.leads.list.loadError"),
         };
       }
     },
-    []
+    [t]
   );
 
   function apply(
@@ -153,7 +156,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו לעדכן את המעקב");
+      setError(err instanceof Error ? err.message : t("customers.leads.list.followUpError"));
     } finally {
       setRowBusy(null);
     }
@@ -199,10 +202,10 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
     <div className="crm-page">
       <div className="crm-hd">
         <div>
-          <h1 className="crm-hd__title">לידים</h1>
+          <h1 className="crm-hd__title">{t("customers.leads.list.title")}</h1>
           {!loading && !error ? (
             <div className="crm-hd__sub">
-              {leads.length} {leads.length === 1 ? "ליד" : "לידים"}
+              {t(leads.length === 1 ? "customers.leads.list.countOne" : "customers.leads.list.countMany", { count: leads.length })}
             </div>
           ) : null}
         </div>
@@ -211,7 +214,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
           className="crm-btn crm-btn--primary"
           onClick={() => setCreateOpen(true)}
         >
-          + ליד חדש
+          {t("customers.leads.list.newButton")}
         </button>
       </div>
 
@@ -220,7 +223,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="חיפוש לפי שם, טלפון או אימייל"
+        placeholder={t("customers.leads.list.searchPlaceholder")}
         inputMode="search"
       />
 
@@ -242,7 +245,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
                   : {}),
               }}
             >
-              {f.label}
+              {t(f.label)}
             </button>
           );
         })}
@@ -250,10 +253,10 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
 
       {error ? (
         <div className="crm-panel crm-panel--error">
-          <p className="crm-panel__title">משהו השתבש</p>
+          <p className="crm-panel__title">{t("customers.leads.common.errorTitle")}</p>
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={retry}>
-            נסו שוב
+            {t("customers.leads.common.retry")}
           </button>
         </div>
       ) : loading ? (
@@ -279,7 +282,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
               read the top row as a verdict. */}
           {ranking === "best-effort" ? (
             <p className="crm-note-empty" style={{ margin: "0 0 8px" }}>
-              מוצגים הלידים הדחופים ביותר שנמצאו — יש עוד לידים שממתינים.
+              {t("customers.leads.list.bestEffort")}
             </p>
           ) : null}
           {leads.map((l) => (
@@ -296,7 +299,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
                     onClick={() => void handleFollowUp(l.id, "complete")}
                     style={{ cursor: "pointer", minHeight: 34, border: "1px solid var(--crm-line)" }}
                   >
-                    {rowBusy === l.id ? "מעדכן…" : "טופל"}
+                    {rowBusy === l.id ? t("customers.leads.common.updating") : t("customers.leads.common.done")}
                   </button>
                   <button
                     type="button"
@@ -305,7 +308,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
                     onClick={() => void handleFollowUp(l.id, "snooze")}
                     style={{ cursor: "pointer", minHeight: 34, border: "1px solid var(--crm-line)" }}
                   >
-                    דחה ל־3 ימים
+                    {t("customers.leads.list.snooze")}
                   </button>
                 </div>
               ) : null}
@@ -342,11 +345,12 @@ function EmptyLeads({
   filter: FilterKey;
   onCreate: () => void;
 }) {
+  const { t } = useI18n();
   if (isSearching) {
     return (
       <div className="crm-panel">
-        <p className="crm-panel__title">לא נמצאו לידים</p>
-        <p className="crm-panel__body">נסו חיפוש קצר יותר, או לפי מספר טלפון.</p>
+        <p className="crm-panel__title">{t("customers.leads.empty.searchTitle")}</p>
+        <p className="crm-panel__body">{t("customers.leads.empty.searchBody")}</p>
       </div>
     );
   }
@@ -354,10 +358,9 @@ function EmptyLeads({
   if (filter === "needsAction") {
     return (
       <div className="crm-panel">
-        <p className="crm-panel__title">אין כרגע ליד שדורש טיפול</p>
+        <p className="crm-panel__title">{t("customers.leads.empty.needsActionTitle")}</p>
         <p className="crm-panel__body">
-          כאן יופיעו לידים שקבעתם להם מעקב והגיע הזמן לחזור אליהם. אין כאן כלום —
-          כלומר לא שכחתם אף אחד.
+          {t("customers.leads.empty.needsActionBody")}
         </p>
       </div>
     );
@@ -366,9 +369,9 @@ function EmptyLeads({
   if (filter === "closed") {
     return (
       <div className="crm-panel">
-        <p className="crm-panel__title">עדיין אין לידים סגורים</p>
+        <p className="crm-panel__title">{t("customers.leads.empty.closedTitle")}</p>
         <p className="crm-panel__body">
-          ליד שתסמנו כנסגר, לא נסגר או לא רלוונטי יישמר כאן עם כל ההיסטוריה שלו.
+          {t("customers.leads.empty.closedBody")}
         </p>
       </div>
     );
@@ -376,14 +379,12 @@ function EmptyLeads({
 
   return (
     <div className="crm-panel">
-      <p className="crm-panel__title">עדיין אין לידים</p>
+      <p className="crm-panel__title">{t("customers.leads.empty.defaultTitle")}</p>
       <p className="crm-panel__body">
-        ליד הוא כל פנייה שעוד לא הפכה לעסקה — מישהו שהתעניין, ביקש מחיר או השאיר
-        טלפון. תוסיפו אותו כאן, ו-Dubiz תזכור מי הוא, מה הוא ביקש, ומתי צריך לחזור
-        אליו — כדי שאף פנייה לא תלך לאיבוד.
+        {t("customers.leads.empty.defaultBody")}
       </p>
       <button type="button" className="crm-btn crm-btn--primary" onClick={onCreate}>
-        + ליד חדש
+        {t("customers.leads.list.newButton")}
       </button>
     </div>
   );
@@ -404,6 +405,7 @@ function CreateLeadModal({
   onClose: () => void;
   onCreated: (created: LeadListRow) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -415,7 +417,7 @@ function CreateLeadModal({
   async function handleSubmit() {
     if (saving) return;
     if (!name.trim()) {
-      setError("יש להזין שם");
+      setError(t("customers.leads.create.nameRequired"));
       return;
     }
     try {
@@ -434,7 +436,7 @@ function CreateLeadModal({
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו ליצור ליד");
+      setError(err instanceof Error ? err.message : t("customers.leads.create.error"));
       setSaving(false);
     }
   }
@@ -446,12 +448,12 @@ function CreateLeadModal({
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="ליד חדש">
-        <h2 className="crm-modal__title">ליד חדש</h2>
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label={t("customers.leads.create.title")}>
+        <h2 className="crm-modal__title">{t("customers.leads.create.title")}</h2>
 
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="lead-new-name">
-            שם *
+            {t("customers.leads.create.name")}
           </label>
           <input
             id="lead-new-name"
@@ -463,7 +465,7 @@ function CreateLeadModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="lead-new-phone">
-            טלפון
+            {t("customers.leads.create.phone")}
           </label>
           <input
             id="lead-new-phone"
@@ -475,7 +477,7 @@ function CreateLeadModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="lead-new-email">
-            אימייל
+            {t("customers.leads.create.email")}
           </label>
           <input
             id="lead-new-email"
@@ -487,7 +489,7 @@ function CreateLeadModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="lead-new-source">
-            מקור
+            {t("customers.leads.create.source")}
           </label>
           <select
             id="lead-new-source"
@@ -495,16 +497,16 @@ function CreateLeadModal({
             value={source}
             onChange={(e) => setSource(e.target.value)}
           >
-            {LEAD_SOURCE_OPTIONS.map((o) => (
+            {LEAD_SOURCE_OPTION_KEYS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {t(o.labelKey)}
               </option>
             ))}
           </select>
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="lead-new-intent">
-            מה הוא צריך
+            {t("customers.leads.create.intent")}
           </label>
           <textarea
             id="lead-new-intent"
@@ -512,7 +514,7 @@ function CreateLeadModal({
             style={{ minHeight: 72, resize: "vertical" }}
             value={intent}
             onChange={(e) => setIntent(e.target.value)}
-            placeholder="במשפט אחד — מה ביקש?"
+            placeholder={t("customers.leads.create.intentPlaceholder")}
           />
         </div>
 
@@ -525,7 +527,7 @@ function CreateLeadModal({
             onClick={() => void handleSubmit()}
             disabled={saving}
           >
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? t("customers.leads.common.saving") : t("customers.leads.common.save")}
           </button>
           <button
             type="button"
@@ -533,7 +535,7 @@ function CreateLeadModal({
             onClick={onClose}
             disabled={saving}
           >
-            ביטול
+            {t("customers.leads.common.cancel")}
           </button>
         </div>
       </div>

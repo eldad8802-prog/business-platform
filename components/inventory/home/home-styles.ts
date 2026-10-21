@@ -22,7 +22,6 @@ export const homeCss = `
   ${inventoryHomeCssVars}
   background: var(--inv-page-bg);
   color: var(--inv-text);
-  direction: rtl;
   min-height: 100vh;
   min-height: 100dvh;
   font-synthesis: none;

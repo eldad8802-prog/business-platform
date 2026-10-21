@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { SaveBar } from "@/components/inventory/inventory-design";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type ImportCsvResponse = {
   success?: boolean;
@@ -17,6 +18,7 @@ type ImportCsvResponse = {
 
 export default function SupplierCsvImportPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,7 +43,7 @@ export default function SupplierCsvImportPage() {
     }
     if (!next.name.toLowerCase().endsWith(".csv")) {
       setFile(null);
-      setError("נא לבחור קובץ בסיומת .csv");
+      setError(t("customers.purchases.import.csvOnly"));
       event.target.value = "";
       return;
     }
@@ -52,7 +54,7 @@ export default function SupplierCsvImportPage() {
     if (!file || loading) return;
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token?.trim()) {
-      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      setError(t("customers.purchases.import.noToken"));
       return;
     }
     setLoading(true);
@@ -70,28 +72,28 @@ export default function SupplierCsvImportPage() {
       if (!response.ok) {
         setError(
           (data && typeof data.error === "string" && data.error) ||
-            (response.status === 401 ? "אין הרשאה לבצע ייבוא (401)" : `שגיאת שרת (${response.status})`)
+            (response.status === 401 ? t("customers.purchases.import.unauthorized") : t("customers.purchases.import.serverError", { status: response.status }))
         );
         return;
       }
       if (!data || data.success !== true) {
-        setError("תשובה לא צפויה מהשרת");
+        setError(t("customers.purchases.import.unexpectedResponse"));
         return;
       }
       setResult(data);
     } catch {
-      setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+      setError(t("customers.purchases.import.networkError"));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <InventorySubPage intent="standard" title="יבוא וזיהוי" backHref="/inventory/supplier-purchases" bottomNav="orders">
+    <InventorySubPage intent="standard" title={t("customers.purchases.import.title")} backHref="/inventory/supplier-purchases" bottomNav="orders">
       <div className="inv-desk-workspace inv-import-desk">
       <div className="inv-fwrap">
         <p className="inv-field__help" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
-          העלו קובץ CSV מספק כדי ליצור טיוטות הזמנה לבדיקה לפני קליטת מלאי.
+          {t("customers.purchases.import.intro")}
         </p>
 
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={onFileChange} />
@@ -122,10 +124,10 @@ export default function SupplierCsvImportPage() {
           {file ? (
             <>
               <span style={{ fontWeight: 600, color: "var(--inv-text)" }}>{file.name}</span>
-              <span style={{ fontSize: 13 }}>לחצו לבחירת קובץ אחר</span>
+              <span style={{ fontSize: 13 }}>{t("customers.purchases.import.pickAnother")}</span>
             </>
           ) : (
-            <span>לחצו לבחירת קובץ CSV</span>
+            <span>{t("customers.purchases.import.pickFile")}</span>
           )}
         </button>
 
@@ -142,7 +144,7 @@ export default function SupplierCsvImportPage() {
             className="inv-btn-link"
             style={{ marginTop: 10 }}
           >
-            הסרת קובץ
+            {t("customers.purchases.import.removeFile")}
           </button>
         ) : null}
 
@@ -155,16 +157,16 @@ export default function SupplierCsvImportPage() {
         {result?.success === true && !error ? (
           <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
             <div className="inv-alert inv-alert--success">
-              הייבוא הושלם בהצלחה
+              {t("customers.purchases.import.success")}
               <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>
-                {preview != null ? <>נפרסו {preview.ordersParsed} הזמנות · </> : null}
-                נוצרו {draftsCreated.length} טיוטות · דולגו {skippedOrders.length} · לא תקינות {invalidOrders.length}
+                {preview != null ? <>{t("customers.purchases.import.parsed", { count: preview.ordersParsed })}</> : null}
+                {t("customers.purchases.import.summary", { created: draftsCreated.length, skipped: skippedOrders.length, invalid: invalidOrders.length })}
               </div>
             </div>
 
             {warnings.length > 0 ? (
               <div className="inv-alert" style={{ border: "1px solid var(--inv-warning)", background: "var(--inv-warning-bg)", color: "var(--inv-warning-ink)" }}>
-                <div style={{ marginBottom: 8, fontWeight: 600 }}>אזהרות</div>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>{t("customers.purchases.import.warnings")}</div>
                 <ul style={{ margin: 0, paddingInlineStart: 20, fontWeight: 600, fontSize: 13 }}>
                   {warnings.map((w, i) => (
                     <li key={i}>{w}</li>
@@ -175,7 +177,7 @@ export default function SupplierCsvImportPage() {
 
             {invalidOrders.length > 0 ? (
               <div style={{ background: "var(--inv-card-bg)", border: "1px solid var(--inv-border)", borderRadius: 12, padding: 14, boxShadow: "var(--inv-shadow)" }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>שורות לא תקינות ({invalidOrders.length})</div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>{t("customers.purchases.import.invalidRows", { count: invalidOrders.length })}</div>
                 <ul style={{ margin: 0, paddingInlineStart: 20, fontSize: 13, color: "var(--inv-text-muted)", lineHeight: 1.6 }}>
                   {invalidOrders.map((row, i) => (
                     <li key={i}>
@@ -192,19 +194,19 @@ export default function SupplierCsvImportPage() {
               disabled={!hasSuccessfulImport}
               onClick={() => router.push("/inventory/supplier-purchases/pending")}
             >
-              עבור להזמנות ממתינות
+              {t("customers.purchases.import.goToPending")}
             </button>
           </div>
         ) : null}
       </div>
       <aside className="inv-ops__side">
-        <h2>לפני שהמלאי משתנה</h2>
-        <p>הקובץ יוצר טיוטות הזמנה. קליטת הסחורה היא הפעולה שמעדכנת מלאי, אחרי בדיקה.</p>
+        <h2>{t("customers.purchases.import.sideTitle")}</h2>
+        <p>{t("customers.purchases.import.sideBody")}</p>
       </aside>
       </div>
 
       {!result ? (
-        <SaveBar label={loading ? "מייבא…" : "ייבוא קובץ"} onClick={() => void submitImport()} disabled={!file || loading} />
+        <SaveBar label={loading ? t("customers.purchases.import.importing") : t("customers.purchases.import.importFile")} onClick={() => void submitImport()} disabled={!file || loading} />
       ) : null}
     </InventorySubPage>
   );

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { inventoryTheme } from "@/components/inventory/inventory-design";
 import { useModalDismiss } from "@/components/inventory/use-modal-dismiss";
@@ -27,6 +28,7 @@ export function OrderWizardShell({
   showProgress?: boolean;
 }) {
   const pathname = usePathname() || "";
+  const { t } = useI18n();
   const {
     loading,
     error,
@@ -52,7 +54,7 @@ export function OrderWizardShell({
         intent="standard"
         title={title}
         backHref={backHref}
-        progressLabel={orderWizardProgressLabel(pathname)}
+        progressLabel={orderWizardProgressLabel(pathname, t)}
         bottomNav="orders"
       >
         <style>{orderWizardCss}</style>
@@ -61,7 +63,7 @@ export function OrderWizardShell({
             className="owz-state-card"
             style={{ textAlign: "center", color: inventoryTheme.textMuted }}
           >
-            טוען נתונים...
+            {t("customers.purchases.wizard.loading")}
           </div>
         </div>
       </InventorySubPage>
@@ -73,7 +75,7 @@ export function OrderWizardShell({
       intent="standard"
       title={title}
       backHref={backHref}
-      progressLabel={orderWizardProgressLabel(pathname)}
+      progressLabel={orderWizardProgressLabel(pathname, t)}
       bottomNav="orders"
     >
       <style>{orderWizardCss}</style>
@@ -126,7 +128,7 @@ export function OrderWizardShell({
             }}
           >
             <div style={{ fontSize: 17, fontWeight: 600 }}>
-              יש הזמנה בתהליך
+              {t("customers.purchases.wizard.exitGuard.title")}
             </div>
             <div
               style={{
@@ -135,7 +137,7 @@ export function OrderWizardShell({
                 lineHeight: 1.6,
               }}
             >
-              לשמור את ההזמנה להמשך לפני יציאה?
+              {t("customers.purchases.wizard.exitGuard.body")}
             </div>
             <button
               type="button"
@@ -145,7 +147,7 @@ export function OrderWizardShell({
               }}
               className="inv-action-btn inv-action-btn--primary"
             >
-              שמור וצא
+              {t("customers.purchases.wizard.exitGuard.saveAndExit")}
             </button>
             <button
               type="button"
@@ -156,14 +158,14 @@ export function OrderWizardShell({
               }}
               className="inv-action-btn inv-action-btn--secondary"
             >
-              צא בלי לשמור
+              {t("customers.purchases.wizard.exitGuard.exitWithoutSaving")}
             </button>
             <button
               type="button"
               onClick={() => setShowExitGuard(false)}
               className="inv-action-btn inv-action-btn--ghost"
             >
-              המשך עריכה
+              {t("customers.purchases.wizard.exitGuard.keepEditing")}
             </button>
           </section>
         </div>

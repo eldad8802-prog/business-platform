@@ -8,6 +8,10 @@ import {
   getStockTone,
 } from "@/components/inventory/inventory-design";
 import type { InventoryItemDTO } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
+import { inventoryHebrewT } from "@/lib/inventory/inventory-labels";
 
 type InventoryItemDisplayDTO = InventoryItemDTO & {
   sellPricePerUnit?: number | null;
@@ -61,14 +65,14 @@ export function isValidInventoryImageUrl(imageUrl?: string | null) {
   return true;
 }
 
-export function itemStockStatusLabel(tone: "ok" | "low" | "critical") {
-  if (tone === "ok") return "תקין";
-  if (tone === "low") return "מלאי נמוך";
-  return "מלאי קריטי";
+export function itemStockStatusLabel(tone: "ok" | "low" | "critical", t: Translator = inventoryHebrewT) {
+  if (tone === "ok") return t("customers.inventoryKit.labels.stockStatus.ok");
+  if (tone === "low") return t("customers.inventoryKit.labels.stockStatus.low");
+  return t("customers.inventoryKit.labels.stockStatus.critical");
 }
 
-function formatListPrice(value: number) {
-  return value.toLocaleString("he-IL", {
+function formatListPrice(value: number, locale: Locale) {
+  return value.toLocaleString(intlTag(locale), {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
@@ -91,6 +95,7 @@ export function InventoryItemRow({
   classPrefix: InventoryItemRowClassPrefix;
 }) {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const tone = getStockTone(item);
   const imageOk = isValidInventoryImageUrl(item.imageUrl);
   const minPoint =
@@ -121,13 +126,13 @@ export function InventoryItemRow({
           <span className={`${p}__name`}>{item.name}</span>
           <span className={`${p}__status-line`}>
             <span className={`inv-status-badge inv-status-badge--${tone}`}>
-              {itemStockStatusLabel(tone)}
+              {itemStockStatusLabel(tone, t)}
             </span>
           </span>
           <span className={`${p}__quantity-line`}>
-            במלאי <span className={`${p}__qty`}>{item.currentQuantity}</span>
+            {t("customers.inventoryKit.itemRow.inStock")} <span className={`${p}__qty`}>{item.currentQuantity}</span>
             {minPoint != null && minPoint > 0 ? (
-              <span className={`${p}__meta`}> · מינימום {minPoint}</span>
+              <span className={`${p}__meta`}> · {t("customers.inventoryKit.itemRow.minimum", { min: minPoint })}</span>
             ) : null}
           </span>
         </span>
@@ -155,10 +160,10 @@ export function InventoryItemRow({
         <span className={`${p}__name`}>{item.name}</span>
         {minPoint != null && minPoint > 0 ? (
           <span className={`${p}__meta`}>
-            מינימום {minPoint} · במלאי {item.currentQuantity}
+            {t("customers.inventoryKit.itemRow.minimumAndStock", { min: minPoint, qty: item.currentQuantity })}
           </span>
         ) : (
-          <span className={`${p}__meta`}>במלאי {item.currentQuantity}</span>
+          <span className={`${p}__meta`}>{t("customers.inventoryKit.itemRow.inStockQty", { qty: item.currentQuantity })}</span>
         )}
       </span>
 
@@ -169,12 +174,12 @@ export function InventoryItemRow({
       <span
         className={`${p}__price${sellPrice == null ? ` ${p}__price--missing` : ""}`}
       >
-        {sellPrice != null ? `₪${formatListPrice(sellPrice)}` : "ללא מחיר"}
+        {sellPrice != null ? `₪${formatListPrice(sellPrice, locale)}` : t("customers.inventoryKit.itemRow.noPrice")}
       </span>
 
       <span className={`${p}__badge-cell`}>
         <span className={`inv-status-badge inv-status-badge--${tone}`}>
-          {itemStockStatusLabel(tone)}
+          {itemStockStatusLabel(tone, t)}
         </span>
       </span>
 

@@ -7,6 +7,7 @@ import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
 import { LAYOUT, type PageSurfaceIntent } from "@/lib/design/tokens";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import { LeadsList } from "@/components/leads/LeadsList";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Leads surface + Master–Detail shell.
@@ -30,12 +31,13 @@ const TWO_PANE_MIN = LAYOUT.bp.wide;
 const SURFACE_INTENT: PageSurfaceIntent = "workspace";
 
 export default function LeadsLayout({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const pathname = usePathname() || "/leads";
   const match = pathname.match(/^\/leads\/(\d+)(?:\/|$)/);
   const selectedId = match ? match[1] : null;
 
   return (
-    <div className="crm-scope" dir="rtl" data-page-intent={SURFACE_INTENT}>
+    <div className="crm-scope" data-page-intent={SURFACE_INTENT}>
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <WorkspaceLayout
         start={
@@ -59,8 +61,8 @@ export default function LeadsLayout({ children }: { children: ReactNode }) {
         startWidth={380}
         breakpointStep={TWO_PANE_MIN}
         responsive={{ mode: "switch", visible: selectedId != null ? "end" : "start" }}
-        startLabel="רשימת לידים"
-        endLabel="כרטיס ליד"
+        startLabel={t("customers.leads.layout.listLabel")}
+        endLabel={t("customers.leads.layout.cardLabel")}
       />
     </div>
   );

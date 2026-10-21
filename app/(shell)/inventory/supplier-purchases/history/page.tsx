@@ -10,6 +10,10 @@ import {
   InventoryStatePanel,
   InventorySkeletonBlock,
 } from "@/components/inventory/inventory-design";
+import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 type DraftLine = {
   id: number;
@@ -38,17 +42,17 @@ function buildHeaders() {
   };
 }
 
-function statusLabel(status: string) {
-  if (status === "APPROVED") return "נקלט למלאי";
-  if (status === "REJECTED") return "בוטל";
+function statusLabel(status: string, t: Translator) {
+  if (status === "APPROVED") return t("customers.purchases.history.statusApproved");
+  if (status === "REJECTED") return t("customers.purchases.history.statusRejected");
   return status;
 }
 
-function formatDate(value?: string) {
-  if (!value) return "ללא תאריך";
+function formatDate(t: Translator, locale: Locale, value?: string) {
+  if (!value) return t("customers.purchases.history.noDate");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "ללא תאריך";
-  return date.toLocaleDateString("he-IL", {
+  if (Number.isNaN(date.getTime())) return t("customers.purchases.history.noDate");
+  return date.toLocaleDateString(intlTag(locale), {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -56,6 +60,7 @@ function formatDate(value?: string) {
 }
 
 export default function SupplierHistoryPage() {
+  const { t, locale } = useI18n();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -74,7 +79,7 @@ export default function SupplierHistoryPage() {
 
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error || "לא הצלחנו לטעון היסטוריה");
+        throw new Error(data?.error || t("customers.purchases.history.loadFailed"));
       }
 
       const history = (data?.drafts || []).filter(
@@ -83,7 +88,7 @@ export default function SupplierHistoryPage() {
 
       setDrafts(history);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה בטעינת היסטוריה");
+      setError(err instanceof Error ? err.message : t("customers.purchases.history.loadError"));
       setDrafts([]);
     } finally {
       setLoading(false);
@@ -94,6 +99,7 @@ export default function SupplierHistoryPage() {
     queueMicrotask(() => {
       void load();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
   }, []);
 
   const filtered = useMemo(() => {
@@ -113,14 +119,14 @@ export default function SupplierHistoryPage() {
 
   return (
     <InventorySubPage intent="data"
-      title="היסטוריית הזמנות"
+      title={t("customers.purchases.history.title")}
       backHref="/inventory/supplier-purchases"
-      backLabel="מרכז הזמנות ספק"
+      backLabel={t("customers.purchases.common.backToHub")}
       sub={
         !loading && !error
           ? summary.total > 0
-            ? `${summary.approved} נקלטו · ${summary.rejected} בוטלו`
-            : "אין עדיין הזמנות קודמות"
+            ? t("customers.purchases.history.sub", { approved: summary.approved, rejected: summary.rejected })
+            : t("customers.purchases.history.subEmpty")
           : undefined
       }
       bottomNav="orders"
@@ -132,9 +138,9 @@ export default function SupplierHistoryPage() {
           setVisibleCount(5);
         }}
         options={[
-          { value: "ALL", label: "הכול" },
-          { value: "APPROVED", label: "נקלטו" },
-          { value: "REJECTED", label: "בוטלו" },
+          { value: "ALL", label: t("customers.purchases.history.filterAll") },
+          { value: "APPROVED", label: t("customers.purchases.history.filterApproved") },
+          { value: "REJECTED", label: t("customers.purchases.history.filterRejected") },
         ]}
       />
 
@@ -142,10 +148,10 @@ export default function SupplierHistoryPage() {
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
             tone="error"
-            title="שגיאת שרת"
+            title={t("customers.purchases.history.serverError")}
             action={
               <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void load()}>
-                נסה שוב
+                {t("customers.purchases.history.retry")}
               </button>
             }
           >
@@ -159,36 +165,36 @@ export default function SupplierHistoryPage() {
       ) : visible.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
-            title="אין הזמנות להצגה"
+            title={t("customers.purchases.history.emptyTitle")}
             action={
               <Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">
-                יצירת הזמנה
+                {t("customers.purchases.history.createOrder")}
               </Link>
             }
           >
-            אפשר לשנות סינון או ליצור הזמנה חדשה לספק. כל הזמנה שנקלטה או בוטלה נשמרת כאן.
+            {t("customers.purchases.history.emptyBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
         <div className="inv-ops">
-          <div className="inv-desk-table" aria-label="היסטוריית הזמנות">
+          <div className="inv-desk-table" aria-label={t("customers.purchases.history.title")}>
             <table>
               <thead>
                 <tr>
-                  <th>ספק</th>
-                  <th>תאריך</th>
-                  <th>שורות</th>
-                  <th>מצב</th>
+                  <th>{t("customers.purchases.history.cols.supplier")}</th>
+                  <th>{t("customers.purchases.history.cols.date")}</th>
+                  <th>{t("customers.purchases.history.cols.lines")}</th>
+                  <th>{t("customers.purchases.history.cols.status")}</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.map((draft) => (
                   <tr key={draft.id} className={openId === draft.id ? "is-selected" : undefined} onClick={() => setOpenId(openId === draft.id ? null : draft.id)}>
-                    <td>{draft.supplierName || "הזמנה ללא ספק"}</td>
-                    <td>{formatDate(draft.createdAt)}</td>
+                    <td>{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</td>
+                    <td>{formatDate(t, locale, draft.createdAt)}</td>
                     <td className="num">{draft.lines.length}</td>
-                    <td>{statusLabel(draft.status)}</td>
+                    <td>{statusLabel(draft.status, t)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -197,13 +203,13 @@ export default function SupplierHistoryPage() {
           <aside className="inv-ops__side">
             {visible.find((item) => item.id === openId) ? (
               <>
-                <h2>{visible.find((item) => item.id === openId)?.supplierName || "הזמנה ללא ספק"}</h2>
+                <h2>{visible.find((item) => item.id === openId)?.supplierName || t("customers.purchases.common.noSupplierOrder")}</h2>
                 {visible.find((item) => item.id === openId)?.lines.slice(0, 8).map((line) => (
-                  <p key={line.id}>{line.rawName || "מוצר ללא שם"} · {line.quantity}</p>
+                  <p key={line.id}>{line.rawName || t("customers.purchases.pending.unnamedProduct")} · {line.quantity}</p>
                 ))}
               </>
             ) : (
-              <><h2>הזמנה</h2><p>בחרו הזמנה כדי לראות את השורות.</p></>
+              <><h2>{t("customers.purchases.hub.inspector.title")}</h2><p>{t("customers.purchases.history.sideEmpty")}</p></>
             )}
           </aside>
         </div>
@@ -223,15 +229,26 @@ export default function SupplierHistoryPage() {
                     🚚
                   </span>
                   <div className="inv-row__mid">
-                    <div className="inv-row__nm" dir="auto">{draft.supplierName || "הזמנה ללא ספק"}</div>
+                    <div className="inv-row__nm" dir="auto">{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</div>
                     <div className="inv-row__meta">
-                      <bdi>#{draft.id}</bdi> · <bdi>{formatDate(draft.createdAt)}</bdi> · <bdi>{draft.lines.length}</bdi> מוצרים · <bdi>{totalUnits}</bdi> יחידות
+                      <bdi>#{draft.id}</bdi> · <bdi>{formatDate(t, locale, draft.createdAt)}</bdi> ·{" "}
+                      <BdiTemplate
+                        template={t(draft.lines.length === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany")}
+                        name="count"
+                        value={draft.lines.length}
+                      />{" "}
+                      ·{" "}
+                      <BdiTemplate
+                        template={t(totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany")}
+                        name="count"
+                        value={totalUnits}
+                      />
                     </div>
                   </div>
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
-                    <InventoryBadge tone={approved ? "ok" : "neutral"}>{statusLabel(draft.status)}</InventoryBadge>
+                    <InventoryBadge tone={approved ? "ok" : "neutral"}>{statusLabel(draft.status, t)}</InventoryBadge>
                     <button type="button" className="inv-row__action" onClick={() => setOpenId(isOpen ? null : draft.id)}>
-                      {isOpen ? "הסתר" : "פרטים ›"}
+                      {isOpen ? t("customers.purchases.history.hide") : t("customers.purchases.history.detailsArrow")}
                     </button>
                   </span>
                 </div>
@@ -241,9 +258,15 @@ export default function SupplierHistoryPage() {
                     {draft.lines.map((line) => (
                       <div key={line.id} className="inv-oline">
                         <div className="inv-oline__mid">
-                          <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                          <div className="inv-oline__nm" dir="auto">{line.rawName || t("customers.purchases.pending.unnamedProduct")}</div>
                         </div>
-                        <span className="inv-oline__price"><bdi>{line.quantity}</bdi> יחידות</span>
+                        <span className="inv-oline__price">
+                          <BdiTemplate
+                            template={t(line.quantity === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany")}
+                            name="count"
+                            value={line.quantity}
+                          />
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -259,7 +282,7 @@ export default function SupplierHistoryPage() {
               className="inv-btn-secondary"
               style={{ width: "100%", marginTop: 4 }}
             >
-              הצג עוד הזמנות
+              {t("customers.purchases.history.showMore")}
             </button>
           ) : null}
         </div>
