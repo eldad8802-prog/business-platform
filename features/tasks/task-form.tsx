@@ -112,7 +112,7 @@ export function TaskForm({
       else await createTask(intent, { title: clean, dueOn: day, link: l, origin });
       await onDone();
     } catch (e) {
-      setError(errorText(e));
+      setError(errorText(e, t));
       setBusy(false);
     }
   }

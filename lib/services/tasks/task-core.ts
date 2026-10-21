@@ -12,7 +12,10 @@
  *   - The closed journal payload (12.6): per event type, a fixed set of keys whose values are numbers,
  *     booleans, day keys or enum tokens. Free text can never reach the journal (the DB CHECK refuses it too).
  */
+import type { Translator } from "@/lib/i18n/translate";
 import { addCalendarDays, daysBetweenDayKeys, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
+
+import { HEBREW_TEXT } from "./agenda-core";
 
 // ── Calendar days ──────────────────────────────────────────────────────────────────────────────
 
@@ -266,19 +269,26 @@ export function ruleOfSeries(s: { ruleKind: string; ruleWeekdays: number[]; rule
   }
 }
 
-const WEEKDAY_FULL = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
-const WEEKDAY_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+/** 0 = Sunday … 6 = Saturday → the dictionary's weekday key. */
+const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
-/** "כל יום" · "כל יום שלישי" · "בימים א׳, ה׳" · "כל 15 בחודש" · "בסוף כל חודש" · "כל 3 ימים". */
-export function cadenceLabel(rule: SeriesRule): string {
+/**
+ * "כל יום" · "כל יום שלישי" · "בימים א׳, ה׳" · "כל 15 בחודש" · "בסוף כל חודש" · "כל 3 ימים". Computed from the stored
+ * rule at read time (never stored), in the request's language; Hebrew without a translator.
+ */
+export function cadenceLabel(rule: SeriesRule, t: Translator = HEBREW_TEXT): string {
   switch (rule.kind) {
-    case "DAILY": return "כל יום";
+    case "DAILY": return t("system.tasks.cadence.daily");
     case "WEEKDAYS": {
       const days = [...new Set(rule.weekdays)].sort((a, b) => a - b);
-      if (days.length === 7) return "כל יום";
-      return days.length === 1 ? `כל יום ${WEEKDAY_FULL[days[0]]}` : `בימים ${days.map((d) => WEEKDAY_SHORT[d]).join(", ")}`;
+      if (days.length === 7) return t("system.tasks.cadence.daily");
+      return days.length === 1
+        ? t("system.tasks.cadence.weekday", { day: t(`system.tasks.cadence.full.${WEEKDAY_KEYS[days[0]]}`) })
+        : t("system.tasks.cadence.weekdays", {
+            days: days.map((d) => t(`system.tasks.cadence.short.${WEEKDAY_KEYS[d]}`)).join(t("system.tasks.cadence.listSeparator")),
+          });
     }
-    case "MONTH_DAY": return rule.monthDay === 31 ? "בסוף כל חודש" : `כל ${rule.monthDay} בחודש`;
-    case "EVERY_N_DAYS": return `כל ${rule.intervalDays} ימים`;
+    case "MONTH_DAY": return rule.monthDay === 31 ? t("system.tasks.cadence.monthEnd") : t("system.tasks.cadence.monthDay", { day: rule.monthDay });
+    case "EVERY_N_DAYS": return t("system.tasks.cadence.everyNDays", { n: rule.intervalDays });
   }
 }

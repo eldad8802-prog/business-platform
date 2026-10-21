@@ -6,6 +6,8 @@ import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
 import { requestPasswordReset, type IssuedLink } from "@/lib/auth/email-tokens";
 import { EMAIL_SHAPE, normalizeEmail } from "@/lib/auth/signup-identity";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
+import type { Locale } from "@/lib/i18n/config";
+import { getServerI18n } from "@/lib/i18n/server";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
 import { runTenantJob } from "@/lib/tenant/job";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -24,7 +26,7 @@ export const runtime = "nodejs";
 export type ForgotDeps = {
   enabled: () => boolean;
   rateLimit: typeof consumeRateLimit;
-  request: (email: string, now: Date) => Promise<IssuedLink | null>;
+  request: (email: string, now: Date, locale?: Locale) => Promise<IssuedLink | null>;
   deliver: (emailId: number, businessId: number) => Promise<void>;
   defer: (work: () => Promise<void>) => void;
 };
@@ -80,9 +82,11 @@ export async function handleForgot(req: Request, deps: ForgotDeps = defaultDeps)
   // address gets the very same answer — it only means no new link goes out.
   const perAddress = await deps.rateLimit({ key: resetRequestAccountRateKey(normalizeEmail(email)), ...RESET_REQUEST_ACCOUNT_LIMIT });
   if (perAddress.allowed) {
+    // Read before the response (the continuation runs after it); the same for every address.
+    const { locale } = await getServerI18n();
     deps.defer(async () => {
       try {
-        const link = await deps.request(email, new Date());
+        const link = await deps.request(email, new Date(), locale);
         if (link) await deps.deliver(link.emailId, link.businessId);
       } catch (error) {
         console.error("[auth] reset_request_failed", { error: error instanceof Error ? error.name : "unknown" });

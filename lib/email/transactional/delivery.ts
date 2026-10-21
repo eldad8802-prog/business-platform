@@ -6,7 +6,7 @@
  *      `attempts` goes up by one and `nextAttemptAt` becomes the lease end. PostgreSQL re-checks the
  *      WHERE under the row lock, so of two workers racing for the same row exactly one matches;
  *      the other claims nothing and sends nothing.
- *   2. RENDER from the stored payload (unknown kind / invalid payload → FAILED, never retried).
+ *   2. RENDER from the stored payload, in the stored locale (unknown kind / invalid payload → FAILED, never retried).
  *   3. SEND with the idempotency key `te:<id>` — the same on every attempt of the row, so even a
  *      worker that crashed after the provider accepted, followed by a re-claim, cannot produce a
  *      second email: the provider answers the repeat with the first result. The row's lifetime
@@ -140,11 +140,12 @@ async function deliverOnce(id: number, opts: DeliverOptions): Promise<DeliveryOu
 
   const row = await db.transactionalEmail.findUnique({
     where: { id },
-    select: { id: true, kind: true, toEmail: true, payload: true, attempts: true, expiresAt: true },
+    select: { id: true, kind: true, toEmail: true, payload: true, locale: true, attempts: true, expiresAt: true },
   });
   if (!row) return "lost_claim";
 
-  const rendered = renderStored(row.kind, row.payload, { appBaseUrl: state.config.appBaseUrl });
+  // The email speaks the language stored on the row at enqueue (default / unknown → Hebrew).
+  const rendered = renderStored(row.kind, row.payload, { appBaseUrl: state.config.appBaseUrl, locale: row.locale });
   const result: SendResult = rendered
     ? await provider.send({
         idempotencyKey: idempotencyKeyFor(row.id),
