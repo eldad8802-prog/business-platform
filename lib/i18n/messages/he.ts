@@ -1,3 +1,6 @@
+import { apiHe } from "./areas/api";
+import { insightsHe } from "./areas/insights";
+import { systemHe } from "./areas/system";
 import { homeHe } from "./areas/home";
 import { inboxHe } from "./areas/inbox";
 import { documentsHe } from "./areas/documents";
@@ -119,4 +122,7 @@ export const he = {
   tasks: tasksHe,
   account: accountHe,
   content: contentHe,
+  api: apiHe,
+  insights: insightsHe,
+  system: systemHe,
 } as const;

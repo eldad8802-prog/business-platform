@@ -1,4 +1,7 @@
 import type { Messages } from "./types";
+import { apiEn } from "./areas/api";
+import { insightsEn } from "./areas/insights";
+import { systemEn } from "./areas/system";
 import { homeEn } from "./areas/home";
 import { inboxEn } from "./areas/inbox";
 import { documentsEn } from "./areas/documents";
@@ -117,4 +120,7 @@ export const en: Messages = {
   tasks: tasksEn,
   account: accountEn,
   content: contentEn,
+  api: apiEn,
+  insights: insightsEn,
+  system: systemEn,
 };
