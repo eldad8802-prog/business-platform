@@ -91,6 +91,8 @@ on:
           - 'ops/evidence/daily-tasks-foundation-preflight.sql'
           - 'ops/evidence/daily-tasks-foundation-production-evidence.sql'
           - 'ops/evidence/daily-tasks-task-access-diagnostic.sql'
+          - 'ops/evidence/task-reminders-push-preflight.sql'
+          - 'ops/evidence/task-reminders-push-production-evidence.sql'
 
 permissions:
   contents: read

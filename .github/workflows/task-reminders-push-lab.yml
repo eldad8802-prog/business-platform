@@ -1,0 +1,225 @@
+# Task reminders + Web Push / migration 20261022090000_task_reminders_push — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17).
+#
+# .trp/lab.sh builds on the Daily Tasks lab (.dt/lab.sh): Production's role topology, the owner's DEFAULT
+# PRIVILEGES (which hand a new table to the runtime wholesale — the migration must take them back), FORCE RLS on
+# Business and the task tables, the daily tasks foundation applied by `prisma migrate deploy`.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256.
+#   1. Baseline (pending): the PREFLIGHT passes (18 is INFO); the proof refuses.
+#   2. `prisma migrate deploy` applies it: proof 23/23; the preflight then fails exactly its "not there yet" checks.
+#   3. Faults: each injected defect is caught by the proof check meant for it (on the fresh database).
+#   4. Battery as the real roles: tenant isolation of PushSubscription (read / add / change across businesses,
+#      no context), the same-business user guard, no removal or emptying for the runtime, the shape checks,
+#      task_reminders_due returns only due unclaimed reminders of live businesses as identifiers, EXECUTE for the
+#      runtime alone, and the reminder claim is single-winner.
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: task reminders push — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261022090000_task_reminders_push/**"
+      - "ops/evidence/task-reminders-push-*.sql"
+      - ".trp/**"
+      - ".github/workflows/task-reminders-push-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: task reminders push (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: trp_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: trp_ci_synthetic_super_pw
+      LAB_PASSWORD: trp_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/task-reminders-push-preflight.sql
+      EVIDENCE: ops/evidence/task-reminders-push-production-evidence.sql
+      TRP: prisma/migrations/20261022090000_task_reminders_push/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only its own objects and what it builds on
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$TRP" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
+          echo "$TRP sha256 $sum (pinned)"
+          others=$(grep -oE '"[A-Z][A-Za-z]*"' "$TRP" | sort -u | grep -vxE '"Task"|"TaskSeries"|"PushSubscription"|"Business"|"User"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          echo "the migration names only Task, TaskSeries, PushSubscription, Business and User"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .trp/lab.sh trp_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d trp_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/pre.out)" = "19" || { echo "expected 19 rows"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline"
+
+      - name: 2. prisma migrate deploy applies it — proof 23/23; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .trp/lab.sh trp_post --with-trp | tee /tmp/post.log
+          grep -q 'Applying migration `20261022090000_task_reminders_push`' /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d trp_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "23" || { echo "expected 23 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 7 8 9 10 " || { echo "after the release: expected '4 7 8 9 10 ', got: $fails"; exit 1; }
+
+      - name: 3. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d trp_post -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d trp_post -c "$1"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          fault "removal privilege for the runtime" "11 14 " 'GRANT DELETE ON "PushSubscription" TO app_runtime' 'REVOKE DELETE ON "PushSubscription" FROM app_runtime'
+          fault "PUBLIC read" "11 14 " 'GRANT SELECT ON "PushSubscription" TO PUBLIC' 'REVOKE SELECT ON "PushSubscription" FROM PUBLIC'
+          fault "read for another role" "11 14 " 'GRANT SELECT ON "PushSubscription" TO app_auth' 'REVOKE SELECT ON "PushSubscription" FROM app_auth'
+          fault "sequence privilege for another role" "12 " 'GRANT USAGE ON SEQUENCE "PushSubscription_id_seq" TO app_auth' 'REVOKE USAGE ON SEQUENCE "PushSubscription_id_seq" FROM app_auth'
+          fault "column read for another role" "13 " 'GRANT SELECT ("endpoint") ON "PushSubscription" TO app_auth' 'REVOKE SELECT ("endpoint") ON "PushSubscription" FROM app_auth'
+          fault "NO FORCE row-level security" "8 " 'ALTER TABLE "PushSubscription" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "PushSubscription" FORCE ROW LEVEL SECURITY'
+          fault "a permissive FOR ALL policy" "9 " 'CREATE POLICY trp_fault_all ON "PushSubscription" USING (true)' 'DROP POLICY trp_fault_all ON "PushSubscription"'
+          fault "a policy that reads every business" "10 " \
+            'ALTER POLICY push_subscription_tenant_select ON "PushSubscription" USING (true)' \
+            "ALTER POLICY push_subscription_tenant_select ON \"PushSubscription\" USING (\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int)"
+          fault "the same-business trigger disabled" "16 " 'ALTER TABLE "PushSubscription" DISABLE TRIGGER "PushSubscription_user_same_business"' 'ALTER TABLE "PushSubscription" ENABLE TRIGGER "PushSubscription_user_same_business"'
+          fault "SECURITY INVOKER due function" "17 " 'ALTER FUNCTION public.task_reminders_due(timestamp(3), integer) SECURITY INVOKER' 'ALTER FUNCTION public.task_reminders_due(timestamp(3), integer) SECURITY DEFINER'
+          fault "EXECUTE for PUBLIC" "19 " 'GRANT EXECUTE ON FUNCTION public.task_reminders_due(timestamp(3), integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.task_reminders_due(timestamp(3), integer) FROM PUBLIC'
+          fault "EXECUTE for another role" "19 " 'GRANT EXECUTE ON FUNCTION public.task_reminders_due(timestamp(3), integer) TO app_auth' 'REVOKE EXECUTE ON FUNCTION public.task_reminders_due(timestamp(3), integer) FROM app_auth'
+          fault "a shape check removed" "5 " 'ALTER TABLE "Task" DROP CONSTRAINT "Task_schedule_shape"' \
+            'ALTER TABLE "Task" ADD CONSTRAINT "Task_schedule_shape" CHECK (("dueMinute" IS NULL OR "dueOn" IS NOT NULL) AND ("remindOffsetMinutes" IS NULL OR "dueMinute" IS NOT NULL))'
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 4. Battery — tenant isolation, guards, the due function and the claim, as the real roles
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d trp_post -c "$1"; }
+          rt() {  # rt <business id or ''> <sql> — as the restricted runtime login, in one transaction with the tenant context
+            PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -v ON_ERROR_STOP=1 -U app_runtime_prod -d trp_post \
+              -c "BEGIN" -c "SELECT set_config('app.current_business_id', '$1', true)" -c "$2" -c "COMMIT" | tail -n +2
+          }
+          refused() {  # refused <label> <pattern> <business> <sql>
+            if rt "$3" "$4" >/tmp/r.out 2>/tmp/r.err; then echo "NOT REFUSED: $1"; cat /tmp/r.out; exit 1; fi
+            grep -qiE "$2" /tmp/r.err || { echo "$1: refused for another reason:"; cat /tmp/r.err; exit 1; }
+            echo "refused [$1]"
+          }
+          A=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('trp-A', now()) RETURNING \"id\"")
+          B=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('trp-B', now()) RETURNING \"id\"")
+          D=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\", \"deletionRequestedAt\") VALUES ('trp-D', now(), now()) RETURNING \"id\"")
+          UA=$(su "INSERT INTO \"User\" (\"email\", \"password\", \"businessId\", \"updatedAt\") VALUES ('a@trp.lab', 'x', $A, now()) RETURNING \"id\"")
+          UB=$(su "INSERT INTO \"User\" (\"email\", \"password\", \"businessId\", \"updatedAt\") VALUES ('b@trp.lab', 'x', $B, now()) RETURNING \"id\"")
+          ins() { echo "INSERT INTO \"PushSubscription\" (\"businessId\", \"userId\", \"endpoint\", \"p256dh\", \"auth\", \"platform\", \"updatedAt\") VALUES ($1, $2, '$3', 'BPk_test', 'au_test', 'android', now()) RETURNING \"id\""; }
+          SA=$(rt "$A" "$(ins $A $UA https://push.example/a1)"); echo "A subscribed ($SA)"
+          refused "add for another business" "row-level security" "$A" "$(ins $B $UB https://push.example/b1)"
+          refused "a user of another business" "DZT03|TASK_USER_OTHER_BUSINESS" "$B" "$(ins $B $UA https://push.example/b2)"
+          refused "add without tenant context" "row-level security" "" "$(ins $A $UA https://push.example/a2)"
+          test "$(rt "$B" 'SELECT count(*) FROM "PushSubscription"')" = "0" || { echo "B sees A"; exit 1; }
+          test "$(rt "" 'SELECT count(*) FROM "PushSubscription"')" = "0" || { echo "no context sees rows"; exit 1; }
+          test "$(rt "$A" 'SELECT count(*) FROM "PushSubscription"')" = "1" || { echo "A does not see its own"; exit 1; }
+          test "$(rt "$B" "UPDATE \"PushSubscription\" SET \"revokedAt\" = now() WHERE \"id\" = $SA RETURNING 1" | wc -l)" = "0" || { echo "B changed A"; exit 1; }
+          rt "$A" "UPDATE \"PushSubscription\" SET \"failureCount\" = 1, \"updatedAt\" = now() WHERE \"id\" = $SA" >/dev/null
+          refused "move a row to another business" "row-level security" "$A" "UPDATE \"PushSubscription\" SET \"businessId\" = $B WHERE \"id\" = $SA"
+          refused "removal" "permission denied" "$A" "DELETE FROM \"PushSubscription\" WHERE \"id\" = $SA"
+          refused "emptying" "permission denied" "$A" 'TRUNCATE "PushSubscription"'
+          refused "a plain-http endpoint" "PushSubscription_endpoint_shape" "$A" "$(ins $A $UA http://push.example/a3)"
+          refused "an unknown platform" "PushSubscription_platform" "$A" "INSERT INTO \"PushSubscription\" (\"businessId\", \"userId\", \"endpoint\", \"p256dh\", \"auth\", \"platform\", \"updatedAt\") VALUES ($A, $UA, 'https://push.example/a4', 'k', 'a', 'pager', now())"
+          refused "a duplicate endpoint in one business" "PushSubscription_businessId_endpoint_key" "$A" "$(ins $A $UA https://push.example/a1)"
+          # Shape checks on "Task" (as the owner — the constraint, not the role, is under test).
+          ownr() { PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -v ON_ERROR_STOP=1 -U lab_owner -d trp_post -c "$1"; }
+          shape() { if ownr "$2" >/dev/null 2>/tmp/s.err; then echo "NOT REFUSED: $1"; exit 1; fi; grep -q "$3" /tmp/s.err || { cat /tmp/s.err; exit 1; }; echo "refused [$1]"; }
+          shape "a time without a day" "INSERT INTO \"Task\" (\"businessId\", \"title\", \"updatedAt\", \"dueMinute\") VALUES ($A, 't', now(), 600)" "Task_schedule_shape"
+          shape "a reminder without a time" "INSERT INTO \"Task\" (\"businessId\", \"title\", \"updatedAt\", \"dueOn\", \"remindOffsetMinutes\") VALUES ($A, 't', now(), CURRENT_DATE, 0)" "Task_schedule_shape"
+          shape "minute 1440" "INSERT INTO \"Task\" (\"businessId\", \"title\", \"updatedAt\", \"dueOn\", \"dueMinute\") VALUES ($A, 't', now(), CURRENT_DATE, 1440)" "Task_dueMinute_range"
+          shape "a week and a minute before" "INSERT INTO \"Task\" (\"businessId\", \"title\", \"updatedAt\", \"dueOn\", \"dueMinute\", \"remindOffsetMinutes\") VALUES ($A, 't', now(), CURRENT_DATE, 600, 10081)" "Task_remindOffset_range"
+          # The due function: identifiers of due, unclaimed reminders of live businesses only.
+          mk() { su "INSERT INTO \"Task\" (\"businessId\", \"title\", \"updatedAt\", \"status\", \"dueOn\", \"dueMinute\", \"remindOffsetMinutes\", \"remindAt\", \"reminderSentAt\") VALUES ($1, 'trp', now(), '$2', CURRENT_DATE, 600, 0, $3, $4) RETURNING \"id\""; }
+          T_DUE=$(mk $A OPEN "timezone('UTC', now()) - interval '1 minute'" NULL)
+          T_FUT=$(mk $A OPEN "timezone('UTC', now()) + interval '1 hour'" NULL)
+          T_CAN=$(mk $A CANCELED "timezone('UTC', now()) - interval '1 minute'" NULL)
+          T_SENT=$(mk $A OPEN "timezone('UTC', now()) - interval '1 minute'" "timezone('UTC', now())")
+          T_DEL=$(mk $D OPEN "timezone('UTC', now()) - interval '1 minute'" NULL)
+          T_B=$(mk $B OPEN "timezone('UTC', now()) - interval '2 minute'" NULL)
+          due=$(rt "" "SELECT string_agg(\"taskId\"::text, ',' ORDER BY \"taskId\") FROM public.task_reminders_due(timezone('UTC', now())::timestamp(3), 100)")
+          want=$(printf '%s\n' "$T_DUE" "$T_B" | sort -n | paste -sd, -)
+          test "$due" = "$want" || { echo "due: expected $want, got $due"; exit 1; }
+          echo "due function: exactly the due, open, unclaimed reminders of live businesses ($due), across tenants, without a session"
+          test "$(rt "" "SELECT count(*) FROM public.task_reminders_due(timezone('UTC', now())::timestamp(3), 1)")" = "1" || { echo "limit not applied"; exit 1; }
+          psql -X -q -U "$SUPER" -d trp_post -c "CREATE ROLE trp_other NOLOGIN" -c "GRANT USAGE ON SCHEMA public TO trp_other"
+          if psql -X -q -At -U "$SUPER" -d trp_post -c "SET ROLE trp_other" -c "SELECT count(*) FROM public.task_reminders_due(now()::timestamp(3), 1)" 2>/tmp/x.err; then echo "another role executed the due function"; exit 1; fi
+          grep -qi "permission denied" /tmp/x.err && echo "refused [EXECUTE for another role]"
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -U app_auth -d trp_post -c "SELECT 1 FROM public.task_reminders_due(now()::timestamp(3), 1)" 2>/tmp/x2.err; then echo "app_auth executed the due function"; exit 1; fi
+          grep -qi "permission denied" /tmp/x2.err && echo "refused [EXECUTE for app_auth]"
+          # The claim: one winner, and only while the scheduled moment is still the task's moment.
+          claim="UPDATE \"Task\" SET \"reminderSentAt\" = timezone('UTC', now()), \"updatedAt\" = now() WHERE \"id\" = $T_DUE AND \"status\" = 'OPEN' AND \"reminderSentAt\" IS NULL AND \"remindAt\" = (SELECT \"remindAt\" FROM \"Task\" WHERE \"id\" = $T_DUE) RETURNING \"id\""
+          test "$(rt "$A" "$claim" | wc -l)" = "1" || { echo "first claim lost"; exit 1; }
+          test "$(rt "$A" "$claim" | wc -l)" = "0" || { echo "second claim won"; exit 1; }
+          test "$(rt "$B" "UPDATE \"Task\" SET \"reminderSentAt\" = now() WHERE \"id\" = $T_B AND \"reminderSentAt\" IS NULL RETURNING 1" | wc -l)" = "1"
+          test "$(rt "$A" "UPDATE \"Task\" SET \"reminderSentAt\" = now() WHERE \"id\" = $T_B RETURNING 1" | wc -l)" = "0" || { echo "A claimed B's reminder"; exit 1; }
+          echo "claim: single winner; a business cannot claim another's reminder"
+          due2=$(rt "" "SELECT count(*) FROM public.task_reminders_due(timezone('UTC', now())::timestamp(3), 100)")
+          test "$due2" = "0" || { echo "claimed reminders still due: $due2"; exit 1; }
+          echo "battery: PASS"
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .trp/lab.sh trp_broken --broken-trp
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d trp_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('PushSubscription', 'PushSubscription_id_seq', 'Task_reminder_due_idx'))
+            + (SELECT count(*) FROM pg_proc WHERE proname = 'task_reminders_due')
+            + (SELECT count(*) FROM pg_attribute WHERE attrelid IN ('\"Task\"'::regclass, '\"TaskSeries\"'::regclass)
+                 AND attname IN ('dueMinute', 'remindOffsetMinutes', 'reminderSentAt') AND NOT attisdropped)
+            + (SELECT count(*) FROM pg_constraint WHERE conname LIKE 'Task%\_schedule\_shape' OR conname LIKE 'Task%dueMinute\_range')")
+          led=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261022090000_task_reminders_push' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
