@@ -1,0 +1,122 @@
+# Languages + multi-currency — everything provable WITHOUT Production, on an ephemeral PG17.
+#
+#   1. pure tests      i18n dictionaries (parity/placeholders), money engine, coverage, titles
+#   2. regression      the DB-backed unit tests on this branch AND on main, same database:
+#                      a failure is "new" only if main passes the same test
+#   3. battery         multi-currency collection + tenant isolation through the real routes (flag OFF)
+#   4. e2e             one build, two servers (flag ON / OFF), signed-in owner in Chromium at
+#                      phone / tablet / desktop × he / en; screenshots uploaded as an artifact
+#   5. migration proof the PROPOSED migration (docs/i18n-multicurrency/proposed-migration.sql) applied
+#                      to this throwaway database only: RLS, CHECKs, lock, append-only, rollback
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO Production.
+
+name: i18n + multi-currency (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/i18n/**"
+      - "lib/money/**"
+      - "components/i18n/**"
+      - "app/api/preferences/**"
+      - "docs/i18n-multicurrency/**"
+      - ".i18n/**"
+      - ".github/workflows/i18n-multicurrency-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  i18n-multicurrency:
+    name: i18n + multi-currency (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fx_owner
+          POSTGRES_PASSWORD: fx_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_fx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fx_owner -d dubiz_fx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      DIRECT_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      TEST_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
+      CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
+      PGPASSWORD: fx_ci_synthetic_owner_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: 1 · Pure tests (no database)
+        run: |
+          npx tsx lib/i18n/i18n.verify.test.ts
+          npx tsx lib/money/money.verify.test.ts
+          npx tsx lib/money/scenarios.verify.test.ts
+          npx tsx lib/navigation/app-title-metadata.test.ts
+          npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+          npx tsx components/navigation/nav-destinations.test.tsx
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: 2 · DB-backed regression — branch vs main on the same database
+        run: |
+          git worktree add --detach ../base origin/main
+          (cd ../base && npm ci --no-audit --no-fund >/dev/null && npx prisma generate >/dev/null)
+          bash .i18n/regression.sh . ../base
+
+      - name: 3 · Multi-currency battery (real routes, real auth, flag OFF)
+        run: npx tsx .i18n/battery.mts
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 4 · E2E — two servers (flag ON / OFF), signed-in owner, 3 widths × 2 languages
+        env:
+          E2E_SHOTS: ${{ runner.temp }}/i18n-shots
+        run: |
+          (DUBIZ_I18N_ENABLED=true npx next start -p 3611 > ${{ runner.temp }}/on.log 2>&1 &)
+          (npx next start -p 3612 > ${{ runner.temp }}/off.log 2>&1 &)
+          for p in 3611 3612; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          npx tsx .i18n/e2e.mts
+
+      - name: Upload screenshots + report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: i18n-e2e-screenshots
+          path: ${{ runner.temp }}/i18n-shots
+          if-no-files-found: ignore
+
+      - name: 5 · Proposed migration — apply, prove, roll back (THIS throwaway database only)
+        run: |
+          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -c "CREATE ROLE app_runtime NOLOGIN"
+          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f docs/i18n-multicurrency/proposed-migration.sql
+          npx tsx .i18n/migration-proof.mts
+          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f .i18n/rollback.sql
+          npx tsx .i18n/migration-proof.mts --rollback-check
