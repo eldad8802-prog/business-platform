@@ -7,7 +7,6 @@
  */
 
 .screen {
-  direction: rtl;
   display: flex;
   flex-direction: column;
   gap: 14px;

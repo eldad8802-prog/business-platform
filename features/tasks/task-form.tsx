@@ -12,6 +12,8 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 import {
   createSeries,
   createTask,
@@ -34,7 +36,7 @@ export function TaskForm({
   onDone,
   onCancel,
   titleId,
-  heading = "משימה חדשה",
+  heading,
 }: {
   origin?: "OWNER" | "SECRETARY";
   onDone: () => void | Promise<void>;
@@ -42,6 +44,7 @@ export function TaskForm({
   titleId?: string;
   heading?: string;
 }) {
+  const { t } = useI18n();
   const today = todayKey();
   const ids = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,14 +65,14 @@ export function TaskForm({
   useEffect(() => {
     if (link || q.trim().length < 2) return;
     let cancelled = false;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       searchLinks(q)
         .then((r) => !cancelled && setOptions(r.options))
         .catch(() => !cancelled && setOptions([]));
     }, 250);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [q, link]);
 
@@ -81,19 +84,23 @@ export function TaskForm({
     : null;
 
   const cadence =
-    repeat === "DAILY" ? "כל יום"
-    : repeat === "WEEKLY" ? `כל יום ${weekdayLong(weekdayOf(startOn))}`
-    : repeat === "MONTHLY" ? `כל ${Number(startOn.slice(8, 10))} בחודש`
+    repeat === "DAILY" ? t("tasks.form.daily")
+    : repeat === "WEEKLY" ? t("tasks.form.cadenceWeekday", { weekday: weekdayLong(weekdayOf(startOn), t) })
+    : repeat === "MONTHLY" ? t("tasks.form.cadenceMonthDay", { day: Number(startOn.slice(8, 10)) })
     : null;
 
   const clean = title.trim();
   const summary = !clean
     ? null
     : cadence
-      ? `${cadence}, החל ${startOn === today ? "מהיום" : startOn === addDays(today, 1) ? "ממחר" : `מ${chipLabel(startOn)}`}: ${clean}`
+      ? startOn === today
+        ? t("tasks.form.summarySeriesToday", { cadence, title: clean })
+        : startOn === addDays(today, 1)
+          ? t("tasks.form.summarySeriesTomorrow", { cadence, title: clean })
+          : t("tasks.form.summarySeriesFrom", { cadence, date: chipLabel(startOn, t), title: clean })
       : day
-        ? `אזכיר לך ${whenPhrase(day, today)}: ${clean}`
-        : `נשמר ברשימה, בלי תאריך: ${clean}`;
+        ? t("tasks.form.summaryRemind", { when: whenPhrase(day, today, t), title: clean })
+        : t("tasks.form.summaryNoDate", { title: clean });
 
   async function save() {
     if (!clean || busy) return;
@@ -115,16 +122,15 @@ export function TaskForm({
   return (
     <form
       className={s.form}
-      dir="rtl"
       onSubmit={(e) => {
         e.preventDefault();
         void save();
       }}
     >
-      <h2 id={titleId}>{heading}</h2>
+      <h2 id={titleId}>{heading ?? t("tasks.common.newTask")}</h2>
 
       <div className={s.field}>
-        <label htmlFor={`${ids}-t`}>מה צריך לעשות?</label>
+        <label htmlFor={`${ids}-t`}>{t("tasks.form.whatToDo")}</label>
         <input
           ref={inputRef}
           id={`${ids}-t`}
@@ -132,29 +138,29 @@ export function TaskForm({
           value={title}
           maxLength={200}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="למשל: להתקשר לרואה החשבון"
+          placeholder={t("tasks.form.placeholder")}
           autoComplete="off"
           required
         />
       </div>
 
       <fieldset className={s.field}>
-        <legend>מתי</legend>
+        <legend>{t("tasks.form.when")}</legend>
         <div className={s.chips}>
-          <Chip on={day === today && !custom} onClick={() => { setDay(today); setCustom(false); }}>היום</Chip>
-          <Chip on={day === addDays(today, 1) && !custom} onClick={() => { setDay(addDays(today, 1)); setCustom(false); }}>מחר</Chip>
+          <Chip on={day === today && !custom} onClick={() => { setDay(today); setCustom(false); }}>{t("tasks.common.dayToday")}</Chip>
+          <Chip on={day === addDays(today, 1) && !custom} onClick={() => { setDay(addDays(today, 1)); setCustom(false); }}>{t("tasks.common.tomorrow")}</Chip>
           <Chip on={custom || !!chosenOther} onClick={() => { setCustom(true); if (!day) setDay(addDays(today, 2)); }}>
-            {chosenOther ? chipLabel(day!) : "תאריך אחר"}
+            {chosenOther ? chipLabel(day!, t) : t("tasks.form.otherDate")}
           </Chip>
           {repeat === "ONCE" ? (
-            <Chip on={day === null} onClick={() => { setDay(null); setCustom(false); }}>ללא תאריך</Chip>
+            <Chip on={day === null} onClick={() => { setDay(null); setCustom(false); }}>{t("tasks.form.noDate")}</Chip>
           ) : null}
         </div>
         {custom ? (
           <input
             type="date"
             className={s.input}
-            aria-label="בחירת תאריך"
+            aria-label={t("tasks.form.pickDate")}
             min={today}
             value={day ?? ""}
             onChange={(e) => e.target.value && setDay(e.target.value)}
@@ -163,14 +169,14 @@ export function TaskForm({
       </fieldset>
 
       <fieldset className={s.field}>
-        <legend>חזרה</legend>
+        <legend>{t("tasks.form.repeat")}</legend>
         <div className={s.chips}>
           {(
             [
-              ["ONCE", "פעם אחת"],
-              ["DAILY", "כל יום"],
-              ["WEEKLY", "כל שבוע"],
-              ["MONTHLY", "כל חודש"],
+              ["ONCE", "tasks.form.once"],
+              ["DAILY", "tasks.form.daily"],
+              ["WEEKLY", "tasks.form.weekly"],
+              ["MONTHLY", "tasks.form.monthly"],
             ] as const
           ).map(([k, label]) => (
             <Chip
@@ -181,21 +187,21 @@ export function TaskForm({
                 if (k !== "ONCE" && day === null) setDay(today);
               }}
             >
-              {label}
+              {t(label)}
             </Chip>
           ))}
         </div>
       </fieldset>
 
       <div className={s.field}>
-        <label htmlFor={`${ids}-l`}>קשור ל (לא חובה)</label>
+        <label htmlFor={`${ids}-l`}>{t("tasks.form.linkLabel")}</label>
         {link ? (
           <div className={s.linked}>
             <span style={{ flex: 1 }}>
-              {link.label} <span className={s.hint}>· {link.kind === "customer" ? "לקוח" : "ספק"}</span>
+              {link.label} <span className={s.hint}>· {link.kind === "customer" ? t("tasks.common.customer") : t("tasks.common.supplier")}</span>
             </span>
             <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => { setLink(null); setQ(""); }}>
-              הסר
+              {t("tasks.form.remove")}
             </button>
           </div>
         ) : (
@@ -205,21 +211,21 @@ export function TaskForm({
               className={s.input}
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="חיפוש לקוח או ספק"
+              placeholder={t("tasks.form.searchPlaceholder")}
               autoComplete="off"
             />
             {options && q.trim().length >= 2 ? (
               <div className={s.pick} role="list">
                 <div className={s.pickHead}>
-                  {options.length === 0 ? "לא נמצא — אפשר לשמור בלי קישור" : `נמצאו ${options.length} — בחר אחד, או השאר בלי קישור`}
+                  {options.length === 0 ? t("tasks.form.notFound") : t("tasks.form.found", { count: options.length })}
                 </div>
                 {options.map((o) => (
                   <div key={`${o.kind}:${o.id}`} className={s.pickRow} role="listitem">
                     <span>
-                      {o.label} <small>· {o.kind === "customer" ? "לקוח" : "ספק"}</small>
+                      {o.label} <small>· {o.kind === "customer" ? t("tasks.common.customer") : t("tasks.common.supplier")}</small>
                     </span>
                     <button type="button" className={s.chip} onClick={() => setLink(o)}>
-                      בחר
+                      {t("tasks.form.choose")}
                     </button>
                   </div>
                 ))}
@@ -232,18 +238,18 @@ export function TaskForm({
       {summary ? <p className={s.summary} aria-live="polite">{summary}</p> : null}
       {AMOUNT_HINT.test(title) ? (
         <p className={s.hint}>
-          הוקלד סכום? סכום לא נשמר על משימה. לתשלום שהעסק צריך לשלם —{" "}
-          <Link href="/payables?new=1" prefetch={false}>קליטת התחייבות</Link>.
+          {t("tasks.form.amountHint")}{" "}
+          <Link href="/payables?new=1" prefetch={false}>{t("tasks.form.amountHintLink")}</Link>.
         </p>
       ) : null}
       {error ? <p className={s.error} role="alert">{error}</p> : null}
 
       <div className={s.actions}>
         <button type="submit" className={`${s.btn} ${s.pri}`} disabled={!clean || busy}>
-          {busy ? "שומר…" : "שמירה"}
+          {busy ? t("tasks.form.saving") : t("tasks.common.save")}
         </button>
         <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel} disabled={busy}>
-          ביטול
+          {t("tasks.common.cancel")}
         </button>
       </div>
     </form>
