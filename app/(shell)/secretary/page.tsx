@@ -169,23 +169,20 @@ function SecretaryPageInner() {
     });
   }
 
-  async function loadBriefing(token: string, isCancelled: () => boolean = () => false) {
+  /** The retry on the error screen. */
+  async function loadBriefing(token: string) {
     try {
       const briefing = await fetchBriefing(token);
-      if (!isCancelled()) {
-        setState({
-          status: "ready",
-          briefing,
-          obligations: [],
-          obligationsLimit: 0,
-          obligationsHasMore: false,
-          obligationsLoading: false,
-        });
-      }
+      setState({
+        status: "ready",
+        briefing,
+        obligations: [],
+        obligationsLimit: 0,
+        obligationsHasMore: false,
+        obligationsLoading: false,
+      });
     } catch (e) {
-      if (!isCancelled()) {
-        setState({ status: "error", message: errorMessage(e, "לא הצלחנו לטעון את המזכירה.") });
-      }
+      setState({ status: "error", message: errorMessage(e, "לא הצלחנו לטעון את המזכירה.") });
     }
   }
 
@@ -199,11 +196,26 @@ function SecretaryPageInner() {
 
     tokenRef.current = token;
     let cancelled = false;
-    void loadBriefing(token, () => cancelled);
+    (async () => {
+      try {
+        const briefing = await fetchBriefing(token);
+        if (!cancelled) {
+          setState({
+            status: "ready",
+            briefing,
+            obligations: [],
+            obligationsLimit: 0,
+            obligationsHasMore: false,
+            obligationsLoading: false,
+          });
+        }
+      } catch (e) {
+        if (!cancelled) setState({ status: "error", message: errorMessage(e, "לא הצלחנו לטעון את המזכירה.") });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {

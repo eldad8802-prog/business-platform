@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Component, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { TaskForm } from "@/features/tasks/task-form";
 import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import Link from "next/link";
@@ -19,7 +19,6 @@ import {
   ObligationRow,
   RowList,
   StatusChip,
-  ButtonLink,
   hebrewErrorMessage,
 } from "@/components/finance-ui";
 import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
@@ -798,7 +797,7 @@ export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode,
     // Key by the resolved id so the edit form re-seeds its fields once the
     // obligation loads (deep-link / refresh), never showing an empty form.
     case "update": return <UpdateScreen key={selected ? selected.id : "none"} obligation={selected} onUpdate={onUpdate} />;
-    case "capture": return <CaptureScreen obligations={openItems} onCreate={onCreate} onCreateMany={onCreateMany} prefillName={prefillName} />;
+    case "capture": return <CaptureScreen onCreate={onCreate} onCreateMany={onCreateMany} prefillName={prefillName} />;
     case "loops": return <LoopsScreen obligation={selected} initialMode={loopMode ?? "met"} paidRecorded={paidRecorded} />;
     case "remind": return <RemindScreen obligation={selected} onSnooze={onSnooze} />;
     case "watching": return <WatchingScreen obligations={openItems} />;
@@ -1127,7 +1126,7 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
   );
 }
 
-function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { obligations: ObligationApi[]; onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
+function CaptureScreen({ onCreate, onCreateMany, prefillName }: { onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
   const [obligeeName, setObligeeName] = useState(prefillName ?? "");
   const [amount, setAmount] = useState("");
   const [dueAt, setDueAt] = useState("");
