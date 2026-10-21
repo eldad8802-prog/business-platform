@@ -1,0 +1,75 @@
+# "מבנה אחיד" export — tenant context (owner decision D8, 2026-10-21).
+#
+# app/api/reports/uniform/route.ts read BillingDocument (FORCE RLS) through the global client with no tenant
+# context: as a NOBYPASSRLS runtime that read sees no row, and the export is a well-formed EMPTY file. The route
+# now runs the loader inside the caller's tenant transaction. The proof runs as app_runtime_prod on the Daily
+# Tasks lab (Production role topology) with BillingDocument under the policies Production got from
+# 20260902120000_d2_cutover2b_pilot_tenant_rls: the old call exports nothing, the corrected call exports exactly
+# the business's documents and never another business's.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: uniform export — tenant context (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/reports/uniform/**"
+      - "lib/services/billing/uniform/**"
+      - "lib/tenant/**"
+      - "scripts/ci/lab/uniform-export-tenant-context-proof.ts"
+      - ".github/workflows/uniform-export-tenant-context-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: uniform export reads under the tenant context (PG17, runtime role)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: uni_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: uni_ci_synthetic_super_pw
+      LAB_PASSWORD: uni_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Uniform package unit tests still pass
+        run: |
+          set -euo pipefail
+          for t in lib/services/billing/uniform/*.test.ts; do npx tsx "$t"; done
+      - name: Lab (Production role topology) and the proof
+        run: |
+          set -euo pipefail
+          bash .dt/lab.sh uni_lab --with-dt
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/uni_lab" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/uni_lab" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/uni_lab" \
+            npx tsx scripts/ci/lab/uniform-export-tenant-context-proof.ts
