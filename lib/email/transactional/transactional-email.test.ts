@@ -328,9 +328,10 @@ async function main() {
     ok("scope: only signup (WELCOME) and the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) enqueue — login, setup, refresh and every other flow do not",
       JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
     const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route",
+    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification, verification → deferred WELCOME) and from the sweep route",
       JSON.stringify(deliverers) === JSON.stringify([
         "app/api/auth/email/resend/route.ts",
+        "app/api/auth/email/verify/route.ts",
         "app/api/auth/password/forgot/route.ts",
         "app/api/auth/register/route.ts",
         "app/api/transactional-email/sweep/route.ts",

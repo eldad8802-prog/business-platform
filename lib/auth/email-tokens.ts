@@ -22,7 +22,8 @@ import type { Prisma } from "@prisma/client";
 import type { EmailTokenStatus } from "@/lib/auth/auth-messages";
 import { isDerivedSecret, mintEmailToken, parseLinkToken, type EmailTokenPurpose } from "@/lib/auth/email-link";
 import { MIN_PASSWORD_LENGTH, normalizeEmail } from "@/lib/auth/signup-identity";
-import { enqueueAccountLinkEmail } from "@/lib/email/transactional/store";
+import { welcomeDedupeKey } from "@/lib/email/transactional/registry";
+import { enqueueAccountLinkEmail, enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 import type { Locale } from "@/lib/i18n/config";
 import { authDb } from "@/lib/prisma-auth";
 
@@ -86,9 +87,31 @@ export async function requestPasswordReset(rawEmail: string, now: Date, locale?:
 export type VerificationRequest =
   | { status: "SENT"; link: IssuedLink }
   | { status: "ALREADY_VERIFIED" }
+  | { status: "NOT_REQUIRED" }
   | { status: "NOT_ISSUED" };
 
-/** "Send the verification link again" for a signed-in owner. */
+/**
+ * Verification applies to accounts OPENED with it: signup records an EMAIL_VERIFY email with the account
+ * while AUTH_EMAIL_VERIFICATION_ENABLED is on. An account opened before that (or while it was off) has
+ * no such row and is never asked to verify — no banner, no link, nothing changes for it.
+ */
+async function openedWithVerification(client: SqlClient, userId: number): Promise<boolean> {
+  const rows = await client.$queryRaw<{ x: number }[]>`
+    SELECT 1 AS x FROM "TransactionalEmail" WHERE "userId" = ${userId} AND "kind" = 'EMAIL_VERIFY' LIMIT 1`;
+  return rows.length > 0;
+}
+
+export type VerificationState = "VERIFIED" | "PENDING" | "NOT_REQUIRED";
+
+/** The signed-in owner's own state; null when the user is gone. */
+export async function readVerificationState(userId: number): Promise<VerificationState | null> {
+  const user = await authDb().user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
+  if (!user) return null;
+  if (user.emailVerifiedAt) return "VERIFIED";
+  return (await openedWithVerification(authDb(), userId)) ? "PENDING" : "NOT_REQUIRED";
+}
+
+/** "Send the verification link again" for a signed-in owner whose account was opened with verification. */
 export async function requestEmailVerification(userId: number, now: Date, locale?: Locale): Promise<VerificationRequest> {
   const user = await authDb().user.findUnique({
     where: { id: userId },
@@ -96,6 +119,7 @@ export async function requestEmailVerification(userId: number, now: Date, locale
   });
   if (!user) return { status: "NOT_ISSUED" };
   if (user.emailVerifiedAt) return { status: "ALREADY_VERIFIED" };
+  if (!(await openedWithVerification(authDb(), user.id))) return { status: "NOT_REQUIRED" };
   const link = await authDb().$transaction((tx) =>
     issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: user.name, now, locale })
   );
@@ -119,19 +143,50 @@ export async function checkAccountLink(raw: unknown, purpose: EmailTokenPurpose)
 }
 
 export type VerifyOutcome =
-  | { status: "VERIFIED"; userId: number; businessId: number }
+  | { status: "VERIFIED"; userId: number; businessId: number; welcomeEmailId: number | null }
   | { status: Exclude<EmailTokenStatus, "VALID"> };
 
-export async function consumeEmailVerification(raw: unknown): Promise<VerifyOutcome> {
+/**
+ * An account opened with verification gets its WELCOME when the address is confirmed, not at signup
+ * (lib/auth/signup.ts records only the verification email then). Recorded in the transaction that
+ * spent the link, at most once ever per user (the WELCOME dedupe key); null when one already exists.
+ */
+async function enqueueWelcomeAfterVerification(
+  tx: SqlClient,
+  input: { userId: number; businessId: number; now: Date; locale?: Locale }
+): Promise<number | null> {
+  const existing = await tx.$queryRaw<{ x: number }[]>`
+    SELECT 1 AS x FROM "TransactionalEmail" WHERE "dedupeKey" = ${welcomeDedupeKey(input.userId)} LIMIT 1`;
+  if (existing.length > 0) return null;
+  const users = await tx.$queryRaw<{ email: string; name: string | null }[]>`
+    SELECT "email", "name" FROM "User" WHERE "id" = ${input.userId}`;
+  if (users.length !== 1) return null;
+  return enqueueWelcomeEmail(tx, {
+    userId: input.userId,
+    businessId: input.businessId,
+    toEmail: users[0].email,
+    name: users[0].name,
+    now: input.now,
+    locale: input.locale,
+  });
+}
+
+/** `locale`: the interface language of the verifying request (getServerI18n) — the WELCOME's language. */
+export async function consumeEmailVerification(raw: unknown, now: Date = new Date(), locale?: Locale): Promise<VerifyOutcome> {
   const token = readToken(raw, "EMAIL_VERIFY");
   if (!token) return { status: "INVALID" };
-  const rows = await authDb().$queryRaw<{ status: string; user_id: number | null; business_id: number | null }[]>`
-    SELECT status, user_id, business_id FROM public.auth_email_verify_consume(${token.tokenId}::uuid, ${token.secret})`;
-  const row = rows[0];
-  if (row?.status === "VERIFIED" && row.user_id !== null && row.business_id !== null) {
-    return { status: "VERIFIED", userId: Number(row.user_id), businessId: Number(row.business_id) };
-  }
-  return { status: asProblem(row?.status) };
+  return authDb().$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ status: string; user_id: number | null; business_id: number | null }[]>`
+      SELECT status, user_id, business_id FROM public.auth_email_verify_consume(${token.tokenId}::uuid, ${token.secret})`;
+    const row = rows[0];
+    if (row?.status === "VERIFIED" && row.user_id !== null && row.business_id !== null) {
+      const userId = Number(row.user_id);
+      const businessId = Number(row.business_id);
+      const welcomeEmailId = await enqueueWelcomeAfterVerification(tx, { userId, businessId, now, locale });
+      return { status: "VERIFIED" as const, userId, businessId, welcomeEmailId };
+    }
+    return { status: asProblem(row?.status) };
+  });
 }
 
 export type ResetOutcome =

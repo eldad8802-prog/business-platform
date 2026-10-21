@@ -12,8 +12,11 @@
  *      refresh session dies, a token minted before the reset is refused by getAuthContext; the old
  *      password fails at the REAL login route and the new one signs in; replay → TOKEN_USED.
  *   3. tenant isolation: another business's owner is untouched by all of it.
- *   4. verification: a verify link stamps emailVerifiedAt for that owner only; resend then says
- *      "already verified"; a reset link cannot verify and a verify link cannot reset.
+ *   4. verification (accounts OPENED with it only): an existing account reads NOT_REQUIRED and is sent
+ *      nothing; signup with verification ON records only the link (no WELCOME); resend supersedes;
+ *      verifying stamps emailVerifiedAt and records exactly one WELCOME for that account's own address
+ *      and business; replay is USED with no second WELCOME; a reset link cannot verify and a verify
+ *      link cannot reset; signup with verification OFF still records the WELCOME at signup.
  *   5. login (4 failures / rolling 15 min / 15-minute lock): the 3rd failure warns, the 4th locks; the lock
  *      holds across IPs and case variants, refuses even the right password, and is answered identically
  *      for an address with no account; a parallel burst runs at most 4 comparisons; a success clears
@@ -29,11 +32,14 @@ import { getAuthContext, signAuthToken } from "@/lib/auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import {
   checkAccountLink,
+  issueAccountLink,
   readEmailVerified,
+  readVerificationState,
   requestEmailVerification,
   requestPasswordReset,
   consumeEmailVerification,
 } from "@/lib/auth/email-tokens";
+import { createAccount } from "@/lib/auth/signup";
 import { renderStored } from "@/lib/email/transactional/registry";
 import { handleReset } from "@/app/api/auth/password/reset/route";
 import { handleForgot } from "@/app/api/auth/password/forgot/route";
@@ -158,18 +164,73 @@ async function main() {
     bAfter.password === bBefore.password && Number(bAfter.tokenVersion) === Number(bBefore.tokenVersion) && (await openSessions(B.userId)) === 1);
 
   console.log("\n— 4. verification —");
-  const C = await account("C");
+  const rowsOf = async (userId: number) =>
+    (await owner.$queryRawUnsafe(`SELECT "id","kind","toEmail","businessId","status" FROM "TransactionalEmail" WHERE "userId" = $1 ORDER BY "id"`, userId)) as
+      { id: number; kind: string; toEmail: string; businessId: number; status: string }[];
+  const kinds = async (userId: number) => (await rowsOf(userId)).map((r) => r.kind).join(",");
+
+  // An account that existed before verification was switched on: never asked to verify.
+  ok("an EXISTING account (opened without verification) reads NOT_REQUIRED — no banner",
+    (await readVerificationState(B.userId)) === "NOT_REQUIRED" && (await readEmailVerified(B.userId)) === false);
+  const bRowsBefore = (await rowsOf(B.userId)).length;
+  ok("…and 'send again' issues nothing for it (NOT_REQUIRED), no email row written",
+    (await requestEmailVerification(B.userId, new Date())).status === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
+
+  // Regression: a signup with verification OFF records the WELCOME at signup, as before.
+  const plain = await createAccount({
+    email: `aet-app-plain-${Date.now()}@lab.invalid`, passwordHash: await bcrypt.hash(OLD_PW, 10), name: "נועה פלאן",
+    businessName: "aet-app-plain", now: new Date(), sendVerification: false,
+  });
+  ok("signup, verification OFF: WELCOME recorded at signup, no link",
+    plain.welcomeEmailId !== null && plain.verificationEmailId === null && (await kinds(plain.userId)) === "WELCOME", await kinds(plain.userId));
+
+  // A NEW account opened with verification ON — the real signup transaction.
+  const cEmail = `aet-app-c-${Date.now()}@lab.invalid`;
+  const C = await createAccount({
+    email: cEmail, passwordHash: await bcrypt.hash(OLD_PW, 10), name: "דנה C",
+    businessName: "aet-app-C", now: new Date(), sendVerification: true,
+  });
+  ok("signup, verification ON: ONLY the verification email is recorded — no WELCOME yet",
+    C.verificationEmailId !== null && C.welcomeEmailId === null && (await kinds(C.userId)) === "EMAIL_VERIFY", await kinds(C.userId));
+  ok("…one user for the address (no duplicates)",
+    Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "User" WHERE lower("email") = lower($1)`, cEmail)) as { c: number }[])[0].c) === 1);
+  ok("the new account reads PENDING (the banner shows)", (await readVerificationState(C.userId)) === "PENDING");
+  const firstRow = C.verificationEmailId !== null ? await emailRow(C.verificationEmailId) : undefined;
+  const firstToken = firstRow ? tokenFrom("EMAIL_VERIFY", firstRow.payload) : "";
+
   const v = await requestEmailVerification(C.userId, new Date());
-  ok("a verification link is issued for an unverified owner", v.status === "SENT");
+  ok("'send again' for the new account issues a fresh link", v.status === "SENT");
   const vRow = v.status === "SENT" ? await emailRow(v.link.emailId) : undefined;
   const vToken = vRow ? tokenFrom("EMAIL_VERIFY", vRow.payload) : "";
+  ok("…the earlier link is superseded", (await consumeEmailVerification(firstToken)).status === "SUPERSEDED");
   ok("a verify link cannot reset a password", (await handleReset(post("/api/auth/password/reset", { token: vToken, password: NEW_PW }))).status === 400);
-  const r2 = await requestPasswordReset(C.email, new Date());
+  const r2 = await requestPasswordReset(cEmail, new Date());
   const r2Row = r2 ? await emailRow(r2.emailId) : undefined;
   ok("a reset link cannot verify", (await consumeEmailVerification(r2Row ? tokenFrom("PASSWORD_RESET", r2Row.payload) : "")).status === "INVALID");
-  ok("the verify link verifies", (await consumeEmailVerification(vToken)).status === "VERIFIED");
-  ok("C reads as verified; B (never verified) does not", (await readEmailVerified(C.userId)) === true && (await readEmailVerified(B.userId)) === false);
+
+  const verified = await consumeEmailVerification(vToken);
+  ok("the verify link verifies, and records the WELCOME in the same step",
+    verified.status === "VERIFIED" && verified.welcomeEmailId !== null && verified.businessId === C.businessId, JSON.stringify(verified));
+  const welcomeRows = (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME");
+  ok("exactly ONE WELCOME, PENDING, to the account's own address, filed under its own business",
+    welcomeRows.length === 1 && welcomeRows[0].toEmail === cEmail && Number(welcomeRows[0].businessId) === C.businessId && welcomeRows[0].status === "PENDING");
+  const replay = await consumeEmailVerification(vToken);
+  ok("replaying the link → USED, and no second WELCOME",
+    replay.status === "USED" && (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME").length === 1);
+  ok("C reads VERIFIED; B (existing) still NOT_REQUIRED and untouched",
+    (await readVerificationState(C.userId)) === "VERIFIED" && (await readEmailVerified(C.userId)) === true &&
+      (await readVerificationState(B.userId)) === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
   ok("resend now answers 'already verified'", (await requestEmailVerification(C.userId, new Date())).status === "ALREADY_VERIFIED");
+
+  // An account that already has its WELCOME (opened with verification OFF) and later verifies through a
+  // link never gets a second one.
+  const plainLink = await owner.$transaction((tx) =>
+    issueAccountLink(tx, { userId: plain.userId, purpose: "EMAIL_VERIFY", name: "נועה פלאן", now: new Date() }));
+  const plainRow = plainLink ? await emailRow(plainLink.emailId) : undefined;
+  const plainVerified = await consumeEmailVerification(plainRow ? tokenFrom("EMAIL_VERIFY", plainRow.payload) : "");
+  ok("verifying an account that already has a WELCOME records none (still exactly one WELCOME)",
+    plainVerified.status === "VERIFIED" && plainVerified.welcomeEmailId === null &&
+      (await rowsOf(plain.userId)).filter((r) => r.kind === "WELCOME").length === 1, JSON.stringify(plainVerified));
 
   console.log("\n— 5. login: 4 failures / rolling 15 minutes / 15-minute lock —");
   // Every request from a NEW IP: nothing below can be the per-IP limit.

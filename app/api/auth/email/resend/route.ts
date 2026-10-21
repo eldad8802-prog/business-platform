@@ -51,6 +51,10 @@ export async function handleResend(req: Request, deps: ResendDeps = defaultDeps)
     if (result.status === "ALREADY_VERIFIED") {
       return NextResponse.json({ ok: true, alreadyVerified: true, message: authMessage("alreadyVerified", t) }, { headers: NO_STORE });
     }
+    // An account opened before verification existed is never asked to verify: nothing is sent.
+    if (result.status === "NOT_REQUIRED") {
+      return NextResponse.json({ ok: true, notRequired: true }, { headers: NO_STORE });
+    }
     if (result.status === "NOT_ISSUED") {
       return NextResponse.json({ error: authMessage("rateLimited", t), code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
     }
