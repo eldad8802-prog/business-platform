@@ -1,4 +1,9 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 export default function RedeemLoading() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -17,7 +22,7 @@ export default function RedeemLoading() {
           color: "var(--dz-text-primary)",
         }}
       >
-        בודק קופון...
+        {t("billing.redeem.checking")}
       </div>
 
       <div
@@ -26,7 +31,7 @@ export default function RedeemLoading() {
           color: "var(--dz-text-muted)",
         }}
       >
-        אנא המתן רגע
+        {t("billing.redeem.pleaseWait")}
       </div>
     </div>
   );

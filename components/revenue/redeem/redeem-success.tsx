@@ -1,4 +1,7 @@
+"use client";
+
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   result: any;
@@ -6,6 +9,7 @@ type Props = {
 };
 
 export default function RedeemSuccess({ result, onReset }: Props) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -23,7 +27,7 @@ export default function RedeemSuccess({ result, onReset }: Props) {
           marginBottom: 10,
         }}
       >
-        הקופון מומש בהצלחה 🎉
+        {t("billing.redeem.redeemedSuccess")}
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -40,7 +44,7 @@ export default function RedeemSuccess({ result, onReset }: Props) {
           cursor: "pointer",
         }}
       >
-        מימוש נוסף
+        {t("billing.redeem.redeemAnother")}
       </button>
     </div>
   );

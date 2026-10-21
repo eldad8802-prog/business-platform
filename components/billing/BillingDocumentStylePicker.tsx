@@ -4,9 +4,8 @@ import type { CSSProperties } from "react";
 import {
   BILLING_PDF_TEMPLATE_STYLES,
   type BillingPdfTemplateStyle,
-  BILLING_PDF_TEMPLATE_STYLE_HINTS_HE,
-  BILLING_PDF_TEMPLATE_STYLE_LABELS_HE,
 } from "@/lib/billing/billing-pdf-template-style";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/billing-theme";
 
 function MiniPreview({ style }: { style: BillingPdfTemplateStyle }) {
@@ -107,6 +106,7 @@ export function BillingDocumentStylePicker({
   value: BillingPdfTemplateStyle;
   onChange: (next: BillingPdfTemplateStyle) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div>
@@ -118,11 +118,10 @@ export function BillingDocumentStylePicker({
             marginBottom: 4,
           }}
         >
-          סגנון המסמך ללקוח
+          {t("billing.stylePicker.title")}
         </div>
         <p style={{ margin: 0, fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.45 }}>
-          בחירה זו תשמש מסמכים חדשים בלבד. אפשר לשנות אותה בהמשך בלי להשפיע על
-          מסמכים שכבר הופקו.
+          {t("billing.stylePicker.help")}
         </p>
       </div>
       <div
@@ -140,7 +139,7 @@ export function BillingDocumentStylePicker({
               type="button"
               onClick={() => onChange(style)}
               style={{
-                textAlign: "right",
+                textAlign: "start",
                 cursor: "pointer",
                 padding: 10,
                 borderRadius: TOKEN.radius.button,
@@ -156,10 +155,10 @@ export function BillingDocumentStylePicker({
             >
               <MiniPreview style={style} />
               <span style={{ fontSize: 13, fontWeight: 600, color: selected ? TOKEN.ink.inverse : TOKEN.ink.primary }}>
-                {BILLING_PDF_TEMPLATE_STYLE_LABELS_HE[style]}
+                {t(`billing.stylePicker.labels.${style}`)}
               </span>
               <span style={{ fontSize: 11, color: selected ? "rgba(251, 250, 246, 0.78)" : TOKEN.ink.muted, lineHeight: 1.35 }}>
-                {BILLING_PDF_TEMPLATE_STYLE_HINTS_HE[style]}
+                {t(`billing.stylePicker.hints.${style}`)}
               </span>
             </button>
           );

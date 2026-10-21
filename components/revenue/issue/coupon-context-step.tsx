@@ -1,6 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   situation: string | null;
@@ -17,26 +18,27 @@ export default function CouponContextStep({
   onChangeGoal,
   onContinue,
 }: Props) {
+  const { t } = useI18n();
   const situations = [
-    { key: "IDLE_TIME", label: "שעות מתות" },
-    { key: "LOW_TRAFFIC", label: "תנועה נמוכה" },
-    { key: "STUCK_INVENTORY", label: "מלאי תקוע" },
-    { key: "WEAK_SEASON", label: "עונה חלשה" },
+    { key: "IDLE_TIME", label: t("billing.couponIssue.situationIdleTime") },
+    { key: "LOW_TRAFFIC", label: t("billing.couponIssue.situationLowTraffic") },
+    { key: "STUCK_INVENTORY", label: t("billing.couponIssue.situationStuckInventory") },
+    { key: "WEAK_SEASON", label: t("billing.couponIssue.situationWeakSeason") },
   ];
 
   const goals = [
-    { key: "BRING_NEW_CUSTOMERS", label: "להביא לקוחות חדשים" },
-    { key: "FILL_TIME", label: "למלא זמן פנוי" },
-    { key: "SELL_INVENTORY", label: "למכור מלאי" },
-    { key: "RETURN_CUSTOMERS", label: "להחזיר לקוחות" },
+    { key: "BRING_NEW_CUSTOMERS", label: t("billing.couponIssue.goalNewCustomers") },
+    { key: "FILL_TIME", label: t("billing.couponIssue.goalFillTime") },
+    { key: "SELL_INVENTORY", label: t("billing.couponIssue.goalSellInventory") },
+    { key: "RETURN_CUSTOMERS", label: t("billing.couponIssue.goalReturnCustomers") },
   ];
 
   return (
     <div style={styles.card}>
-      <div style={styles.title}>לפני יצירת קופון</div>
+      <div style={styles.title}>{t("billing.couponIssue.contextTitle")}</div>
 
       <div style={styles.section}>
-        <div style={styles.label}>מה המצב שלך עכשיו?</div>
+        <div style={styles.label}>{t("billing.couponIssue.situationQuestion")}</div>
 
         <div style={styles.options}>
           {situations.map((s) => (
@@ -55,7 +57,7 @@ export default function CouponContextStep({
       </div>
 
       <div style={styles.section}>
-        <div style={styles.label}>מה המטרה שלך?</div>
+        <div style={styles.label}>{t("billing.couponIssue.goalQuestion")}</div>
 
         <div style={styles.options}>
           {goals.map((g) => (
@@ -81,7 +83,7 @@ export default function CouponContextStep({
           opacity: situation && goal ? 1 : 0.5,
         }}
       >
-        המשך
+        {t("billing.couponIssue.continue")}
       </button>
     </div>
   );
