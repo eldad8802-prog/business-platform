@@ -2,7 +2,8 @@ import { NextResponse, after } from "next/server";
 
 import { isPasswordResetEnabled } from "@/lib/auth/account-recovery-config";
 import { RESET_REQUEST_ACCOUNT_LIMIT, resetRequestAccountRateKey } from "@/lib/auth/account-rate-key";
-import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
+import { authMessage } from "@/lib/auth/auth-messages";
+import { getServerI18n } from "@/lib/i18n/server";
 import { requestPasswordReset, type IssuedLink } from "@/lib/auth/email-tokens";
 import { EMAIL_SHAPE, normalizeEmail } from "@/lib/auth/signup-identity";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
@@ -54,26 +55,27 @@ const defaultDeps: ForgotDeps = {
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function handleForgot(req: Request, deps: ForgotDeps = defaultDeps): Promise<NextResponse> {
+  const { t } = await getServerI18n();
   if (!deps.enabled()) {
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.featureUnavailable, code: "FEATURE_DISABLED" }, { status: 404, headers: NO_STORE });
+    return NextResponse.json({ error: authMessage("featureUnavailable", t), code: "FEATURE_DISABLED" }, { status: 404, headers: NO_STORE });
   }
 
   const ip = getClientIp(req);
   const rl = await deps.rateLimit({ key: `auth:reset:ip:${ip}`, limit: 5, windowMs: 15 * 60_000 });
   if (!rl.allowed) {
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
+    return NextResponse.json({ error: authMessage("rateLimited", t), code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.invalidBody, code: "INVALID_BODY" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: authMessage("invalidBody", t), code: "INVALID_BODY" }, { status: 400, headers: NO_STORE });
   }
   const email = (body as { email?: unknown } | null)?.email;
   if (typeof email !== "string" || email.length > 320 || !EMAIL_SHAPE.test(email.trim())) {
     return NextResponse.json(
-      { error: "יש להזין כתובת אימייל תקינה", field: "email", code: "INVALID_EMAIL" },
+      { error: t("api.auth.invalidEmail"), field: "email", code: "INVALID_EMAIL" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -94,7 +96,7 @@ export async function handleForgot(req: Request, deps: ForgotDeps = defaultDeps)
     });
   }
 
-  return NextResponse.json({ ok: true, message: AUTH_MESSAGES_HE.resetRequested }, { status: 200, headers: NO_STORE });
+  return NextResponse.json({ ok: true, message: authMessage("resetRequested", t) }, { status: 200, headers: NO_STORE });
 }
 
 export async function POST(req: Request) {

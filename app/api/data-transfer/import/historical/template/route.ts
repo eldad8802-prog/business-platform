@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { buildHistoricalImportTemplate } from "@/lib/data-transfer/historical/historical-template";
 
@@ -30,6 +31,7 @@ export const dynamic = "force-dynamic";
  * already asserts for `buildHistoricalImportTemplate`.
  */
 export async function GET(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
     return authRequiredResponse(req);
@@ -53,7 +55,7 @@ export async function GET(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "יצירת התבנית נכשלה. נסו שוב מאוחר יותר." },
+      { error: t("api.dataTransfer.templateFailed") },
       { status: 500, headers: { "Cache-Control": "private, no-store" } }
     );
   }

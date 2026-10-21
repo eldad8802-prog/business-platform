@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
-import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
+import { authMessage } from "@/lib/auth/auth-messages";
+import { getServerI18n } from "@/lib/i18n/server";
 import { requestEmailVerification, type VerificationRequest } from "@/lib/auth/email-tokens";
 import { scheduleDelivery } from "@/lib/email/transactional/schedule";
 import type { Locale } from "@/lib/i18n/config";
@@ -35,33 +36,34 @@ const defaultDeps: ResendDeps = {
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function handleResend(req: Request, deps: ResendDeps = defaultDeps): Promise<NextResponse> {
+  const { t } = await getServerI18n();
   try {
     const user = await deps.currentUser(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_STORE });
     if (!deps.enabled()) {
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.featureUnavailable, code: "FEATURE_DISABLED" }, { status: 404, headers: NO_STORE });
+      return NextResponse.json({ error: authMessage("featureUnavailable", t), code: "FEATURE_DISABLED" }, { status: 404, headers: NO_STORE });
     }
     const rl = await deps.rateLimit({ key: `auth:verify:resend:user:${user.id}`, limit: 3, windowMs: 60 * 60_000 });
     if (!rl.allowed) {
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
+      return NextResponse.json({ error: authMessage("rateLimited", t), code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
     }
     const { locale } = await getServerI18n();
     const result = await deps.request(user.id, new Date(), locale);
     if (result.status === "ALREADY_VERIFIED") {
-      return NextResponse.json({ ok: true, alreadyVerified: true, message: AUTH_MESSAGES_HE.alreadyVerified }, { headers: NO_STORE });
+      return NextResponse.json({ ok: true, alreadyVerified: true, message: authMessage("alreadyVerified", t) }, { headers: NO_STORE });
     }
     if (result.status === "NOT_ISSUED") {
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
+      return NextResponse.json({ error: authMessage("rateLimited", t), code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
     }
     try {
       deps.schedule(result.link.emailId, result.link.businessId);
     } catch (error) {
       console.error("[transactional-email] schedule_failed", { id: result.link.emailId, error: error instanceof Error ? error.name : "unknown" });
     }
-    return NextResponse.json({ ok: true, message: AUTH_MESSAGES_HE.verificationSent }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, message: authMessage("verificationSent", t) }, { headers: NO_STORE });
   } catch (error) {
     console.error("[auth] resend_failed", { error: error instanceof Error ? error.name : "unknown" });
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500, headers: NO_STORE });
+    return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500, headers: NO_STORE });
   }
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { isExportableDomainId } from "@/lib/data-transfer/export/export-registry";
 import { buildImportPreview } from "@/lib/data-transfer/import/preview/preview-orchestrator";
@@ -37,6 +38,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
  * duplicate lookup.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "בקשה לא תקינה", code: "INVALID_BODY" },
+      { error: t("api.common.invalidRequest"), code: "INVALID_BODY" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
   const domain = form.get("domain");
   if (!isExportableDomainId(domain)) {
     return NextResponse.json(
-      { error: "תחום לא נתמך לייבוא", code: "UNKNOWN_DOMAIN" },
+      { error: t("api.dataTransfer.unknownDomain"), code: "UNKNOWN_DOMAIN" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -61,14 +63,14 @@ export async function POST(req: Request) {
   const file = form.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json(
-      { error: "לא נבחר קובץ", code: "FILE_MISSING" },
+      { error: t("api.common.noFileSelected"), code: "FILE_MISSING" },
       { status: 400, headers: NO_STORE }
     );
   }
   if (typeof file.size === "number" && file.size > IMPORT_MAX_FILE_BYTES) {
     const mb = Math.round(IMPORT_MAX_FILE_BYTES / 1024 / 1024);
     return NextResponse.json(
-      { error: `הקובץ גדול מדי (עד ${mb}MB)`, code: "FILE_TOO_LARGE" },
+      { error: t("api.common.fileTooLargeMb", { mb }), code: "FILE_TOO_LARGE" },
       { status: 413, headers: NO_STORE }
     );
   }
@@ -90,7 +92,7 @@ export async function POST(req: Request) {
     }
   } catch {
     return NextResponse.json(
-      { error: "התאמת העמודות אינה תקינה", code: "MAPPING_INVALID" },
+      { error: t("api.dataTransfer.mappingInvalid"), code: "MAPPING_INVALID" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -99,7 +101,7 @@ export async function POST(req: Request) {
   if (bytes.length > IMPORT_MAX_FILE_BYTES) {
     const mb = Math.round(IMPORT_MAX_FILE_BYTES / 1024 / 1024);
     return NextResponse.json(
-      { error: `הקובץ גדול מדי (עד ${mb}MB)`, code: "FILE_TOO_LARGE" },
+      { error: t("api.common.fileTooLargeMb", { mb }), code: "FILE_TOO_LARGE" },
       { status: 413, headers: NO_STORE }
     );
   }
@@ -133,7 +135,7 @@ export async function POST(req: Request) {
       }
     } catch {
       return NextResponse.json(
-        { error: "הבחירות אינן תקינות", code: "DECISIONS_MALFORMED" },
+        { error: t("api.dataTransfer.decisionsInvalid"), code: "DECISIONS_MALFORMED" },
         { status: 400, headers: NO_STORE }
       );
     }
@@ -170,7 +172,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "בדיקת הקובץ נכשלה. נסו שוב מאוחר יותר.", code: "PREVIEW_FAILED" },
+      { error: t("api.dataTransfer.previewFailed"), code: "PREVIEW_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

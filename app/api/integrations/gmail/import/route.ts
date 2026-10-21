@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
+import type { Translator } from "@/lib/i18n/translate";
 import { getCurrentUser } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -69,22 +71,24 @@ function safeNullableNumber(v: unknown): number | null {
 }
 
 export async function POST(req: NextRequest) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
-    return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
   }
   // D2/P7-W4C: the whole import flow runs under the session tenant context.
   // Gmail/OCR/storage network work stays OUTSIDE any tenant transaction; the
   // ctx-aware Gmail services run their DB steps on short tenant txs, and the
   // route-level DB ops below are wrapped explicitly.
   return runWithTenantContext({ businessId: user.businessId }, () =>
-    handleAuthedImport(req, user)
+    handleAuthedImport(req, user, t)
   );
 }
 
 async function handleAuthedImport(
   req: NextRequest,
-  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
+  t: Translator
 ) {
   let cleanup: (() => Promise<void>) | null = null;
   let storedFileName: string | null = null;
@@ -106,14 +110,14 @@ async function handleAuthedImport(
       const parsed =
         typeof rawConnectionId === "number" ? rawConnectionId : Number(rawConnectionId);
       if (!Number.isInteger(parsed) || parsed <= 0) {
-        return NextResponse.json({ error: "connectionId לא תקין" }, { status: 400 });
+        return NextResponse.json({ error: t("api.gmail.invalidConnectionId") }, { status: 400 });
       }
       const owned = await isGmailConnectionOwnedByBusiness({
         businessId: user.businessId,
         connectionId: parsed,
       });
       if (!owned) {
-        return NextResponse.json({ error: "החשבון לא נמצא" }, { status: 404 });
+        return NextResponse.json({ error: t("api.gmail.accountNotFound") }, { status: 404 });
       }
       requestedConnectionId = parsed;
     }
@@ -146,7 +150,7 @@ async function handleAuthedImport(
     if (body.sizeBytes != null && body.sizeBytes > MAX_ATTACHMENT_BYTES) {
       return NextResponse.json(
         {
-          error: "הקובץ גדול מדי (עד 15MB)",
+          error: t("api.common.fileTooLarge15"),
           limitBytes: MAX_ATTACHMENT_BYTES,
           sizeBytes: body.sizeBytes,
         },
@@ -192,7 +196,7 @@ async function handleAuthedImport(
       // The id is not in this message — it never existed, or it belongs to a
       // different one. Either way it cannot be resolved to a type.
       return NextResponse.json(
-        { error: "הקובץ המצורף לא נמצא בהודעה", code: "ATTACHMENT_NOT_IN_MESSAGE" },
+        { error: t("api.gmail.attachmentNotInMessage"), code: "ATTACHMENT_NOT_IN_MESSAGE" },
         { status: 404 }
       );
     }
@@ -201,15 +205,14 @@ async function handleAuthedImport(
     if (isHeicMimeType(gmailMimeType)) {
       return NextResponse.json(
         {
-          error:
-            "פורמט HEIC לא נתמך. צלם מחדש או המר את התמונה ל-JPG (בהגדרות המצלמה: 'תאימות מרבית').",
+          error: t("api.common.heicUnsupported"),
         },
         { status: 415 }
       );
     }
     if (!isAllowedDocumentMime(gmailMimeType)) {
       return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
+        { error: t("api.common.unsupportedFileType") },
         { status: 400 }
       );
     }
@@ -227,7 +230,7 @@ async function handleAuthedImport(
     if (effectiveSize > MAX_ATTACHMENT_BYTES) {
       return NextResponse.json(
         {
-          error: "הקובץ גדול מדי (עד 15MB)",
+          error: t("api.common.fileTooLarge15"),
           limitBytes: MAX_ATTACHMENT_BYTES,
           sizeBytes: effectiveSize,
         },
@@ -236,7 +239,7 @@ async function handleAuthedImport(
     }
 
     if (bytes.length === 0) {
-      return NextResponse.json({ error: "הקובץ המצורף ריק" }, { status: 400 });
+      return NextResponse.json({ error: t("api.gmail.attachmentEmpty") }, { status: 400 });
     }
 
     // Now the bytes decide. Nothing below this line runs for a file whose
@@ -505,7 +508,7 @@ async function handleAuthedImport(
       console.warn("GMAIL_IMPORT_REAUTH_REQUIRED:", error.reason);
       return NextResponse.json(
         {
-          error: "החיבור ל-Gmail פג. יש לחבר מחדש כדי להמשיך.",
+          error: t("api.gmail.reconnectRequired"),
           needsReconnect: true,
         },
         { status: 409 }
@@ -513,7 +516,7 @@ async function handleAuthedImport(
     }
     console.error("GMAIL_IMPORT_ERROR:", error);
     return NextResponse.json(
-      { error: "שגיאה בייבוא המסמך. נסה שוב מאוחר יותר." },
+      { error: t("api.gmail.importFailed") },
       { status: 500 }
     );
   } finally {

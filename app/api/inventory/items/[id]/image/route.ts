@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -18,6 +19,7 @@ function getItemId(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(request);
     if (!user) {
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
       // storage provider names, or other infrastructure details to the client.
       console.error("Inventory item image upload — storage config error:", err);
       return NextResponse.json(
-        { error: "לא ניתן להעלות תמונת מוצר כרגע. נסה שוב מאוחר יותר." },
+        { error: t("api.inventory.imageUploadUnavailable") },
         { status: 503 }
       );
     }
