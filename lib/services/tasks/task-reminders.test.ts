@@ -9,8 +9,8 @@
  *  3. The journal: the new payload keys fit the closed schema (an ISO moment is a valid token); free text is not.
  *  4. Push: only https endpoints on the known browser push services (no arbitrary host — no SSRF); VAPID needs all
  *     three variables and a mailto:/https: subject.
- *  5. The dispatcher's door: no secret and no keys → 503; a wrong bearer → 401; a QStash signature with no keys →
- *     503; a forged or wrongly-addressed signature → 401; a valid one for THIS url → accepted.
+ *  5. The dispatcher's door (QStash only): no signature → 401; a signature with no keys → 503; a forged,
+ *     wrongly-addressed or wrong-body signature → 401; a valid one for THIS url → accepted.
  */
 import { createHash, createHmac } from "node:crypto";
 
@@ -101,26 +101,18 @@ function qstashJwt(key: string, url: string, body: string, nowSec: number): stri
 async function door() {
   const keys = { QSTASH_CURRENT_SIGNING_KEY: "sig_current_test_key", QSTASH_NEXT_SIGNING_KEY: "sig_next_test_key" };
   const nowSec = Math.floor(Date.now() / 1000);
-  ok("door: nothing configured → 503", (await authorizeReminderDispatch({ authorization: null, signature: null, body: "" }, {})).ok === false);
-  const wrongBearer = await authorizeReminderDispatch({ authorization: "Bearer nope", signature: null, body: "" }, { CRON_SECRET: "the-right-secret-value-0123456789" });
-  ok("door: a wrong bearer → 401", !wrongBearer.ok && wrongBearer.status === 401);
-  const rightBearer = await authorizeReminderDispatch({ authorization: "Bearer the-right-secret-value-0123456789", signature: null, body: "" }, { CRON_SECRET: "the-right-secret-value-0123456789" });
-  ok("door: the CRON_SECRET bearer → accepted", rightBearer.ok === true && rightBearer.via === "cron");
-  const noKeys = await authorizeReminderDispatch({ authorization: null, signature: "x.y.z", body: "" }, {});
+  const none = await authorizeReminderDispatch({ signature: null, body: "" }, keys);
+  ok("door: no signature → 401 (there is no bearer path)", !none.ok && none.status === 401);
+  const noKeys = await authorizeReminderDispatch({ signature: "x.y.z", body: "" }, {});
   ok("door: a signature with no keys configured → 503", !noKeys.ok && noKeys.status === 503);
-  const forged = await authorizeReminderDispatch({ authorization: null, signature: qstashJwt("another_key", REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" }, keys);
+  const forged = await authorizeReminderDispatch({ signature: qstashJwt("another_key", REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" }, keys);
   ok("door: a forged signature → 401", !forged.ok && forged.status === 401);
-  const wrongUrl = await authorizeReminderDispatch({ authorization: null, signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, "https://promaxgroup.co.il/api/intake/sweep", "{}", nowSec), body: "{}" }, keys);
+  const wrongUrl = await authorizeReminderDispatch({ signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, "https://promaxgroup.co.il/api/intake/sweep", "{}", nowSec), body: "{}" }, keys);
   ok("door: a valid signature for ANOTHER url → 401", !wrongUrl.ok && wrongUrl.status === 401);
-  const wrongBody = await authorizeReminderDispatch({ authorization: null, signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, REMINDER_DISPATCH_URL, "{}", nowSec), body: "{\"x\":1}" }, keys);
+  const wrongBody = await authorizeReminderDispatch({ signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, REMINDER_DISPATCH_URL, "{}", nowSec), body: "{\"x\":1}" }, keys);
   ok("door: a valid signature over another body → 401", !wrongBody.ok && wrongBody.status === 401);
-  const good = await authorizeReminderDispatch({ authorization: null, signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" }, keys);
+  const good = await authorizeReminderDispatch({ signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" }, keys);
   ok("door: a valid QStash signature for THIS url → accepted", good.ok === true && good.via === "qstash", good);
-  const badWithBearer = await authorizeReminderDispatch(
-    { authorization: "Bearer the-right-secret-value-0123456789", signature: qstashJwt("another_key", REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" },
-    { ...keys, CRON_SECRET: "the-right-secret-value-0123456789" },
-  );
-  ok("door: an invalid signature is refused even with a valid bearer", !badWithBearer.ok);
 }
 
 door().then(() => {

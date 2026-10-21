@@ -504,6 +504,18 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "task_request_ledger_runtime_delete", command: "DELETE", using: TENANT },
     ],
   },
+  // Task reminders — migration 20261022090000_task_reminders_push. Account erasure (stage 2) blanks every push
+  // subscription of the business in place (endpoint erased:<id>, keys empty) and revokes it; no DELETE policy.
+  {
+    table: "PushSubscription",
+    migration: "20261022090000_task_reminders_push",
+    why: "stage 2 blanks and revokes the business's Web Push subscriptions with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "push_subscription_tenant_select", command: "SELECT", using: TENANT },
+      { name: "push_subscription_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "push_subscription_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -726,6 +738,7 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   },
   Task: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
   TaskSeries: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  PushSubscription: { verbs: SIU, basis: "migration 20261022090000_task_reminders_push grants SELECT, INSERT, UPDATE — no DELETE" },
   TaskRequestLedger: {
     verbs: ["SELECT", "INSERT", "DELETE"],
     basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, DELETE — fingerprints are deleted, never updated",

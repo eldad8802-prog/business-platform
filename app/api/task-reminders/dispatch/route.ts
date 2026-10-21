@@ -6,8 +6,8 @@ import { dispatchDueReminders } from "@/lib/services/tasks/task-reminders.servic
 /**
  * Reminder dispatcher — sends every due personal-task reminder (bell + Web Push), exactly once.
  *
- * Callers (lib/services/tasks/reminder-dispatch-auth.ts): QStash — a message published for each reminder's moment,
- * and a schedule every few minutes as the safety net — or the CRON_SECRET bearer. Never a user session and never a
+ * The only caller (lib/services/tasks/reminder-dispatch-auth.ts): QStash — a message published for each reminder's
+ * moment, and a schedule every few minutes as the safety net — verified by signature for THIS url. Never a user session and never a
  * tenant from the caller: the due reminders come from task_reminders_due() (identifiers only) and each one is
  * claimed inside its own business's tenant transaction. The body is ignored beyond its signature. The response is
  * counts only. Concurrent runs are safe: the claim has one winner.
@@ -18,7 +18,6 @@ export const maxDuration = 60;
 
 async function handle(req: NextRequest, body: string) {
   const auth = await authorizeReminderDispatch({
-    authorization: req.headers.get("authorization"),
     signature: req.headers.get("upstash-signature"),
     body,
   });
@@ -36,6 +35,3 @@ export async function POST(req: NextRequest) {
   return handle(req, await req.text());
 }
 
-export async function GET(req: NextRequest) {
-  return handle(req, "");
-}
