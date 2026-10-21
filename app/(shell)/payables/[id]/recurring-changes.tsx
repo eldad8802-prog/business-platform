@@ -8,114 +8,89 @@
  *                              take Y. A paid occurrence refuses the change.
  *   "ההתחייבות מסתיימת ב-X" → the last day it is in effect. Unpaid occurrences
  *                              after X are cancelled; nothing before X changes.
+ *
+ * Each form lives in its own dialog (opened from the commitment's "עוד" menu).
+ * Ending is destructive, so its dialog states what will be cancelled and its
+ * submit is the danger button — the dialog is the confirmation.
  */
 
 import { useState } from "react";
-import { changeRecurringAmount, endCommitment, formatDate } from "@/lib/payables/payables-client";
-import styles from "../payables.module.css";
-
-function todayIso(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
+import { changeRecurringAmount, endCommitment } from "@/lib/payables/payables-client";
+import { Button, Field, Notice, fieldInputClass, israelDayKey } from "@/components/finance-ui";
 
 /** A civil date as the API expects it: Israel noon, so no zone can shift the day. */
 function civilIso(date: string): string {
   return new Date(date + "T12:00:00+03:00").toISOString();
 }
 
-export function RecurringChanges({
-  commitmentId,
-  endAt,
-  run,
-}: {
-  commitmentId: number;
-  endAt: string | null;
-  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
-}) {
-  const [mode, setMode] = useState<"none" | "amount" | "end">("none");
-  const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
+type Run = (action: () => Promise<unknown>, success: string) => Promise<boolean>;
+
+export function RecurringAmountForm({ commitmentId, run, onDone, onCancel }: { commitmentId: number; run: Run; onDone: () => void; onCancel: () => void }) {
+  const [effectiveFrom, setEffectiveFrom] = useState(israelDayKey(new Date()));
   const [amount, setAmount] = useState("");
-  const [endsOn, setEndsOn] = useState(todayIso());
   const [busy, setBusy] = useState(false);
-
-  async function submit(action: () => Promise<unknown>, success: string) {
-    setBusy(true);
-    try {
-      await run(action, success);
-      setMode("none");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <div className={styles.form}>
-      {endAt ? <div className={styles.notice}>ההתחייבות בתוקף עד {formatDate(endAt)} (כולל).</div> : null}
-      <div className={styles.formRow2}>
-        <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => setMode(mode === "amount" ? "none" : "amount")}>
-          שינוי סכום מתאריך
-        </button>
-        <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => setMode(mode === "end" ? "none" : "end")}>
-          סיום ההתחייבות
-        </button>
+    <form
+      style={{ display: "grid", gap: 12 }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const ok = await run(
+          () => changeRecurringAmount(commitmentId, { effectiveFrom: civilIso(effectiveFrom), amount: amount.trim() }),
+          "הסכום עודכן מהמועד שבתאריך שנבחר ואילך. מועדים קודמים לא השתנו.",
+        );
+        setBusy(false);
+        if (ok) onDone();
+      }}
+    >
+      <Notice tone="neutral">מועדים לפני התאריך שומרים על הסכום שלהם. אם כבר נרשם תשלום למועד שמשתנה, השינוי לא יתבצע.</Notice>
+      <Field label="החל מתאריך" htmlFor="rc-from">
+        <input id="rc-from" className={fieldInputClass} type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} required />
+      </Field>
+      <Field label="הסכום החדש" htmlFor="rc-amount">
+        <input id="rc-amount" className={fieldInputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="9500.00" required />
+      </Field>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <Button type="submit" variant="primary" busy={busy} busyLabel="מעדכן…">
+          עדכון הסכום
+        </Button>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          ביטול
+        </Button>
       </div>
+    </form>
+  );
+}
 
-      {mode === "amount" ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit(
-              () => changeRecurringAmount(commitmentId, { effectiveFrom: civilIso(effectiveFrom), amount: amount.trim() }),
-              "הסכום עודכן מהתשלום שבתאריך שנבחר ואילך. תשלומים קודמים לא השתנו.",
-            );
-          }}
-        >
-          <div className={styles.formRow2}>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="rc-from">
-                החל מתאריך
-              </label>
-              <input id="rc-from" className={styles.input} type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} required />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="rc-amount">
-                הסכום החדש
-              </label>
-              <input id="rc-amount" className={styles.input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="9500.00" required />
-            </div>
-          </div>
-          <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-            {busy ? "מעדכן…" : "עדכן סכום"}
-          </button>
-        </form>
-      ) : null}
-
-      {mode === "end" ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit(
-              () => endCommitment(commitmentId, { endsOn: civilIso(endsOn) }),
-              "ההתחייבות תסתיים בתאריך שנבחר. תשלומים שלא שולמו אחריו בוטלו.",
-            );
-          }}
-        >
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="rc-end">
-              היום האחרון שבו ההתחייבות בתוקף
-            </label>
-            <input id="rc-end" className={styles.input} type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} required />
-          </div>
-          <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-            {busy ? "מעדכן…" : "סיים התחייבות"}
-          </button>
-        </form>
-      ) : null}
-    </div>
+export function EndCommitmentForm({ commitmentId, run, onDone, onCancel }: { commitmentId: number; run: Run; onDone: () => void; onCancel: () => void }) {
+  const [endsOn, setEndsOn] = useState(israelDayKey(new Date()));
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      style={{ display: "grid", gap: 12 }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const ok = await run(
+          () => endCommitment(commitmentId, { endsOn: civilIso(endsOn) }),
+          "ההתחייבות תסתיים בתאריך שנבחר. מועדים שלא שולמו אחריו בוטלו.",
+        );
+        setBusy(false);
+        if (ok) onDone();
+      }}
+    >
+      <Notice tone="warning">מועדים שלא שולמו אחרי התאריך הזה יבוטלו. מה שלפניו לא משתנה, ותשלומים שכבר נרשמו נשמרים.</Notice>
+      <Field label="היום האחרון שבו ההתחייבות בתוקף" htmlFor="rc-end">
+        <input id="rc-end" className={fieldInputClass} type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} required />
+      </Field>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <Button type="submit" variant="danger" busy={busy} busyLabel="מעדכן…">
+          סיום ההתחייבות
+        </Button>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          ביטול
+        </Button>
+      </div>
+    </form>
   );
 }

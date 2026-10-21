@@ -22,6 +22,7 @@ import {
   type InstallmentApi,
 } from "@/lib/payables/payables-client";
 import styles from "./payables.module.css";
+import { hebrewErrorMessage, useConfirm } from "@/components/finance-ui";
 
 /** Today in the OWNER's calendar — a UTC date is yesterday before 03:00 in Israel. */
 function todayISO(): string {
@@ -57,6 +58,7 @@ export function BankAccountsSection({
 }) {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNode, confirm] = useConfirm();
 
   async function run(action: () => Promise<unknown>, message: string) {
     setError(null);
@@ -64,7 +66,7 @@ export function BankAccountsSection({
       await action();
       onChanged(message);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(hebrewErrorMessage(e, "הפעולה לא הצליחה. אפשר לנסות שוב."));
     }
   }
 
@@ -114,11 +116,13 @@ export function BankAccountsSection({
                   <button
                     type="button"
                     className={styles.buttonQuiet}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          "להעביר את החשבון לארכיון? צ׳קים שכבר נכתבו ממנו נשמרים, אך לא ניתן יהיה לכתוב ממנו צ׳קים חדשים.",
-                        )
+                        await confirm({
+                          title: "להעביר את החשבון לארכיון?",
+                          body: "צ׳קים שכבר נכתבו ממנו נשמרים, אך לא ניתן יהיה לכתוב ממנו צ׳קים חדשים.",
+                          confirmLabel: "העברה לארכיון",
+                        })
                       ) {
                         run(() => archiveBankAccount(a.id), "החשבון הועבר לארכיון.");
                       }
@@ -153,6 +157,7 @@ export function BankAccountsSection({
           }}
         />
       )}
+      {confirmNode}
     </>
   );
 }
@@ -508,6 +513,7 @@ export function ChequeCard({
   const [newDue, setNewDue] = useState(cheque.dueDate.slice(0, 10));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmNode, confirm] = useConfirm();
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -609,12 +615,14 @@ export function ChequeCard({
               type="button"
               className={styles.buttonQuiet}
               disabled={busy}
-              onClick={() => {
-                const note =
-                  cheque.status === "CLEARED"
-                    ? "לסמן שהצ׳ק חזר? התשלום שנרשם כשסומן כנפרע יבוטל (הרישום נשמר ומתועד)."
-                    : "לסמן שהצ׳ק חזר?";
-                if (window.confirm(note)) {
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "לסמן שהצ׳ק חזר?",
+                    body: cheque.status === "CLEARED" ? "התשלום שנרשם כשסומן כנפרע יבוטל. הרישום נשמר ומתועד." : undefined,
+                    confirmLabel: "סימון כחוזר",
+                  })
+                ) {
                   run(async () => {
                     await bounceCheque(cheque.id, "סומן כחוזר על ידי בעל העסק");
                     return `צ׳ק #${cheque.chequeNumber} סומן כחוזר.`;
@@ -635,8 +643,8 @@ export function ChequeCard({
               type="button"
               className={styles.buttonQuiet}
               disabled={busy}
-              onClick={() => {
-                if (window.confirm("לבטל את הצ׳ק? הרישום נשמר, והמספר ישוחרר.")) {
+              onClick={async () => {
+                if (await confirm({ title: "לבטל את הצ׳ק?", body: "הרישום נשמר, והמספר ישוחרר.", confirmLabel: "ביטול הצ׳ק" })) {
                   run(async () => {
                     await cancelCheque(cheque.id, "בוטל על ידי בעל העסק");
                     return `צ׳ק #${cheque.chequeNumber} בוטל.`;
@@ -647,6 +655,7 @@ export function ChequeCard({
               בטל צ׳ק
             </button>
           )}
+          {confirmNode}
         </div>
       )}
 

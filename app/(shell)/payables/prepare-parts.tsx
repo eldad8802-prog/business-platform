@@ -23,6 +23,7 @@ import {
   type PreparationStatus,
 } from "@/lib/payables/payables-client";
 import styles from "./payables.module.css";
+import { useConfirm } from "@/components/finance-ui";
 
 const METHODS = ["BANK_TRANSFER", "CASH", "CREDIT_CARD", "DIRECT_DEBIT", "STANDING_ORDER", "BIT", "PAYBOX", "OTHER"] as const;
 
@@ -78,6 +79,7 @@ export function PreparationCard({
   const [paidAt, setPaidAt] = useState(todayISO());
   const [ref, setRef] = useState("");
   const [revealed, setRevealed] = useState<{ bankCode: string; branchCode: string; accountNumber: string } | null>(null);
+  const [confirmNode, confirm] = useConfirm();
 
   async function run(fn: () => Promise<string>) {
     setBusy(true);
@@ -164,8 +166,15 @@ export function PreparationCard({
               type="button"
               className={styles.buttonPrimary}
               disabled={busy}
-              onClick={() => {
-                if (window.confirm(`לאשר תשלום של ${formatMoney(prep.amount, prep.currency)} ל${prep.payee.name}? האישור לא מעביר כסף.`)) {
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `לאשר תשלום של ${formatMoney(prep.amount, prep.currency)} ל${prep.payee.name}?`,
+                    body: "האישור לא מעביר כסף. הוא מסמן שהתשלום בדוק ומוכן לביצוע.",
+                    confirmLabel: "אישור התשלום",
+                    tone: "primary",
+                  })
+                ) {
                   run(async () => {
                     await approvePreparation(prep.id);
                     return "התשלום אושר. עדיין לא הועבר כסף.";
@@ -203,8 +212,8 @@ export function PreparationCard({
               type="button"
               className={styles.buttonQuiet}
               disabled={busy}
-              onClick={() => {
-                if (window.confirm("לבטל את התשלום המוכן? לא שולם דבר.")) {
+              onClick={async () => {
+                if (await confirm({ title: "לבטל את התשלום המוכן?", body: "לא שולם דבר.", confirmLabel: "ביטול התשלום המוכן" })) {
                   run(async () => {
                     await cancelPreparation(prep.id, "בוטל על ידי בעל העסק");
                     return "התשלום המוכן בוטל.";
@@ -215,6 +224,7 @@ export function PreparationCard({
               בטל
             </button>
           )}
+          {confirmNode}
         </div>
       )}
       {a.execute && !providersLive && (

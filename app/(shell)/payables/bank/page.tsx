@@ -23,6 +23,7 @@ import {
 } from "@/lib/payables/payables-client";
 import { PAYABLES_THEME } from "../payables-theme";
 import styles from "../payables.module.css";
+import { hebrewErrorMessage, useConfirm } from "@/components/finance-ui";
 
 function todayISO(): string {
   const d = new Date();
@@ -138,6 +139,7 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
   const [sugs, setSugs] = useState<{ list: BankSuggestionApi[]; ambiguous: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNode, confirm] = useConfirm();
 
   async function run(fn: () => Promise<string>) {
     setBusy(true);
@@ -145,7 +147,7 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
     try {
       onChanged(await fn());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(hebrewErrorMessage(e, "הפעולה לא הצליחה. אפשר לנסות שוב."));
     } finally {
       setBusy(false);
     }
@@ -207,14 +209,15 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
             type="button"
             className={styles.buttonQuiet}
             disabled={busy}
-            onClick={() => {
-              if (window.confirm("לנתק את התנועה מהתשלום? התשלום עצמו לא ישתנה.")) {
+            onClick={async () => {
+              if (await confirm({ title: "לנתק את התנועה מהתשלום?", body: "התשלום עצמו לא ישתנה.", confirmLabel: "ניתוק השיוך" })) {
                 run(async () => { await revokeBankEvidence(line.matchedPayment!.evidenceId); return "התנועה נותקה. התשלום לא השתנה."; });
               }
             }}
           >
             נתק שיוך
           </button>
+          {confirmNode}
         </div>
       )}
 
@@ -247,7 +250,15 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
                     await recordPaymentFromBankLine(line.id, { commitmentId: s.commitmentId, installmentId: s.installmentId });
                   } catch (e) {
                     const msg = e instanceof Error ? e.message : "";
-                    if (/already recorded/.test(msg) && window.confirm("כבר רשום תשלום בסכום הזה להתחייבות. זה תשלום אחר ונפרד?")) {
+                    if (
+                      /already recorded/.test(msg) &&
+                      (await confirm({
+                        title: "כבר רשום תשלום בסכום הזה להתחייבות",
+                        body: "זה תשלום אחר ונפרד? אם כן, יירשם תשלום נוסף לפי התנועה.",
+                        confirmLabel: "כן, תשלום נפרד",
+                        tone: "primary",
+                      }))
+                    ) {
                       await recordPaymentFromBankLine(line.id, { commitmentId: s.commitmentId, installmentId: s.installmentId, acknowledgeSimilarPayment: true });
                     } else throw e;
                   }
