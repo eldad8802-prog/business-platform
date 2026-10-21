@@ -1,9 +1,11 @@
 import type { InboxWorkCategoryId } from "@/lib/inbox-view/work-category";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 export type InboxCategoryVisual = {
   id: InboxWorkCategoryId;
-  label: string;
-  subtitle: string;
+  /** Dictionary keys — the list translates them (`inbox.categoryVisuals.*`). */
+  labelKey: MessageKey;
+  subtitleKey: MessageKey;
   icon: string;
   iconBg: string;
   iconColor: string;
@@ -13,64 +15,64 @@ export type InboxCategoryVisual = {
 export const INBOX_CATEGORY_VISUALS: readonly InboxCategoryVisual[] = [
   {
     id: "needs_action",
-    label: "דחוף - טיפול נדרש",
-    subtitle: "לקוחות שמחכים לך עכשיו",
+    labelKey: "inbox.categoryVisuals.needs_action.label",
+    subtitleKey: "inbox.categoryVisuals.needs_action.subtitle",
     icon: "⚡",
     iconBg: "var(--dz-danger-bg)",
     iconColor: "var(--dz-danger)",
   },
   {
     id: "hot_leads",
-    label: "חם - הזדמנות",
-    subtitle: "פניות עם סיכוי גבוה לעסקה",
+    labelKey: "inbox.categoryVisuals.hot_leads.label",
+    subtitleKey: "inbox.categoryVisuals.hot_leads.subtitle",
     icon: "🔥",
     iconBg: "var(--dz-warning-bg)",
     iconColor: "var(--dz-warning)",
   },
   {
     id: "active",
-    label: "ממתין לתשובת לקוח",
-    subtitle: "שלחת — מחכים לתגובה",
+    labelKey: "inbox.categoryVisuals.active.label",
+    subtitleKey: "inbox.categoryVisuals.active.subtitle",
     icon: "⏳",
     iconBg: "var(--dz-warning-bg)",
     iconColor: "var(--dz-warning)",
   },
   {
     id: "bot_in_progress",
-    label: "טיוטות מוכנות",
-    subtitle: "הבוט הכין — אתה שולח ללקוח",
+    labelKey: "inbox.categoryVisuals.bot_in_progress.label",
+    subtitleKey: "inbox.categoryVisuals.bot_in_progress.subtitle",
     icon: "📝",
     iconBg: "var(--dz-success-bg)",
     iconColor: "var(--dz-success)",
   },
   {
     id: "follow_up",
-    label: "חוזר לעדכן",
-    subtitle: "שיחות שלא כדאי לשכוח",
+    labelKey: "inbox.categoryVisuals.follow_up.label",
+    subtitleKey: "inbox.categoryVisuals.follow_up.subtitle",
     icon: "🔔",
     iconBg: "var(--dz-info-bg)",
     iconColor: "var(--dz-info)",
   },
   {
     id: "handoff",
-    label: "מחכה לך",
-    subtitle: "הבוט סיים — אתה ממשיך",
+    labelKey: "inbox.categoryVisuals.handoff.label",
+    subtitleKey: "inbox.categoryVisuals.handoff.subtitle",
     icon: "→",
     iconBg: "var(--dz-surface-muted)",
     iconColor: "var(--dz-text-muted)",
   },
   {
     id: "drafts_ready",
-    label: "ניסוח תגובות",
-    subtitle: "טיוטות מוכנות לשליחה",
+    labelKey: "inbox.categoryVisuals.drafts_ready.label",
+    subtitleKey: "inbox.categoryVisuals.drafts_ready.subtitle",
     icon: "✍️",
     iconBg: "var(--dz-brand-soft)",
     iconColor: "var(--dz-brand)",
   },
   {
     id: "closed",
-    label: "נסגרו",
-    subtitle: "היסטוריה ושיחות שטופלו",
+    labelKey: "inbox.categoryVisuals.closed.label",
+    subtitleKey: "inbox.categoryVisuals.closed.subtitle",
     icon: "✓",
     iconBg: "var(--dz-success-bg-soft)",
     iconColor: "var(--dz-success)",

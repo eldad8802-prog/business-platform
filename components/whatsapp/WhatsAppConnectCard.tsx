@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnection } from "./use-whatsapp-connection";
 
@@ -13,6 +14,7 @@ import { useWhatsAppConnection } from "./use-whatsapp-connection";
  * or once connected, so it is safe to mount anywhere in the inbox.
  */
 export function WhatsAppConnectCard() {
+  const { t } = useI18n();
   const router = useRouter();
   const state = useWhatsAppConnection();
 
@@ -22,7 +24,6 @@ export function WhatsAppConnectCard() {
 
   return (
     <div
-      dir="rtl"
       style={{
         margin: TOKEN.space.lg,
         background: TOKEN.surface.card,
@@ -66,7 +67,7 @@ export function WhatsAppConnectCard() {
               lineHeight: 1.3,
             }}
           >
-            המזכירה שלך עדיין לא עובדת
+            {t("inbox.whatsapp.connectCard.title")}
           </div>
           <p
             style={{
@@ -76,8 +77,7 @@ export function WhatsAppConnectCard() {
               lineHeight: 1.5,
             }}
           >
-            חבר את ה-WhatsApp שלך כדי שהמזכירה תוכל לעקוב אחרי לקוחות, להכין
-            תשובות ולהזכיר למי לחזור.
+            {t("inbox.whatsapp.connectCard.body")}
           </p>
         </div>
       </div>
@@ -99,7 +99,7 @@ export function WhatsAppConnectCard() {
           cursor: "pointer",
         }}
       >
-        הפעל את המזכירה
+        {t("inbox.whatsapp.connectCard.cta")}
       </button>
     </div>
   );

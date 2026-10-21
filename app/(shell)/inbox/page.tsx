@@ -16,7 +16,8 @@ import {
 import { InboxConnectedEmptyState } from "@/components/inbox/InboxConnectedEmptyState";
 import { InboxContextPane, InboxStartPane } from "@/components/inbox/InboxDesktopPanels";
 import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
-import { WA_COPY } from "@/components/whatsapp/wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import {
   assignInboxWorkCategory,
@@ -126,11 +127,11 @@ function Pressable({
   );
 }
 
-function getStageLabel(stage: string | null | undefined) {
-  if (!stage) return "לא ידוע";
-  if (stage === "early") return "התחלה";
-  if (stage === "middle") return "אמצע";
-  if (stage === "closing") return "סגירה";
+function getStageLabel(stage: string | null | undefined, t: Translator) {
+  if (!stage) return t("inbox.page.stage.unknown");
+  if (stage === "early") return t("inbox.page.stage.early");
+  if (stage === "middle") return t("inbox.page.stage.middle");
+  if (stage === "closing") return t("inbox.page.stage.closing");
   return stage;
 }
 
@@ -138,8 +139,9 @@ function getSmartIndicator(params: {
   currentStage: string | null | undefined;
   messages?: Message[];
   suggestions?: Suggestion[];
+  t: Translator;
 }): SmartIndicator {
-  const { currentStage, messages = [], suggestions = [] } = params;
+  const { currentStage, messages = [], suggestions = [], t } = params;
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
 
@@ -149,7 +151,7 @@ function getSmartIndicator(params: {
 
   if (hasPendingSuggestions) {
     return {
-      label: "דורש תגובה",
+      label: t("inbox.page.indicator.needsReply"),
       emoji: "🔥",
       color: "var(--dz-warning)",
       border: "var(--dz-warning-accent)",
@@ -158,7 +160,7 @@ function getSmartIndicator(params: {
 
   if (lastMessage?.senderType === "CUSTOMER") {
     return {
-      label: "ממתין לבעל העסק",
+      label: t("inbox.page.indicator.waitingOwner"),
       emoji: "⏳",
       color: "var(--dz-info)",
       border: "var(--dz-info-accent)",
@@ -167,7 +169,7 @@ function getSmartIndicator(params: {
 
   if (currentStage === "closing") {
     return {
-      label: "שיחה מתקדמת",
+      label: t("inbox.page.indicator.advanced"),
       emoji: "⚡",
       color: "var(--dz-success)",
       border: "var(--dz-success-accent)",
@@ -176,7 +178,7 @@ function getSmartIndicator(params: {
 
   if (currentStage === "middle") {
     return {
-      label: "שיחה פעילה",
+      label: t("inbox.page.indicator.active"),
       emoji: "💬",
       color: "var(--dz-brand)",
       border: "var(--dz-brand)",
@@ -184,7 +186,7 @@ function getSmartIndicator(params: {
   }
 
   return {
-    label: "שיחה חדשה",
+    label: t("inbox.page.indicator.new"),
     emoji: "🆕",
     color: "var(--dz-text-secondary)",
     border: "var(--dz-border-strong)",
@@ -211,6 +213,8 @@ function newSendToken(): string {
 }
 
 function InboxPageContent() {
+  const { t } = useI18n();
+  const stageLabel = (stage: string | null | undefined) => getStageLabel(stage, t);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -698,7 +702,7 @@ function InboxPageContent() {
               : wa.reason === "not_connected"
                 ? "notConnected"
                 : "failed";
-        setSendNotice(WA_COPY.outbound[reasonKey]);
+        setSendNotice(t(`inbox.whatsapp.outbound.${reasonKey}` as MessageKey));
       } else {
         setSendNotice(null);
       }
@@ -1023,6 +1027,7 @@ function InboxPageContent() {
     currentStage: activeConversation?.currentStage,
     messages,
     suggestions,
+    t,
   });
 
   const detailViewMode: "OPEN" | "CLOSED" =
@@ -1039,25 +1044,28 @@ function InboxPageContent() {
 
     return [
       {
-        label: "מחכים לך",
+        label: t("inbox.page.summary.waitingLabel"),
         value: dailyContext?.urgentCount ?? getSmartCount("needs_action"),
         tone: "urgent" as const,
-        helper: "כאן מתחילים, כדי שאף לקוח לא יישאר באוויר",
+        helper: t("inbox.page.summary.waitingHelper"),
       },
       {
-        label: "אפשר לסגור מהר",
+        label: t("inbox.page.summary.quickLabel"),
         value: getSmartCount("drafts_ready"),
         tone: "calm" as const,
-        helper: "טיוטות שהמערכת כבר הכינה לך",
+        helper: t("inbox.page.summary.quickHelper"),
       },
       {
-        label: "לא צריך לגעת כרגע",
+        label: t("inbox.page.summary.calmLabel"),
         value: getSmartCount("bot_in_progress"),
         tone: "bot" as const,
-        helper: `טיוטות מוכנות — אתה שולח. ${openCount} שיחות פתוחות`,
+        helper:
+          openCount === 1
+            ? t("inbox.page.summary.calmHelperOne", { count: openCount })
+            : t("inbox.page.summary.calmHelper", { count: openCount }),
       },
     ];
-  }, [allConversationItems, dailyContext, sidebarCounts]);
+  }, [allConversationItems, dailyContext, sidebarCounts, t]);
 
   /** The desktop start pane opens the most pressing open conversation. */
   const nextConversationItem = useMemo(
@@ -1114,8 +1122,8 @@ function InboxPageContent() {
 
   if (!authToken) {
     return (
-      <div style={{ direction: "rtl", padding: 32, textAlign: "center", color: "var(--dz-text-muted)" }}>
-        יש להתחבר כדי לגשת לתיבת הדואר.
+      <div style={{ padding: 32, textAlign: "center", color: "var(--dz-text-muted)" }}>
+        {t("inbox.page.loginRequired")}
       </div>
     );
   }
@@ -1174,7 +1182,7 @@ function InboxPageContent() {
   // lives in this consumer's CSS-toggled wrappers — the primitive stays a bare
   // two-region structure and Customers' shared-scroll adoption is untouched.
   const inboxCss = `
-[data-inbox="${inboxScope}"] { height: 100%; box-sizing: border-box; background: var(--dz-surface-muted); direction: rtl; overflow-x: hidden; }
+[data-inbox="${inboxScope}"] { height: 100%; box-sizing: border-box; background: var(--dz-surface-muted); overflow-x: hidden; }
 [data-inbox="${inboxScope}"] > .inbox-frame { height: 100%; box-sizing: border-box; }
 [data-inbox="${inboxScope}"] .list-frame { height: 100%; box-sizing: border-box; }
 [data-inbox="${inboxScope}"] .list-frame > .list-desktop { display: none; }
@@ -1220,7 +1228,7 @@ function InboxPageContent() {
   [data-inbox="${inboxScope}"] .inbox-start-open {
     margin-top: 16px; width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 12px 16px; border-radius: 16px; border: 1px solid var(--dz-brand); background: var(--dz-brand-soft);
-    color: var(--dz-brand); font: inherit; font-size: 14px; text-align: right; cursor: pointer;
+    color: var(--dz-brand); font: inherit; font-size: 14px; text-align: start; cursor: pointer;
   }
   [data-inbox="${inboxScope}"] .inbox-start-open b { color: var(--dz-text-primary); }
 }
@@ -1265,8 +1273,8 @@ function InboxPageContent() {
               visible: activeConversationId != null ? "end" : "start",
             }}
             scrollModel="split"
-            startLabel="רשימת שיחות"
-            endLabel="שיחה"
+            startLabel={t("inbox.page.listRegion")}
+            endLabel={t("inbox.page.threadRegion")}
             start={
               <div className="list-frame">
                 {/* Desktop surface: focus tabs + desktop list (shown ≥ step). */}
@@ -1293,7 +1301,7 @@ function InboxPageContent() {
                       onSelectConversation={handleSelectConversation}
                       searchQuery={listSearchQuery}
                       onSearchQueryChange={setListSearchQuery}
-                      getStageLabel={getStageLabel}
+                      getStageLabel={stageLabel}
                       styles={{
                         softButtonStyle,
                         accentButtonStyle,
@@ -1319,7 +1327,7 @@ function InboxPageContent() {
                     smartCategoryRows={smartCategoryRows}
                     activeConversationId={activeConversationId}
                     onSelectConversation={handleSelectConversation}
-                    getStageLabel={getStageLabel}
+                    getStageLabel={stageLabel}
                     styles={{
                       softButtonStyle,
                       accentButtonStyle,
@@ -1346,7 +1354,7 @@ function InboxPageContent() {
                   activeConversation={activeConversation}
                   activeItem={activeItem}
                   activeIndicator={activeIndicator}
-                  getStageLabel={getStageLabel}
+                  getStageLabel={stageLabel}
                   messages={messages}
                   suggestions={suggestions}
                   selectedSuggestionId={selectedSuggestionId}
@@ -1459,6 +1467,7 @@ function DesktopFocusTabs({
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const countFor = (id: InboxSidebarSelection): number => {
     if (fallbackCounts.kind === "legacy") {
       return id === "closed" ? fallbackCounts.closed : fallbackCounts.open;
@@ -1475,10 +1484,13 @@ function DesktopFocusTabs({
   // Labels come from the canonical category list the phone triage uses, so a
   // tab never reads differently on desktop (two tabs used to both say
   // "טיוטות" for different categories).
+  // (Translated via the same id-keyed names: `inbox.workCategories.*`.)
   const categoryLabel = (id: InboxWorkCategoryId) =>
-    INBOX_SIDEBAR_CATEGORY_OPTIONS.find((option) => option.id === id)?.label ?? id;
+    INBOX_SIDEBAR_CATEGORY_OPTIONS.some((option) => option.id === id)
+      ? t(`inbox.workCategories.${id}` as MessageKey)
+      : id;
   const focusRows: Array<{ id: InboxSidebarSelection; label: string }> = [
-    { id: INBOX_SIDEBAR_LEGACY_OPEN, label: "הכל" },
+    { id: INBOX_SIDEBAR_LEGACY_OPEN, label: t("inbox.page.focusAll") },
     { id: "needs_action", label: categoryLabel("needs_action") },
     { id: "drafts_ready", label: categoryLabel("drafts_ready") },
     { id: "bot_in_progress", label: categoryLabel("bot_in_progress") },
@@ -1493,13 +1505,13 @@ function DesktopFocusTabs({
       }}
     >
       <div style={{ fontSize: 18, fontWeight: 900, color: "var(--dz-text-primary)", marginBottom: 12 }}>
-        שיחות
+        {t("inbox.page.title")}
       </div>
       <input
         type="search"
         value={searchQuery}
         onChange={(e) => onSearchQueryChange(e.target.value)}
-        placeholder="חיפוש שיחות..."
+        placeholder={t("inbox.page.searchPlaceholder")}
         style={{
           width: "100%",
           boxSizing: "border-box",
@@ -1580,9 +1592,9 @@ function SendNoticeToast({
   message: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
-      dir="rtl"
       role="alert"
       style={{
         position: "fixed",
@@ -1617,7 +1629,7 @@ function SendNoticeToast({
       <button
         type="button"
         onClick={onClose}
-        aria-label="סגירה"
+        aria-label={t("common.close")}
         style={{
           flex: "0 0 auto",
           border: "none",

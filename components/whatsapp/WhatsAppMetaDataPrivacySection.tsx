@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/tokens";
 import { IconLock } from "./wa-icons";
 
@@ -9,6 +10,7 @@ export function WhatsAppMetaDataPrivacySection({
 }: {
   onChanged: () => void;
 }) {
+  const { t } = useI18n();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,16 +32,16 @@ export function WhatsAppMetaDataPrivacySection({
         }
       );
       if (!res.ok) {
-        setError("לא הצלחנו למחוק את נתוני Meta כרגע. אפשר לנסות שוב.");
+        setError(t("inbox.whatsapp.privacy.deleteError"));
         setDeleting(false);
         return;
       }
       setDeleting(false);
       setConfirmOpen(false);
-      setNotice("נתוני Meta שנשמרו ב-Dubiz נמחקו.");
+      setNotice(t("inbox.whatsapp.privacy.deleted"));
       onChanged();
     } catch {
-      setError("לא הצלחנו למחוק את נתוני Meta כרגע. אפשר לנסות שוב.");
+      setError(t("inbox.whatsapp.privacy.deleteError"));
       setDeleting(false);
     }
   }
@@ -82,7 +84,7 @@ export function WhatsAppMetaDataPrivacySection({
               lineHeight: 1.35,
             }}
           >
-            פרטיות ונתונים
+            {t("inbox.whatsapp.privacy.title")}
           </h2>
           <p
             style={{
@@ -93,7 +95,7 @@ export function WhatsAppMetaDataPrivacySection({
               lineHeight: 1.55,
             }}
           >
-            Dubiz שומרת רק את המידע הדרוש להפעלת החיבור ל-WhatsApp Business.
+            {t("inbox.whatsapp.privacy.body")}
           </p>
           <p
             style={{
@@ -117,7 +119,7 @@ export function WhatsAppMetaDataPrivacySection({
                 minHeight: 24,
               }}
             >
-              מה נמחק ומה נשמר — מחיקת נתוני חיבור Meta
+              {t("inbox.whatsapp.privacy.link")}
             </a>
           </p>
         </div>
@@ -161,7 +163,7 @@ export function WhatsAppMetaDataPrivacySection({
           padding: "10px 14px",
         }}
       >
-        מחק את נתוני Meta שנשמרו ב-Dubiz
+        {t("inbox.whatsapp.privacy.deleteButton")}
       </button>
 
       {confirmOpen && (
@@ -191,6 +193,7 @@ function DeleteMetaDataDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !busy) onCancel();
@@ -201,10 +204,9 @@ function DeleteMetaDataDialog({
 
   return (
     <div
-      dir="rtl"
       role="dialog"
       aria-modal="true"
-      aria-label="מחק את נתוני Meta?"
+      aria-label={t("inbox.whatsapp.privacy.dialogTitle")}
       onClick={onCancel}
       style={{
         position: "fixed",
@@ -266,7 +268,7 @@ function DeleteMetaDataDialog({
             lineHeight: 1.3,
           }}
         >
-          מחק את נתוני Meta?
+          {t("inbox.whatsapp.privacy.dialogTitle")}
         </h2>
         <div
           style={{
@@ -282,12 +284,12 @@ function DeleteMetaDataDialog({
           }}
         >
           <p style={{ margin: 0 }}>
-            פעולה זו תמחק את פרטי החיבור שנשמרו ב-Dubiz, כולל מזהי WhatsApp Business, מספר החיבור ואסימוני הגישה.
+            {t("inbox.whatsapp.privacy.dialogBody")}
           </p>
           <p style={{ margin: 0, color: TOKEN.ink.primary, fontWeight: TOKEN.weight.semibold }}>
-            השיחות, הלקוחות וההודעות הקיימות לא יימחקו.
+            {t("inbox.whatsapp.privacy.dialogKept")}
           </p>
-          <p style={{ margin: 0 }}>תוכל לחבר את WhatsApp Business מחדש בכל עת.</p>
+          <p style={{ margin: 0 }}>{t("inbox.whatsapp.privacy.dialogReconnect")}</p>
         </div>
 
         {error && (
@@ -324,7 +326,7 @@ function DeleteMetaDataDialog({
               opacity: busy ? 0.6 : 1,
             }}
           >
-            ביטול
+            {t("inbox.whatsapp.privacy.cancel")}
           </button>
           <button
             type="button"
@@ -344,7 +346,7 @@ function DeleteMetaDataDialog({
               opacity: busy ? 0.6 : 1,
             }}
           >
-            {busy ? "מוחקים..." : "מחק נתוני Meta"}
+            {busy ? t("inbox.whatsapp.privacy.confirmBusy") : t("inbox.whatsapp.privacy.confirm")}
           </button>
         </div>
       </div>
