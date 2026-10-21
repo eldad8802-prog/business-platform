@@ -36,3 +36,4 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run verify:finance-ui
       - run: npm run verify:secretary-home
+      - run: npm run verify:payables-list
