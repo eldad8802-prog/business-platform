@@ -29,8 +29,7 @@ import {
 
 export const SUPPORT_EMAIL = "support@promaxgroup.co.il";
 
-/** The workspace screen states this as read-only fact: Dubiz runs in Hebrew. */
-export const WORKSPACE_LANGUAGE_LABEL = "עברית";
+/** The hub's workspace row shows the active interface language (`localeNativeName`, lib/i18n). */
 
 /** Live values a row can show, resolved by the hub screen from real data. */
 export type HubRowValue = "workspace-language" | "active-connections";

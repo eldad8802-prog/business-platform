@@ -18,6 +18,7 @@ import {
   type NavDestination,
 } from "./nav-destinations";
 import { IconPlus, IconSearch } from "./nav-icons";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityGlyph, AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import {
   useHasUnreadNotifications,
@@ -52,16 +53,17 @@ export function NavRail() {
   const visible = useMediaQuery(RAIL_QUERY);
   const hasUnread = useHasUnreadNotifications(pathname, visible);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { t } = useI18n();
 
   return (
     <>
-      <nav aria-label="ניווט ראשי" className="dz-rail" style={{ fontFamily: RUBIK }}>
-        <Link href="/app" prefetch={false} aria-label="Dubiz — בית" className="dz-rail__logo">
+      <nav aria-label={t("nav.a11y.mainNav")} className="dz-rail" style={{ fontFamily: RUBIK }}>
+        <Link href="/app" prefetch={false} aria-label={t("nav.a11y.homeLink")} className="dz-rail__logo">
           d
         </Link>
         <button
           type="button"
-          aria-label="פעולה חדשה"
+          aria-label={t("nav.a11y.newAction")}
           aria-expanded={sheetOpen}
           onClick={() => setSheetOpen(true)}
           className="dz-rail__new"
@@ -81,7 +83,7 @@ export function NavRail() {
           <span className="dz-rail__icon">
             <AccessibilityGlyph size={21} />
           </span>
-          נגישות
+          {t("nav.a11y.accessibility")}
         </AccessibilityTrigger>
         <RailItem dest={SETTINGS_DESTINATION} active={isNavActive(pathname, SETTINGS_DESTINATION.href)} dot={false} />
       </nav>
@@ -92,6 +94,7 @@ export function NavRail() {
 
 function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean; dot: boolean }) {
   const Icon = dest.icon;
+  const { t } = useI18n();
   return (
     <Link
       href={dest.href}
@@ -104,8 +107,8 @@ function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean
         <Icon size={21} strokeWidth={active ? 2 : 1.8} />
         {dot ? <span className="dz-rail__dot" aria-hidden /> : null}
       </span>
-      {dest.label}
-      {dot ? <span className="sr-only">יש התראות שלא נקראו</span> : null}
+      {t(dest.labelKey)}
+      {dot ? <span className="sr-only">{t("nav.a11y.unreadNotifications")}</span> : null}
     </Link>
   );
 }
@@ -120,14 +123,15 @@ export function NavSidebar() {
   const badges = useNavBadges(visible, pathname, tasksOn);
   const { businessName } = useSessionIdentity(visible);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { t } = useI18n();
 
   const badgeFor = (key: string): NavBadge | undefined =>
     key === "notifications" ? (hasUnread ? { kind: "dot", tone: "alert" } : undefined) : badges[key];
 
   return (
     <>
-      <nav aria-label="ניווט ראשי" className="dz-sidebar" style={{ fontFamily: RUBIK }}>
-        <Link href="/app" prefetch={false} className="dz-sidebar__brand" aria-label="Dubiz — בית">
+      <nav aria-label={t("nav.a11y.mainNav")} className="dz-sidebar" style={{ fontFamily: RUBIK }}>
+        <Link href="/app" prefetch={false} className="dz-sidebar__brand" aria-label={t("nav.a11y.homeLink")}>
           <span className="dz-sidebar__mark" aria-hidden>
             d
           </span>
@@ -141,7 +145,7 @@ export function NavSidebar() {
             href={PROFILE_HREF}
             prefetch={false}
             className="dz-sidebar__business"
-            aria-label={`פרופיל העסק — ${businessName}`}
+            aria-label={t("nav.a11y.businessProfile", { name: businessName })}
             aria-current={isNavActive(pathname, PROFILE_HREF) ? "page" : undefined}
           >
             <span className="dz-sidebar__business-mark" aria-hidden>
@@ -159,9 +163,9 @@ export function NavSidebar() {
             className="dz-sidebar__new"
           >
             <IconPlus size={18} strokeWidth={2.2} />
-            פעולה חדשה
+            {t("nav.a11y.newAction")}
           </button>
-          <Link href={SEARCH_HREF} prefetch={false} aria-label="חיפוש" className="dz-sidebar__search">
+          <Link href={SEARCH_HREF} prefetch={false} aria-label={t("nav.a11y.search")} className="dz-sidebar__search">
             <IconSearch size={18} strokeWidth={2} />
           </Link>
         </div>
@@ -173,10 +177,10 @@ export function NavSidebar() {
         </div>
 
         {NAV_GROUPS.map((g) => (
-          <div key={g.key} className="dz-sidebar__group" role="group" aria-label={g.label}>
+          <div key={g.key} className="dz-sidebar__group" role="group" aria-label={t(g.labelKey)}>
             <div className="dz-sidebar__group-title" aria-hidden>
               <span style={{ width: 7, height: 7, borderRadius: 2, background: g.dot }} />
-              {g.label}
+              {t(g.labelKey)}
             </div>
             {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn)).map((d) => (
               <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
@@ -188,7 +192,7 @@ export function NavSidebar() {
 
         <AccessibilityTrigger className="dz-sidebar__item">
           <AccessibilityGlyph size={18} />
-          <span style={{ flex: 1 }}>נגישות</span>
+          <span style={{ flex: 1 }}>{t("nav.a11y.accessibility")}</span>
         </AccessibilityTrigger>
 
         <SidebarItem
@@ -219,6 +223,7 @@ function SidebarItem({
   badge: NavBadge | undefined;
 }) {
   const Icon = dest.icon;
+  const { t } = useI18n();
   let trailing: ReactNode = null;
   let srText: string | null = null;
   if (badge?.kind === "count" || badge?.kind === "label") {
@@ -227,7 +232,7 @@ function SidebarItem({
         {badge.text}
       </span>
     );
-    srText = badge.kind === "count" ? `${badge.text} ממתינים` : badge.text;
+    srText = badge.kind === "count" ? t("nav.a11y.pendingCount", { count: badge.text }) : badge.text;
   } else if (badge?.kind === "dot") {
     trailing = (
       <span
@@ -240,7 +245,7 @@ function SidebarItem({
         }}
       />
     );
-    srText = dest.key === "notifications" ? "יש התראות שלא נקראו" : "יש משהו שדורש טיפול";
+    srText = dest.key === "notifications" ? t("nav.a11y.unreadNotifications") : t("nav.a11y.needsAttention");
   }
 
   return (
@@ -252,7 +257,7 @@ function SidebarItem({
       data-active={active ? "1" : undefined}
     >
       <Icon size={18} strokeWidth={active ? 2 : 1.8} />
-      <span style={{ flex: 1 }}>{dest.label}</span>
+      <span style={{ flex: 1 }}>{t(dest.labelKey)}</span>
       {trailing}
       {srText ? <span className="sr-only">{srText}</span> : null}
     </Link>

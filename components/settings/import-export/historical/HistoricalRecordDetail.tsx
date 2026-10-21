@@ -125,7 +125,7 @@ function RelationRow({
     <li>
       <Link
         href={`${recordsBase}/${relation.id}`}
-        className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-transparent px-2 py-3 text-right transition hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
+        className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-transparent px-2 py-3 text-start transition hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
       >
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-bold text-[var(--dz-text-primary)]">

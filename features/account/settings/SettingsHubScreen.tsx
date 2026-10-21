@@ -17,7 +17,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { buildSettingsHub, WORKSPACE_LANGUAGE_LABEL, type HubRow } from "@/components/settings/settings-hub";
+import { buildSettingsHub, type HubRow } from "@/components/settings/settings-hub";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { localeNativeName } from "@/lib/i18n/config";
 import { ChevronGlyph, LogoutGlyph } from "@/components/ui/warm-surface/glyphs";
 import {
   WarmGroup,
@@ -47,12 +49,13 @@ export function activeConnectionsLabel(active: number): string {
 export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
   const [profile] = useProfileSummary();
   const [connections] = useConnectionsSummary();
+  const { locale } = useI18n();
 
   const connectionsCount =
     connections.state === "ready" && connections.data.available ? connections.data.active : null;
 
   function rowValue(row: HubRow): string | undefined {
-    if (row.value === "workspace-language") return WORKSPACE_LANGUAGE_LABEL;
+    if (row.value === "workspace-language") return localeNativeName(locale);
     if (row.value === "active-connections" && connectionsCount !== null) {
       return activeConnectionsLabel(connectionsCount);
     }
@@ -60,7 +63,7 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
   }
 
   return (
-    <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
+    <div className={`${warmStyles.surface} ${s.page}`}>
       <WarmPageHeading
         className={s.heading}
         title="הגדרות"

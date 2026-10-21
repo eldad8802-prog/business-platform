@@ -153,7 +153,7 @@ export function ExportScreen({ domains }: Props) {
             const checked = selected.includes(domain.id);
             return (
               <li key={domain.id}>
-                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-right transition hover:bg-[var(--dz-surface-muted)]">
+                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-start transition hover:bg-[var(--dz-surface-muted)]">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -185,7 +185,7 @@ export function ExportScreen({ domains }: Props) {
             {FORMATS.map((option) => (
               <label
                 key={option.value}
-                className="flex cursor-pointer items-start gap-3 rounded-2xl px-2 py-2.5 text-right transition hover:bg-[var(--dz-surface-muted)]"
+                className="flex cursor-pointer items-start gap-3 rounded-2xl px-2 py-2.5 text-start transition hover:bg-[var(--dz-surface-muted)]"
               >
                 <input
                   type="radio"

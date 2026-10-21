@@ -50,8 +50,8 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
     key: "workspace",
     href: "/settings/workspace",
-    title: "שפה ואזור",
-    description: "שפה, מטבע ואזור זמן",
+    title: "שפה, אזור ומטבע",
+    description: "שפת מערכת, אזור זמן, מטבע בסיס ומטבע תצוגה",
     icon: "🌍",
     group: "preferences",
   },

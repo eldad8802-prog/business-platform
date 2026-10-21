@@ -18,7 +18,7 @@ export function SettingsFrame({ children, versionLabel }: { children: ReactNode;
   if (pathname === "/settings") return <>{children}</>;
 
   return (
-    <div className="min-h-screen bg-[var(--dz-background)] text-[var(--dz-text-primary)]" dir="rtl">
+    <div className="min-h-screen bg-[var(--dz-background)] text-[var(--dz-text-primary)]">
       <div className={`mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl ${styles.container}`}>
         <div className={styles.frame}>
           <aside className={styles.aside}>

@@ -62,7 +62,7 @@ export function DeleteAccountSection() {
   }
 
   return (
-    <section className="rounded-2xl dz-mist p-4 shadow-sm" dir="rtl">
+    <section className="rounded-2xl dz-mist p-4 shadow-sm">
       <h2 className="mb-1 text-base font-bold text-[var(--dz-text-primary)]">מחיקת חשבון</h2>
       <p className="mb-3 text-sm leading-6 text-[var(--dz-text-muted)]">
         מחיקת החשבון תסיר את פרטי המשתמש והמידע התפעולי (לקוחות, שיחות, קבצים והחיבורים

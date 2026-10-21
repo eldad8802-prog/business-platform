@@ -124,7 +124,7 @@ export function InboundEmailCard() {
   const current = settings.current;
 
   return (
-    <section dir="rtl" className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
+    <section className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
       <h2 className="mb-1 text-base font-semibold">ייבוא מסמכים במייל</h2>
       <p className="mb-4 text-sm text-black/60">
         ניתן להעביר לכתובת הזו חשבוניות ומסמכים שמגיעים אליך במייל.

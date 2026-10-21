@@ -222,7 +222,7 @@ export function PaymentConnectionCard() {
         : "חבר ספק";
 
   return (
-    <WarmCard style={{ direction: "rtl" } as React.CSSProperties}>
+    <WarmCard>
       <div
         style={{
           display: "flex",

@@ -318,7 +318,7 @@ export function LeadSourcesPanel() {
 
   if (!data) {
     return (
-      <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
+      <section className="rounded-[24px] dz-mist p-4 shadow-sm">
         <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">מקורות לידים</h2>
         <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{error ?? "טוען…"}</p>
       </section>
@@ -326,7 +326,7 @@ export function LeadSourcesPanel() {
   }
 
   return (
-    <section className="rounded-[24px] dz-mist p-4 shadow-sm md:col-span-2" dir="rtl">
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm md:col-span-2">
       <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">מקורות לידים</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
         חבר/י את המקומות שמהם מגיעים לקוחות — כל ליד נכנס לרשימת הלידים, עם המקור והקמפיין שממנו הגיע.

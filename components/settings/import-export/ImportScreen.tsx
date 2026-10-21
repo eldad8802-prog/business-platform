@@ -411,7 +411,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
           <ul className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
             {domains.map((d) => (
               <li key={d.id}>
-                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-right transition hover:bg-[var(--dz-surface-muted)]">
+                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-start transition hover:bg-[var(--dz-surface-muted)]">
                   <input
                     type="radio"
                     name="import-domain"

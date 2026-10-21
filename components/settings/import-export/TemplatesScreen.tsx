@@ -130,7 +130,7 @@ export function TemplatesScreen({ domains }: Props) {
                     type="button"
                     onClick={() => download(domain)}
                     disabled={status.kind === "working"}
-                    className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 text-right transition hover:bg-[var(--dz-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 text-start transition hover:bg-[var(--dz-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-lg">
                       {domain.icon}

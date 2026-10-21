@@ -152,7 +152,7 @@ export function StoresAndCallsPanel() {
 
   if (!data) {
     return (
-      <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
+      <section className="rounded-[24px] dz-mist p-4 shadow-sm">
         <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">חנויות ושיחות</h2>
         <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{error ?? "טוען…"}</p>
       </section>
@@ -160,7 +160,7 @@ export function StoresAndCallsPanel() {
   }
 
   return (
-    <section className="rounded-[24px] dz-mist p-4 shadow-sm md:col-span-2" dir="rtl">
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm md:col-span-2">
       <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">חנויות ושיחות</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
         הזמנות מהחנות ושיחות מהטלפוניה מופיעות ליד הלקוח. Dubiz רק מציג — הוא לא משנה מלאי, תשלומים או מסמכים, והזמנה או שיחה לא הופכות לליד מעצמן.

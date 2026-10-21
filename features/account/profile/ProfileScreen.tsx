@@ -46,7 +46,7 @@ export function ProfileScreen() {
   const data = load.state === "ready" ? load.data : null;
 
   return (
-    <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
+    <div className={`${warmStyles.surface} ${s.page}`}>
       <WarmPageHeading
         className={s.heading}
         title="פרופיל"
