@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
@@ -83,10 +84,11 @@ async function recordUploadThrottle(input: {
  * See processDocumentPipeline.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+      return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     const sessionIdForThrottle = readSessionIdFromRequest(req);
@@ -112,14 +114,13 @@ export async function POST(req: Request) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "לא נבחר קובץ" }, { status: 400 });
+      return NextResponse.json({ error: t("api.common.noFileSelected") }, { status: 400 });
     }
 
     if (typeof file.type === "string" && isHeicMimeType(file.type)) {
       return NextResponse.json(
         {
-          error:
-            "פורמט HEIC לא נתמך. צלם מחדש או המר את התמונה ל-JPG (בהגדרות המצלמה: 'תאימות מרבית').",
+          error: t("api.common.heicUnsupported"),
         },
         { status: 415 }
       );
@@ -127,14 +128,14 @@ export async function POST(req: Request) {
 
     if (typeof file.type !== "string" || !isAllowedDocumentMime(file.type)) {
       return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
+        { error: t("api.common.unsupportedFileType") },
         { status: 400 }
       );
     }
 
     if (typeof file.size !== "number" || file.size > DOCUMENT_MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: "הקובץ גדול מדי (עד 15MB)" },
+        { error: t("api.common.fileTooLarge15") },
         { status: 413 }
       );
     }
@@ -237,7 +238,7 @@ export async function POST(req: Request) {
     if (!result.ok) {
       return NextResponse.json(
         {
-          error: "נראה שהמסמך הזה כבר הועלה",
+          error: t("api.documents.upload.duplicate"),
           duplicate: result.duplicate,
         },
         { status: 409 }
@@ -268,7 +269,7 @@ export async function POST(req: Request) {
     // cleans up there. Keeping a second copy of that logic in the route would
     // mean two places to get it right.
     return NextResponse.json(
-      { error: "שגיאה בהעלאת המסמך. נסה שוב מאוחר יותר." },
+      { error: t("api.documents.upload.failed") },
       { status: 500 }
     );
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { parseExportRequest } from "@/lib/data-transfer/export/export-request";
@@ -44,6 +45,7 @@ export const maxDuration = 60;
  * disk cache after logout.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
     return authRequiredResponse(req);
@@ -107,8 +109,7 @@ export async function POST(req: Request) {
     if (error instanceof ExportTooLargeError) {
       return NextResponse.json(
         {
-          error:
-            "כמות הנתונים גדולה מדי לייצוא אחד. בחר פחות תחומים ונסה שוב.",
+          error: t("api.dataTransfer.exportTooLarge"),
           code: error.code,
         },
         { status: 413, headers: { "Cache-Control": "private, no-store" } }
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "הייצוא נכשל. נסה שוב מאוחר יותר." },
+      { error: t("api.dataTransfer.exportFailed") },
       { status: 500, headers: { "Cache-Control": "private, no-store" } }
     );
   }

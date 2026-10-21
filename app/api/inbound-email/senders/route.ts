@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 
 import { handleError } from "@/lib/handle-error";
 import {
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
   // feature is off every shape of request gets the same answer.
   const off = inboundManagementDisabled();
   if (off) return off;
+  const { t } = await getServerI18n();
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -39,7 +41,7 @@ export async function POST(req: Request) {
       if (!guard.ok) return guard.response;
 
       if (typeof body.email !== "string") {
-        return NextResponse.json({ error: "יש להזין כתובת מייל." }, { status: 400 });
+        return NextResponse.json({ error: t("api.inboundEmail.emailRequired") }, { status: 400 });
       }
       const result = await addAuthorizedSender(
         guard.actor.businessId,
@@ -47,7 +49,7 @@ export async function POST(req: Request) {
         guard.actor.userId
       );
       if (!result.ok) {
-        return NextResponse.json({ error: "כתובת המייל אינה תקינה." }, { status: 400 });
+        return NextResponse.json({ error: t("api.inboundEmail.emailInvalid") }, { status: 400 });
       }
       // `created: false` means one already existed. Answering the same way
       // either time keeps a double submit from reading as a failure.
@@ -60,7 +62,7 @@ export async function POST(req: Request) {
 
       const senderId = Number(body.senderId);
       if (!Number.isInteger(senderId) || senderId <= 0) {
-        return NextResponse.json({ error: "בקשה לא תקינה." }, { status: 400 });
+        return NextResponse.json({ error: t("api.common.invalidRequestDot") }, { status: 400 });
       }
       const result = await revokeAuthorizedSender(
         guard.actor.businessId,
@@ -68,12 +70,12 @@ export async function POST(req: Request) {
         guard.actor.userId
       );
       if (!result.ok) {
-        return NextResponse.json({ error: "השולח לא נמצא." }, { status: 404 });
+        return NextResponse.json({ error: t("api.inboundEmail.senderNotFound") }, { status: 404 });
       }
       return NextResponse.json({ ok: true });
     }
 
-    return NextResponse.json({ error: "בקשה לא תקינה." }, { status: 400 });
+    return NextResponse.json({ error: t("api.common.invalidRequestDot") }, { status: 400 });
   } catch (error) {
     return handleError(error);
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { after } from "next/server";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -30,16 +31,17 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+      return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     const params = await context.params;
     const id = Number(params.id);
     if (!Number.isInteger(id) || id <= 0) {
-      return NextResponse.json({ error: "מזהה מסמך לא תקין" }, { status: 400 });
+      return NextResponse.json({ error: t("api.documents.invalidId") }, { status: 400 });
     }
 
     const document = await runWithTenantContext(
@@ -58,10 +60,10 @@ export async function POST(
     );
 
     if (!document) {
-      return NextResponse.json({ error: "המסמך לא נמצא" }, { status: 404 });
+      return NextResponse.json({ error: t("api.documents.notFound") }, { status: 404 });
     }
     if (document.businessId !== user.businessId) {
-      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      return NextResponse.json({ error: t("api.common.noPermission") }, { status: 403 });
     }
 
     // Only in-flight/failed documents are retryable. A document that already
@@ -107,7 +109,7 @@ export async function POST(
           payload: { outcome: "SOURCE_MISSING" },
         });
         return NextResponse.json(
-          { error: "קובץ המקור לא נמצא. יש להעלות מחדש." },
+          { error: t("api.documents.process.sourceMissing") },
           { status: 409 }
         );
       }
@@ -156,7 +158,7 @@ export async function POST(
   } catch (error) {
     console.error("DOCUMENT_REPROCESS_ERROR:", error);
     return NextResponse.json(
-      { error: "שגיאה בעיבוד המסמך. נסה שוב מאוחר יותר." },
+      { error: t("api.documents.process.failed") },
       { status: 500 }
     );
   }

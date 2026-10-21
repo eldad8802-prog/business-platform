@@ -5,7 +5,9 @@ import { NextResponse } from "next/server";
 import { authDb } from "@/lib/prisma-auth";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
-import { AUTH_MESSAGES_HE, loginLockedMessage } from "@/lib/auth/auth-messages";
+import { authMessage, loginLockedMessage } from "@/lib/auth/auth-messages";
+import { getServerI18n } from "@/lib/i18n/server";
+import type { Translator } from "@/lib/i18n/translate";
 import { LOGIN_FAILURE_POLICY, loginAccountRateKey } from "@/lib/auth/account-rate-key";
 import { readLoginDevice, setLoginDevice } from "@/lib/auth/login-device";
 import bcrypt from "bcrypt";
@@ -61,15 +63,17 @@ const LOGIN_USER_SELECT = {
  * The temporary lock, answered the same for every address: 429, the Hebrew message with the time
  * left, and Retry-After. Nothing in it is about an account.
  */
-function lockedResponse(retryAfterMs: number): NextResponse {
+function buildLockedResponse(retryAfterMs: number, t: Translator): NextResponse {
   const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
   return NextResponse.json(
-    { error: loginLockedMessage(retryAfterMs), code: "LOGIN_LOCKED", retryAfterSeconds },
+    { error: loginLockedMessage(retryAfterMs, t), code: "LOGIN_LOCKED", retryAfterSeconds },
     { status: 429, headers: { "Retry-After": String(retryAfterSeconds), "Cache-Control": "no-store" } }
   );
 }
 
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
+  const lockedResponse = (retryAfterMs: number) => buildLockedResponse(retryAfterMs, t);
   try {
     const ip = getClientIp(req);
     const rl = await consumeRateLimit({
@@ -81,7 +85,7 @@ export async function POST(req: Request) {
     if (!rl.allowed) {
       await recordLoginFailure({ reason: "rate_limited" });
       return NextResponse.json(
-        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
+        { error: authMessage("rateLimited", t), code: "RATE_LIMITED" },
         { status: 429 }
       );
     }
@@ -100,7 +104,7 @@ export async function POST(req: Request) {
     ) {
       await recordLoginFailure({ reason: "missing_credentials" });
       return NextResponse.json(
-        { error: AUTH_MESSAGES_HE.missingCredentials, code: "MISSING_CREDENTIALS" },
+        { error: authMessage("missingCredentials", t), code: "MISSING_CREDENTIALS" },
         { status: 400 }
       );
     }
@@ -153,9 +157,9 @@ export async function POST(req: Request) {
       const warn = attempt.count === LOGIN_FAILURE_POLICY.warnAtFailure;
       return NextResponse.json(
         {
-          error: AUTH_MESSAGES_HE.invalidCredentials,
+          error: authMessage("invalidCredentials", t),
           code: "INVALID_CREDENTIALS",
-          ...(warn ? { warning: AUTH_MESSAGES_HE.loginLastAttemptWarning, attemptsLeft: 1 } : {}),
+          ...(warn ? { warning: authMessage("loginLastAttemptWarning", t), attemptsLeft: 1 } : {}),
         },
         { status: 401, headers: { "Cache-Control": "no-store" } }
       );
@@ -221,7 +225,7 @@ export async function POST(req: Request) {
         "LOGIN_SESSION_ISSUE_ERROR:",
         error instanceof Error ? error.name : "UnknownError"
       );
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
+      return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500 });
     }
 
     // `select` is not cosmetic. Without it Prisma appends RETURNING over every
@@ -283,7 +287,7 @@ export async function POST(req: Request) {
         {
           error:
             process.env.NODE_ENV === "production"
-              ? AUTH_MESSAGES_HE.serviceUnavailable
+              ? authMessage("serviceUnavailable", t)
               : error.message,
         },
         { status: 503 }
@@ -292,6 +296,6 @@ export async function POST(req: Request) {
 
     console.error("LOGIN_ERROR:", error);
 
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
+    return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500 });
   }
 }

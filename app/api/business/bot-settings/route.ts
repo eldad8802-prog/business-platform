@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
@@ -170,6 +171,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
 
@@ -367,8 +369,7 @@ export async function PATCH(req: Request) {
       if (!isValidProductLinkUrl(url)) {
         return NextResponse.json(
           {
-            error:
-              "כשמפעילים עזרה עם מוצרים, נדרש קישור מלא ותקין (כולל https:// או http://)",
+            error: t("api.business.productLinkRequired"),
           },
           { status: 400 }
         );

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import {
   buildImportTemplate,
@@ -27,6 +28,7 @@ export const dynamic = "force-dynamic";
  * the generator had started reading tenant data.
  */
 export async function GET(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
     return authRequiredResponse(req);
@@ -37,7 +39,7 @@ export async function GET(req: Request) {
   if (!isTemplateDomainId(domain)) {
     // Do not echo the requested value back into the response.
     return NextResponse.json(
-      { error: "אין תבנית לתחום המבוקש", code: "UNKNOWN_DOMAIN" },
+      { error: t("api.dataTransfer.noTemplateForDomain"), code: "UNKNOWN_DOMAIN" },
       { status: 400, headers: { "Cache-Control": "private, no-store" } }
     );
   }
@@ -64,7 +66,7 @@ export async function GET(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "יצירת התבנית נכשלה. נסו שוב מאוחר יותר." },
+      { error: t("api.dataTransfer.templateFailed") },
       { status: 500, headers: { "Cache-Control": "private, no-store" } }
     );
   }

@@ -13,6 +13,9 @@
 
 import { NextResponse } from "next/server";
 
+import { getServerI18n } from "@/lib/i18n/server";
+import type { Translator } from "@/lib/i18n/translate";
+
 import { getCurrentUser } from "@/lib/auth";
 import { IdentityInputError } from "@/lib/services/identity/identity-vocabulary";
 import { IdentityConflictError } from "@/lib/services/identity/identity-statement.service";
@@ -36,15 +39,16 @@ export async function GET(req: Request) {
 }
 
 /** Owner-facing wording for the identity writer's refusals. */
-function identityErrorMessage(error: IdentityInputError): string {
+function identityErrorMessage(error: IdentityInputError, t: Translator): string {
   if (/Contact details and links/.test(error.message)) {
-    return "בלי טלפון, אימייל או קישור — כאן רק מה שהעסק עושה, במילים שלכם.";
+    return t("api.business.setup.noContactDetails");
   }
-  if (/too long/.test(error.message)) return "הטקסט ארוך מדי — עד 500 תווים.";
-  return "לא הצלחנו לשמור את התשובה. אפשר לנסות שוב.";
+  if (/too long/.test(error.message)) return t("api.business.setup.tooLong");
+  return t("api.business.setup.saveFailed");
 }
 
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -62,7 +66,7 @@ export async function POST(req: Request) {
     if (body.step === "about" || body.step === "complete") {
       const answer = validateAbout({ description: body.description, audience: body.audience });
       if ("error" in answer) {
-        const message = answer.error === "description_too_long" ? "הטקסט ארוך מדי — עד 500 תווים." : "התשובה לא תקינה";
+        const message = answer.error === "description_too_long" ? t("api.business.setup.tooLong") : t("api.business.setup.invalidAnswer");
         return NextResponse.json({ error: message, code: answer.error }, { status: 400 });
       }
       await saveAbout(actor, answer);
@@ -76,10 +80,10 @@ export async function POST(req: Request) {
     return NextResponse.json(state, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof IdentityInputError) {
-      return NextResponse.json({ error: identityErrorMessage(error), code: "identity_input" }, { status: 400 });
+      return NextResponse.json({ error: identityErrorMessage(error, t), code: "identity_input" }, { status: 400 });
     }
     if (error instanceof IdentityConflictError) {
-      return NextResponse.json({ error: "התשובה השתנתה במקביל. אפשר לנסות שוב." }, { status: 409 });
+      return NextResponse.json({ error: t("api.business.setup.conflict") }, { status: 409 });
     }
     console.error("SETUP_POST_ERROR:", error instanceof Error ? error.name : "UnknownError");
     return NextResponse.json({ error: "Server error" }, { status: 500 });

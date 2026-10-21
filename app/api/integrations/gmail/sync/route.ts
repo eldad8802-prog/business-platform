@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { discoverGmailAttachments } from "@/lib/services/integrations/gmail/gmail-discovery.service";
@@ -8,10 +9,11 @@ import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gm
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+      return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     const maxMessagesRaw = req.nextUrl.searchParams.get("maxMessages");
@@ -25,14 +27,14 @@ export async function GET(req: NextRequest) {
     if (connectionIdRaw != null && connectionIdRaw !== "") {
       const parsed = Number(connectionIdRaw);
       if (!Number.isInteger(parsed) || parsed <= 0) {
-        return NextResponse.json({ error: "connectionId לא תקין" }, { status: 400 });
+        return NextResponse.json({ error: t("api.gmail.invalidConnectionId") }, { status: 400 });
       }
       const owned = await runWithTenantContext({ businessId: user.businessId }, () => isGmailConnectionOwnedByBusiness({
         businessId: user.businessId,
         connectionId: parsed,
       }));
       if (!owned) {
-        return NextResponse.json({ error: "החשבון לא נמצא" }, { status: 404 });
+        return NextResponse.json({ error: t("api.gmail.accountNotFound") }, { status: 404 });
       }
       connectionId = parsed;
     }
@@ -54,7 +56,7 @@ export async function GET(req: NextRequest) {
       console.warn("GMAIL_SYNC_REAUTH_REQUIRED:", error.reason);
       return NextResponse.json(
         {
-          error: "החיבור ל-Gmail פג. יש לחבר מחדש כדי להמשיך.",
+          error: t("api.gmail.reconnectRequired"),
           needsReconnect: true,
         },
         { status: 409 }
@@ -62,7 +64,7 @@ export async function GET(req: NextRequest) {
     }
     console.error("GMAIL_SYNC_DISCOVERY_ERROR:", error);
     return NextResponse.json(
-      { error: "שגיאה בסריקת המיילים. נסה שוב מאוחר יותר." },
+      { error: t("api.gmail.syncFailed") },
       { status: 500 }
     );
   }
