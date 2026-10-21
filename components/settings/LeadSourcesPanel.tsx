@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { loadFacebookSdk } from "@/components/whatsapp/facebook-sdk";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 /**
  * Settings → Connections → "מקורות לידים" (M6).
@@ -41,37 +44,42 @@ type Overview = {
 type Secret = { connectionId: number; url: string; key: string };
 type MetaPick = { handle: string; pages: { id: string; name: string; canAdvertise: boolean }[] };
 
-const SOURCES: { key: SourceKey; title: string; description: string }[] = [
-  { key: "web.form", title: "טופס באתר", description: "פניות מטופס יצירת הקשר באתר שלך נכנסות ישר לרשימת הלידים." },
-  { key: "google.lead_form", title: "Google Ads", description: "לידים מטפסי לידים במודעות Google נכנסים אוטומטית." },
-  { key: "meta.lead_ads", title: "Facebook ו-Instagram", description: "לידים ממודעות לידים בפייסבוק ובאינסטגרם נכנסים אוטומטית." },
+const SOURCES: { key: SourceKey; title: MessageKey; description: MessageKey }[] = [
+  { key: "web.form", title: "account.settings.connections.leads.sources.webForm.title", description: "account.settings.connections.leads.sources.webForm.description" },
+  { key: "google.lead_form", title: "account.settings.connections.leads.sources.google.title", description: "account.settings.connections.leads.sources.google.description" },
+  { key: "meta.lead_ads", title: "account.settings.connections.leads.sources.meta.title", description: "account.settings.connections.leads.sources.meta.description" },
 ];
 
-const STATUS: Record<Connection["status"], { label: string; tone: string }> = {
-  ACTIVE: { label: "פעיל — מקבל פניות", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
-  PAUSED: { label: "מושהה — פניות לא מתקבלות", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
-  ERROR: { label: "דורש חיבור מחדש", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
-  REVOKED: { label: "מנותק", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
+const STATUS: Record<Connection["status"], { label: MessageKey; tone: string }> = {
+  ACTIVE: { label: "account.settings.connections.leads.status.active", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
+  PAUSED: { label: "account.settings.connections.leads.status.paused", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
+  ERROR: { label: "account.settings.connections.leads.status.error", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
+  REVOKED: { label: "account.settings.connections.leads.status.revoked", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
 };
 
-const ERRORS: Record<string, string> = {
-  source_not_enabled: "המקור הזה עדיין לא פתוח בחשבון שלך.",
-  unavailable: "החיבור לפייסבוק עדיין לא זמין.",
-  page_not_managed: "הדף שבחרת לא מנוהל על ידי החשבון שהתחברת איתו.",
-  advertise_task_required: "כדי לקבל לידים צריך הרשאת פרסום בדף הזה.",
-  page_connected_to_another_business: "הדף הזה כבר מחובר לעסק אחר.",
-  handle_expired: "עבר יותר מדי זמן — התחבר/י שוב לפייסבוק.",
-  token_invalid: "פייסבוק לא אישר את ההתחברות — נסה/י שוב.",
-  permission_missing: "חסרה הרשאה בפייסבוק — התחבר/י שוב ואשר/י את כל ההרשאות.",
-  provider_error: "פייסבוק לא זמין כרגע — נסה/י שוב בעוד כמה דקות.",
+/** The routes' error codes → what the owner reads. */
+const ERRORS: Record<string, MessageKey> = {
+  source_not_enabled: "account.settings.connections.leads.errors.sourceNotEnabled",
+  unavailable: "account.settings.connections.leads.errors.unavailable",
+  page_not_managed: "account.settings.connections.leads.errors.pageNotManaged",
+  advertise_task_required: "account.settings.connections.leads.errors.advertiseTaskRequired",
+  page_connected_to_another_business: "account.settings.connections.leads.errors.pageTaken",
+  handle_expired: "account.settings.connections.leads.errors.handleExpired",
+  token_invalid: "account.settings.connections.leads.errors.tokenInvalid",
+  permission_missing: "account.settings.connections.leads.errors.permissionMissing",
+  provider_error: "account.settings.connections.leads.errors.providerError",
 };
+
+function errorKey(code: string | undefined): MessageKey {
+  return code && Object.prototype.hasOwnProperty.call(ERRORS, code) ? ERRORS[code] : "account.settings.connections.common.genericError";
+}
 
 function token(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("token");
 }
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
+async function api<T>(tr: Translator, path: string, body?: unknown): Promise<T> {
   const t = token();
   const res = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
@@ -80,19 +88,20 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
     cache: "no-store",
   });
   const json = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(ERRORS[json.error ?? ""] ?? "משהו השתבש — נסה/י שוב.");
+  if (!res.ok) throw new Error(tr(errorKey(json.error)));
   return json;
 }
 
-export function stamp(iso: string): string {
-  return new Date(iso).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+export function stamp(iso: string, locale: Locale = DEFAULT_LOCALE): string {
+  return new Date(iso).toLocaleString(intlTag(locale), { dateStyle: "short", timeStyle: "short" });
 }
 
-function when(c: Connection): string {
+function when(c: Connection, t: Translator, locale: Locale): string {
   const last = c.activity?.lastDeliveryAt ?? null;
-  if (!last) return "עוד לא הגיעו לידים";
+  if (!last) return t("account.settings.connections.leads.noLeadsYet");
   const n = c.activity?.deliveries30d ?? 0;
-  return `ליד אחרון: ${stamp(last)}${n > 0 ? ` · ${n} ב-30 הימים האחרונים` : ""}`;
+  const at = stamp(last, locale);
+  return n > 0 ? t("account.settings.connections.leads.lastLeadWithCount", { at, count: n }) : t("account.settings.connections.leads.lastLead", { at });
 }
 
 export function Step({ done, children }: { done: boolean; children: React.ReactNode }) {
@@ -110,19 +119,20 @@ export function Step({ done, children }: { done: boolean; children: React.ReactN
  * lead), and the first real lead arrived.
  */
 function GoogleActivation({ c }: { c: Connection }) {
+  const { t, locale } = useI18n();
   const test = c.activity?.lastTestAt ?? null;
   const lead = c.activity?.lastDeliveryAt ?? null;
   return (
-    <ol className="mt-2 space-y-1 text-[11px] leading-5" aria-label="שלבי ההפעלה">
-      <Step done>הכתובת והקוד נוצרו ב-Dubiz.</Step>
+    <ol className="mt-2 space-y-1 text-[11px] leading-5" aria-label={t("account.settings.connections.leads.google.stepsLabel")}>
+      <Step done>{t("account.settings.connections.leads.google.step1")}</Step>
       <Step done={!!test || !!lead}>
         {test
-          ? `הבדיקה מ-Google התקבלה (${stamp(test)}) — החיבור תקין.`
+          ? t("account.settings.connections.leads.google.testReceived", { at: stamp(test, locale) })
           : lead
-            ? "החיבור תקין."
-            : 'ב-Google Ads: טופס הלידים ← "שילוב Webhook" ← הדבקת הכתובת והקוד ← "שליחת נתוני בדיקה".'}
+            ? t("account.settings.connections.leads.google.connectionOk")
+            : t("account.settings.connections.leads.google.step2Todo")}
       </Step>
-      <Step done={!!lead}>{lead ? `ליד ראשון התקבל (${stamp(lead)}).` : "ממתין לליד ראשון מהמודעה."}</Step>
+      <Step done={!!lead}>{lead ? t("account.settings.connections.leads.google.firstLead", { at: stamp(lead, locale) }) : t("account.settings.connections.leads.google.waitingFirstLead")}</Step>
     </ol>
   );
 }
@@ -136,7 +146,8 @@ function originOf(input: string): string | null {
   }
 }
 
-function Copy({ text, label = "העתקה" }: { text: string; label?: string }) {
+function Copy({ text, label }: { text: string; label?: string }) {
+  const { t } = useI18n();
   const [done, setDone] = useState(false);
   return (
     <button
@@ -149,7 +160,7 @@ function Copy({ text, label = "העתקה" }: { text: string; label?: string }) 
         });
       }}
     >
-      {done ? "הועתק ✓" : label}
+      {done ? t("account.settings.connections.common.copied") : (label ?? t("account.settings.connections.common.copy"))}
     </button>
   );
 }
@@ -168,21 +179,23 @@ export function Field({ label, value }: { label: string; value: string }) {
 
 
 function WebFormInstall({ url }: { url: string }) {
+  const { t } = useI18n();
   return (
     <div className="mt-2">
-      <ol className="list-decimal space-y-1 pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
-        <li>מעתיקים את הטופס המוכן.</li>
-        <li>מדביקים אותו בעמוד &quot;צור קשר&quot; באתר (בוויקס / וורדפרס: רכיב &quot;HTML&quot; או &quot;קוד מוטמע&quot;).</li>
-        <li>מכאן כל פנייה מהטופס נכנסת ישר לרשימת הלידים, עם העמוד והקמפיין שממנו הגיעה.</li>
+      <ol className="list-decimal space-y-1 ps-4 text-xs leading-5 text-[var(--dz-text-muted)]">
+        <li>{t("account.settings.connections.leads.webForm.step1")}</li>
+        <li>{t("account.settings.connections.leads.webForm.step2")}</li>
+        <li>{t("account.settings.connections.leads.webForm.step3")}</li>
       </ol>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Copy text={webFormSnippet(url)} label="העתקת הטופס המוכן" />
+        <Copy text={webFormSnippet(url)} label={t("account.settings.connections.leads.webForm.copyForm")} />
       </div>
     </div>
   );
 }
 
 function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secret; onDone: () => void }) {
+  const { t } = useI18n();
   const developerNote =
     `Send each form submission as an HTTP POST (JSON or form-encoded) to:\n${secret.url}\n` +
     `Header: Authorization: Bearer ${secret.key}\n` +
@@ -191,18 +204,18 @@ function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secr
   if (source === "web.form") {
     return (
       <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
-        <p className="text-xs font-bold text-[var(--dz-text-primary)]">הטופס מוכן — נשאר רק להדביק אותו באתר.</p>
+        <p className="text-xs font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.leads.secret.formReady")}</p>
         <WebFormInstall url={secret.url} />
         <details className="mt-3">
-          <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">למי שבנה את האתר: שליחה מהשרת (קוד סודי)</summary>
-          <p className="mt-2 text-[11px] leading-5 text-[var(--dz-text-muted)]">הקוד הסודי מוצג רק עכשיו. הוא לשימוש בשרת של האתר בלבד — לעולם לא בתוך עמוד שהמבקרים רואים.</p>
-          <Field label="כתובת" value={secret.url} />
-          <Field label="קוד סודי" value={secret.key} />
-          <div className="mt-2"><Copy text={developerNote} label="העתקת הוראות למפתח" /></div>
+          <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.secret.developerSummary")}</summary>
+          <p className="mt-2 text-[11px] leading-5 text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.secret.developerNote")}</p>
+          <Field label={t("account.settings.connections.common.address")} value={secret.url} />
+          <Field label={t("account.settings.connections.common.secretKey")} value={secret.key} />
+          <div className="mt-2"><Copy text={developerNote} label={t("account.settings.connections.leads.secret.copyDeveloperNote")} /></div>
         </details>
         <div className="mt-3">
           <button type="button" onClick={onDone} className="rounded-full bg-[var(--dz-text-primary)] px-4 py-1 text-xs font-bold text-[var(--dz-surface)]">
-            סיום
+            {t("account.settings.connections.leads.secret.done")}
           </button>
         </div>
       </div>
@@ -210,17 +223,17 @@ function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secr
   }
   return (
     <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
-      <p className="text-xs font-bold text-[var(--dz-text-primary)]">העתק/י עכשיו — הקוד לא יוצג שוב.</p>
-      <ol className="mt-2 list-decimal space-y-1 pr-4 text-xs leading-5 text-[var(--dz-text-muted)]">
-        <li>ב-Google Ads פתח/י את טופס הלידים ← &quot;שילוב Webhook&quot;.</li>
-        <li>הדבק/י את הכתובת בשדה &quot;Webhook URL&quot; ואת הקוד בשדה &quot;Key&quot;.</li>
-        <li>לחץ/י &quot;שליחת נתוני בדיקה&quot; — הבדיקה לא תיצור ליד, אבל תסמן שהחיבור עובד.</li>
+      <p className="text-xs font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.leads.secret.copyNow")}</p>
+      <ol className="mt-2 list-decimal space-y-1 ps-4 text-xs leading-5 text-[var(--dz-text-muted)]">
+        <li>{t("account.settings.connections.leads.secret.googleStep1")}</li>
+        <li>{t("account.settings.connections.leads.secret.googleStep2")}</li>
+        <li>{t("account.settings.connections.leads.secret.googleStep3")}</li>
       </ol>
-      <Field label="כתובת" value={secret.url} />
-      <Field label="קוד סודי" value={secret.key} />
+      <Field label={t("account.settings.connections.common.address")} value={secret.url} />
+      <Field label={t("account.settings.connections.common.secretKey")} value={secret.key} />
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={onDone} className="rounded-full bg-[var(--dz-text-primary)] px-4 py-1 text-xs font-bold text-[var(--dz-surface)]">
-          שמרתי, סיום
+          {t("account.settings.connections.common.savedDone")}
         </button>
       </div>
     </div>
@@ -228,6 +241,7 @@ function SecretBox({ source, secret, onDone }: { source: SourceKey; secret: Secr
 }
 
 export function LeadSourcesPanel() {
+  const { t, locale } = useI18n();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -237,21 +251,21 @@ export function LeadSourcesPanel() {
 
   const load = useCallback(
     () =>
-      api<Overview>("/api/integrations/acquisition").then(setData, (e: unknown) =>
-        setError(e instanceof Error ? e.message : "לא ניתן לטעון את מקורות הלידים.")
+      api<Overview>(t, "/api/integrations/acquisition").then(setData, (e: unknown) =>
+        setError(e instanceof Error ? e.message : t("account.settings.connections.leads.loadError"))
       ),
-    []
+    [t]
   );
   useEffect(() => {
     let live = true;
-    api<Overview>("/api/integrations/acquisition").then(
+    api<Overview>(t, "/api/integrations/acquisition").then(
       (d) => live && setData(d),
-      (e: unknown) => live && setError(e instanceof Error ? e.message : "לא ניתן לטעון את מקורות הלידים.")
+      (e: unknown) => live && setError(e instanceof Error ? e.message : t("account.settings.connections.leads.loadError"))
     );
     return () => {
       live = false;
     };
-  }, []);
+  }, [t]);
 
   async function run(tag: string, fn: () => Promise<void>) {
     setBusy(tag);
@@ -260,7 +274,7 @@ export function LeadSourcesPanel() {
       await fn();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש — נסה/י שוב.");
+      setError(e instanceof Error ? e.message : t("account.settings.connections.common.genericError"));
     } finally {
       setBusy(null);
     }
@@ -269,9 +283,9 @@ export function LeadSourcesPanel() {
   const create = (sourceKey: "web.form" | "google.lead_form") =>
     run(`create:${sourceKey}`, async () => {
       const site = sourceKey === "web.form" ? originOf(siteInput) : null;
-      if (sourceKey === "web.form" && !siteInput.trim()) throw new Error("כדי שהטופס באתר יעבוד, צריך את כתובת האתר שלך.");
-      if (sourceKey === "web.form" && !site) throw new Error("כתובת האתר לא תקינה — למשל: www.my-site.co.il");
-      const r = await api<{ connection: Connection; key: string }>("/api/integrations/acquisition", {
+      if (sourceKey === "web.form" && !siteInput.trim()) throw new Error(t("account.settings.connections.leads.site.required"));
+      if (sourceKey === "web.form" && !site) throw new Error(t("account.settings.connections.leads.site.invalid"));
+      const r = await api<{ connection: Connection; key: string }>(t, "/api/integrations/acquisition", {
         sourceKey,
         ...(site ? { allowedOrigins: [site] } : {}),
       });
@@ -281,55 +295,55 @@ export function LeadSourcesPanel() {
   const saveSite = (c: Connection, input: string) =>
     run(`site:${c.id}`, async () => {
       const site = originOf(input);
-      if (!input.trim() || !site) throw new Error("כתובת האתר לא תקינה — למשל: www.my-site.co.il");
-      await api(`/api/integrations/acquisition/${c.id}`, { action: "set_origins", allowedOrigins: [site] });
+      if (!input.trim() || !site) throw new Error(t("account.settings.connections.leads.site.invalid"));
+      await api(t, `/api/integrations/acquisition/${c.id}`, { action: "set_origins", allowedOrigins: [site] });
     });
 
   const act = (c: Connection, action: "rotate" | "pause" | "resume" | "revoke") =>
     run(`${action}:${c.id}`, async () => {
-      if (action === "revoke" && !window.confirm("לנתק את החיבור? לידים חדשים מהמקור הזה לא ייכנסו יותר.")) return;
-      if (action === "rotate" && !window.confirm("ליצור קוד חדש? הקוד הקודם יפסיק לעבוד מיד ויהיה צריך לעדכן אותו.")) return;
-      const r = await api<{ connection: Connection; key?: string }>(`/api/integrations/acquisition/${c.id}`, { action });
+      if (action === "revoke" && !window.confirm(t("account.settings.connections.leads.confirmRevoke"))) return;
+      if (action === "rotate" && !window.confirm(t("account.settings.connections.leads.confirmRotate"))) return;
+      const r = await api<{ connection: Connection; key?: string }>(t, `/api/integrations/acquisition/${c.id}`, { action });
       if (r.key) setSecret({ connectionId: c.id, url: r.connection.endpointUrl ?? "", key: r.key });
     });
 
   const metaLogin = () =>
     run("meta:login", async () => {
       const login = data?.meta?.login;
-      if (!login) throw new Error(ERRORS.unavailable);
+      if (!login) throw new Error(t(ERRORS.unavailable));
       const fb = await loadFacebookSdk(login);
       const code = await new Promise<string>((resolve, reject) =>
         fb.login(
-          (resp) => (resp.authResponse?.code ? resolve(resp.authResponse.code) : reject(new Error("ההתחברות לפייסבוק בוטלה."))),
+          (resp) => (resp.authResponse?.code ? resolve(resp.authResponse.code) : reject(new Error(t("account.settings.connections.leads.meta.loginCancelled")))),
           { config_id: login.configId, response_type: "code", override_default_response_type: true }
         )
       );
-      const r = await api<MetaPick>("/api/integrations/acquisition/meta/pages", { code });
-      if (!r.pages.length) throw new Error("לא נמצאו דפים בחשבון הזה.");
+      const r = await api<MetaPick>(t, "/api/integrations/acquisition/meta/pages", { code });
+      if (!r.pages.length) throw new Error(t("account.settings.connections.leads.meta.noPages"));
       setMetaPick(r);
     });
 
   const metaConnect = (pageId: string) =>
     run(`meta:connect:${pageId}`, async () => {
       if (!metaPick) return;
-      await api("/api/integrations/acquisition/meta/connect", { handle: metaPick.handle, pageId });
+      await api(t, "/api/integrations/acquisition/meta/connect", { handle: metaPick.handle, pageId });
       setMetaPick(null);
     });
 
   if (!data) {
     return (
       <section className="rounded-[24px] dz-mist p-4 shadow-sm">
-        <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">מקורות לידים</h2>
-        <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{error ?? "טוען…"}</p>
+        <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.leads.title")}</h2>
+        <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{error ?? t("common.loading")}</p>
       </section>
     );
   }
 
   return (
     <section className="rounded-[24px] dz-mist p-4 shadow-sm md:col-span-2">
-      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">מקורות לידים</h2>
+      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.leads.title")}</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-        חבר/י את המקומות שמהם מגיעים לקוחות — כל ליד נכנס לרשימת הלידים, עם המקור והקמפיין שממנו הגיע.
+        {t("account.settings.connections.leads.intro")}
       </p>
       {error ? (
         <p className="mt-3 rounded-2xl bg-[var(--dz-danger-bg-soft)] px-3 py-2 text-xs font-bold text-[var(--dz-danger)]">{error}</p>
@@ -344,19 +358,19 @@ export function LeadSourcesPanel() {
           return (
             <div key={s.key} className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold text-[var(--dz-text-primary)]">{s.title}</h3>
+                <h3 className="text-sm font-bold text-[var(--dz-text-primary)]">{t(s.title)}</h3>
                 {!available ? (
                   <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
-                    {s.key === "meta.lead_ads" && enabled ? "ממתין לאישור של Meta" : "בקרוב"}
+                    {s.key === "meta.lead_ads" && enabled ? t("account.settings.connections.leads.meta.awaitingApproval") : t("account.settings.connections.common.soon")}
                   </span>
                 ) : !live.length ? (
-                  <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">לא מחובר</span>
+                  <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.status.disconnected")}</span>
                 ) : null}
               </div>
-              <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{s.description}</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{t(s.description)}</p>
               {!available && s.key === "meta.lead_ads" ? (
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  החיבור לפייסבוק ואינסטגרם ייפתח ברגע ש-Meta תאשר את Dubiz לקבלת לידים. אין צורך לעשות דבר בינתיים.
+                  {t("account.settings.connections.leads.meta.pendingNote")}
                 </p>
               ) : null}
 
@@ -365,41 +379,41 @@ export function LeadSourcesPanel() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-xs font-bold text-[var(--dz-text-primary)]">
-                        {c.label ?? s.title}
+                        {c.label ?? t(s.title)}
                         {c.allowedOrigins.length ? <span className="font-normal text-[var(--dz-text-muted)]"> · {c.allowedOrigins.map((o) => o.replace(/^https?:\/\//, "")).join(", ")}</span> : null}
                       </div>
-                      <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c)}</div>
+                      <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c, t, locale)}</div>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{STATUS[c.status].label}</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{t(STATUS[c.status].label)}</span>
                   </div>
                   {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (
-                      <Action onClick={metaLogin} busy={busy === "meta:login"} comingSoon>חיבור מחדש</Action>
+                      <Action onClick={metaLogin} busy={busy === "meta:login"} comingSoon>{t("account.settings.connections.common.reconnect")}</Action>
                     ) : null}
                     {c.sourceKey !== "meta.lead_ads" ? (
                       <>
-                        <Action onClick={() => act(c, "rotate")} busy={busy === `rotate:${c.id}`}>קוד חדש</Action>
+                        <Action onClick={() => act(c, "rotate")} busy={busy === `rotate:${c.id}`}>{t("account.settings.connections.leads.newKey")}</Action>
                         {c.status === "PAUSED" ? (
-                          <Action onClick={() => act(c, "resume")} busy={busy === `resume:${c.id}`}>הפעלה</Action>
+                          <Action onClick={() => act(c, "resume")} busy={busy === `resume:${c.id}`}>{t("account.settings.connections.common.resume")}</Action>
                         ) : (
-                          <Action onClick={() => act(c, "pause")} busy={busy === `pause:${c.id}`}>השהיה</Action>
+                          <Action onClick={() => act(c, "pause")} busy={busy === `pause:${c.id}`}>{t("account.settings.connections.common.pause")}</Action>
                         )}
                       </>
                     ) : null}
-                    <Action onClick={() => act(c, "revoke")} busy={busy === `revoke:${c.id}`} danger>ניתוק</Action>
+                    <Action onClick={() => act(c, "revoke")} busy={busy === `revoke:${c.id}`} danger>{t("account.settings.connections.common.revoke")}</Action>
                   </div>
                   {c.endpointUrl && c.status !== "PAUSED" && c.sourceKey === "web.form" ? (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">הטופס להדבקה באתר</summary>
+                      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.webForm.pasteSummary")}</summary>
                       <WebFormInstall url={c.endpointUrl} />
                       <SiteEditor current={c.allowedOrigins} busy={busy === `site:${c.id}`} onSave={(v) => saveSite(c, v)} />
                     </details>
                   ) : c.endpointUrl && c.status !== "PAUSED" ? (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">הכתובת לחיבור</summary>
-                      <Field label="כתובת" value={c.endpointUrl} />
-                      <p className="mt-1 text-[11px] text-[var(--dz-text-muted)]">הקוד הסודי מסתיים ב-{c.keyHint ?? "…"}. שכחת אותו? צור/י קוד חדש.</p>
+                      <summary className="cursor-pointer text-[11px] font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.endpointSummary")}</summary>
+                      <Field label={t("account.settings.connections.common.address")} value={c.endpointUrl} />
+                      <p className="mt-1 text-[11px] text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.keyHint", { hint: c.keyHint ?? "…" })}</p>
                     </details>
                   ) : null}
                   {secret?.connectionId === c.id ? <SecretBox source={s.key} secret={secret} onDone={() => setSecret(null)} /> : null}
@@ -412,43 +426,43 @@ export function LeadSourcesPanel() {
                     dir="ltr"
                     value={siteInput}
                     onChange={(e) => setSiteInput(e.target.value)}
-                    placeholder="כתובת האתר שלך, למשל www.my-site.co.il"
-                    aria-label="כתובת האתר שלך"
+                    placeholder={t("account.settings.connections.leads.site.placeholder")}
+                    aria-label={t("account.settings.connections.leads.site.ariaLabel")}
                     className="min-w-0 flex-1 rounded-full border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-1 text-xs"
                   />
                   <Action onClick={() => create("web.form")} busy={busy === "create:web.form"} primary>
-                    {live.length ? "חיבור טופס נוסף" : "חיבור טופס"}
+                    {live.length ? t("account.settings.connections.leads.connectAnotherForm") : t("account.settings.connections.leads.connectForm")}
                   </Action>
                 </div>
               ) : null}
               {available && s.key === "google.lead_form" ? (
                 <div className="mt-3">
                   <Action onClick={() => create("google.lead_form")} busy={busy === "create:google.lead_form"} primary>
-                    {live.length ? "חיבור טופס נוסף" : "חיבור Google Ads"}
+                    {live.length ? t("account.settings.connections.leads.connectAnotherForm") : t("account.settings.connections.leads.connectGoogle")}
                   </Action>
                 </div>
               ) : null}
               {available && s.key === "meta.lead_ads" && !metaPick ? (
                 <div className="mt-3">
                   <Action onClick={metaLogin} busy={busy === "meta:login"} primary comingSoon>
-                    {live.length ? "חיבור דף נוסף" : "התחברות עם Facebook"}
+                    {live.length ? t("account.settings.connections.leads.meta.connectAnotherPage") : t("account.settings.connections.leads.meta.login")}
                   </Action>
                 </div>
               ) : null}
               {s.key === "meta.lead_ads" && metaPick ? (
                 <div className="mt-3 space-y-2">
-                  <p className="text-xs font-bold text-[var(--dz-text-primary)]">איזה דף לחבר?</p>
+                  <p className="text-xs font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.leads.meta.whichPage")}</p>
                   {metaPick.pages.map((p) => (
                     <div key={p.id} className="flex items-center justify-between gap-2 rounded-2xl bg-[var(--dz-surface-muted)] px-3 py-2">
                       <span className="truncate text-xs">{p.name}</span>
                       {p.canAdvertise ? (
-                        <Action onClick={() => metaConnect(p.id)} busy={busy === `meta:connect:${p.id}`} primary>חיבור</Action>
+                        <Action onClick={() => metaConnect(p.id)} busy={busy === `meta:connect:${p.id}`} primary>{t("account.settings.connections.leads.meta.connect")}</Action>
                       ) : (
-                        <span className="text-[11px] text-[var(--dz-text-muted)]">אין הרשאת פרסום בדף</span>
+                        <span className="text-[11px] text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.meta.noAdvertisePermission")}</span>
                       )}
                     </div>
                   ))}
-                  <button type="button" onClick={() => setMetaPick(null)} className="text-[11px] font-bold text-[var(--dz-text-muted)]">ביטול</button>
+                  <button type="button" onClick={() => setMetaPick(null)} className="text-[11px] font-bold text-[var(--dz-text-muted)]">{t("common.cancel")}</button>
                 </div>
               ) : null}
             </div>
@@ -460,6 +474,7 @@ export function LeadSourcesPanel() {
 }
 
 function SiteEditor({ current, busy, onSave }: { current: string[]; busy: boolean; onSave: (v: string) => void }) {
+  const { t } = useI18n();
   // One line per site: the www / bare twin the server adds is not shown twice.
   const shown = current
     .map((o) => o.replace(/^https?:\/\//, ""))
@@ -467,17 +482,17 @@ function SiteEditor({ current, busy, onSave }: { current: string[]; busy: boolea
   const [value, setValue] = useState("");
   return (
     <div className="mt-3">
-      <div className="text-[11px] font-bold text-[var(--dz-text-muted)]">כתובת האתר שממנו הטופס נשלח: {shown.join(", ") || "—"}</div>
+      <div className="text-[11px] font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.leads.site.current", { sites: shown.join(", ") || "—" })}</div>
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <input
           dir="ltr"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="כתובת חדשה, למשל www.my-site.co.il"
-          aria-label="כתובת אתר חדשה"
+          placeholder={t("account.settings.connections.leads.site.newPlaceholder")}
+          aria-label={t("account.settings.connections.leads.site.newAriaLabel")}
           className="min-w-0 flex-1 rounded-full border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-1 text-xs"
         />
-        <Action onClick={() => onSave(value)} busy={busy}>שמירת כתובת</Action>
+        <Action onClick={() => onSave(value)} busy={busy}>{t("account.settings.connections.leads.site.save")}</Action>
       </div>
     </div>
   );
@@ -499,6 +514,7 @@ export function Action({
   /** Not open yet (the Facebook / Instagram connection): inactive, with "בקרוב" beside it. */
   comingSoon?: boolean;
 }) {
+  const { t } = useI18n();
   if (comingSoon) {
     return (
       <span className="inline-flex items-center gap-2">
@@ -516,7 +532,7 @@ export function Action({
       : "border border-[var(--dz-border)] text-[var(--dz-text-primary)]";
   return (
     <button type="button" disabled={busy} onClick={onClick} className={`rounded-full px-4 py-1 text-xs font-bold disabled:opacity-60 ${tone}`}>
-      {busy ? "רגע…" : children}
+      {busy ? t("account.settings.connections.common.busy") : children}
     </button>
   );
 }

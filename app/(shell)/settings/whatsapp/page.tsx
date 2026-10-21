@@ -11,6 +11,7 @@ import { WhatsAppMetaDataPrivacySection } from "@/components/whatsapp/WhatsAppMe
 import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import { WaBadge, WaPrimaryButton } from "@/components/whatsapp/wa-ui";
 import { settingsViewFor } from "@/components/whatsapp/connection-view";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import desk from "./wa-desk.module.css";
 
 /**
@@ -30,13 +31,14 @@ import desk from "./wa-desk.module.css";
  * view reflects the new state.
  */
 export default function WhatsAppSettingsPage() {
+  const { t } = useI18n();
   const [reloadKey, setReloadKey] = useState(0);
   const state = useWhatsAppConnection(reloadKey);
   const view = settingsViewFor(state);
   const refresh = () => setReloadKey((k) => k + 1);
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader title="WhatsApp Business" backHref="/settings/connections" showBack />
 
       {/* Pilot: focused intent (Spec v1 §6) — the connection is a focused
@@ -48,7 +50,7 @@ export default function WhatsAppSettingsPage() {
           <div>
             {view.kind === "loading" ? (
               <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
-                טוען…
+                {t("common.loading")}
               </div>
             ) : view.kind === "load_error" ? (
               <ConnectionLoadError onRetry={refresh} />
