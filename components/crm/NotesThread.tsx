@@ -10,19 +10,14 @@ import {
   type CrmSubjectType,
 } from "@/lib/api/crm-notes";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const BODY_MAX = 5000;
 
-function formatDateTime(iso: string): string {
+function formatDateTime(iso: string, formatDateTimeValue: (date: Date) => string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("he-IL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(d);
+  return formatDateTimeValue(d);
 }
 
 export function NotesThread({
@@ -32,6 +27,7 @@ export function NotesThread({
   subjectType: CrmSubjectType;
   subjectId: number;
 }) {
+  const { t, formatDate } = useI18n();
   const [notes, setNotes] = useState<CrmNoteDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,11 +57,11 @@ export function NotesThread({
       setNotes(data);
     } catch (err) {
       if (handleAuth(err)) return;
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את ההערות");
+      setError(err instanceof Error ? err.message : t("inbox.crm.notes.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [subjectType, subjectId, handleAuth]);
+  }, [subjectType, subjectId, handleAuth, t]);
 
   useEffect(() => {
     void load();
@@ -74,7 +70,7 @@ export function NotesThread({
   async function handleAdd() {
     const body = draft.trim();
     if (!body) {
-      setComposerError("לא ניתן לשמור הערה ריקה");
+      setComposerError(t("inbox.crm.notes.empty"));
       return;
     }
     try {
@@ -85,7 +81,7 @@ export function NotesThread({
       setDraft("");
     } catch (err) {
       if (handleAuth(err)) return;
-      setComposerError(err instanceof Error ? err.message : "לא הצלחנו לשמור");
+      setComposerError(err instanceof Error ? err.message : t("inbox.crm.notes.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -107,7 +103,7 @@ export function NotesThread({
       setEditingId(null);
     } catch (err) {
       if (handleAuth(err)) return;
-      setError(err instanceof Error ? err.message : "לא הצלחנו לעדכן");
+      setError(err instanceof Error ? err.message : t("inbox.crm.notes.updateFailed"));
     } finally {
       setRowBusy(null);
     }
@@ -121,7 +117,7 @@ export function NotesThread({
       setConfirmDeleteId(null);
     } catch (err) {
       if (handleAuth(err)) return;
-      setError(err instanceof Error ? err.message : "לא הצלחנו למחוק");
+      setError(err instanceof Error ? err.message : t("inbox.crm.notes.deleteFailed"));
     } finally {
       setRowBusy(null);
     }
@@ -130,7 +126,7 @@ export function NotesThread({
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">הערות</h2>
+        <h2 className="crm-section__title">{t("inbox.crm.notes.title")}</h2>
         {!loading && !error ? (
           <span className="crm-section__count">{notes.length}</span>
         ) : null}
@@ -142,7 +138,7 @@ export function NotesThread({
           className="crm-note-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="הוסף הערה…"
+          placeholder={t("inbox.crm.notes.placeholder")}
           maxLength={BODY_MAX}
           rows={2}
         />
@@ -158,7 +154,7 @@ export function NotesThread({
             onClick={() => void handleAdd()}
             disabled={saving || !draft.trim()}
           >
-            {saving ? "שומר…" : "הוסף הערה"}
+            {saving ? t("inbox.crm.notes.saving") : t("inbox.crm.notes.add")}
           </button>
         </div>
       </div>
@@ -169,11 +165,11 @@ export function NotesThread({
         <div className="crm-panel crm-panel--error">
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={() => void load()}>
-            נסו שוב
+            {t("inbox.crm.retry")}
           </button>
         </div>
       ) : notes.length === 0 ? (
-        <p className="crm-note-empty">אין עדיין הערות. אפשר להוסיף את ההערה הראשונה למעלה.</p>
+        <p className="crm-note-empty">{t("inbox.crm.notes.none")}</p>
       ) : (
         <div className="crm-note-list">
           {notes.map((note) => {
@@ -182,8 +178,8 @@ export function NotesThread({
             return (
               <div className="crm-note-card" key={note.id}>
                 <div className="crm-note-card__meta">
-                  <span className="crm-note-card__author">{note.author.name || "משתמש"}</span>
-                  <span className="crm-note-card__time">{formatDateTime(note.createdAt)}</span>
+                  <span className="crm-note-card__author">{note.author.name || t("inbox.crm.notes.unknownAuthor")}</span>
+                  <span className="crm-note-card__time">{formatDateTime(note.createdAt, (date) => formatDate(date, "dateTime"))}</span>
                 </div>
 
                 {isEditing ? (
@@ -202,7 +198,7 @@ export function NotesThread({
                         onClick={() => void handleSaveEdit(note.id)}
                         disabled={busy || !editText.trim()}
                       >
-                        {busy ? "שומר…" : "שמירה"}
+                        {busy ? t("inbox.crm.notes.saving") : t("inbox.crm.notes.save")}
                       </button>
                       <button
                         type="button"
@@ -210,7 +206,7 @@ export function NotesThread({
                         onClick={() => setEditingId(null)}
                         disabled={busy}
                       >
-                        ביטול
+                        {t("inbox.crm.cancel")}
                       </button>
                     </div>
                   </>
@@ -221,14 +217,14 @@ export function NotesThread({
                       <div className="crm-note-card__actions">
                         {confirmDeleteId === note.id ? (
                           <>
-                            <span className="crm-note-card__confirm">למחוק?</span>
+                            <span className="crm-note-card__confirm">{t("inbox.crm.confirmDelete")}</span>
                             <button
                               type="button"
                               className="crm-note-linkbtn crm-note-linkbtn--danger"
                               onClick={() => void handleDelete(note.id)}
                               disabled={busy}
                             >
-                              {busy ? "מוחק…" : "מחק"}
+                              {busy ? t("inbox.crm.deleting") : t("inbox.crm.delete")}
                             </button>
                             <button
                               type="button"
@@ -236,7 +232,7 @@ export function NotesThread({
                               onClick={() => setConfirmDeleteId(null)}
                               disabled={busy}
                             >
-                              ביטול
+                              {t("inbox.crm.cancel")}
                             </button>
                           </>
                         ) : (
@@ -247,7 +243,7 @@ export function NotesThread({
                                 className="crm-note-linkbtn"
                                 onClick={() => startEdit(note)}
                               >
-                                עריכה
+                                {t("inbox.crm.notes.edit")}
                               </button>
                             ) : null}
                             {note.canDelete ? (
@@ -256,7 +252,7 @@ export function NotesThread({
                                 className="crm-note-linkbtn crm-note-linkbtn--danger"
                                 onClick={() => setConfirmDeleteId(note.id)}
                               >
-                                מחיקה
+                                {t("inbox.crm.deleteAction")}
                               </button>
                             ) : null}
                           </>

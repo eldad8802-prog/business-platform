@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { resolveConversationDisplayTitle } from "@/lib/inbox-view/conversation-display-title";
 
@@ -27,10 +29,11 @@ export function InboxStartPane({
   next: InboxItemViewModel | null;
   onOpen: (conversationId: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="inbox-start">
-      <h2>מה מחכה בשיחות</h2>
-      <p>הרשימה מסודרת לפי מה שדחוף. אפשר להתחיל מלמעלה, או לבחור שיחה.</p>
+      <h2>{t("inbox.panels.startTitle")}</h2>
+      <p>{t("inbox.panels.startBody")}</p>
       <div className="inbox-start-cards">
         {cards.map((card) => (
           <div key={card.label} className="inbox-start-card">
@@ -46,29 +49,37 @@ export function InboxStartPane({
             <b>{resolveConversationDisplayTitle(next)}</b>
             {next.signalLabel ? <span> · {next.signalLabel}</span> : null}
           </span>
-          <span aria-hidden>פתח ←</span>
+          <span aria-hidden>{t("inbox.panels.open")}</span>
         </button>
       ) : null}
     </div>
   );
 }
 
-const CHANNEL_LABEL: Record<string, string> = {
+/** Brand names stay as-is; generic channels are translated. */
+const CHANNEL_BRAND: Record<string, string> = {
   WHATSAPP: "WhatsApp",
   INSTAGRAM: "Instagram",
   FACEBOOK: "Facebook",
-  EMAIL: "אימייל",
-  PHONE: "טלפון",
-  OTHER: "אחר",
+};
+const CHANNEL_KEY: Record<string, MessageKey> = {
+  EMAIL: "inbox.panels.channel.EMAIL",
+  PHONE: "inbox.panels.channel.PHONE",
+  OTHER: "inbox.panels.channel.OTHER",
 };
 
-function waitingText(minutes: number | null): string | null {
+function channelLabel(channel: string, t: Translator): string {
+  const key = CHANNEL_KEY[channel];
+  return CHANNEL_BRAND[channel] ?? (key ? t(key) : channel);
+}
+
+function waitingText(minutes: number | null, t: Translator): string | null {
   if (minutes == null || minutes <= 0) return null;
-  if (minutes < 60) return `${minutes} דק׳`;
+  if (minutes < 60) return t("inbox.panels.waitingMinutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "שעה" : `${hours} שעות`;
+  if (hours < 24) return hours === 1 ? t("inbox.panels.waitingHourOne") : t("inbox.panels.waitingHours", { count: hours });
   const days = Math.floor(hours / 24);
-  return days === 1 ? "יום" : `${days} ימים`;
+  return days === 1 ? t("inbox.panels.waitingDayOne") : t("inbox.panels.waitingDays", { count: days });
 }
 
 /**
@@ -84,19 +95,20 @@ export function InboxContextPane({
   item: InboxItemViewModel | null;
   customerId: number | null | undefined;
 }) {
+  const { t } = useI18n();
   if (!item) return null;
-  const waiting = waitingText(item.waitingMinutes);
+  const waiting = waitingText(item.waitingMinutes, t);
   const nextStep = item.nextBestAction?.label || item.suggestedActionLabel;
   const rows: Array<{ label: string; value: string | null | undefined }> = [
-    { label: "ערוץ", value: CHANNEL_LABEL[item.channel] ?? item.channel },
-    { label: "טלפון", value: item.customerName ? item.customerPhone : null },
-    { label: "שלב", value: item.stageLabel },
-    { label: "מצב", value: item.businessSituation?.label ?? item.signalLabel },
-    { label: "מחכה לתשובה", value: waiting },
-    { label: "הבוט", value: item.humanTakeoverActive ? "אתה מטפל בשיחה" : item.botProgressLabel },
+    { label: t("inbox.panels.rows.channel"), value: channelLabel(item.channel, t) },
+    { label: t("inbox.panels.rows.phone"), value: item.customerName ? item.customerPhone : null },
+    { label: t("inbox.panels.rows.stage"), value: item.stageLabel },
+    { label: t("inbox.panels.rows.situation"), value: item.businessSituation?.label ?? item.signalLabel },
+    { label: t("inbox.panels.rows.waiting"), value: waiting },
+    { label: t("inbox.panels.rows.bot"), value: item.humanTakeoverActive ? t("inbox.panels.youHandle") : item.botProgressLabel },
   ];
   return (
-    <aside className="inbox-context" aria-label="על השיחה">
+    <aside className="inbox-context" aria-label={t("inbox.panels.contextLabel")}>
       <h2>{resolveConversationDisplayTitle(item)}</h2>
       <dl>
         {rows
@@ -110,14 +122,14 @@ export function InboxContextPane({
       </dl>
       {nextStep ? (
         <div className="inbox-context-next">
-          <span>הצעד הבא</span>
+          <span>{t("inbox.panels.nextStep")}</span>
           <b>{nextStep}</b>
           {item.businessSituation?.explanation ? <p>{item.businessSituation.explanation}</p> : null}
         </div>
       ) : null}
       {customerId ? (
         <Link href={`/customers/${customerId}`} className="inbox-context-link">
-          כרטיס הלקוח ←
+          {t("inbox.panels.customerCard")}
         </Link>
       ) : null}
     </aside>
