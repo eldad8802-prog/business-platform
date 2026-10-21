@@ -54,6 +54,8 @@ export const IMPORT_EXPORT_SETTINGS_CATEGORY: SettingsCategory = {
   href: IMPORT_EXPORT_ROUTE,
   title: "ייבוא וייצוא",
   description: "העבר מידע ממערכת אחרת, או הורד עותק של המידע שלך",
+  titleKey: "account.settings.importExport.category.title",
+  descriptionKey: "account.settings.importExport.category.description",
   icon: "🔄",
   group: "account",
 };

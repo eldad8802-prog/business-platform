@@ -35,13 +35,18 @@
  * route that does not exist. See `ImportExportPendingRow`.
  */
 
+import type { MessageKey } from "@/lib/i18n/translate";
+
 import { IMPORT_EXPORT_ROUTE } from "./import-export-release";
 
 export type ImportExportAction = {
   key: "import" | "documents-import" | "templates" | "historical" | "export";
   href: string;
+  /** Hebrew copy (verifiers quote it); screens render titleKey / descriptionKey. */
   title: string;
   description: string;
+  titleKey: MessageKey;
+  descriptionKey: MessageKey;
   icon: string;
   /** False while the flow is planned but not yet usable. */
   available: boolean;
@@ -56,6 +61,8 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     // the check, because that is what the owner does first and it is the part
     // that makes the rest safe.
     description: "העלו קובץ ממערכת אחרת, בדקו, ואשרו קליטה",
+    titleKey: "account.settings.importExport.actions.import.title",
+    descriptionKey: "account.settings.importExport.actions.import.description",
     icon: "📂",
     available: true,
   },
@@ -68,6 +75,8 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     href: `${IMPORT_EXPORT_ROUTE}/templates`,
     title: "תבניות לייבוא",
     description: "הורידו קובץ לדוגמה והכינו את המידע מראש",
+    titleKey: "account.settings.importExport.actions.templates.title",
+    descriptionKey: "account.settings.importExport.actions.templates.description",
     icon: "📋",
     available: true,
   },
@@ -80,6 +89,8 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     href: `${IMPORT_EXPORT_ROUTE}/documents`,
     title: "ייבוא מסמכים",
     description: "בדקו קבצים ממערכת אחרת לפני קליטה",
+    titleKey: "account.settings.importExport.actions.documentsImport.title",
+    descriptionKey: "account.settings.importExport.actions.documentsImport.description",
     icon: "🧾",
     available: true,
   },
@@ -98,6 +109,8 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     href: `${IMPORT_EXPORT_ROUTE}/historical`,
     title: "היסטוריה ממערכת קודמת",
     description: "חשבוניות וקבלות שהופקו במערכת אחרת, לפני דוביז",
+    titleKey: "account.settings.importExport.actions.historical.title",
+    descriptionKey: "account.settings.importExport.actions.historical.description",
     icon: "🗄️",
     available: true,
   },
@@ -106,6 +119,8 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     href: `${IMPORT_EXPORT_ROUTE}/export`,
     title: "ייצוא",
     description: "הורד עותק של הנתונים והמסמכים שלך",
+    titleKey: "account.settings.importExport.actions.export.title",
+    descriptionKey: "account.settings.importExport.actions.export.description",
     icon: "⬇️",
     available: true,
   },

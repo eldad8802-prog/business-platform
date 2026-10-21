@@ -4,7 +4,6 @@
 .page {
   min-height: 100vh;
   min-height: 100dvh;
-  direction: rtl;
   padding: 24px 16px;
   display: flex;
   align-items: center;

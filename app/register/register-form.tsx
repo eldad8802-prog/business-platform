@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 
@@ -23,6 +24,7 @@ type RegisterErrors = {
 
 export default function RegisterForm() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -54,48 +56,48 @@ export default function RegisterForm() {
 
   /** 0–4 filled segments and a short word. Below the minimum it never reads as "good". */
   function getPasswordStrength(value: string): { segments: number; text: string } {
-    if (!value) return { segments: 0, text: `לפחות ${MIN_PASSWORD_LENGTH} תווים` };
+    if (!value) return { segments: 0, text: t("account.auth.register.strength.minLength", { count: MIN_PASSWORD_LENGTH }) };
     if (value.length < MIN_PASSWORD_LENGTH) {
-      return { segments: 1, text: `עוד ${MIN_PASSWORD_LENGTH - value.length} תווים לפחות` };
+      const left = MIN_PASSWORD_LENGTH - value.length;
+      return { segments: 1, text: t(left === 1 ? "account.auth.register.strength.moreOne" : "account.auth.register.strength.moreMany", { count: left }) };
     }
     let score = 1;
     if (value.length >= 12) score += 1;
     if (/[0-9]/.test(value) && /[A-Za-z\u05D0-\u05EA]/.test(value)) score += 1;
     if (/[^A-Za-z0-9\u0590-\u05FF]/.test(value)) score += 1;
-    return { segments: score, text: ["", "סיסמה סבירה", "סיסמה טובה", "סיסמה חזקה", "סיסמה חזקה מאוד"][score] };
+    const words = ["", t("account.auth.register.strength.fair"), t("account.auth.register.strength.good"), t("account.auth.register.strength.strong"), t("account.auth.register.strength.veryStrong")];
+    return { segments: score, text: words[score] };
   }
 
-  const passwordStrength = useMemo(
-    () => getPasswordStrength(password),
-    [password]
-  );
+  // Cheap, and it reads the active language: computed on every render.
+  const passwordStrength = getPasswordStrength(password);
 
   function validateField(
     field: "name" | "businessName" | "email" | "password",
     value: string
   ) {
     if (field === "name") {
-      if (!value.trim()) return "יש להזין שם מלא";
-      if (value.trim().length < 2) return "השם חייב להכיל לפחות 2 תווים";
+      if (!value.trim()) return t("account.auth.register.errors.nameRequired");
+      if (value.trim().length < 2) return t("account.auth.register.errors.nameTooShort");
       return "";
     }
 
     if (field === "businessName") {
-      if (!value.trim()) return "יש להזין שם עסק";
-      if (value.trim().length < 2) return "שם העסק חייב להכיל לפחות 2 תווים";
+      if (!value.trim()) return t("account.auth.register.errors.businessRequired");
+      if (value.trim().length < 2) return t("account.auth.register.errors.businessTooShort");
       return "";
     }
 
     if (field === "email") {
-      if (!value.trim()) return "יש להזין אימייל";
-      if (!emailRegex.test(value.trim())) return "יש להזין כתובת אימייל תקינה";
+      if (!value.trim()) return t("account.auth.common.emailRequired");
+      if (!emailRegex.test(value.trim())) return t("account.auth.common.emailInvalid");
       return "";
     }
 
     if (field === "password") {
-      if (!value.trim()) return "יש להזין סיסמה";
+      if (!value.trim()) return t("account.auth.common.passwordRequired");
       if (value.length < MIN_PASSWORD_LENGTH)
-        return `הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים`;
+        return t("account.auth.common.passwordTooShort", { count: MIN_PASSWORD_LENGTH });
       return "";
     }
 
@@ -114,7 +116,7 @@ export default function RegisterForm() {
     if (businessNameError) nextErrors.businessName = businessNameError;
     if (emailError) nextErrors.email = emailError;
     if (passwordError) nextErrors.password = passwordError;
-    if (!acceptTerms) nextErrors.acceptTerms = "יש לאשר את תנאי השימוש ומדיניות הפרטיות";
+    if (!acceptTerms) nextErrors.acceptTerms = t("account.auth.register.errors.termsRequired");
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -222,13 +224,13 @@ export default function RegisterForm() {
           return;
         }
 
-        throw new Error(registerData?.error || "שגיאה בהרשמה");
+        throw new Error(registerData?.error || t("account.auth.register.errors.registerFailed"));
       }
 
       // Signup now returns the session itself. There is no second login call to
       // fail, so a created account can no longer strand its owner.
       if (!registerData?.token) {
-        throw new Error("החשבון נפתח, אבל לא הצלחנו להשלים את הכניסה. אפשר להתחבר מהמסך הבא.");
+        throw new Error(t("account.auth.register.errors.noToken"));
       }
 
       // Stored exactly as login stores it; the refresh credential arrived as an
@@ -250,7 +252,7 @@ export default function RegisterForm() {
     } catch (err) {
       console.error("register error:", err);
       setErrors({
-        form: err instanceof Error ? err.message : "שגיאה בהרשמה",
+        form: err instanceof Error ? err.message : t("account.auth.register.errors.registerFailed"),
       });
     } finally {
       setLoading(false);
@@ -275,33 +277,33 @@ export default function RegisterForm() {
               <span className={styles.logoMark} aria-hidden="true">d</span>
               <span className={styles.logoWord} dir="ltr">dubiz</span>
             </div>
-            <AccessibilityTrigger className={`${styles.a11yBtn} ${styles.brandA11y}`} label="הגדרות נגישות" />
+            <AccessibilityTrigger className={`${styles.a11yBtn} ${styles.brandA11y}`} label={t("account.auth.common.a11ySettings")} />
           </div>
-          <p className={styles.brandTitle}>העסק שלכם, במקום אחד.</p>
+          <p className={styles.brandTitle}>{t("account.auth.register.brand.title")}</p>
           <ol className={styles.steps}>
             <li className={styles.step}>
               <span className={`${styles.stepNum} ${styles.stepNumOn}`}>1</span>
               <span className={styles.stepText}>
-                <span className={styles.stepTitle}>פותחים חשבון</span>
-                <span className={styles.stepSub}>שם, שם העסק, אימייל וסיסמה.</span>
+                <span className={styles.stepTitle}>{t("account.auth.register.brand.step1Title")}</span>
+                <span className={styles.stepSub}>{t("account.auth.register.brand.step1Sub")}</span>
               </span>
             </li>
             <li className={styles.step}>
               <span className={styles.stepNum}>2</span>
               <span className={styles.stepText}>
-                <span className={styles.stepTitle}>מספרים קצת על העסק</span>
-                <span className={styles.stepSub}>כמה מילים. אפשר גם אחר כך.</span>
+                <span className={styles.stepTitle}>{t("account.auth.register.brand.step2Title")}</span>
+                <span className={styles.stepSub}>{t("account.auth.register.brand.step2Sub")}</span>
               </span>
             </li>
             <li className={styles.step}>
               <span className={styles.stepNum}>3</span>
               <span className={styles.stepText}>
-                <span className={styles.stepTitle}>עובדים כרגיל</span>
-                <span className={styles.stepSub}>Dubiz לומד את העסק מהעבודה עצמה.</span>
+                <span className={styles.stepTitle}>{t("account.auth.register.brand.step3Title")}</span>
+                <span className={styles.stepSub}>{t("account.auth.register.brand.step3Sub")}</span>
               </span>
             </li>
           </ol>
-          <p className={styles.brandFoot}>מסמכים · גבייה · לקוחות · פניות · תוכן</p>
+          <p className={styles.brandFoot}>{t("account.auth.register.brand.foot")}</p>
         </div>
       </aside>
 
@@ -311,7 +313,7 @@ export default function RegisterForm() {
             <span className={styles.logoMark} aria-hidden="true">d</span>
             <span className={styles.logoWord} dir="ltr">dubiz</span>
           </div>
-          <AccessibilityTrigger className={styles.a11yBtn} label="הגדרות נגישות" />
+          <AccessibilityTrigger className={styles.a11yBtn} label={t("account.auth.common.a11ySettings")} />
         </div>
 
         <form className={styles.form} onSubmit={handleRegister} noValidate>
@@ -320,22 +322,22 @@ export default function RegisterForm() {
             aria-hidden="true"
             style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", opacity: 0, pointerEvents: "none" }}
           >
-            <label htmlFor="dz-confirm-field">יש להשאיר ריק</label>
+            <label htmlFor="dz-confirm-field">{t("account.auth.register.honeypotLabel")}</label>
             <input ref={honeypotRef} id="dz-confirm-field" name={SIGNUP_HONEYPOT_FIELD} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
           </div>
           <div className={styles.head}>
-            <h1 className={styles.title}>פתיחת חשבון</h1>
+            <h1 className={styles.title}>{t("account.auth.register.title")}</h1>
             <p className={styles.loginLine}>
-              כבר יש לך חשבון?{" "}
+              {t("account.auth.register.haveAccount")}{" "}
               <Link href="/login" className={styles.link}>
-                להתחברות
+                {t("account.auth.register.toLogin")}
               </Link>
             </p>
           </div>
 
           <div className={styles.grid}>
             <div className={styles.field}>
-              <label className={styles.label} htmlFor="reg-name">שם מלא</label>
+              <label className={styles.label} htmlFor="reg-name">{t("account.auth.register.nameLabel")}</label>
               <input
                 id="reg-name"
                 className={`${styles.input} ${fieldError("name") ? styles.invalid : ""}`}
@@ -350,7 +352,7 @@ export default function RegisterForm() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.label} htmlFor="reg-business">שם העסק</label>
+              <label className={styles.label} htmlFor="reg-business">{t("account.auth.register.businessLabel")}</label>
               <input
                 id="reg-business"
                 className={`${styles.input} ${fieldError("businessName") ? styles.invalid : ""}`}
@@ -367,7 +369,7 @@ export default function RegisterForm() {
             </div>
 
             <div className={`${styles.field} ${styles.gridWide}`}>
-              <label className={styles.label} htmlFor="reg-email">אימייל</label>
+              <label className={styles.label} htmlFor="reg-email">{t("account.auth.common.emailLabel")}</label>
               <input
                 id="reg-email"
                 type="email"
@@ -386,7 +388,7 @@ export default function RegisterForm() {
             </div>
 
             <div className={`${styles.field} ${styles.gridWide}`}>
-              <label className={styles.label} htmlFor="reg-password">סיסמה</label>
+              <label className={styles.label} htmlFor="reg-password">{t("account.auth.common.passwordLabel")}</label>
               <div className={styles.pw}>
                 <input
                   id="reg-password"
@@ -404,10 +406,10 @@ export default function RegisterForm() {
                   type="button"
                   className={styles.toggle}
                   onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                  aria-label={showPassword ? t("account.auth.common.hidePasswordAria") : t("account.auth.common.showPasswordAria")}
                   aria-pressed={showPassword}
                 >
-                  {showPassword ? "הסתר" : "הצג"}
+                  {showPassword ? t("account.auth.common.hide") : t("account.auth.common.show")}
                 </button>
               </div>
               <div className={styles.meterRow}>
@@ -439,18 +441,18 @@ export default function RegisterForm() {
             />
             <span className={styles.termsText}>
               <span>
-                אני מאשר/ת את{" "}
+                {t("account.auth.register.terms.prefix")}{" "}
                 <Link href={TERMS_HREF} target="_blank" rel="noopener noreferrer">
-                  תנאי השימוש
+                  {t("account.auth.register.terms.termsLink")}
                 </Link>{" "}
-                ואת{" "}
+                {t("account.auth.register.terms.join")}{" "}
                 <Link href={PRIVACY_HREF} target="_blank" rel="noopener noreferrer">
-                  מדיניות הפרטיות
+                  {t("account.auth.register.terms.privacyLink")}
                 </Link>
               </span>
               {termsError ? (
                 <span id="reg-terms-msg" role="alert" className={styles.termsError}>
-                  כדי לפתוח חשבון צריך לאשר את התנאים.
+                  {t("account.auth.register.terms.error")}
                 </span>
               ) : null}
             </span>
@@ -464,7 +466,7 @@ export default function RegisterForm() {
 
           <div className={styles.actions}>
             <button type="submit" className={styles.submit} disabled={isSubmitDisabled}>
-              {loading ? "פותחים את החשבון…" : "פתיחת חשבון"}
+              {loading ? t("account.auth.register.submitting") : t("account.auth.register.submit")}
             </button>
           </div>
         </form>

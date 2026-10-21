@@ -15,7 +15,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 type SessionStatus = "active" | "revoked" | "expired";
 
@@ -35,28 +38,30 @@ type LoadState =
   | { kind: "ready"; sessions: SessionView[]; currentIdentified: boolean };
 
 /** Human, relative, and honest about precision. */
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, t: Translator): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const minutes = Math.floor((Date.now() - then) / 60_000);
-  if (minutes < 1) return "עכשיו";
-  if (minutes < 60) return `לפני ${minutes} דקות`;
+  const R = "account.settings.devices.relative.";
+  if (minutes < 1) return t(`${R}now` as const);
+  if (minutes < 60) return t(minutes === 1 ? `${R}minutesOne` as const : `${R}minutesMany` as const, { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "לפני שעה" : `לפני ${hours} שעות`;
+  if (hours < 24) return hours === 1 ? t(`${R}hourOne` as const) : t(`${R}hoursMany` as const, { count: hours });
   const days = Math.floor(hours / 24);
-  if (days === 1) return "אתמול";
-  if (days < 30) return `לפני ${days} ימים`;
+  if (days === 1) return t(`${R}yesterday` as const);
+  if (days < 30) return t(`${R}daysMany` as const, { count: days });
   const months = Math.floor(days / 30);
-  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
+  return months === 1 ? t(`${R}monthOne` as const) : t(`${R}monthsMany` as const, { count: months });
 }
 
-function shortDate(iso: string): string {
+function shortDate(iso: string, locale: Locale): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" });
+  return d.toLocaleDateString(intlTag(locale), { day: "numeric", month: "long", year: "numeric" });
 }
 
 export function DevicesScreen() {
+  const { t, locale } = useI18n();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -144,19 +149,19 @@ export function DevicesScreen() {
   }
 
   if (state.kind === "loading") {
-    return <p className="px-4 py-6 text-sm text-[var(--dz-text-secondary)]">טוען…</p>;
+    return <p className="px-4 py-6 text-sm text-[var(--dz-text-secondary)]">{t("common.loading")}</p>;
   }
 
   if (state.kind === "error") {
     return (
       <div className="px-4 py-6">
-        <p className="text-sm text-[var(--dz-text-secondary)]">לא הצלחנו לטעון את רשימת המכשירים.</p>
+        <p className="text-sm text-[var(--dz-text-secondary)]">{t("account.settings.devices.loadError")}</p>
         <button
           type="button"
           onClick={() => void load()}
           className="mt-3 min-h-11 rounded-2xl bg-[var(--dz-app-chrome)] px-4 text-sm font-bold text-[var(--dz-text-on-brand)]"
         >
-          נסה שוב
+          {t("account.settings.devices.retry")}
         </button>
       </div>
     );
@@ -168,12 +173,12 @@ export function DevicesScreen() {
   return (
     <div className="flex flex-col gap-4">
       <p className="px-1 text-sm text-[var(--dz-text-secondary)]">
-        אלה המכשירים שמחוברים כרגע לחשבון שלך. אם משהו כאן לא מוכר לך, נתק אותו.
+        {t("account.settings.devices.intro")}
       </p>
 
       {!state.currentIdentified && (
         <p className="rounded-2xl bg-[var(--dz-surface-sunk,#f5f5f5)] px-4 py-3 text-sm text-[var(--dz-text-secondary)]">
-          כדי לזהות את המכשיר הזה ולנתק את כל השאר, רענן את הדף בעוד רגע.
+          {t("account.settings.devices.notIdentified")}
         </p>
       )}
 
@@ -188,14 +193,14 @@ export function DevicesScreen() {
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-[var(--dz-text-primary)]">{s.label}</p>
                 {s.current ? (
-                  <p className="mt-1 text-xs font-bold text-[var(--dz-app-chrome)]">המכשיר הזה</p>
+                  <p className="mt-1 text-xs font-bold text-[var(--dz-app-chrome)]">{t("account.settings.devices.thisDevice")}</p>
                 ) : (
                   <p className="mt-1 text-xs text-[var(--dz-text-secondary)]">
-                    פעילות אחרונה: {relativeTime(s.lastUsedAt)}
+                    {t("account.settings.devices.lastActive", { when: relativeTime(s.lastUsedAt, t) })}
                   </p>
                 )}
                 <p className="mt-1 text-xs text-[var(--dz-text-secondary)]">
-                  מחובר מאז {shortDate(s.createdAt)}
+                  {t("account.settings.devices.since", { date: shortDate(s.createdAt, locale) })}
                 </p>
               </div>
 
@@ -207,7 +212,7 @@ export function DevicesScreen() {
                     disabled={busy !== null}
                     className="min-h-11 rounded-2xl bg-[var(--dz-danger,#9c3232)] px-3 text-xs font-bold text-white disabled:opacity-70"
                   >
-                    {s.current ? "נתק והתנתק" : "כן, נתק"}
+                    {s.current ? t("account.settings.devices.revokeSelf") : t("account.settings.devices.revokeConfirm")}
                   </button>
                   <button
                     type="button"
@@ -215,7 +220,7 @@ export function DevicesScreen() {
                     disabled={busy !== null}
                     className="min-h-11 rounded-2xl px-3 text-xs font-bold text-[var(--dz-text-secondary)]"
                   >
-                    ביטול
+                    {t("common.cancel")}
                   </button>
                 </div>
               ) : (
@@ -225,7 +230,7 @@ export function DevicesScreen() {
                   disabled={busy !== null}
                   className="min-h-11 shrink-0 rounded-2xl border border-[var(--dz-border-subtle)] px-3 text-xs font-bold text-[var(--dz-text-primary)] disabled:opacity-70"
                 >
-                  {busy === s.id ? "מנתק…" : "ניתוק"}
+                  {busy === s.id ? t("account.settings.devices.revoking") : t("account.settings.devices.revoke")}
                 </button>
               )}
             </div>
@@ -238,7 +243,7 @@ export function DevicesScreen() {
           {confirming === "others" ? (
             <div className="flex flex-col gap-2">
               <p className="text-sm text-[var(--dz-text-secondary)]">
-                לנתק את כל {others.length} המכשירים האחרים? המכשיר הזה יישאר מחובר.
+                {t(others.length === 1 ? "account.settings.devices.othersQuestionOne" : "account.settings.devices.othersQuestionMany", { count: others.length })}
               </p>
               <div className="flex gap-2">
                 <button
@@ -247,7 +252,7 @@ export function DevicesScreen() {
                   disabled={busy !== null}
                   className="min-h-11 rounded-2xl bg-[var(--dz-danger,#9c3232)] px-4 text-sm font-bold text-white disabled:opacity-70"
                 >
-                  כן, נתק את כולם
+                  {t("account.settings.devices.othersConfirm")}
                 </button>
                 <button
                   type="button"
@@ -255,7 +260,7 @@ export function DevicesScreen() {
                   disabled={busy !== null}
                   className="min-h-11 rounded-2xl px-4 text-sm font-bold text-[var(--dz-text-secondary)]"
                 >
-                  ביטול
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -266,7 +271,7 @@ export function DevicesScreen() {
               disabled={busy !== null}
               className="min-h-11 w-full rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-sm font-bold text-[var(--dz-text-primary)] disabled:opacity-70"
             >
-              {busy === "others" ? "מנתק…" : "נתק את כל המכשירים האחרים"}
+              {busy === "others" ? t("account.settings.devices.revoking") : t("account.settings.devices.othersButton")}
             </button>
           )}
         </div>

@@ -14,9 +14,11 @@
 
 import { useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { signOutAndRedirect } from "@/lib/client-session";
 
 export function LogoutButton() {
+  const { t } = useI18n();
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleLogout() {
@@ -36,7 +38,7 @@ export function LogoutButton() {
       aria-busy={signingOut}
       className="min-h-11 rounded-2xl bg-[var(--dz-app-chrome)] px-4 text-sm font-bold text-[var(--dz-text-on-brand)] disabled:opacity-70"
     >
-      {signingOut ? "מתנתק…" : "התנתקות"}
+      {signingOut ? t("account.settings.logout.signingOut") : t("account.settings.logout.label")}
     </button>
   );
 }

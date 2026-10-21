@@ -22,6 +22,7 @@ import path from "node:path";
 
 import { isExpired, INBOUND_ADDRESS_GRACE_DAYS } from "./inbound-email-management.service";
 import { evaluateSenderAuthorization } from "@/lib/inbound-email/sender-auth/evaluate-sender-authorization";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -341,7 +342,8 @@ check("S10: T4 creates, stores and logs no verification material", () => {
 });
 
 check("the UI offers no verification action it cannot perform", () => {
-  const card = code(CARD_PATH);
+  // The card's copy lives in the i18n dictionary: the card is its source plus its dictionary section.
+  const card = code(CARD_PATH) + JSON.stringify(accountHe.settings.connections.inboundEmail);
   assert.ok(!/שלח אימות|שלחי אימות|resend|אמת עכשיו/.test(card), "a dead verification button exists");
   assert.ok(/ממתין לאימות/.test(card), "the pending state is not shown to the owner");
 });

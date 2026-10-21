@@ -12,6 +12,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { waDisconnectedNoticeText } from "@/components/whatsapp/wa-copy";
 import { WaBadge, WaPrimaryButton } from "@/components/whatsapp/wa-ui";
 import { settingsViewFor } from "@/components/whatsapp/connection-view";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import desk from "./wa-desk.module.css";
 
 /**

@@ -48,6 +48,7 @@ import {
   failureText,
 } from "@/lib/data-transfer/historical/historical-owner-language";
 import { HISTORICAL_TYPE_LABELS } from "@/lib/data-transfer/historical/historical-vocabulary";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 let passed = 0;
 const failures: string[] = [];
@@ -63,15 +64,39 @@ function check(label: string, fn: () => void): void {
   }
 }
 
-/** Source, comment-free and NUL-free, so a guard never fires on prose. */
+function flatten(node: object): string[] {
+  return Object.values(node).flatMap((value) =>
+    typeof value === "string" ? [value] : flatten(value as object)
+  );
+}
+
+/**
+ * The owner copy a historical screen renders from the i18n dictionary
+ * (lib/i18n/messages/areas/account.ts) — the screen's words, read beside its source.
+ */
+function screenCopyOf(file: string): string {
+  const copy = accountHe.settings.historical;
+  const section = file.endsWith("historical/HistoricalImportScreen.tsx")
+    ? copy.import
+    : file.endsWith("historical/HistoricalRecordsScreen.tsx")
+      ? copy.records
+      : file.endsWith("historical/HistoricalRecordDetail.tsx")
+        ? copy.detail
+        : null;
+  return section ? "\n" + flatten(section).join("\n") : "";
+}
+
+/** Source, comment-free and NUL-free, so a guard never fires on prose — plus the screen's copy. */
 function codeOf(file: string): string {
-  return fs
-    .readFileSync(file, "utf8")
-    .replace(/\u0000/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .split("\n")
-    .map((line) => line.replace(/\/\/.*$/, ""))
-    .join("\n");
+  return (
+    fs
+      .readFileSync(file, "utf8")
+      .replace(/\u0000/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .split("\n")
+      .map((line) => line.replace(/\/\/.*$/, ""))
+      .join("\n") + screenCopyOf(file)
+  );
 }
 
 /**

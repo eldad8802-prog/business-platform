@@ -35,6 +35,7 @@ import {
 } from "@/lib/data-transfer/export/export-registry";
 import { readXlsxTable } from "@/lib/data-transfer/format/xlsx-reader";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 let passed = 0;
 
@@ -523,10 +524,10 @@ check("every hub row that is a link points at a screen that exists", () => {
 });
 
 check("the templates screen still says preparation, not importing", () => {
-  const src = fs.readFileSync(
-    "components/settings/import-export/TemplatesScreen.tsx",
-    "utf8"
-  );
+  // The screen's copy lives in the i18n dictionary: the screen is its source plus that section.
+  const src =
+    fs.readFileSync("components/settings/import-export/TemplatesScreen.tsx", "utf8") +
+    JSON.stringify(accountHe.settings.importExport.templates);
   assert.equal(src.includes("הכינו את המידע"), true);
   // I-5's "you cannot upload it yet" was true then and is false now. A screen
   // that still said it would send owners away from a feature that works.

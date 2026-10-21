@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { getServerI18n } from "@/lib/i18n/server";
 import {
   TemplatesScreen,
   type TemplateDomainOption,
@@ -18,10 +19,11 @@ import { DATA_TRANSFER_DOMAINS } from "@/lib/data-transfer/domains";
  * hand-written list, and filtering here keeps the template builder (and
  * therefore ExcelJS) out of the client bundle.
  */
-export default function ImportTemplatesPage() {
+export default async function ImportTemplatesPage() {
   if (!IMPORT_EXPORT_RELEASED) {
     notFound();
   }
+  const { t } = await getServerI18n();
 
   const domains: TemplateDomainOption[] = DATA_TRANSFER_DOMAINS.filter(
     (domain) => domain.kind === "tabular"
@@ -35,8 +37,8 @@ export default function ImportTemplatesPage() {
   return (
     <>
       <SettingsSubPageHeader
-        title="תבניות לייבוא"
-        subtitle="הכינו את המידע מראש"
+        title={t("account.settings.importExport.actions.templates.title")}
+        subtitle={t("account.settings.importExport.pages.templatesSubtitle")}
         backHref={IMPORT_EXPORT_ROUTE}
       />
       <TemplatesScreen domains={domains} />

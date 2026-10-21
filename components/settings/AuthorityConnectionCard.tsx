@@ -9,6 +9,9 @@ import {
   type WarmPillTone,
 } from "@/components/ui/warm/warm-primitives";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * Israel Tax Authority ("חשבוניות ישראל") connection card — Settings › Connections.
@@ -51,13 +54,13 @@ function getAuthToken(): string | null {
   return localStorage.getItem("token");
 }
 
-const STATUS_LABEL: Record<UiStatus, string> = {
-  NOT_CONFIGURED: "לא זמין",
-  DISCONNECTED: "לא מחובר",
-  CONNECTED: "מחובר",
-  EXPIRED: "פג תוקף",
-  REVOKED: "החיבור בוטל",
-  ERROR: "שגיאת חיבור",
+const STATUS_LABEL: Record<UiStatus, MessageKey> = {
+  NOT_CONFIGURED: "account.settings.connections.authority.status.notConfigured",
+  DISCONNECTED: "account.settings.connections.authority.status.disconnected",
+  CONNECTED: "account.settings.connections.authority.status.connected",
+  EXPIRED: "account.settings.connections.authority.status.expired",
+  REVOKED: "account.settings.connections.authority.status.revoked",
+  ERROR: "account.settings.connections.authority.status.error",
 };
 
 const STATUS_TONE: Record<UiStatus, WarmPillTone> = {
@@ -74,11 +77,11 @@ const ENVIRONMENT_LABEL: Record<AuthorityStatusDto["environment"], string> = {
   PRODUCTION: "Production",
 };
 
-function formatDate(iso: string | null): string | null {
+function formatDate(iso: string | null, locale: Locale): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("he-IL", {
+  return new Intl.DateTimeFormat(intlTag(locale), {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -108,6 +111,7 @@ function cleanCallbackParamsFromUrl(): void {
 }
 
 export function AuthorityConnectionCard() {
+  const { t, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<AuthorityStatusDto | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -116,12 +120,12 @@ export function AuthorityConnectionCard() {
   // URL (pure read). The URL itself is cleaned in the mount effect below.
   const [error, setError] = useState<string | null>(() =>
     getCallbackResultFromUrl() === "error"
-      ? "ההתחברות לרשות המסים לא הושלמה. אפשר לנסות שוב."
+      ? t("account.settings.connections.authority.callbackError")
       : null
   );
   const [notice, setNotice] = useState<string | null>(() =>
     getCallbackResultFromUrl() === "connected"
-      ? "החיבור לרשות המסים הושלם."
+      ? t("account.settings.connections.authority.callbackConnected")
       : null
   );
 
@@ -177,13 +181,13 @@ export function AuthorityConnectionCard() {
         error?: string;
       };
       if (!res.ok || !data.authorizeUrl) {
-        throw new Error(data.error || "לא הצלחנו לפתוח את החיבור לרשות המסים.");
+        throw new Error(data.error || t("account.settings.connections.authority.openFailed"));
       }
       // Full browser navigation to the ITA authorize URL (not fetched/parsed).
       window.location.href = data.authorizeUrl;
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "שגיאה בחיבור לרשות המסים."
+        err instanceof Error ? err.message : t("account.settings.connections.authority.connectError")
       );
       setConnecting(false);
     }
@@ -193,8 +197,8 @@ export function AuthorityConnectionCard() {
   const showConnect = status?.canConnect ?? false;
   const showReconnect = status?.canReconnect ?? false;
   const isNotConfigured = uiStatus === "NOT_CONFIGURED" || loadFailed;
-  const connectedDate = formatDate(status?.connectedAt ?? null);
-  const expiresDate = formatDate(status?.expiresAt ?? null);
+  const connectedDate = formatDate(status?.connectedAt ?? null, locale);
+  const expiresDate = formatDate(status?.expiresAt ?? null, locale);
 
   return (
     <WarmCard padding={18}>
@@ -216,11 +220,10 @@ export function AuthorityConnectionCard() {
                 color: W.ink,
               }}
             >
-              חיבור לרשות המסים
+              {t("account.settings.connections.authority.title")}
             </h3>
             <p style={{ margin: 0, fontSize: 12.5, color: W.muted, lineHeight: 1.5 }}>
-              החיבור משמש לקבלת מספרי הקצאה עבור חשבוניות מס במסגרת „חשבוניות
-              ישראל”.
+              {t("account.settings.connections.authority.description")}
             </p>
           </div>
           {/* Not configured reads "בקרוב", like the connect buttons it stands in for. */}
@@ -228,16 +231,16 @@ export function AuthorityConnectionCard() {
             <ComingSoonPill />
           ) : !loading && uiStatus && !loadFailed ? (
             <WarmPill tone={STATUS_TONE[uiStatus]}>
-              {STATUS_LABEL[uiStatus]}
+              {t(STATUS_LABEL[uiStatus])}
             </WarmPill>
           ) : null}
         </div>
 
         {loading ? (
-          <p style={{ margin: 0, fontSize: 13, color: W.muted2 }}>טוען…</p>
+          <p style={{ margin: 0, fontSize: 13, color: W.muted2 }}>{t("common.loading")}</p>
         ) : isNotConfigured ? (
           <p style={{ margin: 0, fontSize: 13, color: W.muted, lineHeight: 1.6 }}>
-            החיבור לרשות המסים עדיין אינו זמין בסביבה זו.
+            {t("account.settings.connections.authority.notConfigured")}
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -253,14 +256,14 @@ export function AuthorityConnectionCard() {
               >
                 {status ? (
                   <span>
-                    סביבת חיבור:{" "}
+                    {t("account.settings.connections.authority.environment")}{" "}
                     <span style={{ color: W.ink }}>
                       {ENVIRONMENT_LABEL[status.environment]}
                     </span>
                   </span>
                 ) : null}
-                {connectedDate ? <span>חובר בתאריך: {connectedDate}</span> : null}
-                {expiresDate ? <span>תוקף עד: {expiresDate}</span> : null}
+                {connectedDate ? <span>{t("account.settings.connections.authority.connectedOn", { date: connectedDate })}</span> : null}
+                {expiresDate ? <span>{t("account.settings.connections.authority.validUntil", { date: expiresDate })}</span> : null}
               </div>
             ) : null}
 
@@ -269,8 +272,8 @@ export function AuthorityConnectionCard() {
                 style={{ margin: 0, fontSize: 12.5, color: W.muted, lineHeight: 1.6 }}
               >
                 {uiStatus === "REVOKED"
-                  ? "החיבור לרשות המסים בוטל. יש להתחבר מחדש כדי להמשיך לקבל מספרי הקצאה."
-                  : "אירעה שגיאה בחיבור לרשות המסים. יש להתחבר מחדש."}
+                  ? t("account.settings.connections.authority.revokedBody")
+                  : t("account.settings.connections.authority.errorBody")}
               </p>
             ) : null}
 
@@ -278,12 +281,12 @@ export function AuthorityConnectionCard() {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {showConnect ? (
                 <WarmButton height={42} onClick={startConnect} disabled>
-                  חיבור לרשות המסים
+                  {t("account.settings.connections.authority.connect")}
                 </WarmButton>
               ) : null}
               {showReconnect ? (
                 <WarmButton height={42} onClick={startConnect} disabled>
-                  חיבור מחדש
+                  {t("account.settings.connections.authority.reconnect")}
                 </WarmButton>
               ) : null}
               {showConnect || showReconnect ? <ComingSoonPill /> : null}

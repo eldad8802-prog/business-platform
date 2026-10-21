@@ -24,7 +24,7 @@ export function SettingsRow({ href, icon, title, description }: Props) {
           </span>
         ) : null}
       </span>
-      <span className="shrink-0 self-center text-lg text-[var(--dz-text-muted)]" aria-hidden>
+      <span className="shrink-0 self-center text-lg text-[var(--dz-text-muted)] ltr:-scale-x-100" aria-hidden>
         ←
       </span>
     </Link>
