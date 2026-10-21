@@ -20,6 +20,7 @@ import {
 import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
 import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
 import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
+import { getServerI18n } from "@/lib/i18n/server";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -207,6 +208,8 @@ export async function handleRegister(
     const passwordHash = await deps.hashPassword(input.password);
 
     const now = new Date();
+    // The account emails speak the interface language of this request (always "he" while i18n is off).
+    const { locale } = await getServerI18n();
     const account = await deps.createAccount({
       email: input.email,
       passwordHash,
@@ -216,6 +219,7 @@ export async function handleRegister(
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
       sendVerification: deps.isVerificationEnabled(),
+      locale,
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the

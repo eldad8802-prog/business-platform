@@ -97,7 +97,7 @@ export function SecretaryToday({
       await refresh();
       setNote(done);
     } catch (e) {
-      setNote(errorText(e));
+      setNote(errorText(e, t));
       await refresh();
     } finally {
       setBusy(false);

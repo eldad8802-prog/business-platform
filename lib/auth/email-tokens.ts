@@ -23,6 +23,7 @@ import type { EmailTokenStatus } from "@/lib/auth/auth-messages";
 import { isDerivedSecret, mintEmailToken, parseLinkToken, type EmailTokenPurpose } from "@/lib/auth/email-link";
 import { MIN_PASSWORD_LENGTH, normalizeEmail } from "@/lib/auth/signup-identity";
 import { enqueueAccountLinkEmail } from "@/lib/email/transactional/store";
+import type { Locale } from "@/lib/i18n/config";
 import { authDb } from "@/lib/prisma-auth";
 
 type SqlClient = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
@@ -40,7 +41,7 @@ export type IssuedLink = { emailId: number; businessId: number; tokenId: string 
  */
 export async function issueAccountLink(
   tx: SqlClient,
-  input: { userId: number; purpose: EmailTokenPurpose; name: string | null; now: Date }
+  input: { userId: number; purpose: EmailTokenPurpose; name: string | null; now: Date; locale?: Locale }
 ): Promise<IssuedLink | null> {
   const { tokenId, tokenHash } = mintEmailToken(input.purpose);
   const rows = await tx.$queryRaw<{ business_id: number; email: string }[]>`
@@ -56,6 +57,7 @@ export async function issueAccountLink(
     toEmail: rows[0].email,
     name: input.name,
     now: input.now,
+    locale: input.locale,
   });
   return { emailId, businessId, tokenId };
 }
@@ -67,7 +69,7 @@ const RESET_USER_SELECT = { id: true, name: true } as const;
  * second) and issues a reset link. Null when there is no account or nothing was issued — the caller
  * must answer the same either way.
  */
-export async function requestPasswordReset(rawEmail: string, now: Date): Promise<IssuedLink | null> {
+export async function requestPasswordReset(rawEmail: string, now: Date, locale?: Locale): Promise<IssuedLink | null> {
   const email = rawEmail.trim();
   const folded = normalizeEmail(email);
   let user = await authDb().user.findUnique({ where: { email: folded }, select: RESET_USER_SELECT });
@@ -77,7 +79,7 @@ export async function requestPasswordReset(rawEmail: string, now: Date): Promise
   if (!user) return null;
   const found = user;
   return authDb().$transaction((tx) =>
-    issueAccountLink(tx, { userId: found.id, purpose: "PASSWORD_RESET", name: found.name, now })
+    issueAccountLink(tx, { userId: found.id, purpose: "PASSWORD_RESET", name: found.name, now, locale })
   );
 }
 
@@ -87,7 +89,7 @@ export type VerificationRequest =
   | { status: "NOT_ISSUED" };
 
 /** "Send the verification link again" for a signed-in owner. */
-export async function requestEmailVerification(userId: number, now: Date): Promise<VerificationRequest> {
+export async function requestEmailVerification(userId: number, now: Date, locale?: Locale): Promise<VerificationRequest> {
   const user = await authDb().user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, emailVerifiedAt: true },
@@ -95,7 +97,7 @@ export async function requestEmailVerification(userId: number, now: Date): Promi
   if (!user) return { status: "NOT_ISSUED" };
   if (user.emailVerifiedAt) return { status: "ALREADY_VERIFIED" };
   const link = await authDb().$transaction((tx) =>
-    issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: user.name, now })
+    issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: user.name, now, locale })
   );
   return link ? { status: "SENT", link } : { status: "NOT_ISSUED" };
 }

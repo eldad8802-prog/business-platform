@@ -14,6 +14,7 @@ import {
   fetchBriefing,
   fetchObligations,
   releaseObligation,
+  SecretaryServerError,
   snoozeObligation,
   updateObligation,
   type AttentionReason,
@@ -43,7 +44,7 @@ import {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; message: string | null }
+  | { status: "error"; message: string | null; serverStatus?: number }
   | {
       status: "ready";
       briefing: BriefingApi;
@@ -69,7 +70,8 @@ const RECURRENCE_LABEL: Record<RecurrenceCadence, MessageKey> = {
   YEARLY: "tasks.secretary.recurrenceAdj.yearly",
 };
 
-function errorMessage(e: unknown, fallback: string): string {
+function errorMessage(e: unknown, fallback: string, t: Translator): string {
+  if (e instanceof SecretaryServerError) return t("system.secretary.serverError", { status: e.status });
   return e instanceof Error ? e.message : fallback;
 }
 
@@ -160,7 +162,7 @@ function SecretaryPageInner() {
       setState((prev) =>
         prev.status === "ready" ? { ...prev, obligationsLoading: false } : prev
       );
-      flashMessage(errorMessage(e, t("tasks.secretary.page.loadObligationsFailed")));
+      flashMessage(errorMessage(e, t("tasks.secretary.page.loadObligationsFailed"), t));
     }
   }
 
@@ -223,6 +225,7 @@ function SecretaryPageInner() {
           setState({
             status: "error",
             message: e instanceof Error ? e.message : null,
+            ...(e instanceof SecretaryServerError ? { serverStatus: e.status } : {}),
           });
         }
       }
@@ -470,7 +473,9 @@ function SecretaryPageInner() {
       <section style={errorCardStyle}>
         <h1 style={{ margin: 0, fontSize: TOKEN.font.display, fontWeight: DS.weight.semibold, color: DS.ink }}>{t("tasks.secretary.page.errorTitle")}</h1>
         <p style={{ margin: "10px 0 0", color: DS.muted, lineHeight: 1.6 }}>
-          {state.message ?? t("tasks.secretary.page.loadFailed")}
+          {state.serverStatus !== undefined
+            ? t("system.secretary.serverError", { status: state.serverStatus })
+            : state.message ?? t("tasks.secretary.page.loadFailed")}
         </p>
         <button
           type="button"

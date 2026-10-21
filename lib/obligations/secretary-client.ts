@@ -74,6 +74,16 @@ export interface UpdateObligationInput {
   note?: string | null;
 }
 
+/**
+ * A non-2xx answer without a message of its own. `message` stays the Hebrew text it always was; a surface
+ * in another interface language shows `t("system.secretary.serverError", { status })` instead.
+ */
+export class SecretaryServerError extends Error {
+  constructor(readonly status: number) {
+    super(`שגיאת שרת (${status})`);
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   token: string,
@@ -88,14 +98,14 @@ async function apiFetch<T>(
     },
   });
   if (!res.ok) {
-    let message = `שגיאת שרת (${res.status})`;
+    let message: string | null = null;
     try {
       const data = (await res.json()) as { error?: string };
       if (data?.error) message = data.error;
     } catch {
       /* keep default */
     }
-    throw new Error(message);
+    throw message === null ? new SecretaryServerError(res.status) : new Error(message);
   }
   return (await res.json()) as T;
 }

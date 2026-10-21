@@ -124,12 +124,12 @@ export function TasksScreen() {
         if (done) flash(done, undo);
         return true;
       } catch (e) {
-        flash(errorText(e));
+        flash(errorText(e, t));
         await refresh();
         return false;
       }
     },
-    [refresh, flash],
+    [refresh, flash, t],
   );
 
   const completeTask = (row: Extract<AgendaRow, { type: "TASK" }>) =>

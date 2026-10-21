@@ -1,12 +1,17 @@
 /**
  * WELCOME — the first transactional email, sent once after a NEW SUCCESSFUL SIGNUP.
  *
- * Copy: the owner-approved draft, verbatim. Hebrew, RTL. The HTML is table-based with inline
+ * Copy: the owner-approved draft, verbatim (lib/i18n/messages/areas/system.ts, `system.email.welcome`). Hebrew
+ * RTL by default; English LTR when the row was enqueued with locale "en". The HTML is table-based with inline
  * styles (what mail clients actually render), single column, max 560px, so it reads the same on
  * a phone and on a desktop client; the plain-text part carries the same words and the same link.
  *
  * The only personal value is the first name, escaped for HTML. No business data, no figures.
  */
+
+import { resolveLocale, type Locale } from "@/lib/i18n/config";
+import { getMessages } from "@/lib/i18n/messages";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 
 export type WelcomePayload = {
   /** First word of the name the owner typed at signup. Absent → a greeting without a name. */
@@ -15,8 +20,19 @@ export type WelcomePayload = {
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
-export const WELCOME_SUBJECT = "ברוכים הבאים ל־Dubiz 👋";
-export const WELCOME_CTA_LABEL = "כניסה ל־Dubiz";
+/** The language an email is written in, and how it is laid out. Unknown / missing → Hebrew. */
+export type EmailLanguage = { locale: Locale; t: Translator; lang: string; dir: "rtl" | "ltr"; align: "right" | "left" };
+
+export function emailLanguage(locale: unknown): EmailLanguage {
+  const l = resolveLocale(locale);
+  const rtl = l === "he";
+  return { locale: l, t: createTranslator(getMessages(l)), lang: l, dir: rtl ? "rtl" : "ltr", align: rtl ? "right" : "left" };
+}
+
+const HE = emailLanguage("he");
+
+export const WELCOME_SUBJECT = HE.t("system.email.welcome.subject");
+export const WELCOME_CTA_LABEL = HE.t("system.email.welcome.cta");
 /**
  * Where the CTA goes, relative to APP_BASE_URL: Home (`/app`), the app's canonical entry.
  *   - signed in (live access token)          → Home directly;
@@ -27,15 +43,19 @@ export const WELCOME_CTA_LABEL = "כניסה ל־Dubiz";
  */
 export const WELCOME_CTA_PATH = "/app";
 
-export const WELCOME_LINES = {
-  thanks: "כיף שהצטרפת ל־Dubiz.",
-  value: "מעכשיו יש לך מקום אחד לנהל את העסק — הכנסות והוצאות, לקוחות, מסמכים, גבייה ועוד.",
-  noSetup:
-    "אין צורך להגדיר הכול מראש. פשוט מתחילים לעבוד, ו־Dubiz ילמד את העסק תוך כדי ויעזור לך לראות מה חשוב ומה דורש תשומת לב.",
-  signature: "צוות Dubiz",
-  /** Not in the approved draft — proposed for review: why the recipient is getting this. */
-  reason: "קיבלת את המייל הזה כי נפתח חשבון Dubiz עם הכתובת הזו.",
-} as const;
+function welcomeLines(t: Translator) {
+  return {
+    thanks: t("system.email.welcome.thanks"),
+    value: t("system.email.welcome.value"),
+    noSetup: t("system.email.welcome.noSetup"),
+    signature: t("system.email.signature"),
+    /** Not in the approved draft — proposed for review: why the recipient is getting this. */
+    reason: t("system.email.welcome.reason"),
+  };
+}
+
+/** The Hebrew lines (the approved draft). */
+export const WELCOME_LINES: Readonly<ReturnType<typeof welcomeLines>> = welcomeLines(HE.t);
 
 const MAX_FIRST_NAME = 60;
 
@@ -67,28 +87,33 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function greeting(firstName: string | null): string {
-  return firstName ? `היי ${firstName},` : "היי,";
+export function greeting(firstName: string | null, t: Translator = HE.t): string {
+  return firstName ? t("system.email.greeting", { name: firstName }) : t("system.email.greetingAnon");
 }
 
-export function renderWelcome(payload: WelcomePayload, ctx: { appBaseUrl: string }): RenderedEmail {
+/** `ctx.locale`: the row's stored locale; anything but a known language renders Hebrew. */
+export function renderWelcome(payload: WelcomePayload, ctx: { appBaseUrl: string; locale?: string | null }): RenderedEmail {
+  const L = emailLanguage(ctx.locale);
+  const subject = L.t("system.email.welcome.subject");
+  const ctaLabel = L.t("system.email.welcome.cta");
+  const lines = welcomeLines(L.t);
   const ctaUrl = `${ctx.appBaseUrl}${WELCOME_CTA_PATH}`;
-  const hello = greeting(payload.firstName);
+  const hello = greeting(payload.firstName, L.t);
 
   const text = [
     hello,
     "",
-    WELCOME_LINES.thanks,
-    WELCOME_LINES.value,
+    lines.thanks,
+    lines.value,
     "",
-    WELCOME_LINES.noSetup,
+    lines.noSetup,
     "",
-    `${WELCOME_CTA_LABEL}: ${ctaUrl}`,
+    `${ctaLabel}: ${ctaUrl}`,
     "",
-    WELCOME_LINES.signature,
+    lines.signature,
     "",
     "—",
-    WELCOME_LINES.reason,
+    lines.reason,
   ].join("\n");
 
   const C = {
@@ -101,39 +126,39 @@ export function renderWelcome(payload: WelcomePayload, ctx: { appBaseUrl: string
     onBrand: "#ffffff",
   };
   const font = "Arial, 'Helvetica Neue', Helvetica, sans-serif";
-  const p = `margin:0 0 16px 0;font-family:${font};font-size:16px;line-height:1.6;color:${C.text};text-align:right;`;
+  const p = `margin:0 0 16px 0;font-family:${font};font-size:16px;line-height:1.6;color:${C.text};text-align:${L.align};`;
 
   const html = `<!doctype html>
-<html lang="he" dir="rtl">
+<html lang="${L.lang}" dir="${L.dir}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>${escapeHtml(WELCOME_SUBJECT)}</title>
+<title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background:${C.page};" dir="rtl">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(WELCOME_LINES.value)}</div>
+<body style="margin:0;padding:0;background:${C.page};" dir="${L.dir}">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(lines.value)}</div>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:${C.page};">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;" dir="rtl">
-<tr><td style="padding:0 4px 20px 4px;text-align:right;font-family:${font};font-size:24px;font-weight:700;letter-spacing:0.2px;color:${C.brand};">Dubiz</td></tr>
-<tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:16px;padding:32px 28px;text-align:right;" dir="rtl">
-<p style="margin:0 0 20px 0;font-family:${font};font-size:22px;line-height:1.4;font-weight:700;color:${C.text};text-align:right;">${escapeHtml(hello)}</p>
-<p style="${p}">${escapeHtml(WELCOME_LINES.thanks)}<br>${escapeHtml(WELCOME_LINES.value)}</p>
-<p style="${p}">${escapeHtml(WELCOME_LINES.noSetup)}</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;" dir="${L.dir}">
+<tr><td style="padding:0 4px 20px 4px;text-align:${L.align};font-family:${font};font-size:24px;font-weight:700;letter-spacing:0.2px;color:${C.brand};">Dubiz</td></tr>
+<tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:16px;padding:32px 28px;text-align:${L.align};" dir="${L.dir}">
+<p style="margin:0 0 20px 0;font-family:${font};font-size:22px;line-height:1.4;font-weight:700;color:${C.text};text-align:${L.align};">${escapeHtml(hello)}</p>
+<p style="${p}">${escapeHtml(lines.thanks)}<br>${escapeHtml(lines.value)}</p>
+<p style="${p}">${escapeHtml(lines.noSetup)}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 24px 0;"><tr>
 <td style="border-radius:10px;background:${C.brand};">
-<a href="${escapeHtml(ctaUrl)}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${font};font-size:16px;font-weight:700;line-height:1;color:${C.onBrand};text-decoration:none;border-radius:10px;">${escapeHtml(WELCOME_CTA_LABEL)}</a>
+<a href="${escapeHtml(ctaUrl)}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${font};font-size:16px;font-weight:700;line-height:1;color:${C.onBrand};text-decoration:none;border-radius:10px;">${escapeHtml(ctaLabel)}</a>
 </td></tr></table>
-<p style="margin:0;font-family:${font};font-size:16px;line-height:1.6;color:${C.text};text-align:right;">${escapeHtml(WELCOME_LINES.signature)}</p>
+<p style="margin:0;font-family:${font};font-size:16px;line-height:1.6;color:${C.text};text-align:${L.align};">${escapeHtml(lines.signature)}</p>
 </td></tr>
-<tr><td style="padding:20px 4px 0 4px;text-align:right;font-family:${font};font-size:13px;line-height:1.6;color:${C.muted};">${escapeHtml(WELCOME_LINES.reason)}</td></tr>
+<tr><td style="padding:20px 4px 0 4px;text-align:${L.align};font-family:${font};font-size:13px;line-height:1.6;color:${C.muted};">${escapeHtml(lines.reason)}</td></tr>
 </table>
 </td></tr>
 </table>
 </body>
 </html>`;
 
-  return { subject: WELCOME_SUBJECT, html, text };
+  return { subject, html, text };
 }

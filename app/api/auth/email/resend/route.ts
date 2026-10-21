@@ -5,6 +5,8 @@ import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
 import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
 import { requestEmailVerification, type VerificationRequest } from "@/lib/auth/email-tokens";
 import { scheduleDelivery } from "@/lib/email/transactional/schedule";
+import type { Locale } from "@/lib/i18n/config";
+import { getServerI18n } from "@/lib/i18n/server";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ export type ResendDeps = {
   enabled: () => boolean;
   currentUser: (req: Request) => Promise<{ id: number } | null>;
   rateLimit: typeof consumeRateLimit;
-  request: (userId: number, now: Date) => Promise<VerificationRequest>;
+  request: (userId: number, now: Date, locale?: Locale) => Promise<VerificationRequest>;
   schedule: (emailId: number, businessId: number) => void;
 };
 
@@ -43,7 +45,8 @@ export async function handleResend(req: Request, deps: ResendDeps = defaultDeps)
     if (!rl.allowed) {
       return NextResponse.json({ error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
     }
-    const result = await deps.request(user.id, new Date());
+    const { locale } = await getServerI18n();
+    const result = await deps.request(user.id, new Date(), locale);
     if (result.status === "ALREADY_VERIFIED") {
       return NextResponse.json({ ok: true, alreadyVerified: true, message: AUTH_MESSAGES_HE.alreadyVerified }, { headers: NO_STORE });
     }
