@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/documents-theme";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type DocumentsHeaderProps = {
   title: string;
@@ -13,16 +14,17 @@ type DocumentsHeaderProps = {
 
 export default function DocumentsHeader({
   title,
-  backLabel = "חזרה",
+  backLabel,
   onBack,
   showBack = true,
 }: DocumentsHeaderProps) {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={wrapperStyle}>
-      {/* Right side in RTL = first DOM child of the grid */}
+    <div style={wrapperStyle}>
+      {/* Inline-start side (right in RTL) = first DOM child of the grid */}
       <div style={{ ...sideStyle, justifyContent: "flex-start" }}>
         {showBack ? (
-          <BackButton onClick={onBack} label={backLabel} />
+          <BackButton onClick={onBack} label={backLabel ?? t("documents.common.back")} />
         ) : (
           <div style={spacerStyle} />
         )}
@@ -30,7 +32,7 @@ export default function DocumentsHeader({
 
       <div style={titleStyle}>{title}</div>
 
-      {/* Left side in RTL = third DOM child of the grid */}
+      {/* Inline-end side (left in RTL) = third DOM child of the grid */}
       <div style={{ ...sideStyle, justifyContent: "flex-end" }}>
         <div style={spacerStyle} />
       </div>

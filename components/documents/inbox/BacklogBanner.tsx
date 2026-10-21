@@ -2,6 +2,8 @@
 
 import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { formatNumber } from "@/lib/i18n/format";
 
 /**
  * Disclosure for pending documents outside the selected month (F-21). Shown
@@ -18,17 +20,19 @@ export default function BacklogBanner({
   ctaMonthName?: string | null;
   onShowOlder: () => void;
 }) {
+  const { t, fmt } = useI18n();
   if (olderCount <= 0) return null;
 
   return (
-    <div dir="rtl" style={wrap}>
+    <div style={wrap}>
       <div style={band}>
         <span style={text}>
-          יש עוד {olderCount.toLocaleString("he-IL")} מסמכים שממתינים לבדיקה
-          מחודשים אחרים.
+          {t("documents.inbox.backlogText", { count: formatNumber(olderCount, fmt) })}
         </span>
         <button type="button" onClick={onShowOlder} style={cta}>
-          {ctaMonthName ? `הצג מסמכים מ${ctaMonthName}` : "הצג מסמכים קודמים"}
+          {ctaMonthName
+            ? t("documents.inbox.backlogShowMonth", { month: ctaMonthName })
+            : t("documents.inbox.backlogShowOlder")}
         </button>
       </div>
     </div>

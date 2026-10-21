@@ -26,7 +26,10 @@ import {
   primaryBtn,
   secondaryBtn,
 } from "../ui";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
+import { categoryLabel } from "@/lib/documents/category-label";
 import { TOKEN } from "@/lib/design/documents-theme";
 import DocumentsDashboardSkeleton from "@/components/documents/skeletons/DocumentsDashboardSkeleton";
 import DubizDateField from "@/components/documents/DubizDateField";
@@ -119,9 +122,10 @@ const breakdownPercent = {
   whiteSpace: "nowrap" as const,
 };
 
-const formatAmount = (n: number): string => {
+// Hebrew: identical to the previous he-IL whole-shekel currency pattern.
+const amountFormatter = (locale: Locale) => (n: number): string => {
   try {
-    return new Intl.NumberFormat("he-IL", {
+    return new Intl.NumberFormat(intlTag(locale), {
       style: "currency",
       currency: "ILS",
       maximumFractionDigits: 0,
@@ -131,13 +135,13 @@ const formatAmount = (n: number): string => {
   }
 };
 
-const monthLabel = (ym: string): string => {
-  if (!ym) return "כל התקופות";
+const monthLabelFor = (ym: string, locale: Locale, t: Translator): string => {
+  if (!ym) return t("documents.reports.allPeriods");
   const [y, m] = ym.split("-").map(Number);
   if (!y || !m) return ym;
   try {
     const dt = new Date(y, m - 1, 1);
-    return new Intl.DateTimeFormat("he-IL", {
+    return new Intl.DateTimeFormat(intlTag(locale), {
       month: "long",
       year: "numeric",
     }).format(dt);
@@ -152,6 +156,9 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export default function Dashboard() {
   const router = useRouter();
+  const { t, locale } = useI18n();
+  const formatAmount = amountFormatter(locale);
+  const monthLabel = (ym: string) => monthLabelFor(ym, locale, t);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -202,13 +209,13 @@ export default function Dashboard() {
       const result = await res.json();
 
       if (!res.ok) {
-        throw new Error(result?.error || "שגיאה בטעינת הדוח");
+        throw new Error(result?.error || t("documents.reports.loadError"));
       }
 
       setData(result as Report);
       setAppliedMonth(selectedMonth || "");
     } catch (e: unknown) {
-      setError(errorMessage(e, "שגיאה בטעינת הדוח"));
+      setError(errorMessage(e, t("documents.reports.loadError")));
     } finally {
       setLoading(false);
     }
@@ -220,9 +227,9 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
-  const periodLabel = appliedMonth
-    ? `התקופה: ${monthLabel(appliedMonth)}`
-    : "התקופה: כל התקופות";
+  const periodLabel = t("documents.reports.periodLabel", {
+    period: appliedMonth ? monthLabel(appliedMonth) : t("documents.reports.allPeriods"),
+  });
 
   const balanceStyle =
     data && data.profit < 0 ? balanceNegative : balancePositive;
@@ -230,8 +237,8 @@ export default function Dashboard() {
   // Income vs Expense chart data
   const chartData = data
     ? [
-    { name: "הכנסות", value: data.totalIncome, fill: TOKEN.semantic.success.ink },
-    { name: "הוצאות", value: data.totalExpense, fill: TOKEN.semantic.urgent.ink },
+    { name: t("documents.reports.income"), value: data.totalIncome, fill: TOKEN.semantic.success.ink },
+    { name: t("documents.reports.expense"), value: data.totalExpense, fill: TOKEN.semantic.urgent.ink },
       ]
     : [];
 
@@ -248,7 +255,7 @@ export default function Dashboard() {
   const hasNoRecords = !!data && data.count === 0;
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
       <PageContainer intent="data" className="dz-report" style={{ paddingBlock: "14px 40px" }}>
         <div style={{ marginBottom: 12 }}>
           <DocumentsBackButton />
@@ -262,7 +269,7 @@ export default function Dashboard() {
               fontWeight: TOKEN.weight.bold,
             }}
           >
-            דוחות פיננסיים
+            {t("documents.reports.title")}
           </h1>
           <p
             style={{
@@ -273,7 +280,7 @@ export default function Dashboard() {
               fontWeight: TOKEN.weight.semibold,
             }}
           >
-            תמונת מצב לפי המסמכים שכבר אושרו.
+            {t("documents.reports.subtitle")}
           </p>
         </section>
 
@@ -285,12 +292,12 @@ export default function Dashboard() {
             <div style={iconWrap} aria-hidden>
               📅
             </div>
-            <div style={cardTitle}>תקופה</div>
+            <div style={cardTitle}>{t("documents.reports.period")}</div>
           </div>
 
           <DubizDateField
             type="month"
-            ariaLabel="בחירת חודש לדוח"
+            ariaLabel={t("documents.reports.monthAria")}
             value={month}
             onChange={(value) => setMonth(value)}
           />
@@ -301,7 +308,7 @@ export default function Dashboard() {
               style={periodChip(!!appliedMonth && month === appliedMonth)}
               onClick={() => void fetchData(month || undefined)}
             >
-              הצג דוח לחודש
+              {t("documents.reports.showMonth")}
             </button>
             <button
               type="button"
@@ -311,7 +318,7 @@ export default function Dashboard() {
                 void fetchData();
               }}
             >
-              כל התקופות
+              {t("documents.reports.allPeriods")}
             </button>
           </div>
 
@@ -331,7 +338,7 @@ export default function Dashboard() {
               <div style={iconWrap} aria-hidden>
                 📊
               </div>
-              <div style={cardTitle}>סיכום</div>
+              <div style={cardTitle}>{t("documents.reports.summary")}</div>
             </div>
 
             <div
@@ -344,7 +351,7 @@ export default function Dashboard() {
               <div style={metricTile}>
                 <div style={metricLabel}>
                   <span aria-hidden>💵 </span>
-                  הכנסות
+                  {t("documents.reports.income")}
                 </div>
                 <div style={metricValue}>{formatAmount(data.totalIncome)}</div>
               </div>
@@ -352,7 +359,7 @@ export default function Dashboard() {
               <div style={metricTile}>
                 <div style={metricLabel}>
                   <span aria-hidden>💸 </span>
-                  הוצאות
+                  {t("documents.reports.expense")}
                 </div>
                 <div style={metricValue}>{formatAmount(data.totalExpense)}</div>
               </div>
@@ -360,7 +367,7 @@ export default function Dashboard() {
               <div style={metricTile}>
                 <div style={metricLabel}>
                   <span aria-hidden>⚖️ </span>
-                  יתרה
+                  {t("documents.reports.balance")}
                 </div>
                 <div style={balanceStyle}>{formatAmount(data.profit)}</div>
               </div>
@@ -368,7 +375,7 @@ export default function Dashboard() {
               <div style={metricTile}>
                 <div style={metricLabel}>
                   <span aria-hidden>🧾 </span>
-                  עסקאות
+                  {t("documents.reports.transactions")}
                 </div>
                 <div style={metricValue}>{data.count}</div>
               </div>
@@ -384,18 +391,16 @@ export default function Dashboard() {
               <div style={iconWrap} aria-hidden>
                 ℹ️
               </div>
-              <div style={cardTitle}>אין עסקאות מאושרות</div>
+              <div style={cardTitle}>{t("documents.reports.emptyTitle")}</div>
             </div>
             <p style={cardSubText}>
               {isAllPeriods
-                ? "עדיין אין רשומות פיננסיות מאושרות. אחרי אישור מסמך כעסקה (הכנסה/הוצאה) הוא יופיע כאן ובחיפוש."
-                : `לא נמצאו עסקאות מאושרות עבור ${monthLabel(
-                    appliedMonth
-                  )}. אפשר להציג טווח אחר או לעבור ל"כל התקופות".`}
+                ? t("documents.reports.emptyAll")
+                : t("documents.reports.emptyMonth", { month: monthLabel(appliedMonth) })}
             </p>
             <Link href="/documents/upload" style={{ textDecoration: "none" }}>
               <button type="button" style={primaryBtn} data-dz-action="primary">
-                העלאת מסמך חדש
+                {t("documents.reports.uploadNew")}
               </button>
             </Link>
           </div>
@@ -408,7 +413,7 @@ export default function Dashboard() {
               <div style={iconWrap} aria-hidden>
                 📈
               </div>
-              <div style={cardTitle}>הכנסות מול הוצאות</div>
+              <div style={cardTitle}>{t("documents.reports.incomeVsExpense")}</div>
             </div>
 
             <div style={{ width: "100%", height: 240 }}>
@@ -451,11 +456,11 @@ export default function Dashboard() {
               <div style={iconWrap} aria-hidden>
                 🏷️
               </div>
-              <div style={cardTitle}>פירוט לפי קטגוריות</div>
+              <div style={cardTitle}>{t("documents.reports.byCategories")}</div>
             </div>
 
             <p style={cardSubText}>
-              סכום פעילות בכל קטגוריה, ואחוז מתוך כלל הפעילות בתקופה.
+              {t("documents.reports.byCategoriesSub")}
             </p>
 
             <div style={{ marginTop: 10 }}>
@@ -466,7 +471,7 @@ export default function Dashboard() {
                     : 0;
                 return (
                   <div key={cat} style={breakdownRow}>
-                    <div style={breakdownLabel}>{CATEGORY_MAP[cat] || cat}</div>
+                    <div style={breakdownLabel}>{categoryLabel(t, cat)}</div>
                     <div style={breakdownValue}>{formatAmount(val)}</div>
                     <div style={breakdownPercent}>{pct}%</div>
                   </div>
@@ -485,11 +490,11 @@ export default function Dashboard() {
             <div style={iconWrap} aria-hidden>
               📦
             </div>
-            <div style={cardTitle}>חבילה לרואה חשבון</div>
+            <div style={cardTitle}>{t("documents.reports.packTitle")}</div>
           </div>
 
           <p style={cardSubText}>
-            ייצוא ZIP עם CSV וקבצי המסמכים לפי תקופה וקטגוריות.
+            {t("documents.reports.packSub")}
           </p>
 
           <Link
@@ -497,13 +502,13 @@ export default function Dashboard() {
             style={{ textDecoration: "none" }}
           >
             <button type="button" style={primaryBtn} data-dz-action="primary">
-              צור חבילה לרואה חשבון
+              {t("documents.reports.packCta")}
             </button>
           </Link>
 
           <Link href="/documents/search" style={{ textDecoration: "none" }}>
             <button type="button" style={secondaryBtn}>
-              עבור לחיפוש מסמכים
+              {t("documents.reports.goToSearch")}
             </button>
           </Link>
         </div>

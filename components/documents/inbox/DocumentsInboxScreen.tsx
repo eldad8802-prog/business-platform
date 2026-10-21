@@ -4,8 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { formatNumber } from "@/lib/i18n/format";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import { categoryLabel } from "@/lib/documents/category-label";
 import { glassActionStyle } from "@/lib/design/documents-theme";
 import { getCurrentYearMonthJerusalem } from "@/lib/utils/jerusalem-month-range";
 import {
@@ -74,11 +77,11 @@ function groupByMonthDescending(items: InboxListItem[]): string[] {
   return Array.from(keys).sort().reverse();
 }
 
-function monthLabel(month: string | null | undefined): string {
+function monthLabel(month: string | null | undefined, locale: Locale = DEFAULT_LOCALE): string {
   if (!month) return "";
   const [year, monthIndex] = month.split("-").map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) return month;
-  return new Date(year, monthIndex - 1, 1).toLocaleDateString("he-IL", {
+  return new Date(year, monthIndex - 1, 1).toLocaleDateString(intlTag(locale), {
     month: "long",
     year: "numeric",
   });
@@ -91,6 +94,7 @@ export default function DocumentsInboxScreen({
 }) {
   // Seed the viewed month from the URL (?month=YYYY-MM) so refresh/back keep it.
   const initialMonth = useMemo(() => readMonthFromUrl(), []);
+  const { t, locale, fmt } = useI18n();
 
   const {
     scope,
@@ -128,7 +132,7 @@ export default function DocumentsInboxScreen({
 
   const currentMonth = getCurrentYearMonthJerusalem();
   const viewedMonth = selectedMonth ?? scope?.month ?? currentMonth;
-  const viewedMonthName = monthLabel(viewedMonth);
+  const viewedMonthName = monthLabel(viewedMonth, locale);
 
   // Month options: current month is always reachable, plus every month that
   // holds a backlog, plus whatever is currently selected (so the control always
@@ -154,10 +158,10 @@ export default function DocumentsInboxScreen({
   });
   const ctaMonth = pickBacklogCtaMonth(pendingMonths, viewedMonth);
 
-  const displayError = error === "Server error" ? "שגיאת שרת" : error;
+  const displayError = error === "Server error" ? t("documents.inbox.serverError") : error;
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <style>{responsiveCss}</style>
       {/* Pilot: data intent (Spec v1 §20) — the desktop DataTable finally gets
           the width it was built for instead of a 760px column. */}
@@ -165,7 +169,7 @@ export default function DocumentsInboxScreen({
         <header style={headStyle}>
           <BackButton />
           <div style={{ minWidth: 0, textAlign: "center" }}>
-            <h1 style={titleStyle}>תור אימות</h1>
+            <h1 style={titleStyle}>{t("documents.inbox.title")}</h1>
             <div style={subtitleStyle}>{viewedMonthName}</div>
           </div>
           <div aria-hidden style={{ width: 52 }} />
@@ -175,10 +179,10 @@ export default function DocumentsInboxScreen({
           <section style={errorStyle}>
             <div style={{ fontWeight: TOKEN.weight.bold }}>{displayError}</div>
             <p style={errorCopyStyle}>
-              לא הצלחנו לטעון את תור המסמכים כרגע.
+              {t("documents.inbox.loadError")}
             </p>
             <button type="button" onClick={() => refetch()} style={retryButtonStyle}>
-              נסה שוב
+              {t("documents.common.retry")}
             </button>
           </section>
         ) : null}
@@ -191,7 +195,7 @@ export default function DocumentsInboxScreen({
             {monthOptions.length > 1 ? (
               <div style={selectorRowStyle}>
                 <label htmlFor="inbox-month" style={selectorLabelStyle}>
-                  חודש
+                  {t("documents.inbox.month")}
                 </label>
                 <select
                   id="inbox-month"
@@ -201,8 +205,8 @@ export default function DocumentsInboxScreen({
                 >
                   {monthOptions.map((m) => (
                     <option key={m} value={m}>
-                      {monthLabel(m)}
-                      {m === currentMonth ? " (החודש)" : ""}
+                      {monthLabel(m, locale)}
+                      {m === currentMonth ? t("documents.inbox.currentMonthSuffix") : ""}
                     </option>
                   ))}
                 </select>
@@ -211,14 +215,14 @@ export default function DocumentsInboxScreen({
 
             <section style={bandStyle} aria-live="polite">
               <WarningIcon />
-              <span>{monthPending.toLocaleString("he-IL")}</span>
-              <span>מסמכים ממתינים לאימות ב{viewedMonthName}</span>
+              <span>{formatNumber(monthPending, fmt)}</span>
+              <span>{t("documents.inbox.pendingInMonth", { month: viewedMonthName })}</span>
             </section>
 
             {older.show ? (
               <BacklogBanner
                 olderCount={older.olderCount}
-                ctaMonthName={ctaMonth ? monthLabel(ctaMonth) : null}
+                ctaMonthName={ctaMonth ? monthLabel(ctaMonth, locale) : null}
                 onShowOlder={() => ctaMonth && handleMonthChange(ctaMonth)}
               />
             ) : null}
@@ -242,7 +246,7 @@ export default function DocumentsInboxScreen({
                       <div className="docs-inbox-desktop">
                         <DocumentsInboxTable
                           items={monthItems}
-                          ariaLabel={`מסמכים לאימות — ${monthKey}`}
+                          ariaLabel={t("documents.inbox.tableAria", { month: monthKey })}
                           selectedId={selectedId}
                           onRowActivate={(item) => setSelectedId(item.documentId)}
                         />
@@ -269,18 +273,18 @@ export default function DocumentsInboxScreen({
                   cursor: loadingMore ? "not-allowed" : "pointer",
                 }}
               >
-                {loadingMore ? "טוען..." : "טען עוד"}
+                {loadingMore ? t("documents.common.loading") : t("documents.common.loadMore")}
               </button>
             ) : null}
           </div>
-          <aside className="docs-inbox-inspector" aria-label="המסמך שנבחר בתור">
+          <aside className="docs-inbox-inspector" aria-label={t("documents.inbox.inspectorAria")}>
             {selected ? (
               <InboxInspector item={selected} />
             ) : (
               <p>
                 {pendingItems.length === 0
-                  ? `אין מסמכים ממתינים ב${viewedMonthName}.`
-                  : `${monthPending.toLocaleString("he-IL")} ממתינים. בחרו שורה כדי לראות את החילוץ, ואז פתחו לאימות — האישור נשאר במסך הבדיקה.`}
+                  ? t("documents.inbox.inspectorNonePending", { month: viewedMonthName })
+                  : t("documents.inbox.inspectorHint", { count: formatNumber(monthPending, fmt) })}
               </p>
             )}
           </aside>
@@ -292,34 +296,37 @@ export default function DocumentsInboxScreen({
 }
 
 function InboxInspector({ item }: { item: InboxListItem }) {
-  const vendor = item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
+  const { t, formatAmount, formatDate } = useI18n();
+  const vendor = item.financial?.vendorName ?? item.extracted?.vendorName ?? t("documents.common.notSpecified");
   const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
   const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
   const categoryRaw = item.financial?.category ?? item.extracted?.category ?? "";
-  const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
-  const date = dateIso
-    ? new Date(dateIso).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" })
-    : "—";
+  const category = categoryRaw ? categoryLabel(t, categoryRaw) : t("documents.common.general");
+  const date = dateIso ? formatDate(dateIso, "date") : "—";
   return (
     <>
       <h2>{vendor}</h2>
       <dl>
-        <dt>תאריך</dt>
+        <dt>{t("documents.review.fields.date")}</dt>
         <dd>{date}</dd>
-        <dt>קטגוריה</dt>
+        <dt>{t("documents.review.fields.category")}</dt>
         <dd>{category}</dd>
-        <dt>סכום</dt>
+        <dt>{t("documents.review.fields.amount")}</dt>
         <dd>
           {amountRaw != null && Number.isFinite(amountRaw)
-            ? `₪${amountRaw.toLocaleString("he-IL")}`
+            ? formatAmount(amountRaw, "ILS")
             : "—"}
         </dd>
-        <dt>מקור</dt>
+        <dt>{t("documents.inbox.source")}</dt>
         <dd>{item.source || "—"}</dd>
-        <dt>אישור מהיר</dt>
-        <dd>{item.quickApproveEligible ? "זמין אחרי בדיקה" : "דורש בדיקה"}</dd>
+        <dt>{t("documents.inbox.quickApprove")}</dt>
+        <dd>
+          {item.quickApproveEligible
+            ? t("documents.inbox.quickApproveAvailable")
+            : t("documents.inbox.quickApproveNeedsReview")}
+        </dd>
       </dl>
-      <Link href={`/documents/review/${item.documentId}`}>פתח לאימות</Link>
+      <Link href={`/documents/review/${item.documentId}`}>{t("documents.inbox.openForReview")}</Link>
     </>
   );
 }

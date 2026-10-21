@@ -1,3 +1,4 @@
+import type { MessageKey } from "@/lib/i18n/translate";
 import type { ExtractionConfidenceMeta, ReviewDraft, TrafficLevel } from "./types";
 import { formatDateShort } from "./format";
 import { hasNonEmptyText, isValidPositiveAmount } from "./validation";
@@ -62,9 +63,9 @@ export function trafficForDirection(draft: Pick<ReviewDraft, "direction">): Traf
 
 export const TRAFFIC_CONFIG: Record<
   TrafficLevel,
-  { dot: string; caption: string; captionColor: string }
+  { dot: string; captionKey: MessageKey; captionColor: string }
 > = {
-  high: { dot: "#22c55e", caption: "זוהה טוב", captionColor: "#15803d" },
-  medium: { dot: "#eab308", caption: "כדאי לבדוק", captionColor: "#a16207" },
-  low: { dot: "#ef4444", caption: "צריך השלמה", captionColor: "#b91c1c" },
+  high: { dot: "#22c55e", captionKey: "documents.review.traffic.high", captionColor: "#15803d" },
+  medium: { dot: "#eab308", captionKey: "documents.review.traffic.medium", captionColor: "#a16207" },
+  low: { dot: "#ef4444", captionKey: "documents.review.traffic.low", captionColor: "#b91c1c" },
 };

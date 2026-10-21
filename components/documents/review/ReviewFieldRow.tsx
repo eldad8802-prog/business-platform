@@ -1,7 +1,10 @@
+"use client";
+
 import { editPillBtn } from "@/app/(shell)/documents/ui";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { TRAFFIC_CONFIG } from "@/lib/documents/review/traffic";
 import type { TrafficLevel } from "@/lib/documents/review/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function ReviewFieldRow({
   label,
@@ -17,7 +20,8 @@ export default function ReviewFieldRow({
   onPrimary: () => void;
 }) {
   const cfg = TRAFFIC_CONFIG[level];
-  const primaryLabel = "עדכן";
+  const { t } = useI18n();
+  const primaryLabel = t("documents.review.fields.update");
 
   return (
     <div
@@ -66,7 +70,7 @@ export default function ReviewFieldRow({
               }}
             />
             <span style={{ fontSize: 12, fontWeight: 600, color: cfg.captionColor }}>
-              {cfg.caption}
+              {t(cfg.captionKey)}
             </span>
           </div>
           <div
@@ -78,7 +82,7 @@ export default function ReviewFieldRow({
               lineHeight: 1.35,
             }}
           >
-            {missing ? "לא זוהה" : displayValue}
+            {missing ? t("documents.review.fields.notDetected") : displayValue}
           </div>
         </div>
         <button

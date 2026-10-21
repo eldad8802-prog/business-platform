@@ -1,6 +1,7 @@
 "use client";
 
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { categoryLabel } from "@/lib/documents/category-label";
 import type {
   EditableField,
   ExtractionConfidenceMeta,
@@ -41,48 +42,49 @@ export default function ReviewFieldList({
   editReturnTarget,
   onEditField,
 }: ReviewFieldListProps) {
+  const { t, locale } = useI18n();
   return (
     <div style={fieldsCardStyle}>
-      <div style={fieldsTitleStyle}>פרטים</div>
+      <div style={fieldsTitleStyle}>{t("documents.review.fields.details")}</div>
       <div style={{ display: "grid", gap: 10 }}>
         <ReviewFieldRow
-          label="סכום"
+          label={t("documents.review.fields.amount")}
           missing={!isValidPositiveAmount(draft.amount)}
           displayValue={
-            typeof draft.amount === "number" ? formatAmountDisplay(draft.amount) : ""
+            typeof draft.amount === "number" ? formatAmountDisplay(draft.amount, locale) : ""
           }
           level={amountLevel}
           onPrimary={() => onEditField("amount", editReturnTarget)}
         />
         <ReviewFieldRow
-          label="ספק"
+          label={t("documents.review.fields.vendor")}
           missing={!hasNonEmptyText(draft.vendorName)}
           displayValue={draft.vendorName}
           level={vendorLevel}
           onPrimary={() => onEditField("vendorName", editReturnTarget)}
         />
         <ReviewFieldRow
-          label="תאריך"
+          label={t("documents.review.fields.date")}
           missing={!draft.date || !formatDateShort(draft.date)}
-          displayValue={formatDateShort(draft.date)}
+          displayValue={formatDateShort(draft.date, locale)}
           level={dateLevel}
           onPrimary={() => onEditField("date", editReturnTarget)}
         />
         <ReviewFieldRow
-          label="קטגוריה"
+          label={t("documents.review.fields.category")}
           missing={!hasNonEmptyText(draft.category)}
-          displayValue={CATEGORY_MAP[draft.category] || draft.category}
+          displayValue={categoryLabel(t, draft.category)}
           level={categoryLevel}
           onPrimary={() => onEditField("category", editReturnTarget)}
         />
         <ReviewFieldRow
-          label="כיוון"
+          label={t("documents.review.fields.direction")}
           missing={draft.direction === "unknown"}
           displayValue={
             draft.direction === "expense"
-              ? "הוצאה"
+              ? t("documents.common.expense")
               : draft.direction === "income"
-                ? "הכנסה"
+                ? t("documents.common.income")
                 : ""
           }
           level={directionLevel}
