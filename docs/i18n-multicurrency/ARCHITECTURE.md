@@ -106,12 +106,12 @@ See `proposed-migration.sql`. Summary:
 | **B-1** i18n foundation | config, dictionaries (he source / en), translator, server+client access, formatter, root layout lang/dir, cookie endpoint, flag | **Done** (`lib/i18n`, `components/i18n`) |
 | **B-2** Shell + settings | nav (rail / sidebar / bottom bar) translated + direction-agnostic; settings area direction-agnostic; "שפה, אזור ומטבע" screen | **Done** |
 | **B-3** Screen-by-screen translation | 9 areas: home/shared UI, inbox/WhatsApp, documents, billing UI, collection/payments/payables, customers/leads/suppliers/inventory, tasks/secretary, settings/auth/onboarding, content/business/offers — ~7,000 keys; tab titles localized | **Done** (regression: 307/342 non-DB tests pass; the 34 failures also fail on main) |
-| **B-4** Server strings | Still Hebrew in English mode: API error messages (~20 routes), server-built view-model text (lib/business-status, lib/inbox-view, task agenda-core, home-history), customer-facing WhatsApp/collection messages, emails | Planned |
+| **B-4** Server strings | Localized: ~40 API routes (messages only; shape/status/codes unchanged), server view-models (business status, inbox, leads, recommendations, Home, back-nav, tool groups, categories, profile completion), task agenda + task/secretary errors, owner emails (welcome / verify / reset) by stored locale. Hebrew byte-identical (hash/fixture proofs). **Intentionally Hebrew:** customer-facing text (collection/payment messages, website lead page, suggested replies, coupons), persisted rows (notifications, insights, pricing explanation, inventory alerts), issued-document file names, LLM prompts. **Not done:** lead lifecycle history labels. | **Done** |
 | **C-1** Money engine | `lib/money` + tests | **Done** |
 | **C-2** Persistence | proposed migration (settings, user pref, FxRate) | **Awaiting approval (schema)** |
-| **C-3** BoI rate fetcher | cron + verification | **Awaiting approval (external source / cron)** |
+| **C-3** BoI rate fetcher | design + verified endpoint: FX-SOURCE-RECOMMENDATION.md | **Awaiting approval (source / cron / writer role)** |
 | **D-1** Safe aggregation | R5 fixed: awaiting-payment groups by (customer, currency) + per-currency totals; collection inbox headline single-currency; customer thread per-currency; knowledge snapshots never add a second currency. ILS-only output unchanged (tests). | **Done** |
-| **D-2** Remaining aggregation | R6 (home/reports `_sum`, `FinancialRecord` has no currency), R7 (receipt lines vs header), payment-request `waiting`/`paidRecent` sums | Planned (R6 needs the FinancialRecord.currency decision) |
+| **D-2** Remaining aggregation | Done: collection inbox `waiting`/`paidRecent` headlines single-currency. Open: R6 (home/reports `_sum`; `FinancialRecord` has no currency), R7 (receipt lines vs header) | Partly done (R6 needs the FinancialRecord.currency decision) |
 | **D-3** Tax paths | R1/R3/R4 + foreign-currency tax docs | **Blocked pending accountant/owner rules** |
 | **E** UX + regression | settings live currency choice, display-currency totals, E2E matrix | After C-2 |
 
