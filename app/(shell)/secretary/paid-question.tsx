@@ -4,37 +4,50 @@
  * "שילמת?" — asked when the owner presses "טופל" on a ledger-backed item.
  *
  * handled ≠ paid. Pressing "טופל" never creates a payment by itself:
- *   - "כן, שילמתי"   → only the missing payment details are asked (amount,
- *                      date, method — prefilled), then the REAL payables
- *                      payment flow records it, then the reminder closes.
- *   - "לא, רק טופל"  → the reminder closes; no money is recorded.
- *   - "ביטול"        → nothing happens.
+ *   - "כן, שילמתי"          → only the missing payment details are asked
+ *                             (amount, date, method — prefilled), then the REAL
+ *                             payables payment flow records it, then the
+ *                             reminder closes.
+ *   - "לא, רק לסמן שטופל"   → the reminder closes; no money is recorded.
+ *   - "ביטול"               → nothing happens.
+ *
+ * Rendered in the shared finance-ui dialog (centered on wide screens, a bottom
+ * sheet on phones; focus trap and Escape come with it).
  */
 
 import { useState } from "react";
 import type { ObligationApi } from "@/lib/obligations/secretary-client";
+import { METHOD_LABEL } from "@/lib/payables/payables-client";
+import {
+  Button,
+  DialogFrame,
+  Field,
+  Money,
+  Notice,
+  fieldInputClass,
+  formErrorClass,
+  hebrewErrorMessage,
+  israelDayKey,
+} from "@/components/finance-ui";
 
 export type PaidDetails = { amount: string; paidAt: string; method: string };
 
-const METHODS: Array<{ value: string; label: string }> = [
-  { value: "BANK_TRANSFER", label: "העברה בנקאית" },
-  { value: "CREDIT_CARD", label: "כרטיס אשראי" },
-  { value: "STANDING_ORDER", label: "הוראת קבע" },
-  { value: "DIRECT_DEBIT", label: "חיוב ישיר" },
-  { value: "CHECK", label: "צ'ק" },
-  { value: "CASH", label: "מזומן" },
-  { value: "BIT", label: "ביט" },
-  { value: "PAYBOX", label: "פייבוקס" },
-  { value: "OTHER", label: "אחר" },
-];
+// The order the owner is most likely to pick; labels are the payables wording.
+const METHOD_ORDER = [
+  "BANK_TRANSFER",
+  "CREDIT_CARD",
+  "STANDING_ORDER",
+  "DIRECT_DEBIT",
+  "CHECK",
+  "CASH",
+  "BIT",
+  "PAYBOX",
+  "OTHER",
+] as const;
 
-function todayIso(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+function displayName(name: string | null | undefined): string {
+  const trimmed = (name ?? "").trim();
+  return trimmed.length >= 2 ? trimmed : "התחייבות ללא שם";
 }
 
 export function PaidQuestionSheet({
@@ -50,118 +63,105 @@ export function PaidQuestionSheet({
 }) {
   const [step, setStep] = useState<"ask" | "details">("ask");
   const [amount, setAmount] = useState(obligation.ledger?.remaining ?? obligation.amount);
-  const [paidAt, setPaidAt] = useState(todayIso());
+  const today = israelDayKey(new Date());
+  const [paidAt, setPaidAt] = useState(today);
   const [method, setMethod] = useState("BANK_TRANSFER");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<null | "paid" | "handled">(null);
   const [error, setError] = useState<string | null>(null);
+  const name = displayName(obligation.obligeeName);
 
-  async function run(fn: () => Promise<void>) {
+  async function run(kind: "paid" | "handled", fn: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setBusy(kind);
     setError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש, נסה שוב");
-      setBusy(false);
+      setError(hebrewErrorMessage(e, "לא הצלחנו לשמור. שום דבר לא נרשם, ואפשר לנסות שוב."));
+      setBusy(null);
     }
   }
 
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="paid-question-title" dir="rtl" style={backdrop}>
-      <div style={sheet}>
-        <h2 id="paid-question-title" style={title}>
-          {step === "ask" ? `שילמת ל${obligation.obligeeName}?` : "פרטי התשלום"}
-        </h2>
+  const close = () => {
+    if (!busy) onCancel();
+  };
 
-        {step === "ask" ? (
+  return (
+    <DialogFrame
+      open
+      onClose={close}
+      title={step === "ask" ? `שילמת ל${name}?` : "פרטי התשלום"}
+      footer={
+        step === "ask" ? (
           <>
-            <p style={body}>סימון &quot;טופל&quot; סוגר את התזכורת. אם הכסף כבר יצא — אספר אותו כתשלום.</p>
-            <button type="button" style={primary} disabled={busy} onClick={() => setStep("details")}>
+            <Button variant="primary" disabled={Boolean(busy)} onClick={() => setStep("details")}>
               כן, שילמתי
-            </button>
-            <button type="button" style={secondary} disabled={busy} onClick={() => void run(onHandledOnly)}>
+            </Button>
+            <Button variant="secondary" busy={busy === "handled"} disabled={Boolean(busy)} onClick={() => void run("handled", onHandledOnly)}>
               לא, רק לסמן שטופל
-            </button>
+            </Button>
+            <Button variant="quiet" disabled={Boolean(busy)} onClick={close}>
+              ביטול
+            </Button>
           </>
         ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void run(() => onPaid({ amount: amount.trim(), paidAt, method }));
-            }}
-          >
-            <label style={label}>
-              סכום ששולם
-              <input style={input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
-            </label>
-            <label style={label}>
-              תאריך התשלום
-              <input style={input} type="date" value={paidAt} max={todayIso()} onChange={(e) => setPaidAt(e.target.value)} required />
-            </label>
-            <label style={label}>
-              איך שילמת
-              <select style={input} value={method} onChange={(e) => setMethod(e.target.value)}>
-                {METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="submit" style={primary} disabled={busy}>
-              רשום תשלום וסמן שטופל
-            </button>
-          </form>
-        )}
-
-        {error ? (
-          <p role="alert" style={errorStyle}>
-            {error}
-          </p>
-        ) : null}
-        <button type="button" style={ghost} disabled={busy} onClick={onCancel}>
-          ביטול
-        </button>
-      </div>
-    </div>
+          <>
+            <Button variant="primary" busy={busy === "paid"} disabled={Boolean(busy)} onClick={() => {
+              const form = document.getElementById("paid-question-form") as HTMLFormElement | null;
+              form?.requestSubmit();
+            }}>
+              רישום התשלום
+            </Button>
+            <Button variant="secondary" disabled={Boolean(busy)} onClick={() => setStep("ask")}>
+              חזרה
+            </Button>
+          </>
+        )
+      }
+    >
+      {step === "ask" ? (
+        <>
+          {obligation.ledger ? (
+            <p style={{ margin: 0, fontSize: 15 }}>
+              נותר לתשלום: <Money amount={obligation.ledger.remaining} currency={obligation.currency} />
+            </p>
+          ) : null}
+          <Notice tone="neutral">
+            אם הכסף כבר יצא, נרשום את התשלום בהתחייבויות. אם רק טיפלת בזה בלי לשלם, התזכורת תיסגר ולא יירשם תשלום.
+          </Notice>
+        </>
+      ) : (
+        <form
+          id="paid-question-form"
+          style={{ display: "grid", gap: 12 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run("paid", () => onPaid({ amount: amount.trim(), paidAt, method }));
+          }}
+        >
+          <Field label="סכום ששולם" htmlFor="paid-amount">
+            <input id="paid-amount" className={fieldInputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          </Field>
+          <Field label="תאריך התשלום" htmlFor="paid-at">
+            <input id="paid-at" className={fieldInputClass} type="date" value={paidAt} max={today} onChange={(e) => setPaidAt(e.target.value)} required />
+          </Field>
+          <Field label="איך שילמת" htmlFor="paid-method">
+            <select id="paid-method" className={fieldInputClass} value={method} onChange={(e) => setMethod(e.target.value)}>
+              {METHOD_ORDER.map((m) => (
+                <option key={m} value={m}>
+                  {METHOD_LABEL[m]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Notice tone="neutral">התשלום נרשם בהתחייבויות, והתזכורת במזכירה תיסגר. רישום כאן לא מעביר כסף.</Notice>
+        </form>
+      )}
+      {error ? (
+        <p role="alert" className={formErrorClass}>
+          {error}
+        </p>
+      ) : null}
+    </DialogFrame>
   );
 }
-
-const backdrop: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(15, 23, 42, 0.45)",
-  display: "flex",
-  alignItems: "flex-end",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-const sheet: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 480,
-  background: "var(--surface, #fff)",
-  color: "var(--text, #0f172a)",
-  borderRadius: "20px 20px 0 0",
-  padding: "20px 16px 28px",
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-};
-const title: React.CSSProperties = { fontSize: 20, fontWeight: 700, margin: 0 };
-const body: React.CSSProperties = { fontSize: 15, margin: "0 0 6px", opacity: 0.8 };
-const label: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 14, marginBottom: 10 };
-const input: React.CSSProperties = { fontSize: 16, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1" };
-const primary: React.CSSProperties = {
-  width: "100%",
-  padding: "14px 16px",
-  borderRadius: 12,
-  border: "none",
-  background: "#0f172a",
-  color: "#fff",
-  fontSize: 16,
-  fontWeight: 600,
-};
-const secondary: React.CSSProperties = { ...primary, background: "#e2e8f0", color: "#0f172a" };
-const ghost: React.CSSProperties = { ...primary, background: "transparent", color: "#475569", fontWeight: 500 };
-const errorStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 14, margin: 0 };
