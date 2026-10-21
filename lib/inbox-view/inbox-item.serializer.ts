@@ -21,6 +21,8 @@ import { deriveConversationOutcome } from "./conversation-outcome";
 import { deriveBusinessSituation } from "./business-situation";
 import { suggestBusinessActionsFromInboxSignals } from "./suggested-business-actions";
 import { isHumanTakeoverConversation } from "@/lib/features/conversation/bot-control";
+import type { Translator } from "@/lib/i18n/translate";
+import { INBOX_VIEW_HE_T } from "./inbox-view-i18n";
 
 /**
  * Pure serializer: a Conversation row with its includes → Inbox view-model.
@@ -47,19 +49,11 @@ const SEVERITY_BASE: Record<SignalSeverity, number> = {
   info: 0,
 };
 
-const STAGE_LABEL_HE: Record<ConversationStage, string> = {
-  NEW: "חדשה",
-  QUALIFIED: "מתעניין",
-  QUOTED: "הצעת מחיר",
-  NEGOTIATION: "משא ומתן",
-  WON: "נסגרה בהצלחה",
-  LOST: "אבדה",
-  INACTIVE: "לא פעילה",
-};
+const STAGES: readonly ConversationStage[] = ["NEW", "QUALIFIED", "QUOTED", "NEGOTIATION", "WON", "LOST", "INACTIVE"];
 
-function stageLabelFromEnum(stage: ConversationStage | null): string {
-  if (!stage) return STAGE_LABEL_HE.NEW;
-  return STAGE_LABEL_HE[stage] ?? "חדשה";
+function stageLabelFromEnum(stage: ConversationStage | null, t: Translator): string {
+  if (!stage || !STAGES.includes(stage)) return t("insights.inbox.stage.NEW");
+  return t(`insights.inbox.stage.${stage}`);
 }
 
 function truncate(text: string | null, max: number): string {
@@ -105,12 +99,13 @@ function deriveBotFlowStatus(input: {
 
 function deriveBotProgressLabel(
   status: InboxBotFlowStatus,
+  t: Translator,
   hasHumanTakeover?: boolean
 ): string | undefined {
-  if (hasHumanTakeover) return "אתה מטפל";
-  if (status === "IN_PROGRESS") return "טיוטה מוכנה לשליחה";
-  if (status === "COMPLETED") return "סיום פתיחה — מחכה לך";
-  if (status === "HANDOFF") return "מחכה לך";
+  if (hasHumanTakeover) return t("insights.inbox.bot.youHandle");
+  if (status === "IN_PROGRESS") return t("insights.inbox.bot.draftReady");
+  if (status === "COMPLETED") return t("insights.inbox.bot.openerDone");
+  if (status === "HANDOFF") return t("insights.inbox.bot.waitingForYou");
   return undefined;
 }
 
@@ -212,12 +207,15 @@ export type SerializeInboxItemInput = {
    * (from `BusinessBotSettings`: enabled + valid http(s) URL).
    */
   productCatalogEnabled?: boolean;
+  /** Interface-language translator for the view-model text. Default: Hebrew (the text it always was). */
+  t?: Translator;
 };
 
 export function serializeInboxItem(
   input: SerializeInboxItemInput
 ): InboxItemViewModel {
   const { conversation } = input;
+  const t = input.t ?? INBOX_VIEW_HE_T;
   const now = input.now ?? new Date();
   const starterBot = input.starterBot ?? {
     hasTerminalHandoff: false,
@@ -263,7 +261,7 @@ export function serializeInboxItem(
 
   const temperatureBucket = bucketTemperature(conversation.temperatureScore);
 
-  const stageLabel = stageLabelFromEnum(conversation.currentStage);
+  const stageLabel = stageLabelFromEnum(conversation.currentStage, t);
 
   const signal = evaluatePrimarySignal({
     status: conversation.status,
@@ -275,13 +273,13 @@ export function serializeInboxItem(
     temperatureScore: conversation.temperatureScore,
     hasPendingSuggestion,
     now,
-  });
+  }, t);
 
   const action = evaluateSuggestedAction({
     primarySignal: signal.kind,
     hasPendingSuggestion,
     status: conversation.status,
-  });
+  }, t);
 
   const priorityScore = computePriorityScore({
     severity: signal.severity,
@@ -301,7 +299,7 @@ export function serializeInboxItem(
     hasTerminalCompleted: starterBot.hasTerminalCompleted,
     hasHumanTakeover,
   });
-  const botProgressLabel = deriveBotProgressLabel(botFlowStatus, hasHumanTakeover);
+  const botProgressLabel = deriveBotProgressLabel(botFlowStatus, t, hasHumanTakeover);
 
   let lastCustomerIntent: string | null = null;
   const lastRow = conversation.messages[0];
@@ -341,7 +339,7 @@ export function serializeInboxItem(
     waitingMinutes,
     temperatureBucket,
     replySuggestions: conversation.replySuggestions,
-  });
+  }, t);
 
   const customerWaitingForBusiness =
     conversation.unansweredInboundCount >= 1 && conversation.customerLastInboundAt != null;
@@ -376,7 +374,7 @@ export function serializeInboxItem(
     temperatureBucket,
     nextBestAction,
     conversationOutcome,
-  });
+  }, t);
 
   const suggestedBusinessActions = suggestBusinessActionsFromInboxSignals({
     status: conversation.status,

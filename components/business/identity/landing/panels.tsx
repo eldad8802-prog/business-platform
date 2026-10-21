@@ -32,7 +32,7 @@ export function UnderstandingCard({ ctx }: { ctx: Ctx }) {
   const { t } = useI18n();
   const { CODE_LABELS } = useIdentityLabels();
   const rows: Array<[string, string]> = [];
-  const category = businessCategoryLabel(profile("category"), profile("subCategory"));
+  const category = businessCategoryLabel(profile("category"), profile("subCategory"), t);
   if (category) rows.push([t("content.identity.panels.told.rowCategory"), category]);
   if (description) rows.push([t("content.identity.panels.told.rowDescription"), description]);
   const audience = codes(ctx, "TARGET_AUDIENCE", CODE_LABELS);

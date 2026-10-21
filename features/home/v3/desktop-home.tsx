@@ -753,7 +753,7 @@ function DocumentsPanel({ view }: { view: HomeView }) {
 function LeadsEmpty({ view }: { view: HomeView }) {
   const { t } = useI18n();
   const first = showsFirstTime(view.history, "leads", false);
-  const action = view.history ? whatsAppAction(view.history.whatsapp) : null;
+  const action = view.history ? whatsAppAction(view.history.whatsapp, t) : null;
   // A disconnected number receives nothing until it is reconnected — the line
   // must not promise messages that cannot arrive.
   const firstLeadLine = view.history?.whatsapp === "DISCONNECTED" ? t("home.desktop.leads.noneYet") : t("home.desktop.leads.firstFromWhatsApp");

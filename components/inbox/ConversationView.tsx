@@ -42,8 +42,8 @@ type SmartIndicator = {
   border: string;
 };
 
-function resolveTitle(item: InboxItemViewModel | null): string {
-  return resolveConversationDisplayTitle(item);
+function resolveTitle(item: InboxItemViewModel | null, t: Translator): string {
+  return resolveConversationDisplayTitle(item, t);
 }
 
 function formatMessageTime(value: string, formatTime: (date: Date) => string): string {
@@ -494,7 +494,7 @@ export function ConversationView(props: {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const hasDraft = input.trim().length > 0;
-  const headerTitle = resolveTitle(activeItem);
+  const headerTitle = resolveTitle(activeItem, t);
   const whisperLine = whisperLineForItem(activeItem, viewMode, t);
   const accentColor = avatarAccentColor(activeItem);
   const quickActionChips = buildQuickActionChips(activeItem, t, productLinkPrefill);

@@ -1,8 +1,10 @@
 import type { ConversationStatus } from "@prisma/client";
+import type { Translator } from "@/lib/i18n/translate";
 import type {
   PrimarySignalKind,
   SuggestedActionKind,
 } from "./inbox-item.types";
+import { INBOX_VIEW_HE_T } from "./inbox-view-i18n";
 
 /**
  * Pure mapper from primary signal → suggested action.
@@ -26,7 +28,8 @@ export type SuggestedActionResult = {
 };
 
 export function evaluateSuggestedAction(
-  input: SuggestedActionInput
+  input: SuggestedActionInput,
+  t: Translator = INBOX_VIEW_HE_T
 ): SuggestedActionResult {
   if (input.status !== "OPEN") {
     return { kind: "none", label: "" };
@@ -36,14 +39,16 @@ export function evaluateSuggestedAction(
     case "customer_waiting":
       return {
         kind: "reply_now",
-        label: input.hasPendingSuggestion ? "ענה עכשיו" : "כדאי להגיב",
+        label: input.hasPendingSuggestion
+          ? t("insights.inbox.suggested.replyNow")
+          : t("insights.inbox.suggested.shouldReply"),
       };
     case "stalled_quote":
-      return { kind: "review_quote", label: "בדוק את ההצעה" };
+      return { kind: "review_quote", label: t("insights.inbox.suggested.reviewQuote") };
     case "needs_followup":
-      return { kind: "send_followup", label: "שלח תזכורת" };
+      return { kind: "send_followup", label: t("insights.inbox.suggested.sendReminder") };
     case "cooling":
-      return { kind: "send_followup", label: "נסה לחמם מחדש" };
+      return { kind: "send_followup", label: t("insights.inbox.suggested.rewarm") };
     case "hot_negotiation":
       // Pure informational state — the "hot" signal pill itself communicates
       // enough. We don't recommend "wait", because that's not an action.

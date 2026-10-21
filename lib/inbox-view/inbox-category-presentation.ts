@@ -1,4 +1,5 @@
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
+import type { Translator } from "@/lib/i18n/translate";
 import {
   assignInboxWorkCategory,
   INBOX_SIDEBAR_CATEGORY_OPTIONS,
@@ -93,7 +94,8 @@ function comparePresentationRows(
  */
 export function buildSmartInboxCategoryRows(
   items: readonly InboxItemViewModel[],
-  countsById: Record<InboxWorkCategoryId, number>
+  countsById: Record<InboxWorkCategoryId, number>,
+  t?: Translator
 ): InboxCategoryPresentationRow[] {
   const rows: InboxCategoryPresentationRow[] = INBOX_SIDEBAR_CATEGORY_OPTIONS.map((opt, baseIndex) => {
     const count = countsById[opt.id] ?? 0;
@@ -103,7 +105,7 @@ export function buildSmartInboxCategoryRows(
     const sortKey = `${empty}:${-urgencyLevel}:${baseIndex}`;
     return {
       id: opt.id,
-      label: opt.label,
+      label: t ? t(opt.labelKey) : opt.label,
       count,
       urgencyLevel,
       baseIndex,

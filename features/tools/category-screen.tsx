@@ -94,8 +94,8 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
             ))}
           </span>
           <div className="chero-tx">
-            <h1>{group.label}</h1>
-            <p>{group.capabilityLine}</p>
+            <h1>{t(group.labelKey)}</h1>
+            <p>{t(group.capabilityLineKey)}</p>
             {status ? (
               <span className={`cstat cstat-${status.tone}`}>
                 <span className="cdot" aria-hidden />
@@ -127,8 +127,8 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
                     <EntityIcon entity={tool.entity} size={26} />
                   </span>
                   <span className="crow-tx">
-                    <span className="crow-name">{tool.label}</span>
-                    <span className="crow-desc">{tool.description}</span>
+                    <span className="crow-name">{t(tool.labelKey)}</span>
+                    <span className="crow-desc">{t(tool.descriptionKey)}</span>
                   </span>
                   <ComingSoonPill />
                 </div>
@@ -138,8 +138,8 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
                     <EntityIcon entity={tool.entity} size={26} />
                   </span>
                   <span className="crow-tx">
-                    <span className="crow-name">{tool.label}</span>
-                    <span className="crow-desc">{tool.description}</span>
+                    <span className="crow-name">{t(tool.labelKey)}</span>
+                    <span className="crow-desc">{t(tool.descriptionKey)}</span>
                   </span>
                   <span className="crow-chev" aria-hidden>
                     {t("content.pricing.tools.forwardChevron")}

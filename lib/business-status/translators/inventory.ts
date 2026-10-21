@@ -1,30 +1,34 @@
 import type { InventoryAlertType } from "@prisma/client";
 
+import type { Translator } from "@/lib/i18n/translate";
+
 import type { InventoryAlertRaw } from "../loaders";
+import { STATUS_HE_T } from "../i18n";
 import { severityFromInventoryAlertType } from "../severity-map";
 import type { BusinessStatusItemBuild } from "../types";
 
-function titleForAlert(type: InventoryAlertType, itemName: string | null): string {
+function titleForAlert(type: InventoryAlertType, itemName: string | null, t: Translator): string {
   switch (type) {
     case "CRITICAL_STOCK":
       return itemName
-        ? `מלאי קריטי — ${itemName}`
-        : "מלאי קריטי";
+        ? t("insights.status.inventory.criticalItem", { item: itemName })
+        : t("insights.status.inventory.critical");
     case "LOW_STOCK":
-      return itemName ? `מלאי נמוך — ${itemName}` : "מלאי נמוך";
+      return itemName ? t("insights.status.inventory.lowItem", { item: itemName }) : t("insights.status.inventory.low");
     case "UNMATCHED_POS_PRODUCT":
-      return "מוצר POS לא מזוהה במלאי";
+      return t("insights.status.inventory.unmatchedPos");
     case "SUSPICIOUS_CORRECTION":
       return itemName
-        ? `תיקון מלאי חשוד — ${itemName}`
-        : "תיקון מלאי חשוד";
+        ? t("insights.status.inventory.suspiciousItem", { item: itemName })
+        : t("insights.status.inventory.suspicious");
     default:
-      return "התראת מלאי";
+      return t("insights.status.inventory.generic");
   }
 }
 
 export function translateInventoryAlerts(
-  rows: InventoryAlertRaw[]
+  rows: InventoryAlertRaw[],
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   return rows.map((a) => {
     const type = a.type as InventoryAlertType;
@@ -43,7 +47,7 @@ export function translateInventoryAlerts(
       itemId: `inventory:alert:${a.id}`,
       domain: "inventory",
       semanticCategory: severity === "CRITICAL" ? "ALERT" : "WARNING",
-      title: titleForAlert(type, a.itemName),
+      title: titleForAlert(type, a.itemName, t),
       summary: a.message ?? null,
       severity,
       // IDENTITY: the inventory ITEM, not the alert row.
@@ -72,12 +76,14 @@ export function translateInventoryAlerts(
       createdAt: a.createdAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח מלאי",
+        label: t("insights.status.inventory.openInventory"),
         href: "/inventory",
       },
       sourceEngine: "inventory-alerts",
       blocking,
       relatedRefs: related,
+      // The language-independent kind behind the title (Home tells stock alerts apart by it).
+      inventoryAlertType: type,
       priorityReferenceDate: a.createdAt,
     };
   });

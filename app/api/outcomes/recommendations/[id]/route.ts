@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n/server";
 import { ownerRecommendations } from "@/lib/knowledge/outcomes/owner-surface.service";
 
 /** Closed Loop — one recommendation of the session's business, with its WHY. 404 for any other id. */
@@ -13,7 +14,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ error: "invalid recommendation id" }, { status: 400 });
   }
   try {
-    const payload = await ownerRecommendations(user.businessId, new Date(), { id: recommendationId });
+    const { t, locale } = await getServerI18n();
+    const payload = await ownerRecommendations(user.businessId, new Date(), { id: recommendationId, t, locale });
     if (!payload.enabled) return NextResponse.json({ enabled: false }, { headers: { "Cache-Control": "no-store" } });
     const item = payload.items[0];
     if (!item) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });

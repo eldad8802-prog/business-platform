@@ -47,6 +47,7 @@ import {
   type LeadNextActionKindValue,
 } from "@/lib/services/crm/lead-lifecycle-core";
 import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
+import type { Translator } from "@/lib/i18n/translate";
 import {
   deriveLeadConversationIntelligence,
   type LeadConversationIntelligence,
@@ -758,7 +759,7 @@ export const leadService = {
    * conversation are simply absent from it.
    */
   async attachLeadIntelligence(
-    input: { businessId: number; leadIds: readonly number[]; now?: Date },
+    input: { businessId: number; leadIds: readonly number[]; now?: Date; t?: Translator },
     options?: TxOptions
   ): Promise<Map<number, LeadIntelligenceForLead>> {
     assertBusinessId(input.businessId);
@@ -808,6 +809,7 @@ export const leadService = {
       const intelligence = deriveLeadConversationIntelligence({
         conversations: rows,
         now,
+        t: input.t,
       });
       if (intelligence) result.set(leadId, { intelligence });
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n/server";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -106,10 +107,12 @@ export async function GET(req: Request) {
     }
 
     const now = new Date();
+    const { t } = await getServerI18n();
     const items = conversations.map((conversation) =>
       serializeInboxItem({
         conversation,
         now,
+        t,
         starterBot: {
           hasTerminalHandoff: starterBotHandoffIds.has(conversation.id),
           hasTerminalCompleted:

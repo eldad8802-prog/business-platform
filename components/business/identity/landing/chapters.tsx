@@ -26,9 +26,9 @@ type Props = { ctx: Ctx; actions: IdentityActions; busy: boolean };
 /* ── 1 · מי העסק שלך ── */
 export function ChapterWho({ ctx, actions, busy }: Props) {
   const profile = (k: string) => ctx.identity.profile.find((p) => p.key === k)?.value ?? null;
-  const category = businessCategoryLabel(profile("category"), profile("subCategory"));
   const { activeServices, activeProducts } = ctx.identity.offering;
   const { t } = useI18n();
+  const category = businessCategoryLabel(profile("category"), profile("subCategory"), t);
   return (
     <>
       <Field title={t("content.identity.chapters.who.nameTitle")} hint={t("content.identity.chapters.who.nameHint")}>

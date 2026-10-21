@@ -1,4 +1,8 @@
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import { HeroAction } from "../types/home.types";
+
+const HE_T: Translator = createTranslator(he);
 
 type DecisionSignals = {
   hasOpenConversations: boolean;
@@ -6,15 +10,15 @@ type DecisionSignals = {
   hasUnusedOffers: boolean;
 };
 
-export function getHomeHeroAction(signals: DecisionSignals): HeroAction {
+export function getHomeHeroAction(signals: DecisionSignals, t: Translator = HE_T): HeroAction {
   const { hasOpenConversations, hasActivity, hasUnusedOffers } = signals;
 
   if (hasOpenConversations) {
     return {
       actionKey: "CONVERSATIONS",
-      title: "יש לך לקוחות שמחכים לתשובה",
-      description: "ענה עכשיו לפני שהם מתקדמים הלאה",
-      ctaLabel: "ענה ללקוחות",
+      title: t("insights.home.hero.conversationsTitle"),
+      description: t("insights.home.hero.conversationsDescription"),
+      ctaLabel: t("insights.home.hero.conversationsCta"),
       ctaHref: "/inbox",
       reason: "open_conversations",
     };
@@ -23,9 +27,9 @@ export function getHomeHeroAction(signals: DecisionSignals): HeroAction {
   if (!hasActivity) {
     return {
       actionKey: "CONTENT",
-      title: "אין פעילות כרגע",
-      description: "בוא נייצר תוכן שיביא לקוחות",
-      ctaLabel: "צור תוכן",
+      title: t("insights.home.hero.contentTitle"),
+      description: t("insights.home.hero.contentDescription"),
+      ctaLabel: t("insights.home.hero.contentCta"),
       ctaHref: "/content",
       reason: "no_activity",
     };
@@ -34,9 +38,9 @@ export function getHomeHeroAction(signals: DecisionSignals): HeroAction {
   if (hasUnusedOffers) {
     return {
       actionKey: "OFFERS",
-      title: "יש לך מבצע פעיל שאפשר לקדם",
-      description: "היכנס לשכבת המבצעים והקופונים כדי להמשיך משם",
-      ctaLabel: "פתח מבצעים וקופונים",
+      title: t("insights.home.hero.offersTitle"),
+      description: t("insights.home.hero.offersDescription"),
+      ctaLabel: t("insights.home.hero.offersCta"),
       ctaHref: "/revenue",
       reason: "active_offer",
     };
@@ -44,9 +48,9 @@ export function getHomeHeroAction(signals: DecisionSignals): HeroAction {
 
   return {
     actionKey: "PRICING",
-    title: "רוצה לשפר רווחיות?",
-    description: "בדוק תמחור נכון לשירותים שלך",
-    ctaLabel: "בדוק תמחור",
+    title: t("insights.home.hero.pricingTitle"),
+    description: t("insights.home.hero.pricingDescription"),
+    ctaLabel: t("insights.home.hero.pricingCta"),
     ctaHref: "/pricing",
     reason: "fallback",
   };

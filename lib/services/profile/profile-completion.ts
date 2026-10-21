@@ -12,6 +12,10 @@
  * always one tap from being fixed.
  */
 import { parseBillingBusinessKind } from "@/lib/billing/business-identity";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
+
+const HE_T: Translator = createTranslator(he);
 
 /** The slice of `BusinessProfile` the rules read. Nothing else is consulted. */
 export type ProfileCompletionInput = {
@@ -28,6 +32,8 @@ export type ProfileCompletionInput = {
 export type ProfileCompletionRule = {
   key: string;
   label: string;
+  /** Dictionary key of `label`, for the interface language. Optional: a custom rule may carry text only. */
+  labelKey?: MessageKey;
   /** The owner screen where this detail is filled in. */
   href: string;
   isFilled: (profile: ProfileCompletionInput) => boolean;
@@ -70,49 +76,57 @@ const text = (value: string | null | undefined) =>
 export const PROFILE_COMPLETION_RULES: readonly ProfileCompletionRule[] = [
   {
     key: "legalName",
-    label: "שם העסק במסמך",
+    label: HE_T("insights.profileCompletion.legalName"),
+    labelKey: "insights.profileCompletion.legalName",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => text(p.billingLegalName),
   },
   {
     key: "businessKind",
-    label: "סוג עסק",
+    label: HE_T("insights.profileCompletion.businessKind"),
+    labelKey: "insights.profileCompletion.businessKind",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => parseBillingBusinessKind(p.billingBusinessKind) !== null,
   },
   {
     key: "taxId",
-    label: "ע.מ. / ח.פ.",
+    label: HE_T("insights.profileCompletion.taxId"),
+    labelKey: "insights.profileCompletion.taxId",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => text(p.billingTaxId),
   },
   {
     key: "address",
-    label: "כתובת",
+    label: HE_T("insights.profileCompletion.address"),
+    labelKey: "insights.profileCompletion.address",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => text(p.billingAddress),
   },
   {
     key: "phone",
-    label: "טלפון",
+    label: HE_T("insights.profileCompletion.phone"),
+    labelKey: "insights.profileCompletion.phone",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => text(p.billingPhone),
   },
   {
     key: "email",
-    label: 'דוא"ל',
+    label: HE_T("insights.profileCompletion.email"),
+    labelKey: "insights.profileCompletion.email",
     href: BUSINESS_DETAILS_HREF,
     isFilled: (p) => text(p.billingEmail),
   },
   {
     key: "logo",
-    label: "לוגו העסק",
+    label: HE_T("insights.profileCompletion.logo"),
+    labelKey: "insights.profileCompletion.logo",
     href: "/profile",
     isFilled: (p) => isStoredImageDataUrl(p.billingLogoDataUrl),
   },
   {
     key: "category",
-    label: "תחום העסק",
+    label: HE_T("insights.profileCompletion.category"),
+    labelKey: "insights.profileCompletion.category",
     href: CATEGORY_HREF,
     isFilled: (p) => text(p.category),
   },
@@ -136,11 +150,12 @@ export const EMPTY_PROFILE_COMPLETION_INPUT: ProfileCompletionInput = {
 export function computeProfileCompletion(
   profile: ProfileCompletionInput | null,
   rules: readonly ProfileCompletionRule[] = PROFILE_COMPLETION_RULES,
+  t?: Translator,
 ): ProfileCompletion {
   const source = profile ?? EMPTY_PROFILE_COMPLETION_INPUT;
   const items = rules.map((rule) => ({
     key: rule.key,
-    label: rule.label,
+    label: t && rule.labelKey ? t(rule.labelKey) : rule.label,
     href: rule.href,
     filled: rule.isFilled(source),
   }));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getLeadCard } from "@/lib/services/crm/lead-card.read-model";
 import { leadService } from "@/lib/services/crm/lead.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -33,6 +34,7 @@ export async function POST(
     const { id } = await context.params;
     const conversationId = Number(id);
     const businessId = user.businessId;
+    const { t } = await getServerI18n();
 
     let body: Record<string, unknown> = {};
     try {
@@ -58,7 +60,7 @@ export async function POST(
         );
         const card = await getLeadCard(
           { businessId, leadId: result.lead.id },
-          { tx }
+          { tx, t }
         );
         return { card, outcome: result.outcome };
       })

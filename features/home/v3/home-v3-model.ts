@@ -335,8 +335,18 @@ export type CollectionWaitingWire = {
   createdAt: string;
 };
 
+// Fallback only, for an item that carries no `inventoryAlertType` (a payload from before the field existed):
+// the Hebrew title prefix the inventory translator writes. The kind itself is language-independent.
 const STOCK_TITLE = /^מלאי (קריטי|נמוך)/;
 const CRITICAL_TITLE = /^מלאי קריטי/;
+
+function stockAlertKind(s: BusinessStatusItem): "critical" | "low" | null {
+  if (s.inventoryAlertType) {
+    return s.inventoryAlertType === "CRITICAL_STOCK" ? "critical" : s.inventoryAlertType === "LOW_STOCK" ? "low" : null;
+  }
+  if (!STOCK_TITLE.test(s.title)) return null;
+  return CRITICAL_TITLE.test(s.title) ? "critical" : "low";
+}
 
 function leadReason(itemId: string): string | null {
   const m = /^leads:([a-z_]+):/.exec(itemId);
@@ -409,9 +419,9 @@ export function buildWaiting(input: {
         actionLabel: handle,
         rank: overdue ? 0 : 2,
       });
-    } else if (s.domain === "inventory" && STOCK_TITLE.test(s.title)) {
+    } else if (s.domain === "inventory" && stockAlertKind(s) !== null) {
       stockCount++;
-      const critical = CRITICAL_TITLE.test(s.title);
+      const critical = stockAlertKind(s) === "critical";
       items.push({
         id: s.itemId,
         kind: "stock",

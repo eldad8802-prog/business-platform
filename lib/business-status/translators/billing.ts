@@ -1,33 +1,33 @@
+import type { Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
+
 import type { BillingDocRaw } from "../loaders";
+import { STATUS_HE_T, statusMoney } from "../i18n";
 import {
   severityBillingPdfFailed,
   severityBillingPendingReview,
 } from "../severity-map";
 import type { BusinessStatusItemBuild } from "../types";
 
-function formatMoney(amount: BillingDocRaw["totalAmount"], currency: string): string {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return "";
-  return `${n.toLocaleString("he-IL")} ${currency}`;
-}
-
 export function translateBillingPendingReview(
-  rows: BillingDocRaw[]
+  rows: BillingDocRaw[],
+  t: Translator = STATUS_HE_T,
+  locale: Locale = "he"
 ): BusinessStatusItemBuild[] {
   return rows.map((doc) => {
-    const totalLabel = formatMoney(doc.totalAmount, doc.currency);
+    const totalLabel = statusMoney(doc.totalAmount, doc.currency, locale);
     const customer = doc.customerNameSnapshot?.trim() || null;
 
     return {
       itemId: `billing:pending_review:${doc.id}`,
       domain: "billing",
       semanticCategory: "ACTION_REQUIRED",
-      title: "חשבונית ממתינה לאישור פנימי",
+      title: t("insights.status.billing.pendingReviewTitle"),
       summary: [
-        customer ? `לקוח: ${customer}` : null,
-        totalLabel ? `סכום: ${totalLabel}` : null,
+        customer ? t("insights.status.billing.customer", { name: customer }) : null,
+        totalLabel ? t("insights.status.billing.amount", { amount: totalLabel }) : null,
         doc.documentNumberFormatted
-          ? `מספר: ${doc.documentNumberFormatted}`
+          ? t("insights.status.billing.number", { number: doc.documentNumberFormatted })
           : null,
       ]
         .filter(Boolean)
@@ -38,7 +38,7 @@ export function translateBillingPendingReview(
       createdAt: doc.createdAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח חשבונית",
+        label: t("insights.status.billing.openInvoice"),
         href: `/billing/${doc.id}`,
       },
       sourceEngine: "billing-review",
@@ -50,7 +50,8 @@ export function translateBillingPendingReview(
 }
 
 export function translateBillingPdfFailed(
-  rows: BillingDocRaw[]
+  rows: BillingDocRaw[],
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   return rows.map((doc) => {
     const customer = doc.customerNameSnapshot?.trim() || null;
@@ -60,10 +61,10 @@ export function translateBillingPdfFailed(
       itemId: `billing:pdf_failed:${doc.id}`,
       domain: "billing",
       semanticCategory: "FAILURE_EVENT",
-      title: "הפקת PDF לחשבונית נכשלה",
+      title: t("insights.status.billing.pdfFailedTitle"),
       summary: [
-        customer ? `לקוח: ${customer}` : null,
-        err ? `שגיאה: ${err}` : null,
+        customer ? t("insights.status.billing.customer", { name: customer }) : null,
+        err ? t("insights.status.billing.error", { error: err }) : null,
       ]
         .filter(Boolean)
         .join(" · ") || null,
@@ -73,7 +74,7 @@ export function translateBillingPdfFailed(
       createdAt: doc.createdAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח חשבונית",
+        label: t("insights.status.billing.openInvoice"),
         href: `/billing/${doc.id}`,
       },
       sourceEngine: "billing-pdf",

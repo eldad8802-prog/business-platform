@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+import { getServerI18n } from "@/lib/i18n/server";
+import type { Translator } from "@/lib/i18n/translate";
 
 /** Mirrors the service's own default page size. */
 const DEFAULT_PAGE_SIZE = 50;
@@ -67,12 +69,14 @@ type LeadRowSource = {
 function toListRow(
   lead: LeadRowSource,
   now: Date,
-  intelligence: LeadConversationIntelligence | null
+  intelligence: LeadConversationIntelligence | null,
+  t: Translator
 ) {
   const status = lead.status as LeadStatusValue;
   const attention = evaluateLeadAttention(
     { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt },
-    now
+    now,
+    t
   );
   return {
     id: lead.id,
@@ -94,7 +98,7 @@ function toListRow(
       : null,
     // W3 — what the conversation says, and why the lead sits where it does.
     intelligence,
-    priority: evaluateLeadPriority({ status, attention, intelligence }),
+    priority: evaluateLeadPriority({ status, attention, intelligence, t }),
   };
 }
 
@@ -111,6 +115,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const now = new Date();
+    const { t } = await getServerI18n();
 
     // ONE tenant transaction for the page and its intelligence, so the rows and
     // the conversation readings describe the same instant.
@@ -166,6 +171,7 @@ export async function GET(req: NextRequest) {
               businessId: user.businessId,
               leadIds: merged.map((r) => r.id),
               now,
+              t,
             },
             { tx }
           );
@@ -175,7 +181,7 @@ export async function GET(req: NextRequest) {
     );
 
     const items = leads.map((l) =>
-      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null)
+      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null, t)
     );
 
     // The one ordering contract, applied to the whole candidate set:
@@ -253,7 +259,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       // A lead created this instant has no conversation yet, so there is
       // nothing to read from one.
-      { lead: toListRow({ ...lead, customer: null }, now, null) },
+      { lead: toListRow({ ...lead, customer: null }, now, null, (await getServerI18n()).t) },
       { status: 201 }
     );
   } catch (error) {

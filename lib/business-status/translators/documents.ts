@@ -1,4 +1,7 @@
+import type { Translator } from "@/lib/i18n/translate";
+
 import type { DocumentNeedsReviewRaw } from "../loaders";
+import { STATUS_HE_T } from "../i18n";
 import type { BusinessStatusItemBuild } from "../types";
 
 /**
@@ -30,23 +33,23 @@ export function translateDocumentsReviewQueue(input: {
   pendingCount: number;
   href: string;
   now: Date;
-}): BusinessStatusItemBuild {
+}, t: Translator = STATUS_HE_T): BusinessStatusItemBuild {
   return {
     itemId: `documents:review_queue:${input.businessId}`,
     domain: "documents",
     semanticCategory: "ACTION_REQUIRED",
-    title: `${input.pendingCount} מסמכים ממתינים לבדיקה`,
+    title: t("insights.status.documents.reviewQueueTitle", { count: input.pendingCount }),
     // Trust contract (F-22A), same as the per-document card below: the
     // extraction is a proposal the system has NOT verified, so the summary says
     // what the owner has to do, never what we think the documents say.
-    summary: "חילוץ ראשוני בוצע — צריך אישור שלך כדי שייכנסו לדוחות",
+    summary: t("insights.status.documents.reviewQueueSummary"),
     severity: "MEDIUM",
     entityRef: { type: "documents_review_queue", id: input.businessId },
     state: "open",
     createdAt: input.now.toISOString(),
     primaryAction: {
       kind: "navigate",
-      label: "הצג מסמכים ממתינים",
+      label: t("insights.status.documents.showPending"),
       href: input.href,
     },
     sourceEngine: "documents-review-queue",
@@ -60,7 +63,8 @@ export function translateDocumentsReviewQueue(input: {
 }
 
 export function translateDocumentsNeedsReview(
-  rows: DocumentNeedsReviewRaw[]
+  rows: DocumentNeedsReviewRaw[],
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   return rows.map((d) => {
     // Trust contract (F-22A): these rows are all `needs_review` — the extraction
@@ -74,15 +78,15 @@ export function translateDocumentsNeedsReview(
       itemId: `documents:needs_review:${d.id}`,
       domain: "documents",
       semanticCategory: "ACTION_REQUIRED",
-      title: "מסמך ממתין לביקורת",
-      summary: "חילוץ ראשוני — דורש אימות",
+      title: t("insights.status.documents.needsReviewTitle"),
+      summary: t("insights.status.documents.needsReviewSummary"),
       severity: "MEDIUM",
       entityRef: { type: "document", id: d.id },
       state: "open",
       createdAt: d.createdAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "ביקורת מסמך",
+        label: t("insights.status.documents.reviewDocument"),
         href: `/documents/review/${d.id}`,
       },
       sourceEngine: "documents-inbox",
