@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
 import { useBreakpoint } from "@/lib/ui/use-breakpoint";
 import type { AgendaRow, BucketView, SourceItem, Tag } from "@/lib/services/tasks/agenda-core";
@@ -41,6 +42,7 @@ import s from "./tasks.module.css";
 export type Selection = { key: string } | null;
 
 export function TasksScreen() {
+  const { t } = useI18n();
   const bp = useBreakpoint();
   const router = useRouter();
   const params = useSearchParams();
@@ -96,8 +98,8 @@ export function TasksScreen() {
   // N — new task (desktop: the quick-add line; elsewhere: the form). Escape closes the form.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
       if ((e.key === "n" || e.key === "N" || e.key === "מ") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         if (bp === "desktop" && quickRef.current) quickRef.current.focus();
@@ -133,9 +135,9 @@ export function TasksScreen() {
   const completeTask = (row: Extract<AgendaRow, { type: "TASK" }>) =>
     act(
       () => taskAction(row.task.id, "complete", { expectedVersion: row.task.version }),
-      "סומן כבוצע",
+      t("tasks.common.markedDone"),
       async () => {
-        await act(() => taskAction(row.task.id, "reopen", { expectedVersion: row.task.version + 1 }), "הוחזר לרשימה");
+        await act(() => taskAction(row.task.id, "reopen", { expectedVersion: row.task.version + 1 }), t("tasks.common.reopened"));
       },
     );
 
@@ -146,14 +148,14 @@ export function TasksScreen() {
     await sourceOp("payment_handled", ref);
     setPaidFor(null);
     await refresh();
-    flash("התשלום נרשם והתזכורת נסגרה");
+    flash(t("tasks.screen.paidRecorded"));
   };
   const onHandledOnly = async () => {
     const item = paidFor!;
     await sourceOp("payment_handled", { sourceKind: item.sourceKind, dedupeKey: item.dedupeKey });
     setPaidFor(null);
     await refresh();
-    flash("סומן כטופל — לא נרשם תשלום");
+    flash(t("tasks.screen.handledNoPayment"));
   };
 
   const details = selectedRow ? (
@@ -173,22 +175,22 @@ export function TasksScreen() {
       onDone={async () => {
         setCreating(false);
         await refresh();
-        flash("המשימה נשמרה");
+        flash(t("tasks.common.taskSaved"));
       }}
       onCancel={() => setCreating(false)}
     />
   );
 
   return (
-    <main dir="rtl" className={s.screen} data-page-intent="content">
+    <main className={s.screen} data-page-intent="content">
       <Header agenda={agenda} onNew={() => setCreating(true)} />
 
       {state.status === "error" ? (
         <div className={`${s.banner} ${s.bannerBad}`} role="alert">
           <IconAlert />
-          <span>לא הצלחנו לטעון את המשימות.</span>
+          <span>{t("tasks.screen.loadFailed")}</span>
           <span className={s.grow} />
-          <button type="button" className={s.btn} onClick={() => void refresh()}>נסה שוב</button>
+          <button type="button" className={s.btn} onClick={() => void refresh()}>{t("tasks.common.retry")}</button>
         </div>
       ) : null}
 
@@ -214,17 +216,17 @@ export function TasksScreen() {
           ) : null}
         </div>
 
-        <aside className={s.week} aria-label="בהמשך השבוע ומשימות חוזרות">
+        <aside className={s.week} aria-label={t("tasks.screen.weekAria")}>
           {agenda ? <WeekColumn agenda={agenda} onSelect={(k) => { setCreating(false); setSelected(k); }} /> : null}
         </aside>
 
-        <aside ref={detailRef} className={s.detail} aria-label="פרטים">
+        <aside ref={detailRef} className={s.detail} aria-label={t("tasks.screen.detailsAria")}>
           {/* mobile shows the details in a bottom sheet only — never a second, hidden copy here */}
           {bp === "mobile" ? null : bp === "desktop" && creating ? form : details ?? (
             <div className={s.placeholder}>
-              <span>בחר שורה כדי לראות את הפרטים והפעולות.</span>
+              <span>{t("tasks.screen.pickRow")}</span>
               <button type="button" className={`${s.btn} ${s.soft}`} onClick={() => setCreating(true)}>
-                <IconPlus /> משימה חדשה
+                <IconPlus /> {t("tasks.common.newTask")}
               </button>
             </div>
           )}
@@ -253,7 +255,7 @@ export function TasksScreen() {
           <span>{toast.text}</span>
           {toast.undo ? (
             <button type="button" onClick={() => { const u = toast.undo!; setToast(null); void u(); }}>
-              ביטול
+              {t("tasks.common.cancel")}
             </button>
           ) : null}
         </div>
@@ -275,27 +277,29 @@ function paidObligation(item: SourceItem): ObligationApi {
 // ── header ──────────────────────────────────────────────────────────────────────────────────────
 
 function Header({ agenda, onNew }: { agenda: AgendaResponse | null; onNew: () => void }) {
+  const { t } = useI18n();
   const day = agenda?.dayKey ?? todayKey();
   let counter: ReactNode = null;
   let partial = false;
   if (agenda) {
     partial = agenda.countPartial;
-    if (agenda.emptyAllowed) counter = <>הרשימה שלמה{agenda.doneToday ? ` · ${agenda.doneToday} בוצעו` : ""}</>;
-    else if (partial) counter = <><b>{agenda.count}+</b> · חלקי</>;
-    else counter = <><b>{agenda.count}</b> לטיפול היום{agenda.doneToday ? ` · ${agenda.doneToday} בוצעו` : ""}</>;
+    const done = agenda.doneToday ? ` · ${t("tasks.screen.counter.doneCount", { count: agenda.doneToday })}` : "";
+    if (agenda.emptyAllowed) counter = <>{t("tasks.screen.counter.complete")}{done}</>;
+    else if (partial) counter = <><b>{agenda.count}+</b> · {t("tasks.screen.counter.partial")}</>;
+    else counter = <><b>{agenda.count}</b> {t("tasks.screen.counter.toHandle")}{done}</>;
   }
   return (
     <header className={s.top}>
-      <h1 className={s.title}>היום שלי</h1>
+      <h1 className={s.title}>{t("tasks.screen.title")}</h1>
       <div className={s.mobileLine}>
-        <span className={s.date}>{longDate(day)}</span>
+        <span className={s.date}>{longDate(day, t)}</span>
       </div>
       <span className={s.grow} />
       {counter ? (
         <span className={`${s.counter} ${partial ? s.counterPartial : ""}`} aria-live="polite">{counter}</span>
       ) : null}
       <button type="button" className={`${s.btn} ${s.pri} ${s.newBtn}`} onClick={onNew}>
-        <IconPlus /> משימה חדשה
+        <IconPlus /> {t("tasks.common.newTask")}
       </button>
     </header>
   );
@@ -304,6 +308,7 @@ function Header({ agenda, onNew }: { agenda: AgendaResponse | null; onNew: () =>
 // ── quick add (desktop) ─────────────────────────────────────────────────────────────────────────
 
 function QuickAdd({ inputRef, act }: { inputRef: React.RefObject<HTMLInputElement | null>; act: (fn: () => Promise<unknown>, done?: string) => Promise<boolean> }) {
+  const { t } = useI18n();
   const [v, setV] = useState("");
   const intent = useRef(uuidV7());
   return (
@@ -313,7 +318,7 @@ function QuickAdd({ inputRef, act }: { inputRef: React.RefObject<HTMLInputElemen
         e.preventDefault();
         const title = v.trim();
         if (!title) return;
-        const ok = await act(() => createTask(intent.current, { title, dueOn: todayKey(), link: null }), "נוספה משימה להיום");
+        const ok = await act(() => createTask(intent.current, { title, dueOn: todayKey(), link: null }), t("tasks.screen.quickAdd.added"));
         if (ok) {
           setV("");
           intent.current = uuidV7();
@@ -321,8 +326,8 @@ function QuickAdd({ inputRef, act }: { inputRef: React.RefObject<HTMLInputElemen
       }}
     >
       <IconPlus />
-      <label className={s.sr} htmlFor="quick-add">הוסף משימה להיום</label>
-      <input id="quick-add" ref={inputRef} value={v} maxLength={200} onChange={(e) => setV(e.target.value)} placeholder="הוסף משימה להיום… (Enter לשמירה)" autoComplete="off" />
+      <label className={s.sr} htmlFor="quick-add">{t("tasks.screen.quickAdd.label")}</label>
+      <input id="quick-add" ref={inputRef} value={v} maxLength={200} onChange={(e) => setV(e.target.value)} placeholder={t("tasks.screen.quickAdd.placeholder")} autoComplete="off" />
       <span className={s.kbd} aria-hidden>N</span>
     </form>
   );
@@ -331,6 +336,7 @@ function QuickAdd({ inputRef, act }: { inputRef: React.RefObject<HTMLInputElemen
 // ── banners (8.7) ───────────────────────────────────────────────────────────────────────────────
 
 function Banners({ agenda, syncing, retrySync, reload }: { agenda: AgendaResponse; syncing: boolean; retrySync: () => void; reload: () => Promise<void> }) {
+  const { t } = useI18n();
   const failed = agenda.sources.filter((x) => x.status === "FAILED");
   const capped = agenda.sources.filter((x) => x.status === "CAPPED");
   return (
@@ -338,24 +344,24 @@ function Banners({ agenda, syncing, retrySync, reload }: { agenda: AgendaRespons
       {agenda.integrity.includes("SYNC_FAILED") ? (
         <div className={`${s.banner} ${s.bannerBad}`} role="alert">
           <IconAlert />
-          <span>לא הצלחנו לעדכן את הרשימה. מה שמוצג עשוי להיות חלקי.</span>
+          <span>{t("tasks.screen.banners.syncFailed")}</span>
           <span className={s.grow} />
-          <button type="button" className={s.btn} onClick={retrySync} disabled={syncing}>{syncing ? "מעדכן…" : "נסה שוב"}</button>
+          <button type="button" className={s.btn} onClick={retrySync} disabled={syncing}>{syncing ? t("tasks.screen.banners.syncing") : t("tasks.common.retry")}</button>
         </div>
       ) : agenda.integrity.includes("REPAIR_PENDING") ? (
-        <div className={`${s.banner} ${s.bannerInfo}`} role="status">מעדכנים את הרשימה…</div>
+        <div className={`${s.banner} ${s.bannerInfo}`} role="status">{t("tasks.screen.banners.repairPending")}</div>
       ) : null}
       {failed.map((f) => (
         <div key={f.kind} className={`${s.banner} ${s.bannerSource}`} role="alert">
           <IconAlert />
-          <span>לא הצלחנו לטעון {f.name}</span>
+          <span>{t("tasks.screen.banners.sourceFailed", { name: f.name })}</span>
           <span className={s.grow} />
-          <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => void reload()}>נסה שוב</button>
+          <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => void reload()}>{t("tasks.common.retry")}</button>
         </div>
       ))}
       {capped.length ? (
         <div className={`${s.banner} ${s.bannerInfo}`} role="status">
-          יש עוד פריטים ב{capped.map((c) => c.name).join(", ")} מעבר למה שמוצג כאן — הרשימה המלאה במסך עצמו.
+          {t("tasks.screen.banners.capped", { names: capped.map((c) => c.name).join(", ") })}
         </div>
       ) : null}
     </>
@@ -383,6 +389,7 @@ function AgendaList({
   onComplete: (row: Extract<AgendaRow, { type: "TASK" }>) => void;
   onNew: () => void;
 }) {
+  const { t } = useI18n();
   const counted = agenda.buckets.filter((b) => b.bucket === "OVERDUE" || b.bucket === "TODAY");
   const showEmpty = agenda.emptyAllowed && counted.every((b) => b.total === 0);
   return (
@@ -390,9 +397,9 @@ function AgendaList({
       {showEmpty ? (
         <section className={s.empty} aria-live="polite">
           <span className={s.ring}><IconCheck size={30} /></span>
-          <h2>הכול תחת שליטה להיום</h2>
-          <span>אין פריט שדורש אותך היום.{agenda.doneToday ? ` ${agenda.doneToday} בוצעו.` : ""}</span>
-          <button type="button" className={`${s.btn} ${s.pri}`} onClick={onNew}>משימה חדשה</button>
+          <h2>{t("tasks.screen.empty.title")}</h2>
+          <span>{agenda.doneToday ? t("tasks.screen.empty.bodyDone", { count: agenda.doneToday }) : t("tasks.screen.empty.body")}</span>
+          <button type="button" className={`${s.btn} ${s.pri}`} onClick={onNew}>{t("tasks.common.newTask")}</button>
         </section>
       ) : null}
       {agenda.buckets.map((b) => {
@@ -409,9 +416,9 @@ function AgendaList({
             b={b}
             rows={visible}
             fold={
-              folded ? { label: `הצג ${b.items}`, on: () => setOpen(b.bucket, true) }
-              : capped ? { label: `עוד ${b.total - b.shown}`, on: () => setOpen(b.bucket, true) }
-              : foldable && bp !== "desktop" ? { label: "הסתר", on: () => setOpen(b.bucket, false) }
+              folded ? { label: t("tasks.screen.fold.show", { count: b.items }), on: () => setOpen(b.bucket, true) }
+              : capped ? { label: t("tasks.screen.fold.more", { count: b.total - b.shown }), on: () => setOpen(b.bucket, true) }
+              : foldable && bp !== "desktop" ? { label: t("tasks.screen.fold.hide"), on: () => setOpen(b.bucket, false) }
               : null
             }
             selected={selected}
@@ -486,6 +493,7 @@ function Row({
   onComplete: (row: Extract<AgendaRow, { type: "TASK" }>) => void;
   compact: boolean;
 }) {
+  const { t: tr } = useI18n();
   const cls = `${s.row} ${selected ? s.rowSel : ""} ${(row.type === "SOURCE" && row.dimmed) || row.type === "REPAIR" ? s.rowDim : ""}`;
   const select = () => onSelect(row.key);
   const keySelect = (e: React.KeyboardEvent) => {
@@ -499,13 +507,13 @@ function Row({
 
   if (row.type === "TASK") {
     const t = row.task;
-    const fact = t.link?.label ? `קשור ל: ${t.link.label}` : t.note ? t.note : null;
+    const fact = t.link?.label ? tr("tasks.common.relatedTo", { label: t.link.label }) : t.note ? t.note : null;
     return (
       <div {...common}>
         <button
           type="button"
           className={s.chk}
-          aria-label={`סמן כבוצע: ${t.title}`}
+          aria-label={tr("tasks.common.markDoneAria", { title: t.title })}
           onClick={(e) => {
             e.stopPropagation();
             onComplete(row);
@@ -522,7 +530,7 @@ function Row({
   if (row.type === "REPAIR") {
     return (
       <div {...common}>
-        <button type="button" className={s.chk} disabled aria-label="המשימה מתעדכנת" onClick={(e) => e.stopPropagation()} />
+        <button type="button" className={s.chk} disabled aria-label={tr("tasks.screen.row.updating")} onClick={(e) => e.stopPropagation()} />
         <div className={s.rbody}>
           <span className={s.rtitle}>{row.repair.title}</span>
           <Tags tags={row.tags} />
@@ -562,7 +570,7 @@ function Row({
       <button
         type="button"
         className={s.more}
-        aria-label={`פעולות נוספות: ${it.title}`}
+        aria-label={tr("tasks.screen.row.moreActions", { title: it.title })}
         onClick={(e) => {
           e.stopPropagation();
           select();
@@ -577,6 +585,7 @@ function Row({
 // ── week column (desktop) ───────────────────────────────────────────────────────────────────────
 
 function WeekColumn({ agenda, onSelect }: { agenda: AgendaResponse; onSelect: (key: string) => void }) {
+  const { t } = useI18n();
   const upcoming = agenda.buckets.find((b) => b.bucket === "UPCOMING")?.rows ?? [];
   const label = (r: AgendaRow) =>
     r.type === "TASK" ? r.task.title : r.type === "SOURCE" ? r.item.title : r.type === "REPAIR" ? r.repair.title : r.title;
@@ -585,7 +594,7 @@ function WeekColumn({ agenda, onSelect }: { agenda: AgendaResponse; onSelect: (k
   return (
     <>
       <section className={s.card} aria-labelledby="week-upcoming">
-        <h2 id="week-upcoming">בהמשך השבוע</h2>
+        <h2 id="week-upcoming">{t("tasks.screen.week.upcoming")}</h2>
         {upcoming.length ? (
           upcoming.map((r) => (
             <button key={r.key} type="button" className={s.mini} onClick={() => onSelect(r.key)}>
@@ -594,20 +603,20 @@ function WeekColumn({ agenda, onSelect }: { agenda: AgendaResponse; onSelect: (k
             </button>
           ))
         ) : (
-          <p className={s.quiet}>אין משהו מתוכנן לשבוע הקרוב.</p>
+          <p className={s.quiet}>{t("tasks.screen.week.noUpcoming")}</p>
         )}
       </section>
       <section className={s.card} aria-labelledby="week-series">
-        <h2 id="week-series">משימות חוזרות</h2>
+        <h2 id="week-series">{t("tasks.screen.week.series")}</h2>
         {agenda.series.length ? (
           agenda.series.map((x) => (
             <div key={x.id} className={s.mini} style={{ cursor: "default" }}>
               <span>{x.title}</span>
-              <span>{x.paused ? "מושהית" : x.cadence}</span>
+              <span>{x.paused ? t("tasks.screen.week.paused") : x.cadence}</span>
             </div>
           ))
         ) : (
-          <p className={s.quiet}>אין עדיין משימות חוזרות. אפשר ליצור אחת בטופס, ב&quot;חזרה&quot;.</p>
+          <p className={s.quiet}>{t("tasks.screen.week.noSeries")}</p>
         )}
       </section>
     </>
@@ -617,8 +626,9 @@ function WeekColumn({ agenda, onSelect }: { agenda: AgendaResponse; onSelect: (k
 // ── loading ─────────────────────────────────────────────────────────────────────────────────────
 
 function Skeleton() {
+  const { t } = useI18n();
   return (
-    <section className={s.bucket} aria-busy="true" aria-label="טוען משימות">
+    <section className={s.bucket} aria-busy="true" aria-label={t("tasks.screen.loadingAria")}>
       <div className={s.rows}>
         {[72, 55, 64, 48, 60].map((w, i) => (
           <div key={i} className={s.skel}>

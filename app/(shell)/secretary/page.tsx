@@ -5,6 +5,9 @@ import { BusinessCostCard } from "@/components/business-cost/BusinessCostCard";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import {
   completeObligation,
   createObligation,
@@ -40,7 +43,7 @@ import {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string | null }
   | {
       status: "ready";
       briefing: BriefingApi;
@@ -56,14 +59,14 @@ type LoadState =
 const INITIAL_OBLIGATION_LIMIT = 100;
 const OBLIGATION_PAGE_SIZE = 100;
 
-const RECURRENCE_LABEL: Record<RecurrenceCadence, string> = {
-  NONE: "חד-פעמי",
-  WEEKLY: "שבועי",
-  MONTHLY: "חודשי",
-  BIMONTHLY: "דו-חודשי",
-  QUARTERLY: "רבעוני",
-  SEMIANNUAL: "חצי-שנתי",
-  YEARLY: "שנתי",
+const RECURRENCE_LABEL: Record<RecurrenceCadence, MessageKey> = {
+  NONE: "tasks.secretary.recurrenceAdj.none",
+  WEEKLY: "tasks.secretary.recurrenceAdj.weekly",
+  MONTHLY: "tasks.secretary.recurrenceAdj.monthly",
+  BIMONTHLY: "tasks.secretary.recurrenceAdj.bimonthly",
+  QUARTERLY: "tasks.secretary.recurrenceAdj.quarterly",
+  SEMIANNUAL: "tasks.secretary.recurrenceAdj.semiannual",
+  YEARLY: "tasks.secretary.recurrenceAdj.yearly",
 };
 
 function errorMessage(e: unknown, fallback: string): string {
@@ -71,15 +74,16 @@ function errorMessage(e: unknown, fallback: string): string {
 }
 
 /** A trustworthy display name — never surface an empty or junk obligee name. */
-function displayObligeeName(name: string | null | undefined): string {
+function displayObligeeName(name: string | null | undefined, t: Translator): string {
   const trimmed = (name ?? "").trim();
-  return trimmed.length >= 2 ? trimmed : "התחייבות ללא שם";
+  return trimmed.length >= 2 ? trimmed : t("tasks.secretary.unnamed");
 }
 
-function formatDueDate(iso: string): string {
+/** `tag` is the interface language's Intl tag ("he-IL" for Hebrew — the legacy output, unchanged). */
+function formatDueDate(iso: string, tag: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("he-IL", {
+  return d.toLocaleDateString(tag, {
     day: "numeric",
     month: "long",
     weekday: "long",
@@ -98,6 +102,8 @@ export default function SecretaryPage() {
 }
 
 function SecretaryPageInner() {
+  const { t, locale } = useI18n();
+  const tag = intlTag(locale);
   const router = useRouter();
   // Daily Tasks: with daily_tasks ON, "היום שלי" reads the shared agenda; OFF (or unknown) keeps today's screen.
   const sharedToday = useFeatureState("daily_tasks");
@@ -154,7 +160,7 @@ function SecretaryPageInner() {
       setState((prev) =>
         prev.status === "ready" ? { ...prev, obligationsLoading: false } : prev
       );
-      flashMessage(errorMessage(e, "לא הצלחתי לטעון את ההתחייבויות"));
+      flashMessage(errorMessage(e, t("tasks.secretary.page.loadObligationsFailed")));
     }
   }
 
@@ -213,9 +219,10 @@ function SecretaryPageInner() {
         }
       } catch (e) {
         if (!cancelled) {
+          // The fallback text is chosen at render time (in the interface language).
           setState({
             status: "error",
-            message: errorMessage(e, "שגיאה בטעינת המזכירה"),
+            message: e instanceof Error ? e.message : null,
           });
         }
       }
@@ -428,7 +435,7 @@ function SecretaryPageInner() {
       return (
         <SecretaryErrorBoundary>
           <TodayScreen
-            model={todayModelFromBriefing(state.briefing)}
+            model={todayModelFromBriefing(state.briefing, t, tag)}
             onComplete={focus ? () => onCompleteFlow(focus.id) : undefined}
             onSnooze={focus ? () => router.push("/secretary?screen=remind&id=" + focus.id) : undefined}
             onRelease={focus ? () => onReleaseFlow(focus.id) : undefined}
@@ -441,7 +448,7 @@ function SecretaryPageInner() {
 
     return (
       <SecretaryErrorBoundary>
-        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing)}>
+        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing, t, tag)}>
           {/* Phase 3 — what the business costs, from the one business-cost engine. */}
           <BusinessCostCard />
         </SecretaryHomeScreen>
@@ -459,11 +466,11 @@ function SecretaryPageInner() {
   }
 
   return (
-    <main dir="rtl" style={errorPageStyle}>
+    <main style={errorPageStyle}>
       <section style={errorCardStyle}>
-        <h1 style={{ margin: 0, fontSize: TOKEN.font.display, fontWeight: DS.weight.semibold, color: DS.ink }}>רגע, משהו בבדיקה נתקע.</h1>
+        <h1 style={{ margin: 0, fontSize: TOKEN.font.display, fontWeight: DS.weight.semibold, color: DS.ink }}>{t("tasks.secretary.page.errorTitle")}</h1>
         <p style={{ margin: "10px 0 0", color: DS.muted, lineHeight: 1.6 }}>
-          {state.message}
+          {state.message ?? t("tasks.secretary.page.loadFailed")}
         </p>
         <button
           type="button"
@@ -473,7 +480,7 @@ function SecretaryPageInner() {
           }}
           style={retryButtonStyle}
         >
-          לנסות שוב
+          {t("tasks.secretary.page.retry")}
         </button>
       </section>
     </main>
@@ -486,7 +493,7 @@ const DS = TOKEN.dsv1;
 const flashStyle = {
   position: "fixed" as const,
   zIndex: 80,
-  right: 18,
+  insetInlineStart: 18,
   bottom: 92,
   maxWidth: 360,
   borderRadius: DS.radius.card,
@@ -529,14 +536,14 @@ const retryButtonStyle = {
   cursor: "pointer",
 };
 
-function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
+function homeModelFromBriefing(briefing: BriefingApi, t: Translator, tag: string): SecretaryHomeModel {
   const focus = briefing.attention[0] ?? null;
   const openItems = uniqueBriefingObligations([
     ...briefing.attention.map((item) => item.obligation),
     ...briefing.watching,
   ]);
   const currency = focus?.obligation.currency ?? openItems[0]?.currency ?? "ILS";
-  const allAmount = formatHomeAmount(String(sumObligationAmounts(openItems)), currency);
+  const allAmount = formatHomeAmount(String(sumObligationAmounts(openItems)), currency, tag);
   const hasToday =
     briefing.state === "CRITICAL" ||
     briefing.attention.some((item) => item.reason === "OVERDUE" || item.reason === "DUE_TODAY");
@@ -544,12 +551,12 @@ function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
   if (briefing.counts.open === 0) {
     return {
       state: "new",
-      title: "שלום, אני\nהמזכירה שלך.",
-      subtitle: "מסור לי את התשלומים שהעסק צריך להוציא - ואני אזכור אותם בשבילך.",
+      title: t("tasks.secretary.page.homeNew.title"),
+      subtitle: t("tasks.secretary.page.homeNew.subtitle"),
       todayHref: "/secretary?today=1",
       allHref: "/secretary?screen=all",
       addHref: "/secretary?screen=bank",
-      today: { label: "בוא נתחיל", body: "מסור לי את ההתחייבות הראשונה" },
+      today: { label: t("tasks.secretary.page.homeNew.label"), body: t("tasks.secretary.page.homeNew.body") },
       queue: [],
     };
   }
@@ -557,88 +564,88 @@ function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
   if (focus) {
     return {
       state: "due",
-      title: hasToday ? "יש דבר אחד שצריך\nלסגור היום." : "יש כמה דברים שכדאי\nלסגור השבוע.",
-      subtitle: hasToday ? "כל השאר שמור אצלי - אזכיר לך בזמן." : "נתחיל מהקרוב, ואת השאר אשמור לך בזמן.",
+      title: hasToday ? t("tasks.secretary.page.homeDue.titleToday") : t("tasks.secretary.page.homeDue.titleWeek"),
+      subtitle: hasToday ? t("tasks.secretary.page.homeDue.subtitleToday") : t("tasks.secretary.page.homeDue.subtitleWeek"),
       todayHref: "/secretary?today=1",
       allHref: "/secretary?screen=all",
       addHref: "/secretary?screen=bank",
       today: {
-        label: "היום שלי",
-        badge: dueBadge(focus.reason),
-        body: displayObligeeName(focus.obligation.obligeeName),
-        amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency),
+        label: t("tasks.secretary.page.myDay"),
+        badge: dueBadge(focus.reason, t),
+        body: displayObligeeName(focus.obligation.obligeeName, t),
+        amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency, tag),
       },
       all: {
-        line: briefing.counts.open.toLocaleString("he-IL") + " במעקב",
+        line: t("tasks.secretary.page.trackingCount", { count: briefing.counts.open.toLocaleString(tag) }),
         amount: allAmount,
-        suffix: "להוצאה",
+        suffix: t("tasks.secretary.page.toSpend"),
       },
       queue: openItems.map((item) => ({
         id: item.id,
-        name: displayObligeeName(item.obligeeName),
-        amount: formatHomeAmount(item.amount, item.currency),
+        name: displayObligeeName(item.obligeeName, t),
+        amount: formatHomeAmount(item.amount, item.currency, tag),
         reason: briefing.attention.find((row) => row.obligation.id === item.id)
-          ? dueBadge(briefing.attention.find((row) => row.obligation.id === item.id)!.reason)
-          : "במעקב",
+          ? dueBadge(briefing.attention.find((row) => row.obligation.id === item.id)!.reason, t)
+          : t("tasks.secretary.page.tracking"),
       })),
     };
   }
 
   return {
     state: "calm",
-    title: "הכל רגוע.\nאין מה שדורש אותך.",
-    subtitle: "אני שומרת " + briefing.counts.open.toLocaleString("he-IL") + " התחייבויות ואזכיר לך כשמשהו יתקרב.",
+    title: t("tasks.secretary.page.homeCalm.title"),
+    subtitle: t("tasks.secretary.page.homeCalm.subtitle", { count: briefing.counts.open.toLocaleString(tag) }),
     todayHref: "/secretary?today=1",
     allHref: "/secretary?screen=all",
     addHref: "/secretary?screen=bank",
-    today: { label: "היום שלי", body: "אין תשלום שדורש אותך היום" },
+    today: { label: t("tasks.secretary.page.myDay"), body: t("tasks.secretary.page.homeCalm.body") },
     all: {
-      line: briefing.counts.open.toLocaleString("he-IL") + " במעקב",
+      line: t("tasks.secretary.page.trackingCount", { count: briefing.counts.open.toLocaleString(tag) }),
       amount: allAmount,
-      suffix: "להוצאה",
+      suffix: t("tasks.secretary.page.toSpend"),
     },
     queue: openItems.map((item) => ({
       id: item.id,
-      name: displayObligeeName(item.obligeeName),
-      amount: formatHomeAmount(item.amount, item.currency),
-      reason: "במעקב",
+      name: displayObligeeName(item.obligeeName, t),
+      amount: formatHomeAmount(item.amount, item.currency, tag),
+      reason: t("tasks.secretary.page.tracking"),
     })),
   };
 }
 
-function todayModelFromBriefing(briefing: BriefingApi): TodayModel {
+function todayModelFromBriefing(briefing: BriefingApi, t: Translator, tag: string): TodayModel {
   const focus = briefing.attention[0] ?? null;
   if (!focus) {
     return {
       state: "calm",
-      status: "הכול תחת מעקב",
-      title: "אין משהו שדורש אותך עכשיו.",
-      subtitle: "עברתי על הכול. אני ממשיכה לעקוב, וברגע שמשהו יתקרב - אגיד לך.",
+      status: t("tasks.secretary.page.todayCalm.status"),
+      title: t("tasks.secretary.page.todayCalm.title"),
+      subtitle: t("tasks.secretary.page.todayCalm.subtitle"),
       watching: {
-        line: "אני שומרת " + briefing.counts.open.toLocaleString("he-IL") + " התחייבויות",
-        subline: "הכול רגוע - אזכיר כשמשהו יתקרב.",
+        line: t("tasks.secretary.page.todayCalm.watchLine", { count: briefing.counts.open.toLocaleString(tag) }),
+        subline: t("tasks.secretary.page.todayCalm.watchSubline"),
       },
     };
   }
   const urgent = focus.reason === "OVERDUE" || focus.reason === "DUE_TODAY";
   return {
     state: urgent ? "critical" : "busy",
-    status: urgent ? "בדקתי את היום שלך" : "עברתי על השבוע שלך",
-    title: urgent ? "יש דבר אחד שכדאי לסגור היום." : "יש כמה דברים השבוע. בוא נתחיל מהחשוב.",
-    subtitle: urgent ? "בוא נטפל בו קודם - אני כבר שומרת את כל השאר." : "נסגור אחד-אחד. אני כאן לאורך כל הדרך.",
+    status: urgent ? t("tasks.secretary.page.today.statusUrgent") : t("tasks.secretary.page.today.statusBusy"),
+    title: urgent ? t("tasks.secretary.page.today.titleUrgent") : t("tasks.secretary.page.today.titleBusy"),
+    subtitle: urgent ? t("tasks.secretary.page.today.subtitleUrgent") : t("tasks.secretary.page.today.subtitleBusy"),
     focus: {
       id: focus.obligation.id,
       tone: urgent ? "urgent" : "soon",
-      tag: dueBadge(focus.reason),
-      name: displayObligeeName(focus.obligation.obligeeName),
-      amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency),
-      meta: formatDueDate(focus.obligation.dueAt),
-      chip: RECURRENCE_LABEL[focus.obligation.recurrence],
+      tag: dueBadge(focus.reason, t),
+      name: displayObligeeName(focus.obligation.obligeeName, t),
+      amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency, tag),
+      meta: formatDueDate(focus.obligation.dueAt, tag),
+      chip: t(RECURRENCE_LABEL[focus.obligation.recurrence]),
       note: focus.obligation.note ?? undefined,
     },
     watching: {
-      line: "אני שומרת עוד " + briefing.counts.watching.toLocaleString("he-IL") + " דברים במעקב",
-      subline: "אין מה לעשות בהם עכשיו - אזכיר בזמן.",
+      line: t("tasks.secretary.page.today.watchLine", { count: briefing.counts.watching.toLocaleString(tag) }),
+      subline: t("tasks.secretary.page.today.watchSubline"),
     },
   };
 }
@@ -659,29 +666,30 @@ function sumObligationAmounts(items: ObligationApi[]): number {
   }, 0);
 }
 
-function formatHomeAmount(amount: string, currency: string): string {
+/** Money in the obligation's own currency; `tag` = the interface language ("he-IL" → the legacy output). */
+function formatHomeAmount(amount: string, currency: string, tag: string): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return amount;
   try {
-    return new Intl.NumberFormat("he-IL", {
+    return new Intl.NumberFormat(tag, {
       style: "currency",
       currency: currency || "ILS",
       maximumFractionDigits: 0,
     }).format(n);
   } catch {
-    return n.toLocaleString("he-IL", { maximumFractionDigits: 0 }) + " " + currency;
+    return n.toLocaleString(tag, { maximumFractionDigits: 0 }) + " " + currency;
   }
 }
 
-function dueBadge(reason: AttentionReason): string {
+function dueBadge(reason: AttentionReason, t: Translator): string {
   switch (reason) {
     case "OVERDUE":
-      return "באיחור";
+      return t("tasks.secretary.due.overdue");
     case "DUE_TODAY":
-      return "להיום";
+      return t("tasks.secretary.due.today");
     case "DUE_SOON":
     default:
-      return "מתקרב";
+      return t("tasks.secretary.due.soon");
   }
 }
 

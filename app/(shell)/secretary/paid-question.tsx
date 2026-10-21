@@ -12,20 +12,22 @@
  */
 
 import { useState } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 import type { ObligationApi } from "@/lib/obligations/secretary-client";
 
 export type PaidDetails = { amount: string; paidAt: string; method: string };
 
-const METHODS: Array<{ value: string; label: string }> = [
-  { value: "BANK_TRANSFER", label: "העברה בנקאית" },
-  { value: "CREDIT_CARD", label: "כרטיס אשראי" },
-  { value: "STANDING_ORDER", label: "הוראת קבע" },
-  { value: "DIRECT_DEBIT", label: "חיוב ישיר" },
-  { value: "CHECK", label: "צ'ק" },
-  { value: "CASH", label: "מזומן" },
-  { value: "BIT", label: "ביט" },
-  { value: "PAYBOX", label: "פייבוקס" },
-  { value: "OTHER", label: "אחר" },
+const METHODS: Array<{ value: string; label: MessageKey }> = [
+  { value: "BANK_TRANSFER", label: "tasks.secretary.paid.methods.bankTransfer" },
+  { value: "CREDIT_CARD", label: "tasks.secretary.paid.methods.creditCard" },
+  { value: "STANDING_ORDER", label: "tasks.secretary.paid.methods.standingOrder" },
+  { value: "DIRECT_DEBIT", label: "tasks.secretary.paid.methods.directDebit" },
+  { value: "CHECK", label: "tasks.secretary.paid.methods.check" },
+  { value: "CASH", label: "tasks.secretary.paid.methods.cash" },
+  { value: "BIT", label: "tasks.secretary.paid.methods.bit" },
+  { value: "PAYBOX", label: "tasks.secretary.paid.methods.paybox" },
+  { value: "OTHER", label: "tasks.secretary.paid.methods.other" },
 ];
 
 function todayIso(): string {
@@ -48,6 +50,7 @@ export function PaidQuestionSheet({
   onHandledOnly: () => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const [step, setStep] = useState<"ask" | "details">("ask");
   const [amount, setAmount] = useState(obligation.ledger?.remaining ?? obligation.amount);
   const [paidAt, setPaidAt] = useState(todayIso());
@@ -62,26 +65,26 @@ export function PaidQuestionSheet({
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש, נסה שוב");
+      setError(e instanceof Error ? e.message : t("tasks.secretary.paid.error"));
       setBusy(false);
     }
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="paid-question-title" dir="rtl" style={backdrop}>
+    <div role="dialog" aria-modal="true" aria-labelledby="paid-question-title" style={backdrop}>
       <div style={sheet}>
         <h2 id="paid-question-title" style={title}>
-          {step === "ask" ? `שילמת ל${obligation.obligeeName}?` : "פרטי התשלום"}
+          {step === "ask" ? t("tasks.secretary.paid.question", { name: obligation.obligeeName }) : t("tasks.secretary.paid.detailsTitle")}
         </h2>
 
         {step === "ask" ? (
           <>
-            <p style={body}>סימון &quot;טופל&quot; סוגר את התזכורת. אם הכסף כבר יצא — אספר אותו כתשלום.</p>
+            <p style={body}>{t("tasks.secretary.paid.body")}</p>
             <button type="button" style={primary} disabled={busy} onClick={() => setStep("details")}>
-              כן, שילמתי
+              {t("tasks.secretary.paid.yes")}
             </button>
             <button type="button" style={secondary} disabled={busy} onClick={() => void run(onHandledOnly)}>
-              לא, רק לסמן שטופל
+              {t("tasks.secretary.paid.handledOnly")}
             </button>
           </>
         ) : (
@@ -92,25 +95,25 @@ export function PaidQuestionSheet({
             }}
           >
             <label style={label}>
-              סכום ששולם
+              {t("tasks.secretary.paid.amount")}
               <input style={input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
             </label>
             <label style={label}>
-              תאריך התשלום
+              {t("tasks.secretary.paid.date")}
               <input style={input} type="date" value={paidAt} max={todayIso()} onChange={(e) => setPaidAt(e.target.value)} required />
             </label>
             <label style={label}>
-              איך שילמת
+              {t("tasks.secretary.paid.method")}
               <select style={input} value={method} onChange={(e) => setMethod(e.target.value)}>
                 {METHODS.map((m) => (
                   <option key={m.value} value={m.value}>
-                    {m.label}
+                    {t(m.label)}
                   </option>
                 ))}
               </select>
             </label>
             <button type="submit" style={primary} disabled={busy}>
-              רשום תשלום וסמן שטופל
+              {t("tasks.secretary.paid.submit")}
             </button>
           </form>
         )}
@@ -121,7 +124,7 @@ export function PaidQuestionSheet({
           </p>
         ) : null}
         <button type="button" style={ghost} disabled={busy} onClick={onCancel}>
-          ביטול
+          {t("tasks.secretary.paid.cancel")}
         </button>
       </div>
     </div>
