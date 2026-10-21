@@ -206,10 +206,10 @@ export function CollectionInboxScreen() {
           <WarmButton onClick={() => router.push("/collection/new")}>{t("money.collection.shared.collect")}</WarmButton>
           {inbox ? (
             <ul className="col-desk__facts">
-              <li><span>{t("money.collection.inbox.segToCollect")}</span><strong>{money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")}</strong></li>
+              <li><span>{t("money.collection.inbox.segToCollect")}</span><strong>{money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")}{inbox.summary.toCollect.isMixedCurrency ? <span title={t("currency.mixedCurrencies")} aria-label={t("currency.mixedCurrencies")}> +</span> : null}</strong></li>
               <li><span>{t("money.collection.shared.waiting")}</span><strong>{inbox.summary.waiting.count}</strong></li>
               <li><span>{t("money.collection.shared.needsAttention")}</span><strong>{inbox.summary.attention.count}</strong></li>
-              <li><span>{t("money.collection.inbox.paidRecent")}</span><strong>{money(inbox.summary.paidRecent.amount, "ILS")}</strong></li>
+              <li><span>{t("money.collection.inbox.paidRecent")}</span><strong>{money(inbox.summary.paidRecent.amount, inbox.summary.paidRecent.currency ?? "ILS")}{inbox.summary.paidRecent.isMixedCurrency ? <span title={t("currency.mixedCurrencies")} aria-label={t("currency.mixedCurrencies")}> +</span> : null}</strong></li>
             </ul>
           ) : null}
         </header>
