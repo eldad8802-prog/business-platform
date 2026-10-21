@@ -1,6 +1,7 @@
 "use client";
 
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Documents back button — a thin wrapper over the app-wide canonical
@@ -10,10 +11,11 @@ import BackButton from "@/components/ui/back-button";
  */
 export default function DocumentsBackButton({
   onClick,
-  label = "חזרה",
+  label,
 }: {
   onClick?: () => void;
   label?: string;
 }) {
-  return <BackButton onClick={onClick} label={label} />;
+  const { t } = useI18n();
+  return <BackButton onClick={onClick} label={label ?? t("documents.common.back")} />;
 }

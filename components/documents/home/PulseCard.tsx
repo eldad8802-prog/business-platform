@@ -1,6 +1,7 @@
 "use client";
 
 import { formatMoney } from "./home-format";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type PulseCardProps = {
   monthLabel: string;
@@ -42,6 +43,7 @@ export default function PulseCard({
   net,
   previousNet,
 }: PulseCardProps) {
+  const { t, locale } = useI18n();
   const total = Math.max(0, income) + Math.max(0, expense);
   const incomePct = total > 0 ? (Math.max(0, income) / total) * 100 : 0;
   const expensePct = total > 0 ? 100 - incomePct : 0;
@@ -49,17 +51,17 @@ export default function PulseCard({
   const delta = computeDelta(net, previousNet);
   const deltaArrow = delta ? (delta.dir === "up" ? "▲" : delta.dir === "down" ? "▼" : "") : "";
 
-  const netStr = formatMoney(net);
+  const netStr = formatMoney(net, locale);
   // Split currency glyph so it can render smaller, matching the mockup.
   const netMatch = /^([^\d-]*)(.*)$/.exec(netStr);
   const netPrefix = netMatch?.[1] ?? "";
   const netBody = netMatch?.[2] ?? netStr;
 
   return (
-    <section className="dz-pulse" aria-label="תזרים נטו">
+    <section className="dz-pulse" aria-label={t("documents.home.pulseAria")}>
       <div className="dz-pulse__row">
         <div>
-          <div className="dz-pulse__lbl">תזרים נטו · {monthLabel}</div>
+          <div className="dz-pulse__lbl">{t("documents.home.pulseLabel", { month: monthLabel })}</div>
           <div className="dz-pulse__net">
             {netPrefix ? <span className="dz-pulse__cur">{netPrefix}</span> : null}
             {netBody}
@@ -81,13 +83,13 @@ export default function PulseCard({
       <div className="dz-legend">
         <div className="dz-legend__it">
           <span className="dz-legend__sw dz-legend__sw--inc" />
-          <span className="dz-legend__k">הכנסות</span>
-          <span className="dz-legend__v">{formatMoney(income)}</span>
+          <span className="dz-legend__k">{t("documents.home.income")}</span>
+          <span className="dz-legend__v">{formatMoney(income, locale)}</span>
         </div>
         <div className="dz-legend__it">
           <span className="dz-legend__sw dz-legend__sw--exp" />
-          <span className="dz-legend__k">הוצאות</span>
-          <span className="dz-legend__v">{formatMoney(expense)}</span>
+          <span className="dz-legend__k">{t("documents.home.expense")}</span>
+          <span className="dz-legend__v">{formatMoney(expense, locale)}</span>
         </div>
       </div>
     </section>

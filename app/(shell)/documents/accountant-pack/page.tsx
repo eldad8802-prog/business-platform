@@ -4,6 +4,10 @@ import { PageContainer } from "@/components/ui/page-container";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORIES } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import { formatNumber } from "@/lib/i18n/format";
+import { categoryLabel } from "@/lib/documents/category-label";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
@@ -16,10 +20,10 @@ function currentMonthValue(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function currentMonthLabel(value: string): string {
+function currentMonthLabel(value: string, locale: Locale = DEFAULT_LOCALE): string {
   const [year, month] = value.split("-").map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month)) return value;
-  return new Date(year, month - 1, 1).toLocaleDateString("he-IL", {
+  return new Date(year, month - 1, 1).toLocaleDateString(intlTag(locale), {
     month: "long",
     year: "numeric",
   });
@@ -31,6 +35,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export default function AccountantPackPage() {
   const router = useRouter();
+  const { t, locale, fmt } = useI18n();
   const [token, setToken] = useState<string | null>(null);
   const [type, setType] = useState<PeriodType>("month");
   const [period, setPeriod] = useState(currentMonthValue());
@@ -62,13 +67,13 @@ export default function AccountantPackPage() {
         .filter((category): category is (typeof CATEGORIES)[number] => Boolean(category)),
     []
   );
-  const periodLabel = type === "month" ? currentMonthLabel(period) : period;
+  const periodLabel = type === "month" ? currentMonthLabel(period, locale) : period;
   const selectedCategoriesLabel =
     categories.length === 0
-      ? "כל הקטגוריות"
+      ? t("documents.pack.allCategories")
       : visibleCategories
           .filter((category) => categories.includes(category.value))
-          .map((category) => category.label)
+          .map((category) => categoryLabel(t, category.value))
           .join(" · ");
 
   function toggleCategory(value: string) {
@@ -98,7 +103,7 @@ export default function AccountantPackPage() {
           categories,
         }),
       });
-      if (!response.ok) throw new Error("שגיאה ביצירת חבילה");
+      if (!response.ok) throw new Error(t("documents.pack.errCreate"));
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -108,30 +113,30 @@ export default function AccountantPackPage() {
       link.click();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(errorMessage(err, "שגיאה"));
+      setError(errorMessage(err, t("documents.pack.errGeneric")));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <PageContainer intent="standard" className="dz-pack" style={{ paddingBlock: "14px 40px" }}>
         <div className="dz-pack-desk">
         <header className="dz-pack-span" style={headStyle}>
           <DocumentsBackButton />
-          <h1 style={titleStyle}>חבילת רו״ח</h1>
+          <h1 style={titleStyle}>{t("documents.pack.title")}</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
         <div>
         <section>
-          <div style={labelStyle}>תקופה</div>
+          <div style={labelStyle}>{t("documents.pack.period")}</div>
           <div style={segStyle}>
             {[
-              { key: "month" as const, label: "חודש" },
-              { key: "quarter" as const, label: "רבעון" },
-              { key: "year" as const, label: "שנה" },
+              { key: "month" as const, label: t("documents.pack.month") },
+              { key: "quarter" as const, label: t("documents.pack.quarter") },
+              { key: "year" as const, label: t("documents.pack.year") },
             ].map((item) => (
               <button
                 key={item.key}
@@ -150,7 +155,7 @@ export default function AccountantPackPage() {
               onChange={(event) => setPeriod(event.target.value)}
               type={type === "month" ? "month" : "text"}
               placeholder={type === "quarter" ? "2026-Q2" : "2026"}
-              aria-label="תקופה"
+              aria-label={t("documents.pack.period")}
               className={type === "month" ? "dz-native-date" : undefined}
               style={periodInputStyle}
             />
@@ -159,14 +164,14 @@ export default function AccountantPackPage() {
         </section>
 
         <section style={{ marginTop: 18 }}>
-          <div style={labelStyle}>קטגוריות</div>
+          <div style={labelStyle}>{t("documents.pack.categories")}</div>
           <div style={filtersStyle}>
             <button
               type="button"
               onClick={() => setCategories([])}
               style={categories.length === 0 ? chipActiveStyle : chipStyle}
             >
-              הכל
+              {t("documents.pack.all")}
             </button>
             {visibleCategories.map((category) => (
               <button
@@ -177,7 +182,7 @@ export default function AccountantPackPage() {
                   categories.includes(category.value) ? chipActiveStyle : chipStyle
                 }
               >
-                {category.label}
+                {categoryLabel(t, category.value)}
               </button>
             ))}
           </div>
@@ -185,18 +190,18 @@ export default function AccountantPackPage() {
         </div>
         <aside className="dz-pack-side">
         <section>
-          <div style={labelStyle}>מה ייכלל בחבילה</div>
+          <div style={labelStyle}>{t("documents.pack.included")}</div>
           <div style={summaryCardStyle}>
             <div style={summaryRowStyle}>
-              <span style={summaryKeyStyle}>תקופה</span>
+              <span style={summaryKeyStyle}>{t("documents.pack.period")}</span>
               <span style={summaryValStyle}>{periodLabel}</span>
             </div>
             <div style={{ ...summaryRowStyle, borderBottom: "none" }}>
-              <span style={summaryKeyStyle}>קטגוריות</span>
+              <span style={summaryKeyStyle}>{t("documents.pack.categories")}</span>
               <span style={summaryValStyle}>{selectedCategoriesLabel}</span>
             </div>
             <p style={summaryHintStyle}>
-              החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח.
+              {t("documents.pack.hint")}
             </p>
           </div>
         </section>
@@ -205,7 +210,7 @@ export default function AccountantPackPage() {
           <div style={blockerStyle}>
             <WarningIcon />
             <span>
-              {pendingCount.toLocaleString("he-IL")} מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם
+              {t("documents.pack.pendingBlocker", { count: formatNumber(pendingCount, fmt) })}
             </span>
           </div>
         ) : null}
@@ -218,7 +223,7 @@ export default function AccountantPackPage() {
           onClick={() => void handleDownload()}
           style={{ ...downloadButtonStyle, display: "none", opacity: loading ? 0.7 : 1 }}
         >
-          {loading ? "מכין חבילה..." : "הורד חבילה (ZIP)"}
+          {loading ? t("documents.pack.preparing") : t("documents.pack.download")}
         </button>
         </aside>
         </div>
@@ -235,7 +240,7 @@ export default function AccountantPackPage() {
             cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "מכין חבילה..." : "הורד חבילה (ZIP)"}
+          {loading ? t("documents.pack.preparing") : t("documents.pack.download")}
         </button>
       </div>
     </div>
@@ -392,7 +397,7 @@ const summaryValStyle = {
   color: TOKEN.ink.primary,
   fontSize: TOKEN.font.body,
   fontWeight: TOKEN.weight.bold,
-  textAlign: "left" as const,
+  textAlign: "end" as const,
   minWidth: 0,
 } as const;
 

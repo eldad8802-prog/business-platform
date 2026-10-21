@@ -1,4 +1,7 @@
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
+import { he } from "@/lib/i18n/messages/he";
+import { categoryLabel } from "@/lib/documents/category-label";
 import { formatAmountDisplay, formatDateShort } from "./format";
 import type {
   ExtractionConfidenceMeta,
@@ -34,8 +37,13 @@ export function computeTrustContext(input: {
   extractionMeta: ExtractionConfidenceMeta | null;
   reviewMode: ReviewMode;
   profileId: string;
+  /** Interface translator; defaults to Hebrew (the pre-i18n output). */
+  t?: Translator;
+  locale?: Locale;
 }): TrustContext {
   const { draft, extractionMeta, reviewMode } = input;
+  const t = input.t ?? createTranslator(he);
+  const locale = input.locale ?? DEFAULT_LOCALE;
   const pid = input.profileId;
 
   const amountLevel = trafficForAmount(extractionMeta, draft);
@@ -46,65 +54,70 @@ export function computeTrustContext(input: {
 
   const amountDisplay =
     typeof draft.amount === "number" && Number.isFinite(draft.amount)
-      ? formatAmountDisplay(draft.amount)
-      : "סכום לא זוהה";
+      ? formatAmountDisplay(draft.amount, locale)
+      : t("documents.review.trust.amountMissing");
   const vendorDisplay = hasNonEmptyText(draft.vendorName)
     ? draft.vendorName
-    : "ספק לא זוהה";
-  const dateDisplay = formatDateShort(draft.date) || "תאריך לא זוהה";
-  const categoryDisplay = CATEGORY_MAP[draft.category] || draft.category || "כללי";
+    : t("documents.review.trust.vendorMissing");
+  const dateDisplay = formatDateShort(draft.date, locale) || t("documents.review.trust.dateMissing");
+  const categoryDisplay = categoryLabel(t, draft.category) || t("documents.review.trust.categoryFallback");
 
   const directionDisplay =
     draft.direction === "income"
-      ? "הכנסה"
+      ? t("documents.common.income")
       : draft.direction === "expense"
-        ? "הוצאה"
-        : "עסקה לא מסווגת";
+        ? t("documents.common.expense")
+        : t("documents.review.trust.directionUnclassified");
 
   const aiSummaryBody =
     reviewMode === "financial"
-      ? `${directionDisplay} בסך ${amountDisplay}, בתאריך ${dateDisplay}, בקטגוריית ${categoryDisplay}.`
-      : "המסמך יישמר בארכיון המסמכים, בלי ליצור רשומה פיננסית.";
+      ? t("documents.review.trust.aiSummaryFinancial", {
+          direction: directionDisplay,
+          amount: amountDisplay,
+          date: dateDisplay,
+          category: categoryDisplay,
+        })
+      : t("documents.review.trust.aiSummaryDocument");
 
   const trustReasons = [
     reviewMode === "financial" && !isValidPositiveAmount(draft.amount)
-      ? "לא זוהה סכום תקין. צריך להשלים סכום לפני שהמסמך נשמר כרשומה פיננסית."
+      ? t("documents.review.trust.reasonAmountInvalid")
       : reviewMode === "financial" && amountLevel !== "high"
-        ? "הסכום זוהה, אבל כדאי לוודא שזה הסכום הסופי במסמך."
+        ? t("documents.review.trust.reasonAmountVerify")
         : null,
     reviewMode === "financial" && !hasNonEmptyText(draft.vendorName)
-      ? "לא זוהה ספק או לקוח ברור. זה חשוב לזיהוי הרשומה בהמשך."
+      ? t("documents.review.trust.reasonVendorMissing")
       : vendorLevel === "low"
-        ? "שם הספק לא מזוהה בוודאות."
+        ? t("documents.review.trust.reasonVendorLow")
         : vendorLevel === "medium"
-          ? "שם הספק זוהה, אבל כדאי לוודא שהוא נכון."
+          ? t("documents.review.trust.reasonVendorMedium")
           : null,
     reviewMode === "financial" && (!draft.date || !formatDateShort(draft.date))
-      ? "לא זוהה תאריך ברור, ולכן אי אפשר לשייך את המסמך לתקופה הנכונה בביטחון."
+      ? t("documents.review.trust.reasonDateMissing")
       : dateLevel === "low"
-        ? "התאריך דורש בדיקה; ייתכן שמופיעים כמה תאריכים במסמך."
+        ? t("documents.review.trust.reasonDateLow")
         : dateLevel === "medium"
-          ? "התאריך נראה סביר, אבל כדאי לוודא שזה תאריך העסקה."
+          ? t("documents.review.trust.reasonDateMedium")
           : null,
     reviewMode === "financial" && directionLevel === "low"
-      ? "לא ברור אם זו הכנסה או הוצאה. הבחירה הזו קובעת איך הרשומה תישמר."
+      ? t("documents.review.trust.reasonDirectionLow")
       : null,
     categoryLevel === "low"
-      ? "הקטגוריה לא מספיק ברורה. תיקון שלה יעזור לרשומות ולחבילת רו״ח."
+      ? t("documents.review.trust.reasonCategoryLow")
       : categoryLevel === "medium"
-        ? "הקטגוריה היא הערכה טובה, אבל אפשר לדייק אותה לפני האישור."
+        ? t("documents.review.trust.reasonCategoryMedium")
         : null,
     pid === "unknown_review"
-      ? "לא זוהתה רשומה פיננסית בוודאות, לכן נדרשת בחירה לפני שמירה."
+      ? t("documents.review.trust.reasonUnknownProfile")
       : null,
     pid === "non_financial"
-      ? "המסמך נראה כמו מידע כללי ולא כמו קבלה או עסקה פיננסית."
+      ? t("documents.review.trust.reasonNonFinancial")
       : null,
     pid === "tax_or_pension_document"
-      ? "המסמך נראה כמו אישור או מסמך מידע פיננסי, לא בהכרח עסקה רגילה."
+      ? t("documents.review.trust.reasonTaxOrPension")
       : null,
     pid === "quote_or_order"
-      ? "המסמך נראה כמו הצעה או הזמנה. לא כל הצעה היא עסקה שבוצעה בפועל."
+      ? t("documents.review.trust.reasonQuoteOrOrder")
       : null,
   ].filter((reason): reason is string => Boolean(reason));
 
@@ -119,22 +132,22 @@ export function computeTrustContext(input: {
 
   const trustTitle =
     trustLevel === "high"
-      ? "אפשר לאשר במהירות"
+      ? t("documents.review.trust.titleHigh")
       : trustLevel === "medium"
-        ? "צריך בדיקה קצרה"
+        ? t("documents.review.trust.titleMedium")
         : trustLevel === "low"
-          ? "צריך לתקן לפני אישור"
-          : "נדרשת בחירה שלך";
+          ? t("documents.review.trust.titleLow")
+          : t("documents.review.trust.titleAmbiguous");
 
   const trustSummary =
     trustReasons.length === 0
-      ? "הסכום, הספק והתאריך נראים עקביים. אפשר לאשר בביטחון."
+      ? t("documents.review.trust.summaryAllGood")
       : trustReasons[0];
 
   const approvalImpact =
     reviewMode === "financial"
-      ? "אישור ישמור את המסמך כרשומה פיננסית מאושרת."
-      : "שמירה כמסמך מידע תשמור את המסמך בלי ליצור רשומה פיננסית.";
+      ? t("documents.review.trust.impactFinancial")
+      : t("documents.review.trust.impactDocument");
 
   return {
     trustLevel,

@@ -43,6 +43,6 @@ const valueStyle = {
   color: TOKEN.ink.primary,
   fontSize: TOKEN.font.body,
   fontWeight: TOKEN.weight.bold,
-  textAlign: "left",
+  textAlign: "end",
   overflowWrap: "anywhere",
 } as const;

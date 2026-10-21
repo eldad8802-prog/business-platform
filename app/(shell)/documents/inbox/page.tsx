@@ -7,9 +7,11 @@ import InboxSkeleton from "@/components/documents/inbox/InboxSkeleton";
 import DocumentsHeader from "@/components/documents/DocumentsHeader";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { pageMain } from "../ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function DocumentsInboxPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
 
@@ -26,8 +28,8 @@ export default function DocumentsInboxPage() {
 
   if (!mounted) {
     return (
-      <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
-        <DocumentsHeader title="תיבת מסמכים" />
+      <div style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
+        <DocumentsHeader title={t("documents.inbox.headerTitle")} />
         <main style={pageMain}>
           <InboxSkeleton />
         </main>

@@ -12,6 +12,9 @@ import PulseCard from "@/components/documents/home/PulseCard";
 import CaptureHero from "@/components/documents/home/CaptureHero";
 import StationsSection from "@/components/documents/home/StationsSection";
 import { formatMoney, monthLabel } from "@/components/documents/home/home-format";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { formatNumber } from "@/lib/i18n/format";
+import type { Translator } from "@/lib/i18n/translate";
 import {
   homeCss,
   pageShellStyle,
@@ -33,17 +36,15 @@ function errorMessage(error: unknown, fallback: string): string {
 // platform edge (before our handler runs), returning a non-JSON 413. Keep the
 // client cap safely below that, allowing headroom for multipart overhead.
 const MAX_CLIENT_UPLOAD_BYTES = 4 * 1024 * 1024; // 4MB
-const OVERSIZE_MESSAGE =
-  "הקובץ גדול מדי (עד 4MB). נסה קובץ קטן יותר או צלם באיכות נמוכה יותר.";
 
 function isJsonResponse(res: Response): boolean {
   return (res.headers.get("content-type") || "").includes("application/json");
 }
 
-async function uploadFailureMessage(res: Response): Promise<string> {
+async function uploadFailureMessage(res: Response, t: Translator): Promise<string> {
   // 413 (incl. Vercel's FUNCTION_PAYLOAD_TOO_LARGE, which is text/plain) means
   // the file exceeded the size limit. Do NOT read the body — it may not be JSON.
-  if (res.status === 413) return OVERSIZE_MESSAGE;
+  if (res.status === 413) return t("documents.hub.oversize");
 
   // Otherwise surface an app-provided JSON error if present; never the raw body.
   if (isJsonResponse(res)) {
@@ -54,11 +55,12 @@ async function uploadFailureMessage(res: Response): Promise<string> {
       // fall through to the generic message
     }
   }
-  return "אירעה שגיאה בהעלאת המסמך. נסה שוב.";
+  return t("documents.hub.uploadErrorRetry");
 }
 
 export default function DocumentsHome() {
   const router = useRouter();
+  const { t, locale, fmt } = useI18n();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export default function DocumentsHome() {
       const snapshot = await fetchDocumentsHubSummary(token);
       setState({ status: "ready", snapshot });
     } catch (e) {
-      const message = errorMessage(e, "שגיאה בטעינת המסמכים");
+      const message = errorMessage(e, t("documents.hub.loadError"));
       if (message === "Unauthorized") {
         window.localStorage.removeItem("token");
         window.localStorage.removeItem("user");
@@ -112,7 +114,7 @@ export default function DocumentsHome() {
     // Vercel reject the request body at the edge with a non-JSON 413 that the
     // client cannot parse.
     if (file.size > MAX_CLIENT_UPLOAD_BYTES) {
-      setUploadError(OVERSIZE_MESSAGE);
+      setUploadError(t("documents.hub.oversize"));
       return;
     }
 
@@ -147,10 +149,10 @@ export default function DocumentsHome() {
       // parsing it would throw a raw, user-hostile SyntaxError. Resolve the
       // failure to a friendly Hebrew message first.
       if (!res.ok) {
-        throw new Error(await uploadFailureMessage(res));
+        throw new Error(await uploadFailureMessage(res, t));
       }
       if (!isJsonResponse(res)) {
-        throw new Error("אירעה שגיאה בהעלאת המסמך. נסה שוב.");
+        throw new Error(t("documents.hub.uploadErrorRetry"));
       }
 
       const data = await res.json();
@@ -160,7 +162,7 @@ export default function DocumentsHome() {
 
       router.push(`/documents/review/${data.documentId}`);
     } catch (e) {
-      setUploadError(errorMessage(e, "אירעה שגיאה בהעלאת המסמך"));
+      setUploadError(errorMessage(e, t("documents.hub.uploadError")));
     } finally {
       setUploading(false);
       if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -173,7 +175,7 @@ export default function DocumentsHome() {
   const approved = snapshot?.financialPulse.inboxDocumentCounts.approvedDocuments ?? 0;
   const pulse = snapshot?.financialPulse.fromFinancialRecords;
   const pulseMonth = snapshot?.financialPulse.period.month;
-  const monthText = monthLabel(pulseMonth ?? "");
+  const monthText = monthLabel(pulseMonth ?? "", locale, t);
 
   // Open the file picker directly within the user gesture. A deferred
   // (setTimeout) click is blocked by iOS Safari — these CTAs open it
@@ -190,7 +192,7 @@ export default function DocumentsHome() {
   }
 
   return (
-    <div dir="rtl" className="dz-docs-home" style={pageShellStyle}>
+    <div className="dz-docs-home" style={pageShellStyle}>
       <style>{homeCss()}</style>
       <main className="dz-docs-home__content" style={contentStyle}>
         <input
@@ -213,7 +215,7 @@ export default function DocumentsHome() {
 
         {state.status === "error" ? (
           <section className="dz-alert">
-            <div className="dz-alert__title">לא הצלחנו לטעון את מרכז המסמכים.</div>
+            <div className="dz-alert__title">{t("documents.hub.loadHubError")}</div>
             <p className="dz-alert__text">{state.message}</p>
             <button
               type="button"
@@ -225,7 +227,7 @@ export default function DocumentsHome() {
                 marginTop: 14,
               }}
             >
-              נסה שוב
+              {t("documents.common.retry")}
             </button>
           </section>
         ) : null}
@@ -240,7 +242,7 @@ export default function DocumentsHome() {
 
             <header className="dz-docs-deskhead">
               <div>
-                <h1>מסמכים</h1>
+                <h1>{t("documents.hub.title")}</h1>
                 <p>{monthText}</p>
               </div>
               <div className="dz-docs-deskactions">
@@ -249,7 +251,7 @@ export default function DocumentsHome() {
                   className="dz-docs-search"
                   onClick={() => router.push("/documents/search")}
                 >
-                  חיפוש מסמכים
+                  {t("documents.hub.searchDocuments")}
                 </button>
                 <button
                   type="button"
@@ -257,27 +259,27 @@ export default function DocumentsHome() {
                   onClick={pickUpload}
                   disabled={uploading}
                 >
-                  {uploading ? "מעלה…" : "העלאת מסמך"}
+                  {uploading ? t("documents.hub.uploading") : t("documents.hub.uploadDocument")}
                 </button>
               </div>
             </header>
 
-            <section className="dz-docs-kpis" aria-label="סיכום מסמכים">
+            <section className="dz-docs-kpis" aria-label={t("documents.hub.kpisAria")}>
               <div className="dz-kpi">
-                <span>מסמכים החודש</span>
-                <strong>{(pending + approved).toLocaleString("he-IL")}</strong>
+                <span>{t("documents.hub.kpiMonthDocs")}</span>
+                <strong>{formatNumber(pending + approved, fmt)}</strong>
               </div>
               <div className="dz-kpi">
-                <span>ממתינים לאישור</span>
-                <strong>{pending.toLocaleString("he-IL")}</strong>
+                <span>{t("documents.hub.kpiPending")}</span>
+                <strong>{formatNumber(pending, fmt)}</strong>
               </div>
               <div className="dz-kpi">
-                <span>אושרו</span>
-                <strong>{approved.toLocaleString("he-IL")}</strong>
+                <span>{t("documents.hub.kpiApproved")}</span>
+                <strong>{formatNumber(approved, fmt)}</strong>
               </div>
               <div className="dz-kpi">
-                <span>נטו החודש</span>
-                <strong>{formatMoney(pulse?.net ?? 0)}</strong>
+                <span>{t("documents.hub.kpiNet")}</span>
+                <strong>{formatMoney(pulse?.net ?? 0, locale)}</strong>
               </div>
             </section>
 

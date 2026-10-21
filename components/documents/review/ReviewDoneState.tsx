@@ -3,6 +3,7 @@
 import ReviewOutcomeRow from "./ReviewOutcomeRow";
 import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export type ReviewDoneStateProps = {
   approvedAs: "financial" | "document" | null;
@@ -23,6 +24,7 @@ export default function ReviewDoneState({
   onHub,
   onSearch,
 }: ReviewDoneStateProps) {
+  const { t } = useI18n();
   return (
     <section
       style={{
@@ -60,7 +62,7 @@ export default function ReviewDoneState({
           fontWeight: TOKEN.weight.bold,
         }}
       >
-        המסמך אושר בהצלחה
+        {t("documents.review.done.title")}
       </h2>
       <p
         style={{
@@ -72,8 +74,8 @@ export default function ReviewDoneState({
         }}
       >
         {approvedAs === "financial"
-          ? `${directionDisplay} בסך ${amountDisplay} נשמרה כרשומה פיננסית מאושרת.`
-          : "המסמך נשמר כמידע עסקי ולא יצר רשומה פיננסית."}
+          ? t("documents.review.done.bodyFinancial", { direction: directionDisplay, amount: amountDisplay })
+          : t("documents.review.done.bodyDocument")}
       </p>
 
       <div
@@ -81,26 +83,26 @@ export default function ReviewDoneState({
           border: `1px solid ${TOKEN.border.DEFAULT}`,
           background: TOKEN.surface.inset,
           borderRadius: TOKEN.radius.card,
-          textAlign: "right",
+          textAlign: "start",
           overflow: "hidden",
         }}
       >
         <ReviewOutcomeRow
           icon="✓"
-          title="נשמר ב-Documents"
+          title={t("documents.review.done.savedTitle")}
           body={
             approvedAs === "financial"
-              ? "הרשומה זמינה ברשומות המאושרות"
-              : "המסמך נשמר לתיעוד פנימי"
+              ? t("documents.review.done.savedFinancial")
+              : t("documents.review.done.savedDocument")
           }
         />
         <ReviewOutcomeRow
           icon="✓"
-          title="זמין להמשך עבודה"
+          title={t("documents.review.done.availableTitle")}
           body={
             approvedAs === "financial"
-              ? "אפשר למצוא אותו בחיפוש ולהכליל בחומר לרו״ח"
-              : "אפשר לחזור אליו מתוך מסמכי העסק"
+              ? t("documents.review.done.availableFinancial")
+              : t("documents.review.done.availableDocument")
           }
         />
       </div>
@@ -115,17 +117,17 @@ export default function ReviewDoneState({
         }}
       >
         <div style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold, marginBottom: 12 }}>
-          מה תרצה לעשות עכשיו?
+          {t("documents.review.done.whatNext")}
         </div>
         <button type="button" style={primaryDarkButton(false)} onClick={onNext}>
-          {nextPendingDocumentId ? "אמת את המסמך הבא" : "חזור לתור האימות"}
+          {nextPendingDocumentId ? t("documents.review.done.verifyNext") : t("documents.review.done.backToQueue")}
         </button>
         <button
           type="button"
           style={{ ...secondaryButton(false), marginTop: 10 }}
           onClick={onHub}
         >
-          חזור למסמכים
+          {t("documents.review.done.backToDocuments")}
         </button>
       </div>
 
@@ -143,7 +145,7 @@ export default function ReviewDoneState({
           }}
           onClick={onSearch}
         >
-          עבור לחיפוש
+          {t("documents.review.done.goToSearch")}
         </button>
       ) : null}
     </section>

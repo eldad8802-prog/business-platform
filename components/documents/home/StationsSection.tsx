@@ -7,6 +7,8 @@ import {
   AccountantPackIcon,
   ChevronIcon,
 } from "./home-icons";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { formatNumber } from "@/lib/i18n/format";
 
 type StationsSectionProps = {
   pendingCount: number;
@@ -31,6 +33,7 @@ function StationRow({
   onClick: () => void;
 }) {
   const showBadge = typeof count === "number" && count > 0;
+  const { fmt } = useI18n();
   return (
     <button
       type="button"
@@ -43,7 +46,7 @@ function StationRow({
         <small>{subtitle}</small>
       </span>
       {showBadge ? (
-        <span className="dz-badge">{count.toLocaleString("he-IL")}</span>
+        <span className="dz-badge">{formatNumber(count, fmt)}</span>
       ) : (
         <span className="dz-chev">
           <ChevronIcon />
@@ -60,28 +63,29 @@ export default function StationsSection({
   onSearch,
   onPack,
 }: StationsSectionProps) {
+  const { t } = useI18n();
   return (
     <>
-      <div className="dz-sec-title">תחנות</div>
+      <div className="dz-sec-title">{t("documents.home.stations")}</div>
       <div className="dz-stations">
         <StationRow
           icon={<ReviewQueueIcon />}
-          title="תור אימות"
-          subtitle="ממתינים לאישור שלך"
+          title={t("documents.home.stationQueue")}
+          subtitle={t("documents.home.stationQueueSub")}
           count={pendingCount}
           attn
           onClick={onQueue}
         />
         <StationRow
           icon={<SearchIcon />}
-          title="חיפוש מסמכים"
-          subtitle="לפי ספק, סכום או תאריך"
+          title={t("documents.home.stationSearch")}
+          subtitle={t("documents.home.stationSearchSub")}
           onClick={onSearch}
         />
         <StationRow
           icon={<AccountantPackIcon />}
-          title="חבילת רו״ח"
-          subtitle="ייצוא תקופה מסודר"
+          title={t("documents.home.stationPack")}
+          subtitle={t("documents.home.stationPackSub")}
           onClick={onPack}
         />
       </div>

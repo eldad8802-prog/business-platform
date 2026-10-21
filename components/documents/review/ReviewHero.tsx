@@ -1,7 +1,11 @@
+"use client";
+
 import type { ReviewState } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function ReviewHero({ state }: { state: ReviewState }) {
+  const { t } = useI18n();
   return (
     <section style={{ textAlign: "center", padding: "22px 0 8px" }}>
       <h1
@@ -14,7 +18,7 @@ export default function ReviewHero({ state }: { state: ReviewState }) {
           letterSpacing: 0,
         }}
       >
-        {state === "done" ? "המסמך אומת" : "אימות מסמך"}
+        {state === "done" ? t("documents.review.hero.titleDone") : t("documents.review.hero.title")}
       </h1>
       <p
         style={{
@@ -27,8 +31,8 @@ export default function ReviewHero({ state }: { state: ReviewState }) {
         }}
       >
         {state === "done"
-          ? "המסמך נשמר באמת הפיננסית של העסק."
-          : "בדוק את הפרטים, תקן אם צריך, ואשר את המסמך."}
+          ? t("documents.review.hero.bodyDone")
+          : t("documents.review.hero.body")}
       </p>
     </section>
   );
