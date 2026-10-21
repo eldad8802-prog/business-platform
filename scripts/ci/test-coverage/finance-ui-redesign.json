@@ -4,6 +4,11 @@
     "components/finance-ui/finance-ui.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure (no DB/network): the shared Secretary/Payables presentation layer — money is formatted, never altered or rounded; Israel calendar-day distances around midnight and DST; every existing server state has a label and tone and handled (טופל) never looks paid (שולם); English server errors never reach the owner; run by finance-ui-ci.yml"
+    },
+    "app/(shell)/secretary/secretary-home-model.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure: the Secretary home headline and groups come only from the server briefing counts, rows lead with the ledger remaining amount, no client-side money sum (the audited Prod case 3 overdue + 1 quiet); run by finance-ui-ci.yml",
+      "notSecurityBecause": "a pure view-model over an already-fetched briefing: no auth, tenant, token, payment write or network path is exercised; it only proves presentation wording and which server fields are shown"
     }
   }
 }
