@@ -103,7 +103,7 @@ export type CollectionInbox = {
   /** How the business signs a message to its customer. */
   businessName: string;
   summary: {
-    toCollect: { amount: string; count: number; currency: string | null };
+    toCollect: { amount: string; count: number; currency: string | null; isMixedCurrency: boolean };
     waiting: { amount: string; count: number };
     attention: { count: number };
     paidRecent: { amount: string; count: number };
@@ -386,7 +386,9 @@ export async function loadCollectionInbox(
       toCollect: {
         amount: debts.totalOutstanding.toFixed(2),
         count: debts.customerCount,
-        currency: debts.customers[0]?.currency ?? null,
+        // The headline is single-currency by construction (never ILS + USD added together).
+        currency: debts.customers.length > 0 ? debts.currency : null,
+        isMixedCurrency: debts.isMixedCurrency,
       },
       waiting: { amount: sum(waiting), count: waiting.length },
       attention: { count: attention.length },

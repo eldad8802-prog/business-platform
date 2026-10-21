@@ -124,6 +124,8 @@ function payableExposure(input: CrossDomainContext, payeeIds: ReadonlySet<number
     const allocated = i.allocations.reduce((sum, a) => sum + Number(a.allocatedAmount), 0);
     const remaining = Number(i.scheduledAmount) - allocated;
     if (remaining <= 0.009) continue;
+    // Amounts in different currencies are never added: only the first currency seen is summed.
+    if (s.currency !== null && i.currency !== s.currency) continue;
     s.open += 1;
     s.unpaid += remaining;
     s.currency = s.currency ?? i.currency;

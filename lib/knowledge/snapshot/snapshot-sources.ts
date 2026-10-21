@@ -346,6 +346,8 @@ export async function loadDepth(tx: Prisma.TransactionClient, businessId: number
     if (remaining.lessThanOrEqualTo(0)) continue;
     const due = computeExpectedPaymentDate(d.issuedAt, resolveCustomerPaymentTermsDays(d.customer?.paymentTermsDays ?? null, profile?.billingPaymentTermsDays ?? null));
     if (!due || due.getTime() < asOf.getTime() || due.getTime() > horizon) continue;
+    // Amounts in different currencies are never added: only the first currency seen is summed.
+    if (currency !== null && d.currency !== currency) continue;
     dueCount += 1;
     dueSum += Number(remaining.toString());
     currency = currency ?? d.currency;

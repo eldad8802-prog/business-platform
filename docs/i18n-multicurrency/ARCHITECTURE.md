@@ -110,7 +110,9 @@ See `proposed-migration.sql`. Summary:
 | **C-1** Money engine | `lib/money` + tests | **Done** |
 | **C-2** Persistence | proposed migration (settings, user pref, FxRate) | **Awaiting approval (schema)** |
 | **C-3** BoI rate fetcher | cron + verification | **Awaiting approval (external source / cron)** |
-| **D** Financial integration | R5/R6/R7 aggregation fixes (behaviour-identical for ILS-only data); R1/R3/R4 + foreign tax docs | Aggregation fixes: can proceed; **tax paths blocked pending accountant/owner rules** |
+| **D-1** Safe aggregation | R5 fixed: awaiting-payment groups by (customer, currency) + per-currency totals; collection inbox headline single-currency; customer thread per-currency; knowledge snapshots never add a second currency. ILS-only output unchanged (tests). | **Done** |
+| **D-2** Remaining aggregation | R6 (home/reports `_sum`, `FinancialRecord` has no currency), R7 (receipt lines vs header), payment-request `waiting`/`paidRecent` sums | Planned (R6 needs the FinancialRecord.currency decision) |
+| **D-3** Tax paths | R1/R3/R4 + foreign-currency tax docs | **Blocked pending accountant/owner rules** |
 | **E** UX + regression | settings live currency choice, display-currency totals, E2E matrix | After C-2 |
 
 ### Approval stops (nothing below has been done)

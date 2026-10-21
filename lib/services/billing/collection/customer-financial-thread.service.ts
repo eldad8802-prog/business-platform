@@ -27,7 +27,13 @@ export type CustomerFinancialThread = {
   /** How the business signs a message to its customer. */
   businessName: string;
   customer: { id: number; name: string; phone: string | null; email: string | null };
-  totals: { outstanding: string; currency: string | null; openInvoices: number };
+  totals: {
+    outstanding: string;
+    currency: string | null;
+    openInvoices: number;
+    isMixedCurrency: boolean;
+    outstandingByCurrency: { currency: string; outstanding: string }[];
+  };
   openInvoices: { id: number; number: string | null; outstanding: string; currency: string }[];
   events: ThreadEvent[];
 };
@@ -110,12 +116,13 @@ export async function loadCustomerFinancialThread(
 
     const events: ThreadEvent[] = [];
     const open: CustomerFinancialThread["openInvoices"] = [];
-    let outstanding = new Prisma.Decimal(0);
+    // Per currency: an ILS balance and a USD balance are never added into one number.
+    const outstandingBy = new Map<string, Prisma.Decimal>();
     for (const inv of invoices) {
       const alloc = inv.paymentAllocationsAsInvoice.reduce((a, x) => a.plus(x.allocatedAmount), new Prisma.Decimal(0));
       const credited = inv.creditNotes.reduce((a, x) => a.plus(x.totalAmount), new Prisma.Decimal(0));
       const remaining = computeEconomicRemaining(inv.totalAmount, alloc, credited);
-      outstanding = outstanding.plus(remaining);
+      outstandingBy.set(inv.currency, (outstandingBy.get(inv.currency) ?? new Prisma.Decimal(0)).plus(remaining));
       if (remaining.greaterThan(0)) {
         open.push({ id: inv.id, number: inv.documentNumberFormatted, outstanding: dec(remaining), currency: inv.currency });
       }
@@ -180,6 +187,9 @@ export async function loadCustomerFinancialThread(
       });
     }
 
+    const headline: string | null =
+      outstandingBy.size === 0 ? null : outstandingBy.has("ILS") ? "ILS" : [...outstandingBy.keys()].sort()[0];
+
     events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     const business = await tx.business.findUnique({
       where: { id: businessId },
@@ -188,7 +198,16 @@ export async function loadCustomerFinancialThread(
     return {
       businessName: (business?.profile?.billingLegalName ?? "").trim() || business?.name || "",
       customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email },
-      totals: { outstanding: dec(outstanding), currency: invoices[0]?.currency ?? null, openInvoices: open.length },
+      totals: {
+        // Headline: ILS when present (every business today), else the first currency by code.
+        outstanding: dec(outstandingBy.get(headline ?? "") ?? new Prisma.Decimal(0)),
+        currency: headline,
+        openInvoices: open.length,
+        isMixedCurrency: outstandingBy.size > 1,
+        outstandingByCurrency: [...outstandingBy.entries()]
+          .sort(([a], [b]) => (a === headline ? -1 : b === headline ? 1 : a.localeCompare(b)))
+          .map(([currency, amount]) => ({ currency, outstanding: dec(amount) })),
+      },
       openInvoices: open,
       events,
     };
