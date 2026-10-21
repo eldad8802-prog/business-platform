@@ -8,7 +8,6 @@ import { requestPasswordReset, type IssuedLink } from "@/lib/auth/email-tokens";
 import { EMAIL_SHAPE, normalizeEmail } from "@/lib/auth/signup-identity";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import type { Locale } from "@/lib/i18n/config";
-import { getServerI18n } from "@/lib/i18n/server";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
 import { runTenantJob } from "@/lib/tenant/job";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";

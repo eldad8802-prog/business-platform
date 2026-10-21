@@ -7,7 +7,6 @@ import { getServerI18n } from "@/lib/i18n/server";
 import { requestEmailVerification, type VerificationRequest } from "@/lib/auth/email-tokens";
 import { scheduleDelivery } from "@/lib/email/transactional/schedule";
 import type { Locale } from "@/lib/i18n/config";
-import { getServerI18n } from "@/lib/i18n/server";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";

@@ -21,7 +21,6 @@ import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-all
 import { authMessage } from "@/lib/auth/auth-messages";
 import { getServerI18n } from "@/lib/i18n/server";
 import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
-import { getServerI18n } from "@/lib/i18n/server";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
