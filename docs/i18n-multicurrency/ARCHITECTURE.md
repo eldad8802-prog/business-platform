@@ -105,8 +105,8 @@ See `proposed-migration.sql`. Summary:
 | **A** Audit & architecture | this document | **Done** |
 | **B-1** i18n foundation | config, dictionaries (he source / en), translator, server+client access, formatter, root layout lang/dir, cookie endpoint, flag | **Done** (`lib/i18n`, `components/i18n`) |
 | **B-2** Shell + settings | nav (rail / sidebar / bottom bar) translated + direction-agnostic; settings area direction-agnostic; "שפה, אזור ומטבע" screen | **Done** |
-| **B-3** Screen-by-screen translation | remaining `app/`, `components/`, `features/` strings + RTL physical CSS + directional icons | In progress (wave plan §4) |
-| **B-4** Server strings | API error codes, task/notification/collection text, emails by stored locale | Planned |
+| **B-3** Screen-by-screen translation | 9 areas: home/shared UI, inbox/WhatsApp, documents, billing UI, collection/payments/payables, customers/leads/suppliers/inventory, tasks/secretary, settings/auth/onboarding, content/business/offers — ~7,000 keys; tab titles localized | **Done** (regression: 307/342 non-DB tests pass; the 34 failures also fail on main) |
+| **B-4** Server strings | Still Hebrew in English mode: API error messages (~20 routes), server-built view-model text (lib/business-status, lib/inbox-view, task agenda-core, home-history), customer-facing WhatsApp/collection messages, emails | Planned |
 | **C-1** Money engine | `lib/money` + tests | **Done** |
 | **C-2** Persistence | proposed migration (settings, user pref, FxRate) | **Awaiting approval (schema)** |
 | **C-3** BoI rate fetcher | cron + verification | **Awaiting approval (external source / cron)** |
