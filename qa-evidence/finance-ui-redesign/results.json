@@ -1,0 +1,1283 @@
+{
+  "base": "http://localhost:3105",
+  "frozenNow": "2026-10-21T09:00:00+03:00",
+  "startedAt": "2026-10-21T21:36:26.206Z",
+  "only": null,
+  "runs": [
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": [],
+        "content": {
+          "has3Overdue": true,
+          "noOneThing": true,
+          "golanRemaining15": true,
+          "golanRows": [
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־10.09.2026 · לפני 41 ימים שולמו ‏20 ‏₪ מתוך ‏35 ‏₪ ‏15 ‏₪ נותר שילמתי",
+              "ok": true
+            },
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־15.09.2026 · לפני 36 ימים ‏30 ‏₪ נותר שילמתי",
+              "ok": false
+            }
+          ],
+          "no3615": true
+        },
+        "paidDialog": {
+          "ok": true,
+          "dialogName": "פרטי התשלום",
+          "titled": true,
+          "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-mobile-paid-dialog.png",
+          "closedOnEscape": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "content": {
+          "has3Overdue": true,
+          "noOneThing": true,
+          "golanRemaining15": true,
+          "golanRows": [
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־10.09.2026 · לפני 41 ימים שולמו ‏20 ‏₪ מתוך ‏35 ‏₪ ‏15 ‏₪ נותר שילמתי",
+              "ok": true
+            },
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־15.09.2026 · לפני 36 ימים ‏30 ‏₪ נותר שילמתי",
+              "ok": false
+            }
+          ],
+          "no3615": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "content": {
+          "has3Overdue": true,
+          "noOneThing": true,
+          "golanRemaining15": true,
+          "golanRows": [
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־10.09.2026 · לפני 41 ימים שולמו ‏20 ‏₪ מתוך ‏35 ‏₪ ‏15 ‏₪ נותר שילמתי",
+              "ok": true
+            },
+            {
+              "text": "ג גולן טלקום באיחור כל חודש · היה לתשלום ב־15.09.2026 · לפני 36 ימים ‏30 ‏₪ נותר שילמתי",
+              "ok": false
+            }
+          ],
+          "no3615": true
+        },
+        "menu": {
+          "ok": true,
+          "triggerName": "פעולות נוספות לגולן טלקום",
+          "box": {
+            "x": 421,
+            "y": 351.78125,
+            "width": 220,
+            "height": 269
+          },
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "insideViewport": true,
+          "centerHit": true,
+          "items": [
+            "פרטים",
+            "פתיחה בהתחייבויות",
+            "סימון שטופל בלי תשלום…",
+            "להזכיר אחר כך",
+            "עריכה",
+            "כבר לא רלוונטי…"
+          ],
+          "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-desktop-menu-open.png"
+        },
+        "keyboard": {
+          "ok": true,
+          "totalTabsBeforeMain": 0,
+          "mainTabOrder": [
+            {
+              "tag": "a",
+              "name": "כל ההתחייבויות",
+              "href": "/payables",
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "מסירה למזכירה",
+              "href": "/secretary?screen=capture",
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "גולן טלקום",
+              "href": "/secretary?screen=detail&id=11",
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "שילמתי",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "פעולות נוספות לגולן טלקום",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "דירה",
+              "href": "/secretary?screen=detail&id=12",
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "שילמתי",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "פעולות נוספות לדירה",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "גולן טלקום",
+              "href": "/secretary?screen=detail&id=13",
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "שילמתי",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "פעולות נוספות לגולן טלקום",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "ביטוח לאומי",
+              "href": "/secretary?screen=detail&id=14",
+              "inMain": true
+            },
+            {
+              "tag": "button",
+              "name": "פעולות נוספות לביטוח לאומי",
+              "href": null,
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "מסירת תשלום נוסף",
+              "href": "/secretary?screen=capture",
+              "inMain": true
+            },
+            {
+              "tag": "a",
+              "name": "רשימת ההוצאות הקבועות",
+              "href": "/secretary?screen=bank",
+              "inMain": true
+            }
+          ],
+          "firstRowLinkIndex": 2,
+          "paidButtonIndex": 3
+        },
+        "paidDialog": {
+          "ok": true,
+          "dialogName": "פרטי התשלום",
+          "titled": true,
+          "screenshot": "qa-evidence/finance-ui-redesign/secretary-prod-desktop-paid-dialog.png",
+          "closedOnEscape": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "empty",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-empty-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "empty",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-empty-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "empty",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-empty-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "calm",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-calm-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "calm",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-calm-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary",
+      "path": "/secretary",
+      "scenario": "calm",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-calm-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-today",
+      "path": "/secretary?today=1",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-today-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?today=1",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-today",
+      "path": "/secretary?today=1",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-today-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?today=1",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-today",
+      "path": "/secretary?today=1",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-today-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?today=1",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-detail-11",
+      "path": "/secretary?screen=detail&id=11",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-detail-11-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=detail&id=11",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-detail-11",
+      "path": "/secretary?screen=detail&id=11",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-detail-11-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=detail&id=11",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-detail-11",
+      "path": "/secretary?screen=detail&id=11",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-detail-11-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=detail&id=11",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-capture",
+      "path": "/secretary?screen=capture",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-capture-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=capture",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-capture",
+      "path": "/secretary?screen=capture",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-capture-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=capture",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-capture",
+      "path": "/secretary?screen=capture",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-capture-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=capture",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-remind-13",
+      "path": "/secretary?screen=remind&id=13",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-remind-13-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=remind&id=13",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-remind-13",
+      "path": "/secretary?screen=remind&id=13",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-remind-13-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=remind&id=13",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-remind-13",
+      "path": "/secretary?screen=remind&id=13",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-remind-13-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/secretary?screen=remind&id=13",
+      "mainCount": 1,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-all",
+      "path": "/secretary?screen=all",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-all-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": [],
+        "redirectToPayables": {
+          "finalUrl": "/payables",
+          "ok": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-all",
+      "path": "/secretary?screen=all",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-all-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "redirectToPayables": {
+          "finalUrl": "/payables",
+          "ok": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "secretary-all",
+      "path": "/secretary?screen=all",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/secretary-all-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "redirectToPayables": {
+          "finalUrl": "/payables",
+          "ok": true
+        }
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables",
+      "path": "/payables",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables",
+      "path": "/payables",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables",
+      "path": "/payables",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-7",
+      "path": "/payables/7",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-7-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/7",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-7",
+      "path": "/payables/7",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-7-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/7",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-7",
+      "path": "/payables/7",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-7-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/7",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-5",
+      "path": "/payables/5",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-5-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/5",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-5",
+      "path": "/payables/5",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-5-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/5",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-5",
+      "path": "/payables/5",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-5-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables/5",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-new",
+      "path": "/payables?new=1",
+      "scenario": "prod",
+      "viewport": "mobile",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-new-prod-mobile.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": [],
+        "smallTapTargets": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-new",
+      "path": "/payables?new=1",
+      "scenario": "prod",
+      "viewport": "tablet",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-new-prod-tablet.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    },
+    {
+      "page": "payables-new",
+      "path": "/payables?new=1",
+      "scenario": "prod",
+      "viewport": "desktop",
+      "screenshot": "qa-evidence/finance-ui-redesign/payables-new-prod-desktop.png",
+      "status": 200,
+      "error": null,
+      "finalUrl": "/payables",
+      "mainCount": 0,
+      "overlay": {
+        "dialogOpen": false,
+        "issues": 0,
+        "text": null
+      },
+      "checks": {
+        "noHorizontalScroll": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "ok": true
+        },
+        "englishWords": [],
+        "unnamedControls": []
+      },
+      "consoleErrors": [],
+      "pageErrors": []
+    }
+  ],
+  "checks": {},
+  "unmockedApi": [],
+  "nonGetRequests": [],
+  "finishedAt": "2026-10-21T21:38:16.884Z",
+  "durationSec": 110,
+  "summary": [
+    {
+      "id": 0,
+      "check": "Pages rendered without compile/runtime error",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 1,
+      "check": "No horizontal scroll",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 2,
+      "check": "No visible English words in main",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 3,
+      "check": "No console/page errors",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 4,
+      "check": "/secretary prod content",
+      "result": "PASS",
+      "detail": [
+        "mobile: has3Overdue=true noOneThing=true golan15=true no3615=true",
+        "tablet: has3Overdue=true noOneThing=true golan15=true no3615=true",
+        "desktop: has3Overdue=true noOneThing=true golan15=true no3615=true"
+      ]
+    },
+    {
+      "id": 5,
+      "check": "Buttons/links in main have accessible names",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 6,
+      "check": "Mobile tap targets >= 32x32",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 7,
+      "check": "/secretary?screen=all -> /payables",
+      "result": "PASS",
+      "detail": [
+        "mobile: /payables",
+        "tablet: /payables",
+        "desktop: /payables"
+      ]
+    },
+    {
+      "id": 8,
+      "check": "Row menu inside viewport, not clipped",
+      "result": "PASS",
+      "detail": [
+        "{\"box\":{\"x\":421,\"y\":351.78125,\"width\":220,\"height\":269},\"insideViewport\":true,\"centerHit\":true}"
+      ]
+    },
+    {
+      "id": 9,
+      "check": "\"שילמתי\" opens \"פרטי התשלום\" dialog, Escape closes",
+      "result": "PASS",
+      "detail": [
+        "mobile: titled=true name=\"פרטי התשלום\" closed=true",
+        "desktop: titled=true name=\"פרטי התשלום\" closed=true"
+      ]
+    },
+    {
+      "id": "9b",
+      "check": "Zero non-GET requests during run (Next dev-overlay /__nextjs* calls listed but not counted)",
+      "result": "PASS",
+      "detail": []
+    },
+    {
+      "id": 10,
+      "check": "Keyboard: row link then its שילמתי",
+      "result": "PASS",
+      "detail": [
+        "tabsBeforeMain=0 rowIdx=2 paidIdx=3"
+      ]
+    }
+  ]
+}
