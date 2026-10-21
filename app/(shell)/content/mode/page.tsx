@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function ContentModePageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useI18n();
 
   const goal = params.get("goal") || "";
   const goalDescription = params.get("goalDescription") || "";
@@ -41,19 +43,19 @@ function ContentModePageInner() {
 
   return (
     <div style={baseStyles.page}>
-      <Header title="איך ליצור" />
+      <Header title={t("content.studioFlow.mode.headerTitle")} />
       <ProgressBar progress={50} />
 
       <div style={baseStyles.container}>
-        <h1 style={{ marginBottom: 8 }}>איך תרצה ליצור את הסרטון?</h1>
+        <h1 style={{ marginBottom: 8 }}>{t("content.studioFlow.mode.title")}</h1>
 
         <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
-          בחר את הדרך שהכי נוחה לך לעבוד
+          {t("content.studioFlow.mode.subtitle")}
         </p>
 
-        {card("camera", "אני מצטלם", "אני אצטלם בעצמי לפי הנחיות")}
-        {card("voice", "קריינות", "המערכת תיצור סרטון עם קריינות")}
-        {card("ai", "תיצור לי", "המערכת תיצור הכל בשבילי")}
+        {card("camera", t("content.studioFlow.mode.options.camera.title"), t("content.studioFlow.mode.options.camera.description"))}
+        {card("voice", t("content.studioFlow.mode.options.voice.title"), t("content.studioFlow.mode.options.voice.description"))}
+        {card("ai", t("content.studioFlow.mode.options.ai.title"), t("content.studioFlow.mode.options.ai.description"))}
       </div>
 
       <div style={baseStyles.footer}>
@@ -65,7 +67,7 @@ function ContentModePageInner() {
           onClick={next}
           disabled={!mode}
         >
-          המשך
+          {t("content.studioFlow.common.continue")}
         </button>
       </div>
     </div>

@@ -10,7 +10,9 @@ import { useState, type ReactNode } from "react";
 import type { BusinessIdentityContext } from "@/lib/services/identity/business-identity-context";
 import { DIMENSION_RULES } from "@/lib/services/identity/identity-vocabulary";
 
-import { CODE_LABELS, FACT_LABELS, PUBLIC_STATUS_LABELS } from "../identity-labels";
+import { useI18n } from "@/components/i18n/I18nProvider";
+
+import { useIdentityLabels } from "../identity-labels";
 import type { IdentityActions } from "./identity-api";
 import s from "./identity-screen.module.css";
 
@@ -46,6 +48,7 @@ export function CodeChips({
   const rule = DIMENSION_RULES[dimension as keyof typeof DIMENSION_RULES];
   const active = ctx.identity.statements.filter((st) => st.dimension === dimension);
   const full = !!rule && !rule.single && active.length >= rule.maxActive;
+  const { CODE_LABELS } = useIdentityLabels();
   return (
     <div className={s.chips} role="group">
       {codes.map((code) => {
@@ -72,19 +75,21 @@ export function PublicSwitch({
   approved,
   disabled,
   onChange,
-  label = "להציג בדף הנחיתה",
+  label,
 }: {
   approved: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
   label?: string;
 }) {
+  const { t } = useI18n();
+  const { PUBLIC_STATUS_LABELS } = useIdentityLabels();
   return (
     <label className={s.publicSwitch}>
       <input type="checkbox" checked={approved} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className={s.switchTrack} aria-hidden="true" />
       <span className={s.switchText}>
-        {label}
+        {label ?? t("content.identity.controls.showOnLanding")}
         <small className={approved ? s.statusReady : s.statusInternal}>{approved ? PUBLIC_STATUS_LABELS.READY : PUBLIC_STATUS_LABELS.INTERNAL}</small>
       </span>
     </label>
@@ -105,6 +110,7 @@ export function TextStatements({
   actions: IdentityActions;
   busy: boolean;
 }) {
+  const { t } = useI18n();
   const rule = DIMENSION_RULES[dimension as keyof typeof DIMENSION_RULES];
   const items = ctx.identity.statements.filter((st) => st.dimension === dimension && st.text);
   const single = !!rule?.single;
@@ -155,7 +161,7 @@ export function TextStatements({
             />
           )}
           <button type="button" className={s.secondaryButton} disabled={busy || !draft.trim() || (single && draft.trim() === (items[0]?.text ?? ""))} onClick={() => void save()}>
-            {single ? "שמירה" : "הוספה"}
+            {single ? t("content.identity.controls.save") : t("content.identity.controls.add")}
           </button>
         </div>
       )}
@@ -165,22 +171,24 @@ export function TextStatements({
 }
 
 function StatementPublic({ st, claimLike, actions, busy }: { st: Statement; claimLike: boolean; actions: IdentityActions; busy: boolean }) {
+  const { t } = useI18n();
   if (!st.publicUseEligible) return null;
   return (
     <div className={s.statementMeta}>
       <PublicSwitch approved={st.publicUseApproved} disabled={busy} onChange={(next) => actions.setStatementPublic(st.id, next)} />
-      {claimLike ? <p className={s.warnLine}>נשמע כמו טענת אמון (ותק, רישיון, אחריות). כדאי להוסיף אותו כטענת אמון עם הוכחה.</p> : null}
+      {claimLike ? <p className={s.warnLine}>{t("content.identity.controls.claimLikeWarning")}</p> : null}
     </div>
   );
 }
 
 function StatementRow({ st, claimLike, actions, busy }: { st: Statement; claimLike: boolean; actions: IdentityActions; busy: boolean }) {
+  const { t } = useI18n();
   return (
     <li className={s.textItem}>
       <div className={s.textItemHead}>
         <span className={s.textValue}>{st.text}</span>
-        <button type="button" className={s.linkButton} disabled={busy} onClick={() => actions.retireStatement(st.id)} aria-label={`הסרה: ${st.text}`}>
-          הסרה
+        <button type="button" className={s.linkButton} disabled={busy} onClick={() => actions.retireStatement(st.id)} aria-label={t("content.identity.controls.removeAria", { text: String(st.text) })}>
+          {t("content.identity.controls.remove")}
         </button>
       </div>
       <StatementPublic st={st} claimLike={claimLike} actions={actions} busy={busy} />
@@ -190,6 +198,8 @@ function StatementRow({ st, claimLike, actions, busy }: { st: Statement; claimLi
 
 /** A fact Dubiz reads from the business details: confirm it, then (separately) approve public use. */
 export function FactRow({ ctx, fact, actions, busy }: { ctx: Ctx; fact: string; actions: IdentityActions; busy: boolean }) {
+  const { t } = useI18n();
+  const { FACT_LABELS, PUBLIC_STATUS_LABELS } = useIdentityLabels();
   const f = ctx.identity.facts.find((x) => x.fact === fact);
   if (!f?.value) return null;
   const approved = f.state === "PUBLIC_USE_APPROVED";
@@ -203,11 +213,11 @@ export function FactRow({ ctx, fact, actions, busy }: { ctx: Ctx; fact: string; 
       </div>
       <div className={s.factMeta}>
         {f.state === "KNOWN" ? (
-          <span className={s.statusAwaiting}>{f.authorityStale ? "הפרט השתנה מאז שאישרת — צריך לאשר מחדש" : PUBLIC_STATUS_LABELS.AWAITING}</span>
+          <span className={s.statusAwaiting}>{f.authorityStale ? t("content.identity.controls.factChanged") : PUBLIC_STATUS_LABELS.AWAITING}</span>
         ) : null}
         {f.state === "KNOWN" ? (
           <button type="button" className={s.secondaryButton} disabled={busy} onClick={() => actions.decideFact(fact, "CONFIRM")}>
-            נכון
+            {t("content.identity.controls.factCorrect")}
           </button>
         ) : null}
         <PublicSwitch approved={approved} disabled={busy} onChange={(next) => actions.decideFact(fact, next ? "APPROVE_PUBLIC" : "WITHDRAW_PUBLIC")} />

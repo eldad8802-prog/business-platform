@@ -14,6 +14,7 @@ import {
   AudienceType,
   Mode,
 } from "@/lib/services/content-direction.service";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type ContentFlow = {
   mode?: Mode;
@@ -28,6 +29,7 @@ type ContentFlow = {
 
 export default function DirectionPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [directions, setDirections] = useState<DirectionOption[]>([]);
   const [selected, setSelected] = useState<DirectionOption | null>(null);
@@ -87,7 +89,7 @@ export default function DirectionPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>איך לספר את זה</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.direction.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -96,11 +98,10 @@ export default function DirectionPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>עכשיו</div>
-            <h1 style={titleStyle}>איך נספר את זה בפועל?</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.common.now")}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.direction.title")}</h1>
             <p style={subtitleStyle}>
-              הנה כמה דרכים שאפשר ללכת עליהן לפי מה שסימנת. בחר מה שנשמע לך
-              הכי טבעי עכשיו.
+              {t("content.studioFlow.direction.subtitle")}
             </p>
           </div>
 
@@ -118,14 +119,14 @@ export default function DirectionPage() {
                   <div style={cardTopRowStyle}>
                     <div style={cardTitleStyle}>{dir.title}</div>
                     {index === 0 ? (
-                      <div style={recommendedBadgeStyle}>מתאים במיוחד</div>
+                      <div style={recommendedBadgeStyle}>{t("content.studioFlow.format.recommended")}</div>
                     ) : null}
                   </div>
 
                   <div style={cardDescriptionStyle}>{dir.description}</div>
 
                   <div style={whyBoxStyle}>
-                    <div style={whyLabelStyle}>למה זה יכול להתאים</div>
+                    <div style={whyLabelStyle}>{t("content.studioFlow.direction.whyLabel")}</div>
                     <div style={whyTextStyle}>{dir.whyItFits}</div>
                   </div>
                 </button>
@@ -141,7 +142,7 @@ export default function DirectionPage() {
             disabled={!selected}
             style={nextButtonStyle(Boolean(selected))}
           >
-            המשך — פורמט ופלטפורמה
+            {t("content.studioFlow.direction.cta")}
           </button>
         </div>
       </div>
@@ -230,7 +231,7 @@ const cardsWrapStyle: React.CSSProperties = {
 
 const directionCardStyle = (selected: boolean): React.CSSProperties => ({
   width: "100%",
-  textAlign: "right",
+  textAlign: "start",
   padding: 18,
   borderRadius: 20,
   border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",

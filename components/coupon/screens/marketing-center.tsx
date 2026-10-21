@@ -29,6 +29,8 @@ import {
   EMPTY_BUSINESS,
   draftToOwnerCoupon,
 } from "@/components/coupon/coupon-model";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 const W = TOKEN.warm;
 
@@ -46,6 +48,7 @@ function Action({ children, onClick }: { children: ReactNode; onClick?: () => vo
 }
 
 function ActiveCard({ c, onViewPublic }: { c: OwnerCoupon; onViewPublic?: () => void }) {
+  const { t } = useI18n();
   return (
     <div style={{ background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.card, boxShadow: W.shadow, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -53,21 +56,22 @@ function ActiveCard({ c, onViewPublic }: { c: OwnerCoupon; onViewPublic?: () => 
           <ThemaDot thema={c.thema} />
           <div style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.benefit}</div>
         </div>
-        <Pill text="פעיל" tone="active" />
+        <Pill text={t("content.commerce.coupon.marketing.active")} tone="active" />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12.5, color: W.muted, fontVariantNumeric: "tabular-nums" }}>
         <span>{c.metric}</span><span style={{ color: W.muted2 }}>·</span><span style={{ color: W.muted2 }}>{c.validityText}</span>
       </div>
       <div style={{ display: "flex", gap: 16, marginTop: 13, paddingTop: 13, borderTop: `1px solid ${W.line}` }}>
-        <Action>שתף</Action>
-        <Action onClick={onViewPublic}>עמוד ציבורי</Action>
-        <Action>סיים</Action>
+        <Action>{t("content.commerce.coupon.marketing.share")}</Action>
+        <Action onClick={onViewPublic}>{t("content.commerce.coupon.marketing.publicPage")}</Action>
+        <Action>{t("content.commerce.coupon.marketing.end")}</Action>
       </div>
     </div>
   );
 }
 
 function EndedCard({ c }: { c: OwnerCoupon }) {
+  const { t } = useI18n();
   return (
     <div style={{ background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.card, padding: "14px 16px", opacity: 0.92 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -75,11 +79,11 @@ function EndedCard({ c }: { c: OwnerCoupon }) {
           <ThemaDot thema={c.thema} muted />
           <div style={{ fontSize: 14.5, fontWeight: 500, color: W.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.benefit}</div>
         </div>
-        <Pill text="הסתיים" tone="ended" />
+        <Pill text={t("content.commerce.coupon.marketing.ended")} tone="ended" />
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
         <span style={{ fontSize: 12.5, color: W.muted2, fontVariantNumeric: "tabular-nums" }}>{c.metric} · {c.validityText}</span>
-        <Action>צור שוב ›</Action>
+        <Action>{t("content.commerce.coupon.marketing.recreate")}</Action>
       </div>
     </div>
   );
@@ -92,20 +96,22 @@ function SectionLabel({ children }: { children: ReactNode }) {
 /* ------------------------------------------------------ marketing center --- */
 
 function MarketingCenter({ active, ended, onCreate, onBack, onViewPublic }: { active: OwnerCoupon[]; ended: OwnerCoupon[]; onCreate: () => void; onBack: () => void; onViewPublic?: (c: OwnerCoupon) => void }) {
+  const { t } = useI18n();
   return (
     <PhoneFrame>
-      <ScreenHeader title="מרכז השיווק" action={<BackButton onClick={onBack} />} />
+      <ScreenHeader title={t("content.commerce.coupon.marketing.title")} action={<BackButton onClick={onBack} />} />
       <ScreenBody>
-        <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>כאן חיות ההטבות שאתה מוציא ללקוחות שלך.</div>
+        <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>{t("content.commerce.coupon.marketing.intro")}</div>
 
         {/* pulse — living signal, decision-oriented */}
         <div style={{ background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.card, boxShadow: W.shadow, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 6 }}>הדופק שלך</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 6 }}>{t("content.commerce.coupon.marketing.pulse")}</div>
           <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.2px", fontVariantNumeric: "tabular-nums" }}>
-            {active.length} הטבות פעילות · 50 מומשו החודש
+            {t(active.length === 1 ? "content.commerce.coupon.marketing.pulseActiveOne" : "content.commerce.coupon.marketing.pulseActiveMany", { count: active.length })}
           </div>
           <div style={{ marginTop: 12, padding: "10px 12px", background: "rgba(36,105,102,0.06)", border: `1px solid rgba(36,105,102,0.12)`, borderRadius: W.radius.control, fontSize: 13, color: W.ink, lineHeight: 1.5 }}>
-            ‘קפה + מאפה מתנה’ נגמרת מחר — <b style={{ fontWeight: 600, color: W.tealDeep }}>לחדש אותה?</b>
+            {/* Demo pulse: the benefit name is sample coupon content (stays Hebrew). */}
+            {t("content.commerce.coupon.marketing.pulseNote", { benefit: "קפה + מאפה מתנה" })}<b style={{ fontWeight: 600, color: W.tealDeep }}>{t("content.commerce.coupon.marketing.pulseRenew")}</b>
           </div>
         </div>
 
@@ -119,19 +125,19 @@ function MarketingCenter({ active, ended, onCreate, onBack, onViewPublic }: { ac
             <StrokeIcon size={20} color="var(--dz-text-on-brand)" width={2.4}><path d="M12 5v14M5 12h14" /></StrokeIcon>
           </span>
           <span>
-            <span style={{ display: "block", fontSize: 15.5, fontWeight: 600, color: W.tealDeep }}>צור קופון חדש</span>
-            <span style={{ display: "block", fontSize: 12.5, color: W.muted, marginTop: 2 }}>הבא לקוחות עם הטבה חדשה</span>
+            <span style={{ display: "block", fontSize: 15.5, fontWeight: 600, color: W.tealDeep }}>{t("content.commerce.coupon.marketing.createNew")}</span>
+            <span style={{ display: "block", fontSize: 12.5, color: W.muted, marginTop: 2 }}>{t("content.commerce.coupon.marketing.createNewSub")}</span>
           </span>
         </button>
 
         {/* active */}
-        <SectionLabel>פעיל</SectionLabel>
+        <SectionLabel>{t("content.commerce.coupon.marketing.active")}</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 26 }}>
           {active.map((c) => <ActiveCard key={c.id} c={c} onViewPublic={() => onViewPublic?.(c)} />)}
         </div>
 
         {/* ended */}
-        <SectionLabel>הסתיים</SectionLabel>
+        <SectionLabel>{t("content.commerce.coupon.marketing.ended")}</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {ended.map((c) => <EndedCard key={c.id} c={c} />)}
         </div>
@@ -184,14 +190,16 @@ function PublicPreviewScreen({ coupon, onBack }: { coupon: OwnerCoupon; onBack: 
     // set and the system does not enforce (COUPON-04/06).
     terms: "",
   };
+  const { t } = useI18n();
   return (
     <PhoneFrame>
-      <ScreenHeader title="תצוגה ציבורית" action={<BackButton onClick={onBack} />} />
+      <ScreenHeader title={t("content.commerce.coupon.marketing.publicView")} action={<BackButton onClick={onBack} />} />
       <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
         <PublicCouponContent view={view} interactive={false} />
         <div style={{ padding: "16px 20px 20px", borderTop: `1px solid ${W.line}`, background: W.canvas }}>
-          <div style={{ height: 50, borderRadius: 14, background: W.grad, color: "var(--dz-text-on-brand)", fontWeight: 600, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
-          <div style={{ textAlign: "center", fontSize: 12, color: W.muted2, marginTop: 10 }}>כך הלקוח רואה את הקופון שלך</div>
+          {/* Mock of the customer's "get coupon" button — part of the customer preview (Hebrew, RTL). */}
+          <div dir="rtl" style={{ height: 50, borderRadius: 14, background: W.grad, color: "var(--dz-text-on-brand)", fontWeight: 600, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
+          <div style={{ textAlign: "center", fontSize: 12, color: W.muted2, marginTop: 10 }}>{t("content.commerce.coupon.marketing.howCustomerSees")}</div>
         </div>
       </div>
     </PhoneFrame>
@@ -199,6 +207,15 @@ function PublicPreviewScreen({ coupon, onBack }: { coupon: OwnerCoupon; onBack: 
 }
 
 /* ----------------------------------------------------- Dubiz home entry ---- */
+
+const TOOL_LABEL: Record<string, MessageKey> = {
+  coupons: "content.commerce.coupon.marketing.tools.coupons",
+  docs: "content.commerce.coupon.marketing.tools.docs",
+  billing: "content.commerce.coupon.marketing.tools.billing",
+  inventory: "content.commerce.coupon.marketing.tools.inventory",
+  secretary: "content.commerce.coupon.marketing.tools.secretary",
+  content: "content.commerce.coupon.marketing.tools.content",
+};
 
 const TOOLS: { key: string; label: string; icon: ReactNode; active?: boolean }[] = [
   { key: "coupons", label: "קופונים", active: true, icon: <><path d="M4 8h12l4 4-4 4H4z" /><path d="M9 8v8" strokeDasharray="2 2" /></> },
@@ -210,23 +227,24 @@ const TOOLS: { key: string; label: string; icon: ReactNode; active?: boolean }[]
 ];
 
 function DubizHomeEntry({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n();
   return (
     <PhoneFrame>
-      <ScreenHeader title="הכלים שלך" />
+      <ScreenHeader title={t("content.commerce.coupon.marketing.toolsTitle")} />
       <ScreenBody>
-        <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>מה תרצה לעשות בעסק היום?</div>
+        <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>{t("content.commerce.coupon.marketing.toolsIntro")}</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {TOOLS.map((t) => (
+          {TOOLS.map((tool) => (
             <button
-              key={t.key}
+              key={tool.key}
               type="button"
-              onClick={t.active ? onOpen : undefined}
-              style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start", textAlign: "start", background: t.active ? "rgba(36,105,102,0.05)" : W.surface, border: `1px solid ${t.active ? W.teal : W.line}`, borderRadius: W.radius.card, padding: 16, minHeight: 104, boxShadow: W.shadow, fontFamily: "inherit", cursor: t.active ? "pointer" : "default" }}
+              onClick={tool.active ? onOpen : undefined}
+              style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start", textAlign: "start", background: tool.active ? "rgba(36,105,102,0.05)" : W.surface, border: `1px solid ${tool.active ? W.teal : W.line}`, borderRadius: W.radius.card, padding: 16, minHeight: 104, boxShadow: W.shadow, fontFamily: "inherit", cursor: tool.active ? "pointer" : "default" }}
             >
-              <span style={{ width: 40, height: 40, borderRadius: 11, background: t.active ? W.grad : W.surface2, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <StrokeIcon size={20} color={t.active ? "var(--dz-text-on-brand)" : W.muted} width={1.8}>{t.icon}</StrokeIcon>
+              <span style={{ width: 40, height: 40, borderRadius: 11, background: tool.active ? W.grad : W.surface2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <StrokeIcon size={20} color={tool.active ? "var(--dz-text-on-brand)" : W.muted} width={1.8}>{tool.icon}</StrokeIcon>
               </span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: t.active ? W.tealDeep : W.ink }}>{t.label}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: tool.active ? W.tealDeep : W.ink }}>{TOOL_LABEL[tool.key] ? t(TOOL_LABEL[tool.key]) : tool.label}</span>
             </button>
           ))}
         </div>

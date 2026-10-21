@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type Mode = "ai" | "camera" | "voice";
 type CreationEntryMode =
@@ -71,56 +73,60 @@ function isFilmingEntryFlow(flow: ContentFlow): boolean {
 }
 
 /** מיפוי פנימי של מפתחות מהפלן — רק לתוויות בעברית, בלי להציג מונחים טכניים */
-function beatDisplayLabel(part: string | undefined): string {
+function beatDisplayLabel(t: Translator, part: string | undefined): string {
   switch (part) {
     case "hook":
-      return "פתיחה";
+      return t("content.studio.shotDirection.beats.hook");
     case "pain":
-      return "נקודה שמחדדת את הצורך";
+      return t("content.studio.shotDirection.beats.pain");
     case "explanation":
-      return "הסבר";
+      return t("content.studio.shotDirection.beats.explanation");
     case "solution":
-      return "הפתרון";
+      return t("content.studio.shotDirection.beats.solution");
     case "proof":
-      return "הוכחה";
+      return t("content.studio.shotDirection.beats.proof");
     case "cta":
-      return "סיום";
+      return t("content.studio.shotDirection.beats.cta");
     case "value":
-      return "הערך";
+      return t("content.studio.shotDirection.beats.value");
     case "context":
-      return "הקשר";
+      return t("content.studio.shotDirection.beats.context");
     default:
-      return /^[a-z_]+$/i.test(part || "") ? "חלק בסיפור" : (part || "").trim() || "חלק בסיפור";
+      // A non-technical label from the plan is generated content — shown as-is.
+      return /^[a-z_]+$/i.test(part || "")
+        ? t("content.studio.shotDirection.beats.storyPart")
+        : (part || "").trim() || t("content.studio.shotDirection.beats.storyPart");
   }
 }
 
 function momentTitle(
+  t: Translator,
   index: number,
   total: number,
   structure?: string[]
 ): string {
-  if (total <= 0) return "רגע";
+  if (total <= 0) return t("content.studio.shotDirection.moment.single");
   if (structure && structure.length === total) {
-    return beatDisplayLabel(structure[index]);
+    return beatDisplayLabel(t, structure[index]);
   }
-  if (index === 0) return "פתיחה";
-  if (index === total - 1) return "סיום";
-  if (total === 3 && index === 1) return "לב הסיפור";
-  return `רגע ${index + 1} בדרך`;
+  if (index === 0) return t("content.studio.shotDirection.beats.hook");
+  if (index === total - 1) return t("content.studio.shotDirection.beats.cta");
+  if (total === 3 && index === 1) return t("content.studio.shotDirection.moment.heart");
+  return t("content.studio.shotDirection.moment.numbered", { n: index + 1 });
 }
 
-function whyThisMattersLine(index: number, total: number, structure?: string[]): string {
+function whyThisMattersLine(t: Translator, index: number, total: number, structure?: string[]): string {
   const beat = structure?.[index];
   if (index === 0 || beat === "hook") {
-    return "הרגע הראשון הוא שיחליט אם ממשיכים לצפות.";
+    return t("content.studio.shotDirection.why.hook");
   }
   if (index === total - 1 || beat === "cta") {
-    return "כאן אומרים בבירור מה כדאי לעשות אחרי שצפו.";
+    return t("content.studio.shotDirection.why.cta");
   }
-  if (beat === "pain") return "הרגע הזה הוא שגורם לצופה להרגיש שהוא מדבר אליו.";
-  if (beat === "proof") return "ראייה פשוטה כאן יכולה לשנות את כל תחושת האמת של הסרטון.";
-  if (beat === "solution") return "הסבר קצר וברור כאן שווה יותר מהרבה מילים.";
-  return "כאן מחברים בין מה שאמרתם לבין למה זה רלוונטי.";
+  if (beat === "pain") return t("content.studio.shotDirection.why.pain");
+  if (beat === "proof") return t("content.studio.shotDirection.why.proof");
+  if (beat === "solution") return t("content.studio.shotDirection.why.solution");
+  return t("content.studio.shotDirection.why.default");
 }
 
 /** תצוגה בלבד — הופך ניסוחי פלן פנימיים לשפה פשוטה, בלי לשנות נתונים */
@@ -187,6 +193,7 @@ function humanizeProductionCopy(raw: string): string {
 
 export default function ShotDirectionPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [variant, setVariant] = useState<SelectedVariant | null>(null);
 
@@ -239,10 +246,9 @@ export default function ShotDirectionPage() {
       flow?.selectedDirection?.title?.trim() ||
       variant?.title?.trim() ||
       "";
-    const tail =
-      "הנה איך לתפוס את הרגעים שיעשו את הסרטון הזה הרבה יותר טוב.";
-    return context ? `${context} — ${tail}` : tail;
-  }, [flow?.selectedDirection?.title, variant?.title]);
+    const tail = t("content.studio.shotDirection.subtitleTail");
+    return context ? t("content.studio.shotDirection.subtitleWithContext", { context, tail }) : tail;
+  }, [flow?.selectedDirection?.title, variant?.title, t]);
 
   function handleContinue() {
     router.push("/content/assets-upload");
@@ -253,7 +259,7 @@ export default function ShotDirectionPage() {
       <div style={pageStyle}>
         <div style={shellStyle}>
           <div style={contentAreaStyle}>
-            <p style={loadingTextStyle}>רגע אחד…</p>
+            <p style={loadingTextStyle}>{t("content.studio.shotDirection.loading")}</p>
           </div>
         </div>
       </div>
@@ -269,7 +275,7 @@ export default function ShotDirectionPage() {
       <div style={shellStyle}>
         <div style={topBarStyle}>
           <BackButton />
-          <div style={topBarTitleStyle}>כיוון לפני הצילום</div>
+          <div style={topBarTitleStyle}>{t("content.studio.shotDirection.topBarTitle")}</div>
           <div style={topBarSpacerStyle} />
         </div>
 
@@ -277,29 +283,29 @@ export default function ShotDirectionPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>מכוונים אתכם</div>
-            <h1 style={titleStyle}>בוא נצלם את זה נכון</h1>
+            <div style={eyebrowStyle}>{t("content.studio.shotDirection.eyebrow")}</div>
+            <h1 style={titleStyle}>{t("content.studio.shotDirection.title")}</h1>
             <p style={subtitleStyle}>{subtitle}</p>
           </div>
 
           {variant.whyItFits ? (
             <div style={whyCardStyle}>
-              <div style={whyLabelStyle}>למה זה הכיוון הנכון לתוכן הזה</div>
+              <div style={whyLabelStyle}>{t("content.studio.shotDirection.whyLabel")}</div>
               <div style={whyTextStyle}>{variant.whyItFits}</div>
             </div>
           ) : null}
 
           {variant.script?.hook ? (
             <div style={hookReminderStyle}>
-              <div style={hookLabelStyle}>הפתיחה שנבחרה</div>
+              <div style={hookLabelStyle}>{t("content.studio.shotDirection.hookLabel")}</div>
               <div style={hookTextStyle}>{variant.script.hook}</div>
-              <div style={hookSubtextStyle}>אפשר לשמור לצורך הצילום</div>
+              <div style={hookSubtextStyle}>{t("content.studio.shotDirection.hookSubtext")}</div>
             </div>
           ) : null}
 
           {(required.length > 0 || optional.length > 0) && (
             <div style={checklistCardStyle}>
-              <div style={checklistTitleStyle}>מה כדאי לצלם</div>
+              <div style={checklistTitleStyle}>{t("content.studio.shotDirection.checklistTitle")}</div>
               {required.map((item, i) => (
                 <div key={`r-${i}`} style={checklistRowStyle}>
                   <span style={checklistBulletRequiredStyle}>✓</span>
@@ -309,7 +315,7 @@ export default function ShotDirectionPage() {
               {optional.length > 0 ? (
                 <>
                   <div style={checklistSectionLabelOptionalStyle}>
-                    אם יש — זה יכול להוסיף
+                    {t("content.studio.shotDirection.optionalLabel")}
                   </div>
                   {optional.map((item, i) => (
                     <div key={`o-${i}`} style={checklistRowStyle}>
@@ -320,43 +326,43 @@ export default function ShotDirectionPage() {
                 </>
               ) : null}
               <div style={checklistFootnoteStyle}>
-                לא חייב מושלם — העיקר שירגיש אמיתי.
+                {t("content.studio.shotDirection.checklistFootnote")}
               </div>
             </div>
           )}
 
-          <div style={shotsIntroStyle}>עוברים רגע־רגע</div>
+          <div style={shotsIntroStyle}>{t("content.studio.shotDirection.shotsIntro")}</div>
 
           {shots.map((shot, index) => {
             const req = requestByIndex.get(index);
             const guidance = req?.shootingGuidance?.trim() || "";
-            const title = momentTitle(index, shots.length, structure);
+            const title = momentTitle(t, index, shots.length, structure);
 
             return (
               <div key={index} style={momentCardStyle}>
                 <div style={momentHeaderStyle}>
                   <div style={momentTitleStyle}>{title}</div>
-                  <div style={momentIndexStyle}>{index + 1}/{shots.length}</div>
+                  <div style={momentIndexStyle}>{t("content.studio.shotDirection.moment.index", { n: index + 1, total: shots.length })}</div>
                 </div>
 
                 <div style={blockStyle}>
-                  <div style={blockLabelStyle}>מה לצלם</div>
+                  <div style={blockLabelStyle}>{t("content.studio.shotDirection.blockVisual")}</div>
                   <div style={blockBodyStyle}>{shot.visual}</div>
                 </div>
 
                 <div style={blockStyle}>
-                  <div style={blockLabelStyle}>מה להגיד</div>
+                  <div style={blockLabelStyle}>{t("content.studio.shotDirection.blockVoice")}</div>
                   <div style={blockBodyStyle}>{shot.voice}</div>
                 </div>
 
                 {guidance ? (
                   <div style={blockStyle}>
-                    <div style={blockLabelStyle}>איך לתפוס את הרגע</div>
+                    <div style={blockLabelStyle}>{t("content.studio.shotDirection.blockGuidance")}</div>
                     <div style={blockBodyStyle}>{humanizeProductionCopy(guidance)}</div>
                   </div>
                 ) : null}
 
-                <div style={tinyHelperStyle}>{whyThisMattersLine(index, shots.length, structure)}</div>
+                <div style={tinyHelperStyle}>{whyThisMattersLine(t, index, shots.length, structure)}</div>
               </div>
             );
           })}
@@ -364,7 +370,7 @@ export default function ShotDirectionPage() {
 
         <div style={footerStyle}>
           <button type="button" onClick={handleContinue} style={primaryButtonStyle}>
-            המשך — מעלים את החומרים
+            {t("content.studio.shotDirection.continue")}
           </button>
         </div>
       </div>

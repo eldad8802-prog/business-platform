@@ -10,6 +10,7 @@
 
 import { useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { CouponWorld } from "@/components/coupon/screens/marketing-center";
 import { CouponCreationFlow } from "@/components/coupon/screens/creation-screens";
 import { ConsumerJourney, CouponStatesScreen, MarketplaceGrid } from "@/components/coupon/screens/consumer-screens";
@@ -48,29 +49,30 @@ function ZoneHeader({ name, desc }: { name: string; desc: string }) {
 }
 
 export default function CouponDesignGalleryPage() {
+  const { t } = useI18n();
   return (
-    <main style={{ minHeight: "100vh", background: "var(--dz-surface-muted)", padding: "34px 26px 60px", direction: "rtl", fontFamily: "'Heebo', system-ui, sans-serif", color: W.ink }}>
-      <div style={{ textAlign: "center", fontWeight: 600, fontSize: 23, letterSpacing: "-0.4px" }}>עולם הקופונים — חבילת עיצוב שלמה</div>
+    <main style={{ minHeight: "100vh", background: "var(--dz-surface-muted)", padding: "34px 26px 60px", fontFamily: "'Heebo', system-ui, sans-serif", color: W.ink }}>
+      <div style={{ textAlign: "center", fontWeight: 600, fontSize: 23, letterSpacing: "-0.4px" }}>{t("content.commerce.coupon.gallery.title")}</div>
       <div style={{ textAlign: "center", fontSize: 13, color: W.muted, margin: "4px 0 30px" }}>
-        Dubiz → מרכז השיווק → יצירה → חזרה למרכז · לצד העולם הציבורי · מסע אחד רציף (אינטראקטיבי — לחצו לנווט)
+        {t("content.commerce.coupon.gallery.subtitle")}
       </div>
 
-      <ZoneHeader name="עולם בעל העסק" desc="Dubiz · כרטיסיית קופונים → מרכז השיווק ⇄ יצירה (משוגרת מהמרכז וחוזרת אליו)" />
+      <ZoneHeader name={t("content.commerce.coupon.gallery.ownerZone")} desc={t("content.commerce.coupon.gallery.ownerZoneDesc")} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: "40px 28px", alignItems: "flex-start" }}>
-        <Frame title="המסע המלא של בעל העסק" desc="לחצו 'קופונים' → מרכז השיווק → 'צור קופון' → חזרה, והקופון החדש מופיע ב'פעיל'">
+        <Frame title={t("content.commerce.coupon.gallery.ownerJourney")} desc={t("content.commerce.coupon.gallery.ownerJourneyDesc")}>
           <CouponWorld />
         </Frame>
       </div>
 
-      <ZoneHeader name="העולם הציבורי" desc="Discovery + Redemption · כל אדם רואה" />
+      <ZoneHeader name={t("content.commerce.coupon.gallery.publicZone")} desc={t("content.commerce.coupon.gallery.publicZoneDesc")} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: "40px 28px", alignItems: "flex-start" }}>
-        <Frame title="מסע הלקוח" desc="מרקטפלייס → עמוד קופון → קופון אישי · thema נמשך per-עסק">
+        <Frame title={t("content.commerce.coupon.gallery.customerJourney")} desc={t("content.commerce.coupon.gallery.customerJourneyDesc")}>
           <PublicWorld />
         </Frame>
-        <Frame title="מרקטפלייס — תצוגת רשת (וריאציה)" desc="מהקובץ coupon_marketplace.html · רשת 'מומלצים' + סינון תחומים">
+        <Frame title={t("content.commerce.coupon.gallery.gridTitle")} desc={t("content.commerce.coupon.gallery.gridDesc")}>
           <MarketplaceGrid />
         </Frame>
-        <Frame title="מצבי קופון" desc="פג תוקף · אזל · מומש">
+        <Frame title={t("content.commerce.coupon.gallery.statesTitle")} desc={t("content.commerce.coupon.gallery.statesDesc")}>
           <CouponStatesScreen />
         </Frame>
       </div>

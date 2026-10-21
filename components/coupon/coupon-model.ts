@@ -7,6 +7,7 @@
 
 import type { CouponThema } from "@/lib/design/coupon-consumer";
 import { SCOPE_WHOLE_BUSINESS } from "@/lib/revenue/coupon-benefit";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 export { SCOPE_WHOLE_BUSINESS };
 
@@ -167,6 +168,69 @@ export const GOAL_DIRECTIONS: Record<string, { key: Direction; why: string }[]> 
   ],
 };
 
+/* ------------------------------------------------ owner-chrome labels ---- */
+/*
+ * The Hebrew maps above stay as they are (tests/scripts import this module);
+ * the owner's creation chrome renders them through these translators instead.
+ * Coupon ARTWORK text (segmentText, benefitSentence, terms, validity line)
+ * is customer-facing content and deliberately stays Hebrew.
+ */
+const GOAL_KEY: Record<string, MessageKey> = {
+  new: "content.commerce.coupon.goals.new",
+  return: "content.commerce.coupon.goals.return",
+  basket: "content.commerce.coupon.goals.basket",
+  promote: "content.commerce.coupon.goals.promote",
+  reward: "content.commerce.coupon.goals.reward",
+};
+const GOAL_ECHO_KEY: Record<string, MessageKey> = {
+  new: "content.commerce.coupon.goalEcho.new",
+  return: "content.commerce.coupon.goalEcho.return",
+  basket: "content.commerce.coupon.goalEcho.basket",
+  promote: "content.commerce.coupon.goalEcho.promote",
+  reward: "content.commerce.coupon.goalEcho.reward",
+};
+const DIRECTION_KEY: Record<Direction, MessageKey> = {
+  discount: "content.commerce.coupon.directions.discount",
+  gift: "content.commerce.coupon.directions.gift",
+  more: "content.commerce.coupon.directions.more",
+  price: "content.commerce.coupon.directions.price",
+  punchcard: "content.commerce.coupon.directions.punchcard",
+  opening: "content.commerce.coupon.directions.opening",
+};
+const DIRECTION_WHY_KEY: Record<Direction, MessageKey> = {
+  discount: "content.commerce.coupon.directionWhy.discount",
+  gift: "content.commerce.coupon.directionWhy.gift",
+  more: "content.commerce.coupon.directionWhy.more",
+  price: "content.commerce.coupon.directionWhy.price",
+  punchcard: "content.commerce.coupon.directionWhy.punchcard",
+  opening: "content.commerce.coupon.directionWhy.opening",
+};
+const VALIDITY_KEY: Record<number, MessageKey> = {
+  7: "content.commerce.coupon.validity.week",
+  14: "content.commerce.coupon.validity.twoWeeks",
+  30: "content.commerce.coupon.validity.month",
+};
+
+export function goalLabel(t: Translator, key: string): string {
+  const k = GOAL_KEY[key];
+  return k ? t(k) : GOALS.find((g) => g.key === key)?.label ?? key;
+}
+export function goalEcho(t: Translator, key: string): string {
+  const k = GOAL_ECHO_KEY[key];
+  return k ? t(k) : GOAL_ECHO[key] ?? "";
+}
+export function directionLabel(t: Translator, key: Direction): string {
+  return t(DIRECTION_KEY[key]);
+}
+export function directionWhy(t: Translator, key: Direction): string {
+  return t(DIRECTION_WHY_KEY[key]);
+}
+/** Validity shortcut label, keyed by its day count. */
+export function validityPresetLabel(t: Translator, preset: { label: string; days: number }): string {
+  const k = VALIDITY_KEY[preset.days];
+  return k ? t(k) : preset.label;
+}
+
 export function directionsFor(goal: string | null) {
   return (goal && GOAL_DIRECTIONS[goal]) || GOAL_DIRECTIONS.new;
 }
@@ -193,6 +257,19 @@ const DIR_TYPES: Record<Direction, BenefitType[]> = {
   punchcard: ["more"],
   opening: ["pct", "giftProduct"],
 };
+
+const BENEFIT_TYPE_KEY: Record<BenefitType, MessageKey> = {
+  pct: "content.commerce.coupon.benefitTypes.pct",
+  amt: "content.commerce.coupon.benefitTypes.amt",
+  price: "content.commerce.coupon.benefitTypes.price",
+  giftProduct: "content.commerce.coupon.benefitTypes.giftProduct",
+  giftService: "content.commerce.coupon.benefitTypes.giftService",
+  more: "content.commerce.coupon.benefitTypes.more",
+  other: "content.commerce.coupon.benefitTypes.other",
+};
+export function benefitTypeLabel(t: Translator, key: BenefitType): string {
+  return t(BENEFIT_TYPE_KEY[key]);
+}
 
 export function orderedTypesFor(direction: Direction | null) {
   if (!direction) return BENEFIT_TYPES;

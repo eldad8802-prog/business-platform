@@ -6,6 +6,8 @@ import { TOKEN } from "@/lib/design/tokens";
 import { chipActionStyle, glassActionStyle, iconActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 import BackButton from "@/components/ui/back-button";
 import { useFlowStep } from "@/hooks/useFlowStep";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 type PricingItem = {
   id: number;
@@ -80,6 +82,7 @@ type ActivePanel = "catalog" | "calculate" | "create";
 type CalculateView = "form" | "loading" | "result" | "save_success";
 type CreateView = "wizard" | "success";
 
+// The option VALUES are the stored category names (Hebrew); only the visible label is translated.
 const CREATE_CATEGORIES = [
   "ייעוץ",
   "דיגיטל",
@@ -90,13 +93,21 @@ const CREATE_CATEGORIES = [
   "אחר",
 ];
 
+const CREATE_CATEGORY_LABELS: Record<string, MessageKey> = {
+  "ייעוץ": "content.pricing.page.create.categories.consulting",
+  "דיגיטל": "content.pricing.page.create.categories.digital",
+  "טיפוח": "content.pricing.page.create.categories.grooming",
+  "אוכל": "content.pricing.page.create.categories.food",
+  "תיקונים": "content.pricing.page.create.categories.repairs",
+  "אופנה": "content.pricing.page.create.categories.fashion",
+  "אחר": "content.pricing.page.create.categories.other",
+};
+
 const formatNis = (value: number) =>
   value.toLocaleString("he-IL", { maximumFractionDigits: 0 });
 
-const formatNis2 = (value: number) =>
-  value.toLocaleString("he-IL", { maximumFractionDigits: 2 });
-
-const typeLabel = (type: string) => (type === "PRODUCT" ? "מוצר" : "שירות");
+const typeLabel = (t: Translator, type: string) =>
+  type === "PRODUCT" ? t("content.pricing.page.typeProduct") : t("content.pricing.page.typeService");
 
 function profitBadgeStyle(indicator: string): CSSProperties {
   if (indicator === "LOW") {
@@ -114,10 +125,10 @@ function profitBadgeStyle(indicator: string): CSSProperties {
   };
 }
 
-const marketStatusText = (status: string | undefined) => {
-  if (status === "BELOW_MARKET") return "המחיר המומלץ מתחת לטווח השוק שהזנתם.";
-  if (status === "WITHIN_MARKET") return "המחיר המומלץ בתוך טווח השוק שהזנתם.";
-  if (status === "ABOVE_MARKET") return "המחיר המומלץ מעל טווח השוק שהזנתם.";
+const marketStatusText = (t: Translator, status: string | undefined) => {
+  if (status === "BELOW_MARKET") return t("content.pricing.page.market.below");
+  if (status === "WITHIN_MARKET") return t("content.pricing.page.market.within");
+  if (status === "ABOVE_MARKET") return t("content.pricing.page.market.above");
   return null;
 };
 
@@ -174,11 +185,15 @@ function CheckIcon({ size = 18, color = "currentColor" }: { size?: number; color
 }
 
 function Spinner() {
-  return <div className="pricing-spin" role="status" aria-label="טוען" />;
+  const { t } = useI18n();
+  return <div className="pricing-spin" role="status" aria-label={t("content.pricing.page.loading")} />;
 }
 
 export default function PricingPage() {
   const router = useRouter();
+  const { t, formatAmount } = useI18n();
+  // Plain ₪ amounts with up to 2 decimals — byte-identical in Hebrew to the former "₪" + toLocaleString("he-IL", max 2 digits).
+  const nis2 = (value: number) => formatAmount(value, "ILS");
 
   const [token, setToken] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(
@@ -267,7 +282,7 @@ export default function PricingPage() {
         }
 
         if (!profileRes.ok) {
-          throw new Error(profileData?.error || "שגיאה בבדיקת פרופיל העסק");
+          throw new Error(profileData?.error || t("content.pricing.page.errors.profileCheck"));
         }
 
         if (!profileData?.hasProfile || !profileData?.profile) {
@@ -287,7 +302,8 @@ export default function PricingPage() {
     };
 
     run();
-  }, [router]);
+    // t is stable per locale (memoised by the provider), so this still runs once per mount.
+  }, [router, t]);
 
   useEffect(() => {
     if (calculateView !== "result" || !result) return;
@@ -329,7 +345,7 @@ export default function PricingPage() {
       }
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה בטעינת הפריטים");
+        throw new Error(data?.error || t("content.pricing.page.errors.loadItems"));
       }
 
       const raw = Array.isArray(data.profiles) ? data.profiles : [];
@@ -349,7 +365,7 @@ export default function PricingPage() {
       );
     } catch (err) {
       setItems([]);
-      setError(err instanceof Error ? err.message : "שגיאה בטעינת הפריטים");
+      setError(err instanceof Error ? err.message : t("content.pricing.page.errors.loadItems"));
     } finally {
       setLoadingItems(false);
     }
@@ -441,7 +457,7 @@ export default function PricingPage() {
       }
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה בשמירת הנתונים");
+        throw new Error(data?.error || t("content.pricing.page.errors.save"));
       }
 
       await loadItems(token);
@@ -449,7 +465,7 @@ export default function PricingPage() {
       // item's calc/result steps are consumed — back returns to the catalog.
       flow.complete("saved", ["calc", "result"]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "שגיאה בשמירת הנתונים");
+      setError(err instanceof Error ? err.message : t("content.pricing.page.errors.save"));
     } finally {
       setSavingProfile(false);
     }
@@ -495,7 +511,7 @@ export default function PricingPage() {
       }
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה בחישוב המחיר");
+        throw new Error(data?.error || t("content.pricing.page.errors.calculate"));
       }
 
       setResult(data);
@@ -503,7 +519,7 @@ export default function PricingPage() {
       // returns to the form with the entered costs.
       flow.go("result");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "שגיאה בחישוב המחיר");
+      setError(err instanceof Error ? err.message : t("content.pricing.page.errors.calculate"));
     } finally {
       setLoadingCalculation(false);
     }
@@ -543,7 +559,7 @@ export default function PricingPage() {
       }
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה ביצירת הפריט");
+        throw new Error(data?.error || t("content.pricing.page.errors.create"));
       }
 
       await loadItems(token);
@@ -557,7 +573,7 @@ export default function PricingPage() {
       // that would create the item twice.
       flow.complete("created", ["new1", "new2"]);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "שגיאה ביצירת הפריט");
+      setCreateError(err instanceof Error ? err.message : t("content.pricing.page.errors.create"));
     } finally {
       setCreatingItem(false);
     }
@@ -577,51 +593,51 @@ export default function PricingPage() {
     <>
       <Field
         id={`${prefix}-material`}
-        label="עלות חומרים"
+        label={t("content.pricing.page.fields.material")}
         unit="₪"
         value={material}
         onChange={setMaterial}
       />
       <Field
         id={`${prefix}-labor`}
-        label="זמן עבודה"
-        unit="דקות"
+        label={t("content.pricing.page.fields.labor")}
+        unit={t("content.pricing.page.fields.minutes")}
         value={labor}
         onChange={setLabor}
       />
       <Field
         id={`${prefix}-hourly`}
-        label="שווי שעת עבודה"
+        label={t("content.pricing.page.fields.hourly")}
         unit="₪"
         value={hourly}
         onChange={setHourly}
       />
       <Field
         id={`${prefix}-overhead`}
-        label="הוצאות כלליות"
+        label={t("content.pricing.page.fields.overhead")}
         unit="%"
         value={overhead}
         onChange={setOverhead}
         placeholder="10"
-        hint="עלויות עקיפות (שכירות, חשמל, תוכנות) כאחוז מהעלות הישירה"
+        hint={t("content.pricing.page.fields.overheadHint")}
       />
     </>
   );
 
   if (bootLoading) {
     return (
-      <div dir="rtl" style={rootStyle}>
+      <div style={rootStyle}>
         <PricingGlobalStyles />
         <div style={{ ...shellStyle, ...centerStyle }} className="pricing-shell">
           <Spinner />
-          <p style={{ ...centerTitleStyle, marginTop: TOKEN.space.lg }}>טוען…</p>
+          <p style={{ ...centerTitleStyle, marginTop: TOKEN.space.lg }}>{t("content.pricing.page.loadingEllipsis")}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div dir="rtl" style={rootStyle}>
+    <div style={rootStyle}>
       <PricingGlobalStyles />
       <div style={shellStyle} className="pricing-shell">
         {error && activePanel !== "calculate" ? (
@@ -638,12 +654,12 @@ export default function PricingPage() {
                   in-screen back (onClick) below. */}
               <BackButton />
               <div style={{ flex: 1 }}>
-                <h1 style={pageTitleStyle}>תמחור</h1>
-                <p style={pageSubtitleStyle}>תמחור עלות-פלוס לשירותים ומוצרים</p>
+                <h1 style={pageTitleStyle}>{t("content.pricing.page.catalog.title")}</h1>
+                <p style={pageSubtitleStyle}>{t("content.pricing.page.catalog.subtitle")}</p>
               </div>
               <button
                 type="button"
-                aria-label="הוספת פריט"
+                aria-label={t("content.pricing.page.catalog.addItem")}
                 style={addRoundBtnStyle}
                 className="pricing-pressable"
                 onClick={openCreate}
@@ -653,13 +669,13 @@ export default function PricingPage() {
             </header>
 
             {loadingItems && items.length === 0 ? (
-              <p style={mutedNoteStyle}>טוען פריטים…</p>
+              <p style={mutedNoteStyle}>{t("content.pricing.page.catalog.loadingItems")}</p>
             ) : null}
 
             {!loadingItems && items.length === 0 ? (
               <div style={emptyStateStyle}>
                 <p style={emptyTextStyle}>
-                  עדיין אין פריטים לתמחור. הוסיפו שירות או מוצר עם עלויות בסיס.
+                  {t("content.pricing.page.catalog.empty")}
                 </p>
                 <button
                   type="button"
@@ -667,7 +683,7 @@ export default function PricingPage() {
                   className="pricing-pressable"
                   onClick={openCreate}
                 >
-                  הוספת פריט ראשון
+                  {t("content.pricing.page.catalog.addFirst")}
                 </button>
               </div>
             ) : null}
@@ -688,12 +704,12 @@ export default function PricingPage() {
                       <span style={itemBodyStyle}>
                         <span style={itemNameStyle}>{item.name}</span>
                         <span style={itemMetaStyle}>
-                          {item.category ? `${item.category} · ` : ""}עלות בסיס שמורה
+                          {item.category ? `${CREATE_CATEGORY_LABELS[item.category] ? t(CREATE_CATEGORY_LABELS[item.category]) : item.category} · ` : ""}{t("content.pricing.page.catalog.savedBaseCost")}
                         </span>
                       </span>
                       <span style={itemTrailStyle}>
-                        <span style={pillStyle(item.type)}>{typeLabel(item.type)}</span>
-                        <span style={chevStyle} aria-hidden>
+                        <span style={pillStyle(item.type)}>{typeLabel(t, item.type)}</span>
+                        <span style={chevStyle} className="pricing-chev" aria-hidden>
                           <ChevronIcon />
                         </span>
                       </span>
@@ -705,7 +721,7 @@ export default function PricingPage() {
 
             {items.length > 0 ? (
               <div style={infoBoxStyle}>
-                אם אינכם בטוחים במחיר — הזינו עלויות וקבלו המלצה מבוססת עלות.
+                {t("content.pricing.page.catalog.info")}
               </div>
             ) : null}
           </div>
@@ -718,7 +734,7 @@ export default function PricingPage() {
               <div style={detailHeadStyle}>
                 <BackButton />
                 <div style={detailTitleStyle}>
-                  {calculateView === "result" ? "תוצאת תמחור" : "חישוב מחיר"}
+                  {calculateView === "result" ? t("content.pricing.page.calc.resultTitle") : t("content.pricing.page.calc.formTitle")}
                   <small style={detailSubStyle}>{selectedItem.name}</small>
                 </div>
                 <div style={iconBtnSpacerStyle} />
@@ -754,8 +770,8 @@ export default function PricingPage() {
                       aria-expanded={marketOpen}
                     >
                       <span>
-                        השוואה לשוק{" "}
-                        <span style={labelUnitStyle}>אופציונלי</span>
+                        {t("content.pricing.page.calc.marketCompare")}{" "}
+                        <span style={labelUnitStyle}>{t("content.pricing.page.calc.optional")}</span>
                       </span>
                       <span aria-hidden style={{ color: TOKEN.ink.muted }}>
                         {marketOpen ? "▴" : "▾"}
@@ -765,14 +781,14 @@ export default function PricingPage() {
                       <div style={accordionBodyStyle}>
                         <Field
                           id="market-low"
-                          label="מינ' בשוק"
+                          label={t("content.pricing.page.calc.marketMin")}
                           value={calcMarketLow}
                           onChange={setCalcMarketLow}
                           placeholder="300"
                         />
                         <Field
                           id="market-high"
-                          label="מקס' בשוק"
+                          label={t("content.pricing.page.calc.marketMax")}
                           value={calcMarketHigh}
                           onChange={setCalcMarketHigh}
                           placeholder="600"
@@ -781,7 +797,7 @@ export default function PricingPage() {
                     ) : null}
                   </div>
 
-                  <p style={footnoteStyle}>הנתונים נשמרים לפריט</p>
+                  <p style={footnoteStyle}>{t("content.pricing.page.calc.footnote")}</p>
                 </div>
 
                 <div style={bottomBarStyle}>
@@ -792,7 +808,7 @@ export default function PricingPage() {
                     disabled={loadingCalculation}
                     onClick={() => void handleCalculate()}
                   >
-                    חשב מחיר
+                    {t("content.pricing.page.calc.calculate")}
                   </button>
                 </div>
               </>
@@ -801,8 +817,8 @@ export default function PricingPage() {
             {calculateView === "loading" && (
               <div style={centerStyle}>
                 <Spinner />
-                <div style={centerTitleStyle}>מחשב מחיר מומלץ…</div>
-                <div style={centerSubStyle}>מנתח עלויות, רווח והשוואה לשוק</div>
+                <div style={centerTitleStyle}>{t("content.pricing.page.calc.calculating")}</div>
+                <div style={centerSubStyle}>{t("content.pricing.page.calc.calculatingSub")}</div>
               </div>
             )}
 
@@ -810,47 +826,47 @@ export default function PricingPage() {
               <>
                 <div style={scrollPadStyle}>
                   <div style={heroStyle} id="pricing-recommendation-hero">
-                    <div style={heroLabelStyle}>המחיר המומלץ</div>
+                    <div style={heroLabelStyle}>{t("content.pricing.page.result.recommendedPrice")}</div>
                     <div style={heroPriceStyle}>₪{formatNis(result.priceOptions.recommended)}</div>
                     <div style={heroBadgeStyle}>
                       <TrendIcon />
-                      רווח {result.profit.percent}% · {result.profit.label}
+                      {t("content.pricing.page.result.profitBadge", { percent: result.profit.percent, label: result.profit.label })}
                     </div>
                   </div>
 
                   <div style={tiersRowStyle}>
                     <div style={tierStyle("min")}>
-                      <div style={tierLabelStyle("min")}>מינימום</div>
+                      <div style={tierLabelStyle("min")}>{t("content.pricing.page.result.minimum")}</div>
                       <div style={tierPriceStyle}>₪{formatNis(result.priceOptions.minimum)}</div>
                     </div>
                     <div style={tierStyle("rec")}>
-                      <div style={tierLabelStyle("rec")}>מומלץ</div>
+                      <div style={tierLabelStyle("rec")}>{t("content.pricing.page.result.recommended")}</div>
                       <div style={tierPriceStyle}>₪{formatNis(result.priceOptions.recommended)}</div>
                     </div>
                     <div style={tierStyle("prem")}>
-                      <div style={tierLabelStyle("prem")}>פרימיום</div>
+                      <div style={tierLabelStyle("prem")}>{t("content.pricing.page.result.premium")}</div>
                       <div style={tierPriceStyle}>₪{formatNis(result.priceOptions.premium)}</div>
                     </div>
                   </div>
 
                   <div style={breakdownStyle}>
                     <div style={breakdownRowStyle}>
-                      <span style={breakdownKeyStyle}>עלות מלאה (נקודת איזון)</span>
-                      <span style={breakdownValStyle}>₪{formatNis2(result.costBreakdown.fullCost)}</span>
+                      <span style={breakdownKeyStyle}>{t("content.pricing.page.result.fullCostBreakEven")}</span>
+                      <span style={breakdownValStyle}>{nis2(result.costBreakdown.fullCost)}</span>
                     </div>
                     <div style={breakdownRowStyle}>
-                      <span style={breakdownKeyStyle}>רווח במחיר המומלץ</span>
+                      <span style={breakdownKeyStyle}>{t("content.pricing.page.result.profitAtRecommended")}</span>
                       <span style={breakdownValStyle}>
-                        ₪{formatNis2(result.profit.amount)}
+                        {nis2(result.profit.amount)}
                         <span style={profitBadgeStyle(result.profit.indicator)}>
                           {result.profit.label}
                         </span>
                       </span>
                     </div>
                     <div style={{ ...breakdownRowStyle, ...breakdownTotalStyle, borderBottom: "none" }}>
-                      <span style={breakdownKeyStyle}>מחיר מינימום — אל תרד מתחת</span>
+                      <span style={breakdownKeyStyle}>{t("content.pricing.page.result.minimumFloor")}</span>
                       <span style={{ ...breakdownValStyle, color: TOKEN.semantic.urgent.ink }}>
-                        ₪{formatNis2(result.priceOptions.minimum)}
+                        {nis2(result.priceOptions.minimum)}
                       </span>
                     </div>
                   </div>
@@ -858,7 +874,7 @@ export default function PricingPage() {
                   {hasMarketInput && result.marketCheck?.status !== "UNKNOWN" ? (
                     <div style={marketNoteStyle}>
                       <CheckIcon />
-                      {marketStatusText(result.marketCheck?.status) ?? ""}
+                      {marketStatusText(t, result.marketCheck?.status) ?? ""}
                     </div>
                   ) : null}
 
@@ -873,53 +889,57 @@ export default function PricingPage() {
                     onClick={() => setDetailsOpen((o) => !o)}
                     aria-expanded={detailsOpen}
                   >
-                    <span>פירוט חישוב מלא</span>
+                    <span>{t("content.pricing.page.result.fullDetails")}</span>
                     <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                   </button>
 
                   {detailsOpen && result.transparency ? (
                     <div style={{ marginTop: TOKEN.space.lg }}>
-                      <div style={sectionLabelStyle}>פירוק עלות</div>
+                      <div style={sectionLabelStyle}>{t("content.pricing.page.result.costBreakdown")}</div>
                       <div style={breakdownStyle}>
                         <div style={breakdownRowStyle}>
-                          <span style={breakdownKeyStyle}>חומרים</span>
+                          <span style={breakdownKeyStyle}>{t("content.pricing.page.result.materials")}</span>
                           <span style={breakdownValStyle}>
-                            ₪{formatNis2(result.transparency.cost.breakdown.materials)}
+                            {nis2(result.transparency.cost.breakdown.materials)}
                           </span>
                         </div>
                         <div style={breakdownRowStyle}>
                           <span style={breakdownKeyStyle}>
-                            עבודה
+                            {t("content.pricing.page.result.labor")}
                             {calcLaborMinutes && calcHourlyRate
-                              ? ` (${calcLaborMinutes} דק׳ × ₪${calcHourlyRate}/ש׳)`
+                              ? t("content.pricing.page.result.laborDetail", { minutes: calcLaborMinutes, rate: calcHourlyRate })
                               : ""}
                           </span>
                           <span style={breakdownValStyle}>
-                            ₪{formatNis2(result.transparency.cost.breakdown.labor)}
+                            {nis2(result.transparency.cost.breakdown.labor)}
                           </span>
                         </div>
                         <div style={breakdownRowStyle}>
                           <span style={breakdownKeyStyle}>
-                            הוצאות כלליות ({calcOverheadPercent || 10}%)
+                            {t("content.pricing.page.result.overheadPercent", { percent: calcOverheadPercent || 10 })}
                           </span>
                           <span style={breakdownValStyle}>
-                            ₪{formatNis2(result.transparency.cost.breakdown.overhead)}
+                            {nis2(result.transparency.cost.breakdown.overhead)}
                           </span>
                         </div>
                         <div style={{ ...breakdownRowStyle, ...breakdownTotalStyle, borderBottom: "none" }}>
-                          <span style={breakdownKeyStyle}>עלות מלאה</span>
+                          <span style={breakdownKeyStyle}>{t("content.pricing.page.result.fullCost")}</span>
                           <span style={breakdownValStyle}>
-                            ₪{formatNis2(result.transparency.cost.total)}
+                            {nis2(result.transparency.cost.total)}
                           </span>
                         </div>
                       </div>
 
-                      <div style={sectionLabelStyle}>סימולציית רווח</div>
+                      <div style={sectionLabelStyle}>{t("content.pricing.page.result.profitSimulation")}</div>
                       <div style={breakdownStyle}>
                         {(["minimum", "recommended", "premium"] as const).map((key, idx, arr) => {
                           const sim = result.transparency!.simulations[key];
                           const name =
-                            key === "minimum" ? "מינימום" : key === "recommended" ? "מומלץ" : "פרימיום";
+                            key === "minimum"
+                              ? t("content.pricing.page.result.minimum")
+                              : key === "recommended"
+                                ? t("content.pricing.page.result.recommended")
+                                : t("content.pricing.page.result.premium");
                           return (
                             <div
                               key={key}
@@ -932,10 +952,10 @@ export default function PricingPage() {
                               <span style={{ flex: 1 }}>
                                 <span style={simNameStyle}>{name}</span>
                                 <span style={simSubStyle}>
-                                  רווח ₪{formatNis2(sim.profitValue)} · {sim.profitPercent}%
+                                  {t("content.pricing.page.result.simProfit", { amount: nis2(sim.profitValue), percent: sim.profitPercent })}
                                 </span>
                               </span>
-                              <span style={simPriceStyle}>₪{formatNis2(sim.price)}</span>
+                              <span style={simPriceStyle}>{nis2(sim.price)}</span>
                             </div>
                           );
                         })}
@@ -943,7 +963,7 @@ export default function PricingPage() {
 
                       {result.transparency.market ? (
                         <>
-                          <div style={sectionLabelStyle}>מיקום בשוק</div>
+                          <div style={sectionLabelStyle}>{t("content.pricing.page.result.marketPosition")}</div>
                           <MarketBar market={result.transparency.market} price={result.priceOptions.recommended} />
                         </>
                       ) : null}
@@ -970,7 +990,7 @@ export default function PricingPage() {
                     disabled={savingProfile}
                     onClick={() => void handleSaveProfileDefaults()}
                   >
-                    {savingProfile ? "שומר…" : "שמור עלויות לפריט"}
+                    {savingProfile ? t("content.pricing.page.saving") : t("content.pricing.page.result.saveCosts")}
                   </button>
                   <button
                     type="button"
@@ -978,7 +998,7 @@ export default function PricingPage() {
                     className="pricing-pressable"
                     onClick={openCatalog}
                   >
-                    לקטלוג
+                    {t("content.pricing.page.toCatalog")}
                   </button>
                 </div>
               </>
@@ -995,9 +1015,9 @@ export default function PricingPage() {
                   <CheckIcon size={44} color={TOKEN.semantic.success.ink} />
                 </div>
                 <div style={{ ...centerTitleStyle, fontSize: TOKEN.font.display }}>
-                  העלויות נשמרו לפריט
+                  {t("content.pricing.page.saved.title")}
                 </div>
-                <div style={centerSubStyle}>בפעם הבאה החישוב ייטען עם העלויות האלה</div>
+                <div style={centerSubStyle}>{t("content.pricing.page.saved.sub")}</div>
                 <div style={successActionsStyle}>
                   <button
                     type="button"
@@ -1007,7 +1027,7 @@ export default function PricingPage() {
                       if (selectedItemId) openCalculate(selectedItemId);
                     }}
                   >
-                    תמחר שוב
+                    {t("content.pricing.page.saved.again")}
                   </button>
                   <button
                     type="button"
@@ -1015,7 +1035,7 @@ export default function PricingPage() {
                     className="pricing-pressable"
                     onClick={openCatalog}
                   >
-                    לקטלוג
+                    {t("content.pricing.page.toCatalog")}
                   </button>
                 </div>
               </div>
@@ -1028,14 +1048,14 @@ export default function PricingPage() {
           <>
             <div style={detailHeadStyle}>
               <BackButton />
-              <div style={detailTitleStyle}>פריט חדש</div>
+              <div style={detailTitleStyle}>{t("content.pricing.page.create.title")}</div>
               <div style={iconBtnSpacerStyle} />
             </div>
 
-            <div style={stepsRowStyle} aria-label={`שלב ${createStep} מתוך 2`}>
-              <span style={stepPillStyle(createStep >= 1)}>פרטים</span>
-              <span style={stepArrowStyle}>›</span>
-              <span style={stepPillStyle(createStep >= 2)}>עלויות</span>
+            <div style={stepsRowStyle} aria-label={t("content.pricing.page.create.stepOf", { step: createStep })}>
+              <span style={stepPillStyle(createStep >= 1)}>{t("content.pricing.page.create.stepDetails")}</span>
+              <span style={stepArrowStyle}>{t("content.pricing.page.create.stepArrow")}</span>
+              <span style={stepPillStyle(createStep >= 2)}>{t("content.pricing.page.create.stepCosts")}</span>
             </div>
 
             {createError ? (
@@ -1049,34 +1069,34 @@ export default function PricingPage() {
                 <>
                   <Field
                     id="new-name"
-                    label="שם הפריט"
+                    label={t("content.pricing.page.create.name")}
                     value={newItemName}
                     onChange={setNewItemName}
-                    placeholder="לדוגמה: ייעוץ אסטרטגי"
+                    placeholder={t("content.pricing.page.create.namePlaceholder")}
                     numeric={false}
                   />
                   <div style={fieldStyle}>
-                    <span style={labelStyle}>סוג</span>
+                    <span style={labelStyle}>{t("content.pricing.page.create.type")}</span>
                     <div style={segStyle}>
                       <button
                         type="button"
                         style={segBtnStyle(newItemType === "SERVICE")}
                         onClick={() => setNewItemType("SERVICE")}
                       >
-                        שירות
+                        {t("content.pricing.page.typeService")}
                       </button>
                       <button
                         type="button"
                         style={segBtnStyle(newItemType === "PRODUCT")}
                         onClick={() => setNewItemType("PRODUCT")}
                       >
-                        מוצר
+                        {t("content.pricing.page.typeProduct")}
                       </button>
                     </div>
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle} htmlFor="new-cat">
-                      קטגוריה <span style={labelUnitStyle}>(אופציונלי)</span>
+                      {t("content.pricing.page.create.category")} <span style={labelUnitStyle}>{t("content.pricing.page.create.optionalParen")}</span>
                     </label>
                     <select
                       id="new-cat"
@@ -1085,10 +1105,10 @@ export default function PricingPage() {
                       value={newItemCategory}
                       onChange={(e) => setNewItemCategory(e.target.value)}
                     >
-                      <option value="">בחרו קטגוריה</option>
+                      <option value="">{t("content.pricing.page.create.chooseCategory")}</option>
                       {CREATE_CATEGORIES.map((cat) => (
                         <option key={cat} value={cat}>
-                          {cat}
+                          {CREATE_CATEGORY_LABELS[cat] ? t(CREATE_CATEGORY_LABELS[cat]) : cat}
                         </option>
                       ))}
                     </select>
@@ -1098,9 +1118,9 @@ export default function PricingPage() {
 
               {createStep === 2 ? (
                 <>
-                  <p style={{ ...sectionLabelStyle, paddingTop: TOKEN.space.lg }}>עלויות</p>
+                  <p style={{ ...sectionLabelStyle, paddingTop: TOKEN.space.lg }}>{t("content.pricing.page.create.costs")}</p>
                   <p style={{ ...hintStyle, padding: `0 ${TOKEN.space.xl}px`, marginTop: 0 }}>
-                    ארבעה מספרים — הבסיס לחישוב המחיר
+                    {t("content.pricing.page.create.costsHint")}
                   </p>
                   {renderCostFields(
                     "new",
@@ -1126,7 +1146,7 @@ export default function PricingPage() {
                 onClick={() => {
                   if (createStep === 1) {
                     if (!newItemName.trim()) {
-                      setCreateError("נא למלא שם לפריט");
+                      setCreateError(t("content.pricing.page.errors.nameRequired"));
                       return;
                     }
                     setCreateError(null);
@@ -1136,7 +1156,7 @@ export default function PricingPage() {
                   void handleCreateItem();
                 }}
               >
-                {creatingItem ? "שומר…" : createStep < 2 ? "המשך לעלויות" : "צור פריט"}
+                {creatingItem ? t("content.pricing.page.saving") : createStep < 2 ? t("content.pricing.page.create.continue") : t("content.pricing.page.create.submit")}
               </button>
               <button
                 type="button"
@@ -1144,7 +1164,7 @@ export default function PricingPage() {
                 className="pricing-pressable"
                 onClick={openCatalog}
               >
-                ביטול
+                {t("content.pricing.page.cancel")}
               </button>
             </div>
           </>
@@ -1159,7 +1179,7 @@ export default function PricingPage() {
               <CheckIcon size={44} color={TOKEN.semantic.success.ink} />
             </div>
             <div style={{ ...centerTitleStyle, fontSize: TOKEN.font.display }}>
-              הפריט נוסף בהצלחה
+              {t("content.pricing.page.create.success")}
             </div>
             <div style={successActionsStyle}>
               <button
@@ -1170,7 +1190,7 @@ export default function PricingPage() {
                   if (selectedItemId) openCalculate(selectedItemId);
                 }}
               >
-                תמחור עכשיו
+                {t("content.pricing.page.create.priceNow")}
               </button>
               <button
                 type="button"
@@ -1178,7 +1198,7 @@ export default function PricingPage() {
                 className="pricing-pressable"
                 onClick={openCatalog}
               >
-                לקטלוג
+                {t("content.pricing.page.toCatalog")}
               </button>
             </div>
           </div>
@@ -1242,6 +1262,7 @@ function MarketBar({
       : span > 0
         ? (price - market.low) / span
         : 0;
+  const { t, dir } = useI18n();
   const ratio = Math.min(1, Math.max(0, rawRatio));
   const pct = `${Math.round(ratio * 100)}%`;
 
@@ -1249,12 +1270,19 @@ function MarketBar({
     <div style={{ margin: `0 ${TOKEN.space.xl}px` }}>
       <div style={marketLabelsStyle}>
         <span>₪{formatNis(market.low)}</span>
-        <span style={{ color: TOKEN.semantic.success.ink }}>המחיר שלך ₪{formatNis(price)}</span>
+        <span style={{ color: TOKEN.semantic.success.ink }}>{t("content.pricing.page.market.yourPrice", { price: formatNis(price) })}</span>
         <span>₪{formatNis(market.high)}</span>
       </div>
       <div style={marketTrackStyle}>
-        <div style={{ ...marketFillStyle, right: 0, width: pct }} />
-        <div style={{ ...marketDotStyle, right: pct }} />
+        <div style={{ ...marketFillStyle, insetInlineStart: 0, width: pct }} />
+        <div
+          style={{
+            ...marketDotStyle,
+            insetInlineStart: pct,
+            // Centre the dot on its inline-start offset (physical right in RTL, left in LTR).
+            transform: dir === "rtl" ? "translateX(50%)" : "translateX(-50%)",
+          }}
+        />
       </div>
     </div>
   );
@@ -1280,6 +1308,9 @@ function PricingGlobalStyles() {
         border-color: ${TOKEN.brand.mid};
         background: ${TOKEN.surface.card};
         box-shadow: 0 0 0 3px ${TOKEN.brand.focus};
+      }
+      .pricing-chev:dir(ltr) {
+        transform: scaleX(-1);
       }
       .pricing-pressable {
         transition: opacity ${TOKEN.transition.fast}, transform ${TOKEN.transition.fast};
@@ -1386,7 +1417,7 @@ const itemStyle: CSSProperties = {
   borderRadius: TOKEN.radius.card,
   padding: TOKEN.space.lg,
   background: TOKEN.surface.card,
-  textAlign: "right",
+  textAlign: "start",
   cursor: "pointer",
   fontFamily: "inherit",
   boxShadow: TOKEN.shadow.elevated,
@@ -1582,7 +1613,7 @@ const accordionHeadStyle: CSSProperties = {
   border: "none",
   cursor: "pointer",
   fontFamily: "inherit",
-  textAlign: "right",
+  textAlign: "start",
 };
 
 const accordionBodyStyle: CSSProperties = {

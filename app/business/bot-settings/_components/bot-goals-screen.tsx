@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
 import { GOAL_CATALOG } from "@/lib/features/bot";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { botOptionLabel } from "./bot-i18n";
 import {
   AreaHeader,
   BUILDER_SHELL_MAX_WIDTH,
@@ -34,6 +36,7 @@ export function GoalLibrary({
   selected: string[];
   onToggle: (goalKey: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <>
       {GOAL_CATALOG.map((cat) => (
@@ -50,7 +53,7 @@ export function GoalLibrary({
             }}
           >
             <span aria-hidden style={{ fontSize: 16 }}>{cat.emoji}</span>
-            {cat.label}
+            {botOptionLabel(t, "goalCategory", cat.key, cat.label)}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 9, padding: "0 18px" }}>
             {cat.goals.map((goal) => {
@@ -87,7 +90,7 @@ export function GoalLibrary({
                       flexShrink: 0,
                     }}
                   />
-                  {goal.label}
+                  {botOptionLabel(t, "goal", goal.key, goal.label)}
                 </button>
               );
             })}
@@ -99,6 +102,7 @@ export function GoalLibrary({
 }
 
 export function GoalsFlagshipScreen() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -116,11 +120,11 @@ export function GoalsFlagshipScreen() {
       const goals: GoalsResponse = await goalsRes.json();
       setSelected((goals.selected ?? []).map((g) => g.goalKey));
     } catch {
-      setError("לא ניתן לטעון את מטרות הבוט");
+      setError(t("content.bot.goals.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +156,7 @@ export function GoalsFlagshipScreen() {
         body: JSON.stringify({ goals: selected }),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.bot.common.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -166,23 +170,23 @@ export function GoalsFlagshipScreen() {
       window.setTimeout(() => setSavedOk(false), 2500);
       await load();
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="מטרות הבוט"
-          subtitle="בחר כמה שתרצה - לכל מטרה Dubiz תוכל בעתיד להרכיב בסיס מתאים. אפשר לשנות הכול אחר כך."
+          title={t("content.bot.goals.title")}
+          subtitle={t("content.bot.goals.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {loading ? (
-          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <div style={{ padding: "12px 18px 0" }}>
@@ -199,14 +203,14 @@ export function GoalsFlagshipScreen() {
                   borderRadius: TOKEN.radius.pill,
                 }}
               >
-                {selected.length > 0 ? `${selected.length} מטרות נבחרו` : "טרם נבחרו מטרות"}
+                {selected.length > 0 ? t("content.bot.hub.goal.selectedMany", { count: selected.length }) : t("content.bot.hub.summary.goalsNone")}
               </span>
             </div>
 
             <GoalLibrary selected={selected} onToggle={toggle} />
 
             <GuardNote>
-              בחירת מטרה נשמרת לבוט שלך בלבד. בשלב הזה היא לא משנה את זרימת השיחה ולא מפעילה דבר - רק מתעדת מה העסק בחר.
+              {t("content.bot.goals.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -214,7 +218,7 @@ export function GoalsFlagshipScreen() {
               saving={saving}
               saved={savedOk}
               error={error}
-              saveLabel="שמור מטרות"
+              saveLabel={t("content.bot.hub.goal.save")}
             />
           </>
         )}

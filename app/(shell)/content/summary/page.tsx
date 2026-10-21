@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type ContentFlowData = {
   goal: string;
@@ -18,6 +20,7 @@ type ContentFlowData = {
 
 export default function Page() {
   const router = useRouter();
+  const { t } = useI18n();
   const [flowData, setFlowData] = useState<ContentFlowData | null>(null);
 
   useEffect(() => {
@@ -70,11 +73,11 @@ export default function Page() {
   if (!flowData) {
     return (
       <div style={baseStyles.page}>
-        <Header title="סיכום" />
+        <Header title={t("content.studioFlow.summary.headerTitle")} />
         <ProgressBar progress={90} />
 
         <div style={baseStyles.container}>
-          <div style={emptyCard}>טוען את פרטי הזרימה...</div>
+          <div style={emptyCard}>{t("content.studioFlow.summary.loading")}</div>
         </div>
       </div>
     );
@@ -82,22 +85,28 @@ export default function Page() {
 
   return (
     <div style={baseStyles.page}>
-      <Header title="סיכום" />
+      <Header title={t("content.studioFlow.summary.headerTitle")} />
       <ProgressBar progress={90} />
 
       <div style={baseStyles.container}>
-        <h1 style={{ marginBottom: 8 }}>בוא נוודא שהכל מדויק</h1>
+        <h1 style={{ marginBottom: 8 }}>{t("content.studioFlow.summary.title")}</h1>
 
         <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
-          המערכת תמשיך לבנות את התוכן לפי הבחירות שלך
+          {t("content.studioFlow.summary.subtitle")}
         </p>
 
-        {card("מטרה", mapGoal(flowData.goal))}
-        {card("מה אתה רוצה שיקרה", flowData.goalDescription)}
-        {card("פוקוס", mapIntent(flowData.intent))}
-        {card("איך התוכן יווצר", mapMode(flowData.mode))}
-        {card("קהל יעד", `${flowData.audienceDescription} • גילאים: ${flowData.ageRange}`)}
-        {card("כיוון תוכן שנבחר", mapFormat(flowData.selectedFormat || ""))}
+        {card(t("content.studioFlow.summary.cards.goal"), mapGoal(t, flowData.goal))}
+        {card(t("content.studioFlow.summary.cards.goalDescription"), flowData.goalDescription)}
+        {card(t("content.studioFlow.summary.cards.intent"), mapIntent(t, flowData.intent))}
+        {card(t("content.studioFlow.summary.cards.mode"), mapMode(t, flowData.mode))}
+        {card(
+          t("content.studioFlow.summary.cards.audience"),
+          t("content.studioFlow.summary.audienceValue", {
+            audience: flowData.audienceDescription,
+            ages: flowData.ageRange,
+          })
+        )}
+        {card(t("content.studioFlow.summary.cards.format"), mapFormat(t, flowData.selectedFormat || ""))}
       </div>
 
       <div style={baseStyles.footer}>
@@ -109,7 +118,7 @@ export default function Page() {
           onClick={handleContinue}
           disabled={!isValid}
         >
-          המשך
+          {t("content.studioFlow.common.continue")}
         </button>
       </div>
     </div>
@@ -151,59 +160,59 @@ const emptyCard = {
   borderRadius: 12,
 };
 
-function mapGoal(value: string) {
+function mapGoal(t: Translator, value: string) {
   switch (value) {
     case "leads":
-      return "לקבל פניות";
+      return t("content.studioFlow.summary.goals.leads");
     case "trust":
-      return "לבנות אמון";
+      return t("content.studioFlow.summary.goals.trust");
     case "exposure":
-      return "להגדיל חשיפה";
+      return t("content.studioFlow.summary.goals.exposure");
     case "sales":
-      return "להביא מכירות";
+      return t("content.studioFlow.summary.goals.sales");
     default:
       return value;
   }
 }
 
-function mapIntent(value: string) {
+function mapIntent(t: Translator, value: string) {
   switch (value) {
     case "message":
-      return "לשלוח הודעה";
+      return t("content.studioFlow.summary.intents.message");
     case "follow":
-      return "לעקוב";
+      return t("content.studioFlow.summary.intents.follow");
     case "watch":
-      return "לצפות";
+      return t("content.studioFlow.summary.intents.watch");
     case "sale":
-      return "למכור";
+      return t("content.studioFlow.summary.intents.sale");
     default:
       return value;
   }
 }
 
-function mapMode(value: string) {
+function mapMode(t: Translator, value: string) {
   switch (value) {
     case "camera":
-      return "אני מצטלם";
+      return t("content.studioFlow.summary.modes.camera");
     case "voice":
-      return "קריינות";
+      return t("content.studioFlow.summary.modes.voice");
     case "ai":
-      return "המערכת תיצור בשבילי";
+      return t("content.studioFlow.summary.modes.ai");
     default:
       return value;
   }
 }
 
-function mapFormat(value: string) {
+function mapFormat(t: Translator, value: string) {
   switch (value) {
     case "reel":
-      return "רילס";
+      return t("content.studioFlow.options.format.reel");
     case "video":
-      return "וידאו";
+      return t("content.studioFlow.options.format.video");
     case "image":
-      return "תמונה";
+      return t("content.studioFlow.options.format.image");
     case "post":
-      return "פוסט";
+      return t("content.studioFlow.options.format.post");
     default:
       return value;
   }

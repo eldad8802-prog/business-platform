@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
   return localStorage.getItem("token") || "1";
@@ -28,6 +30,7 @@ export function GlobalBusinessAvatar({
   displayName: string;
   size?: number;
 }) {
+  const { t } = useI18n();
   const fileRef = useRef<HTMLInputElement>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,7 +95,7 @@ export function GlobalBusinessAvatar({
     <div style={{ position: "relative", flexShrink: 0 }}>
       <button
         type="button"
-        aria-label="החלפת לוגו עסק"
+        aria-label={t("content.identity.avatar.changeLogo")}
         disabled={busy}
         onClick={() => fileRef.current?.click()}
         onMouseEnter={() => setHover(true)}
@@ -148,7 +151,7 @@ export function GlobalBusinessAvatar({
               justifyContent: "center",
             }}
           >
-            {busy ? "…" : "לוגו"}
+            {busy ? "…" : t("content.identity.avatar.logo")}
           </span>
         ) : null}
       </button>

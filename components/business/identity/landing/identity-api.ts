@@ -9,7 +9,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { getClientAuthToken, redirectToLogin } from "@/lib/client-session";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { BusinessIdentityContext } from "@/lib/services/identity/business-identity-context";
 
 function headers(json = true): Record<string, string> {
@@ -31,18 +33,20 @@ async function fetchContext(): Promise<BusinessIdentityContext | "unauthorized" 
   }
 }
 
-/** Server error text is technical English; the owner sees a plain Hebrew line instead. */
-const ERROR_TEXT: Array<[RegExp, string]> = [
-  [/At most/i, "הגעתם למספר המרבי בתחום הזה. הסירו פריט כדי להוסיף אחר."],
-  [/claim/i, "הטקסט נשמע כמו טענת אמון — כדאי להוסיף אותו כטענת אמון עם הוכחה."],
-  [/email|phone|url/i, "אי אפשר לשמור כאן פרטי קשר או קישורים — הם מגיעים מפרטי העסק."],
+/** Server error text is technical English; the owner sees a plain line in the interface language instead. */
+const ERROR_TEXT: Array<[RegExp, MessageKey]> = [
+  [/At most/i, "content.identity.errors.atMost"],
+  [/claim/i, "content.identity.errors.claimLike"],
+  [/email|phone|url/i, "content.identity.errors.contactNotAllowed"],
 ];
-function ownerError(raw: string | undefined): string {
-  if (!raw) return "הפעולה לא הצליחה. נסו שוב.";
-  return ERROR_TEXT.find(([re]) => re.test(raw))?.[1] ?? "הפעולה לא הצליחה. נסו שוב.";
+function ownerError(t: Translator, raw: string | undefined): string {
+  if (!raw) return t("content.identity.errors.generic");
+  const key = ERROR_TEXT.find(([re]) => re.test(raw))?.[1];
+  return key ? t(key) : t("content.identity.errors.generic");
 }
 
 export function useIdentityContext() {
+  const { t } = useI18n();
   const [load, setLoad] = useState<ContextLoad>({ state: "loading" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,18 +81,18 @@ export function useIdentityContext() {
         }
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
-          setError(ownerError(body.error));
+          setError(ownerError(t, body.error));
         }
         await refresh();
         return res.ok;
       } catch {
-        setError(ownerError(undefined));
+        setError(ownerError(t, undefined));
         return false;
       } finally {
         setBusy(false);
       }
     },
-    [refresh],
+    [refresh, t],
   );
 
   const actions = {

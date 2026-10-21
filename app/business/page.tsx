@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import PageHeader from "@/components/ui/page-header";
 import { TOKEN } from "@/lib/design/tokens";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
@@ -85,6 +86,7 @@ function Field({
 }
 
 export default function BusinessProfilePage() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,11 +123,11 @@ export default function BusinessProfilePage() {
       });
       setIdentityComplete(!!data?.identityComplete);
     } catch {
-      setError("לא ניתן לטעון את הפרופיל");
+      setError(t("content.identity.profile.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -146,7 +148,7 @@ export default function BusinessProfilePage() {
         body: JSON.stringify(form),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.identity.profile.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = j.error;
@@ -159,7 +161,7 @@ export default function BusinessProfilePage() {
       setSavedOk(true);
       window.setTimeout(() => setSavedOk(false), 2500);
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.identity.profile.networkError"));
     } finally {
       setSaving(false);
     }
@@ -176,15 +178,16 @@ export default function BusinessProfilePage() {
   };
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
+    <div style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
       <PageHeader
-        title="העסק שלי"
+        title={t("content.identity.profile.title")}
         showBack
       />
       <main className={desk.main}>
         <p className={desk.lead} style={{ fontSize: 14, color: "var(--dz-text-muted)", marginTop: 0 }}>
-          כאן מגדירים את <strong>זהות העסק</strong> שמופיעה במסמכים (חשבוניות,
-          הצעות מחיר וכו׳). עריכה כאן לא דרך מסמך בודד.
+          {t("content.identity.profile.leadBefore")}
+          <strong>{t("content.identity.profile.leadStrong")}</strong>
+          {t("content.identity.profile.leadAfter")}
         </p>
 
         <div
@@ -199,15 +202,16 @@ export default function BusinessProfilePage() {
             lineHeight: 1.5,
           }}
         >
-          <strong>לוגו העסק:</strong> מוגדר בעמוד{" "}
+          <strong>{t("content.identity.profile.logoStrong")}</strong>
+          {t("content.identity.profile.logoBefore")}{" "}
           <Link href="/profile" style={{ color: "inherit", fontWeight: 700 }}>
-            הפרופיל
+            {t("content.identity.profile.logoLink")}
           </Link>{" "}
-          — כפתור המצלמה ליד הלוגו. הלוגו יופיע במסמכים לאחר ההגדרה.
+          {t("content.identity.profile.logoAfter")}
         </div>
 
         {loading ? (
-          <div style={{ marginTop: 24, color: "var(--dz-text-muted)" }}>טוען…</div>
+          <div style={{ marginTop: 24, color: "var(--dz-text-muted)" }}>{t("content.identity.profile.loading")}</div>
         ) : (
           <div className={desk.stack}>
             <BusinessNameEditor />
@@ -227,7 +231,7 @@ export default function BusinessProfilePage() {
                   color: "var(--dz-text-primary)",
                 }}
               >
-                זהות עסקית
+                {t("content.identity.profile.identityTitle")}
               </h2>
               {!identityComplete ? (
                 <p
@@ -238,7 +242,7 @@ export default function BusinessProfilePage() {
                     fontWeight: 600,
                   }}
                 >
-                  חסרים פרטים להפקת חשבונית מס — השלימו את השדות למטה.
+                  {t("content.identity.profile.identityIncomplete")}
                 </p>
               ) : null}
               <div className={desk.identity}>
@@ -274,11 +278,11 @@ export default function BusinessProfilePage() {
                   color: "var(--dz-text-primary)",
                 }}
               >
-                פרטים נוספים במסמך (אופציונלי)
+                {t("content.identity.profile.extraTitle")}
               </h2>
               <div style={{ display: "grid", gap: 12 }}>
                 <Field
-                  label='מספר עוסק מורשה (אם רלוונטי)'
+                  label={t("content.identity.profile.vatNumber")}
                   value={form.billingVatNumber}
                   onChange={(v) =>
                     setForm((p) => ({ ...p, billingVatNumber: v }))
@@ -286,7 +290,7 @@ export default function BusinessProfilePage() {
                   ltr
                 />
                 <Field
-                  label="פרטי תשלום (בנק / Bit / הוראות)"
+                  label={t("content.identity.profile.paymentNote")}
                   value={form.billingPaymentNote}
                   onChange={(v) =>
                     setForm((p) => ({ ...p, billingPaymentNote: v }))
@@ -294,7 +298,7 @@ export default function BusinessProfilePage() {
                   multiline
                 />
                 <Field
-                  label="שורת פוטר (אופציונלי)"
+                  label={t("content.identity.profile.footerNote")}
                   value={form.billingFooterNote}
                   onChange={(v) =>
                     setForm((p) => ({ ...p, billingFooterNote: v }))
@@ -306,13 +310,13 @@ export default function BusinessProfilePage() {
 
             {/* Desktop only: the other places the owner shapes this business,
                 each at its canonical screen. Nothing is edited from here. */}
-            <nav className={`${desk.manage} ${desk.desktopOnly}`} aria-label="עוד בעסק שלך">
-              <h2>עוד בעסק שלך</h2>
-              <p>כל אחד מנוהל במסך משלו.</p>
-              <Link href="/business/identity">איך העסק מוצג <span>מה מייחד אתכם ולמי אתם פונים</span></Link>
-              <Link href="/business/bot">הבוט שלי <span>איך הוא עונה ללקוחות</span></Link>
-              <Link href="/revenue">הקופונים שלי <span>ההטבות שהעסק מוציא</span></Link>
-              <Link href="/settings/connections">חיבורים <span>סליקה, וואטסאפ ו-Gmail</span></Link>
+            <nav className={`${desk.manage} ${desk.desktopOnly}`} aria-label={t("content.identity.profile.manageAria")}>
+              <h2>{t("content.identity.profile.manageTitle")}</h2>
+              <p>{t("content.identity.profile.manageSub")}</p>
+              <Link href="/business/identity">{t("content.identity.profile.manageIdentity")} <span>{t("content.identity.profile.manageIdentityHint")}</span></Link>
+              <Link href="/business/bot">{t("content.identity.profile.manageBot")} <span>{t("content.identity.profile.manageBotHint")}</span></Link>
+              <Link href="/revenue">{t("content.identity.profile.manageCoupons")} <span>{t("content.identity.profile.manageCouponsHint")}</span></Link>
+              <Link href="/settings/connections">{t("content.identity.profile.manageConnections")} <span>{t("content.identity.profile.manageConnectionsHint")}</span></Link>
             </nav>
             </div>
 
@@ -353,7 +357,7 @@ export default function BusinessProfilePage() {
                   transition: "background 0.2s ease",
                 }}
               >
-                {saving ? "שומר…" : savedOk ? "נשמר ✓" : "שמור שינויים"}
+                {saving ? t("content.identity.profile.saving") : savedOk ? t("content.identity.profile.saved") : t("content.identity.profile.save")}
               </button>
               {savedOk ? (
                 <div
@@ -370,7 +374,7 @@ export default function BusinessProfilePage() {
                     textAlign: "center",
                   }}
                 >
-                  השינויים נשמרו בהצלחה
+                  {t("content.identity.profile.savedOk")}
                 </div>
               ) : null}
             </div>
@@ -385,7 +389,7 @@ export default function BusinessProfilePage() {
                 textDecoration: "none",
               }}
             >
-              למסך החשבוניות ←
+              {t("content.identity.profile.toBilling")}
             </Link>
           </div>
         )}
