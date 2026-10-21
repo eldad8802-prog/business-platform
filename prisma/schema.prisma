@@ -234,6 +234,11 @@ model Business {
   taskSeries                    TaskSeries[]
   taskSourceStates              TaskSourceState[]
   taskEvents                    TaskEvent[]
+  accountantPeriods             AccountantPeriod[]
+  accountantPackages            AccountantPackage[]
+  accountantRecipient           AccountantRecipient?
+  accountantDeliveries          AccountantDelivery[]
+  accountantEvents              AccountantWorkflowEvent[]
   taskPreferences               TaskPreferences?
   taskRequestLedger             TaskRequestLedger[]
   appointments                  Appointment[]
@@ -7193,4 +7198,142 @@ model PushSubscription {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, endpoint])
+}
+
+/// Monthly accountant workflow (migration 20261023090000). One row per business per Israeli calendar
+/// month. Composite tenant FKs, the user-same-business triggers and the partial unique indexes live in
+/// the migration only (Prisma cannot express them). All timestamps are supplied by the application.
+model AccountantPeriod {
+  id                 Int       @id @default(autoincrement())
+  businessId         Int
+  periodKey          String
+  status             String
+  readiness          Json      @default("{}")
+  contentFingerprint String?
+  latestPackageId    Int?
+  dirtyAt            DateTime?
+  evaluatedAt        DateTime?
+  leaseUntil         DateTime?
+  attempts           Int       @default(0)
+  failureCode        String?
+  notifiedStatus     String?
+  notifiedAt         DateTime?
+  remindersSent      Int       @default(0)
+  lastReminderAt     DateTime?
+  changedSinceSent   Boolean   @default(false)
+  completedAt        DateTime?
+  completionKind     String?
+  completedPackageId Int?
+  createdAt          DateTime
+  updatedAt          DateTime
+  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, periodKey])
+  @@unique([businessId, id])
+  @@index([status])
+}
+
+/// An immutable package version (DB trigger: once READY only READY → SUPERSEDED). The storage key is
+/// pinned by a CHECK to biz/<businessId>/exports/accountant/.
+model AccountantPackage {
+  id                 Int       @id @default(autoincrement())
+  businessId         Int
+  periodId           Int
+  version            Int
+  contentFingerprint String
+  status             String
+  storageKey         String?
+  sha256             String?
+  sizeBytes          Int?
+  manifest           Json      @default("{}")
+  openItemCount      Int       @default(0)
+  builtByUserId      Int?
+  leaseUntil         DateTime?
+  failureCode        String?
+  createdAt          DateTime
+  readyAt            DateTime?
+  supersededAt       DateTime?
+  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, version])
+  @@unique([businessId, id])
+  @@index([businessId, status])
+}
+
+/// The accountant who receives the package — one per business, versioned. Personal data: removed by
+/// accountant_erase_business() on account erasure.
+model AccountantRecipient {
+  businessId      Int      @id
+  name            String
+  email           String
+  version         Int      @default(1)
+  updatedByUserId Int?
+  createdAt       DateTime
+  updatedAt       DateTime
+  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// One owner approval to send one package version to one recipient version, and its outcome. The
+/// approval columns are immutable (DB trigger); the recipient snapshot may only be erased.
+model AccountantDelivery {
+  id                     Int       @id @default(autoincrement())
+  businessId             Int
+  periodId               Int
+  packageId              Int
+  packageVersion         Int
+  packageSha256          String
+  recipientVersion       Int
+  recipientName          String?
+  recipientEmail         String?
+  approvedByUserId       Int?
+  approvedAt             DateTime
+  incompleteAcknowledged Boolean
+  openItemCount          Int
+  idempotencyKey         String
+  status                 String
+  attempts               Int       @default(0)
+  nextAttemptAt          DateTime?
+  leaseUntil             DateTime?
+  failureCode            String?
+  provider               String?
+  providerMessageId      String?
+  acceptedAt             DateTime?
+  deliveredAt            DateTime?
+  failedAt               DateTime?
+  canceledAt             DateTime?
+  linkPublicId           String    @unique
+  linkTokenHash          String    @unique
+  linkExpiresAt          DateTime
+  linkRevokedAt          DateTime?
+  downloadCount          Int       @default(0)
+  firstDownloadedAt      DateTime?
+  lastDownloadedAt       DateTime?
+  createdAt              DateTime
+  updatedAt              DateTime
+  business               Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([status, nextAttemptAt])
+  @@index([businessId, periodId])
+}
+
+/// The append-only accountant trail (DB trigger refuses UPDATE / DELETE / TRUNCATE). Closed payload.
+model AccountantWorkflowEvent {
+  id             Int      @id @default(autoincrement())
+  businessId     Int
+  periodId       Int?
+  packageId      Int?
+  deliveryId     Int?
+  eventType      String
+  actor          String
+  actorUserId    Int?
+  occurredAt     DateTime
+  payload        Json     @default("{}")
+  idempotencyKey String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, periodId])
+  @@index([businessId, deliveryId])
 }

@@ -53,6 +53,8 @@ export const RETAIN_MODELS = [
   // reason the documents they describe are: the obligation to keep a fiscal record
   // does not care which software produced it.
   "historicalFiscalDocument",
+  // Monthly accountant packages: stored copies of the retained fiscal records above, for one month.
+  "accountantPackage",
   // Payables and collection. Retained in the registry since each shipped, and missing
   // here until the equality check was written — the drift that motivated it. Nothing
   // about their classification changes by appearing in this list: the registry still
@@ -146,6 +148,10 @@ export const ANONYMIZE_MODELS = [
   // (endpoint = 'erased:<id>', keys empty) and the row is revoked — the runtime holds no DELETE on the table, and
   // with no address and no keys nothing can ever be sent to that device again.
   { model: "pushSubscription", fields: { endpoint: "erased-id", p256dh: "blank", auth: "blank", revokedAt: "now" } },
+  // Monthly accountant workflow. The recipient snapshot of every send is erased in place (the delivery's
+  // approval columns are immutable and its outcome is the business's history) and every download link is
+  // revoked, so nothing of the accountant remains and no link can open again.
+  { model: "accountantDelivery", fields: { recipientName: "null", recipientEmail: "null", linkRevokedAt: "now" } },
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -245,6 +251,9 @@ export const DELETE_MODELS = [
   // Daily Tasks request fingerprints (HMAC of a request that may have carried a title). Deleted under the
   // tenant context through its tenant-scoped DELETE policy (task_request_ledger_runtime_delete).
   "taskRequestLedger",
+  // The accountant recipient of the monthly package (a third person's name and address). Deleted under the
+  // tenant context through its tenant-scoped DELETE policy (accountant_recipient_runtime_delete).
+  "accountantRecipient",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.

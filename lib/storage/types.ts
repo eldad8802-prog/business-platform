@@ -7,6 +7,8 @@ export const STORAGE_DOMAINS = [
   "crm",
   /** P3-A — private supporting documents of owner trust claims (licence / certificate scans). */
   "trust",
+  /** Monthly accountant packages — PRIVATE generated ZIPs, keyed biz/{id}/exports/accountant/{YYYY-MM}/… */
+  "exports",
 ] as const;
 
 export type StorageDomain = (typeof STORAGE_DOMAINS)[number];

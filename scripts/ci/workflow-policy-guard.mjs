@@ -108,6 +108,12 @@ export const SANCTIONED = [
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: daily 7-day purge of task request fingerprints / journal digests for every business; bound to production-db, main-only, inert until TASK_RETENTION_ENABLED; EXECUTE on the two operational functions only",
   },
+  {
+    rule: "WP-5",
+    file: "accountant-sweep.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: hourly monthly-accountant sweep (1st-of-month preparation, re-evaluation, reminders, retries of owner-approved sends); CRON authority bound to the `cron` environment, main-only, inert until vars.ACCOUNTANT_SWEEP_ENABLED and the route's ACCOUNTANT_SWEEP_ENABLED",
+  },
 ];
 
 /** Remove exactly-sanctioned violations from `found`; a sanctioned entry with no violation is stale. */

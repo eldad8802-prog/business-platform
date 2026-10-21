@@ -14,6 +14,7 @@ import {
   loadStalePaymentLinks,
 } from "./loaders";
 import { finalizeBusinessStatusItem } from "./priority";
+import { loadAccountantAttention } from "@/lib/accountant/attention";
 import { evaluatePaperworkInsight } from "./paperwork-insight";
 import type { Locale } from "@/lib/i18n/config";
 import type { Translator } from "@/lib/i18n/translate";
@@ -74,6 +75,7 @@ export async function getBusinessStatusSnapshot(
     payablesDueSoonRows,
     staleDraftRows,
     stalePaymentLinkRows,
+    accountantItems,
     paperworkInsight,
   ] = await Promise.all([
     loadAttentionPendingSuggestions(businessId, excludeConvIds),
@@ -87,6 +89,8 @@ export async function getBusinessStatusSnapshot(
     loadPayablesDueSoon(businessId, now),
     loadBillingStaleDrafts(businessId, now),
     loadStalePaymentLinks(businessId, now),
+    // The monthly accountant workflow (fail-open: no items when the feature is off or unavailable).
+    loadAccountantAttention(businessId, now),
     paperworkInsightPromise,
   ]);
 
@@ -103,6 +107,7 @@ export async function getBusinessStatusSnapshot(
     ...translatePayablesDueSoon(payablesDueSoonRows, now, t, locale),
     ...translateBillingStaleDrafts(staleDraftRows, now, t, locale),
     ...translateStalePaymentLinks(stalePaymentLinkRows, now, t, locale),
+    ...accountantItems,
   ];
 
   const items = builds

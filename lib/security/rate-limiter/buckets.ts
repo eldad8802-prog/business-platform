@@ -50,6 +50,24 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 120, windowSeconds: 60 * 60 },
     ],
   },
+  // The accountant's download link (public; the secret travels in the body). Per IP: guessing is cut
+  // off long before it could matter (the secret is 256 bits), and an accountant opening the link a few
+  // times is never blocked. Fail-CLOSED: a Redis blip must not lift the limit on a public door.
+  ACCOUNTANT_LINK_PUBLIC: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 20, windowSeconds: 60 },
+      { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
+    ],
+  },
+  // Owner send approvals to an external recipient. Fail-CLOSED: sending is the consequential action.
+  ACCOUNTANT_SEND: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 10, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 20, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
   // Regular Documents read API (inbox / list). Keyed by user.
   DOCUMENTS_API: {
     failMode: "open",

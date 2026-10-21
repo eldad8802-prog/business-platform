@@ -1,0 +1,121 @@
+# Monthly accountant workflow (Option B) — the application on top of migration 20261023090000_accountant_month_close
+# (PR-2; the migration and its own proofs are PR-1, accountant-month-close-lab.yml).
+#
+# JOB unit — no database:
+#   period boundaries (both Israeli DST changes, the quarter / year export defects), package scope and readiness, the
+#   workflow rules, the notification policy table, the erasure contract, the static guards (AST tenant access, workflow
+#   policy, account deletion, test coverage).
+#
+# JOB app — ephemeral PG17 in Production's role topology (.acct/lab.sh), the real migration applied by migrate deploy:
+#   the application end to end AS app_runtime_prod, with the database session in Asia/Jerusalem and tenant RLS on
+#   every table the workflow reads — prepare, package contents, notices, /attention, Home status, approval bindings,
+#   sending (fake provider), the link, provider events, a failure, a recipient change, a change after sending, the sweep.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network (the email provider is a fake in-process).
+
+name: accountant month close — application (unit + ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/accountant/**"
+      - "lib/reports/**"
+      - "components/accountant/**"
+      - "app/api/accountant/**"
+      - "app/api/webhooks/resend/**"
+      - "app/api/reports/**"
+      - "app/a/**"
+      - "app/(shell)/documents/accountant-pack/**"
+      - "lib/notifications/**"
+      - "lib/business-status/**"
+      - "lib/services/tasks/**"
+      - "features/tasks/**"
+      - "lib/services/account/**"
+      - "lib/storage/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261023090000_accountant_month_close/**"
+      - ".acct/**"
+      - ".github/workflows/accountant-month-close-ci.yml"
+      - ".github/workflows/accountant-sweep.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: accountant month close — unit, guards, evidence files
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Pure proofs — periods, package scope, notification policy
+        run: |
+          set -euo pipefail
+          npx tsx lib/accountant/period.verify.test.ts
+          npx tsx lib/accountant/package-scope.verify.test.ts
+          npx tsx lib/accountant/workflow.verify.test.ts
+          npx tsx lib/notifications/notification-policy.verify.test.ts
+          npx tsx lib/data-transfer/format/format.verify.test.ts
+          npx tsx lib/reports/accountant-export-collect.verify.test.ts
+      - name: Static guards
+        run: |
+          set -euo pipefail
+          node scripts/ci/ast-security-guard.mjs .
+          node scripts/ci/workflow-policy-guard.mjs
+          bash scripts/ci/account-deletion-guard.sh .
+          npm run verify:erasure-contract -- --baseline-check
+          node scripts/ci/security-test-coverage.mjs
+
+  app:
+    name: accountant month close — the application AS the runtime role (PG17, real migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: acct_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: acct_ci_synthetic_super_pw
+      LAB_PASSWORD: acct_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Application battery — prepare, notify, approve, send (fake provider), link, provider events, sweep
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_app --with-acct
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
+            npx tsx .acct/app-battery.ts
+
