@@ -136,7 +136,7 @@ export default function OnboardingPage() {
               <option value="">{t("account.onboarding.categoryPlaceholder")}</option>
               {categoryOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -185,7 +185,7 @@ export default function OnboardingPage() {
               </option>
               {availableSubCategories.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -230,7 +230,7 @@ export default function OnboardingPage() {
             >
               {businessModelOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>

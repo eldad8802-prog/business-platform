@@ -32,6 +32,8 @@
  * anything that already works.
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import {
   evaluateLeadFollowUp,
   isClosedLeadStatus,
@@ -138,6 +140,9 @@ function dayDelta(from: Date, to: Date): number {
   return Math.round((toUtc(leadDayKey(to)) - toUtc(leadDayKey(from))) / 86_400_000);
 }
 
+/** Hebrew translator — the default wherever a caller passes no `t` (the output it always was). */
+const HE_T: Translator = createTranslator(he);
+
 const NOTHING: LeadAttention = {
   needsAttention: false,
   reason: null,
@@ -156,9 +161,10 @@ const NOTHING: LeadAttention = {
  */
 export function evaluateLeadAttention(
   input: LeadAttentionInput,
-  now: Date
+  now: Date,
+  t: Translator = HE_T
 ): LeadAttention {
-  const base = evaluateCoreAttention(input, now);
+  const base = evaluateCoreAttention(input, now, t);
   if (isClosedLeadStatus(input.status)) return base;
   const suggestion = suggestNextAction(
     {
@@ -170,7 +176,8 @@ export function evaluateLeadAttention(
       openIdentityProposals: input.openIdentityProposals,
       dismissedRuleIds: input.dismissedRuleIds,
     },
-    now
+    now,
+    t
   );
   return {
     ...base,
@@ -181,7 +188,8 @@ export function evaluateLeadAttention(
 
 function evaluateCoreAttention(
   input: LeadAttentionInput,
-  now: Date
+  now: Date,
+  t: Translator
 ): LeadAttention {
   // A decided lead asks nothing of anyone.
   if (isClosedLeadStatus(input.status)) return NOTHING;
@@ -193,7 +201,7 @@ function evaluateCoreAttention(
       needsAttention: true,
       reason: "FOLLOWUP_OVERDUE",
       priority: Math.min(95, 80 + Math.min(followUp.overdueDays, 15)),
-      nextAction: { kind: "complete_followup", label: "חזרו אליו — המעקב באיחור" },
+      nextAction: { kind: "complete_followup", label: t("insights.leads.nextAction.overdue") },
     };
   }
 
@@ -207,7 +215,7 @@ function evaluateCoreAttention(
         needsAttention: true,
         reason: "CUSTOMER_CALLED",
         priority: 78,
-        nextAction: { kind: "call_back", label: "הלקוח התקשר — חזרו אליו" },
+        nextAction: { kind: "call_back", label: t("insights.leads.nextAction.customerCalled") },
       };
     }
   }
@@ -228,7 +236,7 @@ function evaluateCoreAttention(
       needsAttention: true,
       reason: "CUSTOMER_WROTE",
       priority: 75,
-      nextAction: { kind: "set_followup", label: "הלקוח כתב — ענו לו" },
+      nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.customerWrote") },
     };
   }
 
@@ -237,7 +245,7 @@ function evaluateCoreAttention(
       needsAttention: true,
       reason: "FOLLOWUP_DUE_TODAY",
       priority: 70,
-      nextAction: { kind: "complete_followup", label: "היום צריך לחזור אליו" },
+      nextAction: { kind: "complete_followup", label: t("insights.leads.nextAction.dueToday") },
     };
   }
 
@@ -247,7 +255,7 @@ function evaluateCoreAttention(
       needsAttention: true,
       reason: "AWAITING_OWNER_DECISION",
       priority: 66,
-      nextAction: { kind: "set_followup", label: "אשרו למי שייך הליד" },
+      nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.awaitingOwner") },
     };
   }
 
@@ -259,7 +267,7 @@ function evaluateCoreAttention(
         needsAttention: true,
         reason: "NEW_UNHANDLED",
         priority: Math.min(65, 45 + Math.min(age, 20)),
-        nextAction: { kind: "contact_new_lead", label: "ליד חדש — צרו קשר" },
+        nextAction: { kind: "contact_new_lead", label: t("insights.leads.nextAction.newLead") },
       };
     }
   }
@@ -273,7 +281,7 @@ function evaluateCoreAttention(
         needsAttention: true,
         reason: "QUOTE_NO_ACTIVITY",
         priority: Math.min(44, 35 + Math.min(idle, 9)),
-        nextAction: { kind: "set_followup", label: "בדקו אם ההצעה התקבלה" },
+        nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.quoteNoActivity") },
       };
     }
     if ((input.status === "OPEN" || input.status === "QUALIFIED") && idle >= STALLED_AFTER_DAYS) {
@@ -281,7 +289,7 @@ function evaluateCoreAttention(
         needsAttention: true,
         reason: "STALLED",
         priority: Math.min(34, 20 + Math.min(idle - STALLED_AFTER_DAYS, 14)),
-        nextAction: { kind: "set_followup", label: "הליד תקוע — קבעו צעד הבא" },
+        nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.stalled") },
       };
     }
   }
@@ -291,32 +299,25 @@ function evaluateCoreAttention(
   if (followUp.kind === "none") {
     return {
       ...NOTHING,
-      nextAction: { kind: "set_followup", label: "קבעו מתי לחזור אליו" },
+      nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.setFollowUp") },
     };
   }
 
   return NOTHING;
 }
 
-/** Hebrew label for a reason — one wording, shared by every surface. */
-export function leadAttentionReasonLabel(reason: LeadAttentionReason): string {
+/** Label for a reason — one wording, shared by every surface (Hebrew unless a `t` is passed). */
+export function leadAttentionReasonLabel(reason: LeadAttentionReason, t: Translator = HE_T): string {
   switch (reason) {
     case "FOLLOWUP_OVERDUE":
-      return "מעקב באיחור";
     case "FOLLOWUP_DUE_TODAY":
-      return "מעקב להיום";
     case "CUSTOMER_CALLED":
-      return "הלקוח התקשר ולא חזרתם";
     case "NEW_UNHANDLED":
-      return "ליד חדש שלא טופל";
     case "CUSTOMER_WROTE":
-      return "הלקוח כתב";
     case "AWAITING_OWNER_DECISION":
-      return "מחכה להחלטה שלכם";
     case "QUOTE_NO_ACTIVITY":
-      return "הצעה בלי המשך";
     case "STALLED":
-      return "ליד תקוע";
+      return t(`insights.leads.reason.${reason}`);
   }
 }
 
@@ -327,30 +328,31 @@ export function leadAttentionReasonLabel(reason: LeadAttentionReason): string {
 export function leadAttentionSummary(
   attention: LeadAttention,
   followUpAt: Date | null | undefined,
-  now: Date
+  now: Date,
+  t: Translator = HE_T
 ): string {
   switch (attention.reason) {
     case "FOLLOWUP_OVERDUE": {
       const state = evaluateLeadFollowUp(followUpAt, now);
       const days = state.kind === "overdue" ? state.overdueDays : 0;
       return days === 1
-        ? "קבעתם לחזור אליו אתמול."
-        : `קבעתם לחזור אליו לפני ${days} ימים.`;
+        ? t("insights.leads.summary.overdueYesterday")
+        : t("insights.leads.summary.overdueDays", { days });
     }
     case "FOLLOWUP_DUE_TODAY":
-      return "קבעתם לחזור אליו היום.";
+      return t("insights.leads.summary.dueToday");
     case "NEW_UNHANDLED":
-      return "הליד נכנס ועדיין לא נגעתם בו.";
+      return t("insights.leads.summary.newUnhandled");
     case "CUSTOMER_WROTE":
-      return "הלקוח כתב אחרי העדכון האחרון שלכם בליד.";
+      return t("insights.leads.summary.customerWrote");
     case "CUSTOMER_CALLED":
-      return "הלקוח התקשר, השיחה לא נענתה, ולא חזרתם אליו מאז.";
+      return t("insights.leads.summary.customerCalled");
     case "AWAITING_OWNER_DECISION":
-      return "דוביז לא בטוח לאיזה לקוח הליד שייך, ומחכה לאישור שלכם.";
+      return t("insights.leads.summary.awaitingOwner");
     case "QUOTE_NO_ACTIVITY":
-      return "סומן שנשלחה הצעה, ומאז לא נרשמה פעילות על הליד.";
+      return t("insights.leads.summary.quoteNoActivity");
     case "STALLED":
-      return "לא נרשמה פעילות על הליד כבר שבוע, ואין פעולה הבאה.";
+      return t("insights.leads.summary.stalled");
     default:
       return "";
   }

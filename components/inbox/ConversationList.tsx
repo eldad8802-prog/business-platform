@@ -58,8 +58,8 @@ function conversationsCount(count: number, t: Translator): string {
     : t("inbox.list.conversationsCount", { count });
 }
 
-function resolveTitle(item: InboxItemViewModel): string {
-  return resolveConversationDisplayTitle(item);
+function resolveTitle(item: InboxItemViewModel, t: Translator): string {
+  return resolveConversationDisplayTitle(item, t);
 }
 
 function initials(name: string): string {
@@ -611,7 +611,7 @@ export function ConversationList(props: {
       ? conversations
       : conversations.filter((conversation) => {
           const item = items?.find((i) => i.conversationId === conversation.id);
-          const title = item ? resolveTitle(item) : t("inbox.list.newCustomer");
+          const title = item ? resolveTitle(item, t) : t("inbox.list.newCustomer");
           const snippet = item?.lastMessage?.snippet?.trim() ?? "";
           const haystack = `${title} ${snippet}`.toLowerCase();
           return haystack.includes(normalizedSearch);
@@ -726,7 +726,7 @@ export function ConversationList(props: {
               );
             }
 
-            const title = resolveTitle(item);
+            const title = resolveTitle(item, t);
             const snippet = item.lastMessage?.snippet?.trim() ?? "";
             const waitingLine = formatWaiting(item.waitingMinutes, t);
             const statusBadge = statusBadgeForItem(item, t);

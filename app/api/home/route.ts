@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getHomeData } from "@/features/home/services/home.service";
 import { getCurrentUser } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n/server";
 
 export async function GET(req: Request) {
   try {
@@ -19,10 +20,12 @@ export async function GET(req: Request) {
       );
     }
 
+    const { t } = await getServerI18n();
     const homeData = await getHomeData({
-      businessName: user.business?.name || "העסק שלך",
+      businessName: user.business?.name || t("insights.home.businessFallback"),
       businessId,
       ownerName: user.name ?? undefined,
+      t,
     });
 
     return NextResponse.json(homeData);

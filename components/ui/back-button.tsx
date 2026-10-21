@@ -65,16 +65,17 @@ function useTrailVersion(): number {
 
 /** What this screen's back would do right now (also usable by custom UIs). */
 export function useBackDestination(fallback?: string, fallbackLabel?: string) {
+  const { t } = useI18n();
   const pathname = usePathname() || "/";
   const version = useTrailVersion();
-  const declared = fallbackFor(pathname);
+  const declared = fallbackFor(pathname, t);
   const explicit = fallback ? toSafeInternalPath(fallback) : null;
   const fb = explicit
     ? {
         url: explicit,
         label:
           fallbackLabel ??
-          (pathnameOf(explicit) === pathnameOf(declared.url) ? declared.label : labelForDestination(explicit)),
+          (pathnameOf(explicit) === pathnameOf(declared.url) ? declared.label : labelForDestination(explicit, t)),
       }
     : declared;
   // Before the trail is known (SSR / first paint) the neutral round form is

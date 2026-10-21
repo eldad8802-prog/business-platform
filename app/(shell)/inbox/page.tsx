@@ -943,8 +943,8 @@ function InboxPageContent() {
     if (sidebarCounts.kind !== "smart" || allConversationItems === undefined) {
       return undefined;
     }
-    return buildSmartInboxCategoryRows(allConversationItems, sidebarCounts.byId);
-  }, [sidebarCounts, allConversationItems]);
+    return buildSmartInboxCategoryRows(allConversationItems, sidebarCounts.byId, t);
+  }, [sidebarCounts, allConversationItems, t]);
 
   const filteredConversations = useMemo(() => {
     if (allConversationItems === undefined) {

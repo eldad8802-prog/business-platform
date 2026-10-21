@@ -1,28 +1,32 @@
+import type { Translator } from "@/lib/i18n/translate";
+
 import type {
   AttentionPendingSuggestionRaw,
   AttentionWaitingRaw,
 } from "../loaders";
+import { STATUS_HE_T } from "../i18n";
 import type { BusinessStatusItemBuild } from "../types";
 
-function customerLabel(name: string | null): string {
-  return name && name.trim() !== "" ? name : "לקוח";
+function customerLabel(name: string | null, t: Translator): string {
+  return name && name.trim() !== "" ? name : t("insights.status.attention.customerFallback");
 }
 
 export function translateAttentionWaiting(
-  rows: AttentionWaitingRaw[]
+  rows: AttentionWaitingRaw[],
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   return rows.map((r) => {
-    const whom = customerLabel(r.customerName);
+    const whom = customerLabel(r.customerName, t);
     const summaryParts = [
-      r.snippet ? `הודעה אחרונה: ${r.snippet}` : null,
-      r.hasPendingSuggestion ? "יש הצעת תשובה פתוחה." : null,
+      r.snippet ? t("insights.status.attention.lastMessage", { snippet: r.snippet }) : null,
+      r.hasPendingSuggestion ? t("insights.status.attention.hasPendingSuggestion") : null,
     ].filter(Boolean);
 
     return {
       itemId: `inbox:waiting:${r.conversationId}`,
       domain: "inbox",
       semanticCategory: "ACTION_REQUIRED",
-      title: `${whom} ממתין למענה`,
+      title: t("insights.status.attention.waitingTitle", { whom }),
       summary: summaryParts.length > 0 ? summaryParts.join(" ") : null,
       severity: "HIGH",
       entityRef: { type: "conversation", id: r.conversationId },
@@ -30,7 +34,7 @@ export function translateAttentionWaiting(
       createdAt: r.conversationCreatedAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח את התיבה",
+        label: t("insights.status.attention.openInbox"),
         href: "/inbox",
       },
       sourceEngine: "attention-queue",
@@ -41,17 +45,18 @@ export function translateAttentionWaiting(
 }
 
 export function translateAttentionPendingSuggestions(
-  rows: AttentionPendingSuggestionRaw[]
+  rows: AttentionPendingSuggestionRaw[],
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   return rows.map((r) => {
-    const whom = customerLabel(r.customerName);
+    const whom = customerLabel(r.customerName, t);
     return {
       itemId: `inbox:pending-suggestion:${r.conversationId}`,
       domain: "inbox",
       semanticCategory: "ACTION_REQUIRED",
-      title: `הצעת תשובה ממתינה — ${whom}`,
+      title: t("insights.status.attention.pendingSuggestionTitle", { whom }),
       summary: r.suggestionSnippet
-        ? `טקסט מוצע: ${r.suggestionSnippet}`
+        ? t("insights.status.attention.suggestedText", { snippet: r.suggestionSnippet })
         : null,
       severity: "MEDIUM",
       entityRef: { type: "conversation", id: r.conversationId },
@@ -59,7 +64,7 @@ export function translateAttentionPendingSuggestions(
       createdAt: r.conversationCreatedAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח את התיבה",
+        label: t("insights.status.attention.openInbox"),
         href: "/inbox",
       },
       sourceEngine: "attention-queue",

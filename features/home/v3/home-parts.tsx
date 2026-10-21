@@ -343,7 +343,7 @@ export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
               <Icon size={22} />
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, maxWidth: "100%" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{group.label}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{t(group.labelKey)}</span>
               <span style={{ fontSize: 12, lineHeight: 1.35, color: MUTED, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{t(v.sub)}</span>
             </span>
           </Link>

@@ -46,7 +46,7 @@ export function InboxStartPane({
       {next ? (
         <button type="button" className="inbox-start-open" onClick={() => onOpen(next.conversationId)}>
           <span>
-            <b>{resolveConversationDisplayTitle(next)}</b>
+            <b>{resolveConversationDisplayTitle(next, t)}</b>
             {next.signalLabel ? <span> · {next.signalLabel}</span> : null}
           </span>
           <span aria-hidden>{t("inbox.panels.open")}</span>
@@ -109,7 +109,7 @@ export function InboxContextPane({
   ];
   return (
     <aside className="inbox-context" aria-label={t("inbox.panels.contextLabel")}>
-      <h2>{resolveConversationDisplayTitle(item)}</h2>
+      <h2>{resolveConversationDisplayTitle(item, t)}</h2>
       <dl>
         {rows
           .filter((row) => row.value)

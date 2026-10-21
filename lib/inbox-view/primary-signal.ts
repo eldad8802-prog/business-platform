@@ -2,10 +2,12 @@ import type {
   ConversationStage,
   ConversationStatus,
 } from "@prisma/client";
+import type { Translator } from "@/lib/i18n/translate";
 import type {
   PrimarySignalKind,
   SignalSeverity,
 } from "./inbox-item.types";
+import { INBOX_VIEW_HE_T } from "./inbox-view-i18n";
 
 /**
  * Pure rule-based primary signal evaluator.
@@ -51,7 +53,8 @@ export type SignalEvaluationResult = {
 };
 
 export function evaluatePrimarySignal(
-  input: SignalEvaluationInput
+  input: SignalEvaluationInput,
+  t: Translator = INBOX_VIEW_HE_T
 ): SignalEvaluationResult {
   const {
     status,
@@ -65,7 +68,7 @@ export function evaluatePrimarySignal(
   } = input;
 
   if (status !== "OPEN") {
-    return { kind: "neutral", label: "סגורה", severity: "info" };
+    return { kind: "neutral", label: t("insights.inbox.signal.closed"), severity: "info" };
   }
 
   // 1. customer_waiting — at least one unanswered inbound from the customer
@@ -75,20 +78,20 @@ export function evaluatePrimarySignal(
       const days = Math.max(1, Math.floor(waitMs / DAY_MS));
       return {
         kind: "customer_waiting",
-        label: `ממתין ${days} ימים`,
+        label: t("insights.inbox.signal.waitingDays", { days }),
         severity: "critical",
       };
     }
     if (waitMs > 4 * HOUR_MS) {
       return {
         kind: "customer_waiting",
-        label: "ממתין למענה",
+        label: t("insights.inbox.signal.waitingReply"),
         severity: "high",
       };
     }
     return {
       kind: "customer_waiting",
-      label: "ממתין למענה",
+      label: t("insights.inbox.signal.waitingReply"),
       severity: "medium",
     };
   }
@@ -104,14 +107,14 @@ export function evaluatePrimarySignal(
     if (sinceQuoteMs > 3 * DAY_MS) {
       return {
         kind: "stalled_quote",
-        label: "הצעת מחיר תקועה",
+        label: t("insights.inbox.signal.stalledQuote"),
         severity: "critical",
       };
     }
     if (sinceQuoteMs > DAY_MS) {
       return {
         kind: "stalled_quote",
-        label: "הצעת מחיר ממתינה",
+        label: t("insights.inbox.signal.pendingQuote"),
         severity: "high",
       };
     }
@@ -125,7 +128,7 @@ export function evaluatePrimarySignal(
   ) {
     return {
       kind: "hot_negotiation",
-      label: "משא ומתן חם",
+      label: t("insights.inbox.signal.hotNegotiation"),
       severity: "high",
     };
   }
@@ -141,7 +144,7 @@ export function evaluatePrimarySignal(
     if (sinceMs > 3 * DAY_MS) {
       return {
         kind: "needs_followup",
-        label: "מומלץ מעקב",
+        label: t("insights.inbox.signal.followUpRecommended"),
         severity: "medium",
       };
     }
@@ -156,7 +159,7 @@ export function evaluatePrimarySignal(
   ) {
     return {
       kind: "cooling",
-      label: "שיחה התקררה",
+      label: t("insights.inbox.signal.cooled"),
       severity: "medium",
     };
   }
@@ -169,25 +172,25 @@ export function evaluatePrimarySignal(
   ) {
     return {
       kind: "fresh_lead",
-      label: "ליד חדש",
+      label: t("insights.inbox.signal.newLead"),
       severity: "medium",
     };
   }
   if (currentStage === "NEW" || currentStage === null) {
     return {
       kind: "fresh_lead",
-      label: "ליד חדש",
+      label: t("insights.inbox.signal.newLead"),
       severity: "low",
     };
   }
   if (currentStage === "QUALIFIED") {
     return {
       kind: "fresh_lead",
-      label: "ליד פעיל",
+      label: t("insights.inbox.signal.activeLead"),
       severity: "low",
     };
   }
 
   // 7. neutral — fallback
-  return { kind: "neutral", label: "שיחה פעילה", severity: "info" };
+  return { kind: "neutral", label: t("insights.inbox.signal.active"), severity: "info" };
 }
