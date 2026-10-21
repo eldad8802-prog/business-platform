@@ -17,7 +17,8 @@ const DS = TOKEN.dsv1;
  * Read-only: it links to the lead; it never changes a stage, sends a message
  * or contacts anyone. Silent when there is nothing to say.
  */
-export function LeadsBriefingCard() {
+/** `embedded`: full width of its column, no outer margin. Content is unchanged. */
+export function LeadsBriefingCard({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useI18n();
   const [briefing, setBriefing] = useState<LeadBriefing | null>(null);
 
@@ -90,8 +91,8 @@ export function LeadsBriefingCard() {
     <section
       aria-label={t("customers.leads.briefing.ariaLabel")}
       style={{
-        margin: "16px auto",
-        width: "min(100% - 32px, 720px)",
+        margin: embedded ? 0 : "16px auto",
+        width: embedded ? "100%" : "min(100% - 32px, 720px)",
         boxSizing: "border-box",
         background: DS.card,
         border: `1px solid ${DS.line}`,

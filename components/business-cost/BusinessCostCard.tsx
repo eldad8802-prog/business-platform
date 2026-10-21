@@ -83,7 +83,8 @@ const perPeriod = (tr: Translator, r: string) =>
  * period); an unconfirmed backbone or foreign currency stays silent in the gate.
  * Nothing here interprets, recommends or decides.
  */
-export function BusinessCostCard() {
+/** `embedded`: no top margin, for a side column that sets its own gaps. Content is unchanged. */
+export function BusinessCostCard({ embedded = false }: { embedded?: boolean } = {}) {
   const { t: tr, locale } = useI18n();
   const ils = (decimal: string) => formatIls(decimal, locale);
   const [summary, setSummary] = useState<BusinessCostSummaryApi | null>(null);
@@ -154,8 +155,8 @@ export function BusinessCostCard() {
     <section
       aria-label={tr("money.businessCost.title")}
       style={{
-        // Rendered inside the Secretary home shell, in its column.
-        marginTop: 16,
+        // Rendered inside the Secretary main screen, in its column.
+        marginTop: embedded ? 0 : 16,
         width: "100%",
         boxSizing: "border-box",
         background: DS.card,
