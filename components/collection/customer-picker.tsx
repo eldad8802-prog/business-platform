@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { warmInputStyle } from "@/components/ui/warm/warm-primitives";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { collectionFetch } from "./collection-client";
 
 const W = TOKEN.warm;
@@ -11,6 +12,7 @@ export type PickedCustomer = { id: number; name: string };
 
 /** Search the business's active customers and pick one. Collection is never customer-less. */
 export function CustomerPicker({ onPick, autoFocus = true }: { onPick: (c: PickedCustomer) => void; autoFocus?: boolean }) {
+  const { t: tr } = useI18n();
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<PickedCustomer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,13 +44,13 @@ export function CustomerPicker({ onPick, autoFocus = true }: { onPick: (c: Picke
         autoFocus={autoFocus}
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="חיפוש לקוח לפי שם או טלפון"
-        aria-label="חיפוש לקוח"
+        placeholder={tr("money.collection.picker.placeholder")}
+        aria-label={tr("money.collection.picker.searchAria")}
         style={warmInputStyle()}
       />
-      <div role="listbox" aria-label="לקוחות" style={{ display: "grid", gap: 4, maxHeight: 320, overflowY: "auto" }}>
-        {loading && rows.length === 0 ? <span style={{ color: W.muted, fontSize: 14 }}>מחפש…</span> : null}
-        {!loading && rows.length === 0 ? <span style={{ color: W.muted, fontSize: 14 }}>לא נמצאו לקוחות.</span> : null}
+      <div role="listbox" aria-label={tr("money.collection.picker.listAria")} style={{ display: "grid", gap: 4, maxHeight: 320, overflowY: "auto" }}>
+        {loading && rows.length === 0 ? <span style={{ color: W.muted, fontSize: 14 }}>{tr("money.collection.picker.searching")}</span> : null}
+        {!loading && rows.length === 0 ? <span style={{ color: W.muted, fontSize: 14 }}>{tr("money.collection.picker.none")}</span> : null}
         {rows.map((c) => (
           <button
             key={c.id}

@@ -7,6 +7,8 @@ import { useEntryState } from "@/hooks/useEntryState";
 import { TOKEN } from "@/lib/design/tokens";
 import { WarmButton, WarmCard, WarmPill } from "@/components/ui/warm/warm-primitives";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 import type {
   CollectionInbox,
   InboxAttentionItem,
@@ -20,10 +22,9 @@ import {
   attentionText,
   collectionFetch,
   copyText,
-  money,
   recordCollectionAction,
   shareOrCopy,
-  shortDate,
+  useCollectionFormat,
 } from "../collection-client";
 import { CustomerPicker } from "../customer-picker";
 
@@ -31,11 +32,11 @@ const W = TOKEN.warm;
 
 type Segment = "toCollect" | "waiting" | "attention" | "paid";
 
-const SEGMENTS: { key: Segment; label: string }[] = [
-  { key: "toCollect", label: "צריך לגבות" },
-  { key: "waiting", label: "ממתין" },
-  { key: "attention", label: "דורש טיפול" },
-  { key: "paid", label: "שולם" },
+const SEGMENTS: { key: Segment; label: MessageKey }[] = [
+  { key: "toCollect", label: "money.collection.inbox.segToCollect" },
+  { key: "waiting", label: "money.collection.shared.waiting" },
+  { key: "attention", label: "money.collection.shared.needsAttention" },
+  { key: "paid", label: "money.collection.shared.paid" },
 ];
 
 /**
@@ -46,6 +47,8 @@ const SEGMENTS: { key: Segment; label: string }[] = [
  * carries its own next step. Provider names never appear here.
  */
 export function CollectionInboxScreen() {
+  const { t } = useI18n();
+  const { money, shortDate } = useCollectionFormat();
   const router = useRouter();
   const [inbox, setInbox] = useState<CollectionInbox | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,12 +75,12 @@ export function CollectionInboxScreen() {
         setSegment((s) => s ?? (data.attention.length > 0 ? "attention" : "toCollect"));
       })
       .catch(() => {
-        if (!cancelled) setError("לא הצלחנו לטעון את הגבייה. נסו שוב.");
+        if (!cancelled) setError(t("money.collection.inbox.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, t]);
 
   const counts = useMemo(
     () => ({
@@ -102,11 +105,11 @@ export function CollectionInboxScreen() {
     setBusy(true);
     try {
       await collectionFetch(`/api/payments/requests/${item.requestId}/cancel`, { method: "POST" });
-      setNotice("הבקשה בוטלה. אם הלקוח ישלם בכל זאת בקישור — התשלום יירשם.");
+      setNotice(t("money.collection.inbox.cancelled"));
       setConfirmCancel(null);
       load();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "הביטול לא הצליח");
+      setNotice(e instanceof Error ? e.message : t("money.collection.inbox.cancelFailed"));
     } finally {
       setBusy(false);
     }
@@ -121,15 +124,15 @@ export function CollectionInboxScreen() {
       );
       setNotice(
         r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED"
-          ? "הקבלה הופקה והתשלום שויך."
+          ? t("money.collection.inbox.receiptAllocated")
           : r.outcome === "RETRY_SCHEDULED"
-            ? "ננסה שוב בעוד כמה דקות."
-            : "עדיין חסר משהו כדי להפיק קבלה."
+            ? t("money.collection.inbox.retryScheduled")
+            : t("money.collection.shared.stillMissing")
       );
       setNameCustomerFor(null);
       load();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "לא הצלחנו לנסות שוב");
+      setNotice(e instanceof Error ? e.message : t("money.collection.inbox.retryFailed"));
     } finally {
       setBusy(false);
     }
@@ -156,13 +159,13 @@ export function CollectionInboxScreen() {
         { customerId: item.customerId, paymentRequestId: item.requestId },
       );
     }
-    setNotice(r === "copied" ? "הקישור הועתק." : r === "shared" ? "נפתח חלון השיתוף." : "לא הצלחנו להעתיק.");
+    setNotice(r === "copied" ? t("money.collection.shared.linkCopied") : r === "shared" ? t("money.collection.shared.shareOpened") : t("money.collection.shared.copyFailed"));
   }
 
   const paidAll = [...(inbox?.paid ?? []), ...olderPaid];
 
   return (
-    <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
+    <div style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-desk { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
         .col-desk__facts, .col-desk__table { display: none; }
@@ -188,22 +191,25 @@ export function CollectionInboxScreen() {
       <div className="col-desk">
         <header className="col-desk__side" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>גבייה</h1>
+            <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>{t("money.collection.inbox.title")}</h1>
             {inbox ? (
               <p style={{ margin: "4px 0 0", color: W.muted, fontSize: 14 }}>
                 {inbox.summary.toCollect.count > 0
-                  ? `${money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")} פתוחים אצל ${inbox.summary.toCollect.count === 1 ? "לקוח אחד" : `${inbox.summary.toCollect.count} לקוחות`}`
-                  : "אין כרגע חובות פתוחים."}
+                  ? t(inbox.summary.toCollect.count === 1 ? "money.collection.inbox.summaryOne" : "money.collection.inbox.summaryMany", {
+                      amount: money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS"),
+                      count: inbox.summary.toCollect.count,
+                    })
+                  : t("money.collection.inbox.noDebts")}
               </p>
             ) : null}
           </div>
-          <WarmButton onClick={() => router.push("/collection/new")}>גבה</WarmButton>
+          <WarmButton onClick={() => router.push("/collection/new")}>{t("money.collection.shared.collect")}</WarmButton>
           {inbox ? (
             <ul className="col-desk__facts">
-              <li><span>צריך לגבות</span><strong>{money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")}</strong></li>
-              <li><span>ממתין</span><strong>{inbox.summary.waiting.count}</strong></li>
-              <li><span>דורש טיפול</span><strong>{inbox.summary.attention.count}</strong></li>
-              <li><span>שולם לאחרונה</span><strong>{money(inbox.summary.paidRecent.amount, "ILS")}</strong></li>
+              <li><span>{t("money.collection.inbox.segToCollect")}</span><strong>{money(inbox.summary.toCollect.amount, inbox.summary.toCollect.currency ?? "ILS")}</strong></li>
+              <li><span>{t("money.collection.shared.waiting")}</span><strong>{inbox.summary.waiting.count}</strong></li>
+              <li><span>{t("money.collection.shared.needsAttention")}</span><strong>{inbox.summary.attention.count}</strong></li>
+              <li><span>{t("money.collection.inbox.paidRecent")}</span><strong>{money(inbox.summary.paidRecent.amount, "ILS")}</strong></li>
             </ul>
           ) : null}
         </header>
@@ -211,7 +217,7 @@ export function CollectionInboxScreen() {
         {notice ? (
           <div className="col-desk__span" role="status" style={{ background: W.surface2, border: `1px solid ${W.line}`, borderRadius: 12, padding: "10px 12px", color: W.ink, fontSize: 14, display: "flex", justifyContent: "space-between", gap: 8 }}>
             <span>{notice}</span>
-            <button onClick={() => setNotice(null)} aria-label="סגור הודעה" style={{ background: "none", border: 0, color: W.muted, cursor: "pointer" }}>✕</button>
+            <button onClick={() => setNotice(null)} aria-label={t("money.collection.inbox.dismissNotice")} style={{ background: "none", border: 0, color: W.muted, cursor: "pointer" }}>✕</button>
           </div>
         ) : null}
 
@@ -219,14 +225,14 @@ export function CollectionInboxScreen() {
           <WarmCard>
             <p style={{ margin: 0, color: W.ink }}>{error}</p>
             <div style={{ marginTop: 12 }}>
-              <WarmButton variant="secondary" onClick={() => load()}>נסו שוב</WarmButton>
+              <WarmButton variant="secondary" onClick={() => load()}>{t("money.collection.inbox.tryAgain")}</WarmButton>
             </div>
           </WarmCard>
         ) : null}
 
         {inbox && segment ? (
           <div className="col-desk__queue">
-            <nav role="tablist" aria-label="מצבי גבייה" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, background: W.surface2, padding: 4, borderRadius: 14 }}>
+            <nav role="tablist" aria-label={t("money.collection.inbox.tabsAria")} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, background: W.surface2, padding: 4, borderRadius: 14 }}>
               {SEGMENTS.map((s) => {
                 const active = segment === s.key;
                 return (
@@ -241,7 +247,7 @@ export function CollectionInboxScreen() {
                       fontWeight: active ? 700 : 500, boxShadow: active ? W.shadow : "none",
                     }}
                   >
-                    {s.label}
+                    {t(s.label)}
                     {counts[s.key] > 0 ? <span style={{ marginInlineStart: 6, color: s.key === "attention" ? W.clay : W.muted2 }}>{counts[s.key]}</span> : null}
                   </button>
                 );
@@ -251,30 +257,34 @@ export function CollectionInboxScreen() {
             <section role="tabpanel" style={{ display: "grid", gap: 10 }}>
               {segment === "toCollect" &&
                 (inbox.toCollect.length === 0 ? (
-                  <Empty text="אף אחד לא חייב לך כסף כרגע." />
+                  <Empty text={t("money.collection.inbox.emptyToCollect")} />
                 ) : (
                   <>
                     <div className="col-desk__table">
                       <table>
                         <thead>
                           <tr>
-                            <th>לקוח</th>
-                            <th>חשבוניות</th>
-                            <th>ממתין מאז</th>
-                            <th>יתרה</th>
+                            <th>{t("money.collection.inbox.thCustomer")}</th>
+                            <th>{t("money.collection.inbox.thInvoices")}</th>
+                            <th>{t("money.collection.inbox.thSince")}</th>
+                            <th>{t("money.collection.inbox.thBalance")}</th>
                             <th></th>
                           </tr>
                         </thead>
                         <tbody>
                           {inbox.toCollect.map((c, i) => (
                             <tr key={c.customerId ?? `u${i}`}>
-                              <td>{c.customerName ?? "לקוח ללא שם"}</td>
-                              <td>{c.invoices.length === 1 ? c.invoices[0]?.documentNumber ?? "חשבונית אחת" : `${c.invoices.length} חשבוניות`}</td>
+                              <td>{c.customerName ?? t("money.collection.shared.unnamedCustomer")}</td>
+                              <td>
+                                {c.invoices.length === 1
+                                  ? c.invoices[0]?.documentNumber ?? t("money.collection.inbox.oneInvoice")
+                                  : t("money.collection.inbox.invoicesMany", { count: c.invoices.length })}
+                              </td>
                               <td>{c.awaitingSince ? shortDate(c.awaitingSince) : "—"}</td>
                               <td>{money(c.totalOutstanding, c.currency)}</td>
                               <td>
                                 {c.customerId ? (
-                                  <WarmButton height={36} onClick={() => router.push(`/collection/new?customerId=${c.customerId}`)}>גבה</WarmButton>
+                                  <WarmButton height={36} onClick={() => router.push(`/collection/new?customerId=${c.customerId}`)}>{t("money.collection.shared.collect")}</WarmButton>
                                 ) : null}
                               </td>
                             </tr>
@@ -290,25 +300,26 @@ export function CollectionInboxScreen() {
 
               {segment === "waiting" &&
                 (inbox.waiting.length === 0 ? (
-                  <Empty text="אין בקשות תשלום פתוחות." />
+                  <Empty text={t("money.collection.inbox.emptyWaiting")} />
                 ) : (
                   inbox.waiting.map((w) => (
                     <WarmCard key={w.requestId}>
-                      <RowHead title={w.customerName ?? "לקוח"} amount={money(w.amount, w.currency)} href={w.customerId ? `/collection/c/${w.customerId}?request=${w.requestId}` : undefined} />
+                      <RowHead title={w.customerName ?? t("money.collection.shared.customer")} amount={money(w.amount, w.currency)} href={w.customerId ? `/collection/c/${w.customerId}?request=${w.requestId}` : undefined} />
                       <Meta>
-                        נוצרה בקשה ב-{shortDate(w.createdAt)}
-                        {w.invoiceNumber ? ` · חשבונית ${w.invoiceNumber}` : ""} · <WarmPill tone="waiting">ממתין</WarmPill>
+                        {t("money.collection.inbox.requestCreated", { date: shortDate(w.createdAt) })}
+                        {w.invoiceNumber ? ` · ${t("money.collection.shared.invoiceN", { number: w.invoiceNumber })}` : ""} ·{" "}
+                        <WarmPill tone="waiting">{t("money.collection.shared.waiting")}</WarmPill>
                       </Meta>
                       <Actions>
-                        {w.paymentUrl ? <WarmButton variant="secondary" height={40} onClick={() => void shareRequest(w)}>שתף שוב</WarmButton> : null}
+                        {w.paymentUrl ? <WarmButton variant="secondary" height={40} onClick={() => void shareRequest(w)}>{t("money.collection.shared.shareAgain")}</WarmButton> : null}
                         {w.paymentUrl ? (
                           <WarmButton variant="text" height={40} onClick={async () => {
                             const copied = await copyText(w.paymentUrl!);
                             if (copied) recordCollectionAction("LINK_COPIED", "CLIPBOARD", { customerId: w.customerId, paymentRequestId: w.requestId });
-                            setNotice(copied ? "הקישור הועתק." : "לא הצלחנו להעתיק.");
-                          }}>העתק קישור</WarmButton>
+                            setNotice(copied ? t("money.collection.shared.linkCopied") : t("money.collection.shared.copyFailed"));
+                          }}>{t("money.collection.inbox.copyLink")}</WarmButton>
                         ) : null}
-                        <WarmButton variant="text" height={40} onClick={() => setConfirmCancel(w)}>בטל בקשה</WarmButton>
+                        <WarmButton variant="text" height={40} onClick={() => setConfirmCancel(w)}>{t("money.collection.shared.cancelRequest")}</WarmButton>
                       </Actions>
                     </WarmCard>
                   ))
@@ -316,7 +327,7 @@ export function CollectionInboxScreen() {
 
               {segment === "attention" &&
                 (inbox.attention.length === 0 ? (
-                  <Empty text="אין כרגע דבר שדורש טיפול." />
+                  <Empty text={t("money.collection.inbox.emptyAttention")} />
                 ) : (
                   inbox.attention.map((a, i) => (
                     <AttentionRow
@@ -332,39 +343,39 @@ export function CollectionInboxScreen() {
               {segment === "paid" && (
                 <>
                   {paidAll.length === 0 ? (
-                    <Empty text="לא התקבלו תשלומים ב-30 הימים האחרונים." />
+                    <Empty text={t("money.collection.inbox.emptyPaid")} />
                   ) : (
                     paidAll.map((p) => <PaidRow key={p.paymentTransactionId ?? p.requestId} p={p} />)
                   )}
                   {olderCursor ? (
-                    <WarmButton variant="secondary" onClick={() => void loadOlder()}>הצג תשלומים קודמים</WarmButton>
+                    <WarmButton variant="secondary" onClick={() => void loadOlder()}>{t("money.collection.inbox.showOlder")}</WarmButton>
                   ) : null}
                 </>
               )}
             </section>
           </div>
         ) : !error ? (
-          <p className="col-desk__queue" style={{ color: W.muted, textAlign: "center" }}>טוען…</p>
+          <p className="col-desk__queue" style={{ color: W.muted, textAlign: "center" }}>{t("money.common.loading")}</p>
         ) : null}
       </div>
 
       <AdaptiveOverlay open={confirmCancel !== null} onClose={() => setConfirmCancel(null)} variant="confirm" labelledBy="cancel-title">
         <div style={{ padding: 20, display: "grid", gap: 12 }}>
-          <h2 id="cancel-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>לבטל את בקשת התשלום?</h2>
+          <h2 id="cancel-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>{t("money.collection.inbox.cancelTitle")}</h2>
           <p style={{ margin: 0, color: W.muted, fontSize: 14 }}>
-            Dubiz יפסיק להציג אותה כממתינה. אם הלקוח ישלם בכל זאת בקישור — התשלום יירשם וקבלה תופק.
+            {t("money.collection.inbox.cancelBody")}
           </p>
           <div style={{ display: "flex", gap: 8 }}>
-            <WarmButton disabled={busy} onClick={() => confirmCancel && void cancelRequest(confirmCancel)}>בטל בקשה</WarmButton>
-            <WarmButton variant="text" onClick={() => setConfirmCancel(null)}>חזרה</WarmButton>
+            <WarmButton disabled={busy} onClick={() => confirmCancel && void cancelRequest(confirmCancel)}>{t("money.collection.shared.cancelRequest")}</WarmButton>
+            <WarmButton variant="text" onClick={() => setConfirmCancel(null)}>{t("money.collection.shared.back")}</WarmButton>
           </div>
         </div>
       </AdaptiveOverlay>
 
       <AdaptiveOverlay open={nameCustomerFor !== null} onClose={() => setNameCustomerFor(null)} variant="form" labelledBy="name-customer-title">
         <div style={{ padding: 20, display: "grid", gap: 12 }}>
-          <h2 id="name-customer-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>מי שילם?</h2>
-          <p style={{ margin: 0, color: W.muted, fontSize: 14 }}>בחרו את הלקוח, ו-Dubiz יפיק לו את הקבלה על התשלום שהתקבל.</p>
+          <h2 id="name-customer-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>{t("money.collection.inbox.whoPaid")}</h2>
+          <p style={{ margin: 0, color: W.muted, fontSize: 14 }}>{t("money.collection.inbox.whoPaidBody")}</p>
           <CustomerPicker onPick={(c) => nameCustomerFor !== null && void retrySettlement(nameCustomerFor, c.id)} />
         </div>
       </AdaptiveOverlay>
@@ -395,27 +406,29 @@ function Actions({ children }: { children: React.ReactNode }) {
 }
 
 function DebtRow({ c }: { c: InboxDebtCustomer }) {
+  const { t } = useI18n();
+  const { money, shortDate } = useCollectionFormat();
   const router = useRouter();
   const invoiceCount = c.invoices.length;
   return (
     <WarmCard>
       <RowHead
-        title={c.customerName ?? "לקוח ללא שם"}
+        title={c.customerName ?? t("money.collection.shared.unnamedCustomer")}
         amount={money(c.totalOutstanding, c.currency)}
         href={c.customerId ? `/collection/c/${c.customerId}` : undefined}
       />
       <Meta>
-        {invoiceCount === 1 ? "חשבונית אחת פתוחה" : `${invoiceCount} חשבוניות פתוחות`}
-        {c.awaitingSince ? ` · ממתין מאז ${shortDate(c.awaitingSince)}` : ""}
-        {c.openRequestCount > 0 ? " · יש כבר בקשת תשלום פתוחה" : ""}
+        {invoiceCount === 1 ? t("money.collection.inbox.debtOneOpen") : t("money.collection.inbox.debtManyOpen", { count: invoiceCount })}
+        {c.awaitingSince ? ` · ${t("money.collection.inbox.waitingSince", { date: shortDate(c.awaitingSince) })}` : ""}
+        {c.openRequestCount > 0 ? ` · ${t("money.collection.inbox.hasOpenRequest")}` : ""}
       </Meta>
       <Actions>
         {c.customerId ? (
           <WarmButton height={40} onClick={() => router.push(`/collection/new?customerId=${c.customerId}`)}>
-            גבה {money(c.totalOutstanding, c.currency)}
+            {t("money.collection.inbox.collectAmount", { amount: money(c.totalOutstanding, c.currency) })}
           </WarmButton>
         ) : (
-          <span style={{ color: W.muted, fontSize: 13 }}>שייכו את החשבוניות ללקוח כדי לגבות.</span>
+          <span style={{ color: W.muted, fontSize: 13 }}>{t("money.collection.inbox.assignToCollect")}</span>
         )}
       </Actions>
     </WarmCard>
@@ -433,21 +446,24 @@ function AttentionRow({
   onRetry: (ptx: number) => void;
   onNameCustomer: (ptx: number) => void;
 }) {
+  const { t } = useI18n();
+  const { money } = useCollectionFormat();
   const router = useRouter();
   const r = a.request;
   const thread = r.customerId ? `/collection/c/${r.customerId}?request=${r.requestId}` : undefined;
   if (a.kind === "PAYMENT_FAILED" || a.kind === "LINK_EXPIRED") {
     return (
       <WarmCard>
-        <RowHead title={r.customerName ?? "לקוח"} amount={money(r.amount, r.currency)} href={thread} />
+        <RowHead title={r.customerName ?? t("money.collection.shared.customer")} amount={money(r.amount, r.currency)} href={thread} />
         <Meta>
-          <WarmPill tone="late">{a.kind === "PAYMENT_FAILED" ? "נכשל" : "הקישור פג תוקף"}</WarmPill>
-          {a.kind === "PAYMENT_FAILED" ? " התשלום לא אושר אצל חברת הסליקה." : " הלקוח כבר לא יכול לשלם בקישור הזה."}
+          <WarmPill tone="late">{a.kind === "PAYMENT_FAILED" ? t("money.collection.shared.failed") : t("money.collection.inbox.linkExpired")}</WarmPill>
+          {" "}
+          {a.kind === "PAYMENT_FAILED" ? t("money.collection.inbox.failedBody") : t("money.collection.inbox.expiredBody")}
         </Meta>
         <Actions>
           {r.customerId ? (
             <WarmButton height={40} onClick={() => router.push(`/collection/new?customerId=${r.customerId}${r.invoiceId ? `&invoiceId=${r.invoiceId}` : ""}`)}>
-              שלח בקשה חדשה
+              {t("money.collection.inbox.sendNewRequest")}
             </WarmButton>
           ) : null}
         </Actions>
@@ -455,20 +471,20 @@ function AttentionRow({
     );
   }
   if (a.kind === "RECEIPT_ATTENTION") {
-    const t = attentionText(a.reason);
+    const att = attentionText(a.reason, t);
     return (
       <WarmCard>
-        <RowHead title={r.customerName ?? "תשלום שהתקבל"} amount={money(r.amount, r.currency)} href={thread} />
-        <Meta><WarmPill tone="partial">דורש טיפול</WarmPill> {t.title}. הכסף התקבל ונרשם.</Meta>
+        <RowHead title={r.customerName ?? t("money.collection.inbox.receivedPayment")} amount={money(r.amount, r.currency)} href={thread} />
+        <Meta><WarmPill tone="partial">{t("money.collection.shared.needsAttention")}</WarmPill> {t("money.collection.inbox.attentionLine", { title: att.title })}</Meta>
         <Actions>
-          {t.action === "NAME_CUSTOMER" ? (
-            <WarmButton height={40} disabled={busy} onClick={() => onNameCustomer(a.paymentTransactionId)}>בחר לקוח</WarmButton>
+          {att.action === "NAME_CUSTOMER" ? (
+            <WarmButton height={40} disabled={busy} onClick={() => onNameCustomer(a.paymentTransactionId)}>{t("money.collection.inbox.pickCustomer")}</WarmButton>
           ) : null}
-          {t.action === "FIX_BUSINESS" ? (
-            <WarmButton height={40} onClick={() => router.push("/business")}>להשלמת פרטי העסק</WarmButton>
+          {att.action === "FIX_BUSINESS" ? (
+            <WarmButton height={40} onClick={() => router.push("/business")}>{t("money.collection.inbox.fixBusiness")}</WarmButton>
           ) : null}
-          <WarmButton variant={t.action === "RETRY" ? "primary" : "secondary"} height={40} disabled={busy} onClick={() => onRetry(a.paymentTransactionId)}>
-            נסה שוב להפיק קבלה
+          <WarmButton variant={att.action === "RETRY" ? "primary" : "secondary"} height={40} disabled={busy} onClick={() => onRetry(a.paymentTransactionId)}>
+            {t("money.collection.shared.retryReceipt")}
           </WarmButton>
         </Actions>
       </WarmCard>
@@ -477,33 +493,36 @@ function AttentionRow({
   if (a.kind !== "UNAPPLIED_EXCESS") return null;
   return (
     <WarmCard>
-      <RowHead title={r.customerName ?? "לקוח"} amount={money(a.unappliedAmount, r.currency)} href={thread} />
+      <RowHead title={r.customerName ?? t("money.collection.shared.customer")} amount={money(a.unappliedAmount, r.currency)} href={thread} />
       <Meta>
-        <WarmPill tone="partial">עודף</WarmPill>
-        התקבל תשלום מעבר ליתרת החשבונית. {money(a.unappliedAmount, r.currency)} לא שויכו לחוב
-        {Number(a.refundedAmount) > 0 ? ` (הוחזרו כבר ${money(a.refundedAmount, r.currency)})` : ""}.
+        <WarmPill tone="partial">{t("money.collection.inbox.excess")}</WarmPill>
+        {t("money.collection.inbox.excessBody", { amount: money(a.unappliedAmount, r.currency) })}
+        {Number(a.refundedAmount) > 0 ? ` (${t("money.collection.inbox.excessRefunded", { amount: money(a.refundedAmount, r.currency) })})` : ""}.
       </Meta>
       <Actions>
-        {thread ? <WarmButton height={40} onClick={() => router.push(thread)}>לטיפול בעודף</WarmButton> : null}
+        {thread ? <WarmButton height={40} onClick={() => router.push(thread)}>{t("money.collection.inbox.handleExcess")}</WarmButton> : null}
       </Actions>
     </WarmCard>
   );
 }
 
 function PaidRow({ p }: { p: InboxPaidItem }) {
+  const { t } = useI18n();
+  const { money, shortDate } = useCollectionFormat();
   const line =
     p.accounting === "RECEIPTED"
-      ? `קבלה ${p.receiptNumber ?? ""} הופקה${Number(p.unappliedAmount ?? 0) > 0 ? ` · עודף ${money(p.unappliedAmount!, p.currency)}` : ""}`
+      ? `${t("money.collection.inbox.receiptIssued", { number: p.receiptNumber ?? "" })}${Number(p.unappliedAmount ?? 0) > 0 ? ` · ${t("money.collection.inbox.excessN", { amount: money(p.unappliedAmount!, p.currency) })}` : ""}`
       : p.accounting === "RECEIPT_PENDING"
-        ? "מפיקים קבלה…"
+        ? t("money.collection.shared.receiptPending")
         : p.accounting === "RECEIPT_ATTENTION"
-          ? "הקבלה ממתינה לטיפול"
-          : "תשלום מלפני הפקת קבלות אוטומטית";
+          ? t("money.collection.inbox.receiptAttention")
+          : t("money.collection.shared.noAutoReceipt");
   return (
     <WarmCard>
-      <RowHead title={p.customerName ?? "לקוח"} amount={money(p.amount, p.currency)} href={p.customerId ? `/collection/c/${p.customerId}?request=${p.requestId}` : undefined} />
+      <RowHead title={p.customerName ?? t("money.collection.shared.customer")} amount={money(p.amount, p.currency)} href={p.customerId ? `/collection/c/${p.customerId}?request=${p.requestId}` : undefined} />
       <Meta>
-        <WarmPill tone="verified">שולם</WarmPill> {shortDate(p.paidAt)}{p.invoiceNumber ? ` · חשבונית ${p.invoiceNumber}` : ""} · {line}
+        <WarmPill tone="verified">{t("money.collection.shared.paid")}</WarmPill> {shortDate(p.paidAt)}
+        {p.invoiceNumber ? ` · ${t("money.collection.shared.invoiceN", { number: p.invoiceNumber })}` : ""} · {line}
       </Meta>
     </WarmCard>
   );

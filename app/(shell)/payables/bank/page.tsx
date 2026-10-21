@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
-  CONFIDENCE_LABEL,
+  confidenceLabel,
   attachBankLine,
   completePreparationFromBankLine,
   dismissBankLine,
@@ -31,12 +32,6 @@ function todayISO(): string {
 const toIso = (date: string) => new Date(`${date}T12:00:00`).toISOString();
 const newKey = () => `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-const STATE_TEXT: Record<BankLineApi["state"], string> = {
-  OPEN: "טרם שויך",
-  MATCHED: "משויך לתשלום",
-  DISMISSED: "סומן כלא-תשלום לספק",
-  NOT_A_PAYABLE: "זיכוי (לא תשלום לספק)",
-};
 
 /**
  * Bank lines — what the owner's bank reported. An observation, never a payment:
@@ -45,6 +40,7 @@ const STATE_TEXT: Record<BankLineApi["state"], string> = {
  * amount alone. There is no bank feed — lines arrive only from the owner.
  */
 export default function BankLinesPage() {
+  const { t } = useI18n();
   const [lines, setLines] = useState<BankLineApi[] | null>(null);
   const [accounts, setAccounts] = useState<BankAccountApi[]>([]);
   const [scope, setScope] = useState<"open" | "all">("open");
@@ -63,11 +59,11 @@ export default function BankLinesPage() {
         setAccounts(a);
         setError(null);
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "טעינה נכשלה"));
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : t("money.payables.list.loadFailed")));
     return () => {
       cancelled = true;
     };
-  }, [scope, reloadToken]);
+  }, [scope, reloadToken, t]);
 
   function changed(message: string) {
     setNotice(message);
@@ -75,21 +71,21 @@ export default function BankLinesPage() {
   }
 
   return (
-    <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+    <div className={styles.page} style={PAYABLES_THEME}>
       <div className={styles.backRow}>
         <BackButton />
       </div>
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
-          <h1 className={styles.title}>תנועות בנק</h1>
-          <p className={styles.subtitle}>מה ירד מהחשבון — ולאיזה תשלום זה שייך.</p>
+          <h1 className={styles.title}>{t("money.payables.list.bankLines")}</h1>
+          <p className={styles.subtitle}>{t("money.payables.bank.subtitle")}</p>
         </div>
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonQuiet} onClick={() => setMode(mode === "manual" ? "none" : "manual")}>
-            {mode === "manual" ? "סגור" : "הוסף תנועה"}
+            {mode === "manual" ? t("money.common.close") : t("money.payables.bank.addLine")}
           </button>
           <button type="button" className={styles.buttonPrimary} onClick={() => setMode(mode === "upload" ? "none" : "upload")}>
-            {mode === "upload" ? "סגור" : "העלה דף חשבון (CSV)"}
+            {mode === "upload" ? t("money.common.close") : t("money.payables.bank.upload")}
           </button>
         </div>
       </header>
@@ -97,8 +93,7 @@ export default function BankLinesPage() {
       <div className={styles.work}>
       <section>
       <div className={styles.notice}>
-        אין חיבור ישיר לבנק. התנועות כאן הן מה שהזנת או העלית. שיוך תנועה לתשלום קיים הוא ראיה בלבד — הוא לא
-        רושם תשלום נוסף.
+        {t("money.payables.bank.noFeed")}
       </div>
       {notice && <div className={styles.notice}>{notice}</div>}
       {error && <div className={styles.error}>{error}</div>}
@@ -109,17 +104,17 @@ export default function BankLinesPage() {
       <section>
 
       <div className={styles.header}>
-        <h2 className={styles.sectionTitle}>תנועות</h2>
+        <h2 className={styles.sectionTitle}>{t("money.payables.bank.linesTitle")}</h2>
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonQuiet} onClick={() => setScope((s) => (s === "open" ? "all" : "open"))}>
-            {scope === "open" ? "הצג הכול" : "הצג פתוחות בלבד"}
+            {scope === "open" ? t("money.payables.list.showAll") : t("money.payables.list.showOpenOnly")}
           </button>
         </div>
       </div>
 
-      {lines === null && !error && <div className={styles.empty}>טוען…</div>}
+      {lines === null && !error && <div className={styles.empty}>{t("money.common.loading")}</div>}
       {lines !== null && lines.length === 0 && (
-        <div className={styles.empty}>{scope === "open" ? "אין תנועות שממתינות לשיוך." : "עוד לא נרשמו תנועות."}</div>
+        <div className={styles.empty}>{scope === "open" ? t("money.payables.bank.noneOpen") : t("money.payables.bank.noneYet")}</div>
       )}
       {lines !== null && lines.length > 0 && (
         <div className={styles.timeline}>
@@ -135,6 +130,7 @@ export default function BankLinesPage() {
 }
 
 function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: string) => void }) {
+  const { t, locale } = useI18n();
   const [sugs, setSugs] = useState<{ list: BankSuggestionApi[]; ambiguous: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +141,7 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
     try {
       onChanged(await fn());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -155,22 +151,23 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
     <div className={styles.installment}>
       <div className={styles.installmentHead}>
         <span className={styles.installmentSeq}>
-          {line.direction === "DEBIT" ? "חיוב" : "זיכוי"} · {formatMoney(line.amount, line.currency)} · {formatDate(line.bookedAt)}
+          {line.direction === "DEBIT" ? t("money.payables.bank.debit") : t("money.payables.bank.credit")} · {formatMoney(line.amount, line.currency, locale)} ·{" "}
+          {formatDate(line.bookedAt, locale)}
         </span>
         <span className={styles.badges}>
           <span className={`${styles.badge} ${line.state === "MATCHED" ? styles.badgePaid : line.state === "OPEN" ? styles.badgeDue : styles.badgeQuiet}`}>
-            {STATE_TEXT[line.state]}
+            {t(`money.payables.bank.state.${line.state}`)}
           </span>
         </span>
       </div>
       <span className={styles.nextLine}>
-        {[line.counterpartyName, line.description].filter(Boolean).join(" · ") || "ללא תיאור"}
-        {line.reference ? <> · אסמכתא <bdi dir="ltr">{line.reference}</bdi></> : null}
+        {[line.counterpartyName, line.description].filter(Boolean).join(" · ") || t("money.payables.bank.noDescription")}
+        {line.reference ? <> · {t("money.payables.bank.reference")} <bdi dir="ltr">{line.reference}</bdi></> : null}
         {line.sourceAccount ? <> · <bdi dir="ltr">••••{line.sourceAccount.last4}</bdi></> : null}
       </span>
       {line.matchedPayment && (
         <span className={styles.nextLine}>
-          משויך כראיה לתשלום ל{line.matchedPayment.payeeName}. השיוך לא הזיז כסף.
+          {t("money.payables.bank.matchedTo", { payee: line.matchedPayment.payeeName })}
         </span>
       )}
       {error && <div className={styles.error}>{error}</div>}
@@ -185,19 +182,19 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
               run(async () => {
                 const r = await fetchBankLineSuggestions(line.id);
                 setSugs({ list: r.suggestions, ambiguous: r.ambiguous });
-                return r.suggestions.length ? "הוצגו התאמות אפשריות. ההחלטה שלך." : "לא נמצאה התאמה שאפשר להציע.";
+                return r.suggestions.length ? t("money.payables.bank.suggestionsShown") : t("money.payables.bank.noSuggestion");
               })
             }
           >
-            הצע התאמות
+            {t("money.payables.bank.suggest")}
           </button>
           <button
             type="button"
             className={styles.buttonQuiet}
             disabled={busy}
-            onClick={() => run(async () => { await dismissBankLine(line.id, "לא תשלום לספק"); return "התנועה סומנה כלא-תשלום לספק."; })}
+            onClick={() => run(async () => { await dismissBankLine(line.id, "לא תשלום לספק"); return t("money.payables.bank.dismissed"); })}
           >
-            לא תשלום לספק
+            {t("money.payables.bank.dismiss")}
           </button>
         </div>
       )}
@@ -208,24 +205,31 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
             className={styles.buttonQuiet}
             disabled={busy}
             onClick={() => {
-              if (window.confirm("לנתק את התנועה מהתשלום? התשלום עצמו לא ישתנה.")) {
-                run(async () => { await revokeBankEvidence(line.matchedPayment!.evidenceId); return "התנועה נותקה. התשלום לא השתנה."; });
+              if (window.confirm(t("money.payables.bank.unlinkConfirm"))) {
+                run(async () => { await revokeBankEvidence(line.matchedPayment!.evidenceId); return t("money.payables.bank.unlinked"); });
               }
             }}
           >
-            נתק שיוך
+            {t("money.payables.bank.unlink")}
           </button>
         </div>
       )}
 
       {sugs && sugs.ambiguous && (
-        <div className={styles.notice}>יש כמה התאמות שאי אפשר להבדיל ביניהן לפי הנתונים — בחר בעצמך, או אל תשייך.</div>
+        <div className={styles.notice}>{t("money.payables.bank.ambiguous")}</div>
       )}
       {sugs && sugs.list.map((s) => (
         <div key={`${s.kind}-${s.id}`} className={styles.allocation}>
           <span>
-            <strong>{s.kind === "PAYMENT" ? "תשלום קיים" : s.kind === "PREPARATION" ? "תשלום שהוכן" : "תשלום פתוח"}</strong> ·{" "}
-            {s.payeeName} · {s.commitmentTitle} · {formatMoney(s.amount)} · {formatDate(s.date)} · {CONFIDENCE_LABEL[s.confidence]} ·{" "}
+            <strong>
+              {s.kind === "PAYMENT"
+                ? t("money.payables.bank.kindPayment")
+                : s.kind === "PREPARATION"
+                  ? t("money.payables.bank.kindPreparation")
+                  : t("money.payables.bank.kindInstallment")}
+            </strong>{" "}
+            · {s.payeeName} · {s.commitmentTitle} · {formatMoney(s.amount, undefined, locale)} · {formatDate(s.date, locale)} ·{" "}
+            {confidenceLabel(t, s.confidence)} ·{" "}
             {s.reasons.join(", ")}
           </span>
           <span className={styles.formActions}>
@@ -237,25 +241,29 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
                 run(async () => {
                   if (s.kind === "PAYMENT") {
                     await attachBankLine(line.id, s.id);
-                    return "התנועה שויכה כראיה לתשלום הקיים. לא נרשם תשלום נוסף.";
+                    return t("money.payables.bank.attachedExisting");
                   }
                   if (s.kind === "PREPARATION") {
                     await completePreparationFromBankLine(line.id, s.id);
-                    return "התשלום שהוכן נרשם כבוצע, לפי התנועה.";
+                    return t("money.payables.bank.preparationDone");
                   }
                   try {
                     await recordPaymentFromBankLine(line.id, { commitmentId: s.commitmentId, installmentId: s.installmentId });
                   } catch (e) {
                     const msg = e instanceof Error ? e.message : "";
-                    if (/already recorded/.test(msg) && window.confirm("כבר רשום תשלום בסכום הזה להתחייבות. זה תשלום אחר ונפרד?")) {
+                    if (/already recorded/.test(msg) && window.confirm(t("money.payables.bank.similarConfirm"))) {
                       await recordPaymentFromBankLine(line.id, { commitmentId: s.commitmentId, installmentId: s.installmentId, acknowledgeSimilarPayment: true });
                     } else throw e;
                   }
-                  return "נרשם תשלום חדש לפי התנועה.";
+                  return t("money.payables.bank.recordedNew");
                 })
               }
             >
-              {s.kind === "PAYMENT" ? "זו ראיה לתשלום הזה" : s.kind === "PREPARATION" ? "זה התשלום שהוכן" : "רשום תשלום חדש"}
+              {s.kind === "PAYMENT"
+                ? t("money.payables.bank.actionPayment")
+                : s.kind === "PREPARATION"
+                  ? t("money.payables.bank.actionPreparation")
+                  : t("money.payables.bank.actionInstallment")}
             </button>
             {s.kind !== "PREPARATION" && (
               <button
@@ -266,11 +274,11 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
                   run(async () => {
                     await rejectBankLinePairing(line.id, s.kind === "PAYMENT" ? { paymentId: s.id } : { installmentId: s.installmentId ?? s.id });
                     setSugs((cur) => (cur ? { ...cur, list: cur.list.filter((x) => x !== s) } : cur));
-                    return "ההתאמה נדחתה ולא תוצע שוב.";
+                    return t("money.payables.bank.rejected");
                   })
                 }
               >
-                לא זה
+                {t("money.payables.match.notThis")}
               </button>
             )}
           </span>
@@ -281,6 +289,7 @@ function BankLineCard({ line, onChanged }: { line: BankLineApi; onChanged: (m: s
 }
 
 function ManualLineForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: (m: string) => void }) {
+  const { t } = useI18n();
   const [bookedAt, setBookedAt] = useState(todayISO());
   const [amount, setAmount] = useState("");
   const [counterparty, setCounterparty] = useState("");
@@ -298,9 +307,9 @@ function ManualLineForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDo
         setError(null);
         try {
           const r = await recordBankLine({ clientKey, bookedAt: toIso(bookedAt), amount, direction: "DEBIT", counterpartyName: counterparty || null, reference: reference || null, sourceBankAccountId: accountId });
-          onDone(r.inserted ? "התנועה נרשמה." : "התנועה כבר רשומה — לא נוספה שוב.");
+          onDone(r.inserted ? t("money.payables.bank.lineRecorded") : t("money.payables.bank.lineKnown"));
         } catch (err) {
-          setError(err instanceof Error ? err.message : "הרישום נכשל");
+          setError(err instanceof Error ? err.message : t("money.payables.bank.recordFailed"));
         } finally {
           setBusy(false);
         }
@@ -308,28 +317,28 @@ function ManualLineForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDo
     >
       <div className={styles.formRow2}>
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="bl-date">תאריך</label>
+          <label className={styles.label} htmlFor="bl-date">{t("money.payables.bank.date")}</label>
           <input id="bl-date" className={styles.input} type="date" value={bookedAt} max={todayISO()} onChange={(e) => setBookedAt(e.target.value)} required />
         </div>
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="bl-amount">סכום החיוב</label>
+          <label className={styles.label} htmlFor="bl-amount">{t("money.payables.bank.debitAmount")}</label>
           <input id="bl-amount" className={styles.input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
         </div>
       </div>
       <div className={styles.formRow2}>
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="bl-cp">לטובת / תיאור</label>
+          <label className={styles.label} htmlFor="bl-cp">{t("money.payables.bank.counterparty")}</label>
           <input id="bl-cp" className={styles.input} value={counterparty} maxLength={200} onChange={(e) => setCounterparty(e.target.value)} />
         </div>
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="bl-ref">אסמכתא</label>
+          <label className={styles.label} htmlFor="bl-ref">{t("money.payables.bank.reference")}</label>
           <input id="bl-ref" className={styles.input} dir="ltr" value={reference} maxLength={80} onChange={(e) => setReference(e.target.value)} />
         </div>
       </div>
       <div className={styles.field}>
-        <label className={styles.label} htmlFor="bl-acc">מחשבון</label>
+        <label className={styles.label} htmlFor="bl-acc">{t("money.payables.cheques.form.fromAccount")}</label>
         <select id="bl-acc" className={styles.select} value={accountId ?? ""} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}>
-          <option value="">לא לציין</option>
+          <option value="">{t("money.payables.prepare.form.notSpecified")}</option>
           {accounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>{a.label} · {a.masked}</option>
           ))}
@@ -337,13 +346,14 @@ function ManualLineForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDo
       </div>
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
-        <button type="submit" className={styles.buttonPrimary} disabled={busy}>{busy ? "רושם…" : "רשום תנועה"}</button>
+        <button type="submit" className={styles.buttonPrimary} disabled={busy}>{busy ? t("money.common.recording") : t("money.payables.bank.submitLine")}</button>
       </div>
     </form>
   );
 }
 
 function UploadForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: (m: string) => void }) {
+  const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [accountId, setAccountId] = useState<number | null>(accounts.find((a) => a.isActive && a.isDefault)?.id ?? null);
@@ -359,17 +369,25 @@ function UploadForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: 
         setError(null);
         try {
           const r = await uploadBankStatement(text, accountId);
-          const skipped = r.errors.length ? ` ${r.errors.length} שורות לא נקראו (${r.errors.slice(0, 5).map((x) => `שורה ${x.lineNumber}`).join(", ")}).` : "";
-          onDone(`נקלטו ${r.inserted} תנועות חדשות; ${r.alreadyKnown} כבר היו רשומות.${skipped}`);
+          const skipped = r.errors.length
+            ? ` ${t("money.payables.bank.uploadSkipped", {
+                count: r.errors.length,
+                lines: r.errors
+                  .slice(0, 5)
+                  .map((x) => t("money.payables.bank.rowN", { n: x.lineNumber }))
+                  .join(", "),
+              })}`
+            : "";
+          onDone(`${t("money.payables.bank.uploadResult", { inserted: r.inserted, known: r.alreadyKnown })}${skipped}`);
         } catch (err) {
-          setError(err instanceof Error ? err.message : "ההעלאה נכשלה");
+          setError(err instanceof Error ? err.message : t("money.payables.bank.uploadFailed"));
         } finally {
           setBusy(false);
         }
       }}
     >
       <div className={styles.field}>
-        <label className={styles.label} htmlFor="bl-file">קובץ CSV מהבנק</label>
+        <label className={styles.label} htmlFor="bl-file">{t("money.payables.bank.csvFile")}</label>
         <input
           id="bl-file"
           className={styles.input}
@@ -384,21 +402,21 @@ function UploadForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: 
         />
       </div>
       <div className={styles.field}>
-        <label className={styles.label} htmlFor="bl-uacc">של איזה חשבון</label>
+        <label className={styles.label} htmlFor="bl-uacc">{t("money.payables.bank.whichAccount")}</label>
         <select id="bl-uacc" className={styles.select} value={accountId ?? ""} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}>
-          <option value="">לא לציין</option>
+          <option value="">{t("money.payables.prepare.form.notSpecified")}</option>
           {accounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>{a.label} · {a.masked}</option>
           ))}
         </select>
       </div>
       <div className={styles.notice}>
-        נדרשות עמודות תאריך וסכום (או חובה/זכות); תיאור ואסמכתא מומלצים. העלאה חוזרת של אותו דף לא תכפיל תנועות.
+        {t("money.payables.bank.csvNotice")}
       </div>
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy || !text}>
-          {busy ? "מעלה…" : fileName ? `העלה את ${fileName}` : "בחר קובץ"}
+          {busy ? t("money.payables.bank.uploading") : fileName ? t("money.payables.bank.uploadFile", { name: fileName }) : t("money.payables.bank.chooseFile")}
         </button>
       </div>
     </form>
