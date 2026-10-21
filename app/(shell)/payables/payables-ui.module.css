@@ -222,3 +222,5 @@
   background: linear-gradient(to top, var(--dz-background) 70%, transparent);
 }
 @media (min-width: 720px) { .stickyBar { display: none; } }
+/* The header action bar is for tablet and desktop; phones use the sticky bar. */
+@media (max-width: 719px) { .detailActions { display: none; } }

@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import {
   CADENCE_LABEL,
   METHOD_LABEL,
@@ -96,6 +97,9 @@ export default function CommitmentDetailPage({
   const [dialog, setDialog] = useState<Dialog>(null);
   const [toast, showToast] = useToast();
   const [confirmNode, confirm] = useConfirm();
+  // Like other detail screens (billing/[id]): on phones this page brings its
+  // own sticky action bar, so the shell bottom bar + FAB step aside.
+  useHideShellChrome(true);
 
   // Arriving with ?pay=<installmentId> (a Dubiz recommendation, or "רישום
   // תשלום" in the list inspector) opens the payment form for that installment.
