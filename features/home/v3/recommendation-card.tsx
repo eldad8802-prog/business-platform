@@ -3,7 +3,9 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconChevronLeft, IconFileLines, IconSparkle, IconWallet } from "@/components/navigation/nav-icons";
+import dirStyles from "@/components/ui/directional.module.css";
 
 import type { Load } from "./home-v3-model";
 import type { RecommendationHomeView } from "./use-home-data";
@@ -16,17 +18,22 @@ const INK = "#1E2B2A";
  * deterministic owner view. Same shape as the insight card, warm instead of teal: it asks for a decision.
  */
 export function RecommendationCard({ recommendation, wide, style }: { recommendation: Load<RecommendationHomeView | null>; wide?: boolean; style?: CSSProperties }) {
+  const { t } = useI18n();
   if (recommendation.state !== "ready" || recommendation.value === null) return null;
   const v = recommendation.value;
   const payables = v.type === "SETTLE_OVERDUE_INSTALLMENT";
   const Icon = payables ? IconWallet : IconFileLines;
-  const more = v.waiting > 1 ? ` · ועוד ${v.waiting - 1} ${v.waiting - 1 === 1 ? "המלצה" : "המלצות"}` : "";
+  const rest = v.waiting - 1;
+  const more =
+    rest > 0
+      ? ` · ${rest === 1 ? t("home.recommendationCard.moreOne", { count: rest }) : t("home.recommendationCard.moreMany", { count: rest })}`
+      : "";
   return (
     <Link
       href={v.href}
       prefetch={false}
       className="dzh-insight"
-      aria-label={`Dubiz ממליץ: ${v.what}${more}`}
+      aria-label={`${t("home.recommendationCard.aria", { what: v.what })}${more}`}
       style={{
         textDecoration: "none",
         color: INK,
@@ -60,13 +67,13 @@ export function RecommendationCard({ recommendation, wide, style }: { recommenda
       <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#815A32" }}>
           <IconSparkle size={14} strokeWidth={2} />
-          Dubiz ממליץ · מחכה להחלטה שלך
+          {t("home.recommendationCard.eyebrow")}
         </span>
         <span style={{ fontSize: wide ? 18 : 15, fontWeight: 600, overflowWrap: "anywhere" }}>{v.what}</span>
         <span style={{ fontSize: wide ? 14 : 12, color: "#4F5C5A" }}>{v.summary}{more}</span>
       </span>
       <span aria-hidden style={{ color: "#246966", display: "flex" }}>
-        <IconChevronLeft size={18} strokeWidth={2} />
+        <IconChevronLeft size={18} strokeWidth={2} className={dirStyles.forward} />
       </span>
     </Link>
   );

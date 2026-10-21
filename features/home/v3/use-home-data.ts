@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 import type { SetupView } from "@/lib/services/onboarding/setup-model";
 import { loadRecommendations, type RecommendationView } from "@/features/recommendations/recommendations-client";
@@ -118,6 +119,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
   loadWeek: () => void;
 } {
   const [data, setData] = useState<HomeData>(INITIAL);
+  const { locale } = useI18n();
 
   const put = useCallback(<K extends keyof HomeData>(key: K, value: HomeData[K]) => {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -233,11 +235,12 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
           incomeTotal: (income as CollectionWeekWire).current?.total ?? "",
           dayKeys,
           expenses: (days as CostDayWire[]).map((d) => d.cashOut?.total ?? ""),
+          locale,
         });
         put("week", week ? ready(week) : FAILED);
       })
       .catch(() => put("week", FAILED));
-  }, [put]);
+  }, [put, locale]);
 
   return { data, loadWeek };
 }

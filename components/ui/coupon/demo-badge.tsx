@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * DemoBadge — the honesty marker. Anything that is UI-only / not wired to a
  * real backend capability MUST carry this. `demo` = shown with placeholder
@@ -7,6 +9,7 @@
 
 import { type CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const W = TOKEN.warm;
 
@@ -17,7 +20,8 @@ export function DemoBadge({
   variant?: "demo" | "soon";
   style?: CSSProperties;
 }) {
-  const label = variant === "soon" ? "בקרוב" : "הדגמה";
+  const { t } = useI18n();
+  const label = variant === "soon" ? t("home.ui.comingSoon") : t("home.ui.demo");
   return (
     <span
       style={{

@@ -19,6 +19,9 @@ import {
   type IconComponent,
 } from "@/components/navigation/nav-icons";
 import { TOOL_GROUPS, categoryHref } from "@/lib/navigation/home-routes";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import dirStyles from "@/components/ui/directional.module.css";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 import type { InsightView } from "./use-home-data";
 import {
@@ -49,7 +52,9 @@ export const TEAL = "#246966";
 
 /* ------------------------------------------------------------- headings -- */
 
-export function ShowAll({ href, size = 14, label = "הצג הכל" }: { href: string; size?: number; label?: string }) {
+export function ShowAll({ href, size = 14, label: labelProp }: { href: string; size?: number; label?: string }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("home.parts.showAll");
   return (
     <Link
       href={href}
@@ -58,15 +63,16 @@ export function ShowAll({ href, size = 14, label = "הצג הכל" }: { href: st
       style={{ fontSize: size, fontWeight: 500, textDecoration: "none", display: "flex", alignItems: "center", gap: 2, padding: "10px 0" }}
     >
       {label}
-      {size >= 14 ? <IconChevronLeft size={16} strokeWidth={2} /> : null}
+      {size >= 14 ? <IconChevronLeft size={16} strokeWidth={2} className={dirStyles.forward} /> : null}
     </Link>
   );
 }
 
 export function CountPill({ claim }: { claim: CountClaim }) {
+  const { t } = useI18n();
   return (
     <span
-      aria-label={claim.exact ? `${claim.n} פריטים` : `יותר מ-${claim.n} פריטים`}
+      aria-label={claim.exact ? t("home.parts.countExact", { count: claim.n }) : t("home.parts.countMore", { count: claim.n })}
       style={{
         minWidth: 22,
         height: 22,
@@ -90,14 +96,15 @@ export function CountPill({ claim }: { claim: CountClaim }) {
 /** "מה ממתין לך" heading — mobile and tablet. */
 export function WaitingHeading({ waiting, tablet }: { waiting: Load<{ total: CountClaim }>; tablet?: boolean }) {
   const Title = tablet ? "h2" : "span";
+  const { t } = useI18n();
   return (
     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Title style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>מה ממתין לך</Title>
+          <Title style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>{t("home.parts.waitingTitle")}</Title>
           {waiting.state === "ready" && waiting.value.total.n > 0 ? <CountPill claim={waiting.value.total} /> : null}
         </div>
-        <div style={{ fontSize: 13, color: MUTED }}>המזכירה סידרה לפי דחיפות</div>
+        <div style={{ fontSize: 13, color: MUTED }}>{t("home.parts.waitingSub")}</div>
       </div>
       <ShowAll href="/attention" />
     </div>
@@ -127,11 +134,11 @@ const KIND_ICON: Record<WaitingKind, IconComponent> = {
 };
 
 /** The desktop row's category tag — the same words as the filter chips. */
-export const KIND_TAG: Record<WaitingKind, { label: string; color: string; background: string }> = {
-  payment: { label: "לתשלום", color: "#8E3A28", background: "#F9DDD4" },
-  stock: { label: "מלאי", color: "#8A4F16", background: "#F6E0C2" },
-  collection: { label: "גבייה", color: "#1D5552", background: "#D3ECE8" },
-  lead: { label: "ליד", color: "#5B4FA8", background: "#ECE9F7" },
+export const KIND_TAG: Record<WaitingKind, { labelKey: MessageKey; color: string; background: string }> = {
+  payment: { labelKey: "home.parts.kind.payment", color: "#8E3A28", background: "#F9DDD4" },
+  stock: { labelKey: "home.parts.kind.stock", color: "#8A4F16", background: "#F6E0C2" },
+  collection: { labelKey: "home.parts.kind.collection", color: "#1D5552", background: "#D3ECE8" },
+  lead: { labelKey: "home.parts.kind.lead", color: "#5B4FA8", background: "#ECE9F7" },
 };
 
 /** Vertical card — mobile (3 in a row) and tablet (3 in a row). */
@@ -209,10 +216,11 @@ export function WaitingRow({ item }: { item: WaitingItem }) {
   const tone = TONE[item.tone];
   const Icon = KIND_ICON[item.kind];
   const tag = KIND_TAG[item.kind];
+  const { t } = useI18n();
   // Desktop offers the next step the stock row actually needs: ordering.
   const action =
     item.kind === "stock"
-      ? { label: "להזמנה", href: "/inventory/supplier-purchases/new" }
+      ? { label: t("home.parts.order"), href: "/inventory/supplier-purchases/new" }
       : { label: item.actionLabel, href: item.href };
   return (
     <div
@@ -245,7 +253,7 @@ export function WaitingRow({ item }: { item: WaitingItem }) {
         <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span style={{ fontSize: 11, fontWeight: 600, color: tag.color, background: tag.background, borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>
-            {tag.label}
+            {t(tag.labelKey)}
           </span>
         </span>
         <span style={{ fontSize: 12, color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -291,16 +299,17 @@ export function SkeletonBlock({ h, r = 16, style }: { h: number; r?: number; sty
 
 /* -------------------------------------------------------- feature tiles -- */
 
-const FAMILY_VISUAL: Record<string, { icon: IconComponent; color: string; bg: string; sub: string }> = {
-  money: { icon: IconWallet, color: TEAL, bg: "#E3F2F0", sub: "חשבוניות · גבייה" },
-  customers: { icon: IconUsers, color: "#5B4FA8", bg: "#ECE9F7", sub: "לקוחות · לידים" },
-  operations: { icon: IconBriefcase, color: "#A0601F", bg: "#FBEEDD", sub: "מזכירה · התחייבויות · מלאי" },
+const FAMILY_VISUAL: Record<string, { icon: IconComponent; color: string; bg: string; sub: MessageKey }> = {
+  money: { icon: IconWallet, color: TEAL, bg: "#E3F2F0", sub: "home.parts.family.money" },
+  customers: { icon: IconUsers, color: "#5B4FA8", bg: "#ECE9F7", sub: "home.parts.family.customers" },
+  operations: { icon: IconBriefcase, color: "#A0601F", bg: "#FBEEDD", sub: "home.parts.family.operations" },
 };
 
 /** The three families, symmetric — no "כל הכלים" tile (approved design). */
 export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
+  const { t } = useI18n();
   return (
-    <nav aria-label="קבוצות כלים" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+    <nav aria-label={t("home.parts.toolGroupsAria")} style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
       {TOOL_GROUPS.map((group) => {
         const v = FAMILY_VISUAL[group.key];
         const Icon = v.icon;
@@ -335,7 +344,7 @@ export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, maxWidth: "100%" }}>
               <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{group.label}</span>
-              <span style={{ fontSize: 12, lineHeight: 1.35, color: MUTED, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{v.sub}</span>
+              <span style={{ fontSize: 12, lineHeight: 1.35, color: MUTED, maxWidth: "100%", overflowWrap: "break-word", textWrap: "balance" }}>{t(v.sub)}</span>
             </span>
           </Link>
         );
@@ -366,14 +375,16 @@ export function ActivityList({
   variant: "flat" | "boxed" | "timeline";
   when: (iso: string) => string;
 }) {
+  const { t } = useI18n();
+  const title = t("home.parts.activityTitle");
   const heading =
     variant === "flat" ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 44 }}>
-        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>פעולות אחרונות</h2>
+        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>{title}</h2>
       </div>
     ) : (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40 }}>
-        <h2 style={{ margin: 0, fontSize: variant === "boxed" ? 17 : 16, fontWeight: 600 }}>פעולות אחרונות</h2>
+        <h2 style={{ margin: 0, fontSize: variant === "boxed" ? 17 : 16, fontWeight: 600 }}>{title}</h2>
       </div>
     );
 
@@ -387,9 +398,9 @@ export function ActivityList({
       </div>
     );
   } else if (activity.state === "failed") {
-    body = <Note>לא הצלחנו לטעון את הפעולות האחרונות.</Note>;
+    body = <Note>{t("home.parts.activityFailed")}</Note>;
   } else if (activity.value.length === 0) {
-    body = <Note>עדיין אין פעולות להצגה.</Note>;
+    body = <Note>{t("home.parts.activityEmpty")}</Note>;
   } else if (variant === "timeline") {
     body = activity.value.map((a, i) => {
       const v = ACTIVITY_VISUAL[a.kind];
@@ -419,7 +430,7 @@ export function ActivityList({
       const Icon = v.icon;
       return (
         <div key={a.id}>
-          {i > 0 ? <div style={{ height: 1, background: DIVIDER, marginRight: 52 }} /> : null}
+          {i > 0 ? <div style={{ height: 1, background: DIVIDER, marginInlineStart: 52 }} /> : null}
           <Link href={a.href} prefetch={false} className="dzh-row" style={{ textDecoration: "none", color: INK, display: "flex", alignItems: "center", gap: 12, padding: "10px 0" }}>
             <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 999, background: v.bg, color: v.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon size={19} />
@@ -437,7 +448,7 @@ export function ActivityList({
 
   if (variant === "flat") {
     return (
-      <section aria-label="פעולות אחרונות" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <section aria-label={title} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {heading}
         <div style={{ display: "flex", flexDirection: "column" }}>{body}</div>
       </section>
@@ -445,7 +456,7 @@ export function ActivityList({
   }
   return (
     <section
-      aria-label="פעולות אחרונות"
+      aria-label={title}
       style={{
         borderRadius: variant === "boxed" ? 20 : 22,
         padding: variant === "boxed" ? "16px 18px 6px" : 18,
@@ -468,6 +479,7 @@ export function ActivityList({
 
 /** "התובנה של Dubiz" — drawn only when the backend actually has an insight. */
 export function InsightCard({ insight, wide, style }: { insight: Load<InsightView | null>; wide?: boolean; style?: CSSProperties }) {
+  const { t } = useI18n();
   if (insight.state !== "ready" || insight.value === null) return null;
   const v = insight.value;
   return (
@@ -506,14 +518,14 @@ export function InsightCard({ insight, wide, style }: { insight: Load<InsightVie
       <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#1D5552" }}>
           <IconSparkle size={14} strokeWidth={2} />
-          התובנה של Dubiz
+          {t("home.parts.insightEyebrow")}
         </span>
         <span style={{ fontSize: wide ? 18 : 15, fontWeight: 600 }}>{v.title}</span>
         {v.body ? <span style={{ fontSize: wide ? 14 : 12, color: "#4F5C5A" }}>{v.body}</span> : null}
       </span>
       {wide ? null : (
         <span style={{ color: TEAL, display: "flex" }}>
-          <IconChevronLeft size={18} strokeWidth={2} />
+          <IconChevronLeft size={18} strokeWidth={2} className={dirStyles.forward} />
         </span>
       )}
     </Link>
@@ -527,24 +539,31 @@ export function InsightCard({ insight, wide, style }: { insight: Load<InsightVie
  * business (skipped it at signup). It is not counted as something urgent and
  * it disappears once a description exists.
  */
-const IDENTITY_PROMPT = { title: "ספרו לנו על העסק", subtitle: "כמה מילים בשפה שלכם", action: "לכתוב", href: "/setup" };
+const IDENTITY_PROMPT = {
+  title: "home.parts.identityTitle",
+  subtitle: "home.parts.identitySubtitle",
+  action: "home.parts.identityAction",
+  href: "/setup",
+} as const satisfies { title: MessageKey; subtitle: MessageKey; action: MessageKey; href: string };
 
 export function IdentityPromptRow() {
+  const { t } = useI18n();
   return (
     <div style={{ borderRadius: 16, padding: 12, background: "#FBF4EA", border: "1px solid #F1E2CC", display: "flex", alignItems: "center", gap: 12 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>העסק</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>{t("home.parts.identityTag")}</span>
       <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{IDENTITY_PROMPT.title}</span>
-        <span style={{ fontSize: 12, color: MUTED }}>{IDENTITY_PROMPT.subtitle}</span>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{t(IDENTITY_PROMPT.title)}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{t(IDENTITY_PROMPT.subtitle)}</span>
       </span>
       <Link href={IDENTITY_PROMPT.href} prefetch={false} className="dzh-link" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none", padding: "10px 4px" }}>
-        {IDENTITY_PROMPT.action}
+        {t(IDENTITY_PROMPT.action)}
       </Link>
     </div>
   );
 }
 
 export function IdentityPromptCard({ tablet }: { tablet?: boolean }) {
+  const { t } = useI18n();
   return (
     <Link
       href={IDENTITY_PROMPT.href}
@@ -562,11 +581,11 @@ export function IdentityPromptCard({ tablet }: { tablet?: boolean }) {
         color: INK,
       }}
     >
-      <span style={{ alignSelf: "flex-start", fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "3px 8px" }}>העסק</span>
-      <span style={{ fontSize: tablet ? 15 : 14, fontWeight: 600, lineHeight: 1.3 }}>{IDENTITY_PROMPT.title}</span>
-      <span style={{ fontSize: 12, color: MUTED, lineHeight: 1.4 }}>{IDENTITY_PROMPT.subtitle}</span>
+      <span style={{ alignSelf: "flex-start", fontSize: 11, fontWeight: 600, color: "#8A4F16", background: "#F6E0C2", borderRadius: 999, padding: "3px 8px" }}>{t("home.parts.identityTag")}</span>
+      <span style={{ fontSize: tablet ? 15 : 14, fontWeight: 600, lineHeight: 1.3 }}>{t(IDENTITY_PROMPT.title)}</span>
+      <span style={{ fontSize: 12, color: MUTED, lineHeight: 1.4 }}>{t(IDENTITY_PROMPT.subtitle)}</span>
       <span style={{ flex: 1 }} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{IDENTITY_PROMPT.action}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{t(IDENTITY_PROMPT.action)}</span>
     </Link>
   );
 }
@@ -590,5 +609,5 @@ export const HOME_CSS = `
    button keeps its 44px target. Below 360 the title may wrap — it never
    overflows. */
 @media (min-width: 360px) { .dzh-root .dzh-cash-title { white-space: nowrap; } }
-@media (max-width: 389.98px) { .dzh-root .dzh-period-btn { padding-left: 10px !important; padding-right: 10px !important; } }
+@media (max-width: 389.98px) { .dzh-root .dzh-period-btn { padding-inline: 10px !important; } }
 `;

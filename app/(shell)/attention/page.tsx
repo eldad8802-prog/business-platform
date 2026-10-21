@@ -5,6 +5,9 @@ import BackButton from "@/components/ui/back-button";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 import type {
   BusinessStatusItem,
@@ -14,26 +17,21 @@ import type {
   Severity,
 } from "@/lib/business-status/types";
 
-function domainLabel(domain: BusinessStatusItem["domain"]): string {
-  switch (domain) {
-    case "inbox":
-      return "תיבה";
-    case "documents":
-      return "מסמכים";
-    case "inventory":
-      return "מלאי";
-    case "billing":
-      return "חשבוניות";
-    case "supplier":
-      return "רכש ספקים";
-    case "leads":
-      return "לידים";
-    default:
-      return domain;
-  }
+const DOMAIN_KEY: Partial<Record<BusinessStatusItem["domain"], MessageKey>> = {
+  inbox: "home.attention.domain.inbox",
+  documents: "home.attention.domain.documents",
+  inventory: "home.attention.domain.inventory",
+  billing: "home.attention.domain.billing",
+  supplier: "home.attention.domain.supplier",
+  leads: "home.attention.domain.leads",
+};
+
+function domainLabel(domain: BusinessStatusItem["domain"], t: Translator): string {
+  const key = DOMAIN_KEY[domain];
+  return key ? t(key) : domain;
 }
 
-function severityBadge(severity: Severity): {
+function severityBadge(severity: Severity, t: Translator): {
   label: string;
   bg: string;
   color: string;
@@ -43,7 +41,7 @@ function severityBadge(severity: Severity): {
   switch (severity) {
     case "CRITICAL":
       return {
-        label: "קריטי",
+        label: t("home.attention.severity.CRITICAL"),
         bg: "var(--dz-danger-bg-soft)",
         color: "var(--dz-danger)",
         border: "rgba(155, 70, 52, 0.22)",
@@ -51,7 +49,7 @@ function severityBadge(severity: Severity): {
       };
     case "HIGH":
       return {
-        label: "גבוה",
+        label: t("home.attention.severity.HIGH"),
         bg: "var(--dz-warning-bg-soft)",
         color: "var(--dz-warning)",
         border: "rgba(129, 90, 50, 0.22)",
@@ -59,7 +57,7 @@ function severityBadge(severity: Severity): {
       };
     case "MEDIUM":
       return {
-        label: "בינוני",
+        label: t("home.attention.severity.MEDIUM"),
         bg: "var(--dz-surface-muted)",
         color: "var(--dz-text-secondary)",
         border: "rgba(52, 60, 50, 0.1)",
@@ -67,7 +65,7 @@ function severityBadge(severity: Severity): {
       };
     case "LOW":
       return {
-        label: "נמוך",
+        label: t("home.attention.severity.LOW"),
         bg: "var(--dz-surface-muted)",
         color: "var(--dz-text-muted)",
         border: "rgba(52, 60, 50, 0.06)",
@@ -75,7 +73,7 @@ function severityBadge(severity: Severity): {
       };
     case "INFO":
       return {
-        label: "מידע",
+        label: t("home.attention.severity.INFO"),
         bg: "var(--dz-surface-muted)",
         color: "var(--dz-text-muted)",
         border: "rgba(52, 60, 50, 0.05)",
@@ -92,11 +90,11 @@ function severityBadge(severity: Severity): {
   }
 }
 
-function formatCreated(iso: string): string {
+function formatCreated(iso: string, locale: Locale): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString("he-IL", {
+    return d.toLocaleString(intlTag(locale), {
       day: "numeric",
       month: "short",
       hour: "2-digit",
@@ -107,24 +105,24 @@ function formatCreated(iso: string): string {
   }
 }
 
-function friendlyHttpMessage(status: number): string {
+function friendlyHttpMessage(status: number, t: Translator): string {
   if (status === 401) {
-    return "כדי לראות את הרשימה צריך להיות מחובר.";
+    return t("home.attention.http401");
   }
   if (status === 403) {
-    return "אין גישה.";
+    return t("home.attention.http403");
   }
   if (status >= 500) {
-    return "אירעה תקלה בטעינה. נסה שוב בעוד רגע.";
+    return t("home.attention.http5xx");
   }
-  return "לא הצלחנו לטעון. נסה שוב בעוד רגע.";
+  return t("home.attention.httpOther");
 }
 
-function formatSnapshotTime(iso: string): string {
+function formatSnapshotTime(iso: string, locale: Locale): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString("he-IL", {
+    return d.toLocaleString(intlTag(locale), {
       day: "numeric",
       month: "short",
       hour: "2-digit",
@@ -137,6 +135,7 @@ function formatSnapshotTime(iso: string): string {
 
 export default function AttentionPage() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<BusinessStatusSnapshot | null>(
@@ -163,9 +162,9 @@ export default function AttentionPage() {
       setSnapshot(json as BusinessStatusSnapshot);
       setError(null);
     } catch {
-      if (!opts?.silent) setError("לא הצלחנו לרענן את הרשימה.");
+      if (!opts?.silent) setError(t("home.attention.refreshFailed"));
     }
-  }, []);
+  }, [t]);
 
   /**
    * Handle a lead follow-up straight from the list. Making the owner open the
@@ -196,7 +195,7 @@ export default function AttentionPage() {
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          setError("לא הצלחנו לעדכן את המעקב. נסו שוב.");
+          setError(t("home.attention.followUpFailed"));
           return;
         }
         await loadSnapshot({ silent: true });
@@ -204,7 +203,7 @@ export default function AttentionPage() {
         setBusyItem(null);
       }
     },
-    [busyItem, loadSnapshot]
+    [busyItem, loadSnapshot, t]
   );
 
   useEffect(() => {
@@ -214,7 +213,7 @@ export default function AttentionPage() {
       const raw =
         typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!raw) {
-        setError("יש להתחבר כדי לראות את הרשימה.");
+        setError(t("home.attention.loginRequired"));
         setLoading(false);
         return;
       }
@@ -237,7 +236,7 @@ export default function AttentionPage() {
         if (cancelled) return;
 
         if (!res.ok) {
-          setError(friendlyHttpMessage(res.status));
+          setError(friendlyHttpMessage(res.status, t));
           setSnapshot(null);
           return;
         }
@@ -246,7 +245,7 @@ export default function AttentionPage() {
         setSnapshot(json as BusinessStatusSnapshot);
       } catch {
         if (!cancelled) {
-          setError("לא הצלחנו להגיע לשרת. בדוק את החיבור ונסה שוב.");
+          setError(t("home.attention.network"));
           setSnapshot(null);
         }
       } finally {
@@ -258,7 +257,7 @@ export default function AttentionPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const items = snapshot?.items ?? [];
   const domains = Array.from(new Set(items.map((item) => item.domain)));
@@ -267,7 +266,7 @@ export default function AttentionPage() {
   const selected = visible.find((item) => item.itemId === selectedId) ?? null;
   const isEmpty = !loading && !error && items.length === 0;
   const snapshotLabel = snapshot?.generatedAt
-    ? formatSnapshotTime(snapshot.generatedAt)
+    ? formatSnapshotTime(snapshot.generatedAt, locale)
     : "";
   const paperworkInsight: PaperworkInsightPayload | null | undefined =
     snapshot?.paperworkInsight ?? undefined;
@@ -279,7 +278,6 @@ export default function AttentionPage() {
   return (
     <div
       style={{
-        direction: "rtl",
         minHeight: "100vh",
         background: "var(--dz-surface-muted)",
         padding: "12px 0 40px",
@@ -366,7 +364,7 @@ export default function AttentionPage() {
               lineHeight: 1.25,
             }}
           >
-            דורש תשומת לב
+            {t("home.attention.title")}
           </h1>
           <p
             style={{
@@ -376,7 +374,7 @@ export default function AttentionPage() {
               lineHeight: 1.6,
             }}
           >
-            דברים שדורשים טיפול או החלטה עכשיו.
+            {t("home.attention.subtitle")}
           </p>
           {snapshotLabel ? (
             <p
@@ -386,7 +384,7 @@ export default function AttentionPage() {
                 color: "var(--dz-text-muted)",
               }}
             >
-              עודכן {snapshotLabel}
+              {t("home.attention.updated", { time: snapshotLabel })}
             </p>
           ) : null}
         </header>
@@ -412,7 +410,7 @@ export default function AttentionPage() {
               fontSize: 15,
             }}
           >
-            טוען…
+            {t("home.attention.loading")}
           </div>
         )}
 
@@ -446,14 +444,14 @@ export default function AttentionPage() {
               boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
             }}
           >
-            כרגע אין דברים שדורשים טיפול.
+            {t("home.attention.empty")}
           </div>
         )}
 
         {!loading && !error && domains.length > 1 ? (
-          <div className="attn-filters" role="group" aria-label="סינון לפי תחום">
+          <div className="attn-filters" role="group" aria-label={t("home.attention.filterAria")}>
             <button type="button" aria-pressed={domainFilter === "all"} onClick={() => { setDomainFilter("all"); setSelectedId(null); }}>
-              הכל
+              {t("home.attention.all")}
             </button>
             {domains.map((domain) => (
               <button
@@ -462,14 +460,14 @@ export default function AttentionPage() {
                 aria-pressed={domainFilter === domain}
                 onClick={() => { setDomainFilter(domain); setSelectedId(null); }}
               >
-                {domainLabel(domain)}
+                {domainLabel(domain, t)}
               </button>
             ))}
           </div>
         ) : null}
 
         {!loading && !error && !isEmpty && visible.length === 0 ? (
-          <p style={{ color: "var(--dz-text-muted)", fontSize: 14 }}>אין פריטים בתחום הזה.</p>
+          <p style={{ color: "var(--dz-text-muted)", fontSize: 14 }}>{t("home.attention.noneInDomain")}</p>
         ) : null}
 
         {!loading && !error && visible.length > 0 ? (
@@ -478,9 +476,9 @@ export default function AttentionPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>תחום</th>
-                    <th>מה דורש טיפול</th>
-                    <th>דחיפות</th>
+                    <th>{t("home.attention.colDomain")}</th>
+                    <th>{t("home.attention.colWhat")}</th>
+                    <th>{t("home.attention.colUrgency")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -490,9 +488,9 @@ export default function AttentionPage() {
                       className={item.itemId === selected?.itemId ? "is-selected" : undefined}
                       onClick={() => setSelectedId(item.itemId)}
                     >
-                      <td>{domainLabel(item.domain)}</td>
+                      <td>{domainLabel(item.domain, t)}</td>
                       <td>{item.title}</td>
-                      <td>{severityBadge(item.severity).label}</td>
+                      <td>{severityBadge(item.severity, t).label}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -554,7 +552,7 @@ export default function AttentionPage() {
                           minHeight: 34,
                         }}
                       >
-                        {busyItem === action.leadId ? "מעדכן…" : action.label}
+                        {busyItem === action.leadId ? t("home.attention.updating") : action.label}
                       </button>
                     ))}
                   </div>
@@ -575,9 +573,10 @@ function PaperworkObservation({
   insight: PaperworkInsightPayload;
   onOpenDocuments: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <section
-      aria-label="תצפית מערכת"
+      aria-label={t("home.attention.observationAria")}
       style={{
         marginBottom: 28,
         padding: "20px 18px 18px",
@@ -594,7 +593,7 @@ function PaperworkObservation({
           color: "var(--dz-text-muted)",
         }}
       >
-        שמים לב
+        {t("home.attention.noticing")}
       </p>
       <h2
         style={{
@@ -620,7 +619,8 @@ function PaperworkObservation({
       <ul
         style={{
           margin: "0 0 18px 0",
-          padding: "0 18px 0 0",
+          paddingBlock: 0,
+          paddingInline: "18px 0",
           fontSize: 14,
           color: "var(--dz-text-secondary)",
           lineHeight: 1.7,
@@ -661,23 +661,24 @@ function AttentionInspector({
   onOpen: () => void;
   onQuick: (action: QuickAction) => void;
 }) {
+  const { t, locale } = useI18n();
   if (!item) {
     return (
       <aside className="attn-side">
-        <h2>פריט לטיפול</h2>
-        <p>בחרו שורה כדי לראות את ההקשר ואת הפעולה. הטיפול עצמו נשאר במסך של התחום.</p>
+        <h2>{t("home.attention.inspectorTitle")}</h2>
+        <p>{t("home.attention.inspectorHint")}</p>
       </aside>
     );
   }
-  const badge = severityBadge(item.severity);
+  const badge = severityBadge(item.severity, t);
   return (
     <aside className="attn-side">
       <h2>{item.title}</h2>
-      <p>{domainLabel(item.domain)} · {badge.label}</p>
+      <p>{domainLabel(item.domain, t)} · {badge.label}</p>
       {item.summary ? <p>{item.summary}</p> : null}
-      <p>{formatCreated(item.createdAt)}</p>
+      <p>{formatCreated(item.createdAt, locale)}</p>
       <button type="button" className="attn-open" onClick={onOpen}>
-        {item.primaryAction.label || "פתיחה"}
+        {item.primaryAction.label || t("home.attention.open")}
       </button>
       {item.quickActions && item.quickActions.length > 0 ? (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -690,7 +691,7 @@ function AttentionInspector({
               disabled={busyItem === action.leadId}
               onClick={() => onQuick(action)}
             >
-              {busyItem === action.leadId ? "מעדכן…" : action.label}
+              {busyItem === action.leadId ? t("home.attention.updating") : action.label}
             </button>
           ))}
         </div>
@@ -706,9 +707,10 @@ function StatusCard({
   item: BusinessStatusItem;
   onOpen: () => void;
 }) {
-  const badge = severityBadge(item.severity);
-  const domain = domainLabel(item.domain);
-  const created = formatCreated(item.createdAt);
+  const { t, locale } = useI18n();
+  const badge = severityBadge(item.severity, t);
+  const domain = domainLabel(item.domain, t);
+  const created = formatCreated(item.createdAt, locale);
   const isStrong =
     item.severity === "CRITICAL" || item.severity === "HIGH";
 
@@ -718,7 +720,7 @@ function StatusCard({
       onClick={onOpen}
       style={{
         width: "100%",
-        textAlign: "right",
+        textAlign: "start",
         padding: "16px 16px 14px",
         borderRadius: 14,
         border: isStrong

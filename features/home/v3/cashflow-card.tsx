@@ -2,7 +2,10 @@
 
 import { useId, useState, type CSSProperties } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconInfo } from "@/components/navigation/nav-icons";
+import type { Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 import {
   barPx,
@@ -82,6 +85,8 @@ export function CashflowCard({
   style?: CSSProperties;
 }) {
   const g = GEOMETRY[variant];
+  const { t, locale } = useI18n();
+  const money = (n: number) => formatShekel(n, locale);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoId = useId();
 
@@ -95,31 +100,31 @@ export function CashflowCard({
   const setSelected = (index: number) => setPick({ key: seriesKey, index });
 
   const net = value ? netOf(value) : null;
-  const unitWord = period === "week" ? "השבוע" : "היום";
+  const unitWord = period === "week" ? t("home.cashflow.thisWeek") : t("home.cashflow.today");
   const bar = value?.bars[Math.min(selected, (value?.bars.length ?? 1) - 1)] ?? null;
   // A week column is already named "יום ב׳", so it takes no lead word — "בשעה"
   // belongs to the hourly view only (never "ביום יום ב׳").
-  const readoutLead = period === "week" ? null : "בשעה";
+  const readoutLead = period === "week" ? null : t("home.cashflow.atHour");
 
   const header = (
     <div style={{ display: "flex", flexWrap: variant === "desktop" ? "wrap" : undefined, gap: variant === "desktop" ? 12 : undefined, alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {variant === "desktop" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>הכנסות והוצאות</h2>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{t("home.cashflow.title")}</h2>
             <div style={{ fontSize: 13, color: "#CFE3E2" }}>
               {/* Hours only in the day view; a week's columns are days. */}
-              {period === "week" ? "לחיצה על עמודה מציגה את פירוט היום" : "לחיצה על עמודה מציגה את פירוט השעה"}
+              {period === "week" ? t("home.cashflow.hintWeek") : t("home.cashflow.hintDay")}
             </div>
           </div>
         ) : variant === "tablet" ? (
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500 }}>הכנסות והוצאות</h2>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500 }}>{t("home.cashflow.title")}</h2>
         ) : (
-          <h2 className="dzh-cash-title" style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>הכנסות והוצאות</h2>
+          <h2 className="dzh-cash-title" style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>{t("home.cashflow.title")}</h2>
         )}
         <button
           type="button"
-          aria-label="על מה מבוססים המספרים"
+          aria-label={t("home.cashflow.infoAria")}
           aria-expanded={infoOpen}
           aria-controls={infoId}
           onClick={() => setInfoOpen((o) => !o)}
@@ -148,11 +153,11 @@ export function CashflowCard({
           <div style={{ display: "flex", gap: 14, fontSize: 13, color: "#DDECEB" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: INCOME }} />
-              הכנסות
+              {t("home.cashflow.income")}
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: EXPENSE }} />
-              הוצאות
+              {t("home.cashflow.expenses")}
             </span>
           </div>
         ) : null}
@@ -163,15 +168,14 @@ export function CashflowCard({
 
   const info = infoOpen ? (
     <p id={infoId} style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: "#DDECEB", background: "rgba(255,255,255,0.10)", borderRadius: 14, padding: "10px 12px" }}>
-      המספרים מבוססים על הכספים ש-Dubiz יודע עליהם: הכנסות הן תשלומים שנגבו ואומתו דרך Dubiz, והוצאות הן תשלומי
-      התחייבויות שנרשמו ב-Dubiz. מזומן, צ׳קים והעברות שלא עברו דרך Dubiz לא נכללים. נטו הוא הכנסות פחות הוצאות.
-      {period === "day" ? " בתצוגה לפי שעה מוצגות עמודות הכנסה בלבד, כי שעת התשלום של הוצאה לא נשמרת." : null}
+      {t("home.cashflow.info")}
+      {period === "day" ? ` ${t("home.cashflow.infoHourly")}` : null}
     </p>
   ) : null;
 
   const netBlock = (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ fontSize: 13, color: "#CFE3E2" }}>נטו {unitWord}</div>
+      <div style={{ fontSize: 13, color: "#CFE3E2" }}>{t("home.cashflow.net")} {unitWord}</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
         <span style={{ fontSize: 22, fontWeight: 500, color: "#CFE3E2" }}>₪</span>
         <span style={{ fontSize: variant === "tablet" ? 46 : 44, fontWeight: 600, letterSpacing: -1, lineHeight: 1 }}>
@@ -189,12 +193,12 @@ export function CashflowCard({
           : { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }
       }
     >
-      <SplitTile variant={variant} dot={INCOME} label="הכנסות" value={series.state === "loading" ? null : value ? formatShekel(value.income) : "—"} />
+      <SplitTile variant={variant} dot={INCOME} label={t("home.cashflow.income")} value={series.state === "loading" ? null : value ? money(value.income) : "—"} />
       <SplitTile
         variant={variant}
         dot={EXPENSE}
-        label="הוצאות"
-        value={series.state === "loading" ? null : value && value.expense !== null ? formatShekel(value.expense) : "—"}
+        label={t("home.cashflow.expenses")}
+        value={series.state === "loading" ? null : value && value.expense !== null ? money(value.expense) : "—"}
       />
     </div>
   );
@@ -207,11 +211,11 @@ export function CashflowCard({
             {readoutLead ? `${readoutLead} ` : null}<span style={{ fontWeight: 600 }}>{bar.label}</span>
           </span>
           <span style={{ borderRadius: 999, background: "rgba(155,228,227,0.18)", color: "#BFF0EF", padding: "6px 14px", fontSize: 14, fontWeight: 500 }}>
-            הכנסות {formatShekel(bar.income)}
+            {t("home.cashflow.incomeAmount", { amount: money(bar.income) })}
           </span>
           {bar.expense !== null ? (
             <span style={{ borderRadius: 999, background: "rgba(242,185,122,0.18)", color: "#F8D3A8", padding: "6px 14px", fontSize: 14, fontWeight: 500 }}>
-              הוצאות {formatShekel(bar.expense)}
+              {t("home.cashflow.expensesAmount", { amount: money(bar.expense) })}
             </span>
           ) : null}
         </div>
@@ -232,8 +236,8 @@ export function CashflowCard({
             {readoutLead ? `${readoutLead} ` : null}<span style={{ color: "#FFFFFF", fontWeight: 600 }}>{bar.label}</span>
           </span>
           <span style={{ display: "flex", gap: 12, paddingTop: variant === "mobile" ? 10 : 0 }}>
-            <span style={{ color: INCOME, fontWeight: 500 }}>+{formatShekel(bar.income)}</span>
-            {bar.expense !== null ? <span style={{ color: EXPENSE, fontWeight: 500 }}>−{formatShekel(bar.expense)}</span> : null}
+            <span style={{ color: INCOME, fontWeight: 500 }}>+{money(bar.income)}</span>
+            {bar.expense !== null ? <span style={{ color: EXPENSE, fontWeight: 500 }}>−{money(bar.expense)}</span> : null}
           </span>
         </div>
       )
@@ -242,9 +246,9 @@ export function CashflowCard({
   const chart =
     series.state === "ready" ? (
       variant === "desktop" ? (
-        <DesktopChart series={series.value} selected={selected} onSelect={setSelected} />
+        <DesktopChart series={series.value} selected={selected} onSelect={setSelected} t={t} locale={locale} />
       ) : (
-        <CompactChart variant={variant} series={series.value} selected={selected} onSelect={setSelected} />
+        <CompactChart variant={variant} series={series.value} selected={selected} onSelect={setSelected} t={t} locale={locale} />
       )
     ) : (
       <div
@@ -261,16 +265,16 @@ export function CashflowCard({
         {series.state === "loading" ? (
           <Shimmer w="100%" h={g.height - 20} />
         ) : period === "week" ? (
-          "לא הצלחנו לטעון את נתוני השבוע. אפשר לחזור לתצוגת היום."
+          t("home.cashflow.weekFailed")
         ) : (
-          "לא הצלחנו לטעון את ההכנסות כרגע."
+          t("home.cashflow.dayFailed")
         )}
       </div>
     );
 
   return (
     <section
-      aria-label="הכנסות והוצאות"
+      aria-label={t("home.cashflow.title")}
       style={{
         borderRadius: g.cardRadius,
         padding: g.pad,
@@ -290,7 +294,7 @@ export function CashflowCard({
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 12, minHeight: variant === "desktop" ? 150 : 96, flex: 1 }}>
           <div aria-hidden style={{ height: 1, background: "rgba(255,255,255,0.22)" }} />
           <p style={{ margin: 0, fontSize: variant === "desktop" ? 15 : 14, lineHeight: 1.55, color: "#D7E8E6" }}>
-            יתחיל להתמלא מהתשלום הראשון שייגבה או יירשם ב-Dubiz.
+            {t("home.cashflow.firstTime")}
           </p>
         </div>
       ) : null}
@@ -362,15 +366,16 @@ function PeriodSwitch({
   weekFailed: boolean;
   onChange: (p: CashflowPeriod) => void;
 }) {
+  const { t } = useI18n();
   const pad = variant === "mobile" ? "6px 14px" : "7px 16px";
   const options: Array<{ key: CashflowPeriod; label: string; disabled: boolean; reason?: string }> = [
-    { key: "day", label: "יום", disabled: false },
-    { key: "week", label: "שבוע", disabled: weekFailed, reason: "נתוני השבוע לא נטענו" },
+    { key: "day", label: t("home.cashflow.periodDay"), disabled: false },
+    { key: "week", label: t("home.cashflow.periodWeek"), disabled: weekFailed, reason: t("home.cashflow.weekNotLoaded") },
     // TODO(future): month needs a per-day income series for the whole month.
-    { key: "month", label: "חודש", disabled: true, reason: "עדיין אין פירוט חודשי" },
+    { key: "month", label: t("home.cashflow.periodMonth"), disabled: true, reason: t("home.cashflow.monthSoon") },
   ];
   return (
-    <div role="group" aria-label="תקופה" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, background: "rgba(255,255,255,0.12)" }}>
+    <div role="group" aria-label={t("home.cashflow.periodAria")} style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, background: "rgba(255,255,255,0.12)" }}>
       {options.map((o) => {
         const active = period === o.key;
         return (
@@ -403,10 +408,10 @@ function PeriodSwitch({
   );
 }
 
-function barAria(series: CashflowSeries, i: number): string {
+function barAria(series: CashflowSeries, i: number, t: Translator, locale: Locale): string {
   const b = series.bars[i];
-  const parts = [b.label, `הכנסות ${formatShekel(b.income)}`];
-  if (b.expense !== null) parts.push(`הוצאות ${formatShekel(b.expense)}`);
+  const parts = [b.label, t("home.cashflow.incomeAmount", { amount: formatShekel(b.income, locale) })];
+  if (b.expense !== null) parts.push(t("home.cashflow.expensesAmount", { amount: formatShekel(b.expense, locale) }));
   return parts.join(", ");
 }
 
@@ -415,11 +420,15 @@ function CompactChart({
   series,
   selected,
   onSelect,
+  t,
+  locale,
 }: {
   variant: "mobile" | "tablet";
   series: CashflowSeries;
   selected: number;
   onSelect: (i: number) => void;
+  t: Translator;
+  locale: Locale;
 }) {
   const g = GEOMETRY[variant];
   const scale = barScale(series.bars, g.inc, g.exp);
@@ -442,7 +451,7 @@ function CompactChart({
             <button
               key={b.key}
               type="button"
-              aria-label={barAria(series, i)}
+              aria-label={barAria(series, i, t, locale)}
               aria-pressed={on}
               onClick={() => onSelect(i)}
               style={{
@@ -498,10 +507,14 @@ function DesktopChart({
   series,
   selected,
   onSelect,
+  t,
+  locale,
 }: {
   series: CashflowSeries;
   selected: number;
   onSelect: (i: number) => void;
+  t: Translator;
+  locale: Locale;
 }) {
   const g = GEOMETRY.desktop;
   const axis = chartAxis(series.bars, DESKTOP_INCOME_PX, DESKTOP_EXPENSE_PX);
@@ -534,7 +547,7 @@ function DesktopChart({
                 <button
                   key={b.key}
                   type="button"
-                  aria-label={barAria(series, i)}
+                  aria-label={barAria(series, i, t, locale)}
                   aria-pressed={on}
                   onClick={() => onSelect(i)}
                   style={{

@@ -9,12 +9,13 @@
 
 import { type CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { COUPON, type CouponThema } from "@/lib/design/coupon-consumer";
 
 const W = TOKEN.warm;
 
 export function LiveCouponDisplay({
-  label = "כך הלקוח יראה את זה",
+  label: labelProp,
   stripText,
   stripLoading = false,
   sentence,
@@ -34,6 +35,8 @@ export function LiveCouponDisplay({
   thema?: CouponThema;
   style?: CSSProperties;
 }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("home.ui.customerPreview");
   return (
     <div style={style}>
       <div
@@ -89,7 +92,7 @@ export function LiveCouponDisplay({
           */}
           {stripLoading ? (
             <span
-              aria-label="טוען את פרטי העסק"
+              aria-label={t("home.ui.loadingBusiness")}
               style={{
                 display: "inline-block",
                 width: 132,
