@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
 import {
@@ -13,6 +15,7 @@ import {
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
 export default function NewSupplierPurchaseConfirmPage() {
+  const { t, locale } = useI18n();
   const {
     summary,
     selectedItems,
@@ -34,20 +37,36 @@ export default function NewSupplierPurchaseConfirmPage() {
     const cost = Number(unitCosts[item.id] ?? "");
     return sum + (Number.isFinite(cost) ? qty * cost : 0);
   }, 0);
+  const tag = intlTag(locale);
+  const countsLine = `${t(
+    summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
+    { count: summary.totalItems }
+  )} · ${t(
+    summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
+    { count: summary.totalUnits }
+  )}`;
+  const submitLabel = actionLoading
+    ? t("customers.purchases.confirm.sending")
+    : supplierName
+      ? t("customers.purchases.confirm.sendTo", { name: supplierName })
+      : t("customers.purchases.confirm.createOrder");
+  const supplierHelp = supplierKey.startsWith("id:")
+    ? t("customers.purchases.confirm.supplierLinkedHelp")
+    : t("customers.purchases.confirm.supplierPickHelp");
 
   return (
     <OrderWizardShell
-      title="אישור הזמנה"
+      title={t("customers.purchases.confirm.title")}
       backHref="/inventory/supplier-purchases/new/cart"
       showProgress={true}
       footer={
         selectedItems.length > 0 ? (
           <div className="inv-decision-mobile">
             <BottomActionBar
-              secondary={{ label: "שמור טיוטה", onClick: persistDraft }}
+              secondary={{ label: t("customers.purchases.confirm.saveDraft"), onClick: persistDraft }}
               label=""
               value=""
-              cta={actionLoading ? "שולח…" : supplierName ? `שלח הזמנה ל${supplierName}` : "צור הזמנה"}
+              cta={submitLabel}
               ctaDisabled={!canSubmit}
               onCta={() => setConfirming(true)}
             />
@@ -57,13 +76,13 @@ export default function NewSupplierPurchaseConfirmPage() {
     >
       <div className="inv-fwrap inv-decision-mobile">
         <div className="inv-field">
-          <div className="inv-field__lab">ספק</div>
+          <div className="inv-field__lab">{t("customers.purchases.confirm.supplier")}</div>
           <select
             className="inv-input"
             value={supplierKey}
             onChange={(e) => selectSupplier(e.target.value)}
           >
-            <option value="">ללא ספק</option>
+            <option value="">{t("customers.purchases.confirm.noSupplier")}</option>
             {supplierChoices.map((choice) => {
               const key =
                 choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
@@ -75,32 +94,30 @@ export default function NewSupplierPurchaseConfirmPage() {
             })}
           </select>
           <p className="inv-field__help">
-            {supplierKey.startsWith("id:")
-              ? "ההזמנה תישמר על כרטיס הספק הזה ותופיע בהיסטוריית הרכש שלו."
-              : "בחירת ספק מהרשימה תקשר את ההזמנה לכרטיס הספק."}
+            {supplierHelp}
           </p>
         </div>
       </div>
 
-      <div className="inv-seclabel">פריטים בהזמנה</div>
+      <div className="inv-seclabel">{t("customers.purchases.confirm.itemsInOrder")}</div>
 
       {selectedItems.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
-            title="אין פריטים בהזמנה"
-            action={<Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">חזרה לבחירת מוצרים</Link>}
+            title={t("customers.purchases.confirm.emptyTitle")}
+            action={<Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">{t("customers.purchases.confirm.backToSelect")}</Link>}
           />
         </div>
       ) : (
         <div className="inv-ops">
-        <div className="inv-desk-table" aria-label="פריטים לאישור">
+        <div className="inv-desk-table" aria-label={t("customers.purchases.confirm.tableAria")}>
           <table>
             <thead>
               <tr>
-                <th>מוצר</th>
-                <th>כמות</th>
-                <th>עלות</th>
-                <th>סה״כ</th>
+                <th>{t("customers.purchases.confirm.colProduct")}</th>
+                <th>{t("customers.purchases.confirm.colQuantity")}</th>
+                <th>{t("customers.purchases.confirm.colCost")}</th>
+                <th>{t("customers.purchases.confirm.colTotal")}</th>
               </tr>
             </thead>
             <tbody>
@@ -113,7 +130,7 @@ export default function NewSupplierPurchaseConfirmPage() {
                     <td>{item.name}</td>
                     <td className="num">{qty}</td>
                     <td className="num">{hasCost ? `₪${cost}` : "—"}</td>
-                    <td className="num">{hasCost ? `₪${(qty * cost).toLocaleString("he-IL")}` : "—"}</td>
+                    <td className="num">{hasCost ? `₪${(qty * cost).toLocaleString(tag)}` : "—"}</td>
                   </tr>
                 );
               })}
@@ -130,22 +147,22 @@ export default function NewSupplierPurchaseConfirmPage() {
                 key={item.id}
                 thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(item.name)}</span>}
                 name={item.name}
-                sub={hasCost ? <><bdi>{qty}</bdi> × <bdi>₪{cost}</bdi></> : <><bdi>{qty}</bdi> יחידות · עלות לא צוינה</>}
-                trailing={hasCost ? <span className="inv-oline__price"><bdi>₪{(qty * cost).toLocaleString("he-IL")}</bdi></span> : null}
+                sub={hasCost ? <><bdi>{qty}</bdi> × <bdi>₪{cost}</bdi></> : <><bdi>{qty}</bdi> {t("customers.purchases.confirm.unitsNoCost")}</>}
+                trailing={hasCost ? <span className="inv-oline__price"><bdi>₪{(qty * cost).toLocaleString(tag)}</bdi></span> : null}
               />
             );
           })}
         </div>
         <aside className="inv-ops__side">
-          <h2>לפני שליחה</h2>
+          <h2>{t("customers.purchases.confirm.beforeSending")}</h2>
           <label className="inv-field" style={{ marginTop: 0 }}>
-            <span className="inv-field__lab">ספק</span>
+            <span className="inv-field__lab">{t("customers.purchases.confirm.supplier")}</span>
             <select
               className="inv-input"
               value={supplierKey}
               onChange={(e) => selectSupplier(e.target.value)}
             >
-              <option value="">ללא ספק</option>
+              <option value="">{t("customers.purchases.confirm.noSupplier")}</option>
               {supplierChoices.map((choice) => {
                 const key = choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
                 return (
@@ -157,31 +174,33 @@ export default function NewSupplierPurchaseConfirmPage() {
             </select>
           </label>
           <p>
-            {supplierKey.startsWith("id:")
-              ? "ההזמנה תישמר על כרטיס הספק הזה ותופיע בהיסטוריית הרכש שלו."
-              : "בחירת ספק מהרשימה תקשר את ההזמנה לכרטיס הספק."}
+            {supplierHelp}
           </p>
-          <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות{total > 0 ? <> · <bdi>₪{total.toLocaleString("he-IL")}</bdi></> : null}</p>
-          <p>המלאי יתעדכן רק לאחר קליטת הסחורה בפועל. יצירת ההזמנה לא משנה מלאי.</p>
+          <p>{countsLine}{total > 0 ? <> · <bdi>₪{total.toLocaleString(tag)}</bdi></> : null}</p>
+          <p>{t("customers.purchases.confirm.stockNote")}</p>
           <button type="button" className="inv-btn-primary" style={{ width: "100%" }} disabled={!canSubmit} onClick={() => setConfirming(true)}>
-            {actionLoading ? "שולח…" : supplierName ? `שלח הזמנה ל${supplierName}` : "צור הזמנה"}
+            {submitLabel}
           </button>
           <button type="button" className="inv-sheet__ghost" style={{ width: "100%", minHeight: 44 }} onClick={persistDraft}>
-            שמור טיוטה
+            {t("customers.purchases.confirm.saveDraft")}
           </button>
         </aside>
         </div>
       )}
 
       <p className="inv-field__help inv-decision-mobile" style={{ maxWidth: 720, margin: "8px auto 0", padding: "0 clamp(16px,3.5vw,28px)" }}>
-        המלאי יתעדכן רק לאחר קליטת הסחורה בפועל. יצירת ההזמנה לא משנה מלאי.
+        {t("customers.purchases.confirm.stockNote")}
       </p>
 
       {confirming ? (
         <ConfirmModal
-          title={supplierName ? `לשלוח הזמנה ל${supplierName}?` : "ליצור הזמנה?"}
-          body={`${summary.totalItems} מוצרים · ${summary.totalUnits} יחידות${total > 0 ? ` · ₪${total.toLocaleString("he-IL")}` : ""}`}
-          confirmLabel={actionLoading ? "שולח…" : "אישור ושליחה"}
+          title={
+            supplierName
+              ? t("customers.purchases.confirm.modalTitleTo", { name: supplierName })
+              : t("customers.purchases.confirm.modalTitle")
+          }
+          body={`${countsLine}${total > 0 ? ` · ₪${total.toLocaleString(tag)}` : ""}`}
+          confirmLabel={actionLoading ? t("customers.purchases.confirm.sending") : t("customers.purchases.confirm.confirmAndSend")}
           onConfirm={() => void createOrder()}
           onCancel={() => setConfirming(false)}
           confirmDisabled={!canSubmit}

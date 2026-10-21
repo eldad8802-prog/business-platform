@@ -4,6 +4,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import BarcodeScanner from "@/components/inventory/barcode-scanner";
 import { inventoryToast } from "@/components/inventory/inventory-toast";
@@ -33,13 +35,13 @@ import { getProductEmoji } from "@/lib/inventory/product-emoji";
 type StockTone = ReturnType<typeof getStockTone>;
 type ToneFilter = "all" | StockTone;
 
-const UNIT_SHORT: Record<string, string> = {
-  UNIT: "יח׳",
-  BOX: "מארז",
-  KG: "ק״ג",
-  GRAM: "גרם",
-  LITER: "ליטר",
-  ML: "מ״ל",
+const UNIT_SHORT: Record<string, MessageKey> = {
+  UNIT: "customers.inventory.units.short.UNIT",
+  BOX: "customers.inventory.units.short.BOX",
+  KG: "customers.inventory.units.short.KG",
+  GRAM: "customers.inventory.units.short.GRAM",
+  LITER: "customers.inventory.units.short.LITER",
+  ML: "customers.inventory.units.short.ML",
 };
 
 const TONE_DOTS: Record<StockTone, string> = {
@@ -59,18 +61,19 @@ function itemMeta(item: InventoryItemDTO) {
 }
 
 /** Caption under the stock bar, mirroring the mockup's `.barcap` copy. */
-function itemCaption(item: InventoryItemDTO): string | undefined {
+function itemCaption(item: InventoryItemDTO, t: Translator): string | undefined {
   if (item.reorderPoint != null) {
-    return `${item.currentQuantity} מתוך סף הזמנה ${item.reorderPoint}`;
+    return t("customers.inventory.items.captionReorder", { current: item.currentQuantity, reorder: item.reorderPoint });
   }
   if (item.minimumQuantity > 0) {
-    return `${item.currentQuantity} · סף מינימום ${item.minimumQuantity}`;
+    return t("customers.inventory.items.captionMinimum", { current: item.currentQuantity, minimum: item.minimumQuantity });
   }
   return undefined;
 }
 
 function InventoryItemsListPageContent() {
   const router = useRouter();
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const { counts: inboxCounts } = useInventoryInboxCounts();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
@@ -83,6 +86,11 @@ function InventoryItemsListPageContent() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const unitShort = (unitType: string): string | undefined => {
+    const key = UNIT_SHORT[unitType];
+    return key ? t(key) : undefined;
+  };
 
   const sortedItems = useMemo(() => {
     const toneOrder: Record<StockTone, number> = { critical: 0, low: 1, ok: 2 };
@@ -141,7 +149,7 @@ function InventoryItemsListPageContent() {
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת המוצרים");
+      setError(err instanceof Error ? err.message : t("customers.inventory.common.loadItemsFailed"));
     } finally {
       setLoading(false);
     }
@@ -150,6 +158,7 @@ function InventoryItemsListPageContent() {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadItems(), 0);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
   }, []);
 
   function handleScanDetected(code: string) {
@@ -163,7 +172,7 @@ function InventoryItemsListPageContent() {
     }
     if (matches.length === 0) {
       // Keep the existing text search untouched; just report no match.
-      inventoryToast.error("לא נמצא מוצר עם הברקוד הזה");
+      inventoryToast.error(t("customers.inventory.items.barcodeNotFound"));
       return;
     }
     // More than one match (rare) — fall back to filtering the list by the code.
@@ -172,19 +181,19 @@ function InventoryItemsListPageContent() {
 
   const sub = (
     <>
-      {items.length} מוצרים
-      {attention > 0 ? <> · <b>{attention} דורשים טיפול</b></> : <> · הכול תקין</>}
+      {t(items.length === 1 ? "customers.inventory.items.productsCountOne" : "customers.inventory.items.productsCountMany", { count: items.length })}
+      {attention > 0 ? <> · <b>{t("customers.inventory.items.needAttention", { count: attention })}</b></> : <> · {t("customers.inventory.items.allOk")}</>}
     </>
   );
 
   return (
     <InventorySubPage intent="data"
-      title="מלאי"
+      title={t("customers.inventory.items.title")}
       variant="hub"
       sub={!loading && !error ? sub : undefined}
       headerAction={{
         icon: <IconPlus />,
-        label: "מוצר חדש",
+        label: t("customers.inventory.common.newProduct"),
         href: "/inventory/items/create",
         accent: true,
       }}
@@ -193,7 +202,7 @@ function InventoryItemsListPageContent() {
       <InventorySearch
         value={query}
         onChange={setQuery}
-        placeholder="חיפוש לפי שם, מק״ט או ברקוד"
+        placeholder={t("customers.inventory.items.searchPlaceholder")}
         onScan={() => setScannerOpen(true)}
       />
 
@@ -202,23 +211,23 @@ function InventoryItemsListPageContent() {
         onClose={() => setScannerOpen(false)}
         onDetected={handleScanDetected}
         mode="single"
-        title="סריקת ברקוד"
-        hint="כוונו את המצלמה לברקוד המוצר"
+        title={t("customers.inventory.common.scanBarcode")}
+        hint={t("customers.inventory.common.scanHint")}
       />
 
       {missingDataMode ? (
         <div className="inv-hd__sub" style={{ marginTop: 14 }}>
-          מוצרים עם נתונים חסרים — עלות או מחיר מכירה
+          {t("customers.inventory.items.missingData")}
         </div>
       ) : (
         <FilterChipRow<ToneFilter>
           value={toneFilter}
           onChange={setToneFilter}
           options={[
-            { value: "all", label: "הכל" },
-            { value: "critical", label: "קריטי", dotColor: TONE_DOTS.critical },
-            { value: "low", label: "נמוך", dotColor: TONE_DOTS.low },
-            { value: "ok", label: "תקין", dotColor: TONE_DOTS.ok },
+            { value: "all", label: t("customers.inventory.common.all") },
+            { value: "critical", label: t("customers.inventory.common.critical"), dotColor: TONE_DOTS.critical },
+            { value: "low", label: t("customers.inventory.common.low"), dotColor: TONE_DOTS.low },
+            { value: "ok", label: t("customers.inventory.common.ok"), dotColor: TONE_DOTS.ok },
           ]}
         />
       )}
@@ -252,9 +261,9 @@ function InventoryItemsListPageContent() {
           >
             <span style={{ fontSize: 20 }} aria-hidden>🗂️</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <bdi>{inboxCounts.drafts}</bdi> מוצרים זוהו אוטומטית · ממתינים לאישור
+              <bdi>{inboxCounts.drafts}</bdi> {t("customers.inventory.items.draftsBanner")}
             </span>
-            <span style={{ color: "var(--inv-accent)", fontWeight: 600, flexShrink: 0 }}>אישור ›</span>
+            <span style={{ color: "var(--inv-accent)", fontWeight: 600, flexShrink: 0 }}>{t("customers.inventory.items.draftsBannerAction")}</span>
           </Link>
         </div>
       ) : null}
@@ -263,10 +272,10 @@ function InventoryItemsListPageContent() {
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
             tone="error"
-            title="משהו השתבש"
+            title={t("customers.inventory.common.somethingWrong")}
             action={
               <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void loadItems()}>
-                נסה שוב
+                {t("customers.inventory.common.retry")}
               </button>
             }
           >
@@ -280,32 +289,33 @@ function InventoryItemsListPageContent() {
       ) : filteredItems.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
-            title={items.length === 0 ? "עדיין אין מוצרים במלאי" : "לא נמצאו מוצרים"}
+            title={items.length === 0 ? t("customers.inventory.items.emptyTitle") : t("customers.inventory.common.noProductsFound")}
           >
             {items.length === 0
-              ? "הוסיפו מוצר ראשון כדי להתחיל לעקוב אחרי הכמויות, הספים וההתראות."
-              : "נסו חיפוש קצר יותר או שנו את הסינון."}
+              ? t("customers.inventory.items.emptyBody")
+              : t("customers.inventory.items.noMatchBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
-        <div className="inv-desk-table" aria-label="מוצרים">
+        <div className="inv-desk-table" aria-label={t("customers.inventory.items.tableAria")}>
           <table>
             <thead>
               <tr>
-                <th>מוצר</th>
-                <th>פרטים</th>
-                <th className="inv-wide">מינימום</th>
-                <th className="inv-wide">הזמנה</th>
-                <th className="inv-wide">עלות</th>
-                <th className="inv-wide">מחיר</th>
-                <th>כמות</th>
-                <th>סטטוס</th>
+                <th>{t("customers.inventory.items.table.product")}</th>
+                <th>{t("customers.inventory.items.table.details")}</th>
+                <th className="inv-wide">{t("customers.inventory.items.table.minimum")}</th>
+                <th className="inv-wide">{t("customers.inventory.items.table.reorder")}</th>
+                <th className="inv-wide">{t("customers.inventory.items.table.cost")}</th>
+                <th className="inv-wide">{t("customers.inventory.items.table.price")}</th>
+                <th>{t("customers.inventory.items.table.quantity")}</th>
+                <th>{t("customers.inventory.items.table.status")}</th>
               </tr>
             </thead>
             <tbody>
               {filteredItems.map((item) => {
                 const tone = getStockTone(item);
+                const unit = unitShort(item.unitType);
                 return (
                   <tr key={item.id} onClick={() => router.push(`/inventory/items/${item.id}`)}>
                     <td>
@@ -318,7 +328,7 @@ function InventoryItemsListPageContent() {
                     <td className="num inv-wide">{item.sellPricePerUnit != null ? `₪${item.sellPricePerUnit}` : "—"}</td>
                     <td className="num">
                       {item.currentQuantity}
-                      {UNIT_SHORT[item.unitType] ? ` ${UNIT_SHORT[item.unitType]}` : ""}
+                      {unit ? ` ${unit}` : ""}
                     </td>
                     <td>{getStockStatusLabel(tone)}</td>
                   </tr>
@@ -343,10 +353,10 @@ function InventoryItemsListPageContent() {
                 name={item.name}
                 meta={itemMeta(item) || undefined}
                 ratio={getStockRatio(item)}
-                caption={itemCaption(item)}
+                caption={itemCaption(item, t)}
                 statusLabel={getStockStatusLabel(tone)}
                 quantity={item.currentQuantity}
-                unitLabel={UNIT_SHORT[item.unitType] ?? undefined}
+                unitLabel={unitShort(item.unitType)}
                 href={`/inventory/items/${item.id}`}
               />
             );

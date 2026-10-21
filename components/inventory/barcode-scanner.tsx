@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, type ComponentProps } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 import { CloseButton } from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Shared inventory barcode scanner.
@@ -87,10 +88,11 @@ function BarcodeScannerBody({
   onClose,
   onDetected,
   mode = "single",
-  title = "סריקת ברקוד",
+  title,
   hint,
   status,
 }: Props) {
+  const { t } = useI18n();
   const [manualMode, setManualMode] = useState(false);
   const [manualValue, setManualValue] = useState("");
   const [cameraSupported] = useState(
@@ -155,7 +157,6 @@ function BarcodeScannerBody({
 
   return (
     <div
-      dir="rtl"
       onClick={onClose}
       style={{
         position: "fixed",
@@ -172,7 +173,7 @@ function BarcodeScannerBody({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="סורק ברקוד"
+        aria-label={t("customers.inventoryKit.scanner.dialogLabel")}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
@@ -199,7 +200,7 @@ function BarcodeScannerBody({
           {/* Dismisses the scanner overlay — a close, not a back. */}
           <CloseButton onClick={onClose} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 600, color: "var(--inv-text)" }}>{title}</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: "var(--inv-text)" }}>{title ?? t("customers.inventoryKit.common.scanBarcode")}</div>
             {hint ? (
               <div style={{ marginTop: 4, fontSize: 13, color: "var(--inv-text-muted)" }}>{hint}</div>
             ) : null}
@@ -235,7 +236,7 @@ function BarcodeScannerBody({
                 onError={(err) => {
                   console.error("Barcode scanner error:", err);
                   setCameraError(
-                    "לא הצלחנו להפעיל את המצלמה. אפשר לאשר הרשאת מצלמה או להזין ברקוד ידנית."
+                    t("customers.inventoryKit.scanner.cameraError")
                   );
                 }}
               />
@@ -257,8 +258,8 @@ function BarcodeScannerBody({
               {cameraError
                 ? cameraError
                 : !cameraSupported
-                ? "הדפדפן לא תומך בפתיחת מצלמה. אפשר להזין ברקוד ידנית."
-                : "הזנת ברקוד ידנית"}
+                ? t("customers.inventoryKit.scanner.noCamera")
+                : t("customers.inventoryKit.scanner.manualEntry")}
             </div>
           )}
 
@@ -295,8 +296,8 @@ function BarcodeScannerBody({
                   handleManualSubmit();
                 }
               }}
-              placeholder="הזנת ברקוד ידנית"
-              aria-label="הזנת ברקוד ידנית"
+              placeholder={t("customers.inventoryKit.scanner.manualEntry")}
+              aria-label={t("customers.inventoryKit.scanner.manualEntry")}
               style={{
                 flex: 1,
                 minHeight: 46,
@@ -326,7 +327,7 @@ function BarcodeScannerBody({
                 flexShrink: 0,
               }}
             >
-              אישור
+              {t("customers.inventoryKit.scanner.confirm")}
             </button>
           </div>
 
@@ -345,7 +346,7 @@ function BarcodeScannerBody({
                 padding: 4,
               }}
             >
-              ← חזרה לסריקה במצלמה
+              {t("customers.inventoryKit.scanner.backToCamera")}
             </button>
           ) : null}
         </div>

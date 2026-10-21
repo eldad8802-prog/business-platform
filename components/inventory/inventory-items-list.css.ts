@@ -168,7 +168,7 @@ export const inventoryItemsListCss = `
     border-bottom: 1px solid var(--inv-border-soft, var(--dz-surface-muted));
     background: transparent;
     cursor: pointer;
-    text-align: right;
+    text-align: start;
     font-family: inherit;
     box-sizing: border-box;
     min-height: 64px;

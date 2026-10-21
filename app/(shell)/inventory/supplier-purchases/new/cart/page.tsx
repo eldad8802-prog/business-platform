@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
 import {
@@ -13,6 +15,7 @@ import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
 export default function NewSupplierPurchaseCartPage() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const {
     summary,
     selectedItems,
@@ -36,16 +39,19 @@ export default function NewSupplierPurchaseCartPage() {
 
   return (
     <OrderWizardShell
-      title="הזמנת רכש"
+      title={t("customers.purchases.cart.title")}
       backHref="/inventory/supplier-purchases/new"
       showProgress={true}
       footer={
         hasItems ? (
           <div className="inv-decision-mobile">
             <BottomActionBar
-              label={`סה״כ הזמנה (${summary.totalUnits} יחידות)`}
-              value={total > 0 ? <>₪{total.toLocaleString("he-IL")}</> : "—"}
-              cta="המשך לאישור"
+              label={t(
+                summary.totalUnits === 1 ? "customers.purchases.cart.orderTotalOne" : "customers.purchases.cart.orderTotalMany",
+                { count: summary.totalUnits }
+              )}
+              value={total > 0 ? <>₪{total.toLocaleString(intlTag(locale))}</> : "—"}
+              cta={t("customers.purchases.cart.continueToConfirm")}
               onCta={() => router.push("/inventory/supplier-purchases/new/confirm")}
             />
           </div>
@@ -55,25 +61,25 @@ export default function NewSupplierPurchaseCartPage() {
       {!hasItems ? (
         <div className="inv-page-content" style={{ padding: "8px clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
-            title="העגלה ריקה"
+            title={t("customers.purchases.cart.emptyTitle")}
             action={
               <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => router.push("/inventory/supplier-purchases/new")}>
-                בחירת מוצרים
+                {t("customers.purchases.cart.selectProducts")}
               </button>
             }
           >
-            חזרו לבחירת מוצרים כדי להתחיל הזמנה.
+            {t("customers.purchases.cart.emptyBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <div className="inv-ops">
-        <div className="inv-desk-table" aria-label="שורות ההזמנה">
+        <div className="inv-desk-table" aria-label={t("customers.purchases.cart.linesAria")}>
           <table>
             <thead>
               <tr>
-                <th>מוצר</th>
-                <th>כמות</th>
-                <th>עלות ליחידה</th>
+                <th>{t("customers.purchases.cart.colProduct")}</th>
+                <th>{t("customers.purchases.cart.colQuantity")}</th>
+                <th>{t("customers.purchases.cart.colUnitCost")}</th>
                 <th></th>
               </tr>
             </thead>
@@ -84,23 +90,23 @@ export default function NewSupplierPurchaseCartPage() {
                   <tr key={item.id}>
                     <td>{item.name}</td>
                     <td>
-                      <button type="button" onClick={() => decrementItem(item.id)} aria-label="הפחתה">−</button>
+                      <button type="button" onClick={() => decrementItem(item.id)} aria-label={t("customers.purchases.cart.decrease")}>−</button>
                       {" "}{qty}{" "}
-                      <button type="button" onClick={() => incrementItem(item.id)} aria-label="הוספה">+</button>
+                      <button type="button" onClick={() => incrementItem(item.id)} aria-label={t("customers.purchases.cart.increase")}>+</button>
                     </td>
                     <td>
                       <input
                         className="inv-input"
                         style={{ minHeight: 36 }}
                         inputMode="decimal"
-                        placeholder="לא חובה"
+                        placeholder={t("customers.purchases.cart.optional")}
                         value={unitCosts[item.id] ?? ""}
                         onChange={(e) => setUnitCost(item.id, e.target.value)}
-                        aria-label={`עלות ליחידה עבור ${item.name}`}
+                        aria-label={t("customers.purchases.cart.unitCostFor", { name: item.name })}
                       />
                     </td>
                     <td>
-                      <button type="button" onClick={() => removeItem(item.id)} aria-label={`הסר ${item.name}`}>הסר</button>
+                      <button type="button" onClick={() => removeItem(item.id)} aria-label={t("customers.purchases.cart.removeNamed", { name: item.name })}>{t("customers.purchases.cart.remove")}</button>
                     </td>
                   </tr>
                 );
@@ -116,7 +122,7 @@ export default function NewSupplierPurchaseCartPage() {
                 key={item.id}
                 thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(item.name)}</span>}
                 name={item.name}
-                sub={isSuggested(item.id) ? "המלצת מערכת" : item.unitType}
+                sub={isSuggested(item.id) ? t("customers.purchases.cart.systemSuggestion") : item.unitType}
                 trailing={
                   <MiniStepper
                     value={qty}
@@ -131,12 +137,12 @@ export default function NewSupplierPurchaseCartPage() {
                       className="inv-input"
                       style={{ minHeight: 40, flex: 1 }}
                       inputMode="decimal"
-                      placeholder="עלות ליחידה (לא חובה)"
+                      placeholder={t("customers.purchases.cart.unitCostOptional")}
                       value={unitCosts[item.id] ?? ""}
                       onChange={(e) => setUnitCost(item.id, e.target.value)}
-                      aria-label={`עלות ליחידה עבור ${item.name}`}
+                      aria-label={t("customers.purchases.cart.unitCostFor", { name: item.name })}
                     />
-                    <button type="button" className="inv-oline__remove" onClick={() => removeItem(item.id)} aria-label={`הסר ${item.name}`}>
+                    <button type="button" className="inv-oline__remove" onClick={() => removeItem(item.id)} aria-label={t("customers.purchases.cart.removeNamed", { name: item.name })}>
                       ×
                     </button>
                   </div>
@@ -145,18 +151,36 @@ export default function NewSupplierPurchaseCartPage() {
             );
           })}
           <button type="button" className="inv-btn-link" style={{ marginInlineStart: "auto" }} onClick={clearOrder}>
-            נקה עגלה
+            {t("customers.purchases.cart.clearCart")}
           </button>
         </div>
         <aside className="inv-ops__side">
-          <h2>העגלה</h2>
-          <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות</p>
-          <p>{total > 0 ? <>סה״כ <bdi>₪{total.toLocaleString("he-IL")}</bdi></> : "עדיין אין עלות. אפשר להמשיך בלי מחיר."}</p>
-          <p>הכמויות נסגרות כאן. יצירת ההזמנה עדיין לא משנה מלאי.</p>
+          <h2>{t("customers.purchases.cart.sideTitle")}</h2>
+          <p>
+            {t(
+              summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
+              { count: summary.totalItems }
+            )}{" "}
+            ·{" "}
+            {t(
+              summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
+              { count: summary.totalUnits }
+            )}
+          </p>
+          <p>
+            {total > 0 ? (
+              <>
+                {t("customers.purchases.cart.totalLabel")} <bdi>₪{total.toLocaleString(intlTag(locale))}</bdi>
+              </>
+            ) : (
+              t("customers.purchases.cart.noCostYet")
+            )}
+          </p>
+          <p>{t("customers.purchases.cart.sideNote")}</p>
           <button type="button" className="inv-btn-primary" style={{ width: "100%" }} onClick={() => router.push("/inventory/supplier-purchases/new/confirm")}>
-            המשך לאישור
+            {t("customers.purchases.cart.continueToConfirm")}
           </button>
-          <button type="button" className="inv-btn-link" onClick={clearOrder}>נקה עגלה</button>
+          <button type="button" className="inv-btn-link" onClick={clearOrder}>{t("customers.purchases.cart.clearCart")}</button>
         </aside>
         </div>
       )}

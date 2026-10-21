@@ -1,8 +1,10 @@
 "use client";
 
 import { CrmUnselectedDesk } from "@/components/crm/crm-unselected-desk";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function SuppliersIndexPage() {
+  const { t } = useI18n();
   return (
     <CrmUnselectedDesk
       icon={
@@ -11,13 +13,13 @@ export default function SuppliersIndexPage() {
           <path d="M9 20v-6h6v6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       }
-      title="בחרו ספק מהרשימה"
-      description="בחירת ספק תציג את פרטי הקשר, ההזמנות והפעילות שלו."
-      lead="ההזמנות נשארות על כרטיס הספק"
+      title={t("customers.suppliers.index.title")}
+      description={t("customers.suppliers.index.description")}
+      lead={t("customers.suppliers.index.lead")}
       facts={[
-        { title: "פרטי קשר", body: "איך מגיעים לספק, באותו כרטיס של הרשימה." },
-        { title: "הזמנות", body: "הזמנות שכבר קיימות לספק הזה, לא רשימה צפה בנפרד." },
-        { title: "פעילות", body: "מה שזז מול הספק מופיע ליד הבחירה." },
+        { title: t("customers.suppliers.index.contactTitle"), body: t("customers.suppliers.index.contactBody") },
+        { title: t("customers.suppliers.index.ordersTitle"), body: t("customers.suppliers.index.ordersBody") },
+        { title: t("customers.suppliers.index.activityTitle"), body: t("customers.suppliers.index.activityBody") },
       ]}
     />
   );

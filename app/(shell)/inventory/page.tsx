@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { inventoryFoundationCss } from "@/components/inventory/inventory-foundation.css";
 import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
 import { getClientAuthToken, isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
@@ -35,6 +36,7 @@ import { HomeEmpty, HomeError, HomeLoading } from "@/components/inventory/home/H
    inventory-scoped `--inv-home-*` tokens (inventory-tokens.ts). */
 export default function InventoryHomePage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -73,33 +75,33 @@ export default function InventoryHomePage() {
 
   const summary = useMemo(() => deriveHomeSummary(items), [items]);
   const attentionItems = useMemo(() => selectAttentionItems(items), [items]);
-  const greeting = useMemo(() => getGreeting(), []);
+  const greeting = useMemo(() => getGreeting(t), [t]);
 
   const visibleAttention = showAll ? attentionItems : attentionItems.slice(0, 4);
   const isEmpty = items.length === 0;
 
   const quickActions: QuickAction[] = [
-    { key: "create", label: "מוצר חדש", icon: <IconPlus />, tone: "teal", onClick: () => router.push("/inventory/items/create") },
-    { key: "count", label: "ספירת מלאי", icon: <IconCount />, tone: "blue", onClick: () => router.push("/inventory/count") },
-    { key: "order", label: "הזמנה מספק", icon: <IconTruck />, tone: "amber", onClick: () => router.push("/inventory/supplier-purchases/new") },
-    { key: "receive", label: "קבלת סחורה", icon: <IconReceive />, tone: "violet", onClick: () => router.push("/inventory/supplier-purchases/pending") },
+    { key: "create", label: t("customers.inventory.home.actions.newProduct"), icon: <IconPlus />, tone: "teal", onClick: () => router.push("/inventory/items/create") },
+    { key: "count", label: t("customers.inventory.home.actions.count"), icon: <IconCount />, tone: "blue", onClick: () => router.push("/inventory/count") },
+    { key: "order", label: t("customers.inventory.home.actions.supplierOrder"), icon: <IconTruck />, tone: "amber", onClick: () => router.push("/inventory/supplier-purchases/new") },
+    { key: "receive", label: t("customers.inventory.home.actions.receive"), icon: <IconReceive />, tone: "violet", onClick: () => router.push("/inventory/supplier-purchases/pending") },
   ];
 
   return (
-    <div data-inventory-home data-inventory-module data-page-intent="content" dir="rtl">
+    <div data-inventory-home data-inventory-module data-page-intent="content">
       <style>{inventoryFoundationCss}</style>
       <style>{homeCss}</style>
 
-      <main className="inv-hm-frame" aria-label="בית המלאי">
+      <main className="inv-hm-frame" aria-label={t("customers.inventory.home.ariaLabel")}>
         <header className="inv-hm-head inv-hm-rise" style={{ animationDelay: "0.02s" }}>
           <div>
-            <h1>מלאי</h1>
+            <h1>{t("customers.inventory.home.title")}</h1>
             <div className="inv-hm-greet">{greeting} 👋</div>
           </div>
           <button
             type="button"
             className="inv-hm-scan"
-            aria-label="סריקה / חיפוש מוצר"
+            aria-label={t("customers.inventory.home.scanAria")}
             onClick={() => router.push("/inventory/items")}
           >
             <IconScan />
@@ -118,13 +120,13 @@ export default function InventoryHomePage() {
               <div className="inv-hm-empty-desk">
                 <div>
                   <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
-                    <h2>פעולות מהירות</h2>
+                    <h2>{t("customers.inventory.home.quickActions")}</h2>
                   </div>
                   <QuickActionsGrid actions={quickActions} />
                 </div>
                 <div>
                   <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.22s" }}>
-                    <h2>המלאי שלך</h2>
+                    <h2>{t("customers.inventory.home.yourInventory")}</h2>
                   </div>
                   <HomeEmpty onCreate={() => router.push("/inventory/items/create")} />
                 </div>
@@ -145,7 +147,7 @@ export default function InventoryHomePage() {
                   />
                   <div className="inv-hm-actions">
                     <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.16s" }}>
-                      <h2>פעולות מהירות</h2>
+                      <h2>{t("customers.inventory.home.quickActions")}</h2>
                     </div>
                     <QuickActionsGrid actions={quickActions} />
                   </div>
@@ -153,17 +155,17 @@ export default function InventoryHomePage() {
 
                 <div className="inv-hm-attn">
                 <div className="inv-hm-sec inv-hm-rise" style={{ animationDelay: "0.22s" }}>
-                  <h2>דורש טיפול</h2>
+                  <h2>{t("customers.inventory.home.needsAttention")}</h2>
                   {attentionItems.length > 4 ? (
                     <button type="button" className="inv-hm-link" onClick={() => setShowAll((v) => !v)}>
-                      {showAll ? "הצג פחות" : "הצג הכל"}
+                      {showAll ? t("customers.inventory.home.showLess") : t("customers.inventory.home.showAll")}
                     </button>
                   ) : null}
                 </div>
 
                 {attentionItems.length === 0 ? (
                   <div className="inv-hm-note inv-hm-rise" style={{ animationDelay: "0.24s" }}>
-                    הכול תקין · אין פריטים שדורשים טיפול
+                    {t("customers.inventory.home.allGood")}
                   </div>
                 ) : (
                   <>
@@ -197,6 +199,7 @@ function HomeAttentionDesk({
   onSelect: (id: number) => void;
   onOpen: (id: number) => void;
 }) {
+  const { t } = useI18n();
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const readout = selected ? getAttentionReadout(selected) : null;
   const tone = selected ? getStockTone(selected) : null;
@@ -206,9 +209,9 @@ function HomeAttentionDesk({
         <table>
           <thead>
             <tr>
-              <th>פריט</th>
-              <th>מצב</th>
-              <th>כמות</th>
+              <th>{t("customers.inventory.home.table.item")}</th>
+              <th>{t("customers.inventory.home.table.state")}</th>
+              <th>{t("customers.inventory.home.table.quantity")}</th>
             </tr>
           </thead>
           <tbody>
@@ -222,7 +225,7 @@ function HomeAttentionDesk({
                   onClick={() => onSelect(item.id)}
                 >
                   <td>{item.name}</td>
-                  <td>{itemTone === "critical" ? "קריטי" : "נמוך"}</td>
+                  <td>{itemTone === "critical" ? t("customers.inventory.common.critical") : t("customers.inventory.common.low")}</td>
                   <td><bdi>{row.current} / {row.target}</bdi></td>
                 </tr>
               );
@@ -235,15 +238,15 @@ function HomeAttentionDesk({
           <>
             <strong>{selected.name}</strong>
             <p style={{ margin: 0, color: "var(--inv-text-muted)", fontSize: 13 }}>
-              {tone === "critical" ? "מלאי קריטי" : "מלאי נמוך"} · <bdi>{readout.current} מתוך {readout.target}</bdi>
+              {tone === "critical" ? t("customers.inventory.home.stockCritical") : t("customers.inventory.home.stockLow")} · <bdi>{t("customers.inventory.home.ofTarget", { current: readout.current, target: readout.target })}</bdi>
             </p>
             <button type="button" className="inv-btn-primary" onClick={() => onOpen(selected.id)}>
-              פתיחת הפריט
+              {t("customers.inventory.home.openItem")}
             </button>
           </>
         ) : (
           <p style={{ margin: 0, color: "var(--inv-text-muted)", fontSize: 13 }}>
-            בחרו פריט כדי לראות כמה חסר ומה אפשר לעשות.
+            {t("customers.inventory.home.selectHint")}
           </p>
         )}
       </aside>

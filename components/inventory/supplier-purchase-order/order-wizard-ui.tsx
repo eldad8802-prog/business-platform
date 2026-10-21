@@ -1,9 +1,16 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { WizardSteps } from "@/components/inventory/inventory-design";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 // 3-step order flow (product-first), matching the mockup's `.steps` pills.
-const PROGRESS_STEPS = ["בחירה", "עגלה", "אישור"];
+const PROGRESS_STEP_KEYS: readonly MessageKey[] = [
+  "customers.purchases.wizard.steps.select",
+  "customers.purchases.wizard.steps.cart",
+  "customers.purchases.wizard.steps.confirm",
+];
 
 function stepIndexForPath(pathname: string): number {
   if (pathname.endsWith("/confirm")) return 2;
@@ -12,14 +19,17 @@ function stepIndexForPath(pathname: string): number {
 }
 
 export function OrderWizardProgress({ pathname }: { pathname: string }) {
-  return <WizardSteps steps={PROGRESS_STEPS} activeIndex={stepIndexForPath(pathname)} />;
+  const { t } = useI18n();
+  return <WizardSteps steps={PROGRESS_STEP_KEYS.map((key) => t(key))} activeIndex={stepIndexForPath(pathname)} />;
 }
 
-export function orderWizardProgressLabel(pathname: string) {
+export function orderWizardProgressLabel(pathname: string, t: Translator) {
   const idx = stepIndexForPath(pathname);
   return (
     <>
-      שלב <strong>{idx + 1}</strong> מתוך {PROGRESS_STEPS.length} · <strong>{PROGRESS_STEPS[idx]}</strong>
+      {t("customers.purchases.wizard.progress.step")} <strong>{idx + 1}</strong>{" "}
+      {t("customers.purchases.wizard.progress.of", { total: PROGRESS_STEP_KEYS.length })} ·{" "}
+      <strong>{t(PROGRESS_STEP_KEYS[idx])}</strong>
     </>
   );
 }
@@ -39,6 +49,7 @@ export function OrderWizardAlerts({
   onRestoreDraft: () => void;
   onClearDraft: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <>
       {hasLocalDraft && !hasUnsavedWork ? (
@@ -47,16 +58,16 @@ export function OrderWizardAlerts({
           style={{ borderColor: "var(--inv-info-border)", background: "var(--inv-info-bg)", color: "var(--inv-info-ink)" }}
         >
           <div style={{ fontWeight: 600, marginBottom: 10 }}>
-            יש הזמנה שנשמרה להמשך.
+            {t("customers.purchases.wizard.alerts.savedDraft")}
           </div>
           <div
             style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
           >
             <button type="button" onClick={onRestoreDraft} className="owz-step__next">
-              המשך הזמנה
+              {t("customers.purchases.wizard.alerts.resume")}
             </button>
             <button type="button" onClick={onClearDraft} className="owz-step__back">
-              מחק
+              {t("customers.purchases.wizard.alerts.delete")}
             </button>
           </div>
         </section>
@@ -79,6 +90,24 @@ export function OrderWizardAlerts({
           {success}
         </div>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Renders a translated template with ONE `{var}` placeholder wrapped in <bdi> — keeps the bidi
+ * isolation the screens always had around numbers/names, without concatenating text fragments.
+ * Pass the template untranslated-vars (t(key) with no vars leaves `{var}` intact).
+ */
+export function BdiTemplate({ template, name, value }: { template: string; name: string; value: ReactNode }) {
+  const token = `{${name}}`;
+  const at = template.indexOf(token);
+  if (at < 0) return <>{template}</>;
+  return (
+    <>
+      {template.slice(0, at)}
+      <bdi>{value}</bdi>
+      {template.slice(at + token.length)}
     </>
   );
 }

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { IconScan } from "@/components/inventory/inventory-primitives";
 import BarcodeScanner, {
@@ -20,13 +22,13 @@ import {
 } from "@/lib/client-session";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
-const UNIT_SHORT: Record<string, string> = {
-  UNIT: "יח׳",
-  BOX: "מארז",
-  KG: "ק״ג",
-  GRAM: "גרם",
-  LITER: "ליטר",
-  ML: "מ״ל",
+const UNIT_SHORT: Record<string, MessageKey> = {
+  UNIT: "customers.inventory.units.short.UNIT",
+  BOX: "customers.inventory.units.short.BOX",
+  KG: "customers.inventory.units.short.KG",
+  GRAM: "customers.inventory.units.short.GRAM",
+  LITER: "customers.inventory.units.short.LITER",
+  ML: "customers.inventory.units.short.ML",
 };
 
 /**
@@ -41,6 +43,7 @@ const UNIT_SHORT: Record<string, string> = {
  */
 export default function InventoryCountPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +88,7 @@ export default function InventoryCountPage() {
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת המוצרים");
+      setError(err instanceof Error ? err.message : t("customers.inventory.common.loadItemsFailed"));
     } finally {
       setLoading(false);
     }
@@ -94,6 +97,7 @@ export default function InventoryCountPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadItems(), 0);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
   }, []);
 
   function handleScanDetected(code: string) {
@@ -102,12 +106,12 @@ export default function InventoryCountPage() {
     const item = byBarcode.get(scanned);
     if (!item) {
       // Unknown barcode — report and keep the session going.
-      setScanStatus({ text: `ברקוד לא מזוהה: ${scanned}`, tone: "error" });
+      setScanStatus({ text: t("customers.inventory.count.unknownBarcode", { code: scanned }), tone: "error" });
       return;
     }
     setCounts((prev) => {
       const next = (prev[item.id] ?? 0) + 1;
-      setScanStatus({ text: `נספר: ${item.name} (×${next})`, tone: "success" });
+      setScanStatus({ text: t("customers.inventory.count.counted", { name: item.name, count: next }), tone: "success" });
       return { ...prev, [item.id]: next };
     });
   }
@@ -160,7 +164,7 @@ export default function InventoryCountPage() {
     if (saving) return;
     const toApply = countedRows.filter((r) => r.counted !== r.item.currentQuantity);
     if (toApply.length === 0) {
-      inventoryToast.info("אין הפרשים לשמירה");
+      inventoryToast.info(t("customers.inventory.count.noDiffs"));
       return;
     }
     setSaving(true);
@@ -183,17 +187,17 @@ export default function InventoryCountPage() {
     }
     setSaving(false);
     if (failed === 0) {
-      inventoryToast.success(`הספירה נשמרה · ${ok} מוצרים עודכנו`);
+      inventoryToast.success(t(ok === 1 ? "customers.inventory.count.savedOne" : "customers.inventory.count.savedMany", { count: ok }));
       router.push("/inventory");
     } else {
-      inventoryToast.error(`חלק מהעדכונים נכשלו · ${ok} עודכנו, ${failed} נכשלו`);
+      inventoryToast.error(t("customers.inventory.count.partialFailure", { ok, failed }));
       await loadItems();
       setCounts({});
     }
   }
 
   return (
-    <InventorySubPage intent="standard" title="ספירת מלאי" backHref="/inventory" backText="חזרה">
+    <InventorySubPage intent="standard" title={t("customers.inventory.count.title")} backHref="/inventory" backText={t("customers.inventory.count.back")}>
       <div className="inv-desk-workspace inv-count-sheet">
         <button
           type="button"
@@ -214,18 +218,18 @@ export default function InventoryCountPage() {
           }}
         >
           <IconScan />
-          סריקת מוצרים
+          {t("customers.inventory.count.scanProducts")}
         </button>
 
         <div style={{ fontSize: 13, color: "var(--inv-text-muted)", lineHeight: 1.5 }}>
-          כל סריקה מוסיפה 1 לכמות שנספרה. מוצרים שלא נסרקו לא ישתנו.
+          {t("customers.inventory.count.scanExplainer")}
         </div>
 
         {error ? (
           <div className="inv-alert inv-alert--error">{error}</div>
         ) : loading ? (
           <div style={{ fontSize: 14, color: "var(--inv-text-muted)", padding: "20px 0", textAlign: "center" }}>
-            טוען מוצרים…
+            {t("customers.inventory.count.loading")}
           </div>
         ) : countedRows.length === 0 ? (
           <div
@@ -239,13 +243,14 @@ export default function InventoryCountPage() {
               background: "var(--inv-card-bg)",
             }}
           >
-            עדיין לא נספרו מוצרים · התחילו בסריקה
+            {t("customers.inventory.count.empty")}
           </div>
         ) : (
           <div className="inv-count-cards" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {countedRows.map(({ item, counted }) => {
               const diff = counted - item.currentQuantity;
-              const unit = UNIT_SHORT[item.unitType] ?? "";
+              const unitKey = UNIT_SHORT[item.unitType];
+              const unit = unitKey ? t(unitKey) : "";
               return (
                 <div
                   key={item.id}
@@ -268,22 +273,22 @@ export default function InventoryCountPage() {
                       {item.name}
                     </div>
                     <div style={{ fontSize: 12.5, color: "var(--inv-text-muted)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-                      במערכת {item.currentQuantity} {unit}
+                      {t("customers.inventory.count.inSystem", { quantity: item.currentQuantity, unit })}
                       {diff !== 0 ? (
                         <span style={{ color: diff > 0 ? "var(--inv-success)" : "var(--inv-danger)", fontWeight: 600 }}>
-                          {" "}· הפרש {diff > 0 ? "+" : ""}{diff}
+                          {" "}{t("customers.inventory.count.diff", { diff: `${diff > 0 ? "+" : ""}${diff}` })}
                         </span>
                       ) : (
-                        <span> · תואם</span>
+                        <span> · {t("customers.inventory.count.matches")}</span>
                       )}
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                    <button type="button" aria-label="הפחתה" onClick={() => adjustCount(item.id, -1)} style={stepBtnStyle}>−</button>
+                    <button type="button" aria-label={t("customers.inventory.count.decrease")} onClick={() => adjustCount(item.id, -1)} style={stepBtnStyle}>−</button>
                     <input
                       type="text"
                       inputMode="numeric"
-                      aria-label={`כמות שנספרה — ${item.name}`}
+                      aria-label={t("customers.inventory.count.countedAria", { name: item.name })}
                       value={draft?.id === item.id ? draft.value : String(counted)}
                       onFocus={() => setDraft({ id: item.id, value: String(counted) })}
                       onChange={(e) => {
@@ -312,8 +317,8 @@ export default function InventoryCountPage() {
                         boxSizing: "border-box",
                       }}
                     />
-                    <button type="button" aria-label="הוספה" onClick={() => adjustCount(item.id, 1)} style={stepBtnStyle}>+</button>
-                    <button type="button" aria-label="הסרה" onClick={() => removeCount(item.id)} style={{ ...stepBtnStyle, color: "var(--inv-danger)" }}>×</button>
+                    <button type="button" aria-label={t("customers.inventory.count.increase")} onClick={() => adjustCount(item.id, 1)} style={stepBtnStyle}>+</button>
+                    <button type="button" aria-label={t("customers.inventory.count.remove")} onClick={() => removeCount(item.id)} style={{ ...stepBtnStyle, color: "var(--inv-danger)" }}>×</button>
                   </div>
                 </div>
               );
@@ -321,14 +326,14 @@ export default function InventoryCountPage() {
           </div>
         )}
         {countedRows.length > 0 ? (
-          <div className="inv-desk-table inv-count-desk" aria-label="גיליון ספירה">
+          <div className="inv-desk-table inv-count-desk" aria-label={t("customers.inventory.count.sheetAria")}>
             <table>
               <thead>
                 <tr>
-                  <th>מוצר</th>
-                  <th>במערכת</th>
-                  <th>נספר</th>
-                  <th>הפרש</th>
+                  <th>{t("customers.inventory.count.table.product")}</th>
+                  <th>{t("customers.inventory.count.table.system")}</th>
+                  <th>{t("customers.inventory.count.table.counted")}</th>
+                  <th>{t("customers.inventory.count.table.diff")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -342,9 +347,9 @@ export default function InventoryCountPage() {
                       <td className="num">{counted}</td>
                       <td className="num">{diff > 0 ? `+${diff}` : diff}</td>
                       <td>
-                        <button type="button" onClick={() => adjustCount(item.id, -1)} aria-label="הפחתה">−</button>
+                        <button type="button" onClick={() => adjustCount(item.id, -1)} aria-label={t("customers.inventory.count.decrease")}>−</button>
                         {" "}
-                        <button type="button" onClick={() => adjustCount(item.id, 1)} aria-label="הוספה">+</button>
+                        <button type="button" onClick={() => adjustCount(item.id, 1)} aria-label={t("customers.inventory.count.increase")}>+</button>
                       </td>
                     </tr>
                   );
@@ -354,15 +359,15 @@ export default function InventoryCountPage() {
           </div>
         ) : null}
         <aside className="inv-ops__side">
-          <h2>הספירה</h2>
-          <p>{countedRows.length} מוצרים נספרו · {changedCount} עם הפרש</p>
-          <p>מוצרים שלא נסרקו לא ישתנו. השמירה מעדכנת רק את מה שנספר.</p>
+          <h2>{t("customers.inventory.count.sideTitle")}</h2>
+          <p>{t("customers.inventory.count.sideSummary", { counted: countedRows.length, changed: changedCount })}</p>
+          <p>{t("customers.inventory.count.sideNote")}</p>
           {countedRows.length > 0 ? (
             <button type="button" className="inv-btn-primary" disabled={saving} onClick={() => void handleFinish()}>
-              {saving ? "שומר…" : changedCount > 0 ? `סיום ושמירה · ${changedCount}` : "סיום ושמירה"}
+              {saving ? t("customers.inventory.common.saving") : changedCount > 0 ? t("customers.inventory.count.finishWithCount", { count: changedCount }) : t("customers.inventory.count.finish")}
             </button>
           ) : (
-            <p>התחילו בסריקה. המצלמה נשארת על הפעולה עצמה.</p>
+            <p>{t("customers.inventory.count.startHint")}</p>
           )}
         </aside>
       </div>
@@ -396,7 +401,11 @@ export default function InventoryCountPage() {
               opacity: saving ? 0.75 : 1,
             }}
           >
-            {saving ? "שומר…" : changedCount > 0 ? `סיום ושמירה · ${changedCount} עדכונים` : "סיום ושמירה"}
+            {saving
+              ? t("customers.inventory.common.saving")
+              : changedCount > 0
+                ? t(changedCount === 1 ? "customers.inventory.count.finishWithUpdatesOne" : "customers.inventory.count.finishWithUpdatesMany", { count: changedCount })
+                : t("customers.inventory.count.finish")}
           </button>
         </div>
       ) : null}
@@ -406,8 +415,8 @@ export default function InventoryCountPage() {
         onClose={() => setScannerOpen(false)}
         onDetected={handleScanDetected}
         mode="continuous"
-        title="ספירת מלאי"
-        hint="סרקו את המוצרים בזה אחר זה"
+        title={t("customers.inventory.count.title")}
+        hint={t("customers.inventory.count.scannerHint")}
         status={scanStatus}
       />
     </InventorySubPage>

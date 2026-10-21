@@ -20,15 +20,19 @@
 
 import { useState, type ReactNode } from "react";
 import {
-  SUPPLIER_PAYMENT_METHOD_LABELS,
   SUPPLIER_PAYMENT_METHOD_VALUES,
   SUPPLIER_PAYMENT_TERMS_PRESETS,
-  SUPPLIER_TAX_ID_TYPE_LABELS,
   SUPPLIER_TAX_ID_TYPE_VALUES,
-  supplierTaxIdLabel,
   type SupplierTaxIdType,
 } from "@/lib/services/inventory/supplier-profile";
-import type { SupplierFormState } from "@/components/suppliers/supplier-form-model";
+import {
+  formatSupplierPaymentTermsT,
+  supplierPaymentMethodLabelT,
+  supplierTaxIdLabelT,
+  supplierTaxIdTypeLabelT,
+  type SupplierFormState,
+} from "@/components/suppliers/supplier-form-model";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Setter = <K extends keyof SupplierFormState>(
   key: K,
@@ -129,6 +133,7 @@ export function SupplierForm({
   idPrefix: string;
   showActiveToggle?: boolean;
 }) {
+  const { t } = useI18n();
   const p = (k: string) => idPrefix + "-" + k;
   const taxIdType = (form.taxIdType || null) as SupplierTaxIdType | null;
 
@@ -155,7 +160,7 @@ export function SupplierForm({
 
   return (
     <>
-      <Field id={p("name")} label="שם הספק *">
+      <Field id={p("name")} label={t("customers.suppliers.form.name")}>
         <Text
           id={p("name")}
           value={form.name}
@@ -164,7 +169,7 @@ export function SupplierForm({
         />
       </Field>
 
-      <Field id={p("phone")} label="טלפון">
+      <Field id={p("phone")} label={t("customers.suppliers.form.phone")}>
         <Text
           id={p("phone")}
           value={form.phone}
@@ -173,7 +178,7 @@ export function SupplierForm({
         />
       </Field>
 
-      <Field id={p("email")} label="אימייל">
+      <Field id={p("email")} label={t("customers.suppliers.form.email")}>
         <Text
           id={p("email")}
           value={form.email}
@@ -183,21 +188,21 @@ export function SupplierForm({
       </Field>
 
       <Section
-        title="פרטי העסק"
-        summary="מזהה עסקי, סוג ישות, קטגוריה"
+        title={t("customers.suppliers.form.businessSection")}
+        summary={t("customers.suppliers.form.businessSummary")}
         defaultOpen={hasBusiness}
       >
-        <Field id={p("taxIdType")} label="סוג ישות">
+        <Field id={p("taxIdType")} label={t("customers.suppliers.form.entityType")}>
           <select
             id={p("taxIdType")}
             className="crm-input"
             value={form.taxIdType}
             onChange={(e) => set("taxIdType", e.target.value)}
           >
-            <option value="">לא צוין</option>
+            <option value="">{t("customers.suppliers.form.notSpecified")}</option>
             {SUPPLIER_TAX_ID_TYPE_VALUES.map((v) => (
               <option key={v} value={v}>
-                {SUPPLIER_TAX_ID_TYPE_LABELS[v]}
+                {supplierTaxIdTypeLabelT(t, v)}
               </option>
             ))}
           </select>
@@ -205,8 +210,8 @@ export function SupplierForm({
 
         <Field
           id={p("taxId")}
-          label={supplierTaxIdLabel(taxIdType)}
-          help="8 או 9 ספרות. משמש גם כדי לזהות ספק שכבר קיים."
+          label={supplierTaxIdLabelT(t, taxIdType)}
+          help={t("customers.suppliers.form.taxIdHelp")}
         >
           <Text
             id={p("taxId")}
@@ -216,7 +221,7 @@ export function SupplierForm({
           />
         </Field>
 
-        <Field id={p("legalName")} label="שם רשום / מסחרי (אם שונה)">
+        <Field id={p("legalName")} label={t("customers.suppliers.form.legalName")}>
           <Text
             id={p("legalName")}
             value={form.legalName}
@@ -224,16 +229,16 @@ export function SupplierForm({
           />
         </Field>
 
-        <Field id={p("category")} label="קטגוריית ספק">
+        <Field id={p("category")} label={t("customers.suppliers.form.category")}>
           <Text
             id={p("category")}
             value={form.category}
             onChange={(v) => set("category", v)}
-            placeholder="למשל: מזון, אריזות, שירותים"
+            placeholder={t("customers.suppliers.form.categoryPlaceholder")}
           />
         </Field>
 
-        <Field id={p("website")} label="אתר אינטרנט">
+        <Field id={p("website")} label={t("customers.suppliers.form.website")}>
           <Text
             id={p("website")}
             value={form.website}
@@ -243,22 +248,22 @@ export function SupplierForm({
         </Field>
       </Section>
 
-      <Section title="איש קשר" defaultOpen={hasContact}>
-        <Field id={p("contactName")} label="שם איש קשר">
+      <Section title={t("customers.suppliers.form.contactSection")} defaultOpen={hasContact}>
+        <Field id={p("contactName")} label={t("customers.suppliers.form.contactName")}>
           <Text
             id={p("contactName")}
             value={form.contactName}
             onChange={(v) => set("contactName", v)}
           />
         </Field>
-        <Field id={p("contactRole")} label="תפקיד">
+        <Field id={p("contactRole")} label={t("customers.suppliers.form.contactRole")}>
           <Text
             id={p("contactRole")}
             value={form.contactRole}
             onChange={(v) => set("contactRole", v)}
           />
         </Field>
-        <Field id={p("contactPhone")} label="טלפון ישיר">
+        <Field id={p("contactPhone")} label={t("customers.suppliers.form.contactPhone")}>
           <Text
             id={p("contactPhone")}
             value={form.contactPhone}
@@ -266,7 +271,7 @@ export function SupplierForm({
             inputMode="tel"
           />
         </Field>
-        <Field id={p("contactEmail")} label="אימייל איש קשר">
+        <Field id={p("contactEmail")} label={t("customers.suppliers.form.contactEmail")}>
           <Text
             id={p("contactEmail")}
             value={form.contactEmail}
@@ -276,22 +281,22 @@ export function SupplierForm({
         </Field>
       </Section>
 
-      <Section title="כתובת" defaultOpen={hasAddress}>
-        <Field id={p("addressStreet")} label="רחוב ומספר">
+      <Section title={t("customers.suppliers.form.addressSection")} defaultOpen={hasAddress}>
+        <Field id={p("addressStreet")} label={t("customers.suppliers.form.addressStreet")}>
           <Text
             id={p("addressStreet")}
             value={form.addressStreet}
             onChange={(v) => set("addressStreet", v)}
           />
         </Field>
-        <Field id={p("addressCity")} label="עיר">
+        <Field id={p("addressCity")} label={t("customers.suppliers.form.addressCity")}>
           <Text
             id={p("addressCity")}
             value={form.addressCity}
             onChange={(v) => set("addressCity", v)}
           />
         </Field>
-        <Field id={p("addressPostalCode")} label="מיקוד">
+        <Field id={p("addressPostalCode")} label={t("customers.suppliers.form.addressPostalCode")}>
           <Text
             id={p("addressPostalCode")}
             value={form.addressPostalCode}
@@ -302,14 +307,14 @@ export function SupplierForm({
       </Section>
 
       <Section
-        title="תנאי התקשרות"
-        summary="תנאי תשלום וצורת תשלום"
+        title={t("customers.suppliers.form.termsSection")}
+        summary={t("customers.suppliers.form.termsSummary")}
         defaultOpen={hasTerms}
       >
         <Field
           id={p("paymentTerms")}
-          label="תנאי תשלום"
-          help="נשמר כמספר ימים, כדי שבהמשך אפשר יהיה לדעת מתי תשלום צפוי."
+          label={t("customers.suppliers.form.paymentTerms")}
+          help={t("customers.suppliers.form.paymentTermsHelp")}
         >
           {termsMode === "preset" ? (
             <select
@@ -325,13 +330,13 @@ export function SupplierForm({
                 set("paymentTermsDays", e.target.value);
               }}
             >
-              <option value="">לא צוין</option>
+              <option value="">{t("customers.suppliers.form.notSpecified")}</option>
               {SUPPLIER_PAYMENT_TERMS_PRESETS.map((preset) => (
                 <option key={preset.days} value={String(preset.days)}>
-                  {preset.label}
+                  {formatSupplierPaymentTermsT(t, preset.days) ?? preset.label}
                 </option>
               ))}
-              <option value="__custom">מספר ימים אחר…</option>
+              <option value="__custom">{t("customers.suppliers.form.customTerms")}</option>
             </select>
           ) : (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -341,7 +346,7 @@ export function SupplierForm({
                 value={form.paymentTermsDays}
                 onChange={(e) => set("paymentTermsDays", e.target.value)}
                 inputMode="numeric"
-                placeholder="ימים"
+                placeholder={t("customers.suppliers.form.daysPlaceholder")}
                 style={{ flex: 1 }}
               />
               <button
@@ -352,31 +357,31 @@ export function SupplierForm({
                   set("paymentTermsDays", "");
                 }}
               >
-                בחירה מרשימה
+                {t("customers.suppliers.form.pickFromList")}
               </button>
             </div>
           )}
         </Field>
 
-        <Field id={p("payMethod")} label="צורת תשלום מועדפת">
+        <Field id={p("payMethod")} label={t("customers.suppliers.form.paymentMethod")}>
           <select
             id={p("payMethod")}
             className="crm-input"
             value={form.preferredPaymentMethod}
             onChange={(e) => set("preferredPaymentMethod", e.target.value)}
           >
-            <option value="">לא צוין</option>
+            <option value="">{t("customers.suppliers.form.notSpecified")}</option>
             {SUPPLIER_PAYMENT_METHOD_VALUES.map((v) => (
               <option key={v} value={v}>
-                {SUPPLIER_PAYMENT_METHOD_LABELS[v]}
+                {supplierPaymentMethodLabelT(t, v)}
               </option>
             ))}
           </select>
         </Field>
       </Section>
 
-      <Section title="הגדרות רכש" defaultOpen={hasPurchasing}>
-        <Field id={p("lead")} label="זמן אספקה ברירת מחדל (ימים)">
+      <Section title={t("customers.suppliers.form.purchasingSection")} defaultOpen={hasPurchasing}>
+        <Field id={p("lead")} label={t("customers.suppliers.form.leadTime")}>
           <Text
             id={p("lead")}
             value={form.defaultLeadTimeDays}
@@ -386,8 +391,8 @@ export function SupplierForm({
         </Field>
       </Section>
 
-      <Section title="הערות" defaultOpen={hasNotes}>
-        <Field id={p("notes")} label="הערה פנימית">
+      <Section title={t("customers.suppliers.form.notesSection")} defaultOpen={hasNotes}>
+        <Field id={p("notes")} label={t("customers.suppliers.form.internalNote")}>
           <textarea
             id={p("notes")}
             className="crm-note-input"
@@ -416,7 +421,7 @@ export function SupplierForm({
               checked={form.isActive}
               onChange={(e) => set("isActive", e.target.checked)}
             />
-            ספק פעיל
+            {t("customers.suppliers.form.active")}
           </label>
         </div>
       ) : null}

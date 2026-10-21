@@ -17,6 +17,7 @@ import {
   openSupplierOrderMailto,
   openWhatsAppWithSupplierOrderText,
 } from "@/lib/services/inventory/supplier-purchase-document.service";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type DraftLine = {
   id: number;
@@ -48,6 +49,7 @@ function buildHeaders() {
 export default function SupplierPurchaseSendPage() {
   const params = useParams();
   const router = useRouter();
+  const { t } = useI18n();
   const rawId = params?.id;
   const draftIdFromRoute = Number(
     Array.isArray(rawId) ? rawId[0] : rawId ?? NaN
@@ -61,7 +63,7 @@ export default function SupplierPurchaseSendPage() {
 
   const loadDraft = useCallback(async () => {
     if (!draftIdFromRoute || Number.isNaN(draftIdFromRoute)) {
-      setError("מזהה ההזמנה לא תקין");
+      setError(t("customers.purchases.send.invalidId"));
       setLoading(false);
       return;
     }
@@ -79,7 +81,7 @@ export default function SupplierPurchaseSendPage() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data?.error || "לא הצלחנו לטעון את ההזמנה");
+        throw new Error(data?.error || t("customers.purchases.send.loadFailed"));
       }
 
       const list: ApiDraft[] = Array.isArray(data?.drafts)
@@ -89,18 +91,18 @@ export default function SupplierPurchaseSendPage() {
 
       if (!found) {
         setDraft(null);
-        setError("לא נמצאה הזמנה עם המזהה הזה.");
+        setError(t("customers.purchases.send.notFound"));
         return;
       }
 
       setDraft(found);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "שגיאה בטעינת ההזמנה");
+      setError(e instanceof Error ? e.message : t("customers.purchases.send.loadError"));
       setDraft(null);
     } finally {
       setLoading(false);
     }
-  }, [draftIdFromRoute]);
+  }, [draftIdFromRoute, t]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -131,10 +133,10 @@ export default function SupplierPurchaseSendPage() {
     if (!orderText) return;
     try {
       await navigator.clipboard.writeText(orderText);
-      setCopyOk("נוסח ההזמנה הועתק.");
+      setCopyOk(t("customers.purchases.send.copied"));
       setTimeout(() => setCopyOk(null), 2500);
     } catch {
-      setError("לא הצלחנו להעתיק. אפשר לסמן את הטקסט ידנית.");
+      setError(t("customers.purchases.send.copyFailed"));
     }
   }
 
@@ -217,14 +219,14 @@ export default function SupplierPurchaseSendPage() {
 
   return (
     <InventorySubPage intent="standard"
-      title="שליחת הזמנה לספק"
+      title={t("customers.purchases.send.title")}
       backHref="/inventory/supplier-purchases"
-      backLabel="מרכז הזמנות ספק"
+      backLabel={t("customers.purchases.common.backToHub")}
       sub={
         draft
           ? draft.supplierName?.trim()
-            ? `הזמנה ל${draft.supplierName.trim()} · מוכנה לשליחה`
-            : "הזמנה מוכנה לשליחה לספק"
+            ? t("customers.purchases.send.subTo", { name: draft.supplierName.trim() })
+            : t("customers.purchases.send.sub")
           : undefined
       }
       bottomNav="orders"
@@ -237,14 +239,14 @@ export default function SupplierPurchaseSendPage() {
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
             tone="error"
-            title="לא הצלחנו לפתוח את ההזמנה"
+            title={t("customers.purchases.send.openFailed")}
             action={
               <button
                 type="button"
                 className="inv-btn-primary inv-btn-primary--full"
                 onClick={() => router.push("/inventory/supplier-purchases")}
               >
-                חזרה למרכז ההזמנות
+                {t("customers.purchases.send.backToHub")}
               </button>
             }
           >
@@ -272,7 +274,7 @@ export default function SupplierPurchaseSendPage() {
                 </span>
                 <div className="inv-row__mid">
                   <div className="inv-row__nm" dir="auto">
-                    {draft.supplierName?.trim() || "הזמנה ללא ספק"}
+                    {draft.supplierName?.trim() || t("customers.purchases.common.noSupplierOrder")}
                   </div>
                   <div className="inv-row__meta">
                     <bdi>#{draft.id}</bdi>
@@ -283,9 +285,9 @@ export default function SupplierPurchaseSendPage() {
               <div style={{ marginTop: 12 }}>
                 <KeyValueGrid
                   pairs={[
-                    { k: "פריטים", v: <bdi>{draft.lines.length}</bdi> },
-                    { k: "יחידות", v: <bdi>{totalUnits}</bdi> },
-                    { k: "מצב", v: draft.status === "PENDING_REVIEW" ? "ממתינה לקליטה" : draft.status },
+                    { k: t("customers.purchases.send.items"), v: <bdi>{draft.lines.length}</bdi> },
+                    { k: t("customers.purchases.send.units"), v: <bdi>{totalUnits}</bdi> },
+                    { k: t("customers.purchases.send.status"), v: draft.status === "PENDING_REVIEW" ? t("customers.purchases.pending.awaitingBadge") : draft.status },
                   ]}
                 />
               </div>
@@ -294,15 +296,15 @@ export default function SupplierPurchaseSendPage() {
 
           <div className="inv-desk-workspace inv-send-desk">
           <div>
-          <div className="inv-seclabel">פריטים בהזמנה</div>
+          <div className="inv-seclabel">{t("customers.purchases.confirm.itemsInOrder")}</div>
           <div className="inv-olines">
             {draft.lines.map((line) => (
               <div key={line.id} className="inv-oline">
                 <div className="inv-oline__mid">
-                  <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                  <div className="inv-oline__nm" dir="auto">{line.rawName || t("customers.purchases.pending.unnamedProduct")}</div>
                 </div>
                 <span className="inv-oline__price">
-                  <bdi>{line.quantity}</bdi> {line.unitType || "יחידות"}
+                  <bdi>{line.quantity}</bdi> {line.unitType || t("customers.purchases.send.unitsFallback")}
                 </span>
               </div>
             ))}
@@ -316,34 +318,34 @@ export default function SupplierPurchaseSendPage() {
               disabled={!canDispatch}
               onClick={() => void handleShareClick()}
             >
-              שתף הזמנה לספק
+              {t("customers.purchases.send.share")}
             </button>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
               <button type="button" className="inv-btn-secondary" disabled={!canDispatch} onClick={handlePdf}>
-                הורדת PDF
+                {t("customers.purchases.send.downloadPdf")}
               </button>
               <button
                 type="button"
                 className="inv-btn-secondary"
                 onClick={() => router.push("/inventory/supplier-purchases/pending")}
               >
-                מעבר לקליטה
+                {t("customers.purchases.send.goToReceive")}
               </button>
             </div>
           </div>
           </div>
 
           {shareMenuOpen ? (
-            <BottomSheet title="איך לשלוח לספק?" onClose={() => setShareMenuOpen(false)}>
+            <BottomSheet title={t("customers.purchases.send.howToSend")} onClose={() => setShareMenuOpen(false)}>
               <div style={{ display: "grid", gap: 8 }}>
                 <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={handleWhatsApp}>
                   WhatsApp
                 </button>
                 <button type="button" className="inv-btn-secondary" onClick={handleMailto}>
-                  פתיחה במייל
+                  {t("customers.purchases.send.openEmail")}
                 </button>
                 <button type="button" className="inv-btn-secondary" onClick={() => void copyOrderText()}>
-                  העתקת נוסח
+                  {t("customers.purchases.send.copyText")}
                 </button>
               </div>
             </BottomSheet>

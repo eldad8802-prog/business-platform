@@ -1,5 +1,7 @@
 import { getStockTone } from "@/components/inventory/inventory-design";
 import type { InventoryItemDTO } from "@/lib/api/inventory";
+import { inventoryHebrewT } from "@/lib/inventory/inventory-labels";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 /**
  * Home-screen derivations. Everything here is computed CLIENT-SIDE from the
@@ -65,11 +67,10 @@ export function getAttentionReadout(item: InventoryItemDTO): AttentionReadout {
 }
 
 /** Time-of-day greeting (client local time). */
-export function getGreeting(): string {
+export function getGreeting(t?: Translator): string {
   const h = new Date().getHours();
-  if (h < 12) return "בוקר טוב";
-  if (h < 18) return "צהריים טובים";
-  return "ערב טוב";
+  const key: MessageKey = h < 12 ? "customers.inventoryKit.home.greetingMorning" : h < 18 ? "customers.inventoryKit.home.greetingAfternoon" : "customers.inventoryKit.home.greetingEvening";
+  return (t ?? inventoryHebrewT)(key);
 }
 
 /** Attention items (anything not "ok"), most severe first, then by name (he). */

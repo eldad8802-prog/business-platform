@@ -4,6 +4,7 @@ import Link from "next/link";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
 import type { CustomerListRow } from "@/lib/api/customers";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * One customer row — avatar initials + name + meta (phone · email · city) +
@@ -38,6 +39,7 @@ export function CustomerRow({
   customer: CustomerListRow;
   selected?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Link
       className={`crm-row${selected ? " crm-row--selected" : ""}`}
@@ -56,13 +58,13 @@ export function CustomerRow({
             on exactly the long names where the row is hardest to read. */}
         {!customer.isActive ? (
           <span className="crm-row__badges">
-            <span className="crm-badge">לא פעיל</span>
+            <span className="crm-badge">{t("customers.customer.row.inactive")}</span>
           </span>
         ) : null}
         <CrmRowMeta parts={rowMetaParts(customer)} />
       </span>
       <span className="crm-row__chevron" aria-hidden>
-        ‹
+        {t("customers.customer.row.chevron")}
       </span>
     </Link>
   );

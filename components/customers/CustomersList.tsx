@@ -15,11 +15,13 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { CustomerRow } from "@/components/customers/CustomerRow";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
-const FILTERS: Array<{ key: CustomerLifecycleFilter; label: string }> = [
-  { key: "active", label: "פעילים" },
-  { key: "inactive", label: "לא פעילים" },
-  { key: "all", label: "הכול" },
+const FILTERS: Array<{ key: CustomerLifecycleFilter; labelKey: MessageKey }> = [
+  { key: "active", labelKey: "customers.customer.list.filters.active" },
+  { key: "inactive", labelKey: "customers.customer.list.filters.inactive" },
+  { key: "all", labelKey: "customers.customer.list.filters.all" },
 ];
 
 /**
@@ -33,6 +35,7 @@ const FILTERS: Array<{ key: CustomerLifecycleFilter; label: string }> = [
 export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useI18n();
   const [customers, setCustomers] = useState<CustomerListRow[]>([]);
   const [query, setQuery] = useEntryState("query", "");
   // Lifecycle filter (C2). The CRM surface defaults to "active"; the API/client
@@ -66,11 +69,11 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
           return null;
         }
         return {
-          error: err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת הלקוחות",
+          error: err instanceof Error ? err.message : t("customers.customer.list.loadError"),
         };
       }
     },
-    [],
+    [t],
   );
 
   function apply(res: { customers: CustomerListRow[] } | { error: string } | null) {
@@ -120,10 +123,12 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
     <div className="crm-page">
       <div className="crm-hd">
         <div>
-          <h1 className="crm-hd__title">לקוחות</h1>
+          <h1 className="crm-hd__title">{t("customers.customer.list.title")}</h1>
           {!loading && !error ? (
             <div className="crm-hd__sub">
-              {customers.length} {customers.length === 1 ? "לקוח" : "לקוחות"}
+              {customers.length === 1
+                ? t("customers.customer.list.countOne", { count: customers.length })
+                : t("customers.customer.list.countMany", { count: customers.length })}
             </div>
           ) : null}
         </div>
@@ -132,7 +137,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
           className="crm-btn crm-btn--primary"
           onClick={() => setCreateOpen(true)}
         >
-          + לקוח חדש
+          {t("customers.customer.list.newButton")}
         </button>
       </div>
 
@@ -141,7 +146,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="חיפוש לפי שם או טלפון"
+        placeholder={t("customers.customer.list.searchPlaceholder")}
         inputMode="search"
       />
 
@@ -178,7 +183,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
                   : {}),
               }}
             >
-              {f.label}
+              {t(f.labelKey)}
             </button>
           );
         })}
@@ -186,10 +191,10 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
 
       {error ? (
         <div className="crm-panel crm-panel--error">
-          <p className="crm-panel__title">משהו השתבש</p>
+          <p className="crm-panel__title">{t("customers.customer.common.errorTitle")}</p>
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={retry}>
-            נסו שוב
+            {t("customers.customer.common.retry")}
           </button>
         </div>
       ) : loading ? (
@@ -202,19 +207,19 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
         <div className="crm-panel">
           <p className="crm-panel__title">
             {isSearching
-              ? "לא נמצאו לקוחות"
+              ? t("customers.customer.list.empty.searchTitle")
               : status === "inactive"
-                ? "אין לקוחות לא פעילים"
+                ? t("customers.customer.list.empty.inactiveTitle")
                 : status === "all"
-                  ? "עדיין אין לקוחות"
-                  : "עדיין אין לקוחות פעילים"}
+                  ? t("customers.customer.list.empty.allTitle")
+                  : t("customers.customer.list.empty.activeTitle")}
           </p>
           <p className="crm-panel__body">
             {isSearching
-              ? "נסו חיפוש קצר יותר או בשם אחר."
+              ? t("customers.customer.list.empty.searchBody")
               : status === "inactive"
-                ? "לקוחות שתשביתו יופיעו כאן."
-                : "הוסיפו את הלקוח הראשון כדי לנהל את הפרטים, המסמכים והפעילות במקום אחד."}
+                ? t("customers.customer.list.empty.inactiveBody")
+                : t("customers.customer.list.empty.defaultBody")}
           </p>
           {!isSearching && status !== "inactive" ? (
             <button
@@ -222,7 +227,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
               className="crm-btn crm-btn--primary"
               onClick={() => setCreateOpen(true)}
             >
-              + לקוח חדש
+              {t("customers.customer.list.newButton")}
             </button>
           ) : null}
         </div>
@@ -254,6 +259,7 @@ function CreateCustomerModal({
   onClose: () => void;
   onCreated: (created: CustomerListRow) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -263,7 +269,7 @@ function CreateCustomerModal({
 
   async function handleSubmit() {
     if (!name.trim()) {
-      setError("יש להזין שם לקוח");
+      setError(t("customers.customer.form.nameRequired"));
       return;
     }
     try {
@@ -281,7 +287,7 @@ function CreateCustomerModal({
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו ליצור לקוח");
+      setError(err instanceof Error ? err.message : t("customers.customer.create.error"));
       setSaving(false);
     }
   }
@@ -293,12 +299,12 @@ function CreateCustomerModal({
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="לקוח חדש">
-        <h2 className="crm-modal__title">לקוח חדש</h2>
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label={t("customers.customer.create.title")}>
+        <h2 className="crm-modal__title">{t("customers.customer.create.title")}</h2>
 
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="crm-new-name">
-            שם *
+            {t("customers.customer.form.name")}
           </label>
           <input
             id="crm-new-name"
@@ -310,7 +316,7 @@ function CreateCustomerModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="crm-new-phone">
-            טלפון
+            {t("customers.customer.form.phone")}
           </label>
           <input
             id="crm-new-phone"
@@ -322,7 +328,7 @@ function CreateCustomerModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="crm-new-email">
-            אימייל
+            {t("customers.customer.form.email")}
           </label>
           <input
             id="crm-new-email"
@@ -334,7 +340,7 @@ function CreateCustomerModal({
         </div>
         <div className="crm-field">
           <label className="crm-field__label" htmlFor="crm-new-city">
-            עיר
+            {t("customers.customer.form.city")}
           </label>
           <input
             id="crm-new-city"
@@ -353,7 +359,7 @@ function CreateCustomerModal({
             onClick={() => void handleSubmit()}
             disabled={saving}
           >
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? t("customers.customer.form.saving") : t("customers.customer.form.save")}
           </button>
           <button
             type="button"
@@ -361,7 +367,7 @@ function CreateCustomerModal({
             onClick={onClose}
             disabled={saving}
           >
-            ביטול
+            {t("customers.customer.form.cancel")}
           </button>
         </div>
       </div>

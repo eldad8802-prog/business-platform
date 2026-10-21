@@ -16,9 +16,11 @@ import {
   formatSupplierMoney,
   mergePurchaseOrderItems,
   priceTrend,
-  PRICE_TREND_LABEL,
+  PRICE_TREND_LABEL_KEY,
   statusBadge,
 } from "@/lib/inventory/supplier-purchase-history-view";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 
 const PAGE_SIZE = 10;
 
@@ -35,6 +37,7 @@ type Props = {
  * the UI never queries Prisma or filters by supplier name.
  */
 export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Props) {
+  const { t, locale } = useI18n();
   const [summary, setSummary] = useState<SupplierPurchaseHistory["summary"] | null>(null);
   const [items, setItems] = useState<SupplierPurchaseOrderItem[]>([]);
   const [purchasedItems, setPurchasedItems] = useState<SupplierPurchasedItem[]>(
@@ -72,7 +75,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
           redirectToLogin();
           return;
         }
-        setError("לא הצלחנו לטעון את היסטוריית הרכש כרגע.");
+        setError(t("customers.suppliers.history.errorLoad"));
       } finally {
         if (active) setLoading(false);
       }
@@ -80,7 +83,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
     return () => {
       active = false;
     };
-  }, [supplierId, reloadKey]);
+  }, [supplierId, reloadKey, t]);
 
   const retry = useCallback(() => {
     setLoading(true);
@@ -108,26 +111,26 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
         return;
       }
       // A failed "load more" keeps the already-loaded rows and the rest of the card.
-      setError("לא הצלחנו לטעון עוד הזמנות רכש כרגע.");
+      setError(t("customers.suppliers.history.errorLoadMore"));
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [supplierId, pagination]);
+  }, [supplierId, pagination, t]);
 
   const total = summary?.purchaseOrderCount ?? pagination?.total ?? 0;
 
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">היסטוריית רכש</h2>
+        <h2 className="crm-section__title">{t("customers.suppliers.history.title")}</h2>
         {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
         <a
           className="crm-btn crm-btn--ghost"
           href="/inventory/supplier-purchases/new"
           style={{ marginInlineStart: "auto" }}
         >
-          הזמנה חדשה
+          {t("customers.suppliers.history.newOrder")}
         </a>
       </div>
 
@@ -140,54 +143,54 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
         <div className="crm-panel crm-panel--error">
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={retry}>
-            נסו שוב
+            {t("customers.suppliers.history.retry")}
           </button>
         </div>
       ) : summary && total === 0 ? (
         <div className="crm-panel">
-          <p className="crm-panel__title">עדיין אין היסטוריית רכש</p>
+          <p className="crm-panel__title">{t("customers.suppliers.history.emptyTitle")}</p>
           <p className="crm-panel__body">
-            הזמנה שנוצרת עם הספק הזה תופיע כאן, יחד עם הפריטים והעלויות.
+            {t("customers.suppliers.history.emptyBody")}
           </p>
           <a
             className="crm-btn crm-btn--primary"
             href="/inventory/supplier-purchases/new"
           >
-            הזמנה חדשה מהספק
+            {t("customers.suppliers.history.newOrderFromSupplier")}
           </a>
         </div>
       ) : summary ? (
         <>
           <div className="crm-chips">
-            <span className="crm-chip">סה״כ הזמנות · {summary.purchaseOrderCount}</span>
-            <span className="crm-chip">פתוחות · {summary.openPurchaseOrderCount}</span>
+            <span className="crm-chip">{t("customers.suppliers.history.totalOrders", { count: summary.purchaseOrderCount })}</span>
+            <span className="crm-chip">{t("customers.suppliers.history.openOrders", { count: summary.openPurchaseOrderCount })}</span>
             {summary.lastPurchaseOrderAt ? (
               <span className="crm-chip">
-                הזמנה אחרונה · {formatPurchaseDate(summary.lastPurchaseOrderAt)}
+                {t("customers.suppliers.history.lastOrder", { date: formatPurchaseDate(summary.lastPurchaseOrderAt, locale) ?? "" })}
               </span>
             ) : null}
-            {formatSupplierMoney(summary.receivedValue) ? (
+            {formatSupplierMoney(summary.receivedValue, locale) ? (
               <span className="crm-chip">
-                נקלט בפועל · {formatSupplierMoney(summary.receivedValue)}
+                {t("customers.suppliers.history.received", { amount: formatSupplierMoney(summary.receivedValue, locale) ?? "" })}
               </span>
             ) : null}
-            {formatSupplierMoney(summary.orderedValue) ? (
+            {formatSupplierMoney(summary.orderedValue, locale) ? (
               <span className="crm-chip">
-                סה״כ הוזמן · {formatSupplierMoney(summary.orderedValue)}
+                {t("customers.suppliers.history.ordered", { amount: formatSupplierMoney(summary.orderedValue, locale) ?? "" })}
               </span>
             ) : null}
           </div>
 
-          {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount) ? (
+          {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount, t) ? (
             <p className="crm-item__meta" style={{ marginTop: 4 }}>
-              {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount)}
+              {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount, t)}
             </p>
           ) : null}
 
           {purchasedItems.length > 0 ? (
             <>
               <div className="crm-seclabel" style={{ fontWeight: 600, marginTop: 14 }}>
-                מה נקנה מהספק
+                {t("customers.suppliers.history.purchasedTitle")}
               </div>
               <div className="crm-list">
                 {purchasedItems.map((item) => (
@@ -211,7 +214,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
                 onClick={() => void loadMore()}
                 disabled={!canLoadMore(pagination.hasMore, loadingMore)}
               >
-                {loadingMore ? "טוען…" : "טען עוד"}
+                {loadingMore ? t("customers.suppliers.history.loading") : t("customers.suppliers.history.loadMore")}
               </button>
             </div>
           ) : null}
@@ -226,14 +229,15 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
  * cost moved. Every number here is read straight off the purchase lines.
  */
 function PurchasedItemRow({ item }: { item: SupplierPurchasedItem }) {
+  const { t, locale } = useI18n();
   const trend = priceTrend(item.firstUnitCost, item.lastUnitCost);
-  const lastCost = formatSupplierMoney(item.lastUnitCost);
+  const lastCost = formatSupplierMoney(item.lastUnitCost, locale);
 
   const meta = [
-    `${item.totalQty.toLocaleString("he-IL")} יח׳`,
-    item.orderCount === 1 ? "הזמנה אחת" : `${item.orderCount} הזמנות`,
-    lastCost ? `מחיר אחרון ${lastCost}` : null,
-    trend && trend !== "SAME" ? PRICE_TREND_LABEL[trend] : null,
+    t("customers.suppliers.history.qtyUnits", { qty: item.totalQty.toLocaleString(intlTag(locale)) }),
+    item.orderCount === 1 ? t("customers.suppliers.history.ordersOne") : t("customers.suppliers.history.ordersMany", { count: item.orderCount }),
+    lastCost ? t("customers.suppliers.history.lastPrice", { price: lastCost }) : null,
+    trend && trend !== "SAME" ? t(PRICE_TREND_LABEL_KEY[trend]) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -259,22 +263,23 @@ function PurchaseOrderRow({
   item: SupplierPurchaseOrderItem;
   supplierName: string;
 }) {
-  const badge = statusBadge(item.status);
-  const createdAtStr = formatPurchaseDate(item.createdAt);
-  const lineText = formatLineCount(item.lineCount);
+  const { t, locale } = useI18n();
+  const badge = statusBadge(item.status, t);
+  const createdAtStr = formatPurchaseDate(item.createdAt, locale);
+  const lineText = formatLineCount(item.lineCount, t);
 
   // Show the historical snapshot name only when it differs from the current name.
   const snapshot = item.supplierName?.trim();
   const showSnapshot = !!snapshot && snapshot !== supplierName.trim();
 
   // Business order date is a secondary hint, shown only when present and distinct.
-  const orderDateStr = formatPurchaseDate(item.orderDate);
+  const orderDateStr = formatPurchaseDate(item.orderDate, locale);
   const showOrderDate = !!orderDateStr && orderDateStr !== createdAtStr;
 
   const metaParts = [createdAtStr, lineText];
-  const orderValue = formatSupplierMoney(item.orderedValue);
+  const orderValue = formatSupplierMoney(item.orderedValue, locale);
   if (orderValue) metaParts.push(orderValue);
-  if (showOrderDate) metaParts.push(`הזמנה מ־${orderDateStr}`);
+  if (showOrderDate) metaParts.push(t("customers.suppliers.history.orderedFrom", { date: orderDateStr ?? "" }));
   const meta = metaParts.filter(Boolean).join(" · ");
 
   return (

@@ -1,8 +1,10 @@
 "use client";
 
 import { CrmUnselectedDesk } from "@/components/crm/crm-unselected-desk";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function LeadsIndexPage() {
+  const { t } = useI18n();
   return (
     <CrmUnselectedDesk
       icon={
@@ -10,13 +12,13 @@ export default function LeadsIndexPage() {
           <path d="M3 5h18M6 12h12M10 19h4" strokeLinecap="round" />
         </svg>
       }
-      title="בחרו ליד מהרשימה"
-      description="בחירת ליד תציג את הפרטים, מה הוא ביקש, המעקב וההיסטוריה שלו."
-      lead="הליד נשאר ברשימה בזמן שסוגרים אותו"
+      title={t("customers.leads.desk.title")}
+      description={t("customers.leads.desk.description")}
+      lead={t("customers.leads.desk.lead")}
       facts={[
-        { title: "מה הוא ביקש", body: "הבקשה והפרטים נפתחים ליד הרשימה, בלי לעזוב את התור." },
-        { title: "מעקב", body: "הצעד הבא נשאר על הכרטיס, לא במסך אחר." },
-        { title: "היסטוריה", body: "מה שכבר קרה עם הליד מופיע באותו כרטיס." },
+        { title: t("customers.leads.desk.requestTitle"), body: t("customers.leads.desk.requestBody") },
+        { title: t("customers.leads.desk.followUpTitle"), body: t("customers.leads.desk.followUpBody") },
+        { title: t("customers.leads.desk.historyTitle"), body: t("customers.leads.desk.historyBody") },
       ]}
     />
   );

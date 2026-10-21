@@ -1,8 +1,10 @@
 "use client";
 
 import { CrmUnselectedDesk } from "@/components/crm/crm-unselected-desk";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function CustomersIndexPage() {
+  const { t } = useI18n();
   return (
     <CrmUnselectedDesk
       icon={
@@ -12,13 +14,13 @@ export default function CustomersIndexPage() {
           <path d="M16 5.2a3.2 3.2 0 0 1 0 5.9M17.5 19a5.5 5.5 0 0 0-2.7-4.7" strokeLinecap="round" />
         </svg>
       }
-      title="בחרו לקוח מהרשימה"
-      description="בחירת לקוח תציג את הפרטים, ההערות, הקבצים והפעילות שלו."
-      lead="הכרטיס הוא מקום העבודה, לא דף נפרד"
+      title={t("customers.customer.desk.title")}
+      description={t("customers.customer.desk.description")}
+      lead={t("customers.customer.desk.lead")}
       facts={[
-        { title: "פרטי קשר", body: "שם, טלפון, אימייל ועיר — אותו כרטיס שנפתח מהשורה." },
-        { title: "הערות וקבצים", body: "מה שכבר שמור על הלקוח, בלי מסך נוסף." },
-        { title: "פעילות", body: "אם יש תורים או תנועה, הם מופיעים כאן ליד הרשימה." },
+        { title: t("customers.customer.desk.contactTitle"), body: t("customers.customer.desk.contactBody") },
+        { title: t("customers.customer.desk.notesTitle"), body: t("customers.customer.desk.notesBody") },
+        { title: t("customers.customer.desk.activityTitle"), body: t("customers.customer.desk.activityBody") },
       ]}
     />
   );

@@ -8,12 +8,23 @@ import {
   type LeadCardDTO,
   type LeadNextActionKindValue,
 } from "@/lib/api/leads";
-import {
-  LEAD_NEXT_ACTION_KINDS,
-  LEAD_NEXT_ACTION_LABELS,
-} from "@/lib/services/crm/lead-lifecycle-core";
+import { LEAD_NEXT_ACTION_KINDS } from "@/lib/services/crm/lead-lifecycle-core";
 import { formatDateTime, isClosed, leadStatusLabel } from "@/components/leads/lead-display";
 import type { LeadStatusValue } from "@/lib/services/crm/lead-core";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+/** Next-action labels by kind (same wording as LEAD_NEXT_ACTION_LABELS, which stays Hebrew server-side). */
+const NEXT_ACTION_LABEL_KEYS: Record<LeadNextActionKindValue, MessageKey> = {
+  call: "customers.leads.lifecycle.nextActions.call",
+  send_quote: "customers.leads.lifecycle.nextActions.sendQuote",
+  check_quote: "customers.leads.lifecycle.nextActions.checkQuote",
+  follow_up: "customers.leads.lifecycle.nextActions.followUp",
+  schedule_meeting: "customers.leads.lifecycle.nextActions.scheduleMeeting",
+  collect_info: "customers.leads.lifecycle.nextActions.collectInfo",
+  wait_for_customer: "customers.leads.lifecycle.nextActions.waitForCustomer",
+  other: "customers.leads.lifecycle.nextActions.other",
+};
 
 /**
  * M5 — the lead's lifecycle, for an owner with two minutes.
@@ -34,6 +45,7 @@ export function LeadLifecycleSection({
   busy: boolean;
   onMutate: (fn: () => Promise<LeadCardDTO>, fallback: string) => void;
 }) {
+  const { t, locale } = useI18n();
   const { lead, lifecycle } = card;
   const closed = isClosed(lead.status);
   const version = lead.lifecycleVersion;
@@ -47,7 +59,7 @@ export function LeadLifecycleSection({
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">מסלול הליד</h2>
+        <h2 className="crm-section__title">{t("customers.leads.lifecycle.title")}</h2>
       </div>
 
       {attention.reason ? (
@@ -57,11 +69,11 @@ export function LeadLifecycleSection({
             style={{ marginInlineEnd: 8 }}
             title={
               attention.evidenceClass === "fact"
-                ? "עובדה: נתון שנרשם במערכת"
-                : "מסקנה: חישוב קבוע מתוך הנתונים שנרשמו"
+                ? t("customers.leads.lifecycle.factTitle")
+                : t("customers.leads.lifecycle.inferenceTitle")
             }
           >
-            {attention.evidenceClass === "fact" ? "עובדה" : "מסקנה מהנתונים"}
+            {attention.evidenceClass === "fact" ? t("customers.leads.common.fact") : t("customers.leads.common.inference")}
           </span>
           <strong>{attention.label}</strong>
           {attention.summary ? ` — ${attention.summary}` : null}
@@ -71,10 +83,10 @@ export function LeadLifecycleSection({
       {!closed && suggestion ? (
         <div className="crm-panel" style={{ marginBottom: 12 }}>
           <p className="crm-panel__title" style={{ marginBottom: 4 }}>
-            דוביז מציע: {suggestion.label}
+            {t("customers.leads.common.dubizSuggests", { label: suggestion.label })}
           </p>
           <p className="crm-panel__body" style={{ marginTop: 0 }}>
-            {suggestion.why} זו הצעה — שום דבר לא ישתנה בלי אישור שלכם.
+            {suggestion.why} {t("customers.leads.lifecycle.suggestionNote")}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -90,11 +102,11 @@ export function LeadLifecycleSection({
                       fromSuggestionRuleId: suggestion.ruleId,
                       expectedVersion: version,
                     }),
-                  "לא הצלחנו לקבוע את הפעולה הבאה"
+                  t("customers.leads.lifecycle.setActionError")
                 )
               }
             >
-              קבעו: {LEAD_NEXT_ACTION_LABELS[suggestion.kind]}
+              {t("customers.leads.lifecycle.setAction", { label: t(NEXT_ACTION_LABEL_KEYS[suggestion.kind]) })}
             </button>
             <button
               type="button"
@@ -103,11 +115,11 @@ export function LeadLifecycleSection({
               onClick={() =>
                 onMutate(
                   () => dismissLeadSuggestion(lead.id, suggestion.ruleId, version),
-                  "לא הצלחנו לעדכן"
+                  t("customers.leads.lifecycle.updateError")
                 )
               }
             >
-              לא עכשיו
+              {t("customers.leads.lifecycle.dismiss")}
             </button>
           </div>
         </div>
@@ -115,7 +127,7 @@ export function LeadLifecycleSection({
 
       {!closed && lead.nextFollowUpAt ? (
         <label className="crm-id__field" style={{ display: "block", marginBottom: 12 }}>
-          <span className="crm-id__label">מה הפעולה הבאה</span>
+          <span className="crm-id__label">{t("customers.leads.lifecycle.nextActionLabel")}</span>
           <select
             className="crm-input"
             value={lead.nextActionKind ?? ""}
@@ -130,14 +142,14 @@ export function LeadLifecycleSection({
                     followUpNote: lead.followUpNote,
                     expectedVersion: version,
                   }),
-                "לא הצלחנו לעדכן את הפעולה הבאה"
+                t("customers.leads.lifecycle.nextActionError")
               );
             }}
           >
-            <option value="">לא צוין</option>
+            <option value="">{t("customers.leads.lifecycle.notSpecified")}</option>
             {LEAD_NEXT_ACTION_KINDS.map((k) => (
               <option key={k} value={k}>
-                {LEAD_NEXT_ACTION_LABELS[k]}
+                {t(NEXT_ACTION_LABEL_KEYS[k])}
               </option>
             ))}
           </select>
@@ -146,11 +158,11 @@ export function LeadLifecycleSection({
 
       <details style={{ marginBottom: 8 }}>
         <summary className="crm-id__label" style={{ cursor: "pointer" }}>
-          סכומים
+          {t("customers.leads.lifecycle.amounts")}
         </summary>
         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
           <label className="crm-id__field">
-            <span className="crm-id__label">הערכת שווי העסקה (לא הצעת מחיר ולא הכנסה)</span>
+            <span className="crm-id__label">{t("customers.leads.lifecycle.estimateLabel")}</span>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 className="crm-input"
@@ -167,17 +179,17 @@ export function LeadLifecycleSection({
                 onClick={() =>
                   onMutate(
                     () => setLeadValue(lead.id, "estimate", amountOrNull(estimate), version),
-                    "לא הצלחנו לשמור את הסכום"
+                    t("customers.leads.lifecycle.saveAmountError")
                   )
                 }
               >
-                שמירה
+                {t("customers.leads.common.save")}
               </button>
             </div>
           </label>
           {lead.status === "WON" ? (
             <label className="crm-id__field">
-              <span className="crm-id__label">הסכום שסוכם (לא סכום שנגבה)</span>
+              <span className="crm-id__label">{t("customers.leads.lifecycle.agreedLabel")}</span>
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   className="crm-input"
@@ -194,11 +206,11 @@ export function LeadLifecycleSection({
                   onClick={() =>
                     onMutate(
                       () => setLeadValue(lead.id, "agreed", amountOrNull(agreed), version),
-                      "לא הצלחנו לשמור את הסכום"
+                      t("customers.leads.lifecycle.saveAmountError")
                     )
                   }
                 >
-                  שמירה
+                  {t("customers.leads.common.save")}
                 </button>
               </div>
             </label>
@@ -208,10 +220,10 @@ export function LeadLifecycleSection({
 
       <details>
         <summary className="crm-id__label" style={{ cursor: "pointer" }}>
-          היסטוריה ({history.length})
+          {t("customers.leads.lifecycle.history", { count: history.length })}
         </summary>
         {history.length === 0 ? (
-          <p className="crm-note-empty">עוד לא נרשם כלום.</p>
+          <p className="crm-note-empty">{t("customers.leads.lifecycle.historyEmpty")}</p>
         ) : (
           <ol className="crm-list" style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
             {history.map((h) => (
@@ -220,18 +232,19 @@ export function LeadLifecycleSection({
                   <div className="crm-item__title">
                     {h.label}
                     {h.kind === "status_changed" && h.fromStatus && h.toStatus
-                      ? `: ${leadStatusLabel(h.fromStatus as LeadStatusValue)} ← ${leadStatusLabel(
-                          h.toStatus as LeadStatusValue
-                        )}`
+                      ? t("customers.leads.lifecycle.statusChange", {
+                          from: leadStatusLabel(h.fromStatus as LeadStatusValue, t),
+                          to: leadStatusLabel(h.toStatus as LeadStatusValue, t),
+                        })
                       : null}
                     {h.nextActionLabel ? ` · ${h.nextActionLabel}` : null}
                     {h.amount ? ` · ${h.amount}` : null}
                   </div>
                   <div className="crm-item__meta">
-                    {formatDateTime(h.occurredAt) ?? ""}
-                    {h.source === "BACKFILL" ? " · שוחזר מנתונים קודמים" : null}
-                    {h.evidenceKind === "suggestion" ? " · לפי הצעת דוביז" : null}
-                    {h.evidenceKind === "intake_event" ? " · מפנייה נכנסת" : null}
+                    {formatDateTime(h.occurredAt, locale) ?? ""}
+                    {h.source === "BACKFILL" ? t("customers.leads.lifecycle.backfill") : null}
+                    {h.evidenceKind === "suggestion" ? t("customers.leads.lifecycle.bySuggestion") : null}
+                    {h.evidenceKind === "intake_event" ? t("customers.leads.lifecycle.fromIntake") : null}
                   </div>
                 </div>
               </li>

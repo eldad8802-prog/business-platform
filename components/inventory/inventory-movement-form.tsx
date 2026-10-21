@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { dangerActionStyle, glassActionStyle, primaryActionStyle } from "@/components/inventory/inventory-tokens";
 import { createInventoryMovement } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 type Props = {
   itemId: number;
@@ -22,24 +24,25 @@ type ReasonValue =
 
 type ReasonOption = {
   value: ReasonValue;
-  label: string;
+  label: MessageKey;
 };
 
 const IN_REASONS: ReasonOption[] = [
-  { value: "INITIAL_STOCK", label: "מלאי התחלתי" },
-  { value: "MANUAL_ADD", label: "הוספה ידנית" },
-  { value: "RETURN", label: "החזרה" },
-  { value: "INVENTORY_COUNT_CORRECTION", label: "תיקון ספירה" },
+  { value: "INITIAL_STOCK", label: "customers.inventoryKit.reasons.initialStock" },
+  { value: "MANUAL_ADD", label: "customers.inventoryKit.reasons.manualAdd" },
+  { value: "RETURN", label: "customers.inventoryKit.reasons.return" },
+  { value: "INVENTORY_COUNT_CORRECTION", label: "customers.inventoryKit.reasons.countFix" },
 ];
 
 const OUT_REASONS: ReasonOption[] = [
-  { value: "MANUAL_REMOVE", label: "הפחתה ידנית" },
-  { value: "SALE", label: "מכירה" },
-  { value: "DAMAGE", label: "נזק" },
-  { value: "INVENTORY_COUNT_CORRECTION", label: "תיקון ספירה" },
+  { value: "MANUAL_REMOVE", label: "customers.inventoryKit.reasons.manualRemove" },
+  { value: "SALE", label: "customers.inventoryKit.reasons.sale" },
+  { value: "DAMAGE", label: "customers.inventoryKit.reasons.damageShort" },
+  { value: "INVENTORY_COUNT_CORRECTION", label: "customers.inventoryKit.reasons.countFix" },
 ];
 
 export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
+  const { t } = useI18n();
   const [movementType, setMovementType] = useState<MovementType>("IN");
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState<ReasonValue>("MANUAL_ADD");
@@ -70,7 +73,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
       !Number.isFinite(parsedQuantity) ||
       parsedQuantity <= 0
     ) {
-      setError("צריך להזין כמות גדולה מ־0");
+      setError(t("customers.inventoryKit.movement.quantityRequired"));
       setSuccessText(null);
       return;
     }
@@ -91,11 +94,11 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
       setQuantity("1");
       setNote("");
       setReason(movementType === "IN" ? "MANUAL_ADD" : "MANUAL_REMOVE");
-      setSuccessText("התנועה נשמרה והמלאי עודכן");
+      setSuccessText(t("customers.inventoryKit.movement.savedAndUpdated"));
 
       await onSuccess();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה בעדכון מלאי");
+      setError(err instanceof Error ? err.message : t("customers.inventoryKit.movement.updateError"));
       setSuccessText(null);
     } finally {
       setLoading(false);
@@ -113,11 +116,11 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
       }}
     >
       <div style={{ fontWeight: 600, marginBottom: "6px", fontSize: "16px", color: "var(--inv-text)" }}>
-        עדכון מלאי
+        {t("customers.inventoryKit.movement.updateTitle")}
       </div>
 
       <div style={{ fontSize: "13px", color: "var(--inv-text-muted)", lineHeight: 1.5, marginBottom: "14px" }}>
-        כל שינוי כאן נשמר כתנועת מלאי מסודרת ומתועד בהיסטוריה.
+        {t("customers.inventoryKit.movement.formIntro")}
       </div>
 
       <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
@@ -135,7 +138,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             fontWeight: 600,
           }}
         >
-          הוספת מלאי
+          {t("customers.inventoryKit.movement.addTitle")}
         </button>
 
         <button
@@ -152,14 +155,14 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             fontWeight: 600,
           }}
         >
-          הפחתת מלאי
+          {t("customers.inventoryKit.movement.removeTitle")}
         </button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div>
           <label htmlFor="inventory-movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-            כמות
+            {t("customers.inventoryKit.movement.quantity")}
           </label>
 
           <input
@@ -174,7 +177,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
               setError(null);
               setSuccessText(null);
             }}
-            placeholder="כמות"
+            placeholder={t("customers.inventoryKit.movement.quantity")}
             style={{
               width: "100%",
               minHeight: "46px",
@@ -190,7 +193,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
 
         <div>
           <label htmlFor="inventory-movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-            סיבה
+            {t("customers.inventoryKit.movement.reason")}
           </label>
 
           <select
@@ -215,7 +218,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
           >
             {availableReasons.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.label)}
               </option>
             ))}
           </select>
@@ -223,7 +226,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
 
         <div>
           <label htmlFor="inventory-movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-            הערה
+            {t("customers.inventoryKit.movement.note")}
           </label>
 
           <input
@@ -235,7 +238,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
               setNote(e.target.value);
               setSuccessText(null);
             }}
-            placeholder="הערה אופציונלית"
+            placeholder={t("customers.inventoryKit.movement.optionalNote")}
             style={{
               width: "100%",
               minHeight: "46px",
@@ -274,7 +277,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             fontWeight: 600,
           }}
         >
-          {loading ? "שומר/ת..." : "עדכן מלאי"}
+          {loading ? t("customers.inventoryKit.movement.savingSlash") : t("customers.inventoryKit.movement.updateCta")}
         </button>
       </div>
     </section>

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   InventorySearch,
@@ -23,6 +25,7 @@ const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
 
 export default function CreateInventorySalePage() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [chargedPrice, setChargedPrice] = useState<Record<number, string>>({});
@@ -39,11 +42,11 @@ export default function CreateInventorySalePage() {
       const data = await getInventoryItems();
       setItems(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      setError(err instanceof Error && err.message === "UNAUTHORIZED" ? "אין הרשאה. צריך להתחבר מחדש." : err instanceof Error ? err.message : "שגיאה בטעינת מוצרים");
+      setError(err instanceof Error && err.message === "UNAUTHORIZED" ? t("customers.inventory.common.noAuth") : err instanceof Error ? err.message : t("customers.inventory.saleCreate.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     queueMicrotask(() => void loadItems());
@@ -120,17 +123,17 @@ export default function CreateInventorySalePage() {
       });
       router.push("/inventory/sales");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה בשמירת המכירה");
+      setError(err instanceof Error ? err.message : t("customers.inventory.saleCreate.saveFailed"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <InventorySubPage intent="standard" title="מכירה חדשה" backHref="/inventory/sales" bottomNav="sales">
+    <InventorySubPage intent="standard" title={t("customers.inventory.saleCreate.title")} backHref="/inventory/sales" bottomNav="sales">
       <div className="inv-desk-workspace inv-sale-desk">
       <div style={{ position: "relative" }}>
-        <InventorySearch value={query} onChange={setQuery} placeholder="הוסף מוצר או סרוק ברקוד" />
+        <InventorySearch value={query} onChange={setQuery} placeholder={t("customers.inventory.saleCreate.searchPlaceholder")} />
         {searchResults.length > 0 ? (
           <div className="inv-olines" style={{ paddingTop: 8 }}>
             {searchResults.map((item) => {
@@ -148,7 +151,7 @@ export default function CreateInventorySalePage() {
                   </span>
                   <span className="inv-row__mid">
                     <span className="inv-row__nm">{item.name}</span>
-                    <span className="inv-row__meta">מלאי {item.currentQuantity}</span>
+                    <span className="inv-row__meta">{t("customers.inventory.saleCreate.stockQty", { quantity: item.currentQuantity })}</span>
                   </span>
                 </button>
               );
@@ -166,7 +169,7 @@ export default function CreateInventorySalePage() {
 
       {cartEntries.length === 0 && !loading ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title="העגלה ריקה">חפשו מוצר למעלה כדי להוסיף אותו למכירה.</InventoryStatePanel>
+          <InventoryStatePanel title={t("customers.inventory.saleCreate.emptyTitle")}>{t("customers.inventory.saleCreate.emptyBody")}</InventoryStatePanel>
         </div>
       ) : (
         <div className="inv-olines">
@@ -181,13 +184,13 @@ export default function CreateInventorySalePage() {
                 name={item!.name}
                 sub={
                   <>
-                    מלאי <bdi>{item!.currentQuantity}</bdi>
-                    {catalogPrice > 0 ? <> · מחירון <bdi>₪{catalogPrice}</bdi></> : null}
+                    {t("customers.inventory.saleCreate.stock")} <bdi>{item!.currentQuantity}</bdi>
+                    {catalogPrice > 0 ? <> · {t("customers.inventory.saleCreate.priceList")} <bdi>₪{catalogPrice}</bdi></> : null}
                     <input
                       value={chargedPrice[item!.id] ?? ""}
                       inputMode="decimal"
-                      aria-label={`מחיר שנגבה עבור ${item!.name}`}
-                      placeholder="מחיר שנגבה"
+                      aria-label={t("customers.inventory.saleCreate.chargedAria", { name: item!.name })}
+                      placeholder={t("customers.inventory.saleCreate.chargedPlaceholder")}
                       onChange={(event) => {
                         const value = event.target.value;
                         setChargedPrice((current) => ({ ...current, [item!.id]: value }));
@@ -224,17 +227,17 @@ export default function CreateInventorySalePage() {
 
       {cartEntries.length > 0 ? (
         <BottomActionBar
-          label={`${totalUnits} פריטים · יופחת מהמלאי`}
+          label={t(totalUnits === 1 ? "customers.inventory.saleCreate.itemsOne" : "customers.inventory.saleCreate.itemsMany", { count: totalUnits })}
           value={
             chargedInvalid ? (
-              "מחיר לא תקין"
+              t("customers.inventory.saleCreate.invalidPrice")
             ) : anyChargedPrice ? (
-              <bdi>₪{chargedTotal.toLocaleString("he-IL")}</bdi>
+              <bdi>₪{chargedTotal.toLocaleString(intlTag(locale))}</bdi>
             ) : (
-              "בלי מחיר שנגבה"
+              t("customers.inventory.saleCreate.noChargedPrice")
             )
           }
-          cta={saving ? "שומר…" : "רשום מכירה"}
+          cta={saving ? t("customers.inventory.common.saving") : t("customers.inventory.saleCreate.submit")}
           ctaDisabled={saving || chargedInvalid}
           onCta={() => void handleSubmit()}
         />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   InventoryRow,
@@ -15,6 +16,7 @@ import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
 export default function InventorySalesPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [matches, setMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -44,23 +46,23 @@ export default function InventorySalesPage() {
 
   return (
     <InventorySubPage intent="data"
-      title="מכירות"
+      title={t("customers.inventory.sales.title")}
       variant="hub"
-      sub="דיווח מכירה ידנית, או טיפול במכירות POS שלא זוהו"
-      headerAction={{ icon: <IconPlus />, label: "מכירה חדשה", href: "/inventory/sales/create", accent: true }}
+      sub={t("customers.inventory.sales.sub")}
+      headerAction={{ icon: <IconPlus />, label: t("customers.inventory.sales.newSale"), href: "/inventory/sales/create", accent: true }}
       bottomNav="sales"
     >
       <div className="inv-rows">
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>🧾</span>}
           thumbBg="var(--inv-info-bg)"
-          title="דווח מכירה ידנית"
-          meta="בחירת מוצרים וכמויות — יופחת מהמלאי"
+          title={t("customers.inventory.sales.manualTitle")}
+          meta={t("customers.inventory.sales.manualMeta")}
           href="/inventory/sales/create"
         />
       </div>
 
-      <div className="inv-hd__sub" style={{ marginTop: 6 }}>מכירות POS שלא זוהו</div>
+      <div className="inv-hd__sub" style={{ marginTop: 6 }}>{t("customers.inventory.sales.unmatchedHeading")}</div>
 
       {loading ? (
         <div className="inv-rows">
@@ -68,20 +70,20 @@ export default function InventorySalesPage() {
         </div>
       ) : matches.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title="אין מכירות שממתינות לטיפול">
-            כל המכירות מהקופה זוהו או טופלו.
+          <InventoryStatePanel title={t("customers.inventory.sales.emptyTitle")}>
+            {t("customers.inventory.sales.emptyBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
         <div className="inv-ops">
-        <div className="inv-desk-table" aria-label="מכירות שלא זוהו">
+        <div className="inv-desk-table" aria-label={t("customers.inventory.common.unmatchedSalesAria")}>
           <table>
             <thead>
               <tr>
-                <th>מכירה</th>
-                <th>כמות</th>
-                <th>סטטוס</th>
+                <th>{t("customers.inventory.common.sale")}</th>
+                <th>{t("customers.inventory.common.quantity")}</th>
+                <th>{t("customers.inventory.common.status")}</th>
               </tr>
             </thead>
             <tbody>
@@ -93,7 +95,7 @@ export default function InventorySalesPage() {
                 >
                   <td>{match.metadata.name || match.externalSaleId}</td>
                   <td className="num">{match.metadata.quantity}</td>
-                  <td>ממתין לשיוך</td>
+                  <td>{t("customers.inventory.sales.awaitingLink")}</td>
                 </tr>
               ))}
             </tbody>
@@ -102,13 +104,13 @@ export default function InventorySalesPage() {
         <aside className="inv-ops__side">
           {(() => {
             const selected = matches.find((match) => match.id === selectedId);
-            if (!selected) return <><h2>מכירה</h2><p>בחרו שורה כדי לראות את המכירה ולעבור לשיוך.</p></>;
+            if (!selected) return <><h2>{t("customers.inventory.common.sale")}</h2><p>{t("customers.inventory.sales.selectHint")}</p></>;
             return (
               <>
                 <h2>{selected.metadata.name || selected.externalSaleId}</h2>
-                <p>{selected.metadata.source || "POS"} · כמות {selected.metadata.quantity}</p>
+                <p>{selected.metadata.source || "POS"} · {t("customers.inventory.sales.quantityValue", { quantity: selected.metadata.quantity })}</p>
                 <button type="button" className="inv-btn-primary" onClick={() => router.push("/inventory/unmatched")}>
-                  שיוך במסך ההחלטה
+                  {t("customers.inventory.sales.linkInDecision")}
                 </button>
               </>
             );
@@ -124,7 +126,7 @@ export default function InventorySalesPage() {
               title={match.metadata.name || match.externalSaleId}
               meta={
                 <>
-                  כמות <bdi>{match.metadata.quantity}</bdi> · ממתין לשיוך
+                  {t("customers.inventory.common.quantity")} <bdi>{match.metadata.quantity}</bdi> · {t("customers.inventory.sales.awaitingLink")}
                 </>
               }
               href="/inventory/unmatched"
