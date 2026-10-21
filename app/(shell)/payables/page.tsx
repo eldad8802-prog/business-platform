@@ -325,9 +325,9 @@ function TableRow({ row, now, desk, selected, onOpen }: { row: CommitmentListApi
               {row.title}
             </Link>
           )}
-          <span className={ui.rowSub}>
-            {payeeDiffers ? row.payeeNameSnapshot : SCHEDULE_LABEL[row.scheduleKind]}
-          </span>
+          {payeeDiffers ? <span className={ui.rowSub}>{row.payeeNameSnapshot}</span> : null}
+          {/* The type has its own column on desktop; on tablet it lives here. */}
+          <span className={`${ui.rowSub} ${ui.tabletOnly}`}>{SCHEDULE_LABEL[row.scheduleKind]}</span>
         </span>
       </td>
       <td className={ui.desktopCol}>

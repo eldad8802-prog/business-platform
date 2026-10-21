@@ -27,6 +27,7 @@ import {
 import {
   ActionMenu,
   Button,
+  ButtonLink,
   Card,
   DialogFrame,
   EmptyState,
@@ -424,7 +425,9 @@ export default function CommitmentDetailPage({
             <p className={ui.inspectNote} style={{ fontSize: 13 }}>
               מועד שלא שולם מופיע ב״דורש טיפול״ במזכירה שבוע לפני התאריך, ונשאר שם עד שהוא מטופל. מסמך החיוב נשאר ב<Link href="/billing">חשבוניות</Link>.
             </p>
-            <Link href="/secretary" style={{ fontSize: 14, fontWeight: 600, color: "var(--dz-brand)" }}>למזכירה</Link>
+            <div>
+              <ButtonLink href="/secretary" variant="quiet" size="sm">למזכירה</ButtonLink>
+            </div>
           </Card>
           {detail.audit.length > 0 ? (
             <Card title="תיעוד">
