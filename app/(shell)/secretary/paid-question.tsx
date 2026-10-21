@@ -55,13 +55,16 @@ export function PaidQuestionSheet({
   onPaid,
   onHandledOnly,
   onCancel,
+  initialStep = "ask",
 }: {
   obligation: ObligationApi;
   onPaid: (details: PaidDetails) => Promise<void>;
   onHandledOnly: () => Promise<void>;
   onCancel: () => void;
+  /** "details" when the owner already said "שילמתי" (the row button). */
+  initialStep?: "ask" | "details";
 }) {
-  const [step, setStep] = useState<"ask" | "details">("ask");
+  const [step, setStep] = useState<"ask" | "details">(initialStep);
   const [amount, setAmount] = useState(obligation.ledger?.remaining ?? obligation.amount);
   const today = israelDayKey(new Date());
   const [paidAt, setPaidAt] = useState(today);
