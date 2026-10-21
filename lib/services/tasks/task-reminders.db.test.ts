@@ -55,7 +55,8 @@ async function main() {
   let tick = 0;
   const key = () => uuidV7(new Date(NOW.getTime() - 5000 + ++tick));
   const as = <T>(businessId: number, fn: () => Promise<T>) => runWithTenantContext({ businessId }, fn);
-  const req = (now = NOW) => ({ idempotencyKey: key(), now });
+  // The key is minted relative to the moment the request carries (the server refuses a key older than 24 h).
+  const req = (now = NOW) => ({ idempotencyKey: uuidV7(new Date(now.getTime() - 5000 + ++tick)), now });
   const plus = (d: Date, min: number) => new Date(d.getTime() + min * 60_000);
   const dueIds = async (at: Date) => (await rem.dueReminders(at, 500)).map((d) => d.taskId);
 
