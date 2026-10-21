@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type RenderOutput = {
   renderId?: string;
@@ -50,16 +52,16 @@ type ContentResult = {
 
 type SocialPlatform = "instagram" | "tiktok" | "facebook" | "other";
 
-function platformDisplayName(platform: SocialPlatform): string {
+function platformDisplayName(t: Translator, platform: SocialPlatform): string {
   switch (platform) {
     case "instagram":
-      return "אינסטגרם";
+      return t("content.studio.result.platformNames.instagram");
     case "tiktok":
-      return "טיקטוק";
+      return t("content.studio.result.platformNames.tiktok");
     case "facebook":
-      return "פייסבוק";
+      return t("content.studio.result.platformNames.facebook");
     default:
-      return "אחר";
+      return t("content.studio.result.platformNames.other");
   }
 }
 
@@ -95,6 +97,7 @@ function isTerminalRenderSuccess(status: unknown, url: unknown): boolean {
 
 export default function ResultPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [renderOutput, setRenderOutput] = useState<RenderOutput | null>(null);
   const [videoReady, setVideoReady] = useState(false);
@@ -174,7 +177,7 @@ export default function ResultPage() {
         }
       } catch (err) {
         console.error(err);
-        setError("לא הצלחנו להציג את הסרטון");
+        setError(t("content.studio.result.errors.display"));
         return;
       }
 
@@ -195,7 +198,7 @@ export default function ResultPage() {
       }
 
       if (!token) {
-        setError("כדי להציג את הסרטון צריך להתחבר מחדש.");
+        setError(t("content.studio.result.errors.reLogin"));
         return;
       }
 
@@ -214,7 +217,7 @@ export default function ResultPage() {
           }
 
           if ((data.status || "").toLowerCase() === "failed") {
-            setError(data.errorMessage || "לא הצלחנו לסיים את הסרטון");
+            setError(data.errorMessage || t("content.studio.result.errors.finish"));
             return;
           }
 
@@ -230,14 +233,14 @@ export default function ResultPage() {
           }
         } catch (err) {
           console.error(err);
-          setError("לא הצלחנו לטעון את הסרטון. אפשר לנסות לרענן.");
+          setError(t("content.studio.result.errors.load"));
           return;
         }
 
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      setError("הסרטון לוקח יותר מדי זמן — נסו לרענן עוד כמה רגעים.");
+      setError(t("content.studio.result.errors.timeout"));
     }
 
     void resolveVideo();
@@ -245,7 +248,7 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, t]);
 
   async function handleSavePostLink() {
     if (saveStatus === "saving") return;
@@ -258,23 +261,23 @@ export default function ResultPage() {
     const cleanPostUrl = postUrl.trim();
 
     if (!renderId || !renderedVideoUrl || !selectedVariantId) {
-      setSaveError("חסר מידע כדי לשמור את הקישור — נסו לחזור צעד אחורה.");
+      setSaveError(t("content.studio.result.errors.linkMissingData"));
       return;
     }
 
     if (!cleanPostUrl) {
-      setSaveError("צריך להדביק קישור לפוסט");
+      setSaveError(t("content.studio.result.errors.linkRequired"));
       return;
     }
 
     if (!isValidHttpUrl(cleanPostUrl)) {
-      setSaveError("קישור לא תקין — הדבק קישור שמתחיל ב־http/https");
+      setSaveError(t("content.studio.result.errors.invalidUrl"));
       return;
     }
 
     const token = localStorage.getItem("token") || "";
     if (!token) {
-      setSaveError("צריך להתחבר כדי לשמור קישור לפוסט");
+      setSaveError(t("content.studio.result.errors.linkLogin"));
       return;
     }
 
@@ -326,7 +329,7 @@ export default function ResultPage() {
       });
 
       if (!res.ok) {
-        let msg = "שמירת הקישור נכשלה";
+        let msg = t("content.studio.result.errors.linkSaveFailed");
         try {
           const data = await res.json();
           if (typeof data?.error === "string" && data.error) {
@@ -342,7 +345,7 @@ export default function ResultPage() {
       setSavedPostUrl(cleanPostUrl);
     } catch (err: any) {
       setSaveStatus("idle");
-      setSaveError(err?.message || "שמירת הקישור נכשלה");
+      setSaveError(err?.message || t("content.studio.result.errors.linkSaveFailed"));
     }
   }
 
@@ -357,17 +360,17 @@ export default function ResultPage() {
     const effectivePostUrl = (savedPostUrl || postUrl).trim();
 
     if (!renderId || !selectedVariantId) {
-      setPerfError("חסר מידע כדי לשמור ביצועים — נסו לחזור צעד אחורה.");
+      setPerfError(t("content.studio.result.errors.perfMissingData"));
       return;
     }
 
     if (!effectivePostUrl) {
-      setPerfError("צריך להדביק קישור לפוסט לפני שמזינים ביצועים");
+      setPerfError(t("content.studio.result.errors.perfLinkRequired"));
       return;
     }
 
     if (!isValidHttpUrl(effectivePostUrl)) {
-      setPerfError("קישור לא תקין — הדבק קישור שמתחיל ב־http/https");
+      setPerfError(t("content.studio.result.errors.invalidUrl"));
       return;
     }
 
@@ -386,13 +389,13 @@ export default function ResultPage() {
       profileVisits === null ||
       views === null
     ) {
-      setPerfError("כל המדדים חייבים להיות מספרים שלמים (0 ומעלה)");
+      setPerfError(t("content.studio.result.errors.perfIntegers"));
       return;
     }
 
     const token = localStorage.getItem("token") || "";
     if (!token) {
-      setPerfError("צריך להתחבר כדי לשמור ביצועים");
+      setPerfError(t("content.studio.result.errors.perfLogin"));
       return;
     }
 
@@ -423,7 +426,7 @@ export default function ResultPage() {
       });
 
       if (!res.ok) {
-        let msg = "שמירת הביצועים נכשלה";
+        let msg = t("content.studio.result.errors.perfSaveFailed");
         try {
           const data = await res.json();
           if (typeof data?.error === "string" && data.error) {
@@ -438,7 +441,7 @@ export default function ResultPage() {
       setPerfStatus("saved");
     } catch (err: any) {
       setPerfStatus("idle");
-      setPerfError(err?.message || "שמירת הביצועים נכשלה");
+      setPerfError(err?.message || t("content.studio.result.errors.perfSaveFailed"));
     }
   }
 
@@ -456,7 +459,7 @@ export default function ResultPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>הסרטון מוכן</div>
+          <div style={topBarTitleStyle}>{t("content.studio.result.topBarTitle")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -465,25 +468,25 @@ export default function ResultPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>סיימנו</div>
-            <h1 style={titleStyle}>הסרטון מוכן</h1>
+            <div style={eyebrowStyle}>{t("content.studio.result.eyebrow")}</div>
+            <h1 style={titleStyle}>{t("content.studio.result.title")}</h1>
             <p style={subtitleStyle}>
-              צפו, בדקו שזה מרגיש נכון — ואחר כך אפשר לשתף ולפרסם.
+              {t("content.studio.result.subtitle")}
             </p>
           </div>
 
           {error ? (
             <div style={errorBoxStyle}>
-              <div style={errorTitleStyle}>לא הצלחנו להציג</div>
+              <div style={errorTitleStyle}>{t("content.studio.result.errorTitle")}</div>
               <div style={errorTextStyle}>{error}</div>
             </div>
           ) : null}
 
           {!error && !videoReady ? (
             <div style={videoCardStyle}>
-              <div style={videoMetaTitleStyle}>טוענים את הווידאו</div>
+              <div style={videoMetaTitleStyle}>{t("content.studio.result.loadingTitle")}</div>
               <div style={videoMetaTextStyle}>
-                לפעמים לוקח עוד רגע עד שהקובץ זמין לצפייה — לא צריך לרענן ידנית.
+                {t("content.studio.result.loadingText")}
               </div>
             </div>
           ) : null}
@@ -502,9 +505,9 @@ export default function ResultPage() {
               </div>
 
               <div style={videoMetaStyle}>
-                <div style={videoMetaTitleStyle}>זה הזמן לבדוק איך זה יושב</div>
+                <div style={videoMetaTitleStyle}>{t("content.studio.result.reviewTitle")}</div>
                 <div style={videoMetaTextStyle}>
-                  האם הזרימה ברורה? האם זה מרגיש כמו אתם? אחרי שתחליטו — אפשר לפרסם ישר.
+                  {t("content.studio.result.reviewText")}
                 </div>
               </div>
             </div>
@@ -515,21 +518,21 @@ export default function ResultPage() {
           renderOutput?.url &&
           (selectedVariant?.script?.hook || selectedVariant?.script?.caption) ? (
             <div style={publishReadyCardStyle}>
-              <div style={publishReadyTitleStyle}>מוכן לפרסום</div>
+              <div style={publishReadyTitleStyle}>{t("content.studio.result.publishReadyTitle")}</div>
               <div style={publishReadySubtitleStyle}>
-                אפשר להעתיק מכאן ישר לפוסט.
+                {t("content.studio.result.publishReadySubtitle")}
               </div>
 
               {selectedVariant?.script?.hook ? (
                 <div style={publishReadySectionStyle}>
-                  <div style={publishReadyLabelStyle}>הפתיחה שנבחרה</div>
+                  <div style={publishReadyLabelStyle}>{t("content.studio.result.hookLabel")}</div>
                   <div style={hookBoxStyle}>{selectedVariant.script.hook}</div>
                 </div>
               ) : null}
 
               {selectedVariant?.script?.caption ? (
                 <div style={publishReadySectionStyle}>
-                  <div style={publishReadyLabelStyle}>טקסט לפוסט</div>
+                  <div style={publishReadyLabelStyle}>{t("content.studio.result.captionLabel")}</div>
                   <div style={captionBoxStyle}>{selectedVariant.script.caption}</div>
                 </div>
               ) : null}
@@ -539,15 +542,14 @@ export default function ResultPage() {
           {/* Social trace — publish link only */}
           {videoReady && renderOutput?.url && selectedVariant?.id ? (
             <div style={socialTraceCardStyle}>
-              <div style={socialTraceTitleStyle}>כבר על האוויר?</div>
+              <div style={socialTraceTitleStyle}>{t("content.studio.result.socialTitle")}</div>
               <div style={socialTraceSubtitleStyle}>
-                אם פרסמתם, הדביקו כאן קישור לפוסט — ככה נשמור קו בין הסרטון
-                שיצא כאן לבין מה שעלה בפועל ברשת.
+                {t("content.studio.result.socialSubtitle")}
               </div>
 
               <div style={socialTraceRowStyle}>
                 <div style={socialTraceFieldStyle}>
-                  <div style={socialTraceLabelStyle}>פלטפורמה</div>
+                  <div style={socialTraceLabelStyle}>{t("content.studio.result.platformLabel")}</div>
                   <select
                     value={platform}
                     onChange={(e) => {
@@ -560,12 +562,12 @@ export default function ResultPage() {
                     <option value="instagram">Instagram</option>
                     <option value="tiktok">TikTok</option>
                     <option value="facebook">Facebook</option>
-                    <option value="other">אחר</option>
+                    <option value="other">{t("content.studio.result.platformNames.other")}</option>
                   </select>
                 </div>
 
                 <div style={socialTraceFieldStyle}>
-                  <div style={socialTraceLabelStyle}>קישור לפוסט</div>
+                  <div style={socialTraceLabelStyle}>{t("content.studio.result.postLinkLabel")}</div>
                   <input
                     type="url"
                     placeholder="https://..."
@@ -588,7 +590,7 @@ export default function ResultPage() {
               ) : null}
 
               {saveStatus === "saved" ? (
-                <div style={socialTraceSuccessStyle}>הקישור נשמר</div>
+                <div style={socialTraceSuccessStyle}>{t("content.studio.result.linkSaved")}</div>
               ) : null}
 
               <div style={socialTraceActionsStyle}>
@@ -598,12 +600,12 @@ export default function ResultPage() {
                   disabled={saveStatus === "saving"}
                   style={socialTraceButtonStyle(saveStatus === "saving")}
                 >
-                  {saveStatus === "saving" ? "רגע אחד…" : "שמירת הקישור"}
+                  {saveStatus === "saving" ? t("content.studio.result.saving") : t("content.studio.result.saveLink")}
                 </button>
 
                 {defaultPlatform !== "other" ? (
                   <div style={socialTraceHintStyle}>
-                    פלטפורמה שסימנתם בזרימה: {platformDisplayName(defaultPlatform)}
+                    {t("content.studio.result.flowPlatformHint", { platform: platformDisplayName(t, defaultPlatform) })}
                   </div>
                 ) : null}
               </div>
@@ -614,16 +616,16 @@ export default function ResultPage() {
           {videoReady && renderOutput?.url && selectedVariant?.id ? (
             <div style={perfCardStyle}>
               <div style={perfCardHeaderStyle}>
-                <div style={perfTitleStyle}>מספרים מהפוסט</div>
-                <div style={perfOptionalTagStyle}>אופציונלי — לאחרי שפרסמתם</div>
+                <div style={perfTitleStyle}>{t("content.studio.result.perfTitle")}</div>
+                <div style={perfOptionalTagStyle}>{t("content.studio.result.perfOptionalTag")}</div>
               </div>
               <div style={perfSubtitleStyle}>
-                אם תרצו, אפשר למלא מספרים ידנית — זה עוזר לנו לזכור מה עבד בהמשך.
+                {t("content.studio.result.perfSubtitle")}
               </div>
 
               <div style={perfGridStyle}>
                 <PerfField
-                  label="הודעות פרטיות"
+                  label={t("content.studio.result.metrics.dms")}
                   value={perfDms}
                   onChange={(v) => {
                     setPerfDms(v);
@@ -632,7 +634,7 @@ export default function ResultPage() {
                   }}
                 />
                 <PerfField
-                  label="פניות / לידים"
+                  label={t("content.studio.result.metrics.leads")}
                   value={perfLeads}
                   onChange={(v) => {
                     setPerfLeads(v);
@@ -641,7 +643,7 @@ export default function ResultPage() {
                   }}
                 />
                 <PerfField
-                  label="שמירות"
+                  label={t("content.studio.result.metrics.saves")}
                   value={perfSaves}
                   onChange={(v) => {
                     setPerfSaves(v);
@@ -650,7 +652,7 @@ export default function ResultPage() {
                   }}
                 />
                 <PerfField
-                  label="שיתופים"
+                  label={t("content.studio.result.metrics.shares")}
                   value={perfShares}
                   onChange={(v) => {
                     setPerfShares(v);
@@ -659,7 +661,7 @@ export default function ResultPage() {
                   }}
                 />
                 <PerfField
-                  label="כניסות לפרופיל"
+                  label={t("content.studio.result.metrics.profileVisits")}
                   value={perfProfileVisits}
                   onChange={(v) => {
                     setPerfProfileVisits(v);
@@ -668,7 +670,7 @@ export default function ResultPage() {
                   }}
                 />
                 <PerfField
-                  label="צפיות"
+                  label={t("content.studio.result.metrics.views")}
                   value={perfViews}
                   onChange={(v) => {
                     setPerfViews(v);
@@ -679,7 +681,7 @@ export default function ResultPage() {
               </div>
 
               <div style={perfNoteWrapStyle}>
-                <div style={socialTraceLabelStyle}>הערה (אופציונלי)</div>
+                <div style={socialTraceLabelStyle}>{t("content.studio.result.noteLabel")}</div>
                 <textarea
                   value={perfNote}
                   onChange={(e) => {
@@ -687,7 +689,7 @@ export default function ResultPage() {
                     if (perfStatus === "saved") setPerfStatus("idle");
                     if (perfError) setPerfError("");
                   }}
-                  placeholder="מה קרה בפועל? למה זה עבד/לא עבד?"
+                  placeholder={t("content.studio.result.notePlaceholder")}
                   style={perfNoteStyle}
                 />
               </div>
@@ -696,7 +698,7 @@ export default function ResultPage() {
                 <div style={socialTraceErrorStyle}>{perfError}</div>
               ) : null}
               {perfStatus === "saved" ? (
-                <div style={socialTraceSuccessStyle}>הביצועים נשמרו</div>
+                <div style={socialTraceSuccessStyle}>{t("content.studio.result.perfSaved")}</div>
               ) : null}
 
               <div style={socialTraceActionsStyle}>
@@ -706,7 +708,7 @@ export default function ResultPage() {
                   disabled={perfStatus === "saving"}
                   style={socialTraceButtonStyle(perfStatus === "saving")}
                 >
-                  {perfStatus === "saving" ? "רגע אחד…" : "שמירת המספרים"}
+                  {perfStatus === "saving" ? t("content.studio.result.saving") : t("content.studio.result.savePerf")}
                 </button>
               </div>
             </div>
@@ -719,7 +721,7 @@ export default function ResultPage() {
             onClick={handleCreateAgain}
             style={secondaryButtonStyle}
           >
-            תוכן נוסף
+            {t("content.studio.result.createAgain")}
           </button>
 
           <button
@@ -727,7 +729,7 @@ export default function ResultPage() {
             onClick={handleBackHome}
             style={primaryButtonStyle}
           >
-            חזרה לבית
+            {t("content.studio.result.backHome")}
           </button>
         </div>
       </div>

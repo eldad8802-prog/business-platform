@@ -1,243 +1,143 @@
-/** P2 — Hebrew labels for the identity vocabulary. Display only; the codes live in lib/services/identity. */
+/**
+ * P2 — labels for the identity vocabulary. Display only; the codes live in lib/services/identity.
+ *
+ * The wording lives in the i18n dictionary (content.identity.labels, lib/i18n/messages/areas/content/identity.ts).
+ * `identityLabels(t)` / `useIdentityLabels()` return the maps in the interface language; the exported
+ * constants below are the Hebrew maps (unchanged values) for callers without a translator.
+ */
+import { useMemo } from "react";
 
-export const DIMENSION_LABELS: Record<string, { title: string; hint: string }> = {
-  DESCRIPTION: { title: "במשפט אחד — מה העסק", hint: "איך היית מתאר את העסק ללקוח חדש" },
-  SPECIALIZATION: { title: "במה העסק מתמחה", hint: "עד 3 תחומי התמחות" },
-  DIFFERENTIATOR: { title: "מה מבדל אתכם", hint: "רק דברים נכונים שאפשר לעמוד מאחוריהם" },
-  SERVICE_AREA: { title: "אזור שירות", hint: "ערים או אזורים שאתם משרתים" },
-  TARGET_AUDIENCE: { title: "את מי אתם רוצים למשוך", hint: "עד 4" },
-  PRIMARY_OBJECTIVE: { title: "מה הכי חשוב שלקוח יעשה", hint: "מטרה אחת עיקרית" },
-  SECONDARY_OBJECTIVE: { title: "מטרות משניות", hint: "עד 2" },
-  TONE: { title: "הטון של העסק", hint: "איך העסק מדבר" },
-  POSITIONING: { title: "במה אתם רוצים שיזכרו אתכם", hint: "עד 3" },
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { identityHe } from "@/lib/i18n/messages/areas/content/identity";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
+import { translateTree } from "../i18n-tree";
+
+type TitleHint = { title: string; hint: string };
+type ChapterKey = "who" | "audience" | "why" | "action";
+type ChapterCopy = { title: string; purpose: string; icon: string; tone: "teal" | "violet" | "amber" | "blue" };
+
+const CHAPTER_META: Record<ChapterKey, Pick<ChapterCopy, "icon" | "tone">> = {
+  who: { icon: "🏪", tone: "teal" },
+  audience: { icon: "🎯", tone: "violet" },
+  why: { icon: "⭐", tone: "amber" },
+  action: { icon: "📞", tone: "blue" },
 };
-
-export const CODE_LABELS: Record<string, string> = {
-  INDIVIDUALS: "לקוחות פרטיים",
-  BUSINESSES: "עסקים",
-  LOCAL_CUSTOMERS: "לקוחות מהאזור",
-  REMOTE_CUSTOMERS: "לקוחות מרחוק / אונליין",
-  HOME_SERVICE_CUSTOMERS: "שירות עד הבית",
-  APPOINTMENT_CUSTOMERS: "לקוחות שקובעים תור",
-  WALK_IN_CUSTOMERS: "לקוחות שנכנסים מהרחוב",
-  NEW_CUSTOMERS: "לקוחות חדשים",
-  RETURNING_CUSTOMERS: "לקוחות חוזרים",
-  EVENT_CUSTOMERS: "לקוחות לאירועים",
-  BOOK: "לקבוע תור",
-  BUY: "לקנות",
-  CALL: "להתקשר",
-  WHATSAPP: "לשלוח וואטסאפ",
-  REQUEST_QUOTE: "לבקש הצעת מחיר",
-  VISIT_STORE: "להגיע לעסק",
-  DISCOVER_SERVICES: "להכיר את השירותים",
-  DISCOVER_PRODUCTS: "להכיר את המוצרים",
-  LEAVE_LEAD: "להשאיר פרטים",
-  PROFESSIONAL: "מקצועי",
-  WARM: "חם ואישי",
-  FRIENDLY_CASUAL: "קליל וחברי",
-  ENERGETIC: "אנרגטי",
-  PREMIUM: "יוקרתי",
-  VALUE: "תמורה טובה למחיר",
-  SPEED: "מהירות",
-  AVAILABILITY: "זמינות",
-  EXPERTISE: "מומחיות",
-  LOCAL_TRUST: "עסק מקומי שסומכים עליו",
-  SPECIALIZATION: "התמחות",
-  CONVENIENCE: "נוחות",
-  BREADTH: "מגוון רחב",
-  PERSONAL_SERVICE: "יחס אישי",
-  INNOVATION: "חדשנות",
-};
-
-export const FACT_LABELS: Record<string, string> = {
-  BUSINESS_NAME: "שם העסק",
-  CITY: "עיר",
-  OPENING_HOURS: "שעות פעילות",
-  PUBLIC_PHONE: "טלפון",
-  PUBLIC_EMAIL: "אימייל",
-  PUBLIC_ADDRESS: "כתובת",
-  PUBLIC_WHATSAPP: "מספר WhatsApp העסקי",
-  category: "תחום",
-  subCategory: "תת־תחום",
-  businessModel: "סוג העסק",
-};
-
-/** Contact facts come from the billing details: shown privately, public only by explicit approval. */
-export const CONTACT_FACTS = new Set(["PUBLIC_PHONE", "PUBLIC_EMAIL", "PUBLIC_ADDRESS", "PUBLIC_WHATSAPP"]);
-
-export const FACT_STATE_LABELS: Record<string, string> = {
-  KNOWN: "ידוע — לא אושר",
-  OWNER_CONFIRMED: "אושר שזה נכון — פנימי",
-  PUBLIC_USE_APPROVED: "מאושר לשימוש פומבי",
-};
-
-const CONTENT_TONE_LABELS: Record<string, string> = { clear: "בהיר ומקצועי", warm: "חם ואישי", energetic: "אנרגטי", premium: "יוקרתי" };
 
 /** What Dubiz noticed, per signal kind — phrased as an observation, never as a claim. */
-export function describeSignal(kind: string, value: Record<string, string | number | boolean>): string {
+function describeSignalWith(t: Translator, kind: string, value: Record<string, string | number | boolean>): string {
   switch (kind) {
     case "OFFERING_MIX":
-      return value.mix === "SERVICE_LED" ? "רוב מה שהעסק מציע הוא שירותים" : value.mix === "PRODUCT_LED" ? "רוב מה שהעסק מציע הוא מוצרים" : "העסק מציע גם שירותים וגם מוצרים";
+      return value.mix === "SERVICE_LED"
+        ? t("content.identity.labels.signal.offeringServiceLed")
+        : value.mix === "PRODUCT_LED"
+          ? t("content.identity.labels.signal.offeringProductLed")
+          : t("content.identity.labels.signal.offeringMixed");
     case "CATEGORY_BREADTH":
-      return value.breadth === "BROAD" ? `ההצעות שלך פרוסות על ${value.categories} קטגוריות` : value.breadth === "FOCUSED" ? "כל ההצעות שלך באותה קטגוריה" : "ההצעות שלך בכמה קטגוריות";
+      return value.breadth === "BROAD"
+        ? t("content.identity.labels.signal.breadthBroad", { categories: String(value.categories) })
+        : value.breadth === "FOCUSED"
+          ? t("content.identity.labels.signal.breadthFocused")
+          : t("content.identity.labels.signal.breadthSome");
     case "FULFILLMENT_MODE":
-      return value.fulfillment === "AT_CUSTOMER" ? "יש שירותים שניתנים אצל הלקוח" : value.fulfillment === "ONLINE" ? "יש שירותים שניתנים אונליין" : "יש שירותים שניתנים בעסק";
+      return value.fulfillment === "AT_CUSTOMER"
+        ? t("content.identity.labels.signal.fulfillmentAtCustomer")
+        : value.fulfillment === "ONLINE"
+          ? t("content.identity.labels.signal.fulfillmentOnline")
+          : t("content.identity.labels.signal.fulfillmentOnSite");
     case "QUOTE_PRICING":
-      return "ברוב השירותים המחיר נקבע בהצעת מחיר";
+      return t("content.identity.labels.signal.quotePricing");
     case "BOOKING_DEMAND":
-      return `הושלמו ${value.bookings} תורים לשירותים בחצי השנה האחרונה`;
+      return t("content.identity.labels.signal.bookingDemand", { bookings: String(value.bookings) });
     case "DEMAND_CONCENTRATION":
-      return `הצעה אחת מרכזת כ־${value.sharePct}% מהביקוש (פנימי בלבד — לא טענה שיווקית)`;
-    case "CONTENT_TONE_PREFERENCE":
-      return `בתוכן שיצרת, ברוב הפעמים בחרת בטון "${CONTENT_TONE_LABELS[String(value.contentTone)] ?? "קבוע"}"`;
+      return t("content.identity.labels.signal.demandConcentration", { sharePct: String(value.sharePct) });
+    case "CONTENT_TONE_PREFERENCE": {
+      const tones = translateTree(t, "content.identity.labels.contentTone", identityHe.labels.contentTone) as Record<string, string>;
+      return t("content.identity.labels.signal.contentTone", {
+        tone: tones[String(value.contentTone)] ?? t("content.identity.labels.signal.contentToneFallback"),
+      });
+    }
     case "CONTENT_AUDIENCE_PREFERENCE":
-      return value.contentAudience === "existing" ? "בתוכן שיצרת, בחרת לפנות בעיקר ללקוחות קיימים" : "בתוכן שיצרת, בחרת לפנות בעיקר ללקוחות חדשים";
+      return value.contentAudience === "existing"
+        ? t("content.identity.labels.signal.contentAudienceExisting")
+        : t("content.identity.labels.signal.contentAudienceNew");
     case "CONTENT_VARIANT_PREFERENCE":
-      return `בתוכן, בחרת ברוב הפעמים בגרסה מסוג "${value.variantKey}"`;
+      return t("content.identity.labels.signal.contentVariant", { variant: String(value.variantKey) });
     case "BOT_TONE":
-      return "בהגדרות הבוט בחרת טון דיבור";
+      return t("content.identity.labels.signal.botTone");
     case "BOT_AUDIENCE":
-      return "בהגדרות הבוט בחרת קהל יעד";
+      return t("content.identity.labels.signal.botAudience");
     case "BOT_PRIORITY":
-      return "בהגדרות הבוט בחרת עדיפות";
+      return t("content.identity.labels.signal.botPriority");
     default:
-      return "Dubiz זיהה דפוס בפעילות של העסק";
+      return t("content.identity.labels.signal.generic");
   }
 }
 
-/* ── P3-A · conversion + trust (owner-facing language; never an enum name) ── */
+/** Every identity label map, in the language of `t`. */
+export function identityLabels(t: Translator) {
+  const L = translateTree(t, "content.identity.labels", identityHe.labels);
+  const chapter = (key: ChapterKey): ChapterCopy => ({ ...L.chapter[key], ...CHAPTER_META[key] });
+  return {
+    DIMENSION_LABELS: L.dimension as Record<string, TitleHint>,
+    CODE_LABELS: L.code as Record<string, string>,
+    FACT_LABELS: L.fact as Record<string, string>,
+    FACT_STATE_LABELS: L.factState as Record<string, string>,
+    /* ── P3-A · conversion + trust (owner-facing language; never an enum name) ── */
+    CHANNEL_LABELS: L.channel as Record<string, string>,
+    DECLARATION_LABELS: L.declaration as Record<string, TitleHint>,
+    CAPABILITY_LABELS: L.capability as Record<string, string>,
+    BLOCKING_LABELS: L.blocking as Record<string, string>,
+    CONFLICT_LABELS: L.conflict as Record<string, string>,
+    CLAIM_KIND_LABELS: L.claimKind as Record<string, TitleHint>,
+    CLAIM_ISSUE_LABELS: L.claimIssue as Record<string, string>,
+    READINESS_LABELS: L.readiness as Record<string, string>,
+    /* ── Landing knowledge (the redesigned screen) ── */
+    CHAPTER_COPY: {
+      who: chapter("who"),
+      audience: chapter("audience"),
+      why: chapter("why"),
+      action: chapter("action"),
+    } as Record<ChapterKey, ChapterCopy>,
+    CHAPTER_STATE_LABELS: L.chapterState as Record<"COMPLETE" | "IN_PROGRESS" | "MISSING", string>,
+    NEED_LABELS: L.need as Record<string, string>,
+    /** The future page's sections, in the owner's words. */
+    PREVIEW_ROLE_LABELS: L.previewRole as Record<string, { title: string; empty: string }>,
+    /** Public-use status of an owner item, in human language. */
+    PUBLIC_STATUS_LABELS: L.publicStatus as Record<"READY" | "INTERNAL" | "AWAITING" | "MISSING", string>,
+    describeSignal: (kind: string, value: Record<string, string | number | boolean>) => describeSignalWith(t, kind, value),
+  };
+}
 
-export const CHANNEL_LABELS: Record<string, string> = {
-  WHATSAPP_CLOUD: "WhatsApp העסקי (מחובר ל-Dubiz)",
-  WHATSAPP_LINK: "WhatsApp במספר הטלפון",
-  PHONE: "שיחת טלפון",
-  IN_PERSON: "הגעה לעסק",
-  EXTERNAL_LINK: "חנות באתר חיצוני",
-  EMAIL: "אימייל",
-  DUBIZ_FORM: "טופס פנייה באתר",
-  DUBIZ_BOOKING: "קביעת תור אונליין",
-  DUBIZ_CHECKOUT: "רכישה אונליין",
-};
+export type IdentityLabels = ReturnType<typeof identityLabels>;
 
-export const DECLARATION_LABELS: Record<string, { title: string; hint: string }> = {
-  ACCEPTS_VISITS: { title: "לקוחות יכולים להגיע לעסק", hint: "יש מקום שאפשר להגיע אליו בשעות הפעילות" },
-  BOOKING_BY_MESSAGE: { title: "קובעים תורים בטלפון או בהודעה", hint: "הלקוח פונה ואתם קובעים איתו מועד" },
-  QUOTES_ON_REQUEST: { title: "נותנים הצעת מחיר לפי בקשה", hint: "הלקוח מתאר מה הוא צריך ומקבל הצעה" },
-  WHATSAPP_ON_PUBLIC_PHONE: { title: "יש WhatsApp במספר הטלפון של העסק", hint: "אפשר לשלוח הודעה לאותו מספר" },
-  EXTERNAL_SHOP: { title: "מוכרים גם בחנות אונליין חיצונית", hint: "Dubiz עדיין לא יכול לפרסם קישור לחנות — זה רק נרשם" },
-};
+/** The identity label maps in the active interface language (client components). */
+export function useIdentityLabels(): IdentityLabels {
+  const { t } = useI18n();
+  return useMemo(() => identityLabels(t), [t]);
+}
 
-export const CAPABILITY_LABELS: Record<string, string> = {
-  AVAILABLE: "פעיל",
-  AVAILABLE_UNOBSERVED: "זמין — מתבצע מחוץ ל-Dubiz",
-  PLATFORM_UNPROVEN: "מחובר, עדיין בבדיקה ב-Dubiz",
-  DEGRADED: "יש תקלה בחיבור",
-  NOT_AUTHORIZED: "חסר אישור לשימוש פומבי",
-  NOT_DECLARED: "עדיין לא סימנת שהעסק עובד כך",
-  NOT_CONFIGURED: "לא מוגדר",
-  NOT_SUPPORTED_BY_PLATFORM: "Dubiz עדיין לא תומך בזה",
-};
+/* ── Hebrew maps (source language, values unchanged) — for callers without a translator ── */
 
-export const BLOCKING_LABELS: Record<string, string> = {
-  PUBLIC_PHONE_NOT_APPROVED: "מספר הטלפון קיים במערכת אבל עדיין לא אושר לשימוש ציבורי",
-  PUBLIC_PHONE_MISSING: "אין מספר טלפון בפרטי העסק",
-  PUBLIC_EMAIL_NOT_APPROVED: "האימייל קיים במערכת אבל עדיין לא אושר לשימוש ציבורי",
-  PUBLIC_EMAIL_MISSING: "אין אימייל בפרטי העסק",
-  PUBLIC_WHATSAPP_NOT_APPROVED: "WhatsApp מחובר, אבל המספר שלו עדיין לא אושר לשימוש ציבורי",
-  WHATSAPP_NOT_CONNECTED: "WhatsApp העסקי לא מחובר",
-  WHATSAPP_CONNECTION_ERROR: "יש תקלה בחיבור ה-WhatsApp — כרגע אי אפשר להשתמש בו",
-  WHATSAPP_ON_PHONE_NOT_DECLARED: "לא סימנת שיש WhatsApp במספר הטלפון",
-  ADDRESS_NOT_APPROVED: "הכתובת עדיין לא אושרה לשימוש ציבורי",
-  HOURS_NOT_APPROVED: "שעות הפעילות עדיין לא אושרו לשימוש ציבורי",
-  VISITS_NOT_DECLARED: "כתובת לבד היא לא חנות — צריך לסמן שלקוחות יכולים להגיע",
-  NO_CANONICAL_SHOP_LINK_AUTHORITY: "אין כרגע קישור לחנות ש-Dubiz רשאי לפרסם",
-  WEB_FORM_NOT_ENABLED: "אין טופס פנייה פעיל באתר",
-  NOT_SUPPORTED_BY_DUBIZ: "Dubiz עדיין לא תומך בזה",
-  BOOKING_BY_MESSAGE_NOT_DECLARED: "לא סימנת שקובעים תורים בטלפון או בהודעה",
-  QUOTES_ON_REQUEST_NOT_DECLARED: "לא סימנת שנותנים הצעת מחיר לפי בקשה",
-  EXTERNAL_SHOP_NOT_DECLARED: "לא סימנת שיש חנות אונליין",
-  AUTHORITY_LAPSED: "הפרט השתנה מאז שאישרת אותו — צריך לאשר מחדש",
-  TOO_FEW_OFFERINGS: "צריך לפחות 3 שירותים או מוצרים פעילים",
-  PLATFORM_UNPROVEN: "WhatsApp העסקי עדיין בבדיקה ב-Dubiz — אפשר לבחור בו, Dubiz לא ימליץ עליו",
-};
+const HE = identityLabels(createTranslator(he));
 
-export const CONFLICT_LABELS: Record<string, string> = {
-  PREFERENCE_CAPABILITY_CONFLICT: "הדרך שבחרת עדיין לא זמינה ללקוחות. הבחירה שלך נשמרת, אבל כרגע אי אפשר להשתמש בה כדרך פנייה פעילה.",
-  PREFERENCE_EVIDENCE_DIVERGENCE: "הנתונים של העסק מצביעים על דרך פנייה אחרת. הבחירה שלך נשארת — זה רק מידע.",
-  PREFERENCE_UNSET: "עדיין לא בחרת מה הכי חשוב שלקוח יעשה.",
-  AUTHORITY_LAPSED: "פרט שאישרת השתנה מאז — צריך לאשר אותו מחדש.",
-  CHANNEL_DEGRADED: "יש תקלה בערוץ שבחרת — כרגע אי אפשר להשתמש בו.",
-  PLATFORM_UNPROVEN: "בחרת ב-WhatsApp העסקי. הבחירה נשמרת, אבל הוא עדיין בבדיקה ב-Dubiz.",
-};
-
-export const CLAIM_KIND_LABELS: Record<string, { title: string; hint: string }> = {
-  FOUNDED_YEAR: { title: "שנת הקמה", hint: "מאיזו שנה העסק פועל — לפי מה שאתה מצהיר" },
-  SERVED_CUSTOMERS: { title: "כמה לקוחות שירתתם", hint: "רק לפי עבודות ותורים שהושלמו ב-Dubiz" },
-  LICENSED: { title: "רישיון", hint: "רישיון מקצועי — דורש מסמך תומך פרטי" },
-  CERTIFIED: { title: "הסמכה או תעודה", hint: "למשל תעודת כשרות או הסמכה מקצועית — דורש מסמך תומך פרטי" },
-  AUTHORIZED_DEALER: { title: "משווק מורשה", hint: "של מותג מסוים — דורש מסמך תומך פרטי" },
-  GUARANTEE: { title: "אחריות", hint: "על מה, לכמה זמן ובאילו תנאים" },
-};
-
-export const CLAIM_ISSUE_LABELS: Record<string, string> = {
-  EXPIRED: "פג תוקף",
-  RECONFIRM_DUE: "המידע הזה דורש אישור מחדש",
-  NEEDS_DOCUMENT: "כדי להשתמש בזה בפרסום צריך לצרף מסמך תומך",
-  EVIDENCE_LAPSED: "הנתונים כבר לא תומכים במספר הזה",
-  EVIDENCE_RULE_CHANGED: "שיטת החישוב התעדכנה — צריך לאשר מחדש",
-};
-
-export const READINESS_LABELS: Record<string, string> = {
-  DESCRIPTION: "משפט אחד שמתאר את העסק",
-  TARGET_AUDIENCE: "קהל היעד",
-  PRIMARY_OBJECTIVE: "מה הכי חשוב שלקוח יעשה",
-  PUBLIC_BUSINESS_NAME: "אישור שם העסק לשימוש ציבורי",
-  PUBLIC_CONTACT: "לפחות דרך יצירת קשר אחת שאושרה לשימוש ציבורי",
-  USABLE_PATH_FOR_PRIMARY_OBJECTIVE: "דרך זמינה למטרה העיקרית",
-  ANY_USABLE_CONVERSION_PATH: "דרך פנייה זמינה אחת לפחות",
-  PUBLIC_TRUST_CLAIM: "טענת אמון אחת שאושרה לשימוש ציבורי",
-  REVIEW_CLAIM_LIKE_TEXT: "בדיקה של טקסט שנשמע כמו טענת אמון",
-};
-
-/* ── Landing knowledge (the redesigned screen) ── */
-
-export const CHAPTER_COPY: Record<"who" | "audience" | "why" | "action", { title: string; purpose: string; icon: string; tone: "teal" | "violet" | "amber" | "blue" }> = {
-  who: { title: "מי העסק שלך?", purpose: "מה העסק עושה ואיפה — הבסיס לכל עמוד שיוצג ללקוחות.", icon: "🏪", tone: "teal" },
-  audience: { title: "למי אתם רוצים להגיע?", purpose: "מי הלקוחות שהדף העתידי ידבר אליהם.", icon: "🎯", tone: "violet" },
-  why: { title: "למה שיבחרו דווקא בכם?", purpose: "הטון, הבידול והאמון — מה שיגרום ללקוח לבחור בכם.", icon: "⭐", tone: "amber" },
-  action: { title: "מה אתם רוצים שהלקוח יעשה?", purpose: "הפעולה שהדף יוביל אליה — רק דרכים שבאמת זמינות.", icon: "📞", tone: "blue" },
-};
-
-export const CHAPTER_STATE_LABELS: Record<"COMPLETE" | "IN_PROGRESS" | "MISSING", string> = {
-  COMPLETE: "הושלם",
-  IN_PROGRESS: "בתהליך",
-  MISSING: "חסר מידע",
-};
-
-export const NEED_LABELS: Record<string, string> = {
-  DESCRIPTION: "משפט אחד שמתאר את העסק",
-  CATEGORY: "תחום העסק",
-  TARGET_AUDIENCE: "לפחות קהל אחד",
-  POSITIONING: "במה אתם רוצים שיזכרו אתכם",
-  DIFFERENTIATOR_OR_TRUST: "מה מבדל אתכם, או טענת אמון",
-  PRIMARY_OBJECTIVE: "מה הכי חשוב שלקוח יעשה",
-  USABLE_PATH: "דרך זמינה ללקוח לעשות את זה",
-};
-
-/** The future page's sections, in the owner's words. */
-export const PREVIEW_ROLE_LABELS: Record<string, { title: string; empty: string }> = {
-  HERO: { title: "פתיחה", empty: "שם העסק ומשפט התיאור יופיעו כאן אחרי שתאשר אותם לשימוש בדף." },
-  ABOUT: { title: "במה העסק מתמחה", empty: "תחומי ההתמחות ואזור השירות יופיעו כאן אחרי אישור." },
-  DIFFERENTIATORS: { title: "למה לבחור בנו", empty: "מה שמבדל אתכם יופיע כאן אחרי אישור." },
-  TRUST: { title: "אמון", empty: "טענות אמון שאישרת יופיעו כאן. Dubiz לא ממציא המלצות או מספרים." },
-  CONTACT: { title: "יצירת קשר", empty: "פרטי קשר שאישרת לשימוש ציבורי יופיעו כאן." },
-  CALL_TO_ACTION: { title: "כפתור פעולה", empty: "הכפתור יופיע כשתהיה דרך זמינה למה שחשוב לכם שהלקוח יעשה." },
-};
-
-/** Public-use status of an owner item, in human language. */
-export const PUBLIC_STATUS_LABELS = {
-  READY: "מוכן לשימוש בדף הנחיתה",
-  INTERNAL: "מידע פנימי בלבד",
-  AWAITING: "ממתין לאישור שלך",
-  MISSING: "צריך להשלים",
-} as const;
+export const DIMENSION_LABELS = HE.DIMENSION_LABELS;
+export const CODE_LABELS = HE.CODE_LABELS;
+export const FACT_LABELS = HE.FACT_LABELS;
+/** Contact facts come from the billing details: shown privately, public only by explicit approval. */
+export const CONTACT_FACTS = new Set(["PUBLIC_PHONE", "PUBLIC_EMAIL", "PUBLIC_ADDRESS", "PUBLIC_WHATSAPP"]);
+export const FACT_STATE_LABELS = HE.FACT_STATE_LABELS;
+export const CHANNEL_LABELS = HE.CHANNEL_LABELS;
+export const DECLARATION_LABELS = HE.DECLARATION_LABELS;
+export const CAPABILITY_LABELS = HE.CAPABILITY_LABELS;
+export const BLOCKING_LABELS = HE.BLOCKING_LABELS;
+export const CONFLICT_LABELS = HE.CONFLICT_LABELS;
+export const CLAIM_KIND_LABELS = HE.CLAIM_KIND_LABELS;
+export const CLAIM_ISSUE_LABELS = HE.CLAIM_ISSUE_LABELS;
+export const READINESS_LABELS = HE.READINESS_LABELS;
+export const CHAPTER_COPY = HE.CHAPTER_COPY;
+export const CHAPTER_STATE_LABELS = HE.CHAPTER_STATE_LABELS;
+export const NEED_LABELS = HE.NEED_LABELS;
+export const PREVIEW_ROLE_LABELS = HE.PREVIEW_ROLE_LABELS;
+export const PUBLIC_STATUS_LABELS = HE.PUBLIC_STATUS_LABELS;
+export const describeSignal = HE.describeSignal;

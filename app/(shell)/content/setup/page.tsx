@@ -8,6 +8,8 @@ import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { mapContentArchetypeToGoalAngle } from "@/lib/content/content-archetype-map";
 import { toneProvenanceFor, type ChoiceProvenance } from "@/lib/features/content/choice-provenance";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,14 +46,14 @@ type ContentFlow = {
 
 // ── Placeholder rotation ───────────────────────────────────────────────────────
 
-const PLACEHOLDERS = [
-  "שלא ירגיש כמו פרסומת",
-  "אני רוצה שירגישו שאפשר לסמוך עליי",
-  "שיהיה קליל אבל עדיין מקצועי",
-  "שזה ירגיש כמו שיחה אמיתית",
-  "שיעצרו כבר בשנייה הראשונה",
-  "שיבינו למה אני שונה מאחרים",
-] as const;
+const PLACEHOLDERS: readonly MessageKey[] = [
+  "content.studio.setup.placeholders.notAnAd",
+  "content.studio.setup.placeholders.trust",
+  "content.studio.setup.placeholders.lightButPro",
+  "content.studio.setup.placeholders.realConversation",
+  "content.studio.setup.placeholders.stopFirstSecond",
+  "content.studio.setup.placeholders.whyDifferent",
+];
 
 // ── Prompt synthesis ───────────────────────────────────────────────────────────
 
@@ -146,6 +148,7 @@ function defaultAudienceTypes(goal: string): AudienceType[] {
 
 export default function ContextInjectionPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [contextText, setContextText] = useState("");
   const [focused, setFocused] = useState(false);
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -189,7 +192,7 @@ export default function ContextInjectionPage() {
   }, [focused, contextText]);
 
   const hasText = contextText.trim().length > 0;
-  const ctaLabel = hasText ? "בוא נבנה את זה" : "המשך";
+  const ctaLabel = hasText ? t("content.studio.setup.ctaBuild") : t("content.studio.setup.ctaContinue");
 
   function handleContinue() {
     if (!flowArchetypeId) return;
@@ -278,10 +281,10 @@ export default function ContextInjectionPage() {
         <div style={contentAreaStyle}>
           <header style={heroStyle}>
             <h1 style={titleStyle}>
-              יש משהו חשוב שתרצה שהתוכן יעביר?
+              {t("content.studio.setup.title")}
             </h1>
             <p style={subtitleStyle}>
-              אפשר לכתוב במשפט אחד מה חשוב לך שאנשים ירגישו או יבינו.
+              {t("content.studio.setup.subtitle")}
             </p>
           </header>
 
@@ -293,18 +296,18 @@ export default function ContextInjectionPage() {
               onChange={(e) => setContextText(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder={PLACEHOLDERS[placeholderIdx]}
+              placeholder={t(PLACEHOLDERS[placeholderIdx])}
               rows={5}
               style={textareaInnerStyle}
-              aria-label="הקשר אישי לתוכן"
+              aria-label={t("content.studio.setup.contextAria")}
             />
           </div>
 
           <p style={hintTextStyle}>
-            ככל שתספר/י יותר במילים שלך, המערכת תוכל לדייק טוב יותר את התוכן.
+            {t("content.studio.setup.hint")}
           </p>
 
-          <p style={optionalLabelStyle}>לא חובה — אפשר גם להמשיך ישירות.</p>
+          <p style={optionalLabelStyle}>{t("content.studio.setup.optional")}</p>
         </div>
 
         <div style={footerStyle}>
@@ -354,7 +357,7 @@ const contentAreaStyle: React.CSSProperties = {
 };
 
 const heroStyle: React.CSSProperties = {
-  textAlign: "right",
+  textAlign: "start",
   marginBottom: 24,
   marginTop: 4,
 };
@@ -399,7 +402,7 @@ const textareaInnerStyle: React.CSSProperties = {
   background: "transparent",
   border: "none",
   resize: "none",
-  textAlign: "right",
+  textAlign: "start",
   fontFamily: "inherit",
   boxSizing: "border-box",
 };
@@ -407,7 +410,7 @@ const textareaInnerStyle: React.CSSProperties = {
 const hintTextStyle: React.CSSProperties = {
   fontSize: "clamp(0.78rem, 2.8vw, 0.85rem)",
   color: "var(--dz-text-muted)",
-  textAlign: "right",
+  textAlign: "start",
   lineHeight: 1.55,
   margin: 0,
   marginBottom: 8,
@@ -416,7 +419,7 @@ const hintTextStyle: React.CSSProperties = {
 const optionalLabelStyle: React.CSSProperties = {
   fontSize: "clamp(0.75rem, 2.6vw, 0.82rem)",
   color: "var(--dz-text-disabled)",
-  textAlign: "right",
+  textAlign: "start",
   margin: 0,
 };
 

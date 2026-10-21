@@ -1,5 +1,6 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import PageHeader from "@/components/ui/page-header";
 import { LandingVersionsScreen } from "@/components/business/landing/LandingVersionsScreen";
 import styles from "../identity/identity-page.module.css";
@@ -9,9 +10,10 @@ import styles from "../identity/identity-page.module.css";
  * restore. Owner only; nothing here is published.
  */
 export default function LandingVersionsPage() {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
-      <PageHeader title="גרסאות הדף" backHref="/business/identity" backLabel="חזרה" showBack />
+    <div style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
+      <PageHeader title={t("content.identity.versions.pageTitle")} backHref="/business/identity" backLabel={t("content.identity.versions.back")} showBack />
       <main className={styles.main}>
         <LandingVersionsScreen />
       </main>

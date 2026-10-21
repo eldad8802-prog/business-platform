@@ -8,6 +8,8 @@ import { TOKEN } from "@/lib/design/bot-theme";
 import { LAYOUT } from "@/lib/design/tokens";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import desk from "./bot-desk.module.css";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { botOptionLabel, localizeKeyOptions, localizeWorkModes } from "./_components/bot-i18n";
 
 /** The shell's desktop tier — where its navigation becomes a sidebar. */
 const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
@@ -84,6 +86,7 @@ function normalizeFinalAction(value: string | null): FinalActionValue {
 }
 
 export default function BusinessBotSettingsPage() {
+  const { t, dir } = useI18n();
   // Focused bot builder with its own sticky action bars — hide the app's fixed
   // bottom nav so it never overlaps the save controls. From the shell's desktop
   // tier the navigation is a sidebar, which cannot overlap them, so it stays —
@@ -112,14 +115,14 @@ export default function BusinessBotSettingsPage() {
   });
 
   const finalActionLabels = useMemo(
-    () => Object.fromEntries(FINAL_ACTIONS.map((a) => [a.value, a.label])),
-    []
+    () => Object.fromEntries(FINAL_ACTIONS.map((a) => [a.value, botOptionLabel(t, "finalAction", a.value, a.label)])),
+    [t]
   );
 
   const firstQuestionLine = useMemo(() => {
     for (const raw of questionsLines.split("\n")) {
-      const t = raw.trim();
-      if (t.length > 0) return t;
+      const line = raw.trim();
+      if (line.length > 0) return line;
     }
     return null;
   }, [questionsLines]);
@@ -182,11 +185,11 @@ export default function BusinessBotSettingsPage() {
       setProductLinkUrl((s.productLinkUrl ?? "").trim());
       setProductLinkIntro(s.productLinkIntro ?? "");
     } catch {
-      setError("לא ניתן לטעון את הגדרות הבוט");
+      setError(t("content.bot.common.errors.loadSettings"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -203,14 +206,14 @@ export default function BusinessBotSettingsPage() {
     setSaving(true);
     setError(null);
     if (welcomeMessage.length > 8000) {
-      setError("הודעת הפתיחה ארוכה מדי");
+      setError(t("content.bot.common.errors.welcomeTooLong"));
       setSaving(false);
       return;
     }
     if (finalAction === "SEND_LINK") {
       const url = websiteUrl.trim();
       if (!url) {
-        setError("בחרת שליחת קישור — נא למלא כתובת אתר");
+        setError(t("content.bot.common.errors.sendLinkMissingUrl"));
         setSaving(false);
         return;
       }
@@ -219,7 +222,7 @@ export default function BusinessBotSettingsPage() {
     if (productLinkEnabled) {
       const pl = productLinkUrl.trim();
       if (!isValidProductLinkUrl(pl)) {
-        setError("כשמפעילים עזרה עם מוצרים — נא למלא קישור מלא ותקין (https://…)");
+        setError(t("content.bot.common.errors.productLinkInvalid"));
         setSaving(false);
         return;
       }
@@ -262,7 +265,7 @@ export default function BusinessBotSettingsPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.bot.common.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -276,7 +279,7 @@ export default function BusinessBotSettingsPage() {
       window.setTimeout(() => setSavedOk(false), 2500);
       await load();
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setSaving(false);
     }
@@ -382,30 +385,29 @@ export default function BusinessBotSettingsPage() {
   };
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader
-        title="עריכת הבוט"
+        title={t("content.bot.desk.title")}
         backHref="/business/bot"
-        backLabel="חזרה לבוט"
+        backLabel={t("content.bot.desk.backLabel")}
         showBack
       />
       <main className={desk.main}>
         <p style={{ fontSize: TOKEN.font.body, color: TOKEN.ink.secondary, marginTop: 0, lineHeight: 1.55 }}>
-          כאן מגדירים איך הבוט מכין טיוטות באינבוקס. אתה תמיד לוחץ שלח — הלקוח לא מקבל
-          כלום מהבוט לבד. אפשר לעצור בכל שיחה עם &quot;אני מטפל מכאן&quot;.
+          {t("content.bot.desk.intro")}
         </p>
 
         {loading ? (
-          <div style={{ marginTop: 28, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען…</div>
+          <div style={{ marginTop: 28, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loadingEllipsis")}</div>
         ) : (
           <div className={desk.stack}>
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>איך הבוט עובד אצלך</h2>
+              <h2 style={sectionTitle}>{t("content.bot.desk.workTitle")}</h2>
               <p style={sectionHint}>
-                בחרו מצב עבודה. ברירת המחדל: טיוטות חכמות — הבוט מכין, אתם שולחים.
+                {t("content.bot.desk.workHint")}
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {BOT_WORK_MODE_OPTIONS_ACTIVE.map((opt) => {
+                {localizeWorkModes(t, BOT_WORK_MODE_OPTIONS_ACTIVE).map((opt) => {
                   const selected = workMode === opt.id;
                   return (
                     <button
@@ -422,7 +424,7 @@ export default function BusinessBotSettingsPage() {
                         setShowDraftSuggestionsInInbox(patch.showDraftSuggestionsInInbox);
                       }}
                       style={{
-                        textAlign: "right",
+                        textAlign: "start",
                         width: "100%",
                         border: selected
                           ? `2px solid ${TOKEN.brand.mid}`
@@ -464,12 +466,12 @@ export default function BusinessBotSettingsPage() {
             </section>
 
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>מתי הבוט מעביר אליך את השיחה</h2>
+              <h2 style={sectionTitle}>{t("content.bot.desk.handoffTitle")}</h2>
               <p style={sectionHint}>
-                כשמופעל — הבוט לא יכין עוד טיוטות פתיחה לשיחה הזו, ותמשיכו אתם מהאינבוקס.
+                {t("content.bot.desk.handoffHint")}
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {BOT_BOUNDARY_OPTIONS.map((opt) => (
+                {localizeKeyOptions(t, "boundary", BOT_BOUNDARY_OPTIONS).map((opt) => (
                   <label
                     key={opt.key}
                     style={{
@@ -517,7 +519,7 @@ export default function BusinessBotSettingsPage() {
                       </span>
                       {opt.isThreshold && boundaries.afterMessageCount ? (
                         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>אחרי</span>
+                          <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>{t("content.bot.desk.after")}</span>
                           <input
                             type="number"
                             min={3}
@@ -541,7 +543,7 @@ export default function BusinessBotSettingsPage() {
                             }}
                           />
                           <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>
-                            הודעות מהלקוח
+                            {t("content.bot.common.messagesFromCustomer")}
                           </span>
                         </div>
                       ) : null}
@@ -552,10 +554,10 @@ export default function BusinessBotSettingsPage() {
             </section>
 
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>איך הבוט מקבל לקוחות</h2>
-              <p style={sectionHint}>זה המשפט הראשון שהלקוח רואה — קצר, חם וברור.</p>
+              <h2 style={sectionTitle}>{t("content.bot.common.welcomeTitle")}</h2>
+              <p style={sectionHint}>{t("content.bot.common.welcomeHint")}</p>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>הודעת פתיחה</span>
+                <span style={labelStyle}>{t("content.bot.common.welcomeMessage")}</span>
                 <textarea
                   id="bot-welcome-input"
                   value={welcomeMessage}
@@ -568,13 +570,12 @@ export default function BusinessBotSettingsPage() {
             </section>
 
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>מה הבוט שואל</h2>
+              <h2 style={sectionTitle}>{t("content.bot.common.questionsTitle")}</h2>
               <p style={sectionHint}>
-                שורה אחת לכל שאלה. אפשר להתחיל בשני־שלושה משפטים פשוטים — אפשר לערוך בכל
-                רגע.
+                {t("content.bot.desk.questionsHint")}
               </p>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>שאלות (שורה לכל שאלה)</span>
+                <span style={labelStyle}>{t("content.bot.desk.questionsLabel")}</span>
                 <textarea
                   id="bot-questions-input"
                   value={questionsLines}
@@ -587,29 +588,31 @@ export default function BusinessBotSettingsPage() {
             </section>
 
             <section className={desk.preview} style={{ ...cardStyle, background: TOKEN.semantic.success.bgSoft, borderColor: TOKEN.semantic.success.border }}>
-              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>כך יראה הלקוח שלך את הבוט</h2>
+              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>{t("content.bot.desk.previewTitle")}</h2>
               <p style={{ ...sectionHint, marginBottom: 14 }}>
-                תצוגה של תחילת השיחה — לא צ׳אט חי, רק הדגמה ויזואלית.
+                {t("content.bot.desk.previewHint")}
               </p>
 
-              <div style={waChatBg}>
+              {/* Simulated customer-facing chat — keeps the Hebrew RTL rendering the customer sees. */}
+              <div dir="rtl" style={waChatBg}>
                 {/* Bot: welcome message */}
                 <div style={{ alignSelf: "flex-start", maxWidth: "84%", display: "flex", flexDirection: "column", gap: 3 }}>
                   <div style={waBotBubble}>
                     {welcomeMessage.trim() ? (
                       welcomeMessage.trim()
                     ) : (
-                      <span style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
-                        [הודעת הפתיחה שלך תופיע כאן]
+                      <span dir={dir} style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
+                        {t("content.bot.desk.welcomeSlot")}
                       </span>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => focusField("bot-welcome-input")}
+                    dir={dir}
                     style={waEditBtn}
                   >
-                    ← ערוך הודעת פתיחה
+                    {t("content.bot.desk.editWelcome")}
                   </button>
                 </div>
 
@@ -622,8 +625,8 @@ export default function BusinessBotSettingsPage() {
                     {parsedQuestions.length > 0 ? (
                       parsedQuestions[0]
                     ) : (
-                      <span style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
-                        [השאלה הראשונה שלך תופיע כאן]
+                      <span dir={dir} style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
+                        {t("content.bot.desk.firstQuestionSlot")}
                       </span>
                     )}
                   </div>
@@ -631,9 +634,10 @@ export default function BusinessBotSettingsPage() {
                     <button
                       type="button"
                       onClick={() => focusField("bot-questions-input")}
-                      style={waEditBtn}
+                      dir={dir}
+                    style={waEditBtn}
                     >
-                      ← הוסף שאלות
+                      {t("content.bot.desk.addQuestions")}
                     </button>
                   )}
                 </div>
@@ -656,16 +660,16 @@ export default function BusinessBotSettingsPage() {
               </div>
 
               <p style={{ margin: "12px 0 0", fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, lineHeight: 1.55 }}>
-                אם הלקוח ישאל משהו שהבוט לא מכיר — השיחה תעבור אליך
+                {t("content.bot.desk.previewFooter")}
               </p>
             </section>
 
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>מה קורה אחרי שהפרטים נאספו</h2>
-              <p style={sectionHint}>בוחרים מה הבוט עושה ברגע שמסיים את השאלות.</p>
+              <h2 style={sectionTitle}>{t("content.bot.common.finalActionTitle")}</h2>
+              <p style={sectionHint}>{t("content.bot.common.finalActionHint")}</p>
               <div style={{ display: "grid", gap: 14 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={labelStyle}>פעולה לאחר השאלות</span>
+                  <span style={labelStyle}>{t("content.bot.common.finalActionSelect")}</span>
                   <select
                     value={finalAction}
                     onChange={(e) =>
@@ -675,14 +679,14 @@ export default function BusinessBotSettingsPage() {
                   >
                     {FINAL_ACTIONS.map((a) => (
                       <option key={a.value} value={a.value}>
-                        {a.label}
+                        {botOptionLabel(t, "finalAction", a.value, a.label)}
                       </option>
                     ))}
                   </select>
                 </label>
                 {finalAction === "SEND_LINK" ? (
                   <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <span style={labelStyle}>כתובת קישור (URL)</span>
+                    <span style={labelStyle}>{t("content.bot.common.linkUrl")}</span>
                     <input
                       type="url"
                       inputMode="url"
@@ -695,7 +699,7 @@ export default function BusinessBotSettingsPage() {
                   </label>
                 ) : null}
                 <p style={{ margin: 0, fontSize: TOKEN.font.meta, color: TOKEN.ink.meta }}>
-                  הבוט יפעל לפי:{" "}
+                  {t("content.bot.common.botActsBy")}{" "}
                   <strong style={{ color: TOKEN.ink.secondary }}>
                     {finalActionLabels[finalAction] ?? finalAction}
                   </strong>
@@ -704,10 +708,9 @@ export default function BusinessBotSettingsPage() {
             </section>
 
             <section style={cardStyle}>
-              <h2 style={sectionTitle}>קישור מהיר לקטלוג</h2>
+              <h2 style={sectionTitle}>{t("content.bot.common.catalogLinkTitle")}</h2>
               <p style={sectionHint}>
-                כשלקוח מבקש לראות מוצרים — chip באינבוקס ימלא את ההודעה עם הקישור שלך. אתה
-                בודק ושולח בלחיצה אחת.
+                {t("content.bot.common.catalogLinkHint")}
               </p>
               <label
                 style={{
@@ -727,10 +730,10 @@ export default function BusinessBotSettingsPage() {
                   onChange={(e) => setProductLinkEnabled(e.target.checked)}
                   style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
                 />
-                <span>הצע קישור לקטלוג באינבוקס</span>
+                <span>{t("content.bot.common.offerCatalogLink")}</span>
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-                <span style={labelStyle}>כתובת דף (URL)</span>
+                <span style={labelStyle}>{t("content.bot.common.pageUrl")}</span>
                 <input
                   type="url"
                   inputMode="url"
@@ -742,7 +745,7 @@ export default function BusinessBotSettingsPage() {
                 />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>משפט קצר לפני הקישור (אופציונלי)</span>
+                <span style={labelStyle}>{t("content.bot.common.linkIntroOptional")}</span>
                 <textarea
                   value={productLinkIntro}
                   onChange={(e) => setProductLinkIntro(e.target.value)}
@@ -762,13 +765,13 @@ export default function BusinessBotSettingsPage() {
                   }}
                 >
                   <p style={{ margin: "0 0 8px", fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.semantic.success.ink }}>
-                    תצוגה מקדימה
+                    {t("content.bot.desk.linkPreviewTitle")}
                   </p>
                   <p style={{ margin: "0 0 8px", fontSize: TOKEN.font.meta, color: TOKEN.semantic.success.ink, lineHeight: 1.5 }}>
-                    כך זה יופיע ב-composer כשתלחץ &quot;שלח קישור למוצר&quot; באינבוקס.
+                    {t("content.bot.desk.linkPreviewHint")}
                   </p>
                   {productLinkIntro.trim() ? (
-                    <div style={{ ...previewBubble, marginBottom: 8 }}>{productLinkIntro.trim()}</div>
+                    <div dir="rtl" style={{ ...previewBubble, marginBottom: 8 }}>{productLinkIntro.trim()}</div>
                   ) : null}
                   <div
                     style={{
@@ -792,16 +795,16 @@ export default function BusinessBotSettingsPage() {
                 borderColor: TOKEN.border.hover,
               }}
             >
-              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>הגדרות מתקדמות</h2>
+              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>{t("content.bot.desk.advancedTitle")}</h2>
               <p style={{ ...sectionHint }}>
-                טיוטות פתיחה נשלטות ממצב העבודה למעלה. כאן רק פרטים טכניים.
+                {t("content.bot.desk.advancedHint")}
               </p>
               <p style={{ margin: "0 0 12px", fontSize: TOKEN.font.body, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
                 {workMode === "SMART_DRAFTS"
-                  ? "טיוטות הבוט מוצגות באינבוקס — אתם שולחים ידנית."
+                  ? t("content.bot.desk.advancedSmart")
                   : workMode === "MANUAL"
-                    ? "במצב ידני אין טיוטות בוט באינבוקס."
-                    : "מצב עתידי — עדיין טיוטות בלבד."}
+                    ? t("content.bot.desk.advancedManual")
+                    : t("content.bot.desk.advancedFuture")}
               </p>
               <div
                 style={{
@@ -822,7 +825,7 @@ export default function BusinessBotSettingsPage() {
                     fontWeight: TOKEN.weight.semibold,
                   }}
                 >
-                  מצב: Starter
+                  {t("content.bot.desk.modeStarter")}
                 </span>
                 <span
                   style={{
@@ -834,11 +837,11 @@ export default function BusinessBotSettingsPage() {
                     fontWeight: TOKEN.weight.semibold,
                   }}
                 >
-                  ערוץ: WhatsApp
+                  {t("content.bot.desk.channelWhatsApp")}
                 </span>
               </div>
               <p style={{ margin: "10px 0 0", fontSize: TOKEN.font.meta, color: TOKEN.ink.meta, lineHeight: 1.45 }}>
-                מצב וערוץ נקבעים כרגע על ידי המערכת — לא ניתן לעריכה כאן.
+                {t("content.bot.desk.advancedFootnote")}
               </p>
             </section>
 
@@ -857,7 +860,7 @@ export default function BusinessBotSettingsPage() {
               </div>
             ) : null}
             {savedOk ? (
-              <div style={{ fontSize: TOKEN.font.body, color: TOKEN.semantic.success.ink, fontWeight: TOKEN.weight.semibold }}>נשמר בהצלחה</div>
+              <div style={{ fontSize: TOKEN.font.body, color: TOKEN.semantic.success.ink, fontWeight: TOKEN.weight.semibold }}>{t("content.bot.common.savedSuccess")}</div>
             ) : null}
 
             <button
@@ -877,7 +880,7 @@ export default function BusinessBotSettingsPage() {
                 minHeight: 52,
               }}
             >
-              {saving ? "שומר…" : "שמור שינויים"}
+              {saving ? t("content.bot.common.savingEllipsis") : t("content.bot.common.saveChanges")}
             </button>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingBottom: 8 }}>
@@ -892,7 +895,7 @@ export default function BusinessBotSettingsPage() {
                   padding: "10px 0",
                 }}
               >
-                חזרה לבוט
+                {t("content.bot.desk.backToBot")}
               </Link>
               <Link
                 href="/inbox"
@@ -905,7 +908,7 @@ export default function BusinessBotSettingsPage() {
                   padding: "8px 0",
                 }}
               >
-                מעבר לשיחות
+                {t("content.bot.desk.toConversations")}
               </Link>
               <Link
                 href="/business"
@@ -917,7 +920,7 @@ export default function BusinessBotSettingsPage() {
                   textAlign: "center",
                 }}
               >
-                זהות העסק לחשבוניות
+                {t("content.bot.desk.invoiceIdentity")}
               </Link>
             </div>
           </div>

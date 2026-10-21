@@ -26,3 +26,8 @@
     margin: 0 !important;
   }
 }
+
+/* The chevron is drawn pointing left — "forward" in RTL. LTR mirrors it. */
+.chevron:dir(ltr) {
+  transform: scaleX(-1);
+}

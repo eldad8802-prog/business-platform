@@ -7,6 +7,8 @@ import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { vibeSourceOnContinue, type ToneProvenance } from "@/lib/features/content/choice-provenance";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 export type VibeId =
   | "professional_clean"
@@ -41,8 +43,8 @@ type ContentFlow = {
 
 type VibeCard = {
   id: VibeId;
-  label: string;
-  sublabel: string;
+  label: MessageKey;
+  sublabel: MessageKey;
   bgGradient: string;
   textColor: string;
   sublabelColor: string;
@@ -54,8 +56,8 @@ type VibeCard = {
 const vibeCards: VibeCard[] = [
   {
     id: "professional_clean",
-    label: "נקי ומקצועי",
-    sublabel: "מסודר, ברור, מעורר אמון",
+    label: "content.studioFlow.options.vibe.professional_clean",
+    sublabel: "content.studioFlow.vibe.sublabels.professional_clean",
     bgGradient: "linear-gradient(145deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)",
     textColor: "var(--dz-text-primary)",
     sublabelColor: "var(--dz-text-secondary)",
@@ -65,8 +67,8 @@ const vibeCards: VibeCard[] = [
   },
   {
     id: "warm_personal",
-    label: "חם ואישי",
-    sublabel: "אנושי, אמיתי, מחבר",
+    label: "content.studioFlow.options.vibe.warm_personal",
+    sublabel: "content.studioFlow.vibe.sublabels.warm_personal",
     bgGradient: "linear-gradient(145deg, var(--dz-warning-bg-soft) 0%, var(--dz-warning-border) 100%)",
     textColor: "var(--dz-warning)",
     sublabelColor: "var(--dz-warning)",
@@ -76,8 +78,8 @@ const vibeCards: VibeCard[] = [
   },
   {
     id: "bold_energetic",
-    label: "אנרגטי ודינמי",
-    sublabel: "חזק, מרגש, עוצר גלגל",
+    label: "content.studioFlow.options.vibe.bold_energetic",
+    sublabel: "content.studioFlow.vibe.sublabels.bold_energetic",
     bgGradient: "linear-gradient(145deg, var(--dz-brand-soft) 0%, var(--dz-brand-soft-strong) 100%)",
     textColor: "var(--dz-brand)",
     sublabelColor: "var(--dz-brand)",
@@ -87,8 +89,8 @@ const vibeCards: VibeCard[] = [
   },
   {
     id: "premium_luxury",
-    label: "פרמיום ויוקרתי",
-    sublabel: "עמוק, מרשים, בלתי נשכח",
+    label: "content.studioFlow.options.vibe.premium_luxury",
+    sublabel: "content.studioFlow.vibe.sublabels.premium_luxury",
     bgGradient: "linear-gradient(145deg, var(--dz-text-primary) 0%, var(--dz-text-primary) 100%)",
     textColor: "var(--dz-surface-muted)",
     sublabelColor: "var(--dz-text-muted)",
@@ -108,6 +110,7 @@ function vibeToEntryMode(canFilm: boolean): CreationEntryMode {
 
 export default function ContentPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [selectedVibe, setSelectedVibe] = useState<VibeId | null>(null);
   // Restoring a saved vibe is not a choice; only a click in this visit is.
   const [vibeClicked, setVibeClicked] = useState(false);
@@ -162,11 +165,11 @@ export default function ContentPage() {
 
         <div style={contentAreaStyle}>
           <header style={heroStyle}>
-            <h1 style={titleStyle}>איך בא לך שהתוכן ירגיש?</h1>
-            <p style={subtitleStyle}>בחר/י את הוויב שמתאים לעסק שלך</p>
+            <h1 style={titleStyle}>{t("content.studioFlow.vibe.title")}</h1>
+            <p style={subtitleStyle}>{t("content.studioFlow.vibe.subtitle")}</p>
           </header>
 
-          <div style={cardsGridStyle} role="radiogroup" aria-label="סגנון תוכן">
+          <div style={cardsGridStyle} role="radiogroup" aria-label={t("content.studioFlow.vibe.groupLabel")}>
             {vibeCards.map((card) => {
               const isSelected = selectedVibe === card.id;
               return (
@@ -175,7 +178,7 @@ export default function ContentPage() {
                   type="button"
                   role="radio"
                   aria-checked={isSelected}
-                  aria-label={`${card.label} — ${card.sublabel}`}
+                  aria-label={t("content.studioFlow.common.optionAria", { label: t(card.label), sublabel: t(card.sublabel) })}
                   className="vibe-tile"
                   onClick={() => {
                     setSelectedVibe(card.id);
@@ -187,8 +190,8 @@ export default function ContentPage() {
                     {card.icon}
                   </span>
                   <div style={tileTextGroup}>
-                    <span style={tileLabelStyle(card)}>{card.label}</span>
-                    <span style={tileSublabelStyle(card)}>{card.sublabel}</span>
+                    <span style={tileLabelStyle(card)}>{t(card.label)}</span>
+                    <span style={tileSublabelStyle(card)}>{t(card.sublabel)}</span>
                   </div>
                   <span style={tileRingStyle(isSelected, card)} aria-hidden />
                 </button>
@@ -206,7 +209,7 @@ export default function ContentPage() {
             }}
             aria-hidden={!selectedVibe}
           >
-            <p style={filmQuestionLabelStyle}>יכול/ה להצטלם מול המצלמה?</p>
+            <p style={filmQuestionLabelStyle}>{t("content.studioFlow.vibe.canFilmQuestion")}</p>
             <div style={filmChoicesRowStyle}>
               <button
                 type="button"
@@ -215,7 +218,7 @@ export default function ContentPage() {
                 onClick={() => setCanFilm(true)}
                 style={filmPillStyle(canFilm === true)}
               >
-                כן, בטח
+                {t("content.studioFlow.vibe.filmYes")}
               </button>
               <button
                 type="button"
@@ -224,7 +227,7 @@ export default function ContentPage() {
                 onClick={() => setCanFilm(false)}
                 style={filmPillStyle(canFilm === false)}
               >
-                עדיף לא
+                {t("content.studioFlow.vibe.filmNo")}
               </button>
             </div>
           </div>
@@ -237,7 +240,7 @@ export default function ContentPage() {
             disabled={!canContinue}
             style={ctaButtonStyle(canContinue)}
           >
-            המשך
+            {t("content.studioFlow.common.continue")}
           </button>
         </div>
       </div>
@@ -278,7 +281,7 @@ const contentAreaStyle: React.CSSProperties = {
 };
 
 const heroStyle: React.CSSProperties = {
-  textAlign: "right",
+  textAlign: "start",
   marginBottom: 20,
   marginTop: 4,
 };
@@ -322,7 +325,7 @@ const vibeTileStyle = (card: VibeCard, selected: boolean): React.CSSProperties =
   flexDirection: "column",
   alignItems: "flex-end",
   justifyContent: "space-between",
-  textAlign: "right",
+  textAlign: "start",
   boxShadow: selected
     ? `0 10px 28px rgba(52, 60, 50, 0.12), 0 0 0 1px ${card.selectedBorderColor}33`
     : "0 4px 14px rgba(52, 60, 50, 0.07)",
@@ -364,7 +367,7 @@ const tileSublabelStyle = (card: VibeCard): React.CSSProperties => ({
 const tileRingStyle = (selected: boolean, card: VibeCard): React.CSSProperties => ({
   position: "absolute",
   top: 12,
-  left: 12,
+  insetInlineEnd: 12,
   width: 13,
   height: 13,
   borderRadius: "50%",
@@ -375,7 +378,7 @@ const tileRingStyle = (selected: boolean, card: VibeCard): React.CSSProperties =
 
 const filmSectionStyle: React.CSSProperties = {
   marginTop: 28,
-  textAlign: "right",
+  textAlign: "start",
   transition: "opacity 0.22s ease, transform 0.22s ease",
 };
 

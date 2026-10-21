@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 type OfferType = "DISCOUNT" | "GIFT" | "BUNDLE" | "REFERRAL" | "";
 
@@ -53,7 +55,15 @@ const offerTypeOptions: Array<{
   },
 ];
 
+const OFFER_TYPE_TEXT: Record<Exclude<OfferType, "">, { title: MessageKey; description: MessageKey }> = {
+  DISCOUNT: { title: "content.commerce.offers.flow.types.DISCOUNT.title", description: "content.commerce.offers.flow.types.DISCOUNT.description" },
+  GIFT: { title: "content.commerce.offers.flow.types.GIFT.title", description: "content.commerce.offers.flow.types.GIFT.description" },
+  BUNDLE: { title: "content.commerce.offers.flow.types.BUNDLE.title", description: "content.commerce.offers.flow.types.BUNDLE.description" },
+  REFERRAL: { title: "content.commerce.offers.flow.types.REFERRAL.title", description: "content.commerce.offers.flow.types.REFERRAL.description" },
+};
+
 export default function OfferCreationFlow() {
+  const { t } = useI18n();
   const [step, setStep] = useState(1);
 
   const [form, setForm] = useState<OfferFormState>({
@@ -65,7 +75,7 @@ export default function OfferCreationFlow() {
   });
 
   const [profileLoading, setProfileLoading] = useState(true);
-  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<MessageKey | null>(null);
   const [businessName, setBusinessName] = useState("");
   const [businessLocation, setBusinessLocation] = useState("");
 
@@ -82,7 +92,7 @@ export default function OfferCreationFlow() {
         const token = localStorage.getItem("token");
 
         if (!token) {
-          setProfileError("לא נמצא טוקן התחברות. התחבר מחדש.");
+          setProfileError("content.commerce.offers.flow.noToken");
           return;
         }
 
@@ -99,7 +109,7 @@ export default function OfferCreationFlow() {
         if (res.status === 401) {
           localStorage.removeItem("token");
           localStorage.removeItem("user");
-          setProfileError("פג תוקף ההתחברות. התחבר מחדש.");
+          setProfileError("content.commerce.offers.flow.sessionExpired");
           return;
         }
 
@@ -124,7 +134,7 @@ export default function OfferCreationFlow() {
         setBusinessLocation(resolvedBusinessLocation);
       } catch (error) {
         console.error("Failed to load business profile:", error);
-        setProfileError("לא הצלחנו לטעון את פרטי העסק כרגע.");
+        setProfileError("content.commerce.offers.flow.profileError");
       } finally {
         setProfileLoading(false);
       }
@@ -179,7 +189,7 @@ export default function OfferCreationFlow() {
                 marginBottom: 12,
               }}
             >
-              יצירת הצעה חדשה
+              {t("content.commerce.offers.flow.eyebrow")}
             </div>
 
             <h1
@@ -190,7 +200,7 @@ export default function OfferCreationFlow() {
                 color: "var(--dz-text-primary)",
               }}
             >
-              איזה סוג הצעה אתה רוצה ליצור?
+              {t("content.commerce.offers.flow.title")}
             </h1>
 
             <p
@@ -202,8 +212,7 @@ export default function OfferCreationFlow() {
                 color: "var(--dz-text-secondary)",
               }}
             >
-              בחר סוג הצעה ברור ופשוט, כזה שלקוח באמת ירצה להשתמש בו ושיהיה קל להסביר
-              ולהפעיל בהמשך.
+              {t("content.commerce.offers.flow.intro")}
             </p>
           </div>
 
@@ -224,7 +233,7 @@ export default function OfferCreationFlow() {
                 marginBottom: 8,
               }}
             >
-              ההצעה נוצרת עבור העסק:
+              {t("content.commerce.offers.flow.forBusiness")}
             </div>
 
             {profileLoading ? (
@@ -235,7 +244,7 @@ export default function OfferCreationFlow() {
                   fontWeight: 600,
                 }}
               >
-                טוען פרטי עסק...
+                {t("content.commerce.offers.flow.loadingBusiness")}
               </div>
             ) : profileError ? (
               <div
@@ -245,7 +254,7 @@ export default function OfferCreationFlow() {
                   fontWeight: 600,
                 }}
               >
-                {profileError}
+                {t(profileError)}
               </div>
             ) : (
               <div>
@@ -256,7 +265,7 @@ export default function OfferCreationFlow() {
                     color: "var(--dz-text-primary)",
                   }}
                 >
-                  {businessName || "שם העסק לא זמין כרגע"}
+                  {businessName || t("content.commerce.offers.flow.nameUnavailable")}
                 </div>
 
                 <div
@@ -267,7 +276,7 @@ export default function OfferCreationFlow() {
                     fontWeight: 500,
                   }}
                 >
-                  {businessLocation || "מיקום העסק לא זמין כרגע"}
+                  {businessLocation || t("content.commerce.offers.flow.locationUnavailable")}
                 </div>
               </div>
             )}
@@ -289,7 +298,7 @@ export default function OfferCreationFlow() {
                   type="button"
                   onClick={() => handleSelectOfferType(option.value)}
                   style={{
-                    textAlign: "right",
+                    textAlign: "start",
                     background: isSelected ? "var(--dz-success-bg)" : "var(--dz-surface)",
                     border: isSelected ? "2px solid var(--dz-success-border)" : "1px solid var(--dz-border-strong)",
                     borderRadius: 18,
@@ -306,7 +315,7 @@ export default function OfferCreationFlow() {
                       marginBottom: 8,
                     }}
                   >
-                    {option.title}
+                    {t(OFFER_TYPE_TEXT[option.value].title)}
                   </div>
 
                   <div
@@ -316,7 +325,7 @@ export default function OfferCreationFlow() {
                       color: "var(--dz-text-muted)",
                     }}
                   >
-                    {option.description}
+                    {t(OFFER_TYPE_TEXT[option.value].description)}
                   </div>
 
                   {isSelected && (
@@ -328,7 +337,7 @@ export default function OfferCreationFlow() {
                         color: "var(--dz-success)",
                       }}
                     >
-                      נבחר
+                      {t("content.commerce.offers.flow.selected")}
                     </div>
                   )}
                 </button>
@@ -353,7 +362,7 @@ export default function OfferCreationFlow() {
                 marginBottom: 8,
               }}
             >
-              טיפ לבחירה נכונה
+              {t("content.commerce.offers.flow.tipTitle")}
             </div>
 
             <div
@@ -363,8 +372,7 @@ export default function OfferCreationFlow() {
                 color: "var(--dz-text-muted)",
               }}
             >
-              בחר סוג הצעה שקל להסביר במשפט אחד. ככל שההצעה ברורה יותר, כך יהיה קל יותר
-              להנפיק אותה, לשלוח אותה ללקוח, ולהפוך אותה לשימוש אמיתי.
+              {t("content.commerce.offers.flow.tipBody")}
             </div>
           </div>
 
@@ -386,7 +394,7 @@ export default function OfferCreationFlow() {
                   marginBottom: 6,
                 }}
               >
-                נבחר סוג הצעה
+                {t("content.commerce.offers.flow.selectedType")}
               </div>
 
               <div
@@ -397,7 +405,7 @@ export default function OfferCreationFlow() {
                   marginBottom: 6,
                 }}
               >
-                {selectedOfferType.title}
+                {t(OFFER_TYPE_TEXT[selectedOfferType.value].title)}
               </div>
 
               <div
@@ -407,7 +415,7 @@ export default function OfferCreationFlow() {
                   color: "var(--dz-success)",
                 }}
               >
-                {selectedOfferType.description}
+                {t(OFFER_TYPE_TEXT[selectedOfferType.value].description)}
               </div>
             </div>
           )}
@@ -429,7 +437,7 @@ export default function OfferCreationFlow() {
                 fontWeight: 600,
               }}
             >
-              שלב 1 מתוך 4
+              {t("content.commerce.offers.flow.step")}
             </div>
 
             <button
@@ -448,7 +456,7 @@ export default function OfferCreationFlow() {
                 minWidth: 140,
               }}
             >
-              המשך
+              {t("content.commerce.offers.flow.next")}
             </button>
           </div>
 
@@ -465,7 +473,7 @@ export default function OfferCreationFlow() {
                 color: "var(--dz-info)",
               }}
             >
-              שלב 1 הושלם. בשלב הבא נבנה את אזור הזנת הערך ללקוח.
+              {t("content.commerce.offers.flow.stepDone")}
             </div>
           )}
         </div>

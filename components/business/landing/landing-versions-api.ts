@@ -1,5 +1,6 @@
 "use client";
 
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { CurrentReadiness } from "@/lib/services/landing/persistence/landing-version-model";
 import type { LandingOverview, LandingVersionDetail, LandingVersionSummary } from "@/lib/services/landing/persistence/landing-page.service";
 
@@ -54,21 +55,22 @@ export function newActionKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const ERROR_CODES = new Set([
+  "COMPOSER_UNAVAILABLE",
+  "COMPOSITION_NOT_SAVEABLE",
+  "RENDER_REFUSED",
+  "STRATEGY_NOT_AVAILABLE",
+  "NOT_CURRENT_DRAFT",
+  "ROLLBACK_SOURCE_NOT_APPROVED",
+  "ALREADY_CURRENT",
+  "SNAPSHOT_INVALID",
+  "VERSION_NOT_FOUND",
+  "CONFLICT",
+]);
+
 /** Owner-language message for a refused call. */
-export function landingErrorMessage(r: { status: number; code: string | null }): string {
-  switch (r.code) {
-    case "COMPOSER_UNAVAILABLE": return "יצירת טיוטות דף עדיין לא הופעלה בחשבון הזה, ולכן אי אפשר לשמור גרסה חדשה. הגרסאות ששמרת זמינות כרגיל.";
-    case "COMPOSITION_NOT_SAVEABLE": return "הטיוטה לא עברה את בדיקות הבטיחות של דוביז, ולכן לא נשמרה. אפשר ליצור אותה מחדש.";
-    case "RENDER_REFUSED": return "את הטיוטה הזו לא ניתן להציג בבטחה, ולכן היא לא נשמרה.";
-    case "STRATEGY_NOT_AVAILABLE": return "הכיוון הזה השתנה בינתיים (המידע על העסק התעדכן). חזרו לכיוונים ובחרו שוב.";
-    case "NOT_CURRENT_DRAFT": return "אפשר לאשר רק את הטיוטה הנוכחית. רעננו את המסך.";
-    case "ROLLBACK_SOURCE_NOT_APPROVED": return "אפשר לשחזר רק גרסה שאושרה בעבר.";
-    case "ALREADY_CURRENT": return "זו כבר הגרסה המאושרת.";
-    case "SNAPSHOT_INVALID": return "הגרסה הזו נשמרה בפורמט שלא ניתן להציג או לאשר בבטחה.";
-    case "VERSION_NOT_FOUND": return "הגרסה לא נמצאה.";
-    case "CONFLICT": return "הגרסאות השתנו בינתיים. רעננו את המסך ונסו שוב.";
-    default:
-      if (r.status === 429) return "נעשו הרבה פעולות בזמן קצר. נסו שוב בעוד כמה דקות.";
-      return "לא הצלחנו להשלים את הפעולה כרגע.";
-  }
+export function landingErrorMessage(t: Translator, r: { status: number; code: string | null }): string {
+  if (r.code && ERROR_CODES.has(r.code)) return t(`content.identity.versions.error.${r.code}` as MessageKey);
+  if (r.status === 429) return t("content.identity.versions.error.rateLimited");
+  return t("content.identity.versions.error.generic");
 }

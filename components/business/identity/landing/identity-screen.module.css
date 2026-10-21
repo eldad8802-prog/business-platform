@@ -246,6 +246,13 @@
 .chevronOpen {
   transform: rotate(-90deg);
 }
+/* The chevron is drawn pointing left — "forward" in RTL. LTR mirrors it (open still points down). */
+.chevron:dir(ltr) {
+  transform: scaleX(-1);
+}
+.chevronOpen:dir(ltr) {
+  transform: rotate(90deg) scaleX(-1);
+}
 .chapterBody {
   padding: 4px 14px 16px;
   display: flex;

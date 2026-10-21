@@ -1,4 +1,10 @@
 /** P3-B — owner-language labels for the strategy preview. */
+import { useMemo } from "react";
+
+import { translateTree } from "@/components/business/i18n-tree";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { identityHe } from "@/lib/i18n/messages/areas/content/identity";
+import type { Translator } from "@/lib/i18n/translate";
 
 export const SECTION_LABELS: Record<string, string> = {
   HERO: "פתיחה",
@@ -90,4 +96,38 @@ export function currentBlockerLabel(code: string): string {
 
 export function snapshotMissingLabel(code: string): string {
   return BLUEPRINT_MISSING_LABELS[code] ?? BLUEPRINT_MISSING_LABELS[code.replace(/^ASSET:/, "")] ?? code;
+}
+
+/* ───────────── i18n — the same maps in the interface language ─────────────
+ * The Hebrew maps above stay literal (lib/services/landing/persistence/landing-persistence.verify.test.ts
+ * pins their wording in this file); the dictionary (content.identity.landingLabels) carries the same
+ * Hebrew plus every other language. */
+
+/** Every landing label map in the language of `t`. */
+export function landingLabels(t: Translator) {
+  const L = translateTree(t, "content.identity.landingLabels", identityHe.landingLabels);
+  const blueprintMissing: Record<string, string> = { ...L.missing, ...L.blueprintMissing };
+  const currentBlocker = L.currentBlocker as Record<string, string>;
+  const strategyTitles = L.strategyTitle as Record<string, string>;
+  return {
+    SECTION_LABELS: L.section as Record<string, string>,
+    MISSING_LABELS: L.missing as Record<string, string>,
+    SET_CONFLICT_LABELS: L.setConflict as Record<string, string>,
+    COMPOSITION_STATUS_LABELS: L.compositionStatus as Record<string, string>,
+    BLUEPRINT_MISSING_LABELS: blueprintMissing,
+    VERSION_BADGE: L.versionBadge as Record<string, string>,
+    currentBlockerLabel: (code: string): string => currentBlocker[code.split(":")[0]] ?? code,
+    /** Owner-facing strategy title (same wording as STRATEGY_TITLES in lib/services/landing/landing-strategy-explain.ts). */
+    strategyTitle: (code: string): string => strategyTitles[code] ?? code,
+    snapshotMissingLabel: (code: string): string =>
+      blueprintMissing[code] ?? blueprintMissing[code.replace(/^ASSET:/, "")] ?? code,
+  };
+}
+
+export type LandingLabels = ReturnType<typeof landingLabels>;
+
+/** The landing label maps in the active interface language (client components). */
+export function useLandingLabels(): LandingLabels {
+  const { t } = useI18n();
+  return useMemo(() => landingLabels(t), [t]);
 }

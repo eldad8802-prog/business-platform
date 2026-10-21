@@ -37,6 +37,7 @@ import {
   ROW_SOON,
 } from "@/components/coupon/coupon-model";
 import { shortCode } from "@/lib/coupon/api";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const W = TOKEN.warm;
 
@@ -80,8 +81,10 @@ export function PublicCouponContent({
       <div>{text}</div>
     </div>
   );
+  // Customer-facing coupon page: always rendered as the customer sees it
+  // (Hebrew, RTL), independent of the viewer's interface language.
   return (
-    <div style={{ pointerEvents: interactive ? "auto" : "none", display: "flex", flexDirection: "column", flex: 1 }}>
+    <div dir="rtl" style={{ pointerEvents: interactive ? "auto" : "none", display: "flex", flexDirection: "column", flex: 1 }}>
       {/* hero — business identity (thema) */}
       <div style={{ background: COUPON.thema[thema], color: "var(--dz-text-on-brand)", padding: `${topInset || 18}px 18px 18px`, display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 19, flexShrink: 0 }}>{view.business.logo}</div>
@@ -122,6 +125,7 @@ export function PublicCouponContent({
 /* ---------------------------------------------------- full public screen -- */
 
 function PublicCouponScreen({ coupon, onGet, onBack, notice, busy }: { coupon: PublicCoupon; onGet: () => void; onBack: () => void; notice?: string | null; busy?: boolean }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   // The coupon's real public page. `coupon.id` IS the opaque publicId.
@@ -134,7 +138,7 @@ function PublicCouponScreen({ coupon, onGet, onBack, notice, busy }: { coupon: P
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt("העתק את הקישור:", link);
+      window.prompt(t("content.commerce.coupon.consumer.copyPrompt"), link);
     }
   };
 
@@ -154,19 +158,19 @@ function PublicCouponScreen({ coupon, onGet, onBack, notice, busy }: { coupon: P
               {notice}
               {coupon.business.phone ? (
                 <a href={`tel:${coupon.business.phone}`} style={{ display: "block", marginTop: 6, fontWeight: 600, color: W.tealDeep, textDecoration: "none" }}>
-                  התקשר ל{coupon.business.name ?? "בית העסק"} ›
+                  {t("content.commerce.coupon.consumer.callBusiness", { name: coupon.business.name ?? t("content.commerce.coupon.consumer.theBusiness") })}
                 </a>
               ) : null}
             </div>
           ) : null}
           <PrimaryButton onClick={busy ? undefined : onGet} disabled={busy}>
-            {busy ? "בודק…" : "קבל קופון"}
+            {busy ? t("content.commerce.coupon.consumer.checking") : t("content.commerce.coupon.consumer.getCoupon")}
           </PrimaryButton>
           {/* These were inert buttons with no handler at all. Both now act on the
               coupon's real public URL. */}
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-            <SecondaryButton onClick={share} style={{ flex: 1 }}>שתף</SecondaryButton>
-            <SecondaryButton onClick={copy} style={{ flex: 1 }}>{copied ? "הועתק ✓" : "העתק קישור"}</SecondaryButton>
+            <SecondaryButton onClick={share} style={{ flex: 1 }}>{t("content.commerce.coupon.consumer.share")}</SecondaryButton>
+            <SecondaryButton onClick={copy} style={{ flex: 1 }}>{copied ? t("content.commerce.coupon.consumer.copied") : t("content.commerce.coupon.consumer.copyLink")}</SecondaryButton>
           </div>
         </div>
       </div>
@@ -178,17 +182,19 @@ function PublicCouponScreen({ coupon, onGet, onBack, notice, busy }: { coupon: P
 
 /** Reached only with a genuine token — `code` is required, not optional. */
 function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; code: { token: string; qrValue: string }; onBack: () => void }) {
+  const { t, dir } = useI18n();
   const thema = coupon.business.thema;
   return (
     <PhoneFrame>
-      <ScreenHeader title="הקופון שלך" action={<CloseButton onClick={onBack} />} />
+      <ScreenHeader title={t("content.commerce.coupon.consumer.personal.title")} action={<CloseButton onClick={onBack} />} />
       <ScreenBody>
         <div style={{ textAlign: "center", padding: "6px 0 18px" }}>
-          <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.2px" }}>הקופון מוכן 🎉</div>
-          <div style={{ fontSize: 13, color: W.muted, marginTop: 5 }}>הצג אותו בבית העסק כדי לממש.</div>
+          <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.2px" }}>{t("content.commerce.coupon.consumer.personal.ready")}</div>
+          <div style={{ fontSize: 13, color: W.muted, marginTop: 5 }}>{t("content.commerce.coupon.consumer.personal.showToRedeem")}</div>
         </div>
         <div style={{ background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.card, boxShadow: W.shadow, overflow: "hidden" }}>
-          <div style={{ padding: "16px 18px", color: "var(--dz-text-on-brand)", textAlign: "center", background: COUPON.thema[thema] }}>
+          {/* Coupon artwork (business + benefit) — customer-facing Hebrew. */}
+          <div dir="rtl" style={{ padding: "16px 18px", color: "var(--dz-text-on-brand)", textAlign: "center", background: COUPON.thema[thema] }}>
             <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.92 }}>{coupon.business.name}</div>
             <div style={{ fontSize: 17, fontWeight: 600, marginTop: 2 }}>{coupon.benefit}</div>
           </div>
@@ -203,20 +209,20 @@ function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; 
             </div>
           </div>
           <div style={{ textAlign: "center", fontSize: 15, fontWeight: 600, letterSpacing: "2px", color: W.ink, padding: "2px 0 4px" }}>
-            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, color: W.muted2, display: "block", marginBottom: 3 }}>קוד לגיבוי</span>
+            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, color: W.muted2, display: "block", marginBottom: 3 }}>{t("content.commerce.coupon.consumer.personal.backupCode")}</span>
             {shortCode(code.token)}
           </div>
           {/* "קופון אחד ללקוח" was hardcoded here too — a term no business set
               and the system cannot enforce. Only the real expiry is stated. */}
-          <div style={{ textAlign: "center", fontSize: 12, color: W.muted, padding: "6px 0 18px" }}>{coupon.valid} · לשימוש חד-פעמי</div>
+          <div style={{ textAlign: "center", fontSize: 12, color: W.muted, padding: "6px 0 18px" }}>{t("content.commerce.coupon.consumer.personal.singleUse", { valid: coupon.valid })}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, margin: "18px 0 4px", fontSize: 14.5, fontWeight: 600, color: W.tealDeep }}>
-          <StrokeIcon size={18} color={W.tealDeep} width={2}><path d="M5 12h14M13 6l6 6-6 6" /></StrokeIcon>
-          הצג את הקופון בבית העסק
+          <StrokeIcon size={18} color={W.tealDeep} width={2} style={dir === "ltr" ? { transform: "scaleX(-1)" } : undefined}><path d="M5 12h14M13 6l6 6-6 6" /></StrokeIcon>
+          {t("content.commerce.coupon.consumer.personal.showAtBusiness")}
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-          <WaButton>שתף</WaButton>
-          <SecondaryButton>שמור לתמונות</SecondaryButton>
+          <WaButton>{t("content.commerce.coupon.consumer.share")}</WaButton>
+          <SecondaryButton>{t("content.commerce.coupon.consumer.personal.saveToPhotos")}</SecondaryButton>
         </div>
       </ScreenBody>
     </PhoneFrame>
@@ -238,7 +244,7 @@ function FilterChip({ children, on = false, onClick }: { children: ReactNode; on
 function Eyebrow({ dot, children }: { dot: string; children: ReactNode }) {
   return (
     <div style={{ fontSize: 12, fontWeight: 600, color: W.muted, letterSpacing: "0.2px", margin: "0 2px 14px" }}>
-      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: dot, marginLeft: 7, verticalAlign: "middle" }} />
+      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: dot, marginInlineEnd: 7, verticalAlign: "middle" }} />
       {children}
     </div>
   );
@@ -257,6 +263,7 @@ function Row({ dot, title, coupons, onOpen }: { dot: string; title: string; coup
 }
 
 function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = false, locating = false }: { onOpen: (c: PublicCoupon) => void; onCreate?: () => void; onExit?: () => void; coupons?: PublicCoupon[]; onNear?: (c: { lat: number; lng: number }) => void; nearActive?: boolean; locating?: boolean }) {
+  const { t } = useI18n();
   const [q, setQ] = useState("");
   const [fam, setFam] = useState<CatFamily | null>(null);
   const [cityFilter, setCityFilter] = useState<string | null>(null);
@@ -290,7 +297,7 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
     );
   };
-  const cityTitle = cityFilter && q.trim().length === 0 && fam === null ? `הטבות ב${cityFilter}` : "תוצאות";
+  const cityTitle = cityFilter && q.trim().length === 0 && fam === null ? t("content.commerce.coupon.consumer.market.cityTitle", { city: cityFilter }) : t("content.commerce.coupon.consumer.market.results");
   return (
     <PhoneFrame>
       {onExit ? (
@@ -299,8 +306,8 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
         </div>
       ) : null}
       <div style={{ padding: "18px 20px 4px" }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, color: W.muted2, marginBottom: 3 }}>גלה הטבות סביבך</div>
-        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.4px", margin: 0 }}>הטבות קרוב אליך</h2>
+        <div style={{ fontSize: 12.5, fontWeight: 500, color: W.muted2, marginBottom: 3 }}>{t("content.commerce.coupon.consumer.market.eyebrow")}</div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.4px", margin: 0 }}>{t("content.commerce.coupon.consumer.market.title")}</h2>
       </div>
       <ScreenBody style={{ paddingTop: 0, paddingBottom: 110 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, height: 46, background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.control, padding: "0 14px", margin: "12px 0" }}>
@@ -310,14 +317,14 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
               pill's padding did not focus it. Stretching it to the pill's height
               makes the visual control and the hit area the same thing.
               Presentation only: same value, same handler, same placeholder. */}
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש הטבה, עסק או תחום" style={{ flex: 1, alignSelf: "stretch", border: "none", background: "transparent", outline: "none", fontFamily: "inherit", fontSize: 14, color: W.ink }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("content.commerce.coupon.consumer.market.searchPlaceholder")} style={{ flex: 1, alignSelf: "stretch", border: "none", background: "transparent", outline: "none", fontFamily: "inherit", fontSize: 14, color: W.ink }} />
         </div>
         <HScrollRow style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", gap: 9 }}>
             {onNear ? (
               <FilterChip on={nearActive} onClick={handleLocate}>
                 <StrokeIcon size={13} color={nearActive ? W.tealDeep : W.muted2} width={1.9}><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z" /><circle cx="12" cy="10" r="2.4" /></StrokeIcon>
-                {locating ? "מאתר…" : "קרוב אליי"}
+                {locating ? t("content.commerce.coupon.consumer.market.locating") : t("content.commerce.coupon.consumer.market.nearMe")}
               </FilterChip>
             ) : null}
             {cities.map((city) => (
@@ -326,25 +333,25 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
                 {city}
               </FilterChip>
             ))}
-            <FilterChip on={fam === "food"} onClick={() => toggleFam("food")}><Dot color={COUPON.accent.coral} />אוכל</FilterChip>
-            <FilterChip on={fam === "beauty"} onClick={() => toggleFam("beauty")}><Dot color={COUPON.accent.violet} />יופי</FilterChip>
-            <FilterChip on={fam === "health"} onClick={() => toggleFam("health")}><Dot color={W.teal} />בריאות</FilterChip>
+            <FilterChip on={fam === "food"} onClick={() => toggleFam("food")}><Dot color={COUPON.accent.coral} />{t("content.commerce.coupon.consumer.market.food")}</FilterChip>
+            <FilterChip on={fam === "beauty"} onClick={() => toggleFam("beauty")}><Dot color={COUPON.accent.violet} />{t("content.commerce.coupon.consumer.market.beauty")}</FilterChip>
+            <FilterChip on={fam === "health"} onClick={() => toggleFam("health")}><Dot color={W.teal} />{t("content.commerce.coupon.consumer.market.health")}</FilterChip>
           </div>
         </HScrollRow>
         {coupons === undefined ? (
           <>
-            <Row dot={COUPON.accent.coral} title="קרוב אליך" coupons={ROW_NEAR} onOpen={onOpen} />
-            <Row dot={COUPON.accent.violet} title="הכי מבוקשים" coupons={ROW_POPULAR} onOpen={onOpen} />
-            <Row dot={COUPON.accent.clay} title="אוזלים במהרה" coupons={ROW_SOON} onOpen={onOpen} />
+            <Row dot={COUPON.accent.coral} title={t("content.commerce.coupon.consumer.market.rowNear")} coupons={ROW_NEAR} onOpen={onOpen} />
+            <Row dot={COUPON.accent.violet} title={t("content.commerce.coupon.consumer.market.rowPopular")} coupons={ROW_POPULAR} onOpen={onOpen} />
+            <Row dot={COUPON.accent.clay} title={t("content.commerce.coupon.consumer.market.rowSellingOut")} coupons={ROW_SOON} onOpen={onOpen} />
           </>
         ) : coupons.length === 0 ? (
           <div style={{ padding: "24px 4px", textAlign: "center", color: W.muted, fontSize: 14, lineHeight: 1.6 }}>
-            אין כרגע הטבות פעילות להצגה.
-            <div style={{ fontSize: 12.5, color: W.muted2, marginTop: 4 }}>צרו את ההטבה הראשונה שלכם עם הכפתור למטה.</div>
+            {t("content.commerce.coupon.consumer.market.emptyTitle")}
+            <div style={{ fontSize: 12.5, color: W.muted2, marginTop: 4 }}>{t("content.commerce.coupon.consumer.market.emptySub")}</div>
           </div>
         ) : filtering ? (
           list.length === 0 ? (
-            <div style={{ padding: "24px 4px", textAlign: "center", color: W.muted, fontSize: 14 }}>לא נמצאו הטבות שמתאימות לחיפוש.</div>
+            <div style={{ padding: "24px 4px", textAlign: "center", color: W.muted, fontSize: 14 }}>{t("content.commerce.coupon.consumer.market.noResults")}</div>
           ) : (
             <>
               <Eyebrow dot={COUPON.accent.violet}>{cityTitle}</Eyebrow>
@@ -357,16 +364,16 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
           )
         ) : (
           <>
-            {showNear ? <Row dot={COUPON.accent.coral} title="קרוב אליך" coupons={byNear} onOpen={onOpen} /> : null}
-            <Row dot={COUPON.accent.violet} title="הכי מבוקשים" coupons={byPopular} onOpen={onOpen} />
-            <Row dot={COUPON.accent.clay} title="מסתיימים בקרוב" coupons={bySoon} onOpen={onOpen} />
+            {showNear ? <Row dot={COUPON.accent.coral} title={t("content.commerce.coupon.consumer.market.rowNear")} coupons={byNear} onOpen={onOpen} /> : null}
+            <Row dot={COUPON.accent.violet} title={t("content.commerce.coupon.consumer.market.rowPopular")} coupons={byPopular} onOpen={onOpen} />
+            <Row dot={COUPON.accent.clay} title={t("content.commerce.coupon.consumer.market.rowEndingSoon")} coupons={bySoon} onOpen={onOpen} />
           </>
         )}
       </ScreenBody>
-      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 24, left: 20, height: 50, padding: "0 20px 0 16px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
-        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
+      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 24, insetInlineEnd: 20, height: 50, paddingBlock: 0, paddingInlineStart: 20, paddingInlineEnd: 16, border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
+        <span style={{ position: "absolute", top: -9, insetInlineStart: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>{t("content.commerce.coupon.consumer.market.ownersBadge")}</span>
         <StrokeIcon size={18} color="var(--dz-text-on-brand)" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
-        צור קופון
+        {t("content.commerce.coupon.consumer.market.createCoupon")}
       </button>
     </PhoneFrame>
   );
@@ -391,6 +398,7 @@ export function ConsumerJourney({
   nearActive?: boolean;
   locating?: boolean;
 }) {
+  const { t } = useI18n();
   const [stage, setStage] = useState<"market" | "public" | "personal">("market");
   const [sel, setSel] = useState<PublicCoupon | null>(null);
   const [code, setCode] = useState<{ token: string; qrValue: string } | null>(null);
@@ -428,9 +436,7 @@ export function ConsumerJourney({
     setClaiming(false);
 
     if (!real?.qrValue) {
-      setClaimError(
-        "הקופון הזה מוצג לתצוגה בלבד. כדי לממש אותו יש לפנות ישירות לבית העסק."
-      );
+      setClaimError(t("content.commerce.coupon.consumer.claimDisplayOnly"));
       return;
     }
 
@@ -469,6 +475,7 @@ function GridFilterChip({ children, on = false, chevron = false }: { children: R
 }
 
 export function MarketplaceGrid({ onOpenCoupon, onCreate }: { onOpenCoupon?: () => void; onCreate?: () => void }) {
+  const { t } = useI18n();
   const flowerIcon = catIcon(<><circle cx="12" cy="9" r="3" /><path d="M12 12v9M9 16l-3-2M15 16l3-2M12 6c0-2 1.5-3 3-3M12 6c0-2-1.5-3-3-3" /></>);
   const items: { thema: CouponThema; icon: ReactNode; biz: string; benefit: string; valid: string; dist: string }[] = [
     { thema: "teal", icon: CAT.coffee, biz: "קפה נחמה", benefit: "קפה + מאפה מתנה", valid: "תקף עד 20.7", dist: "0.4 ק״מ" },
@@ -481,32 +488,33 @@ export function MarketplaceGrid({ onOpenCoupon, onCreate }: { onOpenCoupon?: () 
   return (
     <PhoneFrame>
       <div style={{ padding: "22px 20px 6px" }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, color: W.muted2, marginBottom: 3 }}>גלה הטבות סביבך</div>
-        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.4px", margin: 0 }}>הטבות קרוב אליך</h2>
+        <div style={{ fontSize: 12.5, fontWeight: 500, color: W.muted2, marginBottom: 3 }}>{t("content.commerce.coupon.consumer.market.eyebrow")}</div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.4px", margin: 0 }}>{t("content.commerce.coupon.consumer.market.title")}</h2>
       </div>
       <ScreenBody style={{ paddingTop: 12, paddingBottom: 120 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, height: 48, background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.control, padding: "0 14px", marginBottom: 14 }}>
           <StrokeIcon size={18} color={W.muted2} width={1.9}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></StrokeIcon>
-          <span style={{ fontSize: 14.5, color: W.muted2 }}>חיפוש הטבה, עסק או תחום</span>
+          <span style={{ fontSize: 14.5, color: W.muted2 }}>{t("content.commerce.coupon.consumer.market.searchPlaceholder")}</span>
         </div>
         <div style={{ display: "flex", gap: 9, marginBottom: 26, overflowX: "auto", paddingBottom: 2 }}>
+          {/* "תל אביב" is sample city data (a place name), not chrome. */}
           <GridFilterChip on chevron><StrokeIcon size={14} color={W.tealDeep} width={1.9}><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z" /><circle cx="12" cy="10" r="2.4" /></StrokeIcon>תל אביב</GridFilterChip>
-          <GridFilterChip chevron>כל התחומים</GridFilterChip>
-          <GridFilterChip>אוכל</GridFilterChip>
-          <GridFilterChip>יופי</GridFilterChip>
-          <GridFilterChip>בריאות</GridFilterChip>
+          <GridFilterChip chevron>{t("content.commerce.coupon.consumer.market.allCategories")}</GridFilterChip>
+          <GridFilterChip>{t("content.commerce.coupon.consumer.market.food")}</GridFilterChip>
+          <GridFilterChip>{t("content.commerce.coupon.consumer.market.beauty")}</GridFilterChip>
+          <GridFilterChip>{t("content.commerce.coupon.consumer.market.health")}</GridFilterChip>
         </div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: W.muted, letterSpacing: "0.2px", margin: "0 2px 16px" }}>מומלצים קרוב אליך</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: W.muted, letterSpacing: "0.2px", margin: "0 2px 16px" }}>{t("content.commerce.coupon.consumer.market.recommended")}</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 12px" }}>
           {items.map((t, i) => (
             <TicketCard key={i} thema={t.thema} categoryIcon={t.icon} business={t.biz} benefit={t.benefit} valid={t.valid} distance={t.dist} onClick={onOpenCoupon} />
           ))}
         </div>
       </ScreenBody>
-      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 26, left: 20, height: 52, padding: "0 22px 0 18px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
-        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
+      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 26, insetInlineEnd: 20, height: 52, paddingBlock: 0, paddingInlineStart: 22, paddingInlineEnd: 18, border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
+        <span style={{ position: "absolute", top: -9, insetInlineStart: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>{t("content.commerce.coupon.consumer.market.ownersBadge")}</span>
         <StrokeIcon size={19} color="var(--dz-text-on-brand)" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
-        צור קופון
+        {t("content.commerce.coupon.consumer.market.createCoupon")}
       </button>
     </PhoneFrame>
   );
@@ -532,13 +540,14 @@ function StateCard({ tone, icon, title, sub }: { tone: "exp" | "out" | "red"; ic
 }
 
 export function CouponStatesScreen() {
+  const { t } = useI18n();
   return (
     <PhoneFrame>
-      <ScreenHeader title="מצבים" action={<BackButton />} />
+      <ScreenHeader title={t("content.commerce.coupon.consumer.states.title")} action={<BackButton />} />
       <ScreenBody>
-        <StateCard tone="exp" icon={<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>} title="ההטבה הסתיימה" sub="התוקף עבר — לא ניתן לקבל קופון." />
-        <StateCard tone="out" icon={<path d="M20 6L9 17l-5-5" />} title="כל הקופונים מומשו" sub="נותרו 0 מתוך 50 — ההטבה אזלה." />
-        <StateCard tone="red" icon={<><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="9" /></>} title="הקופון מומש" sub="כבר השתמשת בקופון הזה — אין שימוש חוזר." />
+        <StateCard tone="exp" icon={<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>} title={t("content.commerce.coupon.consumer.states.expiredTitle")} sub={t("content.commerce.coupon.consumer.states.expiredSub")} />
+        <StateCard tone="out" icon={<path d="M20 6L9 17l-5-5" />} title={t("content.commerce.coupon.consumer.states.soldOutTitle")} sub={t("content.commerce.coupon.consumer.states.soldOutSub")} />
+        <StateCard tone="red" icon={<><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="9" /></>} title={t("content.commerce.coupon.consumer.states.redeemedTitle")} sub={t("content.commerce.coupon.consumer.states.redeemedSub")} />
       </ScreenBody>
     </PhoneFrame>
   );

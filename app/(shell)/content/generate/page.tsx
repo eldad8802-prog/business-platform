@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -38,43 +40,43 @@ type ContentFlow = {
 
 type StepItem = {
   id: string;
-  title: string;
-  description: string;
+  title: MessageKey;
+  description: MessageKey;
 };
 
 const NEXT_ROUTE = "/content/result";
 
-function getGoalLabel(goal?: ContentFlow["goal"]) {
+function getGoalLabel(t: Translator, goal?: ContentFlow["goal"]) {
   switch (goal) {
     case "leads":
-      return "לידים";
+      return t("content.studio.generate.goals.leads");
     case "trust":
-      return "אמון";
+      return t("content.studio.generate.goals.trust");
     case "exposure":
-      return "חשיפה";
+      return t("content.studio.generate.goals.exposure");
     case "sales":
-      return "מכירות";
+      return t("content.studio.generate.goals.sales");
     default:
-      return "תוכן";
+      return t("content.studio.generate.goals.content");
   }
 }
 
-function getFormatLabel(format?: ContentFlow["selectedFormat"]) {
+function getFormatLabel(t: Translator, format?: ContentFlow["selectedFormat"]) {
   switch (format) {
     case "reel":
-      return "רילס";
+      return t("content.studio.generate.formats.reel");
     case "video":
-      return "וידאו";
+      return t("content.studio.generate.formats.video");
     case "image":
-      return "תמונה";
+      return t("content.studio.generate.formats.image");
     case "post":
-      return "פוסט";
+      return t("content.studio.generate.formats.post");
     default:
-      return "תוכן";
+      return t("content.studio.generate.formats.content");
   }
 }
 
-function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
+function getPlatformLabel(t: Translator, platform?: ContentFlow["selectedPlatform"]) {
   switch (platform) {
     case "instagram":
       return "Instagram";
@@ -83,7 +85,7 @@ function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
     case "facebook":
       return "Facebook";
     default:
-      return "פלטפורמה";
+      return t("content.studio.generate.platformFallback");
   }
 }
 
@@ -94,23 +96,23 @@ function getStepItems(flow: ContentFlow | null): StepItem[] {
     return [
       {
         id: "direction",
-        title: "מנתחים את הכיוון שבחרת",
-        description: "המנוע מיישר את המטרה, הקהל, הזווית והפלטפורמה.",
+        title: "content.studio.generate.steps.direction.title",
+        description: "content.studio.generate.steps.direction.description",
       },
       {
         id: "structure",
-        title: "בונים מבנה מדויק לתוכן",
-        description: "נבחרים הוק, קצב, מבנה וסוג תסריט שמתאימים למסלול שלך.",
+        title: "content.studio.generate.steps.structure.title",
+        description: "content.studio.generate.steps.structure.description",
       },
       {
         id: "script",
-        title: "כותבים את התוכן",
-        description: "נבנים התסריט, הניסוח והמסר המרכזי לפי מה שביקשת.",
+        title: "content.studio.generate.steps.aiScript.title",
+        description: "content.studio.generate.steps.aiScript.description",
       },
       {
         id: "finish",
-        title: "מסיימים את התוצאה",
-        description: "מארגנים את הכול להצגה ברורה ונוחה להמשך עבודה.",
+        title: "content.studio.generate.steps.aiFinish.title",
+        description: "content.studio.generate.steps.aiFinish.description",
       },
     ];
   }
@@ -118,29 +120,30 @@ function getStepItems(flow: ContentFlow | null): StepItem[] {
   return [
     {
       id: "direction",
-      title: "מנתחים את הכיוון שבחרת",
-      description: "המנוע מיישר את המטרה, הקהל, הזווית והפלטפורמה.",
+      title: "content.studio.generate.steps.direction.title",
+      description: "content.studio.generate.steps.direction.description",
     },
     {
       id: "plan",
-      title: "בונים תוכנית ביצוע",
-      description: "נבחרים מבנה, סוג שוטים, קצב וסגנון שמתאימים למסלול שלך.",
+      title: "content.studio.generate.steps.plan.title",
+      description: "content.studio.generate.steps.plan.description",
     },
     {
       id: "script",
-      title: "מכינים תסריט והנחיות",
-      description: "נבנים מה להגיד, איך לצלם, ומה חשוב שיופיע בתוכן.",
+      title: "content.studio.generate.steps.shootScript.title",
+      description: "content.studio.generate.steps.shootScript.description",
     },
     {
       id: "finish",
-      title: "מסיימים את ההכנה",
-      description: "התוכן מוכן להצגה ולהמשך ביצוע במסך הבא.",
+      title: "content.studio.generate.steps.shootFinish.title",
+      description: "content.studio.generate.steps.shootFinish.description",
     },
   ];
 }
 
 export default function GeneratePage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -255,7 +258,7 @@ useEffect(() => {
           <div style={topBarStyle}>
             <BackButton />
 
-            <div style={topBarTitleStyle}>יוצרים עבורך תוכן</div>
+            <div style={topBarTitleStyle}>{t("content.studio.generate.topBarTitle")}</div>
 
             <div style={topBarSpacerStyle} />
           </div>
@@ -263,8 +266,8 @@ useEffect(() => {
           <ProgressBar progress={92} />
 
           <div style={loadingWrapStyle}>
-            <h1 style={loadingTitleStyle}>טוען את היצירה שלך...</h1>
-            <p style={loadingTextStyle}>רגע לפני שמתחילים לבנות את התוכן</p>
+            <h1 style={loadingTitleStyle}>{t("content.studio.generate.loadingTitle")}</h1>
+            <p style={loadingTextStyle}>{t("content.studio.generate.loadingText")}</p>
           </div>
         </div>
       </div>
@@ -277,7 +280,7 @@ useEffect(() => {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>יוצרים עבורך תוכן</div>
+          <div style={topBarTitleStyle}>{t("content.studio.generate.topBarTitle")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -286,47 +289,47 @@ useEffect(() => {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>שלב 7</div>
-            <h1 style={titleStyle}>בונים לך עכשיו את התוכן</h1>
+            <div style={eyebrowStyle}>{t("content.studio.generate.eyebrow", { step: 7 })}</div>
+            <h1 style={titleStyle}>{t("content.studio.generate.title")}</h1>
             <p style={subtitleStyle}>
-              המערכת יוצרת את התוכן לפי הכיוון, סוג התוכן והפלטפורמה שבחרת.
+              {t("content.studio.generate.subtitle")}
             </p>
           </div>
 
           <div style={summaryCardStyle}>
-            <div style={summaryTitleStyle}>הבחירות שלך</div>
+            <div style={summaryTitleStyle}>{t("content.studio.generate.summaryTitle")}</div>
 
             <div style={summaryGridStyle}>
               <div style={summaryItemStyle}>
-                <div style={summaryLabelStyle}>מטרה</div>
-                <div style={summaryValueStyle}>{getGoalLabel(flow.goal)}</div>
+                <div style={summaryLabelStyle}>{t("content.studio.generate.summaryGoal")}</div>
+                <div style={summaryValueStyle}>{getGoalLabel(t, flow.goal)}</div>
               </div>
 
               <div style={summaryItemStyle}>
-                <div style={summaryLabelStyle}>כיוון</div>
+                <div style={summaryLabelStyle}>{t("content.studio.generate.summaryDirection")}</div>
                 <div style={summaryValueStyle}>
-                  {flow.selectedDirection?.title || "לא נבחר"}
+                  {flow.selectedDirection?.title || t("content.studio.generate.notSelected")}
                 </div>
               </div>
 
               <div style={summaryItemStyle}>
-                <div style={summaryLabelStyle}>סוג תוכן</div>
+                <div style={summaryLabelStyle}>{t("content.studio.generate.summaryFormat")}</div>
                 <div style={summaryValueStyle}>
-                  {getFormatLabel(flow.selectedFormat)}
+                  {getFormatLabel(t, flow.selectedFormat)}
                 </div>
               </div>
 
               <div style={summaryItemStyle}>
-                <div style={summaryLabelStyle}>פלטפורמה</div>
+                <div style={summaryLabelStyle}>{t("content.studio.generate.summaryPlatform")}</div>
                 <div style={summaryValueStyle}>
-                  {getPlatformLabel(flow.selectedPlatform)}
+                  {getPlatformLabel(t, flow.selectedPlatform)}
                 </div>
               </div>
             </div>
           </div>
 
           <div style={stepsCardStyle}>
-            <div style={stepsTitleStyle}>מה קורה עכשיו?</div>
+            <div style={stepsTitleStyle}>{t("content.studio.generate.stepsTitle")}</div>
 
             <div style={stepsWrapStyle}>
               {steps.map((step, index) => {
@@ -354,10 +357,10 @@ useEffect(() => {
 
                     <div style={stepContentStyle}>
                       <div style={stepTitleStyle(isActive || isDone)}>
-                        {step.title}
+                        {t(step.title)}
                       </div>
                       <div style={stepDescriptionStyle}>
-                        {step.description}
+                        {t(step.description)}
                       </div>
                     </div>
                   </div>
@@ -368,12 +371,12 @@ useEffect(() => {
 
           <div style={statusCardStyle(isReady)}>
             <div style={statusTitleStyle}>
-              {isReady ? "הכול מוכן" : "כמעט שם..."}
+              {isReady ? t("content.studio.generate.readyTitle") : t("content.studio.generate.almostTitle")}
             </div>
             <div style={statusTextStyle}>
               {isReady
-                ? "התוכן שלך מוכן למעבר למסך הבא."
-                : "אנחנו מסיימים ללטש את המבנה, הניסוח והכיוון שנבחר."}
+                ? t("content.studio.generate.readyText")
+                : t("content.studio.generate.almostText")}
             </div>
           </div>
         </div>
@@ -385,7 +388,7 @@ useEffect(() => {
             onClick={handleContinue}
             disabled={!isReady}
           >
-            הבא
+            {t("content.studio.generate.next")}
           </button>
         </div>
       </div>
