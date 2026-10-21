@@ -1,0 +1,9 @@
+{
+  "note": "Secretary + Payables redesign (finance-ui kit, Secretary home, Payables list): pure product tests, presentation only.",
+  "tests": {
+    "components/finance-ui/finance-ui.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): the shared Secretary/Payables presentation layer — money is formatted, never altered or rounded; Israel calendar-day distances around midnight and DST; every existing server state has a label and tone and handled (טופל) never looks paid (שולם); English server errors never reach the owner; run by finance-ui-ci.yml"
+    }
+  }
+}
