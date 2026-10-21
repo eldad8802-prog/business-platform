@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * הגדרות → ייבוא וייצוא → תבניות להכנת המידע.
@@ -43,6 +44,7 @@ function filenameFromDisposition(header: string | null, fallback: string) {
 }
 
 export function TemplatesScreen({ domains }: Props) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function download(domain: TemplateDomainOption) {
@@ -53,7 +55,7 @@ export function TemplatesScreen({ domains }: Props) {
     if (!token?.trim()) {
       setStatus({
         kind: "error",
-        message: "חסר אסימון התחברות — התחברו מחדש ונסו שוב.",
+        message: t("account.settings.importExport.common.noToken"),
       });
       return;
     }
@@ -74,8 +76,8 @@ export function TemplatesScreen({ domains }: Props) {
           message:
             detail?.error ??
             (response.status === 401
-              ? "אין הרשאה. התחברו מחדש ונסו שוב."
-              : `הורדת התבנית נכשלה (${response.status}).`),
+              ? t("account.settings.importExport.common.unauthorized")
+              : t("account.settings.importExport.templates.downloadFailed", { status: response.status })),
         });
         return;
       }
@@ -98,7 +100,7 @@ export function TemplatesScreen({ domains }: Props) {
     } catch {
       setStatus({
         kind: "error",
-        message: "שגיאת רשת — בדקו את החיבור ונסו שוב.",
+        message: t("account.settings.importExport.common.network"),
       });
     }
   }
@@ -107,18 +109,17 @@ export function TemplatesScreen({ domains }: Props) {
     <>
       <SettingsSection>
         <p className="text-sm leading-6 text-[var(--dz-text-primary)]">
-          הכינו את המידע שלכם מראש.
+          {t("account.settings.importExport.templates.lead")}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          הורידו תבנית, מלאו אותה במידע מהמערכת הקודמת שלכם, ואז העלו אותה
-          במסך הייבוא. תמיד תראו בדיוק מה ייקלט לפני שתאשרו.
+          {t("account.settings.importExport.templates.body")}
         </p>
       </SettingsSection>
 
       <div className="mt-4">
         <SettingsSection
-          title="בחרו תחום"
-          description="כל תבנית מכילה גיליון למילוי וגיליון הוראות."
+          title={t("account.settings.importExport.templates.chooseTitle")}
+          description={t("account.settings.importExport.templates.chooseDescription")}
         >
           <ul className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
             {domains.map((domain) => {
@@ -147,7 +148,7 @@ export function TemplatesScreen({ domains }: Props) {
                       className="shrink-0 self-center text-xs font-semibold text-[var(--dz-text-muted)]"
                       aria-hidden
                     >
-                      {busy ? "…" : "הורדה"}
+                      {busy ? "…" : t("account.settings.importExport.templates.download")}
                     </span>
                   </button>
                 </li>
@@ -158,7 +159,7 @@ export function TemplatesScreen({ domains }: Props) {
           <div aria-live="polite" className="mt-3 min-h-[1.25rem]">
             {status.kind === "done" ? (
               <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                התבנית ירדה: {status.filename}
+                {t("account.settings.importExport.templates.downloaded", { filename: status.filename })}
               </p>
             ) : null}
             {status.kind === "error" ? (

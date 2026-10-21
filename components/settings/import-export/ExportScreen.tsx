@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * הגדרות → ייבוא וייצוא → ייצוא.
@@ -35,10 +37,10 @@ type Status =
   | { kind: "done"; filename: string }
   | { kind: "error"; message: string };
 
-const FORMATS = [
-  { value: "xlsx", label: "Excel", hint: "מומלץ — נפתח ישירות באקסל" },
-  { value: "csv", label: "CSV", hint: "לקובץ פשוט או למערכת אחרת" },
-] as const;
+const FORMATS: readonly { value: "xlsx" | "csv"; label: string; hint: MessageKey }[] = [
+  { value: "xlsx", label: "Excel", hint: "account.settings.importExport.export.formatXlsxHint" },
+  { value: "csv", label: "CSV", hint: "account.settings.importExport.export.formatCsvHint" },
+];
 
 /** Pull the download name the server chose, so the file is never renamed here. */
 function filenameFromDisposition(header: string | null, fallback: string) {
@@ -48,6 +50,7 @@ function filenameFromDisposition(header: string | null, fallback: string) {
 }
 
 export function ExportScreen({ domains }: Props) {
+  const { t } = useI18n();
   const [selected, setSelected] = useState<string[]>([]);
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -75,7 +78,7 @@ export function ExportScreen({ domains }: Props) {
     if (!token?.trim()) {
       setStatus({
         kind: "error",
-        message: "חסר אסימון התחברות — התחברו מחדש ונסו שוב.",
+        message: t("account.settings.importExport.common.noToken"),
       });
       return;
     }
@@ -102,8 +105,8 @@ export function ExportScreen({ domains }: Props) {
           message:
             detail?.error ??
             (response.status === 401
-              ? "אין הרשאה. התחברו מחדש ונסו שוב."
-              : `הייצוא נכשל (${response.status}).`),
+              ? t("account.settings.importExport.common.unauthorized")
+              : t("account.settings.importExport.common.exportFailed", { status: response.status })),
         });
         return;
       }
@@ -127,7 +130,7 @@ export function ExportScreen({ domains }: Props) {
     } catch {
       setStatus({
         kind: "error",
-        message: "שגיאת רשת — בדקו את החיבור ונסו שוב.",
+        message: t("account.settings.importExport.common.network"),
       });
     }
   }
@@ -135,8 +138,8 @@ export function ExportScreen({ domains }: Props) {
   return (
     <>
       <SettingsSection
-        title="מה לייצא"
-        description="בחרו תחום אחד, כמה תחומים או הכול."
+        title={t("account.settings.importExport.export.whatTitle")}
+        description={t("account.settings.importExport.export.whatDescription")}
       >
         <div className="mb-3 flex justify-start">
           <button
@@ -144,7 +147,7 @@ export function ExportScreen({ domains }: Props) {
             onClick={toggleAll}
             className="rounded-full border border-[var(--dz-border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
           >
-            {allSelected ? "נקה בחירה" : "בחר הכול"}
+            {allSelected ? t("account.settings.importExport.export.clearAll") : t("account.settings.importExport.export.selectAll")}
           </button>
         </div>
 
@@ -179,9 +182,9 @@ export function ExportScreen({ domains }: Props) {
       </SettingsSection>
 
       <div className="mt-4">
-        <SettingsSection title="באיזה פורמט">
+        <SettingsSection title={t("account.settings.importExport.export.formatTitle")}>
           <fieldset className="flex flex-col gap-2">
-            <legend className="sr-only">פורמט הקובץ</legend>
+            <legend className="sr-only">{t("account.settings.importExport.export.formatLegend")}</legend>
             {FORMATS.map((option) => (
               <label
                 key={option.value}
@@ -200,7 +203,7 @@ export function ExportScreen({ domains }: Props) {
                     {option.label}
                   </span>
                   <span className="mt-0.5 block text-xs text-[var(--dz-text-muted)]">
-                    {option.hint}
+                    {t(option.hint)}
                   </span>
                 </span>
               </label>
@@ -268,7 +271,7 @@ export function ExportScreen({ domains }: Props) {
             disabled={selected.length === 0 || working}
             className="w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] shadow-[var(--dz-action-primary-shadow)] transition hover:bg-[var(--dz-action-primary-hover)] disabled:cursor-not-allowed disabled:bg-[var(--dz-action-disabled-bg)] disabled:text-[var(--dz-action-disabled-text)] disabled:shadow-none"
           >
-            {working ? "מכין את הקובץ…" : "הורד קובץ"}
+            {working ? t("account.settings.importExport.export.preparing") : t("account.settings.importExport.export.download")}
           </button>
 
           {/* One live region for every outcome, so a screen reader announces
@@ -276,12 +279,12 @@ export function ExportScreen({ domains }: Props) {
           <div aria-live="polite" className="mt-3 min-h-[1.25rem]">
             {selected.length === 0 && status.kind === "idle" ? (
               <p className="text-xs text-[var(--dz-text-muted)]">
-                בחרו לפחות תחום אחד כדי להוריד.
+                {t("account.settings.importExport.export.chooseOne")}
               </p>
             ) : null}
             {status.kind === "done" ? (
               <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                הקובץ ירד: {status.filename}
+                {t("account.settings.importExport.export.downloaded", { filename: status.filename })}
               </p>
             ) : null}
             {status.kind === "error" ? (
