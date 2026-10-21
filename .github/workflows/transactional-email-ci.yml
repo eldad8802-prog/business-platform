@@ -43,8 +43,6 @@ on:
       - ".authfix/auth-plane-write-battery.ts"
       - ".github/workflows/transactional-email-ci.yml"
       - ".github/workflows/transactional-email-sweep.yml"
-      - ".github/workflows/transactional-email-smoke.yml"
-      - "lib/security/rate-limiter/**"
   workflow_dispatch:
 
 permissions:
