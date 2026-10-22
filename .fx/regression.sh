@@ -21,13 +21,22 @@ run)
   DB="$2"; OUT="$3"
   URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@localhost:${PGPORT:-5432}/${DB}"
   : > "$OUT"
+  # Roles are cluster-wide and some suites create their own (e.g. payables_runtime) and DROP them on the next
+  # run, which fails while the role still holds grants in ANOTHER lab database. Every role a run creates is
+  # removed again after it, so each database starts from the same cluster state.
+  roles() { psql -X -At -U "$SUPER" -d postgres -c "SELECT rolname FROM pg_roles ORDER BY 1"; }
+  roles > /tmp/fxreg.roles.before
   for t in $(list); do
     if DATABASE_URL="$URL" DIRECT_URL="$URL" AUTH_DATABASE_URL="$URL" TEST_DATABASE_URL="$URL" \
        timeout 300 npx tsx "$t" > /tmp/fxreg.out 2>&1; then
       echo "PASS $t" >> "$OUT"
     else
       echo "FAIL $t" >> "$OUT"
+      echo "---- FAIL $t (last lines)"; tail -8 /tmp/fxreg.out | cut -c1-300
     fi
+  done
+  for r in $(comm -13 /tmp/fxreg.roles.before <(roles)); do
+    psql -X -q -U "$SUPER" -d "$DB" -c "DROP OWNED BY \"$r\"" -c "DROP ROLE \"$r\"" && echo "removed test-created role $r"
   done
   echo "$DB: $(grep -c '^PASS' "$OUT") pass, $(grep -c '^FAIL' "$OUT") fail, of $(wc -l < "$OUT")"
   ;;
