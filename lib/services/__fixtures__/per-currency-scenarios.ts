@@ -6,16 +6,13 @@
  * same scenarios on the current code and require every field main produced to be byte-identical;
  * only new fields may appear.
  *
- * `stubTx` answers the Prisma calls the Home read models make (findMany / aggregate / groupBy, plus
- * the two activity counts) from in-memory rows, applying the same where-clause the services build,
- * so main (aggregate) and this branch (groupBy) read the same data.
+ * `matches` applies the same where-clause the Home services build to in-memory rows; the Home
+ * test's transaction stand-in uses it so main (aggregate) and this branch (groupBy) read the same data.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { Prisma } from "@prisma/client";
-
-import { prisma } from "@/lib/prisma";
 
 export const D = (s: string) => new Prisma.Decimal(s);
 
@@ -36,59 +33,19 @@ export function ilsRows(): StubRow[] {
   ).map(([iso, a]) => ({ amount: D(a), currency: "ILS", createdAt: new Date(iso), status: "PAID" }));
 }
 
-type Where = {
+export type Where = {
   status?: string;
   amount?: { gt?: number };
   createdAt?: { gte?: Date; lt?: Date };
 };
 
-function matches(r: StubRow, where: Where): boolean {
+export function matches(r: StubRow, where: Where): boolean {
   if (where.status && r.status !== where.status) return false;
   if (where.amount?.gt !== undefined && !r.amount.greaterThan(where.amount.gt)) return false;
   const c = where.createdAt;
   if (c?.gte && r.createdAt < c.gte) return false;
   if (c?.lt && r.createdAt >= c.lt) return false;
   return true;
-}
-
-/** Replaces `prisma.$transaction` with an in-memory transaction over `rows`. */
-export function stubTx(rows: StubRow[]): { calls: string[] } {
-  const calls: string[] = [];
-  const tx = {
-    $queryRaw: () => Promise.resolve([]),
-    $executeRaw: () => Promise.resolve(0),
-    paymentTransaction: {
-      findMany: async ({ where, select, orderBy }: { where: Where; select: Record<string, boolean>; orderBy?: { createdAt?: string } }) => {
-        calls.push("findMany");
-        let out = rows.filter((r) => matches(r, where));
-        if (orderBy?.createdAt === "asc") out = [...out].sort((a, b) => +a.createdAt - +b.createdAt);
-        return out.map((r) => Object.fromEntries(Object.keys(select).map((k) => [k, (r as Record<string, unknown>)[k]])));
-      },
-      aggregate: async ({ where }: { where: Where }) => {
-        calls.push("aggregate");
-        const m = rows.filter((r) => matches(r, where));
-        return {
-          _sum: { amount: m.length ? m.reduce((s, r) => s.plus(r.amount), D("0")) : null },
-          _count: { _all: m.length },
-        };
-      },
-      groupBy: async ({ where, by }: { where: Where; by: string[] }) => {
-        calls.push(`groupBy:${by.join(",")}`);
-        const m = rows.filter((r) => matches(r, where));
-        const groups = new Map<string, StubRow[]>();
-        for (const r of m) groups.set(r.currency, [...(groups.get(r.currency) ?? []), r]);
-        return [...groups].map(([currency, rs]) => ({
-          currency,
-          _sum: { amount: rs.reduce((s, r) => s.plus(r.amount), D("0")) },
-          _count: { _all: rs.length },
-        }));
-      },
-    },
-    billingDocument: { count: async () => 3 },
-    lead: { count: async () => 2 },
-  };
-  (prisma as unknown as { $transaction: unknown }).$transaction = async (fn: (client: unknown) => Promise<unknown>) => fn(tx);
-  return { calls };
 }
 
 /** The pre-change output captured from main (all-ILS data). */

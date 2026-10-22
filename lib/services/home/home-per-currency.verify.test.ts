@@ -15,19 +15,61 @@ import assert from "node:assert/strict";
 
 import { Prisma } from "@prisma/client";
 
+import { prisma } from "@/lib/prisma";
 import {
   D,
   NOW,
   ilsRows,
   legacyDiff,
   mainFixture,
-  stubTx,
+  matches,
   type StubRow,
+  type Where,
 } from "@/lib/services/__fixtures__/per-currency-scenarios";
 import { bucketByJerusalemHour, loadHomeDay } from "@/lib/services/home/home-day.service";
 import { cumulate, loadHomeCollection } from "@/lib/services/home/home-collection.service";
 import { jerusalemHour } from "@/lib/utils/jerusalem-day";
 import { buildDaySeries, buildWeekSeries, formatOtherCurrencies, otherCurrenciesOf } from "@/features/home/v3/home-v3-model";
+
+/** Replaces `prisma.$transaction` with an in-memory transaction over `rows`. */
+function stubTx(rows: StubRow[]): { calls: string[] } {
+  const calls: string[] = [];
+  const tx = {
+    $queryRaw: () => Promise.resolve([]),
+    $executeRaw: () => Promise.resolve(0),
+    paymentTransaction: {
+      findMany: async ({ where, select, orderBy }: { where: Where; select: Record<string, boolean>; orderBy?: { createdAt?: string } }) => {
+        calls.push("findMany");
+        let out = rows.filter((r) => matches(r, where));
+        if (orderBy?.createdAt === "asc") out = [...out].sort((a, b) => +a.createdAt - +b.createdAt);
+        return out.map((r) => Object.fromEntries(Object.keys(select).map((k) => [k, (r as Record<string, unknown>)[k]])));
+      },
+      aggregate: async ({ where }: { where: Where }) => {
+        calls.push("aggregate");
+        const m = rows.filter((r) => matches(r, where));
+        return {
+          _sum: { amount: m.length ? m.reduce((s, r) => s.plus(r.amount), D("0")) : null },
+          _count: { _all: m.length },
+        };
+      },
+      groupBy: async ({ where, by }: { where: Where; by: string[] }) => {
+        calls.push(`groupBy:${by.join(",")}`);
+        const m = rows.filter((r) => matches(r, where));
+        const groups = new Map<string, StubRow[]>();
+        for (const r of m) groups.set(r.currency, [...(groups.get(r.currency) ?? []), r]);
+        return [...groups].map(([currency, rs]) => ({
+          currency,
+          _sum: { amount: rs.reduce((s, r) => s.plus(r.amount), D("0")) },
+          _count: { _all: rs.length },
+        }));
+      },
+    },
+    billingDocument: { count: async () => 3 },
+    lead: { count: async () => 2 },
+  };
+  (prisma as unknown as { $transaction: unknown }).$transaction = async (fn: (client: unknown) => Promise<unknown>) => fn(tx);
+  return { calls };
+}
 
 let checks = 0;
 function eq<T>(label: string, actual: T, expected: T) {
