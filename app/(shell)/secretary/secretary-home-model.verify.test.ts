@@ -8,6 +8,8 @@
  * leads with the server's remaining amount, and nothing is summed or rounded.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { BriefingApi, ObligationApi } from "@/lib/obligations/secretary-client";
 import { buildSecretaryHome, dueDays, ownerErrorText, relativeDays } from "./secretary-home-model";
 
@@ -113,6 +115,14 @@ check(relativeDays(-36) === "לפני 36 ימים" && relativeDays(0) === "הי�
 // Errors: Hebrew passes, English never reaches the owner.
 check(ownerErrorText(new Error("שגיאת שרת (500)"), "x") === "שגיאת שרת (500)", "Hebrew server text passes");
 check(ownerErrorText(new Error("Validation failed"), "נכשל.") === "נכשל.", "English falls back to Hebrew");
+
+// Owner decision 22.10.2026: the Secretary shows no leads — no leads card, count or action on any of its
+// screens. Leads live on the home screen ("מה ממתין לך"). Nothing under app/(shell)/secretary may load them.
+const secretaryDir = path.join(process.cwd(), "app", "(shell)", "secretary");
+for (const file of readdirSync(secretaryDir).filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))) {
+  const src = readFileSync(path.join(secretaryDir, file), "utf8");
+  check(!/components\/leads|LeadsBriefingCard|\/api\/leads|lib\/api\/leads/.test(src), `${file} does not load leads`);
+}
 
 if (failures > 0) {
   console.error(`secretary-home: ${failures}/${checks} checks failed`);

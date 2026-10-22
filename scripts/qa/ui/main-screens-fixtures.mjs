@@ -228,6 +228,8 @@ export const SCENARIOS = {
   loading: scenario("prod"),
   error: { ...scenario("prod"), fail: new Set(["/api/obligations/briefing", "/api/payables/commitments"]) },
   summaryFail: { ...scenario("prod"), fail: new Set(["/api/business-cost/summary"]) },
+  // "היום שלי" with daily_tasks ON: the shared agenda screen (its aside once held the leads card).
+  todayShared: { ...scenario("prod"), dailyTasks: true },
   legacy: {
     ...scenario("calm"),
     obligations: [OB15, OB14],
@@ -283,7 +285,7 @@ export function resolveApi(kindName, method, pathname, searchParams) {
   if (pathname === "/api/leads/briefing") return s.leadsBriefing;
 
   // ── shell chrome (nav badges, identity, banner, capabilities)
-  if (pathname === "/api/business/capabilities") return { features: { daily_tasks: { allowed: false } } };
+  if (pathname === "/api/business/capabilities") return { features: { daily_tasks: { allowed: s.dailyTasks === true } } };
   if (pathname === "/api/auth/me") return { user: { id: 9, name: "בעלים לדוגמה", businessName: "עסק לדוגמה", email: "qa@example.invalid" } };
   if (pathname === "/api/auth/email/status") return { verificationEnabled: false, verified: true };
   if (pathname === "/api/notifications/unread-count") return { unreadCount: 0 };
