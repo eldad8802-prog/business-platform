@@ -22,10 +22,10 @@
 -- Part 2 closes the INDIRECT path: a LOGIN role that belongs to another group which itself belongs to
 -- app_admin is not a direct member, so part 1 cannot list it. pg_has_role resolves every path, so part 2
 -- counts over ALL LOGIN roles (pg_* excluded):
---   effective_nonsuper_logins  non-superuser LOGIN roles that inherit app_admin OR can SET ROLE to it
---   superuser_logins           superuser LOGIN roles (they pass every role check by definition; platform-managed)
+--   effective_nonsuper_logins_n  non-superuser LOGIN roles that inherit app_admin OR can SET ROLE to it
+--   superuser_logins_n           superuser LOGIN roles (they pass every role check by definition; platform-managed)
 -- ACCEPTANCE: part 1 shows inherits_app_admin = false AND can_set_app_admin = false on every row, and
--- part 2 shows effective_nonsuper_logins = 0.
+-- part 2 shows effective_nonsuper_logins_n = 0. (Count columns end in _n so the public-log redactor keeps their values.)
 -- PRIVACY: catalog only. Guard-clean: no write keyword anywhere, prose included.
 -- ============================================================================
 
@@ -66,8 +66,8 @@ adm AS (SELECT oid FROM pg_roles WHERE rolname = 'app_admin'),
 logins AS (SELECT r.oid, r.rolsuper FROM pg_roles r WHERE r.rolcanlogin AND r.rolname NOT LIKE 'pg\_%')
 SELECT
   count(*) FILTER (WHERE NOT l.rolsuper AND (pg_has_role(l.oid, (SELECT oid FROM adm), 'USAGE')
-                                          OR pg_has_role(l.oid, (SELECT oid FROM adm), 'SET'))) AS effective_nonsuper_logins,
-  count(*) FILTER (WHERE l.rolsuper)                                                              AS superuser_logins,
+                                          OR pg_has_role(l.oid, (SELECT oid FROM adm), 'SET'))) AS effective_nonsuper_logins_n,
+  count(*) FILTER (WHERE l.rolsuper)                                                              AS superuser_logins_n,
   count(*)                                                                                        AS login_roles_n
 FROM logins l;
 
