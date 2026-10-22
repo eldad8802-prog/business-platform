@@ -109,9 +109,11 @@ jobs:
       - name: Static vs dynamic — route tables (OFF vs ON, OFF vs EXP)
         shell: bash
         run: |
-          npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-on.log" "$PERF_OUT/route-table-on.json" | head -5
+          npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-on.log" "$PERF_OUT/route-table-on.json" > "$PERF_OUT/route-table-on.txt"
+          head -n 2 "$PERF_OUT/route-table-on.txt"
           if [ -f "$PERF_OUT/build-exp.log" ]; then
-            npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-exp.log" "$PERF_OUT/route-table-exp.json" | head -5 || true
+            npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-exp.log" "$PERF_OUT/route-table-exp.json" > "$PERF_OUT/route-table-exp.txt" || true
+            head -n 2 "$PERF_OUT/route-table-exp.txt"
             node -e "const r=require(process.argv[1]); console.log('EXP static pages:', r.staticOn.join(' '))" "$PERF_OUT/route-table-exp.json" || true
           fi
 
