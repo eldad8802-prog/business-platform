@@ -149,6 +149,9 @@ jobs:
       - name: 2b. The intended Prisma models (MIGRATION-RUNBOOK.md §2) map onto the migrated database with no drift
         run: |
           set -euo pipefail
+          # Once the application PR has put the models into schema.prisma, its own drift check
+          # (fx-boi-rates-lab.yml) owns this proof; appending them again would declare them twice.
+          if grep -q '^model FxRate {' prisma/schema.prisma; then echo "schema.prisma already declares the models — skipped"; exit 0; fi
           awk '/fx-prisma-models:start/{p=1;next} /fx-prisma-models:end/{p=0} p' docs/i18n-multicurrency/MIGRATION-RUNBOOK.md \
             | grep -v '^```' > /tmp/models.prisma
           test "$(grep -c '^model ' /tmp/models.prisma)" = "3" || { echo "the runbook does not hold the three models"; exit 1; }
