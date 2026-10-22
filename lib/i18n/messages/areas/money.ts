@@ -940,6 +940,8 @@ const collectionHe = {
     PROVIDER_IS_DOCUMENT_ISSUER: "התשלום התקבל — לפי הגדרות העסק חברת הסליקה מפיקה את המסמך, ולכן דוביז לא הפיקה קבלה",
     TEST_ENVIRONMENT_PAYMENT: "התשלום בוצע דרך מסוף בדיקה — לא הופקה קבלה כי זה לא כסף אמיתי",
     REFUND_ACCOUNTING_DECISION_REQUIRED: "בוצע החזר ללקוח — עדכון הספרים (מסמך הזיכוי) ממתין להחלטה",
+    FOREIGN_CURRENCY_DOCUMENT_HELD:
+      "התשלום התקבל ונרשם — קבלה במטבע זר לא מופקת אוטומטית עד לאישור כללי החשבונאות",
     fallback: "התשלום התקבל — הקבלה ממתינה לטיפול",
   },
   blockers: {
@@ -1078,6 +1080,7 @@ const collectionHe = {
     remainingN: "נותר {amount}",
     notInvoice: "תשלום שלא קשור לחשבונית",
     openBalance: "יתרה פתוחה {amount}",
+    currencyLegend: "באיזה מטבע?",
     howMuch: "כמה לגבות? ({symbol})",
     partial: "גבייה חלקית — יישארו {amount} פתוחים.",
     creatingRequest: "יוצר בקשה…",
@@ -1163,6 +1166,8 @@ const collectionEn: Widen<typeof collectionHe> = {
     PROVIDER_IS_DOCUMENT_ISSUER: "The payment arrived — per the business settings the payment processor issues the document, so Dubiz did not issue a receipt",
     TEST_ENVIRONMENT_PAYMENT: "The payment was made through a test terminal — no receipt was issued because this is not real money",
     REFUND_ACCOUNTING_DECISION_REQUIRED: "A refund was made to the customer — updating the books (the credit note) awaits a decision",
+    FOREIGN_CURRENCY_DOCUMENT_HELD:
+      "The payment arrived and was recorded — a foreign-currency receipt is not issued automatically until the accounting rules are approved",
     fallback: "The payment arrived — the receipt needs attention",
   },
   blockers: {
@@ -1301,6 +1306,7 @@ const collectionEn: Widen<typeof collectionHe> = {
     remainingN: "{amount} remaining",
     notInvoice: "Payment not linked to an invoice",
     openBalance: "Open balance {amount}",
+    currencyLegend: "Which currency?",
     howMuch: "How much to collect? ({symbol})",
     partial: "Partial collection — {amount} will remain open.",
     creatingRequest: "Creating request…",

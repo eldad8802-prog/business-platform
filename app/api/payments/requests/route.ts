@@ -18,6 +18,11 @@ import type {
   PaymentRequestStatus,
 } from "@/lib/services/payments/payments.types";
 import { AmbiguousPaymentProviderError } from "@/lib/services/payments/payment-request.service";
+import {
+  PaymentCurrencyNotOfferableError,
+  paymentCurrencyRefusalBody,
+} from "@/lib/services/payments/payment-currency-offer";
+import { getServerI18n } from "@/lib/i18n/server";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
@@ -118,6 +123,13 @@ export async function POST(req: NextRequest) {
         },
         { status: 400 }
       );
+    }
+    // A currency the request may not be raised in: same 400 + code as any
+    // ValidationError, the message in the viewer's language, and the
+    // currencies that ARE allowed so a client can correct the choice.
+    if (error instanceof PaymentCurrencyNotOfferableError) {
+      const { t } = await getServerI18n();
+      return NextResponse.json(paymentCurrencyRefusalBody(error, t), { status: 400 });
     }
     return handleError(error);
   }

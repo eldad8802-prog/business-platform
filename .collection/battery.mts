@@ -11,6 +11,7 @@
  *   X1  cancel: only open, never paid, never another tenant's
  *   X2  resolve NO_CUSTOMER → exactly one receipt; cannot rename a known payer
  *   R1  readiness: no provider / ambiguous / identity incomplete / ready
+ *   R2  readiness body = the old {ready, blockers} + offerableCurrencies only (ILS alone with no provider)
  *   V1  invoice collection state: שולם / זוכה / נותר from the shared rule
  *   K1  tenant isolation on every new route
  *
@@ -226,6 +227,14 @@ async function main() {
   ok("R1 — identity incomplete", (await rd(rI)).blockers.includes("BILLING_IDENTITY_INCOMPLETE"));
   const ready = await rd(a);
   ok("R1 — ready", ready.ready === true && ready.blockers.length === 0, JSON.stringify(ready));
+  // R2 — the currency choice adds ONE field to the readiness body and changes
+  // nothing that was already there: same keys as before plus offerableCurrencies,
+  // ILS always first, ILS alone when no provider can be selected.
+  const keys = (b: Record<string, unknown>) => Object.keys(b).sort().join(",");
+  ok("R2 — readiness keys = ready, blockers + offerableCurrencies only", [ready, r2State, await rd(r0), await rd(rI)].every((b) => keys(b) === "blockers,offerableCurrencies,ready"), keys(ready));
+  ok("R2 — no provider → ILS alone (no choice on the screen)", JSON.stringify((await rd(r0)).offerableCurrencies) === '["ILS"]');
+  ok("R2 — CardCom → ILS, USD, EUR (ILS first)", JSON.stringify(ready.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(ready.offerableCurrencies));
+  ok("R2 — disabled SUMIT next to CardCom does not narrow it", JSON.stringify(r2State.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(r2State.offerableCurrencies));
 
   console.log("\n== V1 — invoice collection state ==");
   const v = await json(await invoiceRoute.GET(req(`/api/collection/invoices/${tinv.id}`, t.token), { params: Promise.resolve({ id: String(tinv.id) }) }));

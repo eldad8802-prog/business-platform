@@ -1,0 +1,14 @@
+{
+  "note": "feat/collection-currency-choice: a payment request may be raised in ILS / USD / EUR, limited to what the selected provider supports; ILS stays the default and ILS requests are unchanged; invoice-backed requests keep the invoice's currency.",
+  "tests": {
+    "lib/services/payments/payment-currency-offer.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) currency authority for payment requests: Dubiz set (ILS/USD/EUR) intersected with each real adapter's declared set (CardCom ILS/USD/EUR, SUMIT ILS/USD, Tranzila ILS/USD/EUR, PayPal pass-through), refusal before any row/audit/provider call, invoice-backed requests held to the invoice currency, ILS requests unchanged, readiness offerableCurrencies, he/en refusal messages"
+    },
+    "components/collection/new/collection-currency.test.tsx": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: /collection/new currency choice — ILS-only identity (currency derivation equals the pre-change expression for every input and the choice renders no markup), invoice-backed requests never offer a choice, standalone requests preselect ILS and use the pick; rendered with react-dom/server"
+    }
+  }
+}

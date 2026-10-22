@@ -40,6 +40,7 @@ import {
 import { toMinorUnits } from "./payment-verification.service";
 import { isQaWebhookSuppressed } from "./qa-webhook-suppression";
 import { isSupportedProvider } from "./providers/provider-registry";
+import { assertCurrencyOfferable, assertInvoiceCurrency } from "./payment-currency-offer";
 
 export interface CreatePaymentRequestInput {
   businessId: number;
@@ -123,25 +124,11 @@ export class AmbiguousPaymentProviderError extends ValidationError {
 }
 
 /**
- * SEC-05 — refuse a currency the adapter cannot encode.
- *
- * `supportedCurrencies === null` means the adapter forwards the ISO code
- * unchanged and translates nothing, so it has no table to fall out of and the
- * provider itself is the authority on acceptance. A concrete list is exhaustive
- * by construction, and anything outside it is refused rather than substituted.
+ * SEC-05 — the currency gate (refuse what the adapter cannot encode, and
+ * anything outside the Dubiz set) lives in `./payment-currency-offer`, where
+ * the collection readiness read uses the same rule to say what may be offered.
  */
-export function assertCurrencySupported(
-  adapter: Pick<PaymentProviderAdapter, "provider" | "supportedCurrencies">,
-  currency: string
-): void {
-  const supported = adapter.supportedCurrencies;
-  if (supported === null) return;
-  if (!supported.includes(currency)) {
-    throw new ValidationError(
-      `${adapter.provider} cannot be charged in ${currency}. Supported: ${supported.join(", ")}.`
-    );
-  }
-}
+export { assertCurrencyOfferable } from "./payment-currency-offer";
 
 export interface SelectPaymentProviderInput {
   businessId: number;
@@ -237,7 +224,10 @@ export async function createPaymentRequest(
   }
 
   const amount = normalizePaymentAmount(input.amount);
-  const currency = normalizeCurrency(input.currency);
+  // Shape is checked up front, exactly as before; WHICH currency the request is
+  // raised in is decided once the invoice (if any) is known — see 2c.
+  const requestedCurrency =
+    input.currency === undefined ? null : normalizeCurrency(input.currency);
   const now = deps.now ?? (() => new Date());
 
   // 2. PROVIDER SELECTION — deterministic, never arbitrary. See
@@ -286,6 +276,17 @@ export async function createPaymentRequest(
     }
   }
 
+  // 2b'. CURRENCY OF THE REQUEST. Invoice-backed: the invoice's own currency —
+  // when none is sent it is taken from the invoice, and a different one is
+  // refused. Standalone: what was sent, ILS when nothing was. Whether the
+  // provider can be charged in it is checked at 2d.
+  if (payableDocument && requestedCurrency !== null) {
+    assertInvoiceCurrency(payableDocument.currency, requestedCurrency);
+  }
+  const currency =
+    requestedCurrency ??
+    (payableDocument ? normalizeCurrency(payableDocument.currency) : DEFAULT_CURRENCY);
+
   // 2c. SEC-01 — AMOUNT AUTHORITY. Once a request names a document, the server
   // decides what may be collected against it; the client's number is a proposal
   // that has to fit inside the document's own outstanding balance. This
@@ -319,8 +320,12 @@ export async function createPaymentRequest(
   // be coerced to the table's first entry, charging one currency while every
   // record claimed another. Refused here, before a PaymentRequest row exists,
   // so an unsupported currency leaves no trace and reaches no provider.
+  //
+  // A request is further limited to the Dubiz currency set (ILS / USD / EUR),
+  // so a pass-through adapter (supportedCurrencies = null) can no longer carry a
+  // currency the rest of the product cannot present or reconcile.
   const adapter = deps.resolveProvider(provider);
-  assertCurrencySupported(adapter, currency);
+  assertCurrencyOfferable(adapter, currency);
 
   // 2e. TEST / SANDBOX in Production: no link is issued through an account
   // that is not positively live, so a test card can never become a receipt.
