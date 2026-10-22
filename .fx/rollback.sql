@@ -8,7 +8,8 @@
 -- What it removes: the three tables (with their policies, triggers, indexes, sequence and grants), the four
 -- functions, the role fx_rate_writer (refused, and the whole rollback with it, while anything still depends
 -- on the role — e.g. a LOGIN member the owner created, or a grant in another database), and its own ledger row
--- in the same transaction, so a later release re-applies the migration whole.
+-- in the same transaction, so a later release re-applies the migration whole. (The migration role itself is a
+-- member — PostgreSQL 16+ grants the creator ADMIN on a role it creates — and does not count.)
 -- Nothing that existed before the migration is touched: it changed no existing object.
 
 BEGIN;
@@ -20,7 +21,7 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
               JOIN pg_roles u ON u.oid = m.member
-             WHERE r.rolname = 'fx_rate_writer' AND u.rolcanlogin) THEN
+             WHERE r.rolname = 'fx_rate_writer' AND u.rolcanlogin AND u.rolname <> current_user) THEN
     RAISE EXCEPTION 'currency settings / fx rates rollback refused: a LOGIN role is a member of fx_rate_writer (retire it first)';
   END IF;
 END
