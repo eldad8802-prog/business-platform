@@ -118,6 +118,11 @@ function stubPrisma(s: Scenario, rec: Recorded) {
         await reads();
         return { _sum: { amount: new Prisma.Decimal("200.50") }, _count: { _all: 2 } };
       },
+      // The month reads are grouped by currency (audit B2); same stand-in answer, one ILS group.
+      groupBy: async () => {
+        await reads();
+        return [{ currency: "ILS", _sum: { amount: new Prisma.Decimal("200.50") }, _count: { _all: 2 } }];
+      },
     },
   };
   (prisma as unknown as { $transaction: unknown }).$transaction = async (
