@@ -85,6 +85,7 @@ export const en: Messages = {
     approximatePrefix: "≈",
     convertedNote: "Converted for display only, at the {rateDate} rate",
     mixedCurrencies: "Includes amounts in several currencies",
+    otherCurrenciesExcluded: "Does not include amounts in other currencies: {amounts}",
     rateMissing: "No verified exchange rate available for conversion",
   },
   settingsLocale: {

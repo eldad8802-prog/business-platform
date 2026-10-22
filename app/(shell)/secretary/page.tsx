@@ -41,6 +41,7 @@ import {
   type SecretaryScreenName,
   type TodayModel,
 } from "./secretary-ui";
+import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
 
 type LoadState =
   | { status: "loading" }
@@ -547,8 +548,10 @@ function homeModelFromBriefing(briefing: BriefingApi, t: Translator, tag: string
     ...briefing.attention.map((item) => item.obligation),
     ...briefing.watching,
   ]);
-  const currency = focus?.obligation.currency ?? openItems[0]?.currency ?? "ILS";
-  const allAmount = formatHomeAmount(String(sumObligationAmounts(openItems)), currency, tag);
+  // Per currency, never added across (B4): ILS-only lists render exactly as before.
+  const allAmount = formatObligationTotals(obligationTotalsByCurrency(openItems), (amount, currency) =>
+    formatHomeAmount(amount, currency, tag)
+  );
   const hasToday =
     briefing.state === "CRITICAL" ||
     briefing.attention.some((item) => item.reason === "OVERDUE" || item.reason === "DUE_TODAY");
@@ -662,13 +665,6 @@ function uniqueBriefingObligations(items: ObligationApi[]): ObligationApi[] {
     seen.add(item.id);
     return true;
   });
-}
-
-function sumObligationAmounts(items: ObligationApi[]): number {
-  return items.reduce((sum, item) => {
-    const amount = Number(item.amount);
-    return Number.isFinite(amount) ? sum + amount : sum;
-  }, 0);
 }
 
 /** Money in the obligation's own currency; `tag` = the interface language ("he-IL" → the legacy output). */
