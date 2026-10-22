@@ -11,15 +11,6 @@
       "lineAtBaseline": 77
     },
     {
-      "file": "app/(shell)/secretary/secretary-ui.tsx",
-      "rule": "FIRST_ROW_CURRENCY",
-      "column": "currency",
-      "match": "const currency = items[0]?.currency ?? \"ILS\";",
-      "risk": "BROKEN",
-      "reason": "BusinessObligation.currency accepts any 3-letter code via /api/obligations (obligation-core.ts normalizeCurrency); the open/month totals add all obligations and label them with the first row's currency. (sumMoney: open / this month / handled this month).",
-      "lineAtBaseline": 738
-    },
-    {
       "file": "app/api/documents/inbox/route.ts",
       "rule": "PRISMA_SUM",
       "column": "FinancialRecord.amount",
@@ -238,62 +229,6 @@
       "lineAtBaseline": 89
     },
     {
-      "file": "lib/services/home/home-collection.service.ts",
-      "rule": "PRISMA_SUM",
-      "column": "PaymentTransaction.amount",
-      "match": "tx.paymentTransaction.aggregate({",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (month total)",
-      "lineAtBaseline": 201,
-      "count": 2
-    },
-    {
-      "file": "lib/services/home/home-collection.service.ts",
-      "rule": "JS_FOLD",
-      "column": "amount",
-      "match": "const previousAtSamePoint = comparableRows.reduce((sum, row) => sum.plus(row.amount), ZERO);",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (previous period at the same point)",
-      "lineAtBaseline": 230
-    },
-    {
-      "file": "lib/services/home/home-collection.service.ts",
-      "rule": "JS_ACCUMULATE",
-      "column": "amount",
-      "match": "if (index >= 0 && index < length) perBucket[index] = perBucket[index].plus(row.amount);",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (chart buckets)",
-      "lineAtBaseline": 143
-    },
-    {
-      "file": "lib/services/home/home-day.service.ts",
-      "rule": "PRISMA_SUM",
-      "column": "PaymentTransaction.amount",
-      "match": "tx.paymentTransaction.aggregate({",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (month figure)",
-      "lineAtBaseline": 151,
-      "count": 2
-    },
-    {
-      "file": "lib/services/home/home-day.service.ts",
-      "rule": "JS_ACCUMULATE",
-      "column": "amount",
-      "match": "buckets[hour] = buckets[hour].plus(row.amount);",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (hour buckets)",
-      "lineAtBaseline": 220
-    },
-    {
-      "file": "lib/services/home/home-day.service.ts",
-      "rule": "JS_ACCUMULATE",
-      "column": "amount",
-      "match": "total = total.plus(row.amount);",
-      "risk": "BROKEN",
-      "reason": "PaymentTransaction rows can be USD/EUR TODAY: a standalone PaymentRequest accepts body.currency (payment-request.service.ts normalizeCurrency + assertCurrencySupported; CardCom/Tranzila allow USD/EUR, PayPal passes through). The sum adds them to ILS and the screen shows ILS. Production exposure: none while no provider connection is live. (day total)",
-      "lineAtBaseline": 221
-    },
-    {
       "file": "lib/services/payables/payables-cheque.service.ts",
       "rule": "JS_FOLD",
       "column": "allocatedAmount",
@@ -330,24 +265,6 @@
       "lineAtBaseline": 181
     },
     {
-      "file": "lib/services/payments/collection-workspace.service.ts",
-      "rule": "JS_ACCUMULATE",
-      "column": "amount",
-      "match": "pendingSum += Number(r.amount);",
-      "risk": "BROKEN",
-      "reason": "PaymentRequest rows can be USD/EUR today (standalone request, body.currency); pendingSum adds them to ILS. Production exposure: none while no provider connection is live.",
-      "lineAtBaseline": 116
-    },
-    {
-      "file": "lib/services/payments/collection-workspace.service.ts",
-      "rule": "JS_ACCUMULATE",
-      "column": "amount",
-      "match": "expiredSum += Number(r.amount);",
-      "risk": "BROKEN",
-      "reason": "PaymentRequest rows can be USD/EUR today; expiredSum adds them to ILS.",
-      "lineAtBaseline": 121
-    },
-    {
       "file": "lib/services/payments/payment-refund.service.ts",
       "rule": "JS_FOLD",
       "column": "amount",
@@ -365,24 +282,6 @@
       "risk": "SAFE",
       "reason": "open requests against ONE document; assertAmountPayableAgainstDocument refuses a currency different from the document.",
       "lineAtBaseline": 306
-    },
-    {
-      "file": "lib/services/payments/payment-store.memory.ts",
-      "rule": "JS_FOLD",
-      "column": "amount",
-      "match": "const amount = paid.reduce((sum, r) => sum + Number(r.amount), 0);",
-      "risk": "LATENT",
-      "reason": "in-memory TEST double of sumPaidBetween (not used in Production); mirrors payment-store.prisma.ts:757 and must be fixed with it.",
-      "lineAtBaseline": 349
-    },
-    {
-      "file": "lib/services/payments/payment-store.prisma.ts",
-      "rule": "PRISMA_SUM",
-      "column": "PaymentRequest.amount",
-      "match": "const agg = await dbStep((db) => db.paymentRequest.aggregate({",
-      "risk": "BROKEN",
-      "reason": "sumPaidBetween: PAID PaymentRequest amounts summed with no currency; USD/EUR requests are writable today (collection workspace 'collected this month').",
-      "lineAtBaseline": 757
     },
     {
       "file": "lib/services/payments/payment-store.prisma.ts",
