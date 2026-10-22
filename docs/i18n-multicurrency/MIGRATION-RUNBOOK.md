@@ -14,7 +14,7 @@ Preflight / proof: `ops/evidence/currency-fx-preflight.sql`, `ops/evidence/curre
 | Object | Shape | Isolation / privileges |
 |---|---|---|
 | `BusinessLocaleSettings` | PK `businessId` → `Business` (cascade); `locale` he\|en (def `he`), `region` `^[A-Z]{2}$` (def `IL`), `timeZone` IANA-shaped ≤64 (def `Asia/Jerusalem`), `baseCurrency` / `displayCurrency` ILS\|USD\|EUR (def `ILS`, NOT NULL), `version` ≥1, `createdAt`, `updatedAt` | ENABLE + FORCE RLS; `business_locale_settings_tenant_{select,insert,update}` on `app.current_business_id`; app_runtime SELECT/INSERT/UPDATE; no DELETE (business deletion cascades) |
-| base-currency guard | trigger `BusinessLocaleSettings_base_currency_lock` (BEFORE INSERT OR UPDATE OF baseCurrency) → `business_locale_base_currency_lock()` (SECURITY DEFINER) → `business_financial_data_exists(int)` (SECURITY DEFINER, EXECUTE for nobody) over 13 ledgers: BillingDocument, FinancialRecord, FinancialEvent, HistoricalFiscalDocument, PaymentRequest, Payment, Cheque, PaymentPreparation, ExternalTransaction, OutboundExecution, BusinessObligation, Commitment, CommerceOrder | `business_base_currency_locked()` (SECURITY DEFINER, tenant from the GUC, no argument) — EXECUTE for app_runtime only |
+| base-currency guard | trigger `BusinessLocaleSettings_base_currency_lock` (BEFORE INSERT OR UPDATE OF baseCurrency) → `business_locale_base_currency_lock()` (SECURITY DEFINER) → `business_financial_data_exists(int)` (SECURITY DEFINER, EXECUTE for nobody) over 12 ledgers (not HistoricalFiscalDocument — see §7): BillingDocument, FinancialRecord, FinancialEvent, PaymentRequest, Payment, Cheque, PaymentPreparation, ExternalTransaction, OutboundExecution, BusinessObligation, Commitment, CommerceOrder | `business_base_currency_locked()` (SECURITY DEFINER, tenant from the GUC, no argument) — EXECUTE for app_runtime only |
 | `UserLocalePreference` | PK `userId` → `User` (cascade), `businessId` → `Business` (cascade, indexed), `locale` he\|en, `createdAt`, `updatedAt` | ENABLE + FORCE RLS; `user_locale_preference_own_{select,insert,update}`: businessId = `app.current_business_id` **AND** userId = `app.current_user_id`; trigger `UserLocalePreference_user_same_business` (existing `task_user_same_business`); app_runtime SELECT/INSERT/UPDATE |
 | `FxRate` | `id` serial, `base`/`quote` ILS\|USD\|EUR (≠), `rate` numeric(20,10) > 0, `kind` REPRESENTATIVE\|DISPLAY, `source` BANK_OF_ISRAEL\|MANUAL (BoI ⇒ REPRESENTATIVE + quote ILS), `rateDate` date ≤ fetchedAt+1 day, `fetchedAt` (def now), `verification` VERIFIED\|UNVERIFIED (def UNVERIFIED), `sourceRef` ≤2048; unique (base, quote, kind, source, rateDate, fetchedAt); index (base, quote, kind, rateDate DESC, fetchedAt DESC) | ENABLE + FORCE RLS with `fx_rate_read` (SELECT, true) and `fx_rate_append` (INSERT, true) only; triggers `FxRate_append_only` (UPDATE/DELETE, row) + `FxRate_no_truncate` (statement) → `fx_rate_append_only_guard()` refuse **for every role incl. owner and superuser**; app_runtime SELECT only |
 | `fx_rate_writer` | NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION; created only if absent; an existing role of that name must have exactly that shape and no memberships, or the migration aborts | INSERT on `FxRate` + USAGE on `FxRate_id_seq`; nothing else (no SELECT — append without RETURNING) |
@@ -43,7 +43,7 @@ existing ISO-pattern / free currency columns — untouched.
 - Changed → refuse unless the session is READ COMMITTED and the function's role sees every row
   (BYPASSRLS / superuser, asserted at run time); `SELECT … FROM "Business" WHERE id = … FOR UPDATE`; then, in
   a new statement snapshot, refuse if any financial row exists.
-- Race: every financial insert takes `FOR KEY SHARE` on its `Business` row through its foreign key (all 13
+- Race: every financial insert takes `FOR KEY SHARE` on its `Business` row through its foreign key (all 12
   ledgers have one — preflight check 11), which conflicts with `FOR UPDATE`. A first financial row in flight
   makes the change wait and then refuse (lab race 1); a change in flight makes the financial insert wait
   until it commits (lab race 2) — the serial order "change, then row", which is allowed.
@@ -186,6 +186,10 @@ migration is inert without its consumer, so the usual choice is to **leave it ap
 
 - New GUC `app.current_user_id` (above): a new runtime contract; until the app sets it, the preference
   table is unreachable for the runtime (fail closed).
+- `HistoricalFiscalDocument` (imported records of the business's previous system) is deliberately NOT in
+  the guard: the I-8A firewall (`historical-fiscal-persistence.verify.test.ts`, run by AD-2A) forbids any
+  later migration to name that table. A business whose only financial data is an import can therefore still
+  change its base currency — owner decision whether that needs a separate, firewall-reviewed change.
 - The guard's financial-table list is fixed in `business_financial_data_exists`; a new ledger table later
   must be added there (in its own migration) or it will not fix the base currency.
 - The guard needs the migration role to keep BYPASSRLS (asserted at run time: it refuses instead of

@@ -59,7 +59,7 @@ A=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-A', now()
 B=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-B', now()) RETURNING \"id\"")
 C=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-C', now()) RETURNING \"id\"")
 D=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-D', now()) RETURNING \"id\"")
-bls() { echo "INSERT INTO \"BusinessLocaleSettings\" (\"businessId\", \"updatedAt\"$2) VALUES ($1, now()$3)"; }
+bls() { echo "INSERT INTO \"BusinessLocaleSettings\" (\"businessId\", \"updatedAt\"${2:-}) VALUES ($1, now()${3:-})"; }
 rt "$A" "" "$(bls "$A")" >/dev/null; ok "A adds its own settings"
 refused "add for another business" "row-level security" rt "$A" "" "$(bls "$B")"
 refused "add without tenant context" "row-level security" rt "" "" "$(bls "$B")"

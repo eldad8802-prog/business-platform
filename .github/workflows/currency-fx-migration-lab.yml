@@ -95,11 +95,11 @@ jobs:
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
           echo "$FXM sha256 $sum (pinned)"
           own='"BusinessLocaleSettings"|"UserLocalePreference"|"FxRate"|"Business"|"User"'
-          fin='"BillingDocument"|"FinancialRecord"|"FinancialEvent"|"HistoricalFiscalDocument"|"PaymentRequest"|"Payment"|"Cheque"|"PaymentPreparation"|"ExternalTransaction"|"OutboundExecution"|"BusinessObligation"|"Commitment"|"CommerceOrder"'
+          fin='"BillingDocument"|"FinancialRecord"|"FinancialEvent"|"PaymentRequest"|"Payment"|"Cheque"|"PaymentPreparation"|"ExternalTransaction"|"OutboundExecution"|"BusinessObligation"|"Commitment"|"CommerceOrder"'
           others=$(grep -v '^ *--' "$FXM" | grep -oE '"[A-Z][A-Za-z]*"' | sort -u | grep -vxE "$own|$fin" || true)
           test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
-          echo "the migration names only its three tables, Business, User and the 13 financial tables it reads"
-          if grep -v '^ *--' "$FXM" | grep -iE '^\s*(ALTER|DROP)\s+TABLE\s+"(Business|User|BillingDocument|FinancialRecord|FinancialEvent|HistoricalFiscalDocument|PaymentRequest|Payment|Cheque|PaymentPreparation|ExternalTransaction|OutboundExecution|BusinessObligation|Commitment|CommerceOrder)"'; then
+          echo "the migration names only its three tables, Business, User and the 12 financial tables it reads"
+          if grep -v '^ *--' "$FXM" | grep -iE '^\s*(ALTER|DROP)\s+TABLE\s+"(Business|User|BillingDocument|FinancialRecord|FinancialEvent|PaymentRequest|Payment|Cheque|PaymentPreparation|ExternalTransaction|OutboundExecution|BusinessObligation|Commitment|CommerceOrder)"'; then
             echo "the migration alters an existing table"; exit 1
           fi
           echo "no existing table is altered or dropped"

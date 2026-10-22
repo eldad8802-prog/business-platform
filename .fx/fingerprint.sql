@@ -4,7 +4,7 @@
 --   policies, triggers, functions (identity, security, config, ACL, body hash), types, default ACLs, the
 --   migration ledger (names and state), and the roles this migration touches or builds on.
 -- psql -X -At -f .fx/fingerprint.sql | sort | sha256sum
-SELECT 'rel|' || c.relname || '|' || c.relkind || '|' || pg_get_userbyid(c.relowner) || '|' || c.relrowsecurity || '|'
+SELECT 'rel|' || c.relname || '|' || c.relkind::text || '|' || pg_get_userbyid(c.relowner) || '|' || c.relrowsecurity || '|'
        || c.relforcerowsecurity || '|' || coalesce(c.relacl::text, '-')
   FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'S', 'v', 'm', 'p', 'i', 'f')
 UNION ALL
@@ -23,21 +23,21 @@ SELECT 'pol|' || tablename || '|' || policyname || '|' || permissive || '|' || r
        || coalesce(qual, '-') || '|' || coalesce(with_check, '-')
   FROM pg_policies WHERE schemaname = 'public'
 UNION ALL
-SELECT 'trg|' || c.relname || '|' || t.tgname || '|' || t.tgenabled || '|' || pg_get_triggerdef(t.oid)
+SELECT 'trg|' || c.relname || '|' || t.tgname || '|' || t.tgenabled::text || '|' || pg_get_triggerdef(t.oid)
   FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
 UNION ALL
 SELECT 'fn|' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')|' || pg_get_userbyid(p.proowner) || '|'
-       || p.prosecdef || '|' || p.provolatile || '|' || coalesce(array_to_string(p.proconfig, ','), '-') || '|'
+       || p.prosecdef || '|' || p.provolatile::text || '|' || coalesce(array_to_string(p.proconfig, ','), '-') || '|'
        || coalesce(p.proacl::text, '-') || '|' || md5(p.prosrc)
   FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
 UNION ALL
-SELECT 'type|' || t.typname || '|' || t.typtype FROM pg_type t
+SELECT 'type|' || t.typname || '|' || t.typtype::text FROM pg_type t
  WHERE t.typnamespace = 'public'::regnamespace AND t.typtype IN ('e', 'd', 'c') AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid)
 UNION ALL
 SELECT 'enum|' || t.typname || '|' || e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
  WHERE t.typnamespace = 'public'::regnamespace
 UNION ALL
-SELECT 'defacl|' || pg_get_userbyid(d.defaclrole) || '|' || d.defaclobjtype || '|' || d.defaclacl::text FROM pg_default_acl d
+SELECT 'defacl|' || pg_get_userbyid(d.defaclrole) || '|' || d.defaclobjtype::text || '|' || d.defaclacl::text FROM pg_default_acl d
 UNION ALL
 SELECT 'ledger|' || migration_name || '|' || (finished_at IS NOT NULL) || '|' || (rolled_back_at IS NOT NULL) FROM "_prisma_migrations"
 UNION ALL

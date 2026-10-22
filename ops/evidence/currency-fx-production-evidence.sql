@@ -203,7 +203,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261025090000_currency_settings_fx_rates'
-                        AND checksum = '37bf684b2bd997db5cd577ad3c43c77eeedc0c03fd60cc5fbc93b67c3f1cdafd'), 1
+                        AND checksum = '8ad3ff269316925eebddea8d79cd641162cedc6ef0fdd3d45e8b20b49cbe62ab'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM cols c JOIN att a ON a.tbl = c.tbl AND a.col = c.col
                          AND a.typ = c.typ AND a.nn = c.nn AND a.dflt IS NOT DISTINCT FROM c.dflt) = 24
                       AND (SELECT count(*) FROM att) = 24,

@@ -9,7 +9,7 @@
 --     20261018090000_daily_tasks_foundation (whose guard task_user_same_business it reuses) is finished;
 --   * none of the names it introduces exists: the three tables, the sequence, the indexes, the four functions,
 --     the eight policies, the four triggers, the role fx_rate_writer;
---   * what it builds on is there: "Business", "User", and the thirteen financial tables the base-currency
+--   * what it builds on is there: "Business", "User", and the twelve financial tables the base-currency
 --     guard reads, each with a businessId column and a foreign key to "Business" (that key is what makes the
 --     guard race-safe: every financial row taken FOR KEY SHARE of its business);
 --   * the migration role owns all of them and carries BYPASSRLS (the guard functions run as it over FORCE RLS
@@ -37,10 +37,10 @@
 \echo ' 7 no relation named BusinessLocaleSettings, UserLocalePreference, FxRate, FxRate_id_seq or any of their keys and indexes (observed = present)'
 \echo ' 8 none of the four functions, eight policies or four triggers exists (observed = present)'
 \echo ' 9 no role named fx_rate_writer (observed = roles)'
-\echo '10 Business and User exist, and the 13 financial tables exist each with an integer businessId (observed = of 15)'
-\echo '11 each of the 13 financial tables has a foreign key (businessId) to Business (observed = of 13)'
+\echo '10 Business and User exist, and the 12 financial tables exist each with an integer businessId (observed = of 14)'
+\echo '11 each of the 12 financial tables has a foreign key (businessId) to Business (observed = of 12)'
 \echo '12 task_user_same_business exists, is not a definer function, and is owned by the migration role (observed = matching)'
-\echo '13 the migration role owns Business, User and the 13 financial tables (observed = of 15)'
+\echo '13 the migration role owns Business, User and the 12 financial tables (observed = of 14)'
 \echo '14 the migration role carries BYPASSRLS (observed = 1 if so)'
 \echo '15 the migration role carries CREATEROLE or is a superuser (observed = 1 if so)'
 \echo '16 app_runtime exists, NOLOGIN NOSUPERUSER NOBYPASSRLS (observed = matching)'
@@ -72,7 +72,7 @@ WITH
 pub AS (SELECT oid FROM pg_namespace WHERE nspname = 'public'),
 rel AS (SELECT c.relname AS nm, c.oid, c.relowner, c.relkind FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub)),
 me AS (SELECT oid, rolbypassrls, rolcreaterole, rolsuper FROM pg_roles WHERE rolname = current_user),
-fin(nm) AS (VALUES ('BillingDocument'), ('FinancialRecord'), ('FinancialEvent'), ('HistoricalFiscalDocument'),
+fin(nm) AS (VALUES ('BillingDocument'), ('FinancialRecord'), ('FinancialEvent'),
                    ('PaymentRequest'), ('Payment'), ('Cheque'), ('PaymentPreparation'), ('ExternalTransaction'),
                    ('OutboundExecution'), ('BusinessObligation'), ('Commitment'), ('CommerceOrder')),
 base(nm) AS (SELECT nm FROM fin UNION ALL VALUES ('Business'), ('User')),
@@ -116,14 +116,14 @@ checks(n, ok, observed_count) AS (
                       + (SELECT count(*) FROM pg_trigger t JOIN new_trg x ON x.nm = t.tgname)
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_roles WHERE rolname = 'fx_rate_writer') = 0,
                       (SELECT count(*) FROM pg_roles WHERE rolname = 'fx_rate_writer')
-  UNION ALL SELECT 10, (SELECT count(*) FROM fin_cols) + (SELECT count(*) FROM rel WHERE nm IN ('Business', 'User') AND relkind = 'r') = 15,
+  UNION ALL SELECT 10, (SELECT count(*) FROM fin_cols) + (SELECT count(*) FROM rel WHERE nm IN ('Business', 'User') AND relkind = 'r') = 14,
                        (SELECT count(*) FROM fin_cols) + (SELECT count(*) FROM rel WHERE nm IN ('Business', 'User') AND relkind = 'r')
-  UNION ALL SELECT 11, (SELECT count(*) FROM fin_fk) = 13, (SELECT count(*) FROM fin_fk)
+  UNION ALL SELECT 11, (SELECT count(*) FROM fin_fk) = 12, (SELECT count(*) FROM fin_fk)
   UNION ALL SELECT 12, (SELECT count(*) FROM pg_proc p WHERE p.proname = 'task_user_same_business'
                          AND p.pronamespace = (SELECT oid FROM pub) AND NOT p.prosecdef AND p.proowner = (SELECT oid FROM me)) = 1,
                        (SELECT count(*) FROM pg_proc p WHERE p.proname = 'task_user_same_business'
                          AND p.pronamespace = (SELECT oid FROM pub) AND NOT p.prosecdef AND p.proowner = (SELECT oid FROM me))
-  UNION ALL SELECT 13, (SELECT count(*) FROM rel r JOIN base b ON b.nm = r.nm WHERE r.relkind = 'r' AND r.relowner = (SELECT oid FROM me)) = 15,
+  UNION ALL SELECT 13, (SELECT count(*) FROM rel r JOIN base b ON b.nm = r.nm WHERE r.relkind = 'r' AND r.relowner = (SELECT oid FROM me)) = 14,
                        (SELECT count(*) FROM rel r JOIN base b ON b.nm = r.nm WHERE r.relkind = 'r' AND r.relowner = (SELECT oid FROM me))
   UNION ALL SELECT 14, (SELECT rolbypassrls FROM me) IS TRUE, (SELECT CASE WHEN rolbypassrls THEN 1 ELSE 0 END FROM me)
   UNION ALL SELECT 15, (SELECT rolcreaterole OR rolsuper FROM me) IS TRUE, (SELECT CASE WHEN rolcreaterole OR rolsuper THEN 1 ELSE 0 END FROM me)
@@ -138,7 +138,6 @@ checks(n, ok, observed_count) AS (
                                   EXISTS (SELECT 1 FROM "BillingDocument" t WHERE t."businessId" = b."id")
                                OR EXISTS (SELECT 1 FROM "FinancialRecord" t WHERE t."businessId" = b."id")
                                OR EXISTS (SELECT 1 FROM "FinancialEvent" t WHERE t."businessId" = b."id")
-                               OR EXISTS (SELECT 1 FROM "HistoricalFiscalDocument" t WHERE t."businessId" = b."id")
                                OR EXISTS (SELECT 1 FROM "PaymentRequest" t WHERE t."businessId" = b."id")
                                OR EXISTS (SELECT 1 FROM "Payment" t WHERE t."businessId" = b."id")
                                OR EXISTS (SELECT 1 FROM "Cheque" t WHERE t."businessId" = b."id")

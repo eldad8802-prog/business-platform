@@ -72,7 +72,6 @@ AS $fn$
   SELECT EXISTS (SELECT 1 FROM "BillingDocument" WHERE "businessId" = p_business)
       OR EXISTS (SELECT 1 FROM "FinancialRecord" WHERE "businessId" = p_business)
       OR EXISTS (SELECT 1 FROM "FinancialEvent" WHERE "businessId" = p_business)
-      OR EXISTS (SELECT 1 FROM "HistoricalFiscalDocument" WHERE "businessId" = p_business)
       OR EXISTS (SELECT 1 FROM "PaymentRequest" WHERE "businessId" = p_business)
       OR EXISTS (SELECT 1 FROM "Payment" WHERE "businessId" = p_business)
       OR EXISTS (SELECT 1 FROM "Cheque" WHERE "businessId" = p_business)
