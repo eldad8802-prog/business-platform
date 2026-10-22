@@ -1,7 +1,11 @@
+"use client";
+
 import ReviewTrustChecklistItem from "./ReviewTrustChecklistItem";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function ReviewImpactBox({ approvalImpact }: { approvalImpact: string }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -12,12 +16,12 @@ export default function ReviewImpactBox({ approvalImpact }: { approvalImpact: st
       }}
     >
       <div style={{ color: TOKEN.ink.primary, fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
-        אחרי האישור
+        {t("documents.review.impact.title")}
       </div>
       <div style={{ display: "grid", gap: 8 }}>
-        <ReviewTrustChecklistItem>הרשומה תישמר ב-Documents</ReviewTrustChecklistItem>
-        <ReviewTrustChecklistItem>אפשר יהיה לאתר אותה בחיפוש</ReviewTrustChecklistItem>
-        <ReviewTrustChecklistItem>היא תיכלל בחומר לרו״ח כשזה רלוונטי</ReviewTrustChecklistItem>
+        <ReviewTrustChecklistItem>{t("documents.review.impact.saved")}</ReviewTrustChecklistItem>
+        <ReviewTrustChecklistItem>{t("documents.review.impact.searchable")}</ReviewTrustChecklistItem>
+        <ReviewTrustChecklistItem>{t("documents.review.impact.accountant")}</ReviewTrustChecklistItem>
         <ReviewTrustChecklistItem>{approvalImpact}</ReviewTrustChecklistItem>
       </div>
     </div>

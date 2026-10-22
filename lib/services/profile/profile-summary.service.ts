@@ -20,6 +20,7 @@
  * the request.
  */
 import { businessCategoryLabel } from "@/lib/business/business-categories";
+import type { Translator } from "@/lib/i18n/translate";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import {
@@ -78,9 +79,11 @@ const present = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+/** `t`: the interface language of the request (labels only); default Hebrew. */
 export async function loadProfileSummary(
   caller: ProfileSummaryCaller,
   now: Date = new Date(),
+  t?: Translator,
 ): Promise<ProfileSummary> {
   const { businessId } = caller;
 
@@ -106,12 +109,14 @@ export async function loadProfileSummary(
           category: profile.category,
         }
       : null,
+    undefined,
+    t,
   );
 
   return {
     business: {
       name: caller.businessName,
-      categoryLabel: businessCategoryLabel(profile?.category, profile?.subCategory),
+      categoryLabel: businessCategoryLabel(profile?.category, profile?.subCategory, t),
       location: present(profile?.billingAddress) ?? present(profile?.city),
       phone: present(profile?.billingPhone),
       email: present(profile?.billingEmail),

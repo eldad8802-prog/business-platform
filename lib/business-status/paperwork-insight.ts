@@ -22,6 +22,8 @@ import {
   listPendingReviewMonths,
   pendingReviewInboxHref,
 } from "@/lib/documents/pending-review";
+import type { Translator } from "@/lib/i18n/translate";
+import { STATUS_HE_T } from "./i18n";
 import type { PaperworkInsightPayload } from "./types";
 
 /** Minimum backlog (needs_review) before surfacing — trust over coverage. */
@@ -41,7 +43,8 @@ export const PAPERWORK_APPROVED_RECENT_MAX = 2;
  * Rule-based only; returns null when confidence gate fails.
  */
 export async function evaluatePaperworkInsight(
-  businessId: number
+  businessId: number,
+  t: Translator = STATUS_HE_T
 ): Promise<PaperworkInsightPayload | null> {
   const since = new Date();
   since.setDate(since.getDate() - PAPERWORK_APPROVED_WINDOW_DAYS);
@@ -80,14 +83,13 @@ export async function evaluatePaperworkInsight(
   const ctaHref = pendingReviewInboxHref(pendingMonths);
 
   return {
-    title: "הניירת הפיננסית נשארת מאחור",
-    explanation:
-      "נראה שיש עומס בתהליך אישור המסמכים, לעומת מה שנכנס לדוחות לאחרונה.",
+    title: t("insights.status.paperwork.title"),
+    explanation: t("insights.status.paperwork.explanation"),
     evidenceLines: [
-      `${pendingCount} מסמכים מחכים לבדיקה בסך הכול (מכל החודשים)`,
-      `בשבוע האחרון נוספו ${approvedRecentCount} רשומות לדוחות לאחר אישור`,
+      t("insights.status.paperwork.evidencePending", { count: pendingCount }),
+      t("insights.status.paperwork.evidenceApproved", { count: approvedRecentCount }),
     ],
-    ctaLabel: "הצג מסמכים ממתינים",
+    ctaLabel: t("insights.status.paperwork.cta"),
     ctaHref,
   };
 }

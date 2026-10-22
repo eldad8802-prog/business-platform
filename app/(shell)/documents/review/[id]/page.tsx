@@ -19,6 +19,7 @@ import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
 import reviewAdaptive from "@/components/documents/review/review-adaptive.module.css";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { errorMessage } from "@/lib/documents/review/format";
 import { buildExtractionMeta } from "@/lib/documents/review/meta";
 import { getPreviewKind } from "@/lib/documents/review/preview";
@@ -47,6 +48,7 @@ export default function ReviewPage() {
   const router = useRouter();
   const params = useParams();
   const id = params?.id as string;
+  const { t, locale } = useI18n();
 
   const authHeader = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -114,7 +116,7 @@ export default function ReviewPage() {
         setPreviewFailed(false);
 
         if (!authHeader) {
-          throw new Error("כדי לבדוק מסמך צריך להתחבר מחדש.");
+          throw new Error(t("documents.review.page.errLoginToReview"));
         }
 
         const res = await fetch(`/api/documents/${id}`, {
@@ -124,11 +126,11 @@ export default function ReviewPage() {
         const json = (await res.json()) as GetDocumentResponse;
 
         if (!res.ok) {
-          const msg = "error" in json ? json.error : "שגיאה בטעינת המסמך";
+          const msg = "error" in json ? json.error : t("documents.review.page.errLoad");
           throw new Error(msg);
         }
 
-        if ("error" in json) throw new Error(json.error || "שגיאה בטעינת המסמך");
+        if ("error" in json) throw new Error(json.error || t("documents.review.page.errLoad"));
 
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
@@ -179,12 +181,12 @@ export default function ReviewPage() {
         setReviewMode(defaultMode);
         setState("decision");
       } catch (e: unknown) {
-        setError(errorMessage(e, "שגיאה בטעינת המסמך"));
+        setError(errorMessage(e, t("documents.review.page.errLoad")));
       } finally {
         if (!quiet) setPageLoading(false);
       }
     },
-    [authHeader, id]
+    [authHeader, id, t]
   );
 
   useEffect(() => {
@@ -231,7 +233,7 @@ export default function ReviewPage() {
 
   const reprocess = useCallback(async () => {
     if (!authHeader) {
-      setError("כדי לעבד מחדש צריך להתחבר מחדש.");
+      setError(t("documents.review.page.errLoginToReprocess"));
       return;
     }
     try {
@@ -244,16 +246,16 @@ export default function ReviewPage() {
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "לא הצלחנו לעבד מחדש את המסמך");
+        throw new Error(json?.error || t("documents.review.page.errReprocessFailed"));
       }
       // Reflect the move back to "processing"; the poll effect resumes from there.
       await loadDocument({ quiet: true });
     } catch (e: unknown) {
-      setError(errorMessage(e, "שגיאה בעיבוד מחדש"));
+      setError(errorMessage(e, t("documents.review.page.errReprocess")));
     } finally {
       setLoading(false);
     }
-  }, [authHeader, id, loadDocument]);
+  }, [authHeader, id, loadDocument, t]);
 
   useEffect(() => {
     if (!document || !authHeader || !id) {
@@ -321,14 +323,14 @@ export default function ReviewPage() {
 
   const editFieldTitle =
     editField === "amount"
-      ? "עריכת סכום"
+      ? t("documents.review.page.editAmount")
       : editField === "vendorName"
-        ? "עריכת ספק"
+        ? t("documents.review.page.editVendor")
         : editField === "date"
-          ? "עריכת תאריך"
+          ? t("documents.review.page.editDate")
           : editField === "direction"
-            ? "עריכת כיוון"
-            : "עריכת קטגוריה";
+            ? t("documents.review.page.editDirection")
+            : t("documents.review.page.editCategory");
 
   const trustContext = useMemo(
     () =>
@@ -337,8 +339,10 @@ export default function ReviewPage() {
         extractionMeta,
         reviewMode,
         profileId: pid,
+        t,
+        locale,
       }),
-    [draft, extractionMeta, reviewMode, pid]
+    [draft, extractionMeta, reviewMode, pid, t, locale]
   );
 
   const trafficLevels = useMemo(
@@ -366,7 +370,7 @@ export default function ReviewPage() {
 
   const approveDocumentOnly = useCallback(async () => {
     if (!authHeader) {
-      setError("כדי לשמור צריך להתחבר מחדש.");
+      setError(t("documents.review.page.errLoginToSave"));
       return;
     }
 
@@ -392,22 +396,22 @@ export default function ReviewPage() {
 
       const json = await res.json();
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "לא הצלחנו לאשר את המסמך");
+        throw new Error(json?.error || t("documents.review.page.errApproveFailed"));
       }
 
       setApprovedAs("document");
       await refreshNextPendingDocument();
       setState("done");
     } catch (e: unknown) {
-      setError(errorMessage(e, "שגיאה באישור המסמך"));
+      setError(errorMessage(e, t("documents.review.page.errApprove")));
     } finally {
       setLoading(false);
     }
-  }, [authHeader, draft, id, refreshNextPendingDocument]);
+  }, [authHeader, draft, id, refreshNextPendingDocument, t]);
 
   const approveFinancial = useCallback(async () => {
     if (!authHeader) {
-      setError("כדי לשמור צריך להתחבר מחדש.");
+      setError(t("documents.review.page.errLoginToSave"));
       return;
     }
 
@@ -435,18 +439,18 @@ export default function ReviewPage() {
 
       const json = await res.json();
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "לא הצלחנו לשמור את העסקה");
+        throw new Error(json?.error || t("documents.review.page.errSaveTxFailed"));
       }
 
       setApprovedAs("financial");
       await refreshNextPendingDocument();
       setState("done");
     } catch (e: unknown) {
-      setError(errorMessage(e, "שגיאה בשמירת העסקה"));
+      setError(errorMessage(e, t("documents.review.page.errSaveTx")));
     } finally {
       setLoading(false);
     }
-  }, [authHeader, draft, id, refreshNextPendingDocument]);
+  }, [authHeader, draft, id, refreshNextPendingDocument, t]);
 
   const previewReady = fileStatus === "ready" && !!fileBlobUrl;
   const previewLoading = fileStatus === "loading";
@@ -533,18 +537,18 @@ export default function ReviewPage() {
   }
 
   return (
-    <div dir="rtl" style={basePageStyle()}>
+    <div style={basePageStyle()}>
       {/* maxWidth/margin come from the responsive .reviewMain class (760 →
           1240 at the workspace breakpoint); the rest of mainStyle stays inline. */}
       <main className={reviewAdaptive.reviewMain} style={{ ...mainStyle(), maxWidth: undefined, margin: undefined }}>
         <section style={reviewTopBarStyle}>
           <DocumentsBackButton />
           <div style={reviewTopTitleWrapStyle}>
-            <div style={reviewTopTitleStyle}>אימות מסמך</div>
-            <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
+            <div style={reviewTopTitleStyle}>{t("documents.review.page.topTitle")}</div>
+            <div style={reviewTopMetaStyle}>{t("documents.review.page.topMeta")}</div>
           </div>
           <div style={reviewTopStatusStyle}>
-            {state === "done" ? "הושלם" : "בתהליך"}
+            {state === "done" ? t("documents.review.page.statusDone") : t("documents.review.page.statusInProgress")}
           </div>
         </section>
         <ReviewHero state={state} />
@@ -556,11 +560,10 @@ export default function ReviewPage() {
         financialRecorded ? (
           <div style={duplicateWarnStyle} role="status">
             <strong style={duplicateWarnTitleStyle}>
-              המסמך אושר ונרשם כספית
+              {t("documents.review.page.lockedTitle")}
             </strong>
             <span style={duplicateWarnTextStyle}>
-              הרישום הכספי נעול. שינוי סכום, ספק, תאריך או כיוון יתאפשר רק דרך
-              תיקון מבוקר.
+              {t("documents.review.page.lockedBody")}
             </span>
           </div>
         ) : null}
@@ -569,13 +572,13 @@ export default function ReviewPage() {
           <div style={duplicateWarnStyle} role="alert">
             <strong style={duplicateWarnTitleStyle}>
               {duplicateSignals[0].level === "exact_file"
-                ? "נראה שהמסמך הזה כבר הועלה"
-                : "ייתכן שהעסקה הזו כבר נרשמה"}
+                ? t("documents.review.page.dupExactFile")
+                : t("documents.review.page.dupMaybeRecorded")}
             </strong>
             <span style={duplicateWarnTextStyle}>
               {duplicateSignals.some((s) => s.hasFinancialRecord)
-                ? "קיימת כבר רשומה כספית עם אותם ספק, סכום ותאריך. אישור כספי נוסף יכפיל את ההוצאה."
-                : "קיים מסמך דומה מאוד במערכת. בדוק לפני אישור כספי."}
+                ? t("documents.review.page.dupHasRecord")
+                : t("documents.review.page.dupSimilar")}
             </span>
             <button
               type="button"
@@ -584,7 +587,7 @@ export default function ReviewPage() {
                 router.push(`/documents/review/${duplicateSignals[0].documentId}`)
               }
             >
-              פתח את המסמך הקיים
+              {t("documents.review.page.dupOpenExisting")}
             </button>
           </div>
         ) : null}
@@ -688,12 +691,11 @@ export default function ReviewPage() {
 
         {documentOnlyConfirmOpen ? (
           <ReviewOverlayShell
-            title="שמור כמסמך מידע?"
+            title={t("documents.review.page.confirmDocTitle")}
             onClose={() => setDocumentOnlyConfirmOpen(false)}
           >
             <p style={confirmTextStyle}>
-              המסמך יישמר כמסמך מידע בלבד — ללא רישום כספי. הוא לא ייכלל
-              בהוצאות, בדוחות או בחבילת רואה החשבון.
+              {t("documents.review.page.confirmDocBody")}
             </p>
             <div style={confirmActionGridStyle}>
               <button
@@ -702,7 +704,7 @@ export default function ReviewPage() {
                 style={reviewConfirmSecondaryStyle}
                 onClick={() => setDocumentOnlyConfirmOpen(false)}
               >
-                ביטול
+                {t("documents.review.editor.cancel")}
               </button>
               <button
                 type="button"
@@ -713,7 +715,7 @@ export default function ReviewPage() {
                   void approveDocumentOnly();
                 }}
               >
-                שמור כמסמך מידע
+                {t("documents.review.actions.saveAsDocument")}
               </button>
             </div>
           </ReviewOverlayShell>
@@ -747,6 +749,7 @@ function ReviewOverlayShell({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -754,7 +757,7 @@ function ReviewOverlayShell({
       <section className="documents-review-dialog" role="dialog" aria-modal="true" style={reviewDialogStyle}>
         <div style={reviewDialogHeaderStyle}>
           <div style={reviewDialogTitleStyle}>{title}</div>
-          <button type="button" aria-label="סגור" onClick={onClose} style={reviewDialogCloseStyle}>
+          <button type="button" aria-label={t("documents.review.page.close")} onClick={onClose} style={reviewDialogCloseStyle}>
             ×
           </button>
         </div>
@@ -780,7 +783,7 @@ const reviewTopBarStyle = {
 
 const reviewTopTitleWrapStyle = {
   minWidth: 0,
-  textAlign: "right",
+  textAlign: "start",
 } as const;
 
 const reviewTopTitleStyle = {
@@ -829,17 +832,20 @@ function ProcessingReviewScreen({
   // A failed doc always offers retry; a "processing" doc only once it looks
   // stuck, so the normal fast path stays a clean spinner with no noise.
   const showRetry = isFailed || stale;
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={basePageStyle()}>
+    <div style={basePageStyle()}>
       <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
       <main style={mainStyle()}>
         <section style={reviewTopBarStyle}>
           <DocumentsBackButton />
           <div style={reviewTopTitleWrapStyle}>
-            <div style={reviewTopTitleStyle}>אימות מסמך</div>
-            <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
+            <div style={reviewTopTitleStyle}>{t("documents.review.page.topTitle")}</div>
+            <div style={reviewTopMetaStyle}>{t("documents.review.page.topMeta")}</div>
           </div>
-          <div style={reviewTopStatusStyle}>{isFailed ? "נכשל" : "בעיבוד"}</div>
+          <div style={reviewTopStatusStyle}>
+            {isFailed ? t("documents.review.page.statusFailed") : t("documents.review.page.statusProcessing")}
+          </div>
         </section>
 
         <section style={processingPanelStyle}>
@@ -865,14 +871,14 @@ function ProcessingReviewScreen({
             )}
           </div>
           <h2 style={processingTitleStyle}>
-            {isFailed ? "עיבוד המסמך נכשל" : "מעבד את המסמך…"}
+            {isFailed ? t("documents.review.page.processingFailedTitle") : t("documents.review.page.processingTitle")}
           </h2>
           <p style={processingTextStyle}>
             {isFailed
-              ? "הקובץ נשמר אך העיבוד לא הושלם. אפשר לנסות שוב — לא צריך להעלות מחדש."
+              ? t("documents.review.page.processingFailedBody")
               : stale
-                ? "העיבוד נמשך יותר מהצפוי. הקובץ נשמר בכל מקרה — אפשר להמתין עוד או לנסות שוב."
-                : "הקובץ נשמר ואנחנו מזהים את הפרטים. זה ייקח כמה שניות והמסך יתעדכן לבד."}
+                ? t("documents.review.page.processingStaleBody")
+                : t("documents.review.page.processingBody")}
           </p>
 
           {error ? <div style={processingErrorStyle}>{error}</div> : null}
@@ -884,7 +890,7 @@ function ProcessingReviewScreen({
               disabled={loading}
               style={{ ...processingRetryStyle, opacity: loading ? 0.6 : 1 }}
             >
-              {loading ? "מנסה שוב…" : "נסה שוב"}
+              {loading ? t("documents.review.page.retrying") : t("documents.review.page.retry")}
             </button>
           ) : null}
         </section>

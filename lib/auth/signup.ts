@@ -41,6 +41,7 @@ import bcrypt from "bcrypt";
 import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
+import type { Locale } from "@/lib/i18n/config";
 import { issueAccountLink } from "@/lib/auth/email-tokens";
 
 import {
@@ -83,6 +84,8 @@ export type CreateAccountInput = {
    * route). Only on the auth plane: the token functions are app_auth's.
    */
   sendVerification?: boolean;
+  /** The interface language of the signup request (getServerI18n) — the language of the account emails. */
+  locale?: Locale;
 };
 
 export type CreatedAccount = {
@@ -171,6 +174,7 @@ export async function createAccount(
             toEmail: user.email,
             name: input.name,
             now: input.now,
+            locale: input.locale,
           })
         : null;
 
@@ -180,7 +184,7 @@ export async function createAccount(
       // account cannot be in.
       const verification =
         input.sendVerification && isAuthPlaneActive()
-          ? await issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: input.name, now: input.now })
+          ? await issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: input.name, now: input.now, locale: input.locale })
           : null;
 
       return {

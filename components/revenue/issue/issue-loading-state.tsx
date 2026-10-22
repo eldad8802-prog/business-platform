@@ -1,4 +1,9 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 export default function IssueLoadingState() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -17,7 +22,7 @@ export default function IssueLoadingState() {
           marginBottom: 10,
         }}
       >
-        יוצר קופון...
+        {t("billing.couponIssue.creating")}
       </div>
 
       <div
@@ -26,7 +31,7 @@ export default function IssueLoadingState() {
           color: "var(--dz-text-muted)",
         }}
       >
-        עוד רגע ה־QR יהיה מוכן
+        {t("billing.couponIssue.creatingHelp")}
       </div>
     </div>
   );

@@ -10,10 +10,12 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
 import { MAX_BUSINESS_NAME_LENGTH, MIN_NAME_LENGTH } from "@/lib/auth/signup-identity";
 
 export function BusinessNameEditor() {
+  const { t } = useI18n();
   const [saved, setSaved] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -55,7 +57,7 @@ export function BusinessNameEditor() {
       if (res.status === 401) return redirectToLogin();
       const data = (await res.json().catch(() => null)) as { name?: string; error?: string } | null;
       if (!res.ok || !data?.name) {
-        setMessage({ kind: "error", text: data?.error ?? "השמירה נכשלה. נסו שוב." });
+        setMessage({ kind: "error", text: data?.error ?? t("content.identity.nameEditor.saveFailed") });
         return;
       }
       setSaved(data.name);
@@ -70,9 +72,9 @@ export function BusinessNameEditor() {
       } catch {
         /* cosmetic only */
       }
-      setMessage({ kind: "ok", text: "שם העסק עודכן" });
+      setMessage({ kind: "ok", text: t("content.identity.nameEditor.updated") });
     } catch {
-      setMessage({ kind: "error", text: "אין חיבור כרגע. נסו שוב." });
+      setMessage({ kind: "error", text: t("content.identity.nameEditor.offline") });
     } finally {
       setSaving(false);
     }
@@ -91,15 +93,15 @@ export function BusinessNameEditor() {
       }}
     >
       <h2 id="business-name-title" style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--dz-text-primary)" }}>
-        שם העסק
+        {t("content.identity.nameEditor.title")}
       </h2>
       <p style={{ margin: 0, fontSize: 13, color: "var(--dz-text-muted)", lineHeight: 1.5 }}>
-        השם שמופיע ב-Dubiz ובבית שלך. השם המשפטי למסמכים נקבע בנפרד, למטה.
+        {t("content.identity.nameEditor.help")}
       </p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <input
           type="text"
-          aria-label="שם העסק"
+          aria-label={t("content.identity.nameEditor.inputAria")}
           value={value}
           maxLength={MAX_BUSINESS_NAME_LENGTH}
           onChange={(e) => {
@@ -133,12 +135,12 @@ export function BusinessNameEditor() {
             cursor: !valid || !changed || saving ? "default" : "pointer",
           }}
         >
-          {saving ? "שומר…" : "שמירה"}
+          {saving ? t("content.identity.nameEditor.saving") : t("content.identity.nameEditor.save")}
         </button>
       </div>
       {!valid && trimmed.length > 0 ? (
         <p role="alert" style={{ margin: 0, fontSize: 13, color: "var(--dz-danger)" }}>
-          שם העסק צריך להכיל {MIN_NAME_LENGTH}–{MAX_BUSINESS_NAME_LENGTH} תווים
+          {t("content.identity.nameEditor.lengthError", { min: MIN_NAME_LENGTH, max: MAX_BUSINESS_NAME_LENGTH })}
         </p>
       ) : message ? (
         <p

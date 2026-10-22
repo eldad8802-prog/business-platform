@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAccessibleDialog } from "@/components/ui/accessibility";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
   buildDocumentDownloadName,
   fetchDocumentFileBlob,
@@ -68,10 +69,11 @@ export default function DocumentFilePreviewOverlay({
 
   // WP1 A-11 via the shared A-18 primitive: role/aria-modal, focus trap + restore,
   // Escape, background inert, scroll lock — all inherited, no hand-rolling.
+  const { t } = useI18n();
   const { dialogProps, backdropProps } = useAccessibleDialog({
     open: true,
     onClose,
-    ariaLabel: "תצוגת מסמך מקור",
+    ariaLabel: t("documents.filePreview.aria"),
   });
 
   const kind = getPreviewKind("", mimeType);
@@ -80,7 +82,12 @@ export default function DocumentFilePreviewOverlay({
     if (!blobUrl) return;
     const a = document.createElement("a");
     a.href = blobUrl;
-    a.download = buildDocumentDownloadName({ documentId, vendorName, mimeType });
+    a.download = buildDocumentDownloadName({
+      documentId,
+      vendorName,
+      mimeType,
+      fallbackName: t("documents.common.documentFallbackName"),
+    });
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -90,7 +97,6 @@ export default function DocumentFilePreviewOverlay({
 
   return createPortal(
     <div
-      dir="rtl"
       className="documents-file-overlay"
       style={overlayStyle}
       {...backdropProps}
@@ -107,11 +113,11 @@ export default function DocumentFilePreviewOverlay({
               disabled={status !== "ready"}
               style={downloadButtonStyle(status !== "ready")}
             >
-              הורד מסמך
+              {t("documents.filePreview.download")}
             </button>
             <button
               type="button"
-              aria-label="סגור"
+              aria-label={t("documents.filePreview.close")}
               onClick={onClose}
               style={closeButtonStyle}
             >
@@ -122,10 +128,10 @@ export default function DocumentFilePreviewOverlay({
 
         <div style={bodyStyle}>
           {status === "loading" ? (
-            <div style={centerNoteStyle}>טוען מסמך…</div>
+            <div style={centerNoteStyle}>{t("documents.filePreview.loading")}</div>
           ) : status === "error" ? (
             <div style={centerNoteStyle}>
-              לא ניתן להציג את קובץ המקור כרגע.
+              {t("documents.filePreview.error")}
             </div>
           ) : kind === "pdf" ? (
             <iframe src={blobUrl as string} title={title} style={frameStyle} />
@@ -134,7 +140,7 @@ export default function DocumentFilePreviewOverlay({
             <img src={blobUrl as string} alt={title} style={imageStyle} />
           ) : (
             <div style={centerNoteStyle}>
-              סוג הקובץ אינו נתמך לתצוגה. אפשר להוריד אותו דרך הכפתור למעלה.
+              {t("documents.filePreview.unsupported")}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@
 import { reviewCard } from "./review-ui";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const toolbarStyle = {
   display: "flex",
@@ -50,6 +51,7 @@ export default function ReviewDocumentPreview({
   onPreviewFailed,
 }: ReviewDocumentPreviewProps) {
   const canOpenFull = !showPreviewFallback && !!fileBlobUrl;
+  const { t } = useI18n();
 
   return (
     <section style={reviewCard}>
@@ -61,7 +63,7 @@ export default function ReviewDocumentPreview({
             fontSize: TOKEN.font.title,
           }}
         >
-          תצוגת מסמך
+          {t("documents.review.preview.title")}
         </div>
         {canOpenFull ? (
           <a
@@ -71,7 +73,7 @@ export default function ReviewDocumentPreview({
             style={openFullButtonStyle}
           >
             <ExternalIcon />
-            פתח במסך מלא
+            {t("documents.review.preview.openFull")}
           </a>
         ) : null}
       </div>
@@ -94,7 +96,9 @@ export default function ReviewDocumentPreview({
               color: TOKEN.ink.primary,
             }}
           >
-            {previewLoading ? "טוען תצוגת מסמך..." : "אין תצוגה מקדימה זמינה"}
+            {previewLoading
+              ? t("documents.review.preview.loading")
+              : t("documents.review.preview.unavailable")}
           </div>
           <div
             style={{
@@ -105,14 +109,14 @@ export default function ReviewDocumentPreview({
             }}
           >
             {previewLoading
-              ? "מורידים את קובץ המקור בצורה מאובטחת."
-              : "הנתונים שחולצו עדיין זמינים, גם אם קובץ המקור לא מוצג כרגע."}
+              ? t("documents.review.preview.downloading")
+              : t("documents.review.preview.extractedStillAvailable")}
           </div>
         </div>
       ) : previewKind === "pdf" ? (
         <iframe
           src={fileBlobUrl as string}
-          title="תצוגת מסמך"
+          title={t("documents.review.preview.title")}
           onError={onPreviewFailed}
           style={{
             width: "100%",
@@ -126,7 +130,7 @@ export default function ReviewDocumentPreview({
         // eslint-disable-next-line @next/next/no-img-element -- Secure object URL preview, not a static/image-optimization asset.
         <img
           src={fileBlobUrl as string}
-          alt="תצוגת מסמך"
+          alt={t("documents.review.preview.title")}
           onError={onPreviewFailed}
           style={{
             width: "100%",

@@ -1,11 +1,14 @@
-export default function PostsPage() {
+import { getServerI18n } from "@/lib/i18n/server";
+
+export default async function PostsPage() {
+  const { t } = await getServerI18n();
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        <div style={styles.badge}>בקרוב</div>
-        <h1 style={styles.title}>יצירת תוכן</h1>
+        <div style={styles.badge}>{t("content.studioFlow.posts.badge")}</div>
+        <h1 style={styles.title}>{t("content.studioFlow.posts.title")}</h1>
         <p style={styles.text}>
-          הפיצ’ר הזה עדיין לא פעיל, אבל הוא כבר שמור במקום הנכון במערכת.
+          {t("content.studioFlow.posts.text")}
         </p>
       </div>
     </div>
@@ -16,7 +19,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
     background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)",
-    direction: "rtl",
     padding: "24px 16px",
     boxSizing: "border-box",
   },

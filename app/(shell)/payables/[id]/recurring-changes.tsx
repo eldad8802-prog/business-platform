@@ -12,6 +12,7 @@
 
 import { useState } from "react";
 import { changeRecurringAmount, endCommitment, formatDate } from "@/lib/payables/payables-client";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import styles from "../payables.module.css";
 
 function todayIso(): string {
@@ -37,6 +38,7 @@ export function RecurringChanges({
   endAt: string | null;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
 }) {
+  const { t, locale } = useI18n();
   const [mode, setMode] = useState<"none" | "amount" | "end">("none");
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
   const [amount, setAmount] = useState("");
@@ -55,13 +57,13 @@ export function RecurringChanges({
 
   return (
     <div className={styles.form}>
-      {endAt ? <div className={styles.notice}>ההתחייבות בתוקף עד {formatDate(endAt)} (כולל).</div> : null}
+      {endAt ? <div className={styles.notice}>{t("money.payables.recurring.endsNotice", { date: formatDate(endAt, locale) })}</div> : null}
       <div className={styles.formRow2}>
         <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => setMode(mode === "amount" ? "none" : "amount")}>
-          שינוי סכום מתאריך
+          {t("money.payables.recurring.changeAmount")}
         </button>
         <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => setMode(mode === "end" ? "none" : "end")}>
-          סיום ההתחייבות
+          {t("money.payables.recurring.end")}
         </button>
       </div>
 
@@ -71,26 +73,26 @@ export function RecurringChanges({
             e.preventDefault();
             void submit(
               () => changeRecurringAmount(commitmentId, { effectiveFrom: civilIso(effectiveFrom), amount: amount.trim() }),
-              "הסכום עודכן מהתשלום שבתאריך שנבחר ואילך. תשלומים קודמים לא השתנו.",
+              t("money.payables.recurring.amountChanged"),
             );
           }}
         >
           <div className={styles.formRow2}>
             <div className={styles.field}>
               <label className={styles.label} htmlFor="rc-from">
-                החל מתאריך
+                {t("money.payables.recurring.from")}
               </label>
               <input id="rc-from" className={styles.input} type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} required />
             </div>
             <div className={styles.field}>
               <label className={styles.label} htmlFor="rc-amount">
-                הסכום החדש
+                {t("money.payables.recurring.newAmount")}
               </label>
               <input id="rc-amount" className={styles.input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="9500.00" required />
             </div>
           </div>
           <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-            {busy ? "מעדכן…" : "עדכן סכום"}
+            {busy ? t("money.common.updating") : t("money.payables.recurring.updateAmount")}
           </button>
         </form>
       ) : null}
@@ -101,18 +103,18 @@ export function RecurringChanges({
             e.preventDefault();
             void submit(
               () => endCommitment(commitmentId, { endsOn: civilIso(endsOn) }),
-              "ההתחייבות תסתיים בתאריך שנבחר. תשלומים שלא שולמו אחריו בוטלו.",
+              t("money.payables.recurring.ended"),
             );
           }}
         >
           <div className={styles.field}>
             <label className={styles.label} htmlFor="rc-end">
-              היום האחרון שבו ההתחייבות בתוקף
+              {t("money.payables.recurring.lastDay")}
             </label>
             <input id="rc-end" className={styles.input} type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} required />
           </div>
           <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-            {busy ? "מעדכן…" : "סיים התחייבות"}
+            {busy ? t("money.common.updating") : t("money.payables.recurring.endSubmit")}
           </button>
         </form>
       ) : null}

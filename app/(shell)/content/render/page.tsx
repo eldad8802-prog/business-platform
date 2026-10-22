@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 function isTerminalRenderSuccess(status: unknown, url: unknown): boolean {
   const s = typeof status === "string" ? status.toLowerCase() : "";
@@ -74,30 +76,39 @@ type ContentResult = {
 };
 
 type Step = {
-  label: string;
-  description: string;
+  label: MessageKey;
+  description: MessageKey;
 };
+
+// Errors raised here are stored as dictionary keys (resolved at render, so the
+// render effect never depends on the translator); errors from the server are
+// stored as the text it sent.
+const LOCAL_ERROR_PREFIX = "content.studioFlow.render.errors.";
+
+function errorText(t: Translator, error: string): string {
+  return error.startsWith(LOCAL_ERROR_PREFIX) ? t(error as MessageKey) : error;
+}
 
 const steps: Step[] = [
   {
-    label: "מחברים את החומרים לסיפור",
-    description: "מסדרים את הרגעים בסדר שמתאים לכיוון ולפורמט שבחרת.",
+    label: "content.studioFlow.render.steps.story.label",
+    description: "content.studioFlow.render.steps.story.description",
   },
   {
-    label: "מסדרים קצב ומעברים",
-    description: "מתאימים את הקצב, המעברים והתחושה לפלטפורמה.",
+    label: "content.studioFlow.render.steps.pace.label",
+    description: "content.studioFlow.render.steps.pace.description",
   },
   {
-    label: "משלבים פתיחה וטקסט על המסך",
-    description: "מוסיפים את הפתיחה, הטקסט והמסר לפי הכיוון שנבחר.",
+    label: "content.studioFlow.render.steps.text.label",
+    description: "content.studioFlow.render.steps.text.description",
   },
   {
-    label: "מגמרים את הסרטון",
-    description: "מחברים את כל החלקים לסרטון אחד גמור שאפשר לפרסם.",
+    label: "content.studioFlow.render.steps.finish.label",
+    description: "content.studioFlow.render.steps.finish.description",
   },
 ];
 
-function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
+function getPlatformLabel(t: Translator, platform?: ContentFlow["selectedPlatform"]) {
   switch (platform) {
     case "instagram":
       return "Instagram";
@@ -106,12 +117,13 @@ function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
     case "facebook":
       return "Facebook";
     default:
-      return "פלטפורמה";
+      return t("content.studioFlow.common.platform");
   }
 }
 
 export default function RenderPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [result, setResult] = useState<ContentResult | null>(null);
@@ -213,7 +225,7 @@ export default function RenderPage() {
         if (cancelled) return;
 
         if ((data.status || "").toLowerCase() === "failed") {
-          setError(data.errorMessage || "לא הצלחנו לסיים את הסרטון");
+          setError(data.errorMessage || "content.studioFlow.render.errors.finishFailed");
           return;
         }
 
@@ -238,7 +250,7 @@ export default function RenderPage() {
       } catch (err) {
         console.error(err);
         if (!cancelled) {
-          setError("לא הצלחנו לבדוק איפה זה עומד. נסו שוב בעוד רגע.");
+          setError("content.studioFlow.render.errors.statusFailed");
         }
       }
     }
@@ -250,7 +262,7 @@ export default function RenderPage() {
         setActiveStep(0);
 
         if (!token) {
-          setError("כדי להמשיך צריך להתחבר מחדש.");
+          setError("content.studioFlow.render.errors.signInAgain");
           return;
         }
 
@@ -285,7 +297,7 @@ export default function RenderPage() {
             return;
           }
           if (data?.error === "limit_reached") {
-            setError(data?.message || "נגמרה המכסה השבועית שלך");
+            setError(data?.message || "content.studioFlow.render.errors.limitReached");
             return;
           }
 
@@ -318,7 +330,7 @@ export default function RenderPage() {
         }
 
         if (!data.renderId) {
-          setError("משהו השתבש בהתחלה — נסו לרענן את העמוד.");
+          setError("content.studioFlow.render.errors.startBroken");
           return;
         }
 
@@ -326,7 +338,7 @@ export default function RenderPage() {
       } catch (err) {
         console.error(err);
         if (!cancelled) {
-          setError("לא הצלחנו להתחיל את ההרכבה. אפשר לנסות שוב.");
+          setError("content.studioFlow.render.errors.startFailed");
         }
       }
     }
@@ -356,7 +368,7 @@ export default function RenderPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>מרכיבים את הסרטון</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.render.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -365,34 +377,34 @@ export default function RenderPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>עכשיו</div>
-            <h1 style={titleStyle}>מרכיבים עכשיו את הסרטון שלך</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.common.now")}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.render.title")}</h1>
             <p style={subtitleStyle}>
               {isAiMode
-                ? "לפי הכיוון שבחרת, אנחנו מחברים לסרטון אחד את כל מה שהכנו עבורך בדרך."
-                : "לפי הכיוון שבחרת, אנחנו מחברים את מה שצילמת והעלית לסרטון אחד."}
+                ? t("content.studioFlow.render.subtitleAi")
+                : t("content.studioFlow.render.subtitleCamera")}
             </p>
           </div>
 
           {flow ? (
             <div style={summaryCardStyle}>
               <div style={summaryValueStyle}>
-                {flow.selectedDirection?.title ?? "הכיוון שנבחר"}
+                {flow.selectedDirection?.title ?? t("content.studioFlow.common.chosenDirection")}
               </div>
               <div style={summaryPlatformStyle}>
-                {getPlatformLabel(flow.selectedPlatform)}
+                {getPlatformLabel(t, flow.selectedPlatform)}
               </div>
             </div>
           ) : null}
 
           {error ? (
             <div style={errorBoxStyle}>
-              <div style={errorTitleStyle}>רגע, משהו נתקע</div>
-              <div style={errorTextStyle}>{error}</div>
+              <div style={errorTitleStyle}>{t("content.studioFlow.common.stuckTitle")}</div>
+              <div style={errorTextStyle}>{errorText(t, error)}</div>
             </div>
           ) : (
             <div style={stepsCardStyle}>
-              <div style={stepsTitleStyle}>מה קורה כאן?</div>
+              <div style={stepsTitleStyle}>{t("content.studioFlow.render.stepsTitle")}</div>
 
               <div style={stepsWrapStyle}>
                 {steps.map((step, index) => {
@@ -418,10 +430,10 @@ export default function RenderPage() {
 
                       <div style={stepContentStyle}>
                         <div style={stepTitleStyle(isDone || isCurrent)}>
-                          {step.label}
+                          {t(step.label)}
                         </div>
                         <div style={stepDescriptionStyle}>
-                          {step.description}
+                          {t(step.description)}
                         </div>
                       </div>
                     </div>
@@ -431,12 +443,12 @@ export default function RenderPage() {
 
               <div style={statusBoxStyle(isReady)}>
                 <div style={statusTitleStyle}>
-                  {isReady ? "הסרטון מוכן" : "עדיין מרכיבים"}
+                  {isReady ? t("content.studioFlow.render.readyTitle") : t("content.studioFlow.render.workingTitle")}
                 </div>
                 <div style={statusTextStyle}>
                   {isReady
-                    ? "אפשר לעבור לראות את התוצאה."
-                    : "זה עדיין בעבודה ברקע — לפעמים לוקח עוד דקה־שתיים. אפשר להשאיר את העמוד פתוח."}
+                    ? t("content.studioFlow.render.readyText")
+                    : t("content.studioFlow.render.workingText")}
                 </div>
               </div>
             </div>
@@ -450,7 +462,7 @@ export default function RenderPage() {
             onClick={handleContinue}
             disabled={!isReady || Boolean(error)}
           >
-            לראות את הסרטון
+            {t("content.studioFlow.render.cta")}
           </button>
         </div>
       </div>

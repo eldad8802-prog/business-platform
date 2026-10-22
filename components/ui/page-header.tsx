@@ -18,7 +18,6 @@ export default function PageHeader({
   return (
     <div
       style={{
-        direction: "rtl",
         position: "sticky",
         top: 0,
         zIndex: 50,
@@ -37,8 +36,7 @@ export default function PageHeader({
           fontSize: "16px",
           textAlign: "center",
           width: "100%",
-          paddingLeft: 88,
-          paddingRight: 88,
+          paddingInline: 88,
           boxSizing: "border-box",
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -52,7 +50,7 @@ export default function PageHeader({
         <div
           style={{
             position: "absolute",
-            right: 16,
+            insetInlineStart: 16,
             top: "50%",
             transform: "translateY(-50%)",
           }}

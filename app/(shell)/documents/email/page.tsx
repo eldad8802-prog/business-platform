@@ -12,6 +12,10 @@ import {
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import { formatNumber } from "@/lib/i18n/format";
+import type { Translator } from "@/lib/i18n/translate";
 
 type GmailConnectionSummary = {
   id: number;
@@ -36,30 +40,43 @@ function errorMessage(error: unknown, fallback: string): string {
 
 // Friendly Hebrew copy for the whitelisted error codes the Gmail OAuth callback
 // (app/api/integrations/gmail/callback) redirects back with on failure.
-function gmailCallbackErrorMessage(code: string): string {
+function gmailCallbackErrorMessage(t: Translator, code: string): string {
   switch (code) {
     case "google_access_denied":
-      return "החיבור בוטל מול Google. אפשר לנסות שוב.";
+      return t("documents.email.errAccessDenied");
     case "gmail_state_invalid":
-      return "משהו נקטע באמצע החיבור ל-Gmail. נסה להתחבר שוב.";
+      return t("documents.email.errStateInvalid");
     case "gmail_token_exchange_failed":
-      return "לא הצלחנו להשלים את החיבור מול Google. נסה שוב עוד רגע.";
+      return t("documents.email.errTokenExchange");
     case "max_accounts":
-      return "אפשר לחבר עד שני חשבונות Gmail. כדי לחבר חשבון אחר, נתק חשבון קיים.";
+      return t("documents.email.errMaxAccounts");
     case "gmail_callback_failed":
     default:
-      return "החיבור ל-Gmail לא הושלם. נסה שוב.";
+      return t("documents.email.errCallback");
   }
 }
 
-function formatSentAt(raw: string | null): string {
+function formatSentAt(raw: string | null, locale: Locale = DEFAULT_LOCALE): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("he-IL", { day: "numeric", month: "numeric" });
+  return date.toLocaleDateString(intlTag(locale), { day: "numeric", month: "numeric" });
+}
+
+function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): string {
+  return status === "imported"
+    ? t("documents.email.statusImported")
+    : status === "duplicate"
+      ? t("documents.email.statusDuplicate")
+      : status === "importing"
+        ? t("documents.email.statusImporting")
+        : status === "failed"
+          ? t("documents.email.statusFailed")
+          : t("documents.email.statusNotDocument");
 }
 
 export default function EmailDocumentsPage() {
+  const { t, locale, fmt } = useI18n();
   const [mounted, setMounted] = useState(false);
   const [authHeader, setAuthHeader] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -102,13 +119,13 @@ export default function EmailDocumentsPage() {
     // the mount effect above) to avoid cascading renders.
     void Promise.resolve().then(() => {
       if (connectedFlag === "1") {
-        setNotice("חשבון ה-Gmail חובר בהצלחה. סורק מיילים אחרונים...");
+        setNotice(t("documents.email.connectedNotice"));
       } else if (errorFlag) {
-        setError(gmailCallbackErrorMessage(errorFlag));
+        setError(gmailCallbackErrorMessage(t, errorFlag));
       }
       window.history.replaceState({}, "", "/documents/email");
     });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!authHeader) return;
@@ -169,11 +186,11 @@ export default function EmailDocumentsPage() {
         error?: string;
       };
       if (!response.ok || !data.url) {
-        throw new Error(data.error || "לא הצלחנו לפתוח את החיבור ל-Gmail");
+        throw new Error(data.error || t("documents.email.errOpenConnect"));
       }
       window.location.href = data.url;
     } catch (err) {
-      setError(errorMessage(err, "שגיאה בחיבור Gmail"));
+      setError(errorMessage(err, t("documents.email.errConnect")));
     }
   }
 
@@ -188,7 +205,7 @@ export default function EmailDocumentsPage() {
         body: JSON.stringify({ connectionId }),
       });
       if (!response.ok) {
-        throw new Error("לא הצלחנו לנתק את החשבון. נסה שוב.");
+        throw new Error(t("documents.email.errDisconnectFailed"));
       }
       const next = connections.map((c) =>
         c.id === connectionId ? { ...c, status: "revoked" } : c
@@ -201,9 +218,9 @@ export default function EmailDocumentsPage() {
         setAttachments([]);
         setStatusByKey({});
       }
-      setNotice("החשבון נותק.");
+      setNotice(t("documents.email.disconnectedNotice"));
     } catch (err) {
-      setError(errorMessage(err, "שגיאה בניתוק החשבון"));
+      setError(errorMessage(err, t("documents.email.errDisconnect")));
     } finally {
       setDisconnectingId(null);
       setConfirmingId(null);
@@ -231,10 +248,10 @@ export default function EmailDocumentsPage() {
         // stale "Connected" + cryptic error.
         setConnected(false);
         setAttachments([]);
-        setError("החיבור ל-Gmail פג. חבר מחדש כדי להמשיך.");
+        setError(t("documents.email.errExpired"));
         return;
       }
-      if (!response.ok) throw new Error(data?.error || "שגיאה בסריקת מיילים");
+      if (!response.ok) throw new Error(data?.error || t("documents.email.errScan"));
       const list: GmailDiscoveryAttachment[] = Array.isArray(data.attachments)
         ? data.attachments
         : [];
@@ -246,7 +263,7 @@ export default function EmailDocumentsPage() {
       }
       setStatusByKey(nextStatus);
     } catch (err) {
-      setError(errorMessage(err, "שגיאה בסריקת מיילים"));
+      setError(errorMessage(err, t("documents.email.errScan")));
     } finally {
       setLoading(false);
     }
@@ -277,7 +294,7 @@ export default function EmailDocumentsPage() {
       const data = await response.json().catch(() => ({}));
       if (response.status === 409 || data?.needsReconnect) {
         setConnected(false);
-        setError("החיבור ל-Gmail פג. חבר מחדש כדי להמשיך.");
+        setError(t("documents.email.errExpired"));
         setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
         return false;
       }
@@ -309,10 +326,10 @@ export default function EmailDocumentsPage() {
 
   if (!mounted) {
     return (
-      <div dir="rtl" style={pageStyle}>
+      <div style={pageStyle}>
         <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
           <Header />
-          <div style={emptyStyle}>טוען...</div>
+          <div style={emptyStyle}>{t("documents.email.loading")}</div>
         </PageContainer>
       </div>
     );
@@ -320,13 +337,13 @@ export default function EmailDocumentsPage() {
 
   if (!authHeader) {
     return (
-      <div dir="rtl" style={pageStyle}>
+      <div style={pageStyle}>
         <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
           <Header />
           <section style={emptyStyle}>
-            צריך להתחבר כדי לייבא מסמכים מהמייל.
+            {t("documents.email.loginRequired")}
             <Link href="/login" style={loginLinkStyle}>
-              התחבר
+              {t("documents.email.login")}
             </Link>
           </section>
         </PageContainer>
@@ -338,7 +355,7 @@ export default function EmailDocumentsPage() {
   const canConnectAnother = connectedAccounts.length >= 1 && connectedAccounts.length < 2;
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <PageContainer
         intent="focused"
         className={connected ? "dz-doc-wide" : "dz-email-off"}
@@ -361,12 +378,14 @@ export default function EmailDocumentsPage() {
           }}
         >
           {connected ? <CheckIcon /> : <WarningIcon />}
-          {connected ? `מחובר: ${emailAddress || "Gmail"}` : "Gmail לא מחובר"}
+          {connected
+            ? t("documents.email.connectedAs", { email: emailAddress || "Gmail" })
+            : t("documents.email.notConnected")}
         </section>
 
         {connections.length > 0 ? (
           <section style={accountsCardStyle}>
-            <div style={accountsTitleStyle}>חשבונות Gmail</div>
+            <div style={accountsTitleStyle}>{t("documents.email.accounts")}</div>
             {connections.map((c) => (
               <div key={c.id} style={accountRowStyle}>
                 <div style={accountEmailStyle}>{c.emailAddress}</div>
@@ -377,7 +396,7 @@ export default function EmailDocumentsPage() {
                       : accountBadgeRevokedStyle
                   }
                 >
-                  {c.status === "connected" ? "מחובר" : "מנותק"}
+                  {c.status === "connected" ? t("documents.email.connected") : t("documents.email.revoked")}
                 </span>
                 {c.status === "connected" ? (
                   confirmingId === c.id ? (
@@ -388,14 +407,14 @@ export default function EmailDocumentsPage() {
                         disabled={disconnectingId === c.id}
                         onClick={() => void disconnectAccount(c.id)}
                       >
-                        {disconnectingId === c.id ? "מנתק…" : "אשר ניתוק"}
+                        {disconnectingId === c.id ? t("documents.email.disconnecting") : t("documents.email.confirmDisconnect")}
                       </button>
                       <button
                         type="button"
                         style={confirmNoStyle}
                         onClick={() => setConfirmingId(null)}
                       >
-                        בטל
+                        {t("documents.email.cancel")}
                       </button>
                     </span>
                   ) : (
@@ -404,7 +423,7 @@ export default function EmailDocumentsPage() {
                       style={disconnectBtnStyle}
                       onClick={() => setConfirmingId(c.id)}
                     >
-                      נתק
+                      {t("documents.email.disconnect")}
                     </button>
                   )
                 ) : null}
@@ -416,7 +435,7 @@ export default function EmailDocumentsPage() {
                 onClick={() => void startConnect()}
                 style={connectAnotherBtnStyle}
               >
-                חבר חשבון נוסף
+                {t("documents.email.connectAnother")}
               </button>
             ) : null}
           </section>
@@ -424,7 +443,7 @@ export default function EmailDocumentsPage() {
 
         {connectedAccounts.length >= 2 ? (
           <section style={selectorCardStyle}>
-            <div style={selectorLabelStyle}>סרוק וייבא מתוך</div>
+            <div style={selectorLabelStyle}>{t("documents.email.scanFrom")}</div>
             <div style={selectorChipsStyle}>
               {connectedAccounts.map((c) => (
                 <button
@@ -453,16 +472,16 @@ export default function EmailDocumentsPage() {
 
         {!connected ? (
           <button type="button" onClick={() => void startConnect()} style={connectButtonStyle}>
-            חבר Gmail
+            {t("documents.email.connectGmail")}
           </button>
         ) : null}
         </div>
         <div className="dz-email-main">
         {!connected ? (
           <section className="dz-email-explain" style={accountsCardStyle}>
-            <div style={accountsTitleStyle}>מה החיבור עושה</div>
+            <div style={accountsTitleStyle}>{t("documents.email.whatItDoes")}</div>
             <p style={{ margin: 0, color: TOKEN.ink.muted, lineHeight: 1.6 }}>
-              סריקה מאתרת קבצים מצורפים. ייבוא מריץ OCR ומעביר את המסמך לתור האימות — בלי לאשר אותו אוטומטית.
+              {t("documents.email.whatItDoesBody")}
             </p>
           </section>
         ) : null}
@@ -470,27 +489,29 @@ export default function EmailDocumentsPage() {
         {connected ? (<>
 
         <div style={{ ...subStyle, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <span>קבצים מצורפים שזוהו · ייבוא יריץ OCR ויעביר לתור האימות</span>
+          <span>{t("documents.email.detectedSub")}</span>
           <button
             type="button"
             className="dz-email-import"
             disabled={importing || importable.length === 0}
             onClick={() => void importSelected()}
           >
-            {importing ? "מייבא..." : `ייבא הכל (${importable.length.toLocaleString("he-IL")})`}
+            {importing
+              ? t("documents.email.importing")
+              : t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
           </button>
         </div>
 
-        {loading ? <div style={emptyStyle}>סורק מיילים...</div> : null}
+        {loading ? <div style={emptyStyle}>{t("documents.email.scanning")}</div> : null}
 
         </>) : null}
         {error ? <div style={errorStyle}>{error}</div> : null}
 
         {connected && !loading && visible.length === 0 ? (
           <section style={emptyStyle}>
-            לא נמצאו קבצים לייבוא.
+            {t("documents.email.noFiles")}
             <button type="button" onClick={() => void runScan(30)} style={scanButtonStyle}>
-              סרוק שוב
+              {t("documents.email.scanAgain")}
             </button>
           </section>
         ) : null}
@@ -505,11 +526,11 @@ export default function EmailDocumentsPage() {
                   {attachment.mimeType.includes("pdf") ? "📄" : "📎"}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={rowTitleStyle}>{attachment.filename || "קובץ ללא שם"}</span>
+                  <span style={rowTitleStyle}>{attachment.filename || t("documents.email.untitled")}</span>
                   <span style={rowMetaStyle}>
-                    מ-{attachment.fromEmail || "לא צוין"}
-                    {attachment.sentAt ? ` · ${formatSentAt(attachment.sentAt)}` : ""}
-                    {canImport ? " · חדש" : ""}
+                    {t("documents.email.from", { email: attachment.fromEmail || t("documents.common.notSpecified") })}
+                    {attachment.sentAt ? ` · ${formatSentAt(attachment.sentAt, locale)}` : ""}
+                    {canImport ? t("documents.email.newSuffix") : ""}
                   </span>
                 </span>
                 <span style={trailStyle}>
@@ -520,19 +541,11 @@ export default function EmailDocumentsPage() {
                       onClick={() => void importOne(attachment)}
                       style={smallButtonStyle}
                     >
-                      קלוט
+                      {t("documents.email.import")}
                     </button>
                   ) : (
                     <span style={pillStyleFor(status, attachment.bucket)}>
-                      {status === "imported"
-                        ? "נקלט · בתור"
-                        : status === "duplicate"
-                          ? "כבר נקלט"
-                          : status === "importing"
-                            ? "קולט..."
-                            : status === "failed"
-                              ? "נכשל"
-                              : "לא מסמך"}
+                      {attachmentStatusLabel(t, status)}
                     </span>
                   )}
                 </span>
@@ -541,14 +554,14 @@ export default function EmailDocumentsPage() {
           })}
         </section> : null}
         {connected ? (
-          <section className="dz-email-table" aria-label="קבצים מצורפים">
+          <section className="dz-email-table" aria-label={t("documents.email.tableAria")}>
             <table>
               <thead>
                 <tr>
-                  <th>קובץ</th>
-                  <th>מאת</th>
-                  <th>תאריך</th>
-                  <th>פעולה</th>
+                  <th>{t("documents.email.colFile")}</th>
+                  <th>{t("documents.email.colFrom")}</th>
+                  <th>{t("documents.review.fields.date")}</th>
+                  <th>{t("documents.email.colAction")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -557,9 +570,9 @@ export default function EmailDocumentsPage() {
                   const canImport = attachment.bucket === "recommended" && status === "pending";
                   return (
                     <tr key={attachment.key}>
-                      <td>{attachment.filename || "קובץ ללא שם"}</td>
-                      <td>{attachment.fromEmail || "לא צוין"}</td>
-                      <td>{attachment.sentAt ? formatSentAt(attachment.sentAt) : "—"}</td>
+                      <td>{attachment.filename || t("documents.email.untitled")}</td>
+                      <td>{attachment.fromEmail || t("documents.common.notSpecified")}</td>
+                      <td>{attachment.sentAt ? formatSentAt(attachment.sentAt, locale) : "—"}</td>
                       <td>
                         {canImport ? (
                           <button
@@ -568,19 +581,11 @@ export default function EmailDocumentsPage() {
                             onClick={() => void importOne(attachment)}
                             style={smallButtonStyle}
                           >
-                            קלוט
+                            {t("documents.email.import")}
                           </button>
                         ) : (
                           <span style={pillStyleFor(status, attachment.bucket)}>
-                            {status === "imported"
-                              ? "נקלט · בתור"
-                              : status === "duplicate"
-                                ? "כבר נקלט"
-                                : status === "importing"
-                                  ? "קולט..."
-                                  : status === "failed"
-                                    ? "נכשל"
-                                    : "לא מסמך"}
+                            {attachmentStatusLabel(t, status)}
                           </span>
                         )}
                       </td>
@@ -607,8 +612,8 @@ export default function EmailDocumentsPage() {
           }}
         >
           {importing
-            ? "מייבא..."
-            : `ייבא הכל (${importable.length.toLocaleString("he-IL")})`}
+            ? t("documents.email.importing")
+            : t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
         </button>
       </div> : null}
     </div>
@@ -616,10 +621,11 @@ export default function EmailDocumentsPage() {
 }
 
 function Header() {
+  const { t } = useI18n();
   return (
     <header style={headStyle}>
       <DocumentsBackButton />
-      <h1 style={titleStyle}>קליטה מ-Gmail</h1>
+      <h1 style={titleStyle}>{t("documents.email.title")}</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>
   );

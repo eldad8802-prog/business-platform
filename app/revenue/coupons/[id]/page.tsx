@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 type PublicCouponDetailsDTO = {
   coupon: {
@@ -32,23 +35,23 @@ type CouponCodeDTO = {
   redeemLink: string;
 };
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined, locale: Locale) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("he-IL");
+  return date.toLocaleString(intlTag(locale));
 }
 
-function statusLabel(status: PublicCouponDetailsDTO["coupon"]["status"]) {
+function statusLabel(status: PublicCouponDetailsDTO["coupon"]["status"], t: Translator) {
   switch (status) {
     case "ACTIVE":
-      return { text: "פעיל", className: "bg-[var(--dz-success-bg)] text-[var(--dz-brand)]" };
+      return { text: t("billing.couponPage.statusActive"), className: "bg-[var(--dz-success-bg)] text-[var(--dz-brand)]" };
     case "REDEEMED":
-      return { text: "מומש", className: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]" };
+      return { text: t("billing.couponPage.statusRedeemed"), className: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]" };
     case "EXPIRED":
-      return { text: "פג תוקף", className: "bg-[var(--dz-warning-bg)] text-[var(--dz-warning)]" };
+      return { text: t("billing.couponPage.statusExpired"), className: "bg-[var(--dz-warning-bg)] text-[var(--dz-warning)]" };
     case "CANCELLED":
-      return { text: "בוטל", className: "bg-[var(--dz-danger-bg)] text-[var(--dz-danger)]" };
+      return { text: t("billing.couponPage.statusCancelled"), className: "bg-[var(--dz-danger-bg)] text-[var(--dz-danger)]" };
     default:
       return { text: status, className: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]" };
   }
@@ -63,6 +66,7 @@ export default function RevenueCouponDetailsPage() {
   // this page lays out exactly as it did before the layout existed.
   useHideShellChrome(true);
   const router = useRouter();
+  const { t, locale } = useI18n();
   const params = useParams<{ id: string }>();
   const publicId = params?.id || "";
 
@@ -93,7 +97,7 @@ export default function RevenueCouponDetailsPage() {
       setError("");
 
       if (!publicId) {
-        throw new Error("מזהה קופון לא תקין");
+        throw new Error(t("billing.couponPage.invalidId"));
       }
 
       const res = await fetch(`/api/revenue/coupons/${publicId}`, {
@@ -102,14 +106,14 @@ export default function RevenueCouponDetailsPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה בטעינת פרטי הקופון");
+        throw new Error(data?.error || t("billing.couponPage.loadError"));
       }
 
       setDetails(data);
     } catch (err) {
       console.error("Failed to load coupon details:", err);
       setDetails(null);
-      setError(err instanceof Error ? err.message : "שגיאה בטעינת פרטי הקופון");
+      setError(err instanceof Error ? err.message : t("billing.couponPage.loadError"));
     } finally {
       setLoading(false);
     }
@@ -130,9 +134,7 @@ export default function RevenueCouponDetailsPage() {
       if (!token) {
         setCode(null);
         setCodeErrorKind("login");
-        setCodeError(
-          "כדי להציג את קוד הקופון יש להתחבר לחשבון העסק שהנפיק אותו."
-        );
+        setCodeError(t("billing.couponPage.codeLoginRequired"));
         return;
       }
 
@@ -144,22 +146,20 @@ export default function RevenueCouponDetailsPage() {
       if (res.status === 401) {
         setCode(null);
         setCodeErrorKind("login");
-        setCodeError(
-          "ההתחברות פגה. יש להתחבר מחדש כדי להציג את קוד הקופון."
-        );
+        setCodeError(t("billing.couponPage.codeSessionExpired"));
         return;
       }
       if (res.status === 403) {
         setCode(null);
         setCodeErrorKind("forbidden");
-        setCodeError("קוד הקופון זמין רק לעסק שהנפיק אותו.");
+        setCodeError(t("billing.couponPage.codeForbidden"));
         return;
       }
 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "לא ניתן להציג קוד קופון");
+        throw new Error(data?.error || t("billing.couponPage.codeUnavailable"));
       }
 
       setCode(data);
@@ -167,7 +167,7 @@ export default function RevenueCouponDetailsPage() {
       console.error("Failed to load coupon code:", err);
       setCode(null);
       setCodeErrorKind("generic");
-      setCodeError(err instanceof Error ? err.message : "לא ניתן להציג קוד קופון");
+      setCodeError(err instanceof Error ? err.message : t("billing.couponPage.codeUnavailable"));
     } finally {
       setCodeLoading(false);
     }
@@ -183,7 +183,7 @@ export default function RevenueCouponDetailsPage() {
             onClick={() => router.push("/login")}
             className="mt-3 block w-full rounded-2xl bg-[var(--dz-brand)] px-4 py-3 text-sm font-bold text-[var(--dz-text-on-brand)] active:scale-[0.99]"
           >
-            התחברות
+            {t("billing.couponPage.login")}
           </button>
         ) : null}
       </div>
@@ -200,7 +200,7 @@ export default function RevenueCouponDetailsPage() {
       setShareMessage(successMsg);
     } catch (err) {
       console.error("clipboard error:", err);
-      setShareMessage("לא הצלחנו להעתיק");
+      setShareMessage(t("billing.couponPage.copyFailed"));
     }
   };
 
@@ -208,23 +208,23 @@ export default function RevenueCouponDetailsPage() {
     try {
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
       window.location.href = whatsappUrl;
-      setShareMessage("פותח WhatsApp...");
+      setShareMessage(t("billing.couponIssue.whatsappOpening"));
     } catch (err) {
       console.error("whatsapp error:", err);
-      setShareMessage("לא הצלחנו לפתוח WhatsApp");
+      setShareMessage(t("billing.couponIssue.whatsappFailed"));
     }
   };
 
   // `fetch()`ing the page HTML won't include client-rendered text,
   // so keep a stable marker for smoke tests.
-  const REVEAL_BUTTON_LABEL = "הצג קוד קופון";
+  const REVEAL_BUTTON_LABEL = t("billing.couponPage.revealCode");
 
   if (loading) {
     return (
       <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
           <div className="rounded-[24px] dz-mist p-5 shadow-sm">
-            טוען פרטי קופון…
+            {t("billing.couponPage.loadingDetails")}
           </div>
         </div>
       </main>
@@ -237,7 +237,7 @@ export default function RevenueCouponDetailsPage() {
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
           <div className="rounded-[24px] dz-mist p-5 shadow-sm">
             <div className="text-sm font-semibold text-[var(--dz-danger)]">
-              {error || "לא הצלחנו לטעון את פרטי הקופון"}
+              {error || t("billing.couponPage.loadFailed")}
             </div>
             <div className="mt-4 flex gap-2">
               <button
@@ -245,14 +245,14 @@ export default function RevenueCouponDetailsPage() {
                 onClick={() => router.push("/revenue")}
                 className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold"
               >
-                חזרה
+                {t("common.back")}
               </button>
               <button
                 type="button"
                 onClick={loadDetails}
                 className="rounded-2xl bg-[var(--dz-brand)] px-4 py-3 text-sm font-semibold text-[var(--dz-text-on-brand)]"
               >
-                נסה שוב
+                {t("billing.couponIssue.tryAgain")}
               </button>
             </div>
           </div>
@@ -261,19 +261,20 @@ export default function RevenueCouponDetailsPage() {
     );
   }
 
-  const badge = statusLabel(details.coupon.status);
-  const benefit =
-    details.offer.customerBenefitText ||
-    details.offer.description ||
-    "ללא תיאור";
+  const badge = statusLabel(details.coupon.status, t);
+  // The share text below goes to the CUSTOMER (outbound message), so it keeps the business's
+  // Hebrew — including its own "no description" fallback and date — whatever the viewer's language.
+  const benefitText = details.offer.customerBenefitText || details.offer.description || "";
+  const benefit = benefitText || t("billing.couponIssue.noDescription");
+  const shareBenefit = benefitText || "ללא תיאור";
 
   const whatsappText = code
     ? [
         "היי,",
         `קופון: ${details.offer.title}`,
-        `מה מקבלים: ${benefit}`,
+        `מה מקבלים: ${shareBenefit}`,
         `קוד קופון: ${code.token}`,
-        `תוקף עד: ${formatDate(details.coupon.expiresAt)}`,
+        `תוקף עד: ${formatDate(details.coupon.expiresAt, "he")}`,
       ]
         .filter(Boolean)
         .join("\n")
@@ -287,7 +288,7 @@ export default function RevenueCouponDetailsPage() {
             <div className="text-center">
               <div className="text-3xl">🛍️</div>
               <div className="mt-1 text-xs font-semibold text-[var(--dz-text-muted)]">
-                ללא תמונה
+                {t("billing.couponPage.noImage")}
               </div>
             </div>
           </div>
@@ -321,17 +322,17 @@ export default function RevenueCouponDetailsPage() {
 
           <div className="mt-5 grid gap-2 text-sm text-[var(--dz-text-muted)]">
             <div>
-              <span className="font-semibold text-[var(--dz-text-primary)]">העסק:</span>{" "}
+              <span className="font-semibold text-[var(--dz-text-primary)]">{t("billing.couponPage.businessLabel")}</span>{" "}
               {details.business.name}
             </div>
             <div>
-              <span className="font-semibold text-[var(--dz-text-primary)]">תוקף עד:</span>{" "}
-              {formatDate(details.coupon.expiresAt)}
+              <span className="font-semibold text-[var(--dz-text-primary)]">{t("billing.couponPage.validUntilLabel")}</span>{" "}
+              {formatDate(details.coupon.expiresAt, locale)}
             </div>
             {details.coupon.status === "REDEEMED" && details.coupon.redeemedAt ? (
               <div>
-                <span className="font-semibold text-[var(--dz-text-primary)]">מומש:</span>{" "}
-                {formatDate(details.coupon.redeemedAt)}
+                <span className="font-semibold text-[var(--dz-text-primary)]">{t("billing.couponPage.redeemedLabel")}</span>{" "}
+                {formatDate(details.coupon.redeemedAt, locale)}
               </div>
             ) : null}
           </div>
@@ -347,12 +348,12 @@ export default function RevenueCouponDetailsPage() {
                   : "bg-[var(--dz-border-strong)] cursor-not-allowed"
               }`}
             >
-              {codeLoading ? "טוען קוד…" : REVEAL_BUTTON_LABEL}
+              {codeLoading ? t("billing.couponPage.loadingCode") : REVEAL_BUTTON_LABEL}
             </button>
 
             {!canRevealCode ? (
               <div className="mt-2 text-xs font-semibold text-[var(--dz-text-muted)]">
-                ניתן להציג קוד רק עבור קופון פעיל ובתוקף.
+                {t("billing.couponPage.activeOnly")}
               </div>
             ) : null}
 
@@ -369,10 +370,10 @@ export default function RevenueCouponDetailsPage() {
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-base font-extrabold text-[var(--dz-text-primary)]">
-              קוד קופון
+              {t("billing.couponPage.codeTitle")}
             </div>
             <div className="mt-1 text-xs font-semibold text-[var(--dz-text-muted)]">
-              הצג/שתף ללקוח. זה לא מבצע מימוש בפועל.
+              {t("billing.couponPage.codeHelp")}
             </div>
           </div>
 
@@ -385,13 +386,13 @@ export default function RevenueCouponDetailsPage() {
             }}
             className="shrink-0 rounded-2xl border border-[var(--dz-border)] dz-mist px-3 py-2 text-xs font-semibold text-[var(--dz-text-secondary)] active:scale-[0.99]"
           >
-            חזרה לפרטי הקופון
+            {t("billing.couponPage.backToDetails")}
           </button>
         </div>
 
         {codeLoading ? (
           <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4 text-sm font-semibold text-[var(--dz-text-secondary)]">
-            טוען קוד…
+            {t("billing.couponPage.loadingCode")}
           </div>
         ) : codeError ? (
           renderCodeErrorBlock()
@@ -409,29 +410,29 @@ export default function RevenueCouponDetailsPage() {
                 onClick={() => setQrSize((prev) => (prev === 220 ? 320 : 220))}
                 className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
               >
-                {qrSize === 220 ? "הגדל QR" : "הקטן QR"}
+                {qrSize === 220 ? t("billing.couponPage.enlargeQr") : t("billing.couponPage.shrinkQr")}
               </button>
             </div>
 
             <div className="mt-4 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4">
-              <div className="text-xs font-semibold text-[var(--dz-text-muted)]">קוד</div>
+              <div className="text-xs font-semibold text-[var(--dz-text-muted)]">{t("billing.couponPage.code")}</div>
               <div className="mt-1 break-all font-mono text-sm font-bold text-[var(--dz-text-primary)]">
                 {code.token}
               </div>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => handleCopy(code.token, "הקוד הועתק")}
+                  onClick={() => handleCopy(code.token, t("billing.couponPage.codeCopied"))}
                   className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
-                  העתק קוד
+                  {t("billing.couponPage.copyCode")}
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleCopy(code.qrValue, "הקישור הועתק")}
+                  onClick={() => handleCopy(code.qrValue, t("billing.couponPage.linkCopied"))}
                   className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
-                  העתק קישור
+                  {t("billing.couponPage.copyLink")}
                 </button>
               </div>
             </div>
@@ -442,7 +443,7 @@ export default function RevenueCouponDetailsPage() {
                 onClick={() => handleShareWhatsApp(whatsappText)}
                 className="w-full rounded-2xl bg-[var(--dz-text-primary)] px-4 py-3.5 text-sm font-bold text-[var(--dz-text-on-brand)] active:scale-[0.99]"
               >
-                שתף ב־WhatsApp
+                {t("billing.couponIssue.shareWhatsapp")}
               </button>
             </div>
 
@@ -454,7 +455,7 @@ export default function RevenueCouponDetailsPage() {
           </>
         ) : (
           <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4 text-sm font-semibold text-[var(--dz-text-secondary)]">
-            אין קוד להצגה כרגע.
+            {t("billing.couponPage.noCode")}
           </div>
         )}
       </div>
@@ -470,7 +471,7 @@ export default function RevenueCouponDetailsPage() {
             onClick={() => router.push("/revenue")}
             className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold text-[var(--dz-text-secondary)]"
           >
-            חזרה
+            {t("common.back")}
           </button>
 
           <span

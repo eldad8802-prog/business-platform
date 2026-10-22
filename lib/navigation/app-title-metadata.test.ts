@@ -10,6 +10,8 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
+import { he } from "@/lib/i18n/messages/he";
+
 let failed = 0;
 function ok(name: string, cond: boolean, extra?: unknown): void {
   if (cond) console.log(`OK: ${name}`);
@@ -51,9 +53,14 @@ const sections: Array<[string, string]> = [
   ["app/login/layout.tsx", "התחברות"],
   ["app/register/layout.tsx", "הרשמה"],
 ];
+// i18n: a section's title is either the literal Hebrew, or a `meta.titles.<key>` dictionary lookup
+// whose HEBREW value is that exact title — Hebrew tabs read the same either way.
 for (const [file, title] of sections) {
   const src = read(file);
-  ok(`${file} → title "${title}"`, new RegExp(`title:\\s*["']${title}["']`).test(src), src.slice(0, 0));
+  const literal = new RegExp(`title:\\s*["']${title}["']`).test(src);
+  const key = /title:\s*t\("meta\.titles\.(\w+)"\)/.exec(src)?.[1];
+  const viaDictionary = key !== undefined && (he.meta.titles as Record<string, string>)[key] === title;
+  ok(`${file} → title "${title}"`, literal || viaDictionary, src.slice(0, 0));
 }
 
 // --- public group untouched (still its own Dubiz template) ----------------

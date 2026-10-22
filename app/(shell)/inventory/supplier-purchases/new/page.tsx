@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
 import {
@@ -12,6 +13,7 @@ import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
 export default function NewSupplierPurchaseSelectPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const {
     summary,
     order,
@@ -34,20 +36,32 @@ export default function NewSupplierPurchaseSelectPage() {
 
   return (
     <OrderWizardShell
-      title="הזמנה חדשה"
+      title={t("customers.purchases.newOrder.title")}
       backHref="/inventory/supplier-purchases"
       showProgress={true}
       footer={
         <BottomActionBar
-          label={`${summary.totalItems} מוצרים בעגלה`}
-          value={<>{summary.totalUnits} יחידות</>}
-          cta={`המשך לעגלה (${summary.totalItems})`}
+          label={t(
+            summary.totalItems === 1
+              ? "customers.purchases.newOrder.productsInCartOne"
+              : "customers.purchases.newOrder.productsInCartMany",
+            { count: summary.totalItems }
+          )}
+          value={
+            <>
+              {t(
+                summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
+                { count: summary.totalUnits }
+              )}
+            </>
+          }
+          cta={t("customers.purchases.newOrder.continueToCartCount", { count: summary.totalItems })}
           ctaDisabled={!canContinue}
           onCta={() => router.push("/inventory/supplier-purchases/new/cart")}
         />
       }
     >
-      <InventorySearch value={productSearch} onChange={setProductSearch} placeholder="חיפוש לפי שם מוצר…" />
+      <InventorySearch value={productSearch} onChange={setProductSearch} placeholder={t("customers.purchases.newOrder.searchPlaceholder")} />
 
       <div className="inv-fwrap" style={{ paddingTop: 12 }}>
         <div className="inv-two">
@@ -60,9 +74,9 @@ export default function NewSupplierPurchaseSelectPage() {
                 setCategoryId("");
                 setProductSearch("");
               }}
-              aria-label="ספק"
+              aria-label={t("customers.purchases.newOrder.supplierAria")}
             >
-              <option value="">כל הספקים</option>
+              <option value="">{t("customers.purchases.newOrder.allSuppliers")}</option>
               {supplierChoices.map((choice) => {
                 const key =
                   choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
@@ -82,9 +96,9 @@ export default function NewSupplierPurchaseSelectPage() {
                 setCategoryId(e.target.value);
                 setProductSearch("");
               }}
-              aria-label="קטגוריה"
+              aria-label={t("customers.purchases.newOrder.categoryAria")}
             >
-              <option value="">כל הקטגוריות</option>
+              <option value="">{t("customers.purchases.newOrder.allCategories")}</option>
               {filteredCategories.map((c) => (
                 <option key={c.id} value={String(c.id)}>{c.name}</option>
               ))}
@@ -95,23 +109,23 @@ export default function NewSupplierPurchaseSelectPage() {
 
       {browsableItems.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title="לא נמצאו מוצרים">
+          <InventoryStatePanel title={t("customers.purchases.newOrder.emptyTitle")}>
             {supplierName.trim() && !supplierHasItems
-              ? "אין מוצרים לספק שנבחר. נסו ספק אחר או בטלו את הסינון."
-              : "אין התאמה לחיפוש. נסו שם אחר או שנו סינון."}
+              ? t("customers.purchases.newOrder.emptySupplier")
+              : t("customers.purchases.newOrder.emptySearch")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
         <div className="inv-ops">
-          <div className="inv-desk-table" aria-label="מוצרים להזמנה">
+          <div className="inv-desk-table" aria-label={t("customers.purchases.newOrder.tableAria")}>
             <table>
               <thead>
                 <tr>
-                  <th>מוצר</th>
-                  <th>קטגוריה</th>
-                  <th>במלאי</th>
-                  <th>בעגלה</th>
+                  <th>{t("customers.purchases.newOrder.colProduct")}</th>
+                  <th>{t("customers.purchases.newOrder.colCategory")}</th>
+                  <th>{t("customers.purchases.newOrder.colInStock")}</th>
+                  <th>{t("customers.purchases.newOrder.colInCart")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -125,7 +139,7 @@ export default function NewSupplierPurchaseSelectPage() {
                       <td className="num">{item.currentQuantity}</td>
                       <td className="num">{inCart || "—"}</td>
                       <td>
-                        <button type="button" onClick={() => quickAddItem(item)}>הוסף</button>
+                        <button type="button" onClick={() => quickAddItem(item)}>{t("customers.purchases.newOrder.add")}</button>
                       </td>
                     </tr>
                   );
@@ -134,11 +148,21 @@ export default function NewSupplierPurchaseSelectPage() {
             </table>
           </div>
           <aside className="inv-ops__side">
-            <h2>בעגלה</h2>
-            <p>{summary.totalItems} מוצרים · {summary.totalUnits} יחידות</p>
-            <p>יצירת ההזמנה עדיין לא משנה מלאי. הכמויות נסגרות בעגלה ובאישור.</p>
+            <h2>{t("customers.purchases.newOrder.sideTitle")}</h2>
+            <p>
+              {t(
+                summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
+                { count: summary.totalItems }
+              )}{" "}
+              ·{" "}
+              {t(
+                summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
+                { count: summary.totalUnits }
+              )}
+            </p>
+            <p>{t("customers.purchases.newOrder.sideNote")}</p>
             <button type="button" className="inv-btn-primary" disabled={!canContinue} onClick={() => router.push("/inventory/supplier-purchases/new/cart")}>
-              המשך לעגלה
+              {t("customers.purchases.newOrder.continueToCart")}
             </button>
           </aside>
         </div>
@@ -153,17 +177,17 @@ export default function NewSupplierPurchaseSelectPage() {
                 <span className="inv-row__mid">
                   <span className="inv-row__nm">{item.name}</span>
                   <span className="inv-row__meta">
-                    {getCategoryName(item)} · במלאי <bdi>{item.currentQuantity}</bdi>
+                    {getCategoryName(item)} · {t("customers.purchases.newOrder.inStockLabel")} <bdi>{item.currentQuantity}</bdi>
                   </span>
                 </span>
                 <span className="inv-row__trail" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  {inCart > 0 ? <span className="inv-row__meta">{inCart} בעגלה</span> : null}
+                  {inCart > 0 ? <span className="inv-row__meta">{t("customers.purchases.newOrder.inCartCount", { count: inCart })}</span> : null}
                   <button
                     type="button"
                     className="inv-iconbtn inv-iconbtn--acc"
                     style={{ width: 38, height: 38 }}
                     onClick={() => quickAddItem(item)}
-                    aria-label={`הוסף ${item.name}`}
+                    aria-label={t("customers.purchases.newOrder.addNamed", { name: item.name })}
                   >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><path d="M12 5v14M5 12h14" stroke="var(--inv-on-accent)" strokeWidth="2.4" strokeLinecap="round" /></svg>
                   </button>

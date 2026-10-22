@@ -20,6 +20,10 @@ import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import { buildTodayRows } from "@/features/home/lib/home-model";
 import { obligationHref } from "@/lib/navigation/home-routes";
+import { HE_T } from "@/features/home/lib/home-i18n";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import { formatAmount } from "@/lib/i18n/format";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 /* ------------------------------------------------------------ load state -- */
 
@@ -36,9 +40,10 @@ export function valueOf<T>(load: Load<T>): T | null {
 
 /* ---------------------------------------------------------------- money -- */
 
-/** "₪12,700" — whole shekels, grouped the way the references group them. */
-export function formatShekel(n: number): string {
+/** "₪12,700" — whole shekels, grouped the way the references group them. Other locales use Intl. */
+export function formatShekel(n: number, locale: Locale = "he"): string {
   const rounded = Math.round(Math.abs(n));
+  if (locale !== "he") return formatAmount(n < 0 && rounded !== 0 ? -rounded : rounded, "ILS", { locale });
   return `${n < 0 && rounded !== 0 ? "−" : ""}₪${rounded.toLocaleString("en-US")}`;
 }
 
@@ -76,14 +81,14 @@ export function shiftDateKey(key: string, days: number): string {
 }
 
 /** "יום ה׳, 22 באוקטובר". */
-export function formatLongDate(d: Date): string {
-  const weekday = new Intl.DateTimeFormat("he-IL", { timeZone: IL, weekday: "short" }).format(d);
-  const dayMonth = new Intl.DateTimeFormat("he-IL", { timeZone: IL, day: "numeric", month: "long" }).format(d);
+export function formatLongDate(d: Date, locale: Locale = "he"): string {
+  const weekday = new Intl.DateTimeFormat(intlTag(locale), { timeZone: IL, weekday: "short" }).format(d);
+  const dayMonth = new Intl.DateTimeFormat(intlTag(locale), { timeZone: IL, day: "numeric", month: "long" }).format(d);
   return `${weekday}, ${dayMonth}`;
 }
 
 /** "09:24" today, "אתמול" yesterday, otherwise "3 באוק׳". */
-export function formatWhen(iso: string, now: Date): string {
+export function formatWhen(iso: string, now: Date, t: Translator = HE_T, locale: Locale = "he"): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const key = israelDateKey(d);
@@ -91,16 +96,16 @@ export function formatWhen(iso: string, now: Date): string {
   if (key === today) {
     return new Intl.DateTimeFormat("en-GB", { timeZone: IL, hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
   }
-  if (key === shiftDateKey(today, -1)) return "אתמול";
-  return new Intl.DateTimeFormat("he-IL", { timeZone: IL, day: "numeric", month: "short" }).format(d);
+  if (key === shiftDateKey(today, -1)) return t("home.model.yesterday");
+  return new Intl.DateTimeFormat(intlTag(locale), { timeZone: IL, day: "numeric", month: "short" }).format(d);
 }
 
 /** The prominent date chip of an upcoming payment: month above, day below. */
-export function dateChip(isoOrKey: string): { month: string; day: string } | null {
+export function dateChip(isoOrKey: string, locale: Locale = "he"): { month: string; day: string } | null {
   const d = new Date(isoOrKey.length === 10 ? `${isoOrKey}T12:00:00Z` : isoOrKey);
   if (Number.isNaN(d.getTime())) return null;
   return {
-    month: new Intl.DateTimeFormat("he-IL", { timeZone: IL, month: "short" }).format(d),
+    month: new Intl.DateTimeFormat(intlTag(locale), { timeZone: IL, month: "short" }).format(d),
     day: new Intl.DateTimeFormat("en-GB", { timeZone: IL, day: "numeric" }).format(d),
   };
 }
@@ -168,7 +173,9 @@ export function buildDaySeries(input: {
   };
 }
 
-const WEEKDAY_SHORT = new Intl.DateTimeFormat("he-IL", { timeZone: IL, weekday: "short" });
+function weekdayShort(locale: Locale): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat(intlTag(locale), { timeZone: IL, weekday: "short" });
+}
 
 /**
  * The last seven Israeli days, today included. Income per day is the exact
@@ -181,8 +188,10 @@ export function buildWeekSeries(input: {
   incomeTotal: string;
   dayKeys: string[];
   expenses: string[];
+  locale?: Locale;
 }): CashflowSeries | null {
   const { cumulativeIncome, dayKeys, expenses } = input;
+  const weekday = weekdayShort(input.locale ?? "he");
   if (cumulativeIncome.length !== 7 || dayKeys.length !== 7 || expenses.length !== 7) return null;
   const bars: CashflowBar[] = [];
   let prev = 0;
@@ -194,7 +203,7 @@ export function buildWeekSeries(input: {
     expenseTotal += exp;
     bars.push({
       key: dayKeys[i],
-      label: WEEKDAY_SHORT.format(new Date(`${dayKeys[i]}T12:00:00Z`)),
+      label: weekday.format(new Date(`${dayKeys[i]}T12:00:00Z`)),
       income: Math.max(0, cum - prev),
       expense: exp,
     });
@@ -326,8 +335,18 @@ export type CollectionWaitingWire = {
   createdAt: string;
 };
 
+// Fallback only, for an item that carries no `inventoryAlertType` (a payload from before the field existed):
+// the Hebrew title prefix the inventory translator writes. The kind itself is language-independent.
 const STOCK_TITLE = /^מלאי (קריטי|נמוך)/;
 const CRITICAL_TITLE = /^מלאי קריטי/;
+
+function stockAlertKind(s: BusinessStatusItem): "critical" | "low" | null {
+  if (s.inventoryAlertType) {
+    return s.inventoryAlertType === "CRITICAL_STOCK" ? "critical" : s.inventoryAlertType === "LOW_STOCK" ? "low" : null;
+  }
+  if (!STOCK_TITLE.test(s.title)) return null;
+  return CRITICAL_TITLE.test(s.title) ? "critical" : "low";
+}
 
 function leadReason(itemId: string): string | null {
   const m = /^leads:([a-z_]+):/.exec(itemId);
@@ -348,24 +367,32 @@ export function buildWaiting(input: {
   status: BusinessStatusItem[] | null;
   collectionWaiting: CollectionWaitingWire[] | null;
   now: Date;
+  t?: Translator;
+  locale?: Locale;
 }): WaitingModel {
+  const t = input.t ?? HE_T;
+  const locale = input.locale ?? "he";
+  const urgentTag: WaitingTag = { label: t("home.model.tag.urgent"), style: "urgentSolid" };
+  const toPayTag: WaitingTag = { label: t("home.model.tag.toPay"), style: "urgentSoft" };
+  const todoTag: WaitingTag = { label: t("home.model.tag.todo"), style: "todo" };
+  const handle = t("home.model.actionHandle");
   const items: WaitingItem[] = [];
   const statusComplete = input.status !== null && input.status.length < STATUS_CAPS.global;
 
   // payment — Secretary obligations
   if (input.briefing) {
-    for (const row of buildTodayRows(input.briefing, input.now)) {
+    for (const row of buildTodayRows(input.briefing, input.now, t)) {
       const urgent = row.badge === "late" || row.badge === "today";
       items.push({
         id: `obligation:${row.obligationId}`,
         kind: "payment",
         tone: "urgent",
-        tag: urgent ? { label: "דחוף", style: "urgentSolid" } : { label: "לתשלום", style: "urgentSoft" },
+        tag: urgent ? urgentTag : toPayTag,
         title: row.title,
-        subtitle: "תשלום שהעסק צריך לשלם",
-        amount: formatShekelString(row.amount, row.currency),
+        subtitle: t("home.model.paymentSubtitle"),
+        amount: formatShekelString(row.amount, row.currency, locale),
         href: obligationHref(row.obligationId),
-        actionLabel: "לטיפול",
+        actionLabel: handle,
         rank: urgent ? 0 : 2,
       });
     }
@@ -384,27 +411,27 @@ export function buildWaiting(input: {
         id: s.itemId,
         kind: "payment",
         tone: "urgent",
-        tag: overdue ? { label: "דחוף", style: "urgentSolid" } : { label: "לתשלום", style: "urgentSoft" },
+        tag: overdue ? urgentTag : toPayTag,
         title: s.title,
         subtitle: s.summary,
         amount: null,
         href: s.primaryAction.href,
-        actionLabel: "לטיפול",
+        actionLabel: handle,
         rank: overdue ? 0 : 2,
       });
-    } else if (s.domain === "inventory" && STOCK_TITLE.test(s.title)) {
+    } else if (s.domain === "inventory" && stockAlertKind(s) !== null) {
       stockCount++;
-      const critical = CRITICAL_TITLE.test(s.title);
+      const critical = stockAlertKind(s) === "critical";
       items.push({
         id: s.itemId,
         kind: "stock",
         tone: "todo",
-        tag: { label: "לטיפול", style: "todo" },
+        tag: todoTag,
         title: s.title,
         subtitle: s.summary,
         amount: null,
         href: s.primaryAction.href,
-        actionLabel: "לטיפול",
+        actionLabel: handle,
         rank: critical ? 1 : 3,
       });
     } else if (s.domain === "leads") {
@@ -413,12 +440,12 @@ export function buildWaiting(input: {
         id: s.itemId,
         kind: "lead",
         tone: "fresh",
-        tag: fresh ? { label: "חדש", style: "fresh" } : { label: "לטיפול", style: "todo" },
+        tag: fresh ? { label: t("home.model.tag.fresh"), style: "fresh" } : todoTag,
         title: s.title,
         subtitle: s.summary,
         amount: null,
         href: s.primaryAction.href,
-        actionLabel: "להצגה",
+        actionLabel: t("home.model.actionView"),
         rank: 2,
       });
     }
@@ -429,12 +456,16 @@ export function buildWaiting(input: {
       id: `collection:${w.requestId}`,
       kind: "collection",
       tone: "fresh",
-      tag: { label: "ממתין", style: "fresh" },
-      title: "תשלום ממתין לקבלה",
-      subtitle: w.customerName?.trim() ? `לקוח: ${w.customerName.trim()}` : w.invoiceNumber ? `חשבונית ${w.invoiceNumber}` : null,
-      amount: formatShekelString(w.amount, w.currency),
+      tag: { label: t("home.model.tag.waiting"), style: "fresh" },
+      title: t("home.model.collectionTitle"),
+      subtitle: w.customerName?.trim()
+        ? t("home.model.customer", { name: w.customerName.trim() })
+        : w.invoiceNumber
+          ? t("home.model.invoice", { number: w.invoiceNumber })
+          : null,
+      amount: formatShekelString(w.amount, w.currency, locale),
       href: "/collection",
-      actionLabel: "לטיפול",
+      actionLabel: handle,
       rank: 2,
     });
   }
@@ -489,23 +520,27 @@ export function countText(c: CountClaim): string {
 }
 
 /** The desktop header line: "5 דברים מחכים לך, 2 מהם תשלומים". */
-export function waitingSentence(model: WaitingModel): string | null {
+export function waitingSentence(model: WaitingModel, t: Translator = HE_T): string | null {
   const { total, byKind } = model;
-  if (total.n === 0) return total.exact ? "אין כרגע דברים שמחכים לך" : null;
+  if (total.n === 0) return total.exact ? t("home.model.sentence.noneProven") : null;
   const head = total.exact
     ? total.n === 1
-      ? "דבר אחד מחכה לך"
-      : `${total.n} דברים מחכים לך`
-    : `יותר מ-${total.n} דברים מחכים לך`;
+      ? t("home.model.sentence.one")
+      : t("home.model.sentence.many", { count: total.n })
+    : t("home.model.sentence.moreThan", { count: total.n });
   const payments = byKind.payment;
   if (payments.n === 0 || !payments.exact) return head;
-  return `${head}, ${payments.n === 1 ? "אחד מהם תשלום" : `${payments.n} מהם תשלומים`}`;
+  return payments.n === 1
+    ? t("home.model.sentence.paymentOne", { head })
+    : t("home.model.sentence.paymentMany", { head, count: payments.n });
 }
 
-function formatShekelString(amount: string, currency: string): string | null {
+function formatShekelString(amount: string, currency: string, locale: Locale = "he"): string | null {
   const n = toNumber(amount);
   if (n === null) return null;
-  return currency === "ILS" || !currency ? formatShekel(n) : `${Math.round(n).toLocaleString("en-US")} ${currency}`;
+  if (currency === "ILS" || !currency) return formatShekel(n, locale);
+  if (locale !== "he") return formatAmount(Math.round(n), currency, { locale });
+  return `${Math.round(n).toLocaleString("en-US")} ${currency}`;
 }
 
 /* ------------------------------------------------------------- activity -- */
@@ -553,6 +588,18 @@ export const SOURCE_LABEL: Record<string, string> = {
   file: "העלאה",
 };
 
+const SOURCE_KEY: Record<string, MessageKey> = {
+  email: "home.model.source.email",
+  whatsapp: "home.model.source.whatsapp",
+  file: "home.model.source.file",
+};
+
+/** The document source's label in the active language; null for an unknown source. */
+export function sourceLabel(source: string | null | undefined, t: Translator = HE_T): string | null {
+  const key = source ? SOURCE_KEY[source] : undefined;
+  return key ? t(key) : null;
+}
+
 /**
  * "פעולות אחרונות" — events that already exist as rows, each with its own
  * timestamp: money that was collected and verified, leads that were created,
@@ -563,16 +610,20 @@ export function buildActivity(input: {
   leads: LeadWire[] | null;
   documents: DocumentWire[] | null;
   limit: number;
+  t?: Translator;
+  locale?: Locale;
 }): ActivityItem[] {
+  const t = input.t ?? HE_T;
+  const locale = input.locale ?? "he";
   const out: ActivityItem[] = [];
   for (const p of input.paid ?? []) {
     if (!p.paidAt) continue;
-    const amount = formatShekelString(p.amount, p.currency);
+    const amount = formatShekelString(p.amount, p.currency, locale);
     out.push({
       id: `paid:${p.requestId}`,
       kind: "collected",
-      title: "התקבל תשלום",
-      detail: [p.invoiceNumber ? `חשבונית ${p.invoiceNumber}` : null, p.customerName?.trim() || null, amount]
+      title: t("home.model.activity.collected"),
+      detail: [p.invoiceNumber ? t("home.model.invoice", { number: p.invoiceNumber }) : null, p.customerName?.trim() || null, amount]
         .filter(Boolean)
         .join(" · ") || null,
       at: p.paidAt,
@@ -583,7 +634,7 @@ export function buildActivity(input: {
     out.push({
       id: `lead:${l.id}`,
       kind: "lead",
-      title: "נוסף ליד חדש",
+      title: t("home.model.activity.lead"),
       detail: l.name?.trim() || l.phone || null,
       at: l.createdAt,
       href: `/leads/${l.id}`,
@@ -594,9 +645,9 @@ export function buildActivity(input: {
     out.push({
       id: `doc:${d.documentId}`,
       kind: "document",
-      title: "נכנס מסמך",
+      title: t("home.model.activity.document"),
       detail:
-        [d.extracted?.vendorName?.trim() || null, amount !== null ? formatShekel(amount) : null, d.source ? SOURCE_LABEL[d.source] ?? null : null]
+        [d.extracted?.vendorName?.trim() || null, amount !== null ? formatShekel(amount, locale) : null, sourceLabel(d.source, t)]
           .filter(Boolean)
           .join(" · ") || null,
       at: d.createdAt,
@@ -656,13 +707,20 @@ export type StockRow = {
   updatedToday: boolean;
 };
 
-const UNIT_LABEL: Record<string, string> = { UNIT: "יח׳", ML: "מ״ל", GRAM: "גרם", KG: "ק״ג", LITER: "ליטר", BOX: "קרטונים" };
+const UNIT_KEY: Record<string, MessageKey> = {
+  UNIT: "home.model.unit.UNIT",
+  ML: "home.model.unit.ML",
+  GRAM: "home.model.unit.GRAM",
+  KG: "home.model.unit.KG",
+  LITER: "home.model.unit.LITER",
+  BOX: "home.model.unit.BOX",
+};
 
 /**
  * "מצב המלאי" — only items that HAVE a threshold can be drawn on the
  * threshold scale (full bar = 2 × minimumQuantity, clamped). Most pressing first.
  */
-export function buildStockRows(items: InventoryItemWire[], now: Date, limit: number): StockRow[] {
+export function buildStockRows(items: InventoryItemWire[], now: Date, limit: number, t: Translator = HE_T): StockRow[] {
   const today = israelDateKey(now);
   return items
     .filter((i) => i.isActive && i.minimumQuantity > 0)
@@ -679,7 +737,7 @@ export function buildStockRows(items: InventoryItemWire[], now: Date, limit: num
       return {
         id: i.id,
         name: i.name,
-        quantityText: `${qty} ${UNIT_LABEL[i.unitType] ?? ""}`.trim(),
+        quantityText: `${qty} ${UNIT_KEY[i.unitType] ? t(UNIT_KEY[i.unitType]) : ""}`.trim(),
         state,
         fill: Math.min(1, Math.max(0, i.currentQuantity / (2 * i.minimumQuantity))),
         updatedToday: israelDateKey(new Date(i.updatedAt)) === today,
@@ -697,3 +755,18 @@ export const CHANNEL_LABEL: Record<string, string> = {
   PHONE: "טלפון",
   OTHER: "ערוץ אחר",
 };
+
+const CHANNEL_KEY: Record<string, MessageKey> = {
+  WHATSAPP: "home.model.channel.WHATSAPP",
+  EMAIL: "home.model.channel.EMAIL",
+  INSTAGRAM: "home.model.channel.INSTAGRAM",
+  FACEBOOK: "home.model.channel.FACEBOOK",
+  PHONE: "home.model.channel.PHONE",
+  OTHER: "home.model.channel.OTHER",
+};
+
+/** A conversation channel's label in the active language; the raw channel when unknown. */
+export function channelLabel(channel: string, t: Translator = HE_T): string {
+  const key = CHANNEL_KEY[channel];
+  return key ? t(key) : channel;
+}

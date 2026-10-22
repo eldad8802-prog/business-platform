@@ -16,19 +16,21 @@ import {
   Stepper,
   SheetActions,
 } from "@/components/inventory/inventory-primitives";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { MOVEMENT_REASON_LABEL_KEYS } from "@/lib/inventory/inventory-labels";
 
 type MovementKind = "IN" | "OUT" | "ADJUSTMENT";
 
 const IN_REASONS = [
-  { value: "MANUAL_ADD", label: "הוספה ידנית" },
-  { value: "RETURN", label: "החזרה" },
-  { value: "INITIAL_STOCK", label: "מלאי התחלתי" },
+  { value: "MANUAL_ADD" },
+  { value: "RETURN" },
+  { value: "INITIAL_STOCK" },
 ] as const;
 
 const OUT_REASONS = [
-  { value: "MANUAL_REMOVE", label: "הפחתה ידנית" },
-  { value: "SALE", label: "מכירה" },
-  { value: "DAMAGE", label: "נזק או קלקול" },
+  { value: "MANUAL_REMOVE" },
+  { value: "SALE" },
+  { value: "DAMAGE" },
 ] as const;
 
 export default function MovementSheet({
@@ -48,6 +50,7 @@ export default function MovementSheet({
   onClose: () => void;
   onSuccess: () => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const unit = unitLabel ? ` ${unitLabel}` : "";
   const [kind, setKind] = useState<MovementKind>(initialType);
   // For IN/OUT this is the magnitude to add/remove; for ADJUSTMENT it is the new counted quantity.
@@ -92,7 +95,7 @@ export default function MovementSheet({
       await onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "שגיאה בשמירת התנועה");
+      setError(err instanceof Error ? err.message : t("customers.inventoryKit.movement.saveError"));
     } finally {
       setLoading(false);
     }
@@ -102,16 +105,16 @@ export default function MovementSheet({
 
   return (
     <BottomSheet
-      title="עדכון מלאי"
+      title={t("customers.inventoryKit.movement.updateTitle")}
       who={
         <>
-          {itemName} · מלאי נוכחי <bdi>{currentQuantity}{unit}</bdi>
+          {itemName} · {t("customers.inventoryKit.movement.currentStock")} <bdi>{currentQuantity}{unit}</bdi>
         </>
       }
       onClose={onClose}
       footer={
         <SheetActions
-          confirmLabel={loading ? "שומר…" : "אישור עדכון"}
+          confirmLabel={loading ? t("customers.inventoryKit.movement.saving") : t("customers.inventoryKit.movement.confirmUpdate")}
           onCancel={onClose}
           onConfirm={handleConfirm}
           confirmDisabled={loading || invalid}
@@ -122,16 +125,16 @@ export default function MovementSheet({
         value={kind}
         onChange={changeKind}
         options={[
-          { value: "IN", label: "הוספה" },
-          { value: "OUT", label: "הפחתה" },
-          { value: "ADJUSTMENT", label: "תיקון ספירה" },
+          { value: "IN", label: t("customers.inventoryKit.labels.movementType.in") },
+          { value: "OUT", label: t("customers.inventoryKit.labels.movementType.out") },
+          { value: "ADJUSTMENT", label: t("customers.inventoryKit.reasons.countFix") },
         ]}
         style={{ marginBottom: 16 }}
       />
 
       {kind !== "ADJUSTMENT" ? (
         <>
-          <div className="inv-field__lab">סיבה</div>
+          <div className="inv-field__lab">{t("customers.inventoryKit.movement.reason")}</div>
           <select
             className="inv-input"
             value={reason}
@@ -140,7 +143,7 @@ export default function MovementSheet({
           >
             {reasons.map((r) => (
               <option key={r.value} value={r.value}>
-                {r.label}
+                {t(MOVEMENT_REASON_LABEL_KEYS[r.value])}
               </option>
             ))}
           </select>
@@ -156,15 +159,15 @@ export default function MovementSheet({
       />
 
       <div className="inv-preview">
-        לאחר העדכון:{" "}
+        {t("customers.inventoryKit.movement.afterUpdate")}{" "}
         <b>
-          <bdi>{currentQuantity}</bdi> ← <bdi>{after}{unit}</bdi>
+          <bdi>{currentQuantity}</bdi> {t("customers.inventoryKit.movement.arrow")} <bdi>{after}{unit}</bdi>
         </b>
       </div>
 
       <input
         className="inv-input"
-        placeholder="הערה (אופציונלי)"
+        placeholder={t("customers.inventoryKit.movement.noteOptional")}
         value={note}
         onChange={(e) => setNote(e.target.value)}
         style={{ marginBottom: 18 }}

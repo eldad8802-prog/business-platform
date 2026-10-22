@@ -530,7 +530,7 @@
   .mark {
     position: absolute;
     top: 16px;
-    left: 16px;
+    inset-inline-end: 16px;
     width: 24px;
     height: 24px;
   }

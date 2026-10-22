@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -148,10 +149,11 @@ function decodeCursor(raw: string): { createdAt: Date; id: number } | null {
 }
 
 export async function GET(req: Request) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+      return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     // Reads bucket — fail-OPEN: a transient Redis blip must not break viewing
@@ -186,7 +188,7 @@ export async function GET(req: Request) {
         ? monthParam.trim()
         : getCurrentYearMonthJerusalem();
     } catch {
-      return NextResponse.json({ error: "שגיאה בטעינת התקופה" }, { status: 500 });
+      return NextResponse.json({ error: t("api.documents.inbox.periodFailed") }, { status: 500 });
     }
 
     let from: Date;
@@ -195,7 +197,7 @@ export async function GET(req: Request) {
       ({ from, toExclusive } = jerusalemMonthUtcHalfOpen(resolvedMonth));
     } catch {
       return NextResponse.json(
-        { error: "חודש לא תקין (פורמט YYYY-MM)" },
+        { error: t("api.documents.inbox.invalidMonth") },
         { status: 400 }
       );
     }
@@ -364,7 +366,7 @@ export async function GET(req: Request) {
 
     const cursor = cursorRaw?.trim() ? decodeCursor(cursorRaw.trim()) : null;
     if (cursorRaw?.trim() && !cursor) {
-      return NextResponse.json({ error: "סמן עמוד לא תקין" }, { status: 400 });
+      return NextResponse.json({ error: t("api.documents.inbox.invalidCursor") }, { status: 400 });
     }
 
     const [
@@ -570,7 +572,7 @@ export async function GET(req: Request) {
   } catch (e) {
     console.error("DOCUMENTS_INBOX_ERROR:", e);
     return NextResponse.json(
-      { error: "שגיאה בטעינת המסמכים. נסה שוב מאוחר יותר." },
+      { error: t("api.documents.inbox.loadFailed") },
       { status: 500 }
     );
   }

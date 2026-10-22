@@ -28,7 +28,11 @@ import {
 /** Resend keeps an Idempotency-Key for 24 hours. No kind may outlive it. */
 export const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type RenderContext = { appBaseUrl: string };
+/**
+ * `locale`: the row's stored TransactionalEmail.locale. "en" renders English (LTR); anything else — absent,
+ * "he", an unknown value — renders Hebrew, exactly as before.
+ */
+export type RenderContext = { appBaseUrl: string; locale?: string | null };
 
 export type EmailKindSpec<P> = {
   ttlMs: number;

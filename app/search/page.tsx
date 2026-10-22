@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
+import { categoryLabel as categoryDisplayLabel } from "@/lib/documents/category-label";
 
 /**
  * /search — financial-record search.
@@ -27,38 +30,48 @@ type SearchResult = {
 
 type DirectionFilter = "all" | "income" | "expense";
 
-function categoryLabel(value: string | null | undefined): string {
-  if (!value) return "בלי קטגוריה";
-  return CATEGORY_MAP[value] ?? value;
+function categoryLabel(t: Translator, value: string | null | undefined): string {
+  if (!value) return t("documents.globalSearch.noCategory");
+  return categoryDisplayLabel(t, value);
 }
 
-function directionLabel(value: string | null | undefined): string {
-  if (value === "income") return "הכנסה";
-  if (value === "expense") return "הוצאה";
+function directionLabel(t: Translator, value: string | null | undefined): string {
+  if (value === "income") return t("documents.common.income");
+  if (value === "expense") return t("documents.common.expense");
   return "";
 }
 
-function statusLabel(value: string | null | undefined): string {
-  if (value === "approved") return "מאושר";
-  if (value === "needs_review") return "ממתין לבדיקה";
+function statusLabel(t: Translator, value: string | null | undefined): string {
+  if (value === "approved") return t("documents.globalSearch.statusApproved");
+  if (value === "needs_review") return t("documents.globalSearch.statusNeedsReview");
   return "";
 }
 
-function formatAmount(value: number | string | null | undefined): string {
+/** Hebrew: identical to the previous `₪` + he-IL formatter. */
+function formatAmount(value: number | string | null | undefined, locale: Locale): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return "";
+  if (locale !== "he") {
+    return new Intl.NumberFormat(intlTag(locale), {
+      style: "currency",
+      currency: "ILS",
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: 2,
+    }).format(n);
+  }
   return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
 }
 
-function formatDate(raw: string | null | undefined): string {
+function formatDate(raw: string | null | undefined, locale: Locale): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("he-IL");
+  return date.toLocaleDateString(intlTag(locale));
 }
 
 export default function SearchPage() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useEntryState("query", "");
   const [direction, setDirection] = useEntryState<DirectionFilter>("direction", "all");
@@ -108,13 +121,13 @@ export default function SearchPage() {
   const groups = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     for (const row of shown) {
-      const key = categoryLabel(row.category);
+      const key = categoryLabel(t, row.category);
       const list = map.get(key) ?? [];
       list.push(row);
       map.set(key, list);
     }
     return Array.from(map.entries());
-  }, [shown]);
+  }, [shown, t]);
 
   function openResult(row: SearchResult | null) {
     if (!row || !Number.isFinite(row.documentId)) return;
@@ -146,30 +159,30 @@ export default function SearchPage() {
   }
 
   return (
-    <main className="gsearch" dir="rtl" data-page-intent="data" onKeyDown={onKeyDown}>
+    <main className="gsearch" data-page-intent="data" onKeyDown={onKeyDown}>
       <style>{SEARCH_CSS}</style>
       <header className="gsearch-head">
-        <h1>חיפוש</h1>
-        <p>רשומות כספיות לפי ספק או קטגוריה. לקוחות, מלאי והתחייבויות לא נכללים כאן.</p>
+        <h1>{t("documents.globalSearch.title")}</h1>
+        <p>{t("documents.globalSearch.intro")}</p>
       </header>
       <div className="gsearch-desk">
         <div className="gsearch-main">
           <label className="gsearch-field">
-            <span className="sr">חיפוש</span>
+            <span className="sr">{t("documents.globalSearch.title")}</span>
             <input
               ref={inputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="ספק או קטגוריה"
-              aria-label="חיפוש לפי ספק או קטגוריה"
+              placeholder={t("documents.globalSearch.placeholder")}
+              aria-label={t("documents.globalSearch.aria")}
             />
           </label>
-          <div className="gsearch-filters" role="group" aria-label="כיוון">
+          <div className="gsearch-filters" role="group" aria-label={t("documents.globalSearch.directionAria")}>
             {(
               [
-                ["all", "הכל"],
-                ["income", "הכנסה"],
-                ["expense", "הוצאה"],
+                ["all", t("documents.globalSearch.all")],
+                ["income", t("documents.common.income")],
+                ["expense", t("documents.common.expense")],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -185,11 +198,11 @@ export default function SearchPage() {
               </button>
             ))}
           </div>
-          {status === "loading" ? <p className="gsearch-note">מחפש…</p> : null}
-          {status === "error" ? <p className="gsearch-note">לא הצלחנו לטעון את החיפוש.</p> : null}
+          {status === "loading" ? <p className="gsearch-note">{t("documents.globalSearch.searching")}</p> : null}
+          {status === "error" ? <p className="gsearch-note">{t("documents.globalSearch.loadError")}</p> : null}
           {status === "ready" && shown.length === 0 ? (
             <p className="gsearch-note">
-              {query.trim() ? "לא נמצאו רשומות לספק או לקטגוריה הזו." : "אין רשומות להציג."}
+              {query.trim() ? t("documents.globalSearch.noMatch") : t("documents.globalSearch.noRecords")}
             </p>
           ) : null}
           {status === "ready" && shown.length > 0 ? (
@@ -207,10 +220,10 @@ export default function SearchPage() {
                             className={index === active ? "is-selected" : undefined}
                             onClick={() => setActive(index)}
                           >
-                            <span>{row.vendorName || "בלי ספק"}</span>
-                            <span>{formatAmount(row.amount)}</span>
-                            <span>{directionLabel(row.direction)}</span>
-                            <span>{formatDate(row.date)}</span>
+                            <span>{row.vendorName || t("documents.globalSearch.noVendor")}</span>
+                            <span>{formatAmount(row.amount, locale)}</span>
+                            <span>{directionLabel(t, row.direction)}</span>
+                            <span>{formatDate(row.date, locale)}</span>
                           </button>
                         </li>
                       );
@@ -224,26 +237,26 @@ export default function SearchPage() {
         <aside className="gsearch-side">
           {current ? (
             <>
-              <h2>{current.vendorName || "בלי ספק"}</h2>
-              <p>{categoryLabel(current.category)}</p>
+              <h2>{current.vendorName || t("documents.globalSearch.noVendor")}</h2>
+              <p>{categoryLabel(t, current.category)}</p>
               <p>
-                {[formatAmount(current.amount), directionLabel(current.direction), formatDate(current.date)]
+                {[formatAmount(current.amount, locale), directionLabel(t, current.direction), formatDate(current.date, locale)]
                   .filter(Boolean)
                   .join(" · ")}
               </p>
-              {statusLabel(current.document?.status) ? <p>{statusLabel(current.document?.status)}</p> : null}
+              {statusLabel(t, current.document?.status) ? <p>{statusLabel(t, current.document?.status)}</p> : null}
               {Number.isFinite(current.documentId) ? (
                 <button type="button" className="gsearch-open" onClick={() => openResult(current)}>
-                  פתיחת המסמך
+                  {t("documents.globalSearch.openDocument")}
                 </button>
               ) : (
-                <p>לרשומה הזו אין מסמך לפתוח.</p>
+                <p>{t("documents.globalSearch.noDocument")}</p>
               )}
             </>
           ) : (
             <>
-              <h2>רשומה</h2>
-              <p>הקלידו ספק או קטגוריה. החצים עוברים בין תוצאות, Enter פותח את המסמך.</p>
+              <h2>{t("documents.globalSearch.record")}</h2>
+              <p>{t("documents.globalSearch.hint")}</p>
             </>
           )}
         </aside>

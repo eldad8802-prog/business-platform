@@ -1,7 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/tokens";
-import { WA_COPY } from "@/components/whatsapp/wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconCheck, IconSearch } from "@/components/whatsapp/wa-icons";
 import { WaBadge } from "@/components/whatsapp/wa-ui";
 
@@ -17,16 +17,14 @@ import { WaBadge } from "@/components/whatsapp/wa-ui";
  * offers a retry, instead of claiming that no customer has written.
  */
 export function InboxConnectedEmptyState({ onRetry }: { onRetry?: () => void } = {}) {
-  const c = onRetry
-    ? {
-        badge: WA_COPY.inboxConnected.badge,
-        heading: "לא הצלחנו לטעון את השיחות",
-        body: "ייתכן שיש שיחות שלא מוצגות כרגע. אפשר לנסות שוב.",
-      }
-    : WA_COPY.inboxConnected;
+  const { t } = useI18n();
+  const c = {
+    badge: t("inbox.whatsapp.inboxConnected.badge"),
+    heading: onRetry ? t("inbox.emptyState.loadFailedHeading") : t("inbox.whatsapp.inboxConnected.heading"),
+    body: onRetry ? t("inbox.emptyState.loadFailedBody") : t("inbox.whatsapp.inboxConnected.body"),
+  };
   return (
     <div
-      dir="rtl"
       style={{
         minHeight: "100vh",
         background: TOKEN.surface.page,
@@ -56,7 +54,7 @@ export function InboxConnectedEmptyState({ onRetry }: { onRetry?: () => void } =
           }}
         >
           <span style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>
-            שיחות
+            {t("inbox.emptyState.title")}
           </span>
           <WaBadge tone="success" label={c.badge} />
         </div>
@@ -77,7 +75,7 @@ export function InboxConnectedEmptyState({ onRetry }: { onRetry?: () => void } =
           }}
         >
           <IconSearch size={15} />
-          חיפוש שיחות…
+          {t("inbox.emptyState.searchPlaceholder")}
         </div>
 
         <div
@@ -148,7 +146,7 @@ export function InboxConnectedEmptyState({ onRetry }: { onRetry?: () => void } =
                 cursor: "pointer",
               }}
             >
-              נסה שוב
+              {t("inbox.emptyState.retry")}
             </button>
           ) : null}
         </div>

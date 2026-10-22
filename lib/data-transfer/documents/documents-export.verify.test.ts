@@ -45,6 +45,7 @@ import {
 } from "@/lib/data-transfer/documents/documents-export";
 import { readXlsxTable } from "@/lib/data-transfer/format/xlsx-reader";
 import { readDocumentObject } from "@/lib/services/documents/document-storage.service";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 let passed = 0;
 function check(label: string, fn: () => void | Promise<void>): Promise<void> {
@@ -728,9 +729,10 @@ async function main() {
   await check("the UI offers export beside import, without archive jargon", () => {
     // Comments included, the scan would trip on the docstring that lists the
     // very words the panel must not show an owner.
-    const ui = stripComments(
-      readSource("components/settings/import-export/DocumentsExportPanel.tsx")
-    );
+    // The panel's copy lives in the i18n dictionary: the panel is its source plus that section.
+    const ui =
+      stripComments(readSource("components/settings/import-export/DocumentsExportPanel.tsx")) +
+      JSON.stringify(accountHe.settings.importExport.documentsExport);
     assert.equal(ui.includes("/api/data-transfer/documents/export"), true);
     assert.equal(ui.includes("קובץ ZIP הכולל את הקבצים המקוריים"), true);
     assert.equal(ui.includes("disabled={working}"), true);

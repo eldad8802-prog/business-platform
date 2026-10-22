@@ -1,3 +1,4 @@
+import type { Translator } from "@/lib/i18n/translate";
 import {
   evaluateLeadAttention,
   leadAttentionReasonLabel,
@@ -5,6 +6,7 @@ import {
 } from "@/lib/services/crm/lead-attention";
 import type { LeadStatusValue } from "@/lib/services/crm/lead-core";
 import type { LeadAttentionRaw } from "../loaders";
+import { STATUS_HE_T } from "../i18n";
 import { BS_LEADS_CAP } from "../limits";
 import type { BusinessStatusItemBuild, Severity } from "../types";
 
@@ -21,9 +23,9 @@ import type { BusinessStatusItemBuild, Severity } from "../types";
  * and a badge over no evidence is worse than no badge.
  */
 
-function leadLabel(name: string | null): string {
+function leadLabel(name: string | null, t: Translator): string {
   const n = name?.trim();
-  return n && n !== "" ? n : "ליד ללא שם";
+  return n && n !== "" ? n : t("insights.common.unnamedLead");
 }
 
 const SEVERITY_BY_REASON: Record<string, Severity> = {
@@ -39,7 +41,8 @@ const SEVERITY_BY_REASON: Record<string, Severity> = {
 
 export function translateLeadsNeedingAttention(
   rows: LeadAttentionRaw[],
-  now: Date
+  now: Date,
+  t: Translator = STATUS_HE_T
 ): BusinessStatusItemBuild[] {
   const builds: BusinessStatusItemBuild[] = [];
 
@@ -54,7 +57,8 @@ export function translateLeadsNeedingAttention(
         lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
         openIdentityProposals: r.openIdentityProposals,
       },
-      now
+      now,
+      t
     );
 
     // The loader's SQL and this evaluator should already agree; if they ever
@@ -62,7 +66,7 @@ export function translateLeadsNeedingAttention(
     // than show an item that cannot explain itself.
     if (!attention.needsAttention || attention.reason === null) continue;
 
-    const whom = leadLabel(r.customerName);
+    const whom = leadLabel(r.customerName, t);
     const followUpNote = r.followUpNote?.trim();
 
     if (builds.length >= BS_LEADS_CAP) break;
@@ -70,9 +74,9 @@ export function translateLeadsNeedingAttention(
       itemId: `leads:${attention.reason.toLowerCase()}:${r.id}`,
       domain: "leads",
       semanticCategory: "ACTION_REQUIRED",
-      title: `${whom} — ${leadAttentionReasonLabel(attention.reason)}`,
+      title: t("insights.status.leads.title", { whom, reason: leadAttentionReasonLabel(attention.reason, t) }),
       summary:
-        [leadAttentionSummary(attention, r.nextFollowUpAt, now), followUpNote]
+        [leadAttentionSummary(attention, r.nextFollowUpAt, now, t), followUpNote]
           .filter((v): v is string => Boolean(v && v.trim()))
           .join(" ") || null,
       severity: SEVERITY_BY_REASON[attention.reason] ?? "MEDIUM",
@@ -81,7 +85,7 @@ export function translateLeadsNeedingAttention(
       createdAt: r.createdAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: attention.nextAction.label || "פתח את הליד",
+        label: attention.nextAction.label || t("insights.status.leads.openLead"),
         href: `/leads/${r.id}`,
       },
       sourceEngine: "leads-attention",
@@ -96,8 +100,8 @@ export function translateLeadsNeedingAttention(
         attention.reason !== "FOLLOWUP_OVERDUE" && attention.reason !== "FOLLOWUP_DUE_TODAY"
           ? undefined
           : [
-              { kind: "lead_followup_complete", label: "טופל", leadId: r.id },
-              { kind: "lead_followup_snooze", label: "דחה ל־3 ימים", leadId: r.id, days: 3 },
+              { kind: "lead_followup_complete", label: t("insights.status.leads.done"), leadId: r.id },
+              { kind: "lead_followup_snooze", label: t("insights.status.leads.snooze3"), leadId: r.id, days: 3 },
             ],
     });
   }

@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  BILLING_BUSINESS_KIND_LABELS,
   BILLING_BUSINESS_KIND_VALUES,
   type BillingBusinessKind,
 } from "@/lib/billing/business-identity";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
   DEFAULT_BILLING_PDF_TEMPLATE_STYLE,
   type BillingPdfTemplateStyle,
@@ -102,6 +102,7 @@ export function BusinessIdentitySetupForm({
   ) {
     onChange({ ...form, [key]: v });
   }
+  const { t } = useI18n();
 
   return (
     <div
@@ -112,7 +113,7 @@ export function BusinessIdentitySetupForm({
     >
       <div style={{ gridColumn: "1 / -1" }}>
         <Field
-          label="שם העסק במסמך"
+          label={t("billing.identity.legalNameLabel")}
           value={form.billingLegalName}
           onChange={(v) => patch("billingLegalName", v)}
         />
@@ -120,7 +121,7 @@ export function BusinessIdentitySetupForm({
 
       <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.secondary }}>
-          סוג עסק
+          {t("billing.identity.kindLabel")}
         </span>
         <select
           value={form.billingBusinessKind ?? ""}
@@ -139,17 +140,17 @@ export function BusinessIdentitySetupForm({
             background: TOKEN.surface.card,
           }}
         >
-          <option value="">בחרו…</option>
+          <option value="">{t("billing.identity.choose")}</option>
           {BILLING_BUSINESS_KIND_VALUES.map((k) => (
             <option key={k} value={k}>
-              {BILLING_BUSINESS_KIND_LABELS[k as BillingBusinessKind]}
+              {t(`billing.identity.kind.${k as BillingBusinessKind}`)}
             </option>
           ))}
         </select>
       </label>
 
       <Field
-        label="ע.מ. / ח.פ."
+        label={t("billing.identity.taxIdLabel")}
         value={form.billingTaxId}
         onChange={(v) => patch("billingTaxId", v)}
         ltr
@@ -157,7 +158,7 @@ export function BusinessIdentitySetupForm({
 
       <div style={{ gridColumn: "1 / -1" }}>
         <Field
-          label="כתובת"
+          label={t("billing.identity.addressLabel")}
           value={form.billingAddress}
           onChange={(v) => patch("billingAddress", v)}
           multiline
@@ -165,13 +166,13 @@ export function BusinessIdentitySetupForm({
       </div>
 
       <Field
-        label="טלפון"
+        label={t("billing.identity.phoneLabel")}
         value={form.billingPhone}
         onChange={(v) => patch("billingPhone", v)}
         ltr
       />
       <Field
-        label='דוא"ל'
+        label={t("billing.identity.emailLabel")}
         value={form.billingEmail}
         onChange={(v) => patch("billingEmail", v)}
         ltr
@@ -194,7 +195,7 @@ export function BusinessIdentitySetupForm({
               color: TOKEN.ink.secondary,
             }}
           >
-            מראה המסמך (אפשר לדייק בהמשך)
+            {t("billing.identity.appearanceSummary")}
           </summary>
           <div style={{ marginTop: 12 }}>
             <BillingDocumentStylePicker

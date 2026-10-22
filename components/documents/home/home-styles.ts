@@ -159,7 +159,9 @@ export function homeCss(): string {
   .dz-stations{display:flex;flex-direction:column;gap:${T.space.sm}px;}
   .dz-station{display:flex;align-items:center;gap:${T.space.lg}px;background:${T.surface.card};border:1px solid ${T.border.DEFAULT};border-radius:${T.radius.card}px;padding:${T.space.md}px ${T.space.lg}px;box-shadow:${T.shadow.elevated};text-align:start;width:100%;color:${T.ink.primary};font:inherit;cursor:pointer;transition:transform ${tr},border-color ${tr},box-shadow ${tr};}
   .dz-station:hover{transform:translateX(-4px);border-color:${T.border.hover};box-shadow:${T.shadow.floating};}
+  .dz-station:dir(ltr):hover{transform:translateX(4px);}
   .dz-station:active{transform:translateX(0);}
+  .dz-station:dir(ltr):active{transform:translateX(0);}
   .dz-station:focus-visible{outline:2px solid ${T.brand.mid};outline-offset:2px;}
   .dz-station--attn{border-color:${T.semantic.attention.border};}
   .dz-station__ico{width:42px;height:42px;border-radius:${T.radius.input}px;background:${T.semantic.success.bg};color:${T.brand.mid};display:grid;place-items:center;flex:none;box-shadow:inset 0 0 0 1px ${T.semantic.success.border};}
@@ -170,6 +172,8 @@ export function homeCss(): string {
   .dz-badge{background:${T.semantic.urgent.ink};color:${T.ink.inverse};font-size:${T.font.meta}px;font-weight:${T.weight.semibold};min-width:23px;height:23px;padding:0 7px;border-radius:${T.radius.pill}px;display:grid;place-items:center;flex:none;}
   .dz-chev{color:${T.ink.meta};flex:none;transition:transform ${tr},color ${tr};}
   .dz-station:hover .dz-chev{transform:translateX(-3px);color:${T.brand.mid};}
+  .dz-chev:dir(ltr) svg{transform:scaleX(-1);}
+  .dz-station:dir(ltr):hover .dz-chev{transform:translateX(3px);}
 
   /* ---------------- Alerts ---------------- */
   .dz-alert{background:${T.semantic.urgent.bgSoft};border:1px solid ${T.semantic.urgent.border};border-radius:${T.radius.card}px;padding:${T.space.lg}px;box-shadow:${T.shadow.elevated};margin-top:${T.space.md}px;}

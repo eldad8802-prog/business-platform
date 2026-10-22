@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n/server";
 import { loadProfileSummary } from "@/lib/services/profile/profile-summary.service";
 
 export const runtime = "nodejs";
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
       businessName: user.business?.name ?? "",
       userName: user.name,
       userEmail: user.email,
-    });
+    }, new Date(), (await getServerI18n()).t);
 
     return NextResponse.json(summary, { headers: { "cache-control": "no-store" } });
   } catch (error) {

@@ -11,7 +11,7 @@ export function SettingsRow({ href, icon, title, description }: Props) {
   return (
     <Link
       href={href}
-      className="flex w-full items-start gap-3 rounded-2xl border border-transparent px-2 py-3 text-right transition active:scale-[0.99] hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
+      className="flex w-full items-start gap-3 rounded-2xl border border-transparent px-2 py-3 text-start transition active:scale-[0.99] hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
     >
       <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-lg">
         {icon}
@@ -24,7 +24,7 @@ export function SettingsRow({ href, icon, title, description }: Props) {
           </span>
         ) : null}
       </span>
-      <span className="shrink-0 self-center text-lg text-[var(--dz-text-muted)]" aria-hidden>
+      <span className="shrink-0 self-center text-lg text-[var(--dz-text-muted)] ltr:-scale-x-100" aria-hidden>
         ←
       </span>
     </Link>

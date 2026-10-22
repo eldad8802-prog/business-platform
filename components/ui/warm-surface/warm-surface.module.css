@@ -70,7 +70,7 @@
 .alertDot {
   position: absolute;
   top: 10px;
-  left: 11px;
+  inset-inline-end: 11px;
   width: 8px;
   height: 8px;
   box-sizing: content-box;
@@ -163,6 +163,10 @@ a.row:focus-visible,
 .chevron {
   flex-shrink: 0;
   color: var(--dz-warm-ink-2);
+}
+/* Drawn pointing left (forward in RTL); LTR mirrors it. */
+.chevron:dir(ltr) {
+  transform: scaleX(-1);
 }
 
 /* ---- Tone tile: the coloured square around an existing Dubiz icon ------- */

@@ -27,6 +27,8 @@
  * status write, or is consumed by a status write.
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import {
   serializeInboxItem,
   type SerializeInboxItemInput,
@@ -195,6 +197,8 @@ export function pickPrimaryConversation<T extends { item: InboxItemViewModel }>(
 export function deriveLeadConversationIntelligence(input: {
   conversations: readonly LeadConversationRow[];
   now?: Date;
+  /** Interface-language translator for the readout's labels. Default: Hebrew. */
+  t?: Translator;
 }): LeadConversationIntelligence | null {
   const { conversations } = input;
   if (conversations.length === 0) return null;
@@ -207,7 +211,7 @@ export function deriveLeadConversationIntelligence(input: {
   // readout never mixes one conversation's signal with another's numbers.
   const entries = conversations.map((conversation) => ({
     row: conversation,
-    item: serializeInboxItem({ conversation, now }),
+    item: serializeInboxItem({ conversation, now, t: input.t }),
   }));
 
   const primary = pickPrimaryConversation(entries);
@@ -253,20 +257,12 @@ export function deriveLeadConversationIntelligence(input: {
 
 /* ────────────────────────────── priority ───────────────────────────────── */
 
-const PRIORITY_LABELS: Record<LeadPriorityReasonKind, string> = {
-  FOLLOWUP_OVERDUE: "המעקב באיחור",
-  CUSTOMER_WAITING_LONG: "הלקוח ממתין לתשובה",
-  FOLLOWUP_DUE_TODAY: "מעקב להיום",
-  CUSTOMER_WAITING: "יש הודעה שלא נענתה",
-  NEW_UNHANDLED: "ליד חדש שלא טופל",
-  HOT_THREAD: "השיחה חמה",
-  CUSTOMER_WROTE: "הלקוח כתב",
-  CUSTOMER_CALLED: "הלקוח התקשר ולא חזרתם",
-  AWAITING_OWNER_DECISION: "מחכה להחלטה שלכם",
-  QUOTE_NO_ACTIVITY: "הצעה בלי המשך",
-  STALLED: "ליד תקוע",
-  NONE: "",
-};
+/** Hebrew translator — the default of `evaluateLeadPriority` (the label it always produced). */
+const HE_T: Translator = createTranslator(he);
+
+function priorityLabel(reason: LeadPriorityReasonKind, t: Translator): string {
+  return reason === "NONE" ? "" : t(`insights.leads.priority.${reason}`);
+}
 
 /**
  * One comparable number for "who needs me next".
@@ -295,8 +291,10 @@ export function evaluateLeadPriority(input: {
   status: LeadStatusValue;
   attention: LeadAttention;
   intelligence: LeadConversationIntelligence | null;
+  t?: Translator;
 }): LeadPriority {
   const { status, attention, intelligence } = input;
+  const t = input.t ?? HE_T;
 
   if (isClosedLeadStatus(status)) {
     return { score: 0, reason: "NONE", label: "", contributing: [] };
@@ -345,7 +343,7 @@ export function evaluateLeadPriority(input: {
   return {
     score: winner.score,
     reason: winner.reason,
-    label: PRIORITY_LABELS[winner.reason],
+    label: priorityLabel(winner.reason, t),
     contributing: candidates.map((c) => c.reason),
   };
 }

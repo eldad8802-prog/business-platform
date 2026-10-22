@@ -1,7 +1,10 @@
+"use client";
+
 import BackButton from "@/components/ui/back-button";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export const BUILDER_SHELL_MAX_WIDTH = 560;
 
@@ -132,13 +135,13 @@ export function ToggleRow({
           style={{
             position: "absolute",
             top: 3,
-            right: checked ? 25 : 3,
+            insetInlineStart: checked ? 25 : 3,
             width: 24,
             height: 24,
             borderRadius: TOKEN.radius.pill,
             background: TOKEN.surface.card,
             boxShadow: TOKEN.shadow.elevated,
-            transition: "right 160ms ease",
+            transition: "inset-inline-start 160ms ease",
           }}
         />
       </button>
@@ -159,12 +162,13 @@ export function Stepper({
   label?: string;
   onChange: (value: number) => void;
 }) {
+  const { t } = useI18n();
   const minusDisabled = value <= min;
   const plusDisabled = value >= max;
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <StepButton
-        label="הפחת"
+        label={t("content.bot.common.decrease")}
         disabled={minusDisabled}
         onClick={() => onChange(Math.max(min, value - 1))}
       >
@@ -188,7 +192,7 @@ export function Stepper({
         {value}
       </div>
       <StepButton
-        label="הוסף"
+        label={t("content.bot.common.increase")}
         disabled={plusDisabled}
         onClick={() => onChange(Math.min(max, value + 1))}
       >
@@ -265,7 +269,7 @@ export function StickyActionBar({
   saving,
   saved,
   error,
-  saveLabel = "שמור",
+  saveLabel,
 }: {
   onSave: () => void;
   saving: boolean;
@@ -273,6 +277,7 @@ export function StickyActionBar({
   error: string | null;
   saveLabel?: string;
 }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -311,7 +316,7 @@ export function StickyActionBar({
             fontWeight: TOKEN.weight.semibold,
           }}
         >
-          נשמר
+          {t("content.bot.common.saved")}
         </div>
       ) : null}
       <button
@@ -332,7 +337,7 @@ export function StickyActionBar({
           cursor: saving ? "not-allowed" : "pointer",
         }}
       >
-        {saving ? "שומר..." : saveLabel}
+        {saving ? t("content.bot.common.saving") : saveLabel ?? t("content.bot.common.save")}
       </button>
     </div>
   );
@@ -511,7 +516,7 @@ export function ChoiceRow({
         background: selected ? TOKEN.brand.soft : TOKEN.surface.card,
         color: TOKEN.ink.primary,
         cursor: "pointer",
-        textAlign: "right",
+        textAlign: "start",
         fontFamily: "inherit",
       }}
     >
@@ -637,6 +642,7 @@ export function HubAreaCard({
   statusLabel?: string;
   inactive?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Link
       href={href}
@@ -734,7 +740,7 @@ export function HubAreaCard({
           lineHeight: 1,
         }}
       >
-        ‹
+        {t("content.bot.common.chevronForward")}
       </span>
     </Link>
   );

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 import {
-  COMPLETION_SOURCE_LABEL,
-  METHOD_LABEL,
-  PREPARATION_STATUS_LABEL,
+  completionSourceLabel,
+  methodLabel,
+  preparationStatusLabel,
   approvePreparation,
   cancelPreparation,
   completePreparation,
@@ -42,22 +44,24 @@ const STATUS_BADGE: Record<PreparationStatus, string> = {
 };
 
 /** What happens next, in the owner's words. Never implies money moved when it did not. */
-function nextStep(p: PreparationApi, providersLive: boolean): string {
+function nextStep(t: Translator, p: PreparationApi, providersLive: boolean): string {
   switch (p.status) {
     case "PREPARED":
-      return "עדיין לא שולם דבר. בדוק את הפרטים ואשר — האישור מקבע את הסכום ואת החשבון, ועדיין לא מעביר כסף.";
+      return t("money.payables.prepare.next.PREPARED");
     case "APPROVED":
-      return providersLive
-        ? "מאושר. אפשר לשלוח לביצוע דרך ספק התשלום, או להעביר בעצמך מהבנק ולסמן שבוצע."
-        : "מאושר. העבר את התשלום מהבנק שלך (אפשר להציג את פרטי החשבון המלאים), ואז סמן שבוצע. עד אז שום דבר לא נרשם כשולם.";
+      return providersLive ? t("money.payables.prepare.next.APPROVED_LIVE") : t("money.payables.prepare.next.APPROVED_MANUAL");
     case "SUBMITTED":
-      return "נשלח לספק. עד שהספק מאשר שהכסף הועבר — לא נרשם תשלום.";
+      return t("money.payables.prepare.next.SUBMITTED");
     case "FAILED":
-      return "הביצוע נכשל ולא שולם דבר. אפשר לנסות שוב, לשלם בדרך אחרת ולסמן שבוצע, או לבטל.";
+      return t("money.payables.prepare.next.FAILED");
     case "COMPLETED":
-      return `נרשם כתשלום${p.completionSource ? ` (${COMPLETION_SOURCE_LABEL[p.completionSource] ?? p.completionSource})` : ""}.`;
+      return p.completionSource
+        ? t("money.payables.prepare.next.COMPLETED_SOURCE", {
+            source: completionSourceLabel(t, p.completionSource) ?? p.completionSource,
+          })
+        : t("money.payables.prepare.next.COMPLETED");
     case "CANCELLED":
-      return "בוטל. לא שולם דבר.";
+      return t("money.payables.prepare.next.CANCELLED");
   }
 }
 
@@ -72,6 +76,7 @@ export function PreparationCard({
   providersLive: boolean;
   onChanged: (message: string) => void;
 }) {
+  const { t, locale } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"idle" | "complete">("idle");
@@ -86,7 +91,7 @@ export function PreparationCard({
       onChanged(await fn());
       setMode("idle");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -97,39 +102,44 @@ export function PreparationCard({
     <div className={styles.installment}>
       <div className={styles.installmentHead}>
         <span className={styles.installmentSeq}>
-          {formatMoney(prep.amount, prep.currency)} · {METHOD_LABEL[prep.method] ?? prep.method}
+          {formatMoney(prep.amount, prep.currency, locale)} · {methodLabel(t, prep.method) ?? prep.method}
         </span>
         <span className={styles.badges}>
-          <span className={`${styles.badge} ${STATUS_BADGE[prep.status]}`}>{PREPARATION_STATUS_LABEL[prep.status]}</span>
+          <span className={`${styles.badge} ${STATUS_BADGE[prep.status]}`}>{preparationStatusLabel(t, prep.status)}</span>
         </span>
       </div>
 
       <dl className={styles.prepGrid}>
-        <dt>למי</dt>
+        <dt>{t("money.payables.prepare.card.who")}</dt>
         <dd>{prep.payee.name}</dd>
-        <dt>כמה</dt>
-        <dd>{formatMoney(prep.amount, prep.currency)}</dd>
-        <dt>מאיפה</dt>
-        <dd>{prep.source ? <>{prep.source.label} <bdi dir="ltr">{prep.source.masked}</bdi></> : "לא נבחר חשבון מקור"}</dd>
-        <dt>לאן</dt>
+        <dt>{t("money.payables.prepare.card.howMuch")}</dt>
+        <dd>{formatMoney(prep.amount, prep.currency, locale)}</dd>
+        <dt>{t("money.payables.prepare.card.from")}</dt>
+        <dd>{prep.source ? <>{prep.source.label} <bdi dir="ltr">{prep.source.masked}</bdi></> : t("money.payables.prepare.card.noSource")}</dd>
+        <dt>{t("money.payables.prepare.card.to")}</dt>
         <dd>
           {prep.destination ? (
             <>
               {prep.destination.beneficiaryName} · {prep.destination.label} <bdi dir="ltr">{prep.destination.masked}</bdi>
-              <span className={styles.nextLine}> (הוזנו על ידך — הבנק לא בדק אותם)</span>
+              <span className={styles.nextLine}> {t("money.payables.prepare.card.enteredByYou")}</span>
             </>
           ) : (
             "—"
           )}
         </dd>
-        <dt>עבור</dt>
+        <dt>{t("money.payables.prepare.card.forWord")}</dt>
         <dd>
           {prep.commitment.title}
-          {prep.installment ? ` · תשלום ${prep.installment.sequence} (${formatDate(prep.installment.dueAt)})` : ""}
+          {prep.installment
+            ? ` · ${t("money.payables.prepare.card.installmentWithDate", {
+                sequence: prep.installment.sequence,
+                date: formatDate(prep.installment.dueAt, locale),
+              })}`
+            : ""}
         </dd>
         {prep.reference && (
           <>
-            <dt>אסמכתא</dt>
+            <dt>{t("money.payables.prepare.card.reference")}</dt>
             <dd>
               <bdi dir="ltr">{prep.reference}</bdi>
             </dd>
@@ -138,18 +148,19 @@ export function PreparationCard({
       </dl>
 
       <div className={styles.notice}>
-        <strong>מה הלאה: </strong>
-        {nextStep(prep, providersLive)}
+        <strong>{t("money.payables.prepare.card.whatNext")} </strong>
+        {nextStep(t, prep, providersLive)}
       </div>
 
       {revealed && (
         <div className={styles.notice} data-testid="revealed-destination">
-          פרטי החשבון להעברה: בנק <bdi dir="ltr">{revealed.bankCode}</bdi> · סניף{" "}
-          <bdi dir="ltr">{revealed.branchCode}</bdi> · חשבון <bdi dir="ltr">{revealed.accountNumber}</bdi> ·{" "}
+          {t("money.payables.prepare.card.revealedIntro")} {t("money.payables.prepare.card.bank")} <bdi dir="ltr">{revealed.bankCode}</bdi> ·{" "}
+          {t("money.payables.prepare.card.branch")} <bdi dir="ltr">{revealed.branchCode}</bdi> · {t("money.payables.prepare.card.account")}{" "}
+          <bdi dir="ltr">{revealed.accountNumber}</bdi> ·{" "}
           {prep.destination?.beneficiaryName}
           <div className={styles.formActions}>
             <button type="button" className={styles.buttonQuiet} onClick={() => setRevealed(null)}>
-              הסתר
+              {t("money.payables.prepare.card.hide")}
             </button>
           </div>
         </div>
@@ -165,15 +176,15 @@ export function PreparationCard({
               className={styles.buttonPrimary}
               disabled={busy}
               onClick={() => {
-                if (window.confirm(`לאשר תשלום של ${formatMoney(prep.amount, prep.currency)} ל${prep.payee.name}? האישור לא מעביר כסף.`)) {
+                if (window.confirm(t("money.payables.prepare.card.approveConfirm", { amount: formatMoney(prep.amount, prep.currency, locale), payee: prep.payee.name }))) {
                   run(async () => {
                     await approvePreparation(prep.id);
-                    return "התשלום אושר. עדיין לא הועבר כסף.";
+                    return t("money.payables.prepare.card.approved");
                   });
                 }
               }}
             >
-              אשר תשלום
+              {t("money.payables.prepare.card.approve")}
             </button>
           )}
           {prep.destination && (a.reportCompleted || a.execute) && !revealed && (
@@ -184,18 +195,18 @@ export function PreparationCard({
               onClick={() =>
                 run(async () => {
                   const r = await revealDestination(prep.destination!.id);
-                  if (!r.coordinates) throw new Error("לא ניתן להציג את פרטי החשבון כרגע");
+                  if (!r.coordinates) throw new Error(t("money.payables.prepare.card.revealUnavailable"));
                   setRevealed(r.coordinates);
-                  return "פרטי החשבון מוצגים. הצגתם נרשמה ביומן.";
+                  return t("money.payables.prepare.card.revealedDone");
                 })
               }
             >
-              הצג פרטי חשבון להעברה
+              {t("money.payables.prepare.card.reveal")}
             </button>
           )}
           {a.reportCompleted && (
             <button type="button" className={styles.buttonQuiet} disabled={busy} onClick={() => setMode("complete")}>
-              סמן שביצעתי את התשלום
+              {t("money.payables.prepare.card.markDone")}
             </button>
           )}
           {a.cancel && (
@@ -204,21 +215,21 @@ export function PreparationCard({
               className={styles.buttonQuiet}
               disabled={busy}
               onClick={() => {
-                if (window.confirm("לבטל את התשלום המוכן? לא שולם דבר.")) {
+                if (window.confirm(t("money.payables.prepare.card.cancelConfirm"))) {
                   run(async () => {
                     await cancelPreparation(prep.id, "בוטל על ידי בעל העסק");
-                    return "התשלום המוכן בוטל.";
+                    return t("money.payables.prepare.card.cancelled");
                   });
                 }
               }}
             >
-              בטל
+              {t("money.payables.prepare.card.cancel")}
             </button>
           )}
         </div>
       )}
       {a.execute && !providersLive && (
-        <span className={styles.nextLine}>ביצוע אוטומטי אינו זמין: לא מחובר ספק לתשלומים יוצאים.</span>
+        <span className={styles.nextLine}>{t("money.payables.prepare.card.noAuto")}</span>
       )}
 
       {mode === "complete" && (
@@ -228,36 +239,36 @@ export function PreparationCard({
             e.preventDefault();
             run(async () => {
               const r = await completePreparation(prep.id, toIso(paidAt), ref.trim() || null);
-              if (r.replayed) return "התשלום כבר נרשם — לא נוצר תשלום נוסף.";
+              if (r.replayed) return t("money.payables.prepare.card.completeReplayed");
               return Number(r.unallocated) > 0
-                ? `נרשם כתשלום. ${formatMoney(r.unallocated, prep.currency)} לא שויכו ונשארו פתוחים.`
-                : "נרשם כתשלום ושויך להתחייבות.";
+                ? t("money.payables.prepare.card.completeUnallocated", { amount: formatMoney(r.unallocated, prep.currency, locale) })
+                : t("money.payables.prepare.card.completeDone");
             });
           }}
         >
           <div className={styles.formRow2}>
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`pp-date-${prep.id}`}>
-                מתי שילמת?
+                {t("money.payables.prepare.card.whenPaid")}
               </label>
               <input id={`pp-date-${prep.id}`} className={styles.input} type="date" value={paidAt} max={todayISO()} onChange={(e) => setPaidAt(e.target.value)} required />
             </div>
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`pp-ref-${prep.id}`}>
-                אסמכתת ההעברה (רשות)
+                {t("money.payables.prepare.card.transferRef")}
               </label>
               <input id={`pp-ref-${prep.id}`} className={styles.input} dir="ltr" value={ref} maxLength={80} onChange={(e) => setRef(e.target.value)} />
             </div>
           </div>
           <div className={styles.notice}>
-            יירשם תשלום אחד לפי דיווחך. אם הפרטים שאושרו השתנו מאז — הרישום יסורב.
+            {t("money.payables.prepare.card.completeNotice")}
           </div>
           <div className={styles.formActions}>
             <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-              {busy ? "רושם…" : "אשר שהתשלום בוצע"}
+              {busy ? t("money.common.recording") : t("money.payables.prepare.card.confirmDone")}
             </button>
             <button type="button" className={styles.buttonQuiet} onClick={() => setMode("idle")}>
-              ביטול
+              {t("money.common.cancel")}
             </button>
           </div>
         </form>
@@ -279,6 +290,7 @@ export function PreparePaymentForm({
   onPrepared: (p: PreparationApi) => void;
   onPayeeLinked: () => void;
 }) {
+  const { t, locale } = useI18n();
   const open = detail.installments.filter((i) => i.status === "SCHEDULED" && Number(i.remaining) > 0);
   const [installmentId, setInstallmentId] = useState<number | null>(open[0]?.id ?? null);
   const [amount, setAmount] = useState(open[0]?.remaining ?? "");
@@ -309,14 +321,13 @@ export function PreparePaymentForm({
   }, [detail.payeeId, reloadDest]);
 
   if (open.length === 0) {
-    return <div className={styles.empty}>אין תשלום פתוח להכנה בהתחייבות הזו.</div>;
+    return <div className={styles.empty}>{t("money.payables.prepare.form.noOpen")}</div>;
   }
 
   if (!detail.payeeId && method === "BANK_TRANSFER") {
     return (
       <div className={styles.notice}>
-        כדי להכין העברה בנקאית צריך מוטב רשום, שאליו שייך חשבון היעד. ההתחייבות רשומה על שם
-        &quot;{detail.payeeNameSnapshot}&quot; בלבד.
+        {t("money.payables.prepare.form.needPayee", { name: detail.payeeNameSnapshot })}
         {error && <div className={styles.error}>{error}</div>}
         <div className={styles.formActions}>
           <button
@@ -331,16 +342,16 @@ export function PreparePaymentForm({
                 await linkCommitmentPayee(detail.id, payee.id);
                 onPayeeLinked();
               } catch (e) {
-                setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+                setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            רשום את &quot;{detail.payeeNameSnapshot}&quot; כמוטב
+            {t("money.payables.prepare.form.registerPayee", { name: detail.payeeNameSnapshot })}
           </button>
           <button type="button" className={styles.buttonQuiet} onClick={() => setMethod("CASH")}>
-            אשלם בדרך אחרת
+            {t("money.payables.prepare.form.payOtherWay")}
           </button>
         </div>
       </div>
@@ -363,7 +374,7 @@ export function PreparePaymentForm({
       });
       onPrepared(p);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "הכנת התשלום נכשלה");
+      setError(err instanceof Error ? err.message : t("money.payables.prepare.form.prepareFailed"));
     } finally {
       setBusy(false);
     }
@@ -376,7 +387,7 @@ export function PreparePaymentForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pr-inst">
-            עבור תשלום
+            {t("money.payables.cheques.form.forInstallment")}
           </label>
           <select
             id="pr-inst"
@@ -390,14 +401,18 @@ export function PreparePaymentForm({
           >
             {open.map((i) => (
               <option key={i.id} value={i.id}>
-                תשלום {i.sequence} · {formatDate(i.dueAt)} · נותר {formatMoney(i.remaining, detail.currency)}
+                {t("money.payables.cheques.form.installmentOption", {
+                  sequence: i.sequence,
+                  date: formatDate(i.dueAt, locale),
+                  amount: formatMoney(i.remaining, detail.currency, locale),
+                })}
               </option>
             ))}
           </select>
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pr-amount">
-            סכום
+            {t("money.common.amount")}
           </label>
           <input id="pr-amount" className={styles.input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
         </div>
@@ -406,19 +421,19 @@ export function PreparePaymentForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pr-method">
-            אמצעי תשלום
+            {t("money.payables.prepare.form.method")}
           </label>
           <select id="pr-method" className={styles.select} value={method} onChange={(e) => setMethod(e.target.value)}>
             {METHODS.map((m) => (
               <option key={m} value={m}>
-                {METHOD_LABEL[m] ?? m}
+                {methodLabel(t, m) ?? m}
               </option>
             ))}
           </select>
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pr-source">
-            מאיזה חשבון (רשות)
+            {t("money.payables.prepare.form.sourceOptional")}
           </label>
           <select
             id="pr-source"
@@ -426,7 +441,7 @@ export function PreparePaymentForm({
             value={sourceId ?? ""}
             onChange={(e) => setSourceId(e.target.value ? Number(e.target.value) : null)}
           >
-            <option value="">לא לציין</option>
+            <option value="">{t("money.payables.prepare.form.notSpecified")}</option>
             {activeAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.label} · {a.masked}
@@ -439,12 +454,12 @@ export function PreparePaymentForm({
       {method === "BANK_TRANSFER" && (
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pr-dest">
-            לאיזה חשבון של {detail.payeeNameSnapshot}
+            {t("money.payables.prepare.form.destFor", { name: detail.payeeNameSnapshot })}
           </label>
           {destinations === null ? (
-            <div className={styles.empty}>טוען…</div>
+            <div className={styles.empty}>{t("money.common.loading")}</div>
           ) : activeDest.length === 0 ? (
-            <div className={styles.empty}>עוד לא נשמר חשבון יעד למוטב הזה.</div>
+            <div className={styles.empty}>{t("money.payables.prepare.form.noDest")}</div>
           ) : (
             <select
               id="pr-dest"
@@ -461,7 +476,7 @@ export function PreparePaymentForm({
           )}
           <div className={styles.formActions}>
             <button type="button" className={styles.buttonQuiet} onClick={() => setAddingDestination((v) => !v)}>
-              {addingDestination ? "סגור" : "הוסף חשבון יעד"}
+              {addingDestination ? t("money.common.close") : t("money.payables.prepare.form.addDest")}
             </button>
           </div>
         </div>
@@ -481,18 +496,18 @@ export function PreparePaymentForm({
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="pr-ref">
-          אסמכתא / פרטים להעברה (רשות)
+          {t("money.payables.prepare.form.refDetails")}
         </label>
         <input id="pr-ref" className={styles.input} value={reference} maxLength={140} onChange={(e) => setReference(e.target.value)} />
       </div>
 
       <div className={styles.notice}>
-        הכנת תשלום אינה מעבירה כסף ואינה מסמנת דבר כשולם. אחרי ההכנה תאשר, תשלם בעצמך, ותסמן שבוצע.
+        {t("money.payables.prepare.form.notice")}
       </div>
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy || (method === "BANK_TRANSFER" && !destinationId)}>
-          {busy ? "מכין…" : "הכן תשלום"}
+          {busy ? t("money.payables.prepare.form.preparing") : t("money.payables.prepare.form.submit")}
         </button>
       </div>
     </form>
@@ -513,7 +528,8 @@ function DestinationForm({
   defaultName: string;
   onCreated: (d: DestinationApi) => void;
 }) {
-  const [label, setLabel] = useState("חשבון ראשי");
+  const { t } = useI18n();
+  const [label, setLabel] = useState(() => t("money.payables.prepare.destination.defaultLabel"));
   const [beneficiaryName, setBeneficiaryName] = useState(defaultName);
   const [bankCode, setBankCode] = useState("");
   const [branchCode, setBranchCode] = useState("");
@@ -531,7 +547,7 @@ function DestinationForm({
       setAccountNumber("");
       onCreated(r.destination);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "שמירת החשבון נכשלה");
+      setError(e instanceof Error ? e.message : t("money.payables.prepare.destination.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -542,13 +558,13 @@ function DestinationForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="dst-name">
-            שם המוטב בבנק
+            {t("money.payables.prepare.destination.beneficiary")}
           </label>
           <input id="dst-name" className={styles.input} value={beneficiaryName} maxLength={120} onChange={(e) => setBeneficiaryName(e.target.value)} autoComplete="off" />
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="dst-label">
-            כינוי
+            {t("money.payables.prepare.destination.nickname")}
           </label>
           <input id="dst-label" className={styles.input} value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} autoComplete="off" />
         </div>
@@ -556,30 +572,30 @@ function DestinationForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="dst-bank">
-            קוד בנק (2 ספרות)
+            {t("money.payables.cheques.accounts.bankCode")}
           </label>
           <input id="dst-bank" className={styles.input} inputMode="numeric" dir="ltr" maxLength={2} value={bankCode} onChange={(e) => setBankCode(e.target.value)} autoComplete="off" />
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="dst-branch">
-            סניף (3 ספרות)
+            {t("money.payables.prepare.destination.branch")}
           </label>
           <input id="dst-branch" className={styles.input} inputMode="numeric" dir="ltr" maxLength={3} value={branchCode} onChange={(e) => setBranchCode(e.target.value)} autoComplete="off" />
         </div>
       </div>
       <div className={styles.field}>
         <label className={styles.label} htmlFor="dst-account">
-          מספר חשבון
+          {t("money.payables.cheques.accounts.accountNumber")}
         </label>
         <input id="dst-account" className={styles.input} inputMode="numeric" dir="ltr" maxLength={20} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} autoComplete="off" />
       </div>
       <div className={styles.notice}>
-        הפרטים נשמרים מוצפנים ומוצגים בהמשך רק כארבע ספרות אחרונות. הבנק לא בודק אותם — ודא שהם נכונים.
+        {t("money.payables.prepare.destination.notice")}
       </div>
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
         <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={save}>
-          {busy ? "שומר…" : "שמור חשבון יעד"}
+          {busy ? t("money.common.saving") : t("money.payables.prepare.destination.save")}
         </button>
       </div>
     </div>

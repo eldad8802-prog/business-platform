@@ -2,6 +2,9 @@ import {
   getMovementReasonLabel,
   getMovementTypeLabel,
 } from "@/lib/inventory/inventory-labels";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 type Movement = {
   id: number;
@@ -18,13 +21,13 @@ type Props = {
   movements: Movement[];
 };
 
-function getMovementStyle(type: string) {
+function getMovementStyle(type: string, t: Translator) {
   if (type === "IN") {
     return {
       color: "var(--inv-success)",
       background: "var(--inv-success-bg)",
       sign: "+",
-      label: "הוספה",
+      label: t("customers.inventoryKit.labels.movementType.in"),
     };
   }
 
@@ -33,7 +36,7 @@ function getMovementStyle(type: string) {
       color: "var(--inv-danger)",
       background: "var(--inv-danger-bg)",
       sign: "−",
-      label: "הפחתה",
+      label: t("customers.inventoryKit.labels.movementType.out"),
     };
   }
 
@@ -41,19 +44,20 @@ function getMovementStyle(type: string) {
     color: "var(--inv-text-muted)",
     background: "var(--inv-surface-2)",
     sign: "",
-    label: getMovementTypeLabel(type),
+    label: getMovementTypeLabel(type, t),
   };
 }
 
-function formatDate(date: string) {
+function formatDate(date: string, locale: Locale) {
   try {
-    return new Date(date).toLocaleString("he-IL");
+    return new Date(date).toLocaleString(intlTag(locale));
   } catch {
     return date;
   }
 }
 
 export default function InventoryMovementsList({ movements }: Props) {
+  const { t, locale } = useI18n();
   if (!movements.length) {
     return (
       <div
@@ -68,7 +72,7 @@ export default function InventoryMovementsList({ movements }: Props) {
           fontSize: "14px",
         }}
       >
-        אין תנועות עדיין
+        {t("customers.inventoryKit.movements.empty")}
       </div>
     );
   }
@@ -83,7 +87,7 @@ export default function InventoryMovementsList({ movements }: Props) {
       }}
     >
       {movements.map((m) => {
-        const style = getMovementStyle(m.movementType);
+        const style = getMovementStyle(m.movementType, t);
 
         return (
           <div
@@ -135,11 +139,11 @@ export default function InventoryMovementsList({ movements }: Props) {
 
             {/* פרטים */}
             <div style={{ color: "var(--inv-text-muted)" }}>
-              סיבה: <strong>{getMovementReasonLabel(m.reason)}</strong>
+              {t("customers.inventoryKit.movements.reason")} <strong>{getMovementReasonLabel(m.reason, t)}</strong>
             </div>
 
             <div style={{ color: "var(--inv-text-muted)" }}>
-              לפני: {m.quantityBefore} → אחרי:{" "}
+              {t("customers.inventoryKit.movements.beforeAfter", { before: m.quantityBefore })}{" "}
               <strong>{m.quantityAfter}</strong>
             </div>
 
@@ -152,7 +156,7 @@ export default function InventoryMovementsList({ movements }: Props) {
                   padding: "6px 8px",
                 }}
               >
-                הערה: {m.note}
+                {t("customers.inventoryKit.movements.note", { note: m.note })}
               </div>
             )}
 
@@ -163,7 +167,7 @@ export default function InventoryMovementsList({ movements }: Props) {
                 marginTop: "4px",
               }}
             >
-              {formatDate(m.createdAt)}
+              {formatDate(m.createdAt, locale)}
             </div>
           </div>
         );

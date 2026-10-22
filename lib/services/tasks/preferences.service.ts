@@ -5,21 +5,23 @@
  * is not run and not shown; switching it back on shows its items again from the source (nothing was stored).
  * The morning summary columns exist (milestone A) and stay untouched here — external reminders are not in v1.
  */
+import type { Translator } from "@/lib/i18n/translate";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
-import { SOURCE_KINDS, SOURCE_NAMES, type SourceKind } from "./agenda-core";
+import { HEBREW_TEXT, SOURCE_KINDS, sourceName, type SourceKind } from "./agenda-core";
 import { TaskServiceError, idempotent, own, type TaskActor, type TaskRequest } from "./task.service";
 import { utcTs } from "./task.store";
 
 export type TaskPreferencesView = { sources: { kind: SourceKind; name: string; enabled: boolean }[]; version: number };
 
-export async function getPreferences(businessId: number): Promise<TaskPreferencesView> {
+/** `t`: the request's interface language for the source names (Hebrew by default). */
+export async function getPreferences(businessId: number, t: Translator = HEBREW_TEXT): Promise<TaskPreferencesView> {
   const p = await tenantTx(businessId, (tx) => tx.taskPreferences.findUnique({ where: { businessId }, select: { disabledSources: true, version: true } }));
   const off = new Set(p?.disabledSources ?? []);
-  return { sources: SOURCE_KINDS.map((kind) => ({ kind, name: SOURCE_NAMES[kind], enabled: !off.has(kind) })), version: p?.version ?? 0 };
+  return { sources: SOURCE_KINDS.map((kind) => ({ kind, name: sourceName(kind, t), enabled: !off.has(kind) })), version: p?.version ?? 0 };
 }
 
-export async function setSourceEnabled(actor: TaskActor, req: TaskRequest, kind: string, enabled: boolean): Promise<TaskPreferencesView> {
+export async function setSourceEnabled(actor: TaskActor, req: TaskRequest, kind: string, enabled: boolean, t: Translator = HEBREW_TEXT): Promise<TaskPreferencesView> {
   if (!SOURCE_KINDS.includes(kind as SourceKind)) throw new TaskServiceError("INVALID_INPUT", { field: "kind" });
   if (typeof enabled !== "boolean") throw new TaskServiceError("INVALID_INPUT", { field: "enabled" });
   await idempotent(actor, req, "preferences.source", { kind, enabled }, async (ctx) => {
@@ -39,5 +41,5 @@ export async function setSourceEnabled(actor: TaskActor, req: TaskRequest, kind:
     own(ctx, { eventType: enabled ? "SOURCE_ENABLED" : "SOURCE_DISABLED", payload: { sourceKind: kind } });
     return {};
   });
-  return getPreferences(actor.businessId);
+  return getPreferences(actor.businessId, t);
 }

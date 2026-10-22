@@ -5,7 +5,8 @@ import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import type { WhatsAppPublicConnection } from "./use-whatsapp-connection";
-import { WA_COPY, waConnectErrorText } from "./wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { waAttentionText, waConnectErrorText } from "./wa-copy";
 import { IconChevronStart, IconPower, IconRefresh, IconSwap } from "./wa-icons";
 import { WaAvatar, WaBadge, WaConnecting } from "./wa-ui";
 import { WhatsAppDisconnectDialog } from "./WhatsAppDisconnectDialog";
@@ -34,12 +35,13 @@ export function WhatsAppConnectedCard({
   connection: WhatsAppPublicConnection;
   onChanged: () => void;
 }) {
+  const { t, dir } = useI18n();
   const { status, detail, errorCode, start, reset, cancel } = useWhatsAppConnect(
     () => onChanged(),
     () => onChanged()
   );
   const attentionText =
-    connection.status !== "CONNECTED" ? WA_COPY.attention[connection.status] ?? null : null;
+    connection.status !== "CONNECTED" ? waAttentionText(connection.status, t) : null;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export function WhatsAppConnectedCard({
         }
       );
       if (!res.ok) {
-        setDisconnectError(WA_COPY.disconnect.error);
+        setDisconnectError(t("inbox.whatsapp.disconnect.error"));
         setDisconnecting(false);
         return;
       }
@@ -74,15 +76,13 @@ export function WhatsAppConnectedCard({
       setConfirmOpen(false);
       onChanged();
     } catch {
-      setDisconnectError(WA_COPY.disconnect.error);
+      setDisconnectError(t("inbox.whatsapp.disconnect.error"));
       setDisconnecting(false);
     }
   }
 
   // Backend exchange in flight (after Meta popup closed).
   if (detail === "sending") return <WaConnecting />;
-
-  const a = WA_COPY.settingsCard.actions;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -104,9 +104,9 @@ export function WhatsAppConnectedCard({
         >
           <WaAvatar size={52} radius={TOKEN.radius.card} />
           {attentionText ? (
-            <WaBadge tone="neutral" label={WA_COPY.attention.badge} />
+            <WaBadge tone="neutral" label={t("inbox.whatsapp.attention.badge")} />
           ) : (
-            <WaBadge tone="success" label={WA_COPY.settingsCard.badge} />
+            <WaBadge tone="success" label={t("inbox.whatsapp.settingsCard.badge")} />
           )}
         </div>
 
@@ -118,7 +118,7 @@ export function WhatsAppConnectedCard({
               fontWeight: TOKEN.weight.semibold,
             }}
           >
-            {WA_COPY.settingsCard.numberLabel}
+            {t("inbox.whatsapp.settingsCard.numberLabel")}
           </span>
           <span
             dir="ltr"
@@ -126,7 +126,8 @@ export function WhatsAppConnectedCard({
               fontSize: TOKEN.font.hero,
               fontWeight: TOKEN.weight.bold,
               color: TOKEN.ink.primary,
-              textAlign: "right",
+              // The number is dir="ltr", so align it to the INTERFACE start explicitly.
+              textAlign: dir === "rtl" ? "right" : "left",
             }}
           >
             {connection.displayPhoneNumber}
@@ -153,7 +154,10 @@ export function WhatsAppConnectedCard({
             lineHeight: 1.5,
           }}
         >
-          {WA_COPY.error.heading} — {waConnectErrorText(errorCode)}
+          {t("inbox.whatsapp.error.withReason", {
+            heading: t("inbox.whatsapp.error.heading"),
+            reason: waConnectErrorText(errorCode, t),
+          })}
         </div>
       )}
 
@@ -167,30 +171,33 @@ export function WhatsAppConnectedCard({
       >
         <ActionRow
           icon={<IconRefresh size={20} />}
-          title={a.reconnect.title}
-          subtitle={a.reconnect.subtitle}
+          title={t("inbox.whatsapp.settingsCard.actions.reconnect.title")}
+          subtitle={t("inbox.whatsapp.settingsCard.actions.reconnect.subtitle")}
           onClick={beginConnect}
           disabled={busy}
           comingSoon
           divider={false}
+          dir={dir}
         />
         <ActionRow
           icon={<IconSwap size={20} />}
-          title={a.switch.title}
-          subtitle={a.switch.subtitle}
+          title={t("inbox.whatsapp.settingsCard.actions.switch.title")}
+          subtitle={t("inbox.whatsapp.settingsCard.actions.switch.subtitle")}
           onClick={beginConnect}
           disabled={busy}
           comingSoon
           divider
+          dir={dir}
         />
         <ActionRow
           icon={<IconPower size={20} />}
-          title={a.disconnect.title}
-          subtitle={a.disconnect.subtitle}
+          title={t("inbox.whatsapp.settingsCard.actions.disconnect.title")}
+          subtitle={t("inbox.whatsapp.settingsCard.actions.disconnect.subtitle")}
           onClick={() => setConfirmOpen(true)}
           disabled={busy}
           danger
           divider
+          dir={dir}
         />
       </div>
 
@@ -204,10 +211,10 @@ export function WhatsAppConnectedCard({
               textAlign: "center",
             }}
           >
-            {WA_COPY.invitation.connecting}
+            {t("inbox.whatsapp.invitation.connecting")}
           </p>
           <p style={{ margin: 0, fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, textAlign: "center", lineHeight: 1.5 }}>
-            {WA_COPY.invitation.popupHint}
+            {t("inbox.whatsapp.invitation.popupHint")}
           </p>
           <button
             type="button"
@@ -224,7 +231,7 @@ export function WhatsAppConnectedCard({
               cursor: "pointer",
             }}
           >
-            {WA_COPY.invitation.cancelLaunch}
+            {t("inbox.whatsapp.invitation.cancelLaunch")}
           </button>
         </div>
       )}
@@ -264,6 +271,7 @@ function ActionRow({
   danger,
   divider,
   comingSoon = false,
+  dir,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -274,6 +282,8 @@ function ActionRow({
   divider: boolean;
   /** Not open yet (WhatsApp Business reconnect / switch): inactive, "בקרוב" instead of the chevron. */
   comingSoon?: boolean;
+  /** Interface direction — the drill-in chevron points to inline-end. */
+  dir: "rtl" | "ltr";
 }) {
   const inactive = disabled || comingSoon;
   return (
@@ -289,7 +299,7 @@ function ActionRow({
         border: "none",
         background: "transparent",
         fontFamily: "inherit",
-        textAlign: "right",
+        textAlign: "start",
         padding: "15px 2px",
         cursor: inactive ? "not-allowed" : "pointer",
         opacity: inactive ? 0.6 : 1,
@@ -337,7 +347,14 @@ function ActionRow({
       {comingSoon ? (
         <ComingSoonPill />
       ) : (
-        <span aria-hidden style={{ color: TOKEN.ink.meta, display: "inline-flex" }}>
+        <span
+          aria-hidden
+          style={{
+            color: TOKEN.ink.meta,
+            display: "inline-flex",
+            transform: dir === "ltr" ? "scaleX(-1)" : undefined,
+          }}
+        >
           <IconChevronStart size={18} />
         </span>
       )}

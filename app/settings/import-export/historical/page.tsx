@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { getServerI18n } from "@/lib/i18n/server";
 import {
   HistoricalImportScreen,
   type HistoricalFieldOption,
@@ -27,10 +28,11 @@ import { HISTORICAL_FIELDS } from "@/lib/data-transfer/historical/historical-fie
  * It also means the column names in the picker cannot drift from the column
  * names the server maps against: there is no second list.
  */
-export default function HistoricalImportPage() {
+export default async function HistoricalImportPage() {
   if (!IMPORT_EXPORT_RELEASED) {
     notFound();
   }
+  const { t } = await getServerI18n();
 
   const fields: HistoricalFieldOption[] = HISTORICAL_FIELDS.map((field) => ({
     field: field.header,
@@ -62,8 +64,8 @@ export default function HistoricalImportPage() {
   return (
     <>
       <SettingsSubPageHeader
-        title="היסטוריה ממערכת קודמת"
-        subtitle="מסמכים שהופקו במערכת אחרת"
+        title={t("account.settings.importExport.actions.historical.title")}
+        subtitle={t("account.settings.historical.pages.importSubtitle")}
         backHref={IMPORT_EXPORT_ROUTE}
       />
       <HistoricalImportScreen

@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
-  CHEQUE_ADVANCE_LABEL,
-  CHEQUE_STATUS_LABEL,
+  chequeAdvanceLabel,
+  chequeStatusLabel,
   advanceCheque,
   archiveBankAccount,
   bounceCheque,
@@ -55,6 +56,7 @@ export function BankAccountsSection({
   configured: boolean;
   onChanged: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +66,7 @@ export function BankAccountsSection({
       await action();
       onChanged(message);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     }
   }
 
@@ -72,16 +74,14 @@ export function BankAccountsSection({
     <>
       {!configured && (
         <div className={styles.notice}>
-          שמירת חשבונות בנק עדיין לא הופעלה במערכת. אפשר לצפות בנתונים קיימים, אך לא
-          להוסיף חשבון חדש.
+          {t("money.payables.cheques.accounts.notConfigured")}
         </div>
       )}
       {error && <div className={styles.error}>{error}</div>}
 
       {accounts.length === 0 ? (
         <div className={styles.empty}>
-          עוד לא נוסף חשבון בנק. צ׳ק נכתב תמיד מחשבון מסוים, לכן יש להוסיף חשבון לפני
-          רישום צ׳ק.
+          {t("money.payables.cheques.accounts.empty")}
         </div>
       ) : (
         <div className={styles.timeline}>
@@ -93,10 +93,10 @@ export function BankAccountsSection({
                 </span>
                 <span className={styles.badges}>
                   {a.isDefault && (
-                    <span className={`${styles.badge} ${styles.badgePaid}`}>ברירת מחדל</span>
+                    <span className={`${styles.badge} ${styles.badgePaid}`}>{t("money.payables.cheques.accounts.defaultBadge")}</span>
                   )}
                   {!a.isActive && (
-                    <span className={`${styles.badge} ${styles.badgeQuiet}`}>בארכיון</span>
+                    <span className={`${styles.badge} ${styles.badgeQuiet}`}>{t("money.payables.cheques.accounts.archivedBadge")}</span>
                   )}
                 </span>
               </div>
@@ -106,9 +106,9 @@ export function BankAccountsSection({
                     <button
                       type="button"
                       className={styles.buttonQuiet}
-                      onClick={() => run(() => setDefaultBankAccount(a.id), "החשבון נקבע כברירת מחדל.")}
+                      onClick={() => run(() => setDefaultBankAccount(a.id), t("money.payables.cheques.accounts.setDefaultDone"))}
                     >
-                      קבע כברירת מחדל
+                      {t("money.payables.cheques.accounts.setDefault")}
                     </button>
                   )}
                   <button
@@ -117,14 +117,14 @@ export function BankAccountsSection({
                     onClick={() => {
                       if (
                         window.confirm(
-                          "להעביר את החשבון לארכיון? צ׳קים שכבר נכתבו ממנו נשמרים, אך לא ניתן יהיה לכתוב ממנו צ׳קים חדשים.",
+                          t("money.payables.cheques.accounts.archiveConfirm"),
                         )
                       ) {
-                        run(() => archiveBankAccount(a.id), "החשבון הועבר לארכיון.");
+                        run(() => archiveBankAccount(a.id), t("money.payables.cheques.accounts.archiveDone"));
                       }
                     }}
                   >
-                    העבר לארכיון
+                    {t("money.payables.cheques.accounts.archive")}
                   </button>
                 </div>
               )}
@@ -141,7 +141,7 @@ export function BankAccountsSection({
             onClick={() => setShowForm((v) => !v)}
             aria-expanded={showForm}
           >
-            {showForm ? "סגור" : "הוסף חשבון בנק"}
+            {showForm ? t("money.common.close") : t("money.payables.cheques.accounts.add")}
           </button>
         </div>
       )}
@@ -163,6 +163,7 @@ export function BankAccountsSection({
  * text inputs throughout — a number input would drop leading zeros.
  */
 function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }) {
+  const { t } = useI18n();
   const [label, setLabel] = useState("");
   const [bankCode, setBankCode] = useState("");
   const [branchCode, setBranchCode] = useState("");
@@ -183,11 +184,11 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
       setLabel("");
       onCreated(
         result.restored
-          ? `החשבון ${result.account.masked} כבר היה שמור בארכיון, והוחזר לשימוש.`
-          : `החשבון ${result.account.masked} נוסף.`,
+          ? t("money.payables.cheques.accounts.restored", { masked: result.account.masked })
+          : t("money.payables.cheques.accounts.added", { masked: result.account.masked }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "הוספת החשבון נכשלה");
+      setError(err instanceof Error ? err.message : t("money.payables.cheques.accounts.addFailed"));
     } finally {
       setBusy(false);
     }
@@ -197,14 +198,14 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
     <form className={styles.form} onSubmit={submit} autoComplete="off">
       <div className={styles.field}>
         <label className={styles.label} htmlFor="ba-label">
-          שם החשבון
+          {t("money.payables.cheques.accounts.name")}
         </label>
         <input
           id="ba-label"
           className={styles.input}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="חשבון העסק הראשי"
+          placeholder={t("money.payables.cheques.accounts.namePlaceholder")}
           maxLength={80}
           required
         />
@@ -212,7 +213,7 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="ba-bank">
-            קוד בנק (2 ספרות)
+            {t("money.payables.cheques.accounts.bankCode")}
           </label>
           <input
             id="ba-bank"
@@ -228,7 +229,7 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="ba-branch">
-            מספר סניף (3 ספרות)
+            {t("money.payables.cheques.accounts.branchCode")}
           </label>
           <input
             id="ba-branch"
@@ -245,7 +246,7 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
       </div>
       <div className={styles.field}>
         <label className={styles.label} htmlFor="ba-account">
-          מספר חשבון
+          {t("money.payables.cheques.accounts.accountNumber")}
         </label>
         <input
           id="ba-account"
@@ -265,15 +266,15 @@ function BankAccountForm({ onCreated }: { onCreated: (message: string) => void }
           checked={isDefault}
           onChange={(e) => setIsDefault(e.target.checked)}
         />
-        <span>חשבון ברירת המחדל לצ׳קים חדשים</span>
+        <span>{t("money.payables.cheques.accounts.defaultForCheques")}</span>
       </label>
       <div className={styles.notice}>
-        פרטי החשבון נשמרים מוצפנים. אחרי השמירה יוצגו רק ארבע הספרות האחרונות.
+        {t("money.payables.cheques.accounts.encryptedNote")}
       </div>
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-          {busy ? "שומר…" : "שמור חשבון"}
+          {busy ? t("money.common.saving") : t("money.payables.cheques.accounts.save")}
         </button>
       </div>
     </form>
@@ -298,6 +299,7 @@ export function ChequeForm({
   installments?: InstallmentApi[];
   onCreated: (cheque: ChequeApi) => void;
 }) {
+  const { t, locale } = useI18n();
   const active = accounts.filter((a) => a.isActive);
   const defaultAccount = active.find((a) => a.isDefault) ?? active[0];
   const openInstallments = (installments ?? []).filter(
@@ -320,8 +322,9 @@ export function ChequeForm({
   if (active.length === 0) {
     return (
       <div className={styles.empty}>
-        כדי לרשום צ׳ק יש להוסיף קודם חשבון בנק, בעמוד{" "}
-        <Link href="/payables/cheques">צ׳קים וחשבונות בנק</Link>.
+        {t("money.payables.cheques.form.noAccountBefore")}
+        <Link href="/payables/cheques">{t("money.payables.list.chequesAndAccounts")}</Link>
+        {t("money.payables.cheques.form.noAccountAfter")}
       </div>
     );
   }
@@ -346,7 +349,7 @@ export function ChequeForm({
       setChequeNumber("");
       onCreated(cheque);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "רישום הצ׳ק נכשל");
+      setError(err instanceof Error ? err.message : t("money.payables.cheques.form.recordFailed"));
     } finally {
       setBusy(false);
     }
@@ -357,7 +360,7 @@ export function ChequeForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-number">
-            מספר צ׳ק
+            {t("money.payables.cheques.form.chequeNumber")}
           </label>
           <input
             id="cq-number"
@@ -371,7 +374,7 @@ export function ChequeForm({
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-amount">
-            סכום
+            {t("money.common.amount")}
           </label>
           <input
             id="cq-amount"
@@ -388,7 +391,7 @@ export function ChequeForm({
       {!commitmentId && (
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-payee">
-            לפקודת
+            {t("money.payables.cheques.form.payTo")}
           </label>
           <input
             id="cq-payee"
@@ -403,7 +406,7 @@ export function ChequeForm({
       {commitmentId && openInstallments.length > 0 && (
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-inst">
-            עבור תשלום
+            {t("money.payables.cheques.form.forInstallment")}
           </label>
           <select
             id="cq-inst"
@@ -413,10 +416,14 @@ export function ChequeForm({
           >
             {openInstallments.map((i) => (
               <option key={i.id} value={i.id}>
-                תשלום {i.sequence} · {formatDate(i.dueAt)} · נותר {formatMoney(i.remaining)}
+                {t("money.payables.cheques.form.installmentOption", {
+                  sequence: i.sequence,
+                  date: formatDate(i.dueAt, locale),
+                  amount: formatMoney(i.remaining, undefined, locale),
+                })}
               </option>
             ))}
-            <option value="">ללא שיוך לתשלום מסוים</option>
+            <option value="">{t("money.payables.cheques.form.noInstallment")}</option>
           </select>
         </div>
       )}
@@ -424,7 +431,7 @@ export function ChequeForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-issue">
-            תאריך כתיבה
+            {t("money.payables.cheques.form.issueDate")}
           </label>
           <input
             id="cq-issue"
@@ -437,7 +444,7 @@ export function ChequeForm({
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="cq-due">
-            תאריך פירעון
+            {t("money.payables.cheques.form.dueDate")}
           </label>
           <input
             id="cq-due"
@@ -452,7 +459,7 @@ export function ChequeForm({
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="cq-account">
-          מחשבון
+          {t("money.payables.cheques.form.fromAccount")}
         </label>
         <select
           id="cq-account"
@@ -475,13 +482,13 @@ export function ChequeForm({
           checked={written}
           onChange={(e) => setWritten(e.target.checked)}
         />
-        <span>הצ׳ק כבר נכתב (אחרת יירשם כמתוכנן)</span>
+        <span>{t("money.payables.cheques.form.alreadyWritten")}</span>
       </label>
 
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-          {busy ? "רושם…" : "רשום צ׳ק"}
+          {busy ? t("money.common.recording") : t("money.payables.cheques.form.submit")}
         </button>
       </div>
     </form>
@@ -501,6 +508,7 @@ export function ChequeCard({
   onChanged: (message: string) => void;
   showCommitment?: boolean;
 }) {
+  const { t, locale } = useI18n();
   const [mode, setMode] = useState<"idle" | "clear" | "replace">("idle");
   const [clearedAt, setClearedAt] = useState(todayISO());
   const [newNumber, setNewNumber] = useState("");
@@ -517,7 +525,7 @@ export function ChequeCard({
       setMode("idle");
       onChanged(message);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -530,53 +538,58 @@ export function ChequeCard({
     <div className={styles.installment}>
       <div className={styles.installmentHead}>
         <span className={styles.installmentSeq}>
-          צ׳ק <bdi dir="ltr">#{cheque.chequeNumber}</bdi> · {formatMoney(cheque.amount, cheque.currency)}
+          {t("money.payables.cheques.card.chequeWord")} <bdi dir="ltr">#{cheque.chequeNumber}</bdi> ·{" "}
+          {formatMoney(cheque.amount, cheque.currency, locale)}
         </span>
         <span className={styles.badges}>
           <span className={`${styles.badge} ${STATUS_BADGE[cheque.status]}`}>
-            {CHEQUE_STATUS_LABEL[cheque.status]}
+            {chequeStatusLabel(t, cheque.status)}
           </span>
         </span>
       </div>
 
       <span className={styles.nextLine}>
-        לפקודת {cheque.payeeNameSnapshot} · פירעון {formatDate(cheque.dueDate)} · מחשבון{" "}
-        {cheque.sourceBankAccount.label} <bdi dir="ltr">{cheque.sourceBankAccount.masked}</bdi>
+        {t("money.payables.cheques.card.meta", {
+          payee: cheque.payeeNameSnapshot,
+          date: formatDate(cheque.dueDate, locale),
+          account: cheque.sourceBankAccount.label,
+        })}{" "}
+        <bdi dir="ltr">{cheque.sourceBankAccount.masked}</bdi>
       </span>
       {showCommitment && cheque.commitment && (
         <span className={styles.nextLine}>
-          עבור <Link href={`/payables/${cheque.commitment.id}`}>{cheque.commitment.title}</Link>
-          {cheque.installment ? ` · תשלום ${cheque.installment.sequence}` : ""}
+          {t("money.payables.cheques.card.forWord")} <Link href={`/payables/${cheque.commitment.id}`}>{cheque.commitment.title}</Link>
+          {cheque.installment ? ` · ${t("money.payables.cheques.card.installmentN", { sequence: cheque.installment.sequence })}` : ""}
         </span>
       )}
 
       {cheque.cleared && (
         <span className={styles.nextLine}>
-          סומן כנפרע על ידך
-          {cheque.cleared.assertedAt ? ` בתאריך ${formatDate(cheque.cleared.assertedAt)}` : ""} — זו
-          הצהרה שלך, לא אישור מהבנק.
+          {cheque.cleared.assertedAt
+            ? t("money.payables.cheques.card.clearedOnDate", { date: formatDate(cheque.cleared.assertedAt, locale) })
+            : t("money.payables.cheques.card.clearedNoDate")}
           {cheque.payment && cheque.payment.status === "RECORDED" && Number(cheque.payment.unallocated) > 0
-            ? ` ${formatMoney(cheque.payment.unallocated, cheque.currency)} מהסכום לא שויכו לתשלום.`
+            ? ` ${t("money.payables.cheques.card.unallocatedNote", { amount: formatMoney(cheque.payment.unallocated, cheque.currency, locale) })}`
             : ""}
         </span>
       )}
       {cheque.status === "BOUNCED" && cheque.payment?.status === "VOID" && (
         <span className={styles.nextLine}>
-          הצ׳ק חזר אחרי שסומן כנפרע — התשלום שנרשם בוטל ואינו נספר.
+          {t("money.payables.cheques.card.bouncedAfterClear")}
         </span>
       )}
       {cheque.replaces && (
         <span className={styles.nextLine}>
-          מחליף את צ׳ק <bdi dir="ltr">#{cheque.replaces.chequeNumber}</bdi>
+          {t("money.payables.cheques.card.replaces")} <bdi dir="ltr">#{cheque.replaces.chequeNumber}</bdi>
         </span>
       )}
       {cheque.replacedBy && (
         <span className={styles.nextLine}>
-          הוחלף בצ׳ק <bdi dir="ltr">#{cheque.replacedBy.chequeNumber}</bdi>
+          {t("money.payables.cheques.card.replacedBy")} <bdi dir="ltr">#{cheque.replacedBy.chequeNumber}</bdi>
         </span>
       )}
       {cheque.cancellationReason && (
-        <span className={styles.nextLine}>סיבה: {cheque.cancellationReason}</span>
+        <span className={styles.nextLine}>{t("money.payables.cheques.card.reason", { reason: cheque.cancellationReason })}</span>
       )}
 
       {error && <div className={styles.error}>{error}</div>}
@@ -592,16 +605,16 @@ export function ChequeCard({
               onClick={() =>
                 run(async () => {
                   await advanceCheque(cheque.id, to);
-                  return `צ׳ק #${cheque.chequeNumber}: ${CHEQUE_STATUS_LABEL[to]}.`;
+                  return t("money.payables.cheques.card.advanced", { number: cheque.chequeNumber, status: chequeStatusLabel(t, to) });
                 })
               }
             >
-              {CHEQUE_ADVANCE_LABEL[to] ?? to}
+              {chequeAdvanceLabel(t, to) ?? to}
             </button>
           ))}
           {a.clear && (
             <button type="button" className={styles.buttonQuiet} disabled={busy} onClick={() => setMode("clear")}>
-              סמן כנפרע
+              {t("money.payables.cheques.card.markCleared")}
             </button>
           )}
           {a.bounce && (
@@ -612,22 +625,22 @@ export function ChequeCard({
               onClick={() => {
                 const note =
                   cheque.status === "CLEARED"
-                    ? "לסמן שהצ׳ק חזר? התשלום שנרשם כשסומן כנפרע יבוטל (הרישום נשמר ומתועד)."
-                    : "לסמן שהצ׳ק חזר?";
+                    ? t("money.payables.cheques.card.bounceConfirmCleared")
+                    : t("money.payables.cheques.card.bounceConfirm");
                 if (window.confirm(note)) {
                   run(async () => {
                     await bounceCheque(cheque.id, "סומן כחוזר על ידי בעל העסק");
-                    return `צ׳ק #${cheque.chequeNumber} סומן כחוזר.`;
+                    return t("money.payables.cheques.card.bounced", { number: cheque.chequeNumber });
                   });
                 }
               }}
             >
-              סמן כחוזר
+              {t("money.payables.cheques.card.markBounced")}
             </button>
           )}
           {a.replace && (
             <button type="button" className={styles.buttonQuiet} disabled={busy} onClick={() => setMode("replace")}>
-              החלף בצ׳ק אחר
+              {t("money.payables.cheques.card.replace")}
             </button>
           )}
           {a.cancel && (
@@ -636,15 +649,15 @@ export function ChequeCard({
               className={styles.buttonQuiet}
               disabled={busy}
               onClick={() => {
-                if (window.confirm("לבטל את הצ׳ק? הרישום נשמר, והמספר ישוחרר.")) {
+                if (window.confirm(t("money.payables.cheques.card.cancelConfirm"))) {
                   run(async () => {
                     await cancelCheque(cheque.id, "בוטל על ידי בעל העסק");
-                    return `צ׳ק #${cheque.chequeNumber} בוטל.`;
+                    return t("money.payables.cheques.card.cancelled", { number: cheque.chequeNumber });
                   });
                 }
               }}
             >
-              בטל צ׳ק
+              {t("money.payables.cheques.card.cancelCheque")}
             </button>
           )}
         </div>
@@ -657,16 +670,16 @@ export function ChequeCard({
             e.preventDefault();
             run(async () => {
               const r = await clearCheque(cheque.id, toIso(clearedAt));
-              if (r.replayed) return "הצ׳ק כבר סומן כנפרע — לא נוצר תשלום נוסף.";
+              if (r.replayed) return t("money.payables.cheques.card.clearReplayed");
               return Number(r.unallocated) > 0
-                ? `הצ׳ק סומן כנפרע ונרשם כתשלום. ${formatMoney(r.unallocated, cheque.currency)} לא שויכו ונשארו פתוחים.`
-                : "הצ׳ק סומן כנפרע ונרשם כתשלום.";
+                ? t("money.payables.cheques.card.clearedUnallocated", { amount: formatMoney(r.unallocated, cheque.currency, locale) })
+                : t("money.payables.cheques.card.clearedDone");
             });
           }}
         >
           <div className={styles.field}>
             <label className={styles.label} htmlFor={`cq-clear-${cheque.id}`}>
-              מתי הכסף ירד מהחשבון?
+              {t("money.payables.cheques.card.whenCleared")}
             </label>
             <input
               id={`cq-clear-${cheque.id}`}
@@ -680,14 +693,14 @@ export function ChequeCard({
             />
           </div>
           <div className={styles.notice}>
-            הסימון נרשם כהצהרה שלך (לא כאישור מהבנק), והצ׳ק ייספר כתשלום אחד על ההתחייבות.
+            {t("money.payables.cheques.card.clearNotice")}
           </div>
           <div className={styles.formActions}>
             <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-              {busy ? "רושם…" : "אשר שהצ׳ק נפרע"}
+              {busy ? t("money.common.recording") : t("money.payables.cheques.card.confirmCleared")}
             </button>
             <button type="button" className={styles.buttonQuiet} onClick={() => setMode("idle")}>
-              ביטול
+              {t("money.common.cancel")}
             </button>
           </div>
         </form>
@@ -708,14 +721,14 @@ export function ChequeCard({
                   : (activeAccounts.find((x) => x.isDefault) ?? activeAccounts[0])?.id ?? null,
                 reason: "הוחלף על ידי בעל העסק",
               });
-              return `צ׳ק #${cheque.chequeNumber} הוחלף בצ׳ק #${r.replacement.chequeNumber}.`;
+              return t("money.payables.cheques.card.replacedDone", { number: cheque.chequeNumber, newNumber: r.replacement.chequeNumber });
             });
           }}
         >
           <div className={styles.formRow2}>
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`cq-rep-num-${cheque.id}`}>
-                מספר הצ׳ק החדש
+                {t("money.payables.cheques.card.newNumber")}
               </label>
               <input
                 id={`cq-rep-num-${cheque.id}`}
@@ -729,7 +742,7 @@ export function ChequeCard({
             </div>
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`cq-rep-due-${cheque.id}`}>
-                תאריך פירעון
+                {t("money.payables.cheques.form.dueDate")}
               </label>
               <input
                 id={`cq-rep-due-${cheque.id}`}
@@ -743,7 +756,7 @@ export function ChequeCard({
           </div>
           <div className={styles.field}>
             <label className={styles.label} htmlFor={`cq-rep-issue-${cheque.id}`}>
-              תאריך כתיבה
+              {t("money.payables.cheques.form.issueDate")}
             </label>
             <input
               id={`cq-rep-issue-${cheque.id}`}
@@ -755,14 +768,14 @@ export function ChequeCard({
             />
           </div>
           <div className={styles.notice}>
-            הצ׳ק הנוכחי יישמר ויסומן כמוחלף; הצ׳ק החדש יקושר אליו.
+            {t("money.payables.cheques.card.replaceNotice")}
           </div>
           <div className={styles.formActions}>
             <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-              {busy ? "רושם…" : "החלף"}
+              {busy ? t("money.common.recording") : t("money.payables.cheques.card.replaceSubmit")}
             </button>
             <button type="button" className={styles.buttonQuiet} onClick={() => setMode("idle")}>
-              ביטול
+              {t("money.common.cancel")}
             </button>
           </div>
         </form>

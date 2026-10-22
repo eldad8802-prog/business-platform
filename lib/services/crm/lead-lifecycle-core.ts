@@ -35,11 +35,16 @@
  * "invoice ≠ won", "payment ≠ sales outcome".
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import {
   isClosedLeadStatus,
   leadDayKey,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
+
+/** Hebrew translator — the default of `suggestNextAction` (its wording is the Hebrew dictionary's, verbatim). */
+const HE_T: Translator = createTranslator(he);
 
 export const LEAD_LIFECYCLE_POLICY_VERSION = "lead-lifecycle@1";
 
@@ -198,7 +203,7 @@ export function customerWroteSinceLastActivity(facts: LeadLifecycleFacts): boole
   return inbound.getTime() > last.getTime();
 }
 
-export function suggestNextAction(facts: LeadLifecycleFacts, now: Date): LeadSuggestion | null {
+export function suggestNextAction(facts: LeadLifecycleFacts, now: Date, t: Translator = HE_T): LeadSuggestion | null {
   if (isClosedLeadStatus(facts.status)) return null;
   // A next action already exists — the owner has a plan; Dubiz does not second-guess it.
   if (facts.nextFollowUpAt) return null;
@@ -212,8 +217,8 @@ export function suggestNextAction(facts: LeadLifecycleFacts, now: Date): LeadSug
       ruleId: "S4_REPLY_CUSTOMER@1",
       kind: "follow_up",
       dueInDays: 0,
-      label: "לחזור ללקוח היום",
-      why: "הלקוח כתב אחרי העדכון האחרון שלכם בליד.",
+      label: t("insights.leads.suggestion.replyCustomer"),
+      why: t("insights.leads.suggestion.replyCustomerWhy"),
     });
   }
   if (facts.status === "NEW") {
@@ -221,8 +226,8 @@ export function suggestNextAction(facts: LeadLifecycleFacts, now: Date): LeadSug
       ruleId: "S1_CONTACT_NEW@1",
       kind: "call",
       dueInDays: 0,
-      label: "ליצור קשר היום",
-      why: "הליד חדש ואין לו עדיין פעולה הבאה.",
+      label: t("insights.leads.suggestion.contactNew"),
+      why: t("insights.leads.suggestion.contactNewWhy"),
     });
   }
   if (facts.status === "QUOTED" && idle >= QUOTE_CHECK_AFTER_DAYS) {
@@ -230,8 +235,8 @@ export function suggestNextAction(facts: LeadLifecycleFacts, now: Date): LeadSug
       ruleId: "S2_CHECK_QUOTE@1",
       kind: "check_quote",
       dueInDays: 0,
-      label: "לבדוק אם ההצעה התקבלה",
-      why: `סומן שנשלחה הצעה, ולא נרשמה פעילות על הליד ${idle} ימים.`,
+      label: t("insights.leads.suggestion.checkQuote"),
+      why: t("insights.leads.suggestion.checkQuoteWhy", { days: idle }),
     });
   }
   if ((facts.status === "OPEN" || facts.status === "QUALIFIED") && idle >= STALLED_AFTER_DAYS) {
@@ -239,8 +244,8 @@ export function suggestNextAction(facts: LeadLifecycleFacts, now: Date): LeadSug
       ruleId: "S3_REVIVE_STALLED@1",
       kind: "follow_up",
       dueInDays: 0,
-      label: "לחזור אליו",
-      why: `לא נרשמה פעילות על הליד ${idle} ימים ואין פעולה הבאה.`,
+      label: t("insights.leads.suggestion.reviveStalled"),
+      why: t("insights.leads.suggestion.reviveStalledWhy", { days: idle }),
     });
   }
   return candidates.find((c) => !dismissed.has(c.ruleId)) ?? null;

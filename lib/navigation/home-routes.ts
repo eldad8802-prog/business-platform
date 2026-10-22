@@ -18,6 +18,16 @@
  * from). No sixth hue is introduced here.
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
+
+/**
+ * Names and blurbs are dictionary entries (lib/i18n/messages/areas/insights.ts → `insights.tools.*`).
+ * `label` / `description` / `capabilityLine` hold the Hebrew text verbatim (what every existing caller
+ * reads); the `*Key` fields let a surface render them in the interface language: `t(tool.labelKey)`.
+ */
+const HE_T: Translator = createTranslator(he);
+
 /** The five existing tool tints. Not colours — names of existing CSS classes. */
 export type ToolColor = "teal" | "sage" | "amber" | "clay" | "slate";
 
@@ -35,6 +45,10 @@ export type ToolGroupKey = "money" | "customers" | "operations";
 export type Tool = {
   key: string;
   label: string;
+  /** Dictionary key of `label`. */
+  labelKey: MessageKey;
+  /** Dictionary key of `description`. */
+  descriptionKey: MessageKey;
   /**
    * One short line on what the screen is for, taken from what the screen
    * actually does — never a promise it does not keep.
@@ -61,6 +75,10 @@ export type ToolGroup = {
   key: ToolGroupKey;
   /** The family name — on Home and on its own screen. */
   label: string;
+  /** Dictionary key of `label`. */
+  labelKey: MessageKey;
+  /** Dictionary key of `capabilityLine`. */
+  capabilityLineKey: MessageKey;
   /**
    * Representative capabilities, as the owner would name them. EXAMPLES, never
    * the full list and never a count: it names exactly the entities in `icons`,
@@ -109,16 +127,20 @@ export function obligationHref(obligationId: number): string {
 export const TOOL_GROUPS: ToolGroup[] = [
   {
     key: "money",
-    label: "כסף וחשבוניות",
-    capabilityLine: "חשבוניות · גבייה · מסמכים",
+    label: HE_T("insights.tools.groups.money.label"),
+    labelKey: "insights.tools.groups.money.label",
+    capabilityLine: HE_T("insights.tools.groups.money.capability"),
+    capabilityLineKey: "insights.tools.groups.money.capability",
     icons: ["invoice", "collection", "documents"],
     slug: "money",
     domains: ["billing", "documents"],
   },
   {
     key: "customers",
-    label: "לקוחות ומכירות",
-    capabilityLine: "לקוחות · לידים · שיחות",
+    label: HE_T("insights.tools.groups.customers.label"),
+    labelKey: "insights.tools.groups.customers.label",
+    capabilityLine: HE_T("insights.tools.groups.customers.capability"),
+    capabilityLineKey: "insights.tools.groups.customers.capability",
     icons: ["customers", "leads", "conversations"],
     slug: "customers",
     domains: ["inbox", "leads"],
@@ -128,8 +150,10 @@ export const TOOL_GROUPS: ToolGroup[] = [
     // Running the business day to day: the secretary and the commitments she
     // reminds about (moved here from money — owner decision, Daily Tasks B),
     // the task centre when daily_tasks is ON, and stock with its suppliers.
-    label: "ניהול העסק",
-    capabilityLine: "מזכירה · התחייבויות · מלאי",
+    label: HE_T("insights.tools.groups.operations.label"),
+    labelKey: "insights.tools.groups.operations.label",
+    capabilityLine: HE_T("insights.tools.groups.operations.capability"),
+    capabilityLineKey: "insights.tools.groups.operations.capability",
     icons: ["secretary", "payables", "inventory"],
     slug: "operations",
     domains: ["inventory", "supplier"],
@@ -177,8 +201,10 @@ export const TOOLS: Tool[] = [
   // --- כסף וחשבוניות -------------------------------------------------------
   {
     key: "invoices",
-    label: "חשבוניות",
-    description: "חשבוניות, קבלות והצעות מחיר",
+    label: HE_T("insights.tools.items.invoices.label"),
+    labelKey: "insights.tools.items.invoices.label",
+    description: HE_T("insights.tools.items.invoices.description"),
+    descriptionKey: "insights.tools.items.invoices.description",
     entity: "invoice",
     href: "/billing",
     color: "sage",
@@ -187,8 +213,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "collection",
-    label: "גבייה",
-    description: "מי חייב לך, בקשות תשלום ומה שכבר נגבה",
+    label: HE_T("insights.tools.items.collection.label"),
+    labelKey: "insights.tools.items.collection.label",
+    description: HE_T("insights.tools.items.collection.description"),
+    descriptionKey: "insights.tools.items.collection.description",
     entity: "collection",
     href: "/collection",
     color: "teal",
@@ -197,8 +225,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "documents",
-    label: "מסמכים",
-    description: "המסמכים הפיננסיים שנקלטו לעסק",
+    label: HE_T("insights.tools.items.documents.label"),
+    labelKey: "insights.tools.items.documents.label",
+    description: HE_T("insights.tools.items.documents.description"),
+    descriptionKey: "insights.tools.items.documents.description",
     entity: "documents",
     href: "/documents",
     color: "teal",
@@ -207,8 +237,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "documents-email",
-    label: "מסמכים מהמייל",
-    description: "קליטת מסמכים מתיבת ה-Gmail",
+    label: HE_T("insights.tools.items.documentsEmail.label"),
+    labelKey: "insights.tools.items.documentsEmail.label",
+    description: HE_T("insights.tools.items.documentsEmail.description"),
+    descriptionKey: "insights.tools.items.documentsEmail.description",
     entity: "documents-email",
     href: "/documents/email",
     color: "teal",
@@ -218,8 +250,10 @@ export const TOOLS: Tool[] = [
   // --- לקוחות ומכירות ------------------------------------------------------
   {
     key: "customers",
-    label: "לקוחות",
-    description: "כרטיסי הלקוחות של העסק",
+    label: HE_T("insights.tools.items.customers.label"),
+    labelKey: "insights.tools.items.customers.label",
+    description: HE_T("insights.tools.items.customers.description"),
+    descriptionKey: "insights.tools.items.customers.description",
     entity: "customers",
     href: "/customers",
     color: "slate",
@@ -228,8 +262,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "leads",
-    label: "לידים",
-    description: "פניות של לקוחות פוטנציאליים",
+    label: HE_T("insights.tools.items.leads.label"),
+    labelKey: "insights.tools.items.leads.label",
+    description: HE_T("insights.tools.items.leads.description"),
+    descriptionKey: "insights.tools.items.leads.description",
     entity: "leads",
     href: "/leads",
     color: "slate",
@@ -238,8 +274,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "conversations",
-    label: "שיחות",
-    description: "השיחות עם הלקוחות במקום אחד",
+    label: HE_T("insights.tools.items.conversations.label"),
+    labelKey: "insights.tools.items.conversations.label",
+    description: HE_T("insights.tools.items.conversations.description"),
+    descriptionKey: "insights.tools.items.conversations.description",
     entity: "conversations",
     href: "/inbox",
     color: "sage",
@@ -248,8 +286,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "bots",
-    label: "בוטים",
-    description: "הבוט שעונה ללקוחות, והאופן שבו הוא עונה",
+    label: HE_T("insights.tools.items.bots.label"),
+    labelKey: "insights.tools.items.bots.label",
+    description: HE_T("insights.tools.items.bots.description"),
+    descriptionKey: "insights.tools.items.bots.description",
     entity: "bots",
     href: "/business/bot",
     color: "clay",
@@ -258,8 +298,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "coupons",
-    label: "קופונים",
-    description: "קופונים והטבות ללקוחות",
+    label: HE_T("insights.tools.items.coupons.label"),
+    labelKey: "insights.tools.items.coupons.label",
+    description: HE_T("insights.tools.items.coupons.description"),
+    descriptionKey: "insights.tools.items.coupons.description",
     entity: "coupons",
     href: "/revenue?view=browse",
     color: "clay",
@@ -268,8 +310,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "content",
-    label: "תוכן ושיווק",
-    description: "חומרי שיווק ותוכן לעסק",
+    label: HE_T("insights.tools.items.content.label"),
+    labelKey: "insights.tools.items.content.label",
+    description: HE_T("insights.tools.items.content.description"),
+    descriptionKey: "insights.tools.items.content.description",
     entity: "content",
     href: "/content",
     color: "clay",
@@ -284,8 +328,10 @@ export const TOOLS: Tool[] = [
   // Daily Tasks B) — no screen, route or permission changes.
   {
     key: "tasks",
-    label: "משימות",
-    description: "מה דורש אותך היום — משימות שלך ומהעסק",
+    label: HE_T("insights.tools.items.tasks.label"),
+    labelKey: "insights.tools.items.tasks.label",
+    description: HE_T("insights.tools.items.tasks.description"),
+    descriptionKey: "insights.tools.items.tasks.description",
     entity: "tasks",
     href: "/tasks",
     color: "teal",
@@ -295,8 +341,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "secretary",
-    label: "המזכירה שלי",
-    description: "תזכורות לתשלומים שהעסק צריך לשלם",
+    label: HE_T("insights.tools.items.secretary.label"),
+    labelKey: "insights.tools.items.secretary.label",
+    description: HE_T("insights.tools.items.secretary.description"),
+    descriptionKey: "insights.tools.items.secretary.description",
     entity: "secretary",
     href: "/secretary",
     color: "amber",
@@ -305,8 +353,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "payables",
-    label: "התחייבויות",
-    description: "מה העסק חייב, מתי, וכמה כבר שולם",
+    label: HE_T("insights.tools.items.payables.label"),
+    labelKey: "insights.tools.items.payables.label",
+    description: HE_T("insights.tools.items.payables.description"),
+    descriptionKey: "insights.tools.items.payables.description",
     entity: "payables",
     href: "/payables",
     color: "amber",
@@ -315,8 +365,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "inventory",
-    label: "מלאי",
-    description: "המוצרים והכמויות במלאי",
+    label: HE_T("insights.tools.items.inventory.label"),
+    labelKey: "insights.tools.items.inventory.label",
+    description: HE_T("insights.tools.items.inventory.description"),
+    descriptionKey: "insights.tools.items.inventory.description",
     entity: "inventory",
     href: "/inventory",
     color: "slate",
@@ -325,8 +377,10 @@ export const TOOLS: Tool[] = [
   },
   {
     key: "suppliers",
-    label: "ספקים",
-    description: "ספקים, הזמנות ופרטי קשר",
+    label: HE_T("insights.tools.items.suppliers.label"),
+    labelKey: "insights.tools.items.suppliers.label",
+    description: HE_T("insights.tools.items.suppliers.description"),
+    descriptionKey: "insights.tools.items.suppliers.description",
     entity: "suppliers",
     href: "/suppliers",
     color: "amber",

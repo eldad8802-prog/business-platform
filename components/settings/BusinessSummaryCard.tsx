@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 /**
  * Read-only business summary for Settings → "פרטי העסק".
  *
@@ -36,6 +38,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function BusinessSummaryCard() {
+  const { t } = useI18n();
   const [info, setInfo] = useState<BusinessInfo | null>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
 
@@ -86,23 +89,23 @@ export function BusinessSummaryCard() {
   }, []);
 
   return (
-    <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
-      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">פרטי העסק</h2>
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm">
+      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{t("account.settings.businessSummary.title")}</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-        התקציר שמזהה את העסק שלך במערכת.
+        {t("account.settings.businessSummary.description")}
       </p>
 
       {status === "loading" ? (
-        <p className="mt-4 text-xs text-[var(--dz-text-muted)]">טוען…</p>
+        <p className="mt-4 text-xs text-[var(--dz-text-muted)]">{t("common.loading")}</p>
       ) : status === "error" ? (
         <p className="mt-4 text-xs leading-5 text-[var(--dz-danger)]">
-          לא הצלחנו לטעון את פרטי העסק כרגע.
+          {t("account.settings.businessSummary.loadError")}
         </p>
       ) : info ? (
         <div className="mt-3 divide-y divide-[var(--dz-border-subtle)]">
-          <Row label="שם העסק" value={info.name?.trim() ? info.name : "—"} />
-          {info.category ? <Row label="תחום" value={info.category} /> : null}
-          {info.address ? <Row label="כתובת" value={info.address} /> : null}
+          <Row label={t("account.settings.businessSummary.name")} value={info.name?.trim() ? info.name : "—"} />
+          {info.category ? <Row label={t("account.settings.businessSummary.category")} value={info.category} /> : null}
+          {info.address ? <Row label={t("account.settings.businessSummary.address")} value={info.address} /> : null}
         </div>
       ) : null}
 
@@ -111,13 +114,13 @@ export function BusinessSummaryCard() {
           href="/business"
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
-          עריכת פרטי העסק
+          {t("account.settings.businessSummary.edit")}
         </Link>
         <Link
           href="/business/identity"
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
-          הנוכחות הדיגיטלית
+          {t("account.settings.businessSummary.identity")}
         </Link>
       </div>
     </section>

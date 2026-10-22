@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconBell, IconSettings } from "@/components/navigation/nav-icons";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import type { HomeHistory } from "@/lib/services/home/home-history-model";
@@ -105,6 +106,7 @@ export function HomeV3({
   const desktop = useMediaQuery(DESKTOP_QUERY);
   const tablet = useMediaQuery(TABLET_QUERY);
   const [period, setPeriod] = useState<CashflowPeriod>("day");
+  const { t, locale } = useI18n();
 
   // One clock per render pass, so every "today" on the screen agrees.
   const [now] = useState(() => new Date());
@@ -127,6 +129,8 @@ export function HomeV3({
               status: valueOf(data.status),
               collectionWaiting: valueOf(data.collection)?.waiting ?? null,
               now,
+              t,
+              locale,
             }),
           )
         : waitingState === "loading"
@@ -144,6 +148,8 @@ export function HomeV3({
               leads: valueOf(data.leads),
               documents: valueOf(data.documents)?.items ?? null,
               limit: 3,
+              t,
+              locale,
             }),
           )
         : activityState === "loading"
@@ -152,8 +158,8 @@ export function HomeV3({
 
     return {
       now,
-      greeting: greetingForHour(israelHour(now)),
-      dateLine: formatLongDate(now),
+      greeting: greetingForHour(israelHour(now), t),
+      dateLine: formatLongDate(now, locale),
       businessName,
       ownerInitial: ownerName.trim().charAt(0) || businessName.trim().charAt(0),
       hasUnread: data.unread,
@@ -169,16 +175,15 @@ export function HomeV3({
       waiting,
       waitingPartial,
       activity,
-      when: (iso) => formatWhen(iso, now),
+      when: (iso) => formatWhen(iso, now, t, locale),
       data,
       history: data.history.state === "ready" ? data.history.value : null,
     };
-  }, [data, now, businessName, ownerName, period, loadWeek]);
+  }, [data, now, businessName, ownerName, period, loadWeek, t, locale]);
 
   return (
     <div
       className="dzh-root"
-      dir="rtl"
       style={{
         minHeight: "100vh",
         background: "#FEF8F2",
@@ -211,6 +216,7 @@ function Cashflow({ view, variant }: { view: HomeView; variant: CashflowVariant 
 }
 
 function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
+  const { t } = useI18n();
   const gap = tablet ? 12 : 8;
   const w = view.waiting;
   let body;
@@ -223,7 +229,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
       </div>
     );
   } else if (w.state === "failed") {
-    body = <Note>לא הצלחתי לבדוק כרגע מה מחכה לך.</Note>;
+    body = <Note>{t("home.layout.waitingFailed")}</Note>;
   } else if (w.value.items.length === 0 && identityPromptDue(view)) {
     body = (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
@@ -233,7 +239,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
   } else if (w.value.items.length === 0) {
     body = (
       <div style={{ borderRadius: tablet ? 20 : 18, padding: 16, background: CARD, border: `1px solid ${LINE}`, fontSize: 14, color: MUTED }} role="status">
-        {w.value.total.exact ? "אין כרגע משהו שמחכה לך." : "לא נמצא כרגע משהו שמחכה לך."}
+        {w.value.total.exact ? t("home.layout.nothingWaitingExact") : t("home.layout.nothingWaitingFound")}
       </div>
     );
   } else {
@@ -247,10 +253,10 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
     );
   }
   return (
-    <section aria-label="מה ממתין לך" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <section aria-label={t("home.layout.waitingAria")} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <WaitingHeading waiting={w} tablet={tablet} />
       {body}
-      {view.waitingPartial ? <Note style={{ padding: 0 }}>חלק מהמקורות לא נטענו, אז ייתכן שיש עוד.</Note> : null}
+      {view.waitingPartial ? <Note style={{ padding: 0 }}>{t("home.layout.waitingPartial")}</Note> : null}
     </section>
   );
 }
@@ -271,11 +277,12 @@ const ROUND_ICON_STYLE: React.CSSProperties = {
 };
 
 function RoundIconLink({ href, label, children, dot }: { href: string; label: string; children: React.ReactNode; dot?: boolean }) {
+  const { t } = useI18n();
   return (
     <Link
       href={href}
       prefetch={false}
-      aria-label={dot ? `${label} — יש התראות שלא נקראו` : label}
+      aria-label={dot ? t("home.layout.withUnread", { label }) : label}
       style={{
         width: 44,
         height: 44,
@@ -292,7 +299,7 @@ function RoundIconLink({ href, label, children, dot }: { href: string; label: st
     >
       {children}
       {dot ? (
-        <span style={{ position: "absolute", top: 10, left: 11, width: 8, height: 8, borderRadius: 999, background: "#D2553D", border: `2px solid ${CARD}` }} />
+        <span style={{ position: "absolute", top: 10, insetInlineEnd: 11, width: 8, height: 8, borderRadius: 999, background: "#D2553D", border: `2px solid ${CARD}` }} />
       ) : null}
     </Link>
   );
@@ -301,6 +308,7 @@ function RoundIconLink({ href, label, children, dot }: { href: string; label: st
 /* --------------------------------------------------------------- mobile -- */
 
 function MobileHome({ view }: { view: HomeView }) {
+  const { t } = useI18n();
   return (
     <main style={{ display: "flex", flexDirection: "column", paddingBottom: 24 }}>
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 8px 20px", gap: 12 }}>
@@ -314,11 +322,11 @@ function MobileHome({ view }: { view: HomeView }) {
           </h1>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <AccessibilityTrigger label="הגדרות נגישות" style={ROUND_ICON_STYLE} />
-          <RoundIconLink href="/notifications" label="התראות" dot={view.hasUnread}>
+          <AccessibilityTrigger label={t("home.layout.a11ySettings")} style={ROUND_ICON_STYLE} />
+          <RoundIconLink href="/notifications" label={t("home.layout.notifications")} dot={view.hasUnread}>
             <IconBell size={20} />
           </RoundIconLink>
-          <RoundIconLink href="/settings" label="הגדרות">
+          <RoundIconLink href="/settings" label={t("home.layout.settings")}>
             <IconSettings size={20} />
           </RoundIconLink>
         </div>

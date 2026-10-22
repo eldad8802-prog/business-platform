@@ -1,0 +1,8 @@
+/*
+ * Direction-aware glyphs. Icons here are drawn for RTL (Hebrew is the source):
+ * a "forward / open" chevron points left. LTR mirrors it so it keeps meaning
+ * "forward" — the same rule as back-button.module.css.
+ */
+.forward:dir(ltr) {
+  transform: scaleX(-1);
+}

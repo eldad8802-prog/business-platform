@@ -1,4 +1,6 @@
 import type { RefundPaymentRequestResult } from "@/lib/services/payments/payment-refund.service";
+import { moneyHe } from "@/lib/i18n/messages/areas/money";
+import type { Translator } from "@/lib/i18n/translate";
 
 /**
  * What the owner is told after asking for a refund.
@@ -18,16 +20,16 @@ import type { RefundPaymentRequestResult } from "@/lib/services/payments/payment
 export type RefundApiOutcome = RefundPaymentRequestResult["outcome"];
 
 const NOTICE: Record<RefundApiOutcome, string> = {
-  REFUNDED: "ההחזר בוצע.",
-  UNKNOWN: "ההחזר נשלח לחברת הסליקה, והתוצאה עוד לא ידועה. נעדכן כשתתקבל.",
+  REFUNDED: moneyHe.collection.refund.REFUNDED,
+  UNKNOWN: moneyHe.collection.refund.UNKNOWN,
 };
 
-export const UNRECOGNISED_REFUND_OUTCOME_NOTICE =
-  "לא הצלחנו לקבוע את תוצאת ההחזר. בדקו את מצב התשלום לפני שמנסים שוב.";
+export const UNRECOGNISED_REFUND_OUTCOME_NOTICE: string = moneyHe.collection.refund.unrecognised;
 
-export function refundOutcomeNotice(outcome: string | null | undefined): string {
+/** Hebrew by default (as before); pass the active translator for the interface language. */
+export function refundOutcomeNotice(outcome: string | null | undefined, t?: Translator): string {
   if (outcome != null && Object.prototype.hasOwnProperty.call(NOTICE, outcome)) {
-    return NOTICE[outcome as RefundApiOutcome];
+    return t ? t(`money.collection.refund.${outcome as RefundApiOutcome}`) : NOTICE[outcome as RefundApiOutcome];
   }
-  return UNRECOGNISED_REFUND_OUTCOME_NOTICE;
+  return t ? t("money.collection.refund.unrecognised") : UNRECOGNISED_REFUND_OUTCOME_NOTICE;
 }

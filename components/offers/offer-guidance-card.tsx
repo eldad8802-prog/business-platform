@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 type Guidance = {
   tip: string;
   example: string;
@@ -11,6 +13,7 @@ export default function OfferGuidanceCard({
 }: {
   guidance: Guidance;
 }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -29,11 +32,11 @@ export default function OfferGuidanceCard({
           color: "var(--dz-text-primary)",
         }}
       >
-        מה כדאי לדעת לפני שיוצרים קופון
+        {t("content.commerce.offers.guidance.title")}
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <strong>טיפ חכם</strong>
+        <strong>{t("content.commerce.offers.guidance.tip")}</strong>
         <div
           style={{
             marginTop: 4,
@@ -47,7 +50,7 @@ export default function OfferGuidanceCard({
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <strong>דוגמה מתאימה לעסק שלך</strong>
+        <strong>{t("content.commerce.offers.guidance.example")}</strong>
         <div
           style={{
             marginTop: 4,
@@ -61,7 +64,7 @@ export default function OfferGuidanceCard({
       </div>
 
       <div style={{ marginBottom: 0 }}>
-        <strong>ממה להיזהר</strong>
+        <strong>{t("content.commerce.offers.guidance.insight")}</strong>
         <div
           style={{
             marginTop: 4,

@@ -1,3 +1,6 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { IssueOffer } from "@/lib/revenue/issue/issue.types";
 
 type OfferPickerProps = {
@@ -11,6 +14,7 @@ export default function OfferPicker({
   selectedOffer,
   onSelectOffer,
 }: OfferPickerProps) {
+  const { t } = useI18n();
   if (!offers.length) {
     return (
       <div
@@ -21,7 +25,7 @@ export default function OfferPicker({
           border: "1px solid var(--dz-border)",
         }}
       >
-        אין כרגע הצעות זמינות.
+        {t("billing.couponIssue.noOffers")}
       </div>
     );
   }
@@ -43,7 +47,7 @@ export default function OfferPicker({
             onClick={() => onSelectOffer(offer)}
             style={{
               width: "100%",
-              textAlign: "right",
+              textAlign: "start",
               padding: "18px 16px",
               borderRadius: 18,
               border: isSelected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border-strong)",
@@ -71,7 +75,7 @@ export default function OfferPicker({
                   marginBottom: 10,
                 }}
               >
-                נבחר
+                {t("billing.couponIssue.selected")}
               </div>
             ) : null}
 
@@ -93,7 +97,7 @@ export default function OfferPicker({
                 lineHeight: 1.5,
               }}
             >
-              {offer.description || "ללא תיאור"}
+              {offer.description || t("billing.couponIssue.noDescription")}
             </div>
           </button>
         );

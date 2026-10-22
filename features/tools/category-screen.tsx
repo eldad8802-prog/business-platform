@@ -15,6 +15,7 @@ import { categoryToneCss } from "@/features/tools/category-tones";
 import { EntityIcon } from "@/components/ui/entity/entity-icon";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * A category screen — /tools/money, /tools/customers, /tools/operations.
@@ -31,6 +32,7 @@ import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
  * wordless skeleton and never a guessed "הכול מטופל".
  */
 export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
+  const { t } = useI18n();
   const group = TOOL_GROUPS.find((g) => g.key === groupKey)!;
   // A tool behind a platform feature (משימות — daily_tasks) is listed only once the flag is known to be ON.
   const tasksOn = useFeatureEnabled("daily_tasks");
@@ -74,7 +76,7 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
   }, [group.domains]);
 
   return (
-    <main dir="rtl" data-page-intent="content" className={`dzcat tone-${group.key}`}>
+    <main data-page-intent="content" className={`dzcat tone-${group.key}`}>
       <style>{categoryToneCss(".dzcat")}</style>
       <style>{CATEGORY_CSS}</style>
 
@@ -92,12 +94,12 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
             ))}
           </span>
           <div className="chero-tx">
-            <h1>{group.label}</h1>
-            <p>{group.capabilityLine}</p>
+            <h1>{t(group.labelKey)}</h1>
+            <p>{t(group.capabilityLineKey)}</p>
             {status ? (
               <span className={`cstat cstat-${status.tone}`}>
                 <span className="cdot" aria-hidden />
-                {status.label}
+                {t(`content.pricing.tools.status.${status.tone}`)}
               </span>
             ) : (
               <span className="cstat cstat-loading" aria-hidden>
@@ -109,7 +111,7 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
 
         <div className="cbody">
         <div className="cmain">
-        <h2 className="clabel" id="cat-tools">הכלים בתחום</h2>
+        <h2 className="clabel" id="cat-tools">{t("content.pricing.tools.toolsInCategory")}</h2>
         <ul className="clist" aria-labelledby="cat-tools">
           {tools.map((tool) => (
             <li key={tool.key}>
@@ -125,8 +127,8 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
                     <EntityIcon entity={tool.entity} size={26} />
                   </span>
                   <span className="crow-tx">
-                    <span className="crow-name">{tool.label}</span>
-                    <span className="crow-desc">{tool.description}</span>
+                    <span className="crow-name">{t(tool.labelKey)}</span>
+                    <span className="crow-desc">{t(tool.descriptionKey)}</span>
                   </span>
                   <ComingSoonPill />
                 </div>
@@ -136,11 +138,11 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
                     <EntityIcon entity={tool.entity} size={26} />
                   </span>
                   <span className="crow-tx">
-                    <span className="crow-name">{tool.label}</span>
-                    <span className="crow-desc">{tool.description}</span>
+                    <span className="crow-name">{t(tool.labelKey)}</span>
+                    <span className="crow-desc">{t(tool.descriptionKey)}</span>
                   </span>
                   <span className="crow-chev" aria-hidden>
-                    ‹
+                    {t("content.pricing.tools.forwardChevron")}
                   </span>
                 </Link>
               )}
@@ -152,20 +154,20 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
         {/* Desktop only: the items behind the status chip, each opening its own screen. */}
         {waiting ? (
           <aside className="cwait" aria-labelledby="cat-waiting">
-            <h2 className="clabel" id="cat-waiting">מחכה עכשיו</h2>
+            <h2 className="clabel" id="cat-waiting">{t("content.pricing.tools.waitingNow")}</h2>
             {waiting.length > 0 ? (
               <ul>
                 {waiting.slice(0, 6).map((item) => (
                   <li key={item.itemId}>
                     <Link href={item.primaryAction.href} className="cwait-row">
                       <span>{item.title}</span>
-                      <span aria-hidden>←</span>
+                      <span aria-hidden>{t("content.pricing.tools.forwardArrow")}</span>
                     </Link>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="cwait-clear">אין כרגע משהו שמחכה בתחום הזה.</p>
+              <p className="cwait-clear">{t("content.pricing.tools.nothingWaiting")}</p>
             )}
           </aside>
         ) : null}
@@ -181,7 +183,7 @@ export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
  */
 const CATEGORY_CSS = `
 .dzcat{
-  min-height:100dvh;direction:rtl;color:var(--dz-text-primary);
+  min-height:100dvh;color:var(--dz-text-primary);
   font-family:var(--font-heebo),'Heebo','Assistant',system-ui,sans-serif;
   background:var(--dz-background);
   padding:calc(12px + var(--dz-safe-top,0px)) 20px 28px;
@@ -221,7 +223,7 @@ const CATEGORY_CSS = `
 .dzcat .clist li+li{position:relative}
 .dzcat .clist li+li::before{content:"";position:absolute;top:0;inset-inline-start:78px;inset-inline-end:18px;height:1px;background:var(--dz-border)}
 .dzcat .crow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:14px;
-  min-height:80px;padding:15px 18px 15px 14px;transition:background .14s ease}
+  min-height:80px;padding-block:15px;padding-inline:18px 14px;transition:background .14s ease}
 .dzcat .crow:active{background:var(--dz-control-hover)}
 .dzcat .crow:focus-visible{outline:3px solid var(--ct-a);outline-offset:-3px;border-radius:18px}
 @media (hover:hover){.dzcat .crow:hover{background:var(--dz-control-hover)}}

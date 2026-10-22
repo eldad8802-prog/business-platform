@@ -11,6 +11,7 @@ import {
   type CrmSubjectType,
 } from "@/lib/api/crm-attachments";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -18,16 +19,10 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatDateTime(iso: string): string {
+function formatDateTime(iso: string, formatDateTimeValue: (date: Date) => string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("he-IL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(d);
+  return formatDateTimeValue(d);
 }
 
 function fileGlyph(mime: string): string {
@@ -47,6 +42,7 @@ export function AttachmentList({
   subjectType: CrmSubjectType;
   subjectId: number;
 }) {
+  const { t, formatDate } = useI18n();
   const [items, setItems] = useState<CrmAttachmentDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,11 +71,11 @@ export function AttachmentList({
       setItems(await getAttachments(subjectType, subjectId));
     } catch (err) {
       if (handleAuth(err)) return;
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את הקבצים");
+      setError(err instanceof Error ? err.message : t("inbox.crm.attachments.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [subjectType, subjectId, handleAuth]);
+  }, [subjectType, subjectId, handleAuth, t]);
 
   useEffect(() => {
     void load();
@@ -97,7 +93,7 @@ export function AttachmentList({
       setItems((prev) => [created, ...prev]);
     } catch (err) {
       if (handleAuth(err)) return;
-      setUploadError(err instanceof Error ? err.message : "העלאה נכשלה");
+      setUploadError(err instanceof Error ? err.message : t("inbox.crm.attachments.uploadFailed"));
     } finally {
       setUploading(false);
       setUploadPct(null);
@@ -112,7 +108,7 @@ export function AttachmentList({
       await downloadAttachment(item.id, item.originalFileName);
     } catch (err) {
       if (handleAuth(err)) return;
-      setRowError(err instanceof Error ? err.message : "ההורדה נכשלה");
+      setRowError(err instanceof Error ? err.message : t("inbox.crm.attachments.downloadFailed"));
     } finally {
       setBusyId(null);
     }
@@ -127,7 +123,7 @@ export function AttachmentList({
       setConfirmDeleteId(null);
     } catch (err) {
       if (handleAuth(err)) return;
-      setRowError(err instanceof Error ? err.message : "המחיקה נכשלה");
+      setRowError(err instanceof Error ? err.message : t("inbox.crm.attachments.deleteFailed"));
     } finally {
       setBusyId(null);
     }
@@ -136,7 +132,7 @@ export function AttachmentList({
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">קבצים</h2>
+        <h2 className="crm-section__title">{t("inbox.crm.attachments.title")}</h2>
         {!loading && !error ? <span className="crm-section__count">{items.length}</span> : null}
       </div>
 
@@ -155,10 +151,10 @@ export function AttachmentList({
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? "מעלה קובץ…" : "העלה קובץ"}
+          {uploading ? t("inbox.crm.attachments.uploading") : t("inbox.crm.attachments.upload")}
         </button>
         {uploading ? (
-          <div className="crm-att-progress" role="progressbar" aria-label="התקדמות העלאה">
+          <div className="crm-att-progress" role="progressbar" aria-label={t("inbox.crm.attachments.progress")}>
             <div
               className={`crm-att-progress__bar${uploadPct === null ? " crm-att-progress__bar--indeterminate" : ""}`}
               style={uploadPct !== null ? { width: `${uploadPct}%` } : undefined}
@@ -174,11 +170,11 @@ export function AttachmentList({
         <div className="crm-panel crm-panel--error">
           <p className="crm-panel__body">{error}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={() => void load()}>
-            נסו שוב
+            {t("inbox.crm.retry")}
           </button>
         </div>
       ) : items.length === 0 ? (
-        <p className="crm-note-empty">אין עדיין קבצים. אפשר להעלות את הקובץ הראשון למעלה.</p>
+        <p className="crm-note-empty">{t("inbox.crm.attachments.none")}</p>
       ) : (
         <div className="crm-att-list">
           {rowError ? <div className="crm-note-err">{rowError}</div> : null}
@@ -194,21 +190,21 @@ export function AttachmentList({
                     {item.originalFileName}
                   </div>
                   <div className="crm-att-card__meta">
-                    {formatSize(item.sizeBytes)} · {formatDateTime(item.createdAt)}
+                    {formatSize(item.sizeBytes)} · {formatDateTime(item.createdAt, (date) => formatDate(date, "dateTime"))}
                     {item.uploader.name ? ` · ${item.uploader.name}` : ""}
                   </div>
                 </div>
                 <div className="crm-att-card__actions">
                   {confirmDeleteId === item.id ? (
                     <>
-                      <span className="crm-note-card__confirm">למחוק?</span>
+                      <span className="crm-note-card__confirm">{t("inbox.crm.confirmDelete")}</span>
                       <button
                         type="button"
                         className="crm-note-linkbtn crm-note-linkbtn--danger"
                         onClick={() => void handleDelete(item.id)}
                         disabled={busy}
                       >
-                        {busy ? "מוחק…" : "מחק"}
+                        {busy ? t("inbox.crm.deleting") : t("inbox.crm.delete")}
                       </button>
                       <button
                         type="button"
@@ -216,7 +212,7 @@ export function AttachmentList({
                         onClick={() => setConfirmDeleteId(null)}
                         disabled={busy}
                       >
-                        ביטול
+                        {t("inbox.crm.cancel")}
                       </button>
                     </>
                   ) : (
@@ -227,7 +223,7 @@ export function AttachmentList({
                         onClick={() => void handleDownload(item)}
                         disabled={busy}
                       >
-                        {busy ? "…" : "הורדה"}
+                        {busy ? "…" : t("inbox.crm.attachments.download")}
                       </button>
                       {item.canDelete ? (
                         <button
@@ -235,7 +231,7 @@ export function AttachmentList({
                           className="crm-note-linkbtn crm-note-linkbtn--danger"
                           onClick={() => setConfirmDeleteId(item.id)}
                         >
-                          מחיקה
+                          {t("inbox.crm.deleteAction")}
                         </button>
                       ) : null}
                     </>

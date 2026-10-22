@@ -3,6 +3,9 @@
 import { useRef, useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * הגדרות → ייבוא וייצוא → ייבוא — the dry run.
@@ -113,17 +116,17 @@ type Busy = null | "analyzing" | "previewing" | "importing";
 const DONT_IMPORT = "__skip__";
 
 /** Owner-facing wording for a mapping outcome. No jargon. */
-const STATUS_LABEL: Record<Proposal["status"], string> = {
-  EXACT: "זוהה",
-  SUGGESTED: "הצעה",
-  AMBIGUOUS: "צריך בחירה",
-  UNMAPPED: "לא זוהה",
+const STATUS_LABEL: Record<Proposal["status"], MessageKey> = {
+  EXACT: "account.settings.importExport.import.mappingStatus.exact",
+  SUGGESTED: "account.settings.importExport.import.mappingStatus.suggested",
+  AMBIGUOUS: "account.settings.importExport.import.mappingStatus.ambiguous",
+  UNMAPPED: "account.settings.importExport.import.mappingStatus.unmapped",
 };
 
-const ROW_STATUS_LABEL: Record<PreviewRow["status"], string> = {
-  READY: "מוכן",
-  WARNING: "לבדיקה",
-  ERROR: "שגיאה",
+const ROW_STATUS_LABEL: Record<PreviewRow["status"], MessageKey> = {
+  READY: "account.settings.importExport.import.rowStatus.ready",
+  WARNING: "account.settings.importExport.import.rowStatus.warning",
+  ERROR: "account.settings.importExport.import.rowStatus.error",
 };
 
 function authHeader(): Record<string, string> | null {
@@ -133,6 +136,7 @@ function authHeader(): Record<string, string> | null {
 }
 
 export function ImportScreen({ domains }: { domains: readonly ImportDomainOption[] }) {
+  const { t, locale } = useI18n();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [domainId, setDomainId] = useState<string | null>(null);
@@ -170,7 +174,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
     if (!domainId || !target) return;
     const auth = authHeader();
     if (!auth) {
-      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      setError(t("account.settings.importExport.common.noToken"));
       return;
     }
 
@@ -194,10 +198,10 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
         if (data?.code === "SHEET_CHOICE_REQUIRED") {
           setSheetChoices(data.availableSheets ?? []);
           setAnalysis(null);
-          setError(data.message ?? "בחרו גיליון");
+          setError(data.message ?? t("account.settings.importExport.import.chooseSheet"));
           return;
         }
-        setError(data?.message ?? data?.error ?? `הניתוח נכשל (${response.status}).`);
+        setError(data?.message ?? data?.error ?? t("account.settings.importExport.import.analyzeFailed", { status: response.status }));
         setAnalysis(null);
         return;
       }
@@ -217,7 +221,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       }
       setMapping(seeded);
     } catch {
-      setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+      setError(t("account.settings.importExport.common.network"));
     } finally {
       setBusy(null);
     }
@@ -227,7 +231,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
     if (!domainId || !file || !analysis) return;
     const auth = authHeader();
     if (!auth) {
-      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      setError(t("account.settings.importExport.common.noToken"));
       return;
     }
 
@@ -248,7 +252,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       const data = await response.json().catch(() => null);
 
       if (!response.ok || !data?.ok) {
-        setError(data?.message ?? data?.error ?? `הבדיקה נכשלה (${response.status}).`);
+        setError(data?.message ?? data?.error ?? t("account.settings.importExport.import.previewFailed", { status: response.status }));
         return;
       }
       setPreview(data as Preview);
@@ -256,7 +260,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       setOverrideActionId(null);
       setResult(null);
     } catch {
-      setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+      setError(t("account.settings.importExport.common.network"));
     } finally {
       setBusy(null);
     }
@@ -275,7 +279,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
     if (!domainId || !file || !preview) return;
     const auth = authHeader();
     if (!auth) {
-      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      setError(t("account.settings.importExport.common.noToken"));
       return;
     }
 
@@ -302,7 +306,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
         setError(
           previewData?.message ??
             previewData?.error ??
-            `הבדיקה נכשלה (${previewResponse.status}).`
+            t("account.settings.importExport.import.previewFailed", { status: previewResponse.status })
         );
         return;
       }
@@ -323,7 +327,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.ok) {
-        setError(data?.message ?? data?.error ?? `הייבוא נכשל (${response.status}).`);
+        setError(data?.message ?? data?.error ?? t("account.settings.importExport.import.importFailed", { status: response.status }));
         return;
       }
       setResult(data as ExecuteResult);
@@ -331,7 +335,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       // A network failure here is genuinely ambiguous: the import may have run.
       // Say so, and say what to do — repeating the same file is safe.
       setError(
-        "החיבור נקטע. ייתכן שהייבוא הושלם — הריצו את אותו קובץ שוב, ודוביז תשלים רק את מה שחסר."
+        t("account.settings.importExport.import.interrupted")
       );
     } finally {
       setBusy(null);
@@ -362,14 +366,14 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
   function reasonFor(row: PreviewRow): string {
     if (row.status === "ERROR") {
       return row.errors[0]
-        ? `${row.errors[0].field}: ${row.errors[0].reason}`
-        : "השורה אינה תקינה";
+        ? t("account.settings.importExport.import.fieldError", { field: row.errors[0].field, reason: row.errors[0].reason })
+        : t("account.settings.importExport.import.rowInvalid");
     }
     const evidence = row.duplicates[0];
-    if (!evidence) return "לא נבחרה לייבוא";
+    if (!evidence) return t("account.settings.importExport.import.notChosen");
     return evidence.scope === "IN_FILE"
-      ? `${evidence.field} חוזר גם בשורות ${(evidence.otherRows ?? []).join(", ")} — תיובא הראשונה בלבד`
-      : (evidence.existingNote ?? `${evidence.field} כבר קיים`);
+      ? t("account.settings.importExport.import.repeatsFirstOnly", { field: evidence.field, rows: (evidence.otherRows ?? []).join(", ") })
+      : (evidence.existingNote ?? t("account.settings.importExport.import.alreadyExists", { field: evidence.field }));
   }
 
   // Counted over the FULL decision set, not the displayed window, so the number
@@ -396,22 +400,20 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {/* The promise, before anything else on the page. */}
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-          שום מידע לא נשמר עד שתאשרו.
+          {t("account.settings.importExport.import.promise")}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          העלו קובץ ונראה לכם בדיוק מה דוביז הבינה ממנו: אילו עמודות זוהו, מה
-          תקין, מה דורש תיקון ומה כבר קיים אצלכם. רק אחרי שתראו את הכול ותאשרו,
-          הנתונים ייקלטו.
+          {t("account.settings.importExport.import.intro")}
         </p>
       </SettingsSection>
 
       {/* 1 — area */}
       <div className="mt-4">
-        <SettingsSection title="מה תרצו לייבא">
+        <SettingsSection title={t("account.settings.importExport.import.domainTitle")}>
           <ul className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
             {domains.map((d) => (
               <li key={d.id}>
-                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-right transition hover:bg-[var(--dz-surface-muted)]">
+                <label className="flex w-full cursor-pointer items-start gap-3 rounded-2xl px-2 py-3 text-start transition hover:bg-[var(--dz-surface-muted)]">
                   <input
                     type="radio"
                     name="import-domain"
@@ -444,8 +446,8 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {domainId ? (
         <div className="mt-4">
           <SettingsSection
-            title="העלו את הקובץ"
-            description="Excel או CSV, עד 10MB ועד 10,000 שורות."
+            title={t("account.settings.importExport.import.fileTitle")}
+            description={t("account.settings.importExport.import.fileDescription")}
           >
             <input
               ref={fileInput}
@@ -469,19 +471,19 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               disabled={busy !== null}
               className="w-full rounded-2xl border border-dashed border-[var(--dz-border-subtle)] px-4 py-6 text-sm font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:opacity-60"
             >
-              {file ? file.name : "בחרו קובץ"}
+              {file ? file.name : t("account.settings.importExport.import.chooseFile")}
             </button>
 
             {busy === "analyzing" ? (
               <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
-                קורא את הקובץ…
+                {t("account.settings.importExport.import.reading")}
               </p>
             ) : null}
 
             {sheetChoices.length > 1 ? (
               <div className="mt-4">
                 <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                  בקובץ יש כמה גיליונות. איזה מהם לייבא?
+                  {t("account.settings.importExport.import.whichSheet")}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {sheetChoices.map((name) => (
@@ -512,24 +514,24 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {analysis ? (
         <div className="mt-4">
           <SettingsSection
-            title="התאמת עמודות"
-            description={`נמצאו ${analysis.rowCount.toLocaleString("he-IL")} שורות. בדקו שכל עמודה הובנה נכון.`}
+            title={t("account.settings.importExport.import.mappingTitle")}
+            description={t(analysis.rowCount === 1 ? "account.settings.importExport.import.mappingDescriptionOne" : "account.settings.importExport.import.mappingDescription", { count: analysis.rowCount.toLocaleString(intlTag(locale)) })}
           >
             <ul className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
               {analysis.proposals.map((p) => (
                 <li key={p.sourceIndex} className="py-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-bold text-[var(--dz-text-primary)]">
-                      {p.sourceHeader || "(עמודה ללא שם)"}
+                      {p.sourceHeader || t("account.settings.importExport.import.unnamedColumn")}
                     </span>
                     <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
-                      {STATUS_LABEL[p.status]}
+                      {t(STATUS_LABEL[p.status])}
                     </span>
                   </div>
 
                   {p.samples.length > 0 ? (
                     <p className="mt-1 truncate text-xs text-[var(--dz-text-muted)]">
-                      לדוגמה: {p.samples.join(" · ")}
+                      {t("account.settings.importExport.import.samples", { samples: p.samples.join(" · ") })}
                     </p>
                   ) : null}
 
@@ -544,11 +546,11 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                     }}
                     className="mt-2 w-full rounded-xl border border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-3 py-2 text-sm text-[var(--dz-text-primary)]"
                   >
-                    <option value={DONT_IMPORT}>אל תייבא עמודה זו</option>
+                    <option value={DONT_IMPORT}>{t("account.settings.importExport.import.dontImport")}</option>
                     {analysis.importableFields.map((f) => (
                       <option key={f.field} value={f.field}>
                         {f.field}
-                        {f.required ? " (חובה)" : ""}
+                        {f.required ? t("account.settings.importExport.import.requiredSuffix") : ""}
                       </option>
                     ))}
                   </select>
@@ -558,12 +560,12 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
 
             {missingRequired.length > 0 ? (
               <p className="mt-3 text-xs font-semibold text-[var(--dz-danger,#b3261e)]">
-                חסרות עמודות חובה: {missingRequired.join(", ")}
+                {t("account.settings.importExport.import.missingRequired", { fields: missingRequired.join(", ") })}
               </p>
             ) : null}
             {duplicateTargets.length > 0 ? (
               <p className="mt-3 text-xs font-semibold text-[var(--dz-danger,#b3261e)]">
-                שתי עמודות הותאמו לאותו שדה: {[...new Set(duplicateTargets)].join(", ")}
+                {t("account.settings.importExport.import.duplicateTargets", { fields: [...new Set(duplicateTargets)].join(", ") })}
               </p>
             ) : null}
 
@@ -573,7 +575,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               disabled={!canPreview || busy !== null}
               className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy === "previewing" ? "בודק את הקובץ…" : "בדקו את הקובץ"}
+              {busy === "previewing" ? t("account.settings.importExport.import.checking") : t("account.settings.importExport.import.check")}
             </button>
           </SettingsSection>
         </div>
@@ -582,13 +584,13 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {/* 4 — result */}
       {preview ? (
         <div className="mt-4">
-          <SettingsSection title="תוצאות הבדיקה">
+          <SettingsSection title={t("account.settings.importExport.import.resultsTitle")}>
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                ["סה״כ שורות", preview.summary.totalRows],
-                ["מוכנות", preview.summary.ready],
-                ["לבדיקה", preview.summary.warning],
-                ["שגיאות", preview.summary.error],
+                [t("account.settings.importExport.import.summary.total"), preview.summary.totalRows],
+                [t("account.settings.importExport.import.summary.ready"), preview.summary.ready],
+                [t("account.settings.importExport.import.summary.warning"), preview.summary.warning],
+                [t("account.settings.importExport.import.summary.error"), preview.summary.error],
               ].map(([label, value]) => (
                 <div
                   key={String(label)}
@@ -596,7 +598,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                 >
                   <dt className="text-[11px] text-[var(--dz-text-muted)]">{label}</dt>
                   <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                    {Number(value).toLocaleString("he-IL")}
+                    {Number(value).toLocaleString(intlTag(locale))}
                   </dd>
                 </div>
               ))}
@@ -604,21 +606,20 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
 
             {preview.summary.withDuplicates > 0 ? (
               <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
-                {preview.summary.withDuplicates.toLocaleString("he-IL")} שורות עשויות
-                להיות כפילות.
+                {t(preview.summary.withDuplicates === 1 ? "account.settings.importExport.import.maybeDuplicatesOne" : "account.settings.importExport.import.maybeDuplicates", { count: preview.summary.withDuplicates.toLocaleString(intlTag(locale)) })}
               </p>
             ) : null}
 
             <div className="mt-4 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                {issuesOnly ? "מוצגות שורות שדורשות תשומת לב" : "מוצגות כל השורות"}
+                {issuesOnly ? t("account.settings.importExport.import.showingIssues") : t("account.settings.importExport.import.showingAll")}
               </span>
               <button
                 type="button"
                 onClick={() => setIssuesOnly((v) => !v)}
                 className="rounded-full border border-[var(--dz-border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
               >
-                {issuesOnly ? "הצג הכול" : "רק בעיות"}
+                {issuesOnly ? t("account.settings.importExport.import.showAll") : t("account.settings.importExport.import.onlyIssues")}
               </button>
             </div>
 
@@ -627,10 +628,10 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                 <li key={row.rowNumber} className="py-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-bold text-[var(--dz-text-primary)]">
-                      שורה {row.rowNumber}
+                      {t("account.settings.importExport.import.row", { number: row.rowNumber })}
                     </span>
                     <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
-                      {ROW_STATUS_LABEL[row.status]}
+                      {t(ROW_STATUS_LABEL[row.status])}
                     </span>
                   </div>
                   {row.errors.map((e, i) => (
@@ -638,19 +639,21 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                       key={i}
                       className="mt-1 text-xs text-[var(--dz-danger,#b3261e)]"
                     >
-                      {e.field}: {e.reason}
+                      {t("account.settings.importExport.import.fieldError", { field: e.field, reason: e.reason })}
                     </p>
                   ))}
                   {row.duplicates.map((d, i) => (
                     <p key={`d${i}`} className="mt-1 text-xs text-[var(--dz-text-muted)]">
                       {d.scope === "IN_FILE"
-                        ? `${d.field} חוזר גם בשורות ${(d.otherRows ?? []).join(", ")}`
-                        : `${d.existingNote ?? "כבר קיים"}${d.existingLabel ? ` — ${d.existingLabel}` : ""}`}
+                        ? t("account.settings.importExport.import.repeats", { field: d.field, rows: (d.otherRows ?? []).join(", ") })
+                        : d.existingLabel
+                          ? t("account.settings.importExport.import.existingWithLabel", { note: d.existingNote ?? t("account.settings.importExport.import.existsDefault"), label: d.existingLabel })
+                          : (d.existingNote ?? t("account.settings.importExport.import.existsDefault"))}
                     </p>
                   ))}
                   {row.changes.map((c, i) => (
                     <p key={`c${i}`} className="mt-1 text-xs text-[var(--dz-text-muted)]">
-                      {c.field}: {c.original} ← ייקלט כ־{c.normalized}
+                      {t("account.settings.importExport.import.change", { field: c.field, original: c.original, normalized: c.normalized })}
                     </p>
                   ))}
                 </li>
@@ -659,17 +662,17 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
 
             {preview.rowsTruncated ? (
               <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
-                מוצגות השורות הראשונות. הסיכום למעלה מתייחס לכל הקובץ.
+                {t("account.settings.importExport.import.truncated")}
               </p>
             ) : null}
 
             {result ? null : (
               <div className="mt-4 rounded-2xl bg-[var(--dz-background)] px-4 py-3">
                 <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-                  בדיקת הקובץ הושלמה.
+                  {t("account.settings.importExport.import.checkDone")}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  עדיין לא נשמר כלום. בחרו למטה מה לייבא ואשרו.
+                  {t("account.settings.importExport.import.nothingSavedYet")}
                 </p>
               </div>
             )}
@@ -681,20 +684,20 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {preview && !result ? (
         <div className="mt-4">
           <SettingsSection
-            title="מה לייבא"
-            description="דוביז בחרה עבורכם ברירת מחדל לכל שורה. אפשר לשנות."
+            title={t("account.settings.importExport.import.decideTitle")}
+            description={t("account.settings.importExport.import.decideDescription")}
           >
             <dl className="grid grid-cols-2 gap-2">
               <div className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
-                <dt className="text-[11px] text-[var(--dz-text-muted)]">ייווצרו</dt>
+                <dt className="text-[11px] text-[var(--dz-text-muted)]">{t("account.settings.importExport.import.willCreate")}</dt>
                 <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                  {createCount.toLocaleString("he-IL")}
+                  {createCount.toLocaleString(intlTag(locale))}
                 </dd>
               </div>
               <div className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
-                <dt className="text-[11px] text-[var(--dz-text-muted)]">ידולגו</dt>
+                <dt className="text-[11px] text-[var(--dz-text-muted)]">{t("account.settings.importExport.import.willSkip")}</dt>
                 <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                  {skipCount.toLocaleString("he-IL")}
+                  {skipCount.toLocaleString(intlTag(locale))}
                 </dd>
               </div>
             </dl>
@@ -703,13 +706,9 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                 too, so it is said before the button, not discovered after. */}
             {preview.sideEffects && preview.sideEffects.newCustomers > 0 ? (
               <p className="mt-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                לכל ליד נוצר גם כרטיס לקוח.{" "}
-                {preview.sideEffects.newCustomers.toLocaleString("he-IL")} כרטיסי
-                לקוח חדשים ייווצרו
                 {preview.sideEffects.reusedCustomers > 0
-                  ? ", וחלק מהלידים ישויכו ללקוחות שכבר קיימים אצלכם"
-                  : ""}
-                .
+                  ? t("account.settings.importExport.import.sideEffectsWithReuse", { count: preview.sideEffects.newCustomers.toLocaleString(intlTag(locale)) })
+                  : t("account.settings.importExport.import.sideEffects", { count: preview.sideEffects.newCustomers.toLocaleString(intlTag(locale)) })}
               </p>
             ) : null}
 
@@ -722,10 +721,10 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                     <li key={row.rowNumber} className="py-3">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-sm font-bold text-[var(--dz-text-primary)]">
-                          שורה {row.rowNumber}
+                          {t("account.settings.importExport.import.row", { number: row.rowNumber })}
                         </span>
                         <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
-                          {action === "CREATE" ? "ייווצר" : "ידולג"}
+                          {action === "CREATE" ? t("account.settings.importExport.import.rowWillCreate") : t("account.settings.importExport.import.rowWillSkip")}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-[var(--dz-text-muted)]">
@@ -747,7 +746,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                           }}
                           className="mt-2 rounded-full border border-[var(--dz-border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
                         >
-                          {action === "CREATE" ? "בכל זאת לדלג" : "לייבא בכל זאת"}
+                          {action === "CREATE" ? t("account.settings.importExport.import.skipAnyway") : t("account.settings.importExport.import.importAnyway")}
                         </button>
                       ) : null}
                     </li>
@@ -758,7 +757,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
 
             {skippedRowsTruncated ? (
               <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
-                מוצגות השורות הראשונות שידולגו. הסיכום למעלה מתייחס לכל הקובץ.
+                {t("account.settings.importExport.import.skippedTruncated")}
               </p>
             ) : null}
 
@@ -769,14 +768,13 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "importing"
-                ? "מייבא…"
+                ? t("account.settings.importExport.import.importing")
                 : createCount === 0
-                  ? "אין שורות לייבוא"
-                  : "אשרו וייבאו " + createCount.toLocaleString("he-IL") + " שורות"}
+                  ? t("account.settings.importExport.import.noRows")
+                  : t(createCount === 1 ? "account.settings.importExport.import.confirmImportOne" : "account.settings.importExport.import.confirmImport", { count: createCount.toLocaleString(intlTag(locale)) })}
             </button>
             <p className="mt-2 text-center text-[11px] text-[var(--dz-text-muted)]">
-              אם הייבוא ייקטע — הריצו את אותו קובץ שוב. דוביז תשלים רק את מה
-              שחסר.
+              {t("account.settings.importExport.import.ifInterrupted")}
             </p>
           </SettingsSection>
         </div>
@@ -785,12 +783,12 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       {/* 6 — what actually happened */}
       {result ? (
         <div className="mt-4">
-          <SettingsSection title="הייבוא הסתיים">
+          <SettingsSection title={t("account.settings.importExport.import.doneTitle")}>
             <dl className="grid grid-cols-3 gap-2">
               {[
-                ["נוצרו", result.counts.createdCount],
-                ["דולגו", result.counts.skippedCount],
-                ["נכשלו", result.counts.failedCount],
+                [t("account.settings.importExport.import.done.created"), result.counts.createdCount],
+                [t("account.settings.importExport.import.done.skipped"), result.counts.skippedCount],
+                [t("account.settings.importExport.import.done.failed"), result.counts.failedCount],
               ].map(([label, value]) => (
                 <div
                   key={String(label)}
@@ -798,7 +796,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                 >
                   <dt className="text-[11px] text-[var(--dz-text-muted)]">{label}</dt>
                   <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
-                    {Number(value).toLocaleString("he-IL")}
+                    {Number(value).toLocaleString(intlTag(locale))}
                   </dd>
                 </div>
               ))}
@@ -806,16 +804,13 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
 
             {result.alreadyExecuted ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                הקובץ הזה כבר יובא קודם עם אותן בחירות, ולכן שום דבר לא נוצר
-                שוב. אלה התוצאות מאותה הרצה.
+                {t("account.settings.importExport.import.alreadyExecuted")}
               </p>
             ) : null}
 
             {result.unexecutedRows > 0 ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-primary)]">
-                {result.unexecutedRows.toLocaleString("he-IL")} שורות לא הספיקו
-                לרוץ. הריצו את אותו קובץ שוב כדי להשלים אותן — מה שכבר נוצר לא
-                ייווצר שוב.
+                {t(result.unexecutedRows === 1 ? "account.settings.importExport.import.unexecutedOne" : "account.settings.importExport.import.unexecuted", { count: result.unexecutedRows.toLocaleString(intlTag(locale)) })}
               </p>
             ) : null}
 
@@ -824,9 +819,9 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                 {result.failures.map((f) => (
                   <li key={f.rowNumber} className="py-2">
                     <span className="text-xs font-bold text-[var(--dz-text-primary)]">
-                      שורה {f.rowNumber}
+                      {t("account.settings.importExport.import.row", { number: f.rowNumber })}
                     </span>
-                    <span className="mr-2 text-xs text-[var(--dz-text-muted)]">
+                    <span className="ms-2 text-xs text-[var(--dz-text-muted)]">
                       {f.message}
                     </span>
                   </li>

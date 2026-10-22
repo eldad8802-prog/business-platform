@@ -1,10 +1,14 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { formatMoney } from "@/lib/ui/money";
 
 /**
  * MoneyCell — PRESENTATION only. Renders a formatted amount with tabular numerals
  * and bidi isolation so the symbol+digits render as a stable unit inside RTL.
  * Column alignment (e.g. end) is the table cell's responsibility, not this cell's.
- * Never calculates, derives, or fetches; delegates formatting to `formatMoney`.
+ * Never calculates, derives, or fetches; delegates formatting to `formatMoney` (Hebrew, unchanged)
+ * or the locale-aware `formatAmount` for other languages.
  */
 export function MoneyCell({
   amount,
@@ -13,9 +17,10 @@ export function MoneyCell({
   amount: number | string | null | undefined;
   currency?: string;
 }) {
+  const { locale, formatAmount } = useI18n();
   return (
     <span style={{ fontVariantNumeric: "tabular-nums", unicodeBidi: "isolate" }}>
-      {formatMoney(amount, currency)}
+      {locale === "he" ? formatMoney(amount, currency) : formatAmount(amount, currency ?? "ILS")}
     </span>
   );
 }

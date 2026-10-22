@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+import { getServerI18n } from "@/lib/i18n/server";
 import { ValidationError } from "@/lib/errors";
 import { getLeadCard } from "@/lib/services/crm/lead-card.read-model";
 import { leadService } from "@/lib/services/crm/lead.service";
@@ -29,6 +30,7 @@ export async function GET(
     if (!user) return authRequiredResponse(req);
 
     const { id } = await context.params;
+    const { t } = await getServerI18n();
 
     // The whole multi-table card read runs inside ONE tenant transaction:
     // server-derived tenant -> ALS -> tenant transaction (GUC) -> RLS backstop.
@@ -38,7 +40,7 @@ export async function GET(
         withTenantTransaction((tx) =>
           getLeadCard(
             { businessId: user.businessId, leadId: Number(id) },
-            { tx }
+            { tx, t }
           )
         )
     );
@@ -124,6 +126,7 @@ export async function PATCH(
     }
 
     const businessId = user.businessId;
+    const { t } = await getServerI18n();
     // M5.5 — server-derived actor for every lead event this request emits.
     const who = {
       actor: { type: "OWNER_USER", userId: user.id },
@@ -207,7 +210,7 @@ export async function PATCH(
         // Same shape from GET and PATCH — including the freshly derived
         // follow-up state — so the client renders the server's answer instead
         // of guessing at it.
-        return getLeadCard({ businessId, leadId: updated.id }, { tx });
+        return getLeadCard({ businessId, leadId: updated.id }, { tx, t });
       })
     );
 

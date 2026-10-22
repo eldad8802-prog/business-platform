@@ -14,7 +14,6 @@ export const inventoryFoundationCss = `
     min-height: 100vh;
     min-height: 100dvh;
     background: var(--inv-page-bg);
-    direction: rtl;
     color: var(--inv-text);
   }
 
@@ -130,7 +129,7 @@ export const inventoryFoundationCss = `
     font-size: 12px;
     font-weight: 500;
     line-height: 1.45;
-    text-align: left;
+    text-align: end;
   }
 
   [data-inventory-module] .inv-data-pairs {
@@ -159,7 +158,7 @@ export const inventoryFoundationCss = `
     color: var(--inv-text);
     font-size: 13px;
     font-weight: 600;
-    text-align: left;
+    text-align: end;
   }
 
   [data-inventory-module] .inv-simple-list {
@@ -634,7 +633,7 @@ export const inventoryFoundationCss = `
     background: var(--inv-card-bg);
     box-shadow: var(--inv-shadow);
     box-sizing: border-box;
-    text-align: right;
+    text-align: start;
     font-family: inherit;
     cursor: pointer;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -693,7 +692,7 @@ export const inventoryFoundationCss = `
     border-color: var(--inv-danger-border) !important;
     background: var(--inv-danger-bg) !important;
     color: var(--inv-danger);
-    text-align: right;
+    text-align: start;
   }
 
   [data-inventory-module] .inv-notice {

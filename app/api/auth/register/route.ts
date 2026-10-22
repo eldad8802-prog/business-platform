@@ -18,7 +18,8 @@ import {
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
 import { readSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
-import { AUTH_MESSAGES_HE } from "@/lib/auth/auth-messages";
+import { authMessage } from "@/lib/auth/auth-messages";
+import { getServerI18n } from "@/lib/i18n/server";
 import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import type { NormalizedSignup } from "@/lib/auth/signup";
@@ -149,6 +150,7 @@ export async function handleRegister(
   // Set only on the closed-beta path, where the answers below must stay those of
   // a closed gate for anything that is not a successful signup of a listed address.
   let admitted: NormalizedSignup | null = null;
+  const { t } = await getServerI18n();
   try {
     // --- Public-signup gate: fail closed, before any side effect. ---
     if (!deps.isSignupEnabled()) {
@@ -173,7 +175,7 @@ export async function handleRegister(
     if (!rl.allowed) {
       await recordSignupFailure(deps, "rate_limited");
       return NextResponse.json(
-        { error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" },
+        { error: authMessage("rateLimited", t), code: "RATE_LIMITED" },
         { status: 429 }
       );
     }
@@ -188,7 +190,7 @@ export async function handleRegister(
       } catch {
         await recordSignupFailure(deps, "malformed_body");
         return NextResponse.json(
-          { error: AUTH_MESSAGES_HE.invalidBody, code: "INVALID_BODY" },
+          { error: authMessage("invalidBody", t), code: "INVALID_BODY" },
           { status: 400 }
         );
       }
@@ -198,7 +200,7 @@ export async function handleRegister(
       if (isHoneypotFilled(body)) {
         await recordSignupFailure(deps, "honeypot");
         return NextResponse.json(
-          { error: AUTH_MESSAGES_HE.signupRejected, code: "SIGNUP_REJECTED" },
+          { error: authMessage("signupRejected", t), code: "SIGNUP_REJECTED" },
           { status: 400 }
         );
       }
@@ -207,6 +209,8 @@ export async function handleRegister(
     const passwordHash = await deps.hashPassword(input.password);
 
     const now = new Date();
+    // The account emails speak the interface language of this request (always "he" while i18n is off).
+    const { locale } = await getServerI18n();
     const account = await deps.createAccount({
       email: input.email,
       passwordHash,
@@ -216,6 +220,7 @@ export async function handleRegister(
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
       sendVerification: deps.isVerificationEnabled(),
+      locale,
     });
 
     // Minted before any bookkeeping below, so a failure there can never cost the
@@ -307,7 +312,7 @@ export async function handleRegister(
       // or 500 when the race was lost at the index.
       return NextResponse.json(
         {
-          error: "כתובת האימייל הזו כבר רשומה במערכת",
+          error: t("api.auth.emailAlreadyRegistered"),
           field: "email",
           code: "EMAIL_ALREADY_REGISTERED",
         },
@@ -324,7 +329,7 @@ export async function handleRegister(
         {
           error:
             process.env.NODE_ENV === "production"
-              ? AUTH_MESSAGES_HE.serviceUnavailable
+              ? authMessage("serviceUnavailable", t)
               : error.message,
         },
         { status: 503 }
@@ -333,7 +338,7 @@ export async function handleRegister(
 
     console.error("REGISTER_ERROR:", error);
     await recordSignupFailure(deps, "server_error");
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500 });
+    return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500 });
   }
 }
 

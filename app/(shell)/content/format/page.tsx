@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -37,36 +39,37 @@ type ContentFlow = {
 
 type FormatOption = {
   id: "reel" | "video" | "image" | "post";
-  title: string;
-  description: string;
+  title: MessageKey;
+  description: MessageKey;
 };
 
 type PlatformOption = {
   id: "instagram" | "tiktok" | "facebook";
+  /** Brand name — not translated. */
   title: string;
-  description: string;
+  description: MessageKey;
 };
 
 const formatOptions: FormatOption[] = [
   {
     id: "reel",
-    title: "רילס",
-    description: "קצר וחד — טוב כשצריך לתפוס תשומת לב מהר.",
+    title: "content.studioFlow.options.format.reel",
+    description: "content.studioFlow.format.formats.reel",
   },
   {
     id: "video",
-    title: "וידאו",
-    description: "קצת יותר אוויר — טוב כשיש מה להסביר או להראות.",
+    title: "content.studioFlow.options.format.video",
+    description: "content.studioFlow.format.formats.video",
   },
   {
     id: "image",
-    title: "תמונה",
-    description: "מסר אחד חזק בתמונה אחת.",
+    title: "content.studioFlow.options.format.image",
+    description: "content.studioFlow.format.formats.image",
   },
   {
     id: "post",
-    title: "פוסט",
-    description: "מילים שעושות סדר — טוב להסבר או למסר ברור.",
+    title: "content.studioFlow.options.format.post",
+    description: "content.studioFlow.format.formats.post",
   },
 ];
 
@@ -74,17 +77,17 @@ const platformOptions: PlatformOption[] = [
   {
     id: "instagram",
     title: "Instagram",
-    description: "נקי ומסודר — מתאים לרילס, לווידאו ולתמונה.",
+    description: "content.studioFlow.format.platforms.instagram",
   },
   {
     id: "tiktok",
     title: "TikTok",
-    description: "מהיר וישיר — פתיחה חזקה ופחות \"מלוטש מדי\".",
+    description: "content.studioFlow.format.platforms.tiktok",
   },
   {
     id: "facebook",
     title: "Facebook",
-    description: "יותר מקום להסביר — טוב לפוסטים ולתוכן שבונה אמון.",
+    description: "content.studioFlow.format.platforms.facebook",
   },
 ];
 
@@ -108,6 +111,7 @@ function getRecommendedPlatform(
 
 export default function ContentFormatPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<
@@ -163,7 +167,7 @@ export default function ContentFormatPage() {
 
   function handleContinue() {
     if (!flow || !selectedFormat || !selectedPlatform) {
-      setError("חסרה בחירה בסוג התוכן או בפלטפורמה");
+      setError(t("content.studioFlow.format.missingChoice"));
       return;
     }
 
@@ -197,7 +201,7 @@ export default function ContentFormatPage() {
           <div style={topBarStyle}>
             <BackButton />
 
-            <div style={topBarTitleStyle}>סוג תוכן ופלטפורמה</div>
+            <div style={topBarTitleStyle}>{t("content.studioFlow.format.topBar")}</div>
 
             <div style={topBarSpacerStyle} />
           </div>
@@ -205,9 +209,9 @@ export default function ContentFormatPage() {
           <ProgressBar progress={62} />
 
           <div style={loadingWrapStyle}>
-            <h1 style={loadingTitleStyle}>רגע אחד…</h1>
+            <h1 style={loadingTitleStyle}>{t("content.studioFlow.common.oneMoment")}</h1>
             <p style={loadingTextStyle}>
-              מכינים את המסך הבא כדי שתבחר איך זה נראה ואיפה זה עולה
+              {t("content.studioFlow.format.loadingText")}
             </p>
           </div>
         </div>
@@ -221,7 +225,7 @@ export default function ContentFormatPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>סוג תוכן ופלטפורמה</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.format.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -230,17 +234,17 @@ export default function ContentFormatPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>עכשיו</div>
-            <h1 style={titleStyle}>איך זה נראה, ואיפה זה עולה?</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.common.now")}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.format.title")}</h1>
             <p style={subtitleStyle}>
-              לפי מה שבחרת קודם, הנה הצעד הבא: איך התוכן נראה ואיפה הוא יוצא לאוויר.
+              {t("content.studioFlow.format.subtitle")}
             </p>
           </div>
 
           <div style={sectionCardStyle}>
-            <div style={sectionTitleStyle}>איך אתה רוצה שהתוכן ייראה?</div>
+            <div style={sectionTitleStyle}>{t("content.studioFlow.format.formatTitle")}</div>
             <div style={sectionSubtitleStyle}>
-              בחר את סוג התוכן שהכי מתאים למה שאתה רוצה להפיק עכשיו
+              {t("content.studioFlow.format.formatSubtitle")}
             </div>
 
             <div style={cardsWrapStyle}>
@@ -260,14 +264,14 @@ export default function ContentFormatPage() {
                     style={optionCardStyle(isSelected)}
                   >
                     <div style={optionTopRowStyle}>
-                      <div style={optionTitleStyle}>{option.title}</div>
+                      <div style={optionTitleStyle}>{t(option.title)}</div>
                       {isRecommended ? (
-                        <div style={recommendedBadgeStyle}>מתאים במיוחד</div>
+                        <div style={recommendedBadgeStyle}>{t("content.studioFlow.format.recommended")}</div>
                       ) : null}
                     </div>
 
                     <div style={optionDescriptionStyle}>
-                      {option.description}
+                      {t(option.description)}
                     </div>
                   </button>
                 );
@@ -276,9 +280,9 @@ export default function ContentFormatPage() {
           </div>
 
           <div style={sectionCardStyle}>
-            <div style={sectionTitleStyle}>איפה אתה רוצה לפרסם את זה?</div>
+            <div style={sectionTitleStyle}>{t("content.studioFlow.format.platformTitle")}</div>
             <div style={sectionSubtitleStyle}>
-              כל פלטפורמה מרגישה קצת אחרת — נתאים את הסגנון בהמשך
+              {t("content.studioFlow.format.platformSubtitle")}
             </div>
 
             <div style={cardsWrapStyle}>
@@ -301,12 +305,12 @@ export default function ContentFormatPage() {
                     <div style={optionTopRowStyle}>
                       <div style={optionTitleStyle}>{option.title}</div>
                       {isRecommended ? (
-                        <div style={recommendedBadgeStyle}>מתאים במיוחד</div>
+                        <div style={recommendedBadgeStyle}>{t("content.studioFlow.format.recommended")}</div>
                       ) : null}
                     </div>
 
                     <div style={optionDescriptionStyle}>
-                      {option.description}
+                      {t(option.description)}
                     </div>
                   </button>
                 );
@@ -324,7 +328,7 @@ export default function ContentFormatPage() {
             onClick={handleContinue}
             disabled={!canContinue}
           >
-            המשך — כמה כיוונים מוכנים
+            {t("content.studioFlow.format.cta")}
           </button>
         </div>
       </div>
@@ -436,7 +440,7 @@ const cardsWrapStyle: React.CSSProperties = {
 
 const optionCardStyle = (selected: boolean): React.CSSProperties => ({
   width: "100%",
-  textAlign: "right",
+  textAlign: "start",
   background: selected
     ? "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)"
     : "var(--dz-surface)",

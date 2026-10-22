@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { LAYOUT } from "@/lib/design/tokens";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import { SuppliersList } from "@/components/suppliers/SuppliersList";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Suppliers Master–Detail workspace (Spec v1 §23 — pilot, owner-approved).
@@ -17,6 +18,7 @@ import { SuppliersList } from "@/components/suppliers/SuppliersList";
  * detail at /suppliers/[id].
  */
 export function SuppliersWorkspace({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const pathname = usePathname() || "/suppliers";
   const match = pathname.match(/^\/suppliers\/(\d+)(?:\/|$)/);
   const selectedId = match ? match[1] : null;
@@ -28,8 +30,8 @@ export function SuppliersWorkspace({ children }: { children: ReactNode }) {
       startWidth={380}
       breakpointStep={LAYOUT.bp.wide}
       responsive={{ mode: "switch", visible: selectedId != null ? "end" : "start" }}
-      startLabel="רשימת ספקים"
-      endLabel="כרטיס ספק"
+      startLabel={t("customers.suppliers.workspace.listLabel")}
+      endLabel={t("customers.suppliers.workspace.cardLabel")}
     />
   );
 }

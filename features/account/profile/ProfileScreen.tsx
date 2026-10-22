@@ -32,6 +32,8 @@ import {
   WarmTile,
   warmStyles,
 } from "@/components/ui/warm-surface/warm-surface";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 import type { ProfileSummary } from "@/lib/services/profile/profile-summary.service";
 
 import { useProfileSummary } from "../data/use-account-data";
@@ -39,18 +41,17 @@ import { BusinessLogo } from "../ui/BusinessLogo";
 import { NotificationsAction, SettingsAction } from "../ui/header-actions";
 import s from "./profile.module.css";
 
-const numberFormat = new Intl.NumberFormat("he-IL");
-
 export function ProfileScreen() {
   const [load, reload] = useProfileSummary();
+  const { t } = useI18n();
   const data = load.state === "ready" ? load.data : null;
 
   return (
-    <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
+    <div className={`${warmStyles.surface} ${s.page}`}>
       <WarmPageHeading
         className={s.heading}
-        title="פרופיל"
-        subtitle="החשבון העסקי שלך"
+        title={t("account.profile.title")}
+        subtitle={t("account.profile.subtitle")}
         actions={
           <>
             <SettingsAction />
@@ -61,9 +62,9 @@ export function ProfileScreen() {
 
       {load.state === "error" ? (
         <div className={s.loadError} role="alert">
-          לא הצלחנו לטעון את פרטי הפרופיל.{" "}
+          {t("account.profile.loadError")}{" "}
           <button type="button" className={s.retry} onClick={reload}>
-            נסו שוב
+            {t("account.profile.retry")}
           </button>
         </div>
       ) : (
@@ -84,6 +85,7 @@ export function ProfileScreen() {
 /* ---------------------------------------------------------------- hero --- */
 
 function Hero({ data, onLogoSaved }: { data: ProfileSummary | null; onLogoSaved: () => void }) {
+  const { t } = useI18n();
   const business = data?.business ?? null;
   const contacts: Array<{ key: string; icon: ReactNode; text: string; ltr?: boolean }> = business
     ? [
@@ -94,9 +96,9 @@ function Hero({ data, onLogoSaved }: { data: ProfileSummary | null; onLogoSaved:
     : [];
 
   return (
-    <section className={s.hero} aria-label="פרטי העסק">
+    <section className={s.hero} aria-label={t("account.profile.hero.ariaLabel")}>
       <Link href="/business" className={s.editPill}>
-        עריכת פרופיל
+        {t("account.profile.hero.edit")}
         <PencilGlyph size={14} />
       </Link>
 
@@ -114,7 +116,7 @@ function Hero({ data, onLogoSaved }: { data: ProfileSummary | null; onLogoSaved:
               {contacts.map((c) => (
                 <li key={c.key} className={s.contact}>
                   {c.icon}
-                  <span dir={c.ltr ? "ltr" : "rtl"} className={s.contactText}>
+                  <span dir={c.ltr ? "ltr" : "auto"} className={s.contactText}>
                     {c.text}
                   </span>
                 </li>
@@ -122,7 +124,7 @@ function Hero({ data, onLogoSaved }: { data: ProfileSummary | null; onLogoSaved:
             </ul>
           ) : (
             <Link href="/business" className={s.addContacts}>
-              הוספת פרטי התקשרות
+              {t("account.profile.hero.addContacts")}
             </Link>
           )
         ) : null}
@@ -154,11 +156,13 @@ function Hero({ data, onLogoSaved }: { data: ProfileSummary | null; onLogoSaved:
  * reference's order without the signature-rate column Dubiz cannot measure.
  */
 function Metrics({ data }: { data: ProfileSummary | null }) {
+  const { t, locale } = useI18n();
+  const numberFormat = new Intl.NumberFormat(intlTag(locale));
   const m = data?.metrics ?? null;
   const items = [
-    { key: "quotes", label: "הצעות פעילות", value: m?.activeQuotes },
-    { key: "issued", label: "מסמכים שהופקו", value: m?.issuedDocuments },
-    { key: "customers", label: "לקוחות רשומים", value: m?.activeCustomers },
+    { key: "quotes", label: t("account.profile.metrics.activeQuotes"), value: m?.activeQuotes },
+    { key: "issued", label: t("account.profile.metrics.issuedDocuments"), value: m?.issuedDocuments },
+    { key: "customers", label: t("account.profile.metrics.activeCustomers"), value: m?.activeCustomers },
   ];
   return (
     <dl className={s.metrics}>
@@ -177,19 +181,20 @@ function Metrics({ data }: { data: ProfileSummary | null }) {
 /* ---------------------------------------------------------- completion --- */
 
 function CompletionCard({ data }: { data: ProfileSummary | null }) {
+  const { t } = useI18n();
   const completion = data?.completion ?? null;
   const firstMissing = completion?.items.find((item) => !item.filled) ?? null;
   const complete = completion !== null && completion.filled === completion.total;
 
   return (
-    <section className={`${s.completion} ${s.area_completion}`} aria-label="השלמת פרטי העסק">
+    <section className={`${s.completion} ${s.area_completion}`} aria-label={t("account.profile.completion.title")}>
       <Link href={firstMissing?.href ?? "/business"} className={s.completionHead}>
         <span className={s.completionTop}>
           <WarmTile tone="amber" icon="📋" onWhite />
           <span className={s.cardText}>
-            <span className={s.cardTitle}>השלמת פרטי העסק</span>
+            <span className={s.cardTitle}>{t("account.profile.completion.title")}</span>
             <span className={s.cardSubtitle}>
-              {complete ? "כל פרטי העסק מולאו" : "עוד כמה פרטים לחיזוק האמינות מול לקוחות"}
+              {complete ? t("account.profile.completion.complete") : t("account.profile.completion.incomplete")}
             </span>
           </span>
           <span className={s.completionPercent}>{completion ? `${completion.percent}%` : <WarmSkeleton />}</span>
@@ -197,7 +202,7 @@ function CompletionCard({ data }: { data: ProfileSummary | null }) {
         <span
           className={s.progress}
           role="progressbar"
-          aria-label="השלמת פרטי העסק"
+          aria-label={t("account.profile.completion.title")}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={completion?.percent ?? 0}
@@ -209,7 +214,7 @@ function CompletionCard({ data }: { data: ProfileSummary | null }) {
       {completion ? (
         <div className={s.checklist}>
           <p className={s.checklistTitle}>
-            {completion.filled} מתוך {completion.total} פרטים מולאו
+            {t("account.profile.completion.progress", { filled: completion.filled, total: completion.total })}
           </p>
           <ul className={s.checklistItems}>
             {completion.items.map((item) => (
@@ -225,7 +230,7 @@ function CompletionCard({ data }: { data: ProfileSummary | null }) {
                   <Link href={item.href} className={s.checkMissing}>
                     <span className={s.checkEmpty} aria-hidden="true" />
                     <span className={s.checkLabel}>{item.label}</span>
-                    <span className={s.checkAction}>להשלמה</span>
+                    <span className={s.checkAction}>{t("account.profile.completion.toComplete")}</span>
                   </Link>
                 )}
               </li>
@@ -240,21 +245,22 @@ function CompletionCard({ data }: { data: ProfileSummary | null }) {
 /* ------------------------------------------------------- feature cards --- */
 
 function SignatureCard({ data }: { data: ProfileSummary | null }) {
+  const { t } = useI18n();
   const configured = data?.documentSignature.configured ?? null;
   return (
-    <section className={`${s.featureCard} ${s.featureMint} ${s.area_signature}`} aria-label="חתימה על מסמכים">
+    <section className={`${s.featureCard} ${s.featureMint} ${s.area_signature}`} aria-label={t("account.profile.signature.title")}>
       <WarmTile tone="teal" icon="✍️" onWhite className={s.fTile} />
       <span className={s.fPill}>
         {configured === null ? null : configured ? (
-          <WarmPill tone="mint">מוגדרת</WarmPill>
+          <WarmPill tone="mint">{t("account.profile.signature.configured")}</WarmPill>
         ) : (
-          <WarmPill tone="neutral">לא מוגדרת</WarmPill>
+          <WarmPill tone="neutral">{t("account.profile.signature.notConfigured")}</WarmPill>
         )}
       </span>
-      <span className={`${s.cardTitle} ${s.fTitle}`}>חתימה על מסמכים</span>
-      <span className={s.fText}>החתימה של העסק שמופיעה על המסמכים שהוא מפיק</span>
+      <span className={`${s.cardTitle} ${s.fTitle}`}>{t("account.profile.signature.title")}</span>
+      <span className={s.fText}>{t("account.profile.signature.text")}</span>
       <Link href="/business" className={`${s.featureButton} ${s.fAction}`}>
-        ניהול חתימה
+        {t("account.profile.signature.manage")}
       </Link>
     </section>
   );
@@ -266,39 +272,41 @@ function SignatureCard({ data }: { data: ProfileSummary | null }) {
  * subscription exists, `SubscriptionView.status === "active"` renders it here.
  */
 function SubscriptionCard({ data }: { data: ProfileSummary | null }) {
+  const { t } = useI18n();
   const view = data?.subscription ?? null;
   return (
-    <section className={`${s.featureCard} ${s.featureSand} ${s.area_subscription}`} aria-label="המנוי שלי">
+    <section className={`${s.featureCard} ${s.featureSand} ${s.area_subscription}`} aria-label={t("account.profile.subscription.title")}>
       <WarmTile tone="amber" icon="👑" onWhite className={s.fTile} />
       <span className={s.fPill}>
         {view?.status === "active" ? (
           <WarmPill tone="sand">{view.planName}</WarmPill>
         ) : view ? (
-          <WarmPill tone="sand">בקרוב</WarmPill>
+          <WarmPill tone="sand">{t("account.profile.subscription.soon")}</WarmPill>
         ) : null}
       </span>
-      <span className={`${s.cardTitle} ${s.fTitle}`}>המנוי שלי</span>
+      <span className={`${s.cardTitle} ${s.fTitle}`}>{t("account.profile.subscription.title")}</span>
       <span className={s.fText}>
-        {view?.status === "active" ? view.detail ?? view.planName : "תוכניות המנוי של Dubiz יגיעו בקרוב"}
+        {view?.status === "active" ? view.detail ?? view.planName : t("account.profile.subscription.comingSoon")}
       </span>
       {view?.status === "active" ? (
         <Link href={view.manageHref} className={`${s.featureButton} ${s.fAction}`}>
-          פרטי המנוי
+          {t("account.profile.subscription.details")}
         </Link>
       ) : (
-        <span className={`${s.featureNote} ${s.fAction}`}>אין מנוי לניהול כרגע</span>
+        <span className={`${s.featureNote} ${s.fAction}`}>{t("account.profile.subscription.none")}</span>
       )}
     </section>
   );
 }
 
 function IdentityLink() {
+  const { t } = useI18n();
   return (
     <Link href="/business/identity" className={`${s.rowCard} ${s.area_identity}`}>
       <WarmTile tone="violet" icon="🪪" />
       <span className={s.cardText}>
-        <span className={s.cardTitle}>הנוכחות הדיגיטלית</span>
-        <span className={s.cardSubtitle}>מה Dubiz לומד לקראת דף הנחיתה של העסק</span>
+        <span className={s.cardTitle}>{t("account.profile.identity.title")}</span>
+        <span className={s.cardSubtitle}>{t("account.profile.identity.subtitle")}</span>
       </span>
       <ChevronGlyph className={s.rowChevron} />
     </Link>

@@ -2,10 +2,11 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
-  METHOD_LABEL,
-  SCHEDULE_LABEL,
-  STATE_LABEL,
+  methodLabel,
+  scheduleLabel,
+  stateLabel,
   cancelInstallment,
   fetchBankAccounts,
   fetchCheques,
@@ -59,6 +60,7 @@ export default function CommitmentDetailPage({
 }) {
   const { id } = use(params);
   const commitmentId = Number(id);
+  const { t, locale } = useI18n();
 
   const [detail, setDetail] = useState<CommitmentDetailApi | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,12 +104,12 @@ export default function CommitmentDetailPage({
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "טעינה נכשלה");
+        setError(e instanceof Error ? e.message : t("money.payables.list.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [commitmentId, reloadToken]);
+  }, [commitmentId, reloadToken, t]);
 
   async function run(action: () => Promise<unknown>, success: string) {
     setError(null);
@@ -117,13 +119,13 @@ export default function CommitmentDetailPage({
       setNotice(success);
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     }
   }
 
   if (error && !detail) {
     return (
-      <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+      <div className={styles.page} style={PAYABLES_THEME}>
         <div className={styles.backRow}>
           <BackButton />
         </div>
@@ -133,11 +135,11 @@ export default function CommitmentDetailPage({
   }
   if (!detail) {
     return (
-      <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+      <div className={styles.page} style={PAYABLES_THEME}>
         <div className={styles.backRow}>
           <BackButton />
         </div>
-        <div className={styles.empty}>טוען…</div>
+        <div className={styles.empty}>{t("money.common.loading")}</div>
       </div>
     );
   }
@@ -147,7 +149,7 @@ export default function CommitmentDetailPage({
   );
 
   return (
-    <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+    <div className={styles.page} style={PAYABLES_THEME}>
       <div className={styles.backRow}>
         <BackButton />
       </div>
@@ -159,11 +161,11 @@ export default function CommitmentDetailPage({
         </div>
         <span className={styles.badges}>
           <span className={`${styles.badge} ${styles.badgeQuiet}`}>
-            {SCHEDULE_LABEL[detail.scheduleKind]}
+            {scheduleLabel(t, detail.scheduleKind)}
           </span>
           {detail.isLegacy && (
             <span className={`${styles.badge} ${styles.badgeQuiet}`}>
-              הועבר מהמזכירה
+              {t("money.payables.list.legacyBadge")}
             </span>
           )}
         </span>
@@ -171,30 +173,30 @@ export default function CommitmentDetailPage({
 
       <div className={styles.figures}>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>סכום כולל</span>
+          <span className={styles.figureLabel}>{t("money.payables.detail.totalAmount")}</span>
           <span className={styles.figureValue}>
-            {detail.total === null ? "—" : formatMoney(detail.total, detail.currency)}
+            {detail.total === null ? "—" : formatMoney(detail.total, detail.currency, locale)}
           </span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>שולם</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.paid")}</span>
           <span className={styles.figureValue}>
-            {formatMoney(detail.paid, detail.currency)}
+            {formatMoney(detail.paid, detail.currency, locale)}
           </span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>נותר</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.remaining")}</span>
           <span className={styles.figureValue}>
             {detail.remaining === null
               ? "—"
-              : formatMoney(detail.remaining, detail.currency)}
+              : formatMoney(detail.remaining, detail.currency, locale)}
           </span>
         </span>
       </div>
 
       {detail.scheduleKind === "RECURRING" && (
         <div className={styles.notice}>
-          התחייבות מתחדשת — אין סכום כולל ואין יתרה סופית. מוצג התשלום הקרוב בלבד.
+          {t("money.payables.detail.recurringNotice")}
         </div>
       )}
 
@@ -204,8 +206,7 @@ export default function CommitmentDetailPage({
 
       {!providersLive ? (
         <p className={styles.subtitle}>
-          אין ספק לתשלומים יוצאים. הכנה, אישור ורישום נשמרים כאן ואינם מעבירים כסף.
-          מסמך החיוב נשאר בחשבוניות.
+          {t("money.payables.detail.noProvider")}
         </p>
       ) : null}
 
@@ -213,11 +214,9 @@ export default function CommitmentDetailPage({
           payment: nothing was ever observed, and no amount was recorded. */}
       {detail.legacy && (
         <div className={styles.legacyNote}>
-          סומן כטופל
-          {detail.legacy.metAt ? ` בתאריך ${formatDate(detail.legacy.metAt)}` : ""}
-          {detail.legacy.assertedBy ? ` על ידי ${detail.legacy.assertedBy}` : ""}. זו
-          הצהרה שהועברה מהמזכירה, ולא תשלום שנרשם — לא נשמר סכום, אמצעי תשלום או
-          אסמכתא, והיא אינה נספרת כתשלום.
+          {t("money.payables.detail.legacyMarked")}
+          {detail.legacy.metAt ? ` ${t("money.payables.detail.legacyOnDate", { date: formatDate(detail.legacy.metAt, locale) })}` : ""}
+          {detail.legacy.assertedBy ? ` ${t("money.payables.detail.legacyBy", { who: detail.legacy.assertedBy })}` : ""}. {t("money.payables.detail.legacyExplain")}
         </div>
       )}
 
@@ -228,9 +227,8 @@ export default function CommitmentDetailPage({
         <div className={styles.notice}>
           {surplusPayments.map((p) => (
             <div key={p.id}>
-              בתשלום מ־{formatDate(p.paidAt)} נותרו{" "}
-              <strong>{formatMoney(p.unallocated, detail.currency)}</strong> שלא
-              שויכו לאף תשלום. אפשר לשייך אותם בתשלום חדש, או להשאירם כפי שהם.
+              {t("money.payables.detail.surplusBefore", { date: formatDate(p.paidAt, locale) })}{" "}
+              <strong>{formatMoney(p.unallocated, detail.currency, locale)}</strong> {t("money.payables.detail.surplusAfter")}
             </div>
           ))}
         </div>
@@ -239,7 +237,7 @@ export default function CommitmentDetailPage({
       <div className={styles.payDesk}>
       <div>
       <div className={styles.header}>
-        <h2 className={styles.sectionTitle}>הכן תשלום</h2>
+        <h2 className={styles.sectionTitle}>{t("money.payables.detail.prepareTitle")}</h2>
         {detail.status === "ACTIVE" && (
           <div className={styles.toolbar}>
             <button
@@ -248,7 +246,7 @@ export default function CommitmentDetailPage({
               onClick={() => setShowPrepare((v) => !v)}
               aria-expanded={showPrepare}
             >
-              {showPrepare ? "סגור" : "הכן תשלום"}
+              {showPrepare ? t("money.common.close") : t("money.payables.detail.prepareTitle")}
             </button>
           </div>
         )}
@@ -258,12 +256,12 @@ export default function CommitmentDetailPage({
           detail={detail}
           accounts={accounts}
           onPayeeLinked={() => {
-            setNotice("המוטב נרשם וקושר להתחייבות.");
+            setNotice(t("money.payables.detail.payeeLinked"));
             reload();
           }}
           onPrepared={() => {
             setShowPrepare(false);
-            setNotice("התשלום הוכן. עדיין לא שולם דבר — בדוק ואשר.");
+            setNotice(t("money.payables.detail.prepared"));
             reload();
           }}
         />
@@ -284,7 +282,7 @@ export default function CommitmentDetailPage({
         </div>
       )}
 
-      <h2 className={styles.sectionTitle}>רישום תשלום</h2>
+      <h2 className={styles.sectionTitle}>{t("money.payables.detail.recordTitle")}</h2>
       <PaymentForm
         detail={detail}
         onDone={(message) => {
@@ -296,7 +294,7 @@ export default function CommitmentDetailPage({
       <div>
 
       <div className={styles.header}>
-        <h2 className={styles.sectionTitle}>צ׳קים</h2>
+        <h2 className={styles.sectionTitle}>{t("money.payables.detail.chequesTitle")}</h2>
         {detail.status === "ACTIVE" && (
           <div className={styles.toolbar}>
             <button
@@ -305,7 +303,7 @@ export default function CommitmentDetailPage({
               onClick={() => setShowChequeForm((v) => !v)}
               aria-expanded={showChequeForm}
             >
-              {showChequeForm ? "סגור" : "רשום צ׳ק"}
+              {showChequeForm ? t("money.common.close") : t("money.payables.detail.recordCheque")}
             </button>
           </div>
         )}
@@ -317,14 +315,14 @@ export default function CommitmentDetailPage({
           installments={detail.installments}
           onCreated={(c) => {
             setShowChequeForm(false);
-            setNotice(`צ׳ק #${c.chequeNumber} נרשם. הוא ייספר כתשלום כשתסמן שנפרע.`);
+            setNotice(t("money.payables.detail.chequeRecorded", { number: c.chequeNumber }));
             reload();
           }}
         />
       )}
       {cheques.length === 0 ? (
         !showChequeForm && (
-          <div className={styles.empty}>לא נרשמו צ׳קים להתחייבות הזו.</div>
+          <div className={styles.empty}>{t("money.payables.detail.noCheques")}</div>
         )
       ) : (
         <div className={styles.timeline}>
@@ -343,7 +341,7 @@ export default function CommitmentDetailPage({
         </div>
       )}
 
-      <h2 className={styles.sectionTitle}>לוח התשלומים</h2>
+      <h2 className={styles.sectionTitle}>{t("money.payables.detail.scheduleTitle")}</h2>
       <div className={styles.timeline}>
         {detail.installments.map((inst) => (
           <InstallmentRow
@@ -353,13 +351,13 @@ export default function CommitmentDetailPage({
             onReverse={(allocationId) =>
               run(
                 () => reverseAllocation(allocationId, "תוקן על ידי בעל העסק"),
-                "השיוך בוטל. הכסף חזר ליתרה הלא-משויכת של התשלום.",
+                t("money.payables.detail.allocationReversed"),
               )
             }
             onCancel={(installmentId) =>
               run(
                 () => cancelInstallment(installmentId, "בוטל על ידי בעל העסק"),
-                "התשלום בוטל.",
+                t("money.payables.detail.installmentCancelled"),
               )
             }
           />
@@ -368,32 +366,34 @@ export default function CommitmentDetailPage({
 
       {detail.payments.length > 0 && (
         <>
-          <h2 className={styles.sectionTitle}>תשלומים</h2>
+          <h2 className={styles.sectionTitle}>{t("money.payables.detail.paymentsTitle")}</h2>
           <div className={styles.timeline}>
             {detail.payments.map((p) => (
               <div key={p.id} className={styles.installment}>
                 <div className={styles.installmentHead}>
                   <span className={styles.installmentSeq}>
-                    {formatMoney(p.amount, detail.currency)} ·{" "}
-                    {METHOD_LABEL[p.method] ?? p.method}
+                    {formatMoney(p.amount, detail.currency, locale)} ·{" "}
+                    {methodLabel(t, p.method) ?? p.method}
                   </span>
                   <span className={styles.badges}>
                     {p.status === "VOID" ? (
                       <span className={`${styles.badge} ${styles.badgeQuiet}`}>
-                        בוטל
+                        {t("money.payables.detail.voidBadge")}
                       </span>
                     ) : (
                       <span className={`${styles.badge} ${styles.badgePaid}`}>
-                        נרשם
+                        {t("money.payables.detail.recordedBadge")}
                       </span>
                     )}
                   </span>
                 </div>
                 <span className={styles.nextLine}>
-                  {formatDate(p.paidAt)} · שויך{" "}
-                  {formatMoney(p.allocated, detail.currency)} · לא שויך{" "}
-                  {formatMoney(p.unallocated, detail.currency)}
-                  {p.externalReference ? ` · אסמכתא ${p.externalReference}` : ""}
+                  {t("money.payables.detail.paymentLine", {
+                    date: formatDate(p.paidAt, locale),
+                    allocated: formatMoney(p.allocated, detail.currency, locale),
+                    unallocated: formatMoney(p.unallocated, detail.currency, locale),
+                  })}
+                  {p.externalReference ? ` · ${t("money.payables.detail.referenceN", { reference: p.externalReference })}` : ""}
                 </span>
                 {p.status === "RECORDED" && (
                   <div className={styles.formActions}>
@@ -403,17 +403,17 @@ export default function CommitmentDetailPage({
                       onClick={() => {
                         if (
                           window.confirm(
-                            "לבטל את התשלום? הרישום נשמר, אך הסכום יפסיק להיספר. הפעולה מתועדת.",
+                            t("money.payables.detail.voidConfirm"),
                           )
                         ) {
                           run(
                             () => voidPayment(p.id, "בוטל על ידי בעל העסק"),
-                            "התשלום בוטל. הרישום נשמר וכל השיוכים שלו הפסיקו להיספר.",
+                            t("money.payables.detail.voided"),
                           );
                         }
                       }}
                     >
-                      בטל תשלום
+                      {t("money.payables.detail.voidPayment")}
                     </button>
                   </div>
                 )}
@@ -425,12 +425,12 @@ export default function CommitmentDetailPage({
 
       {detail.audit.length > 0 && (
         <>
-          <h2 className={styles.sectionTitle}>תיעוד</h2>
+          <h2 className={styles.sectionTitle}>{t("money.payables.detail.auditTitle")}</h2>
           <div className={styles.auditList}>
             {detail.audit.map((a) => (
               <div key={a.id} className={styles.auditRow}>
                 <span>{a.summary ?? a.eventType}</span>
-                <span>{formatDate(a.occurredAt)}</span>
+                <span>{formatDate(a.occurredAt, locale)}</span>
               </div>
             ))}
           </div>
@@ -453,6 +453,7 @@ function InstallmentRow({
   onReverse: (allocationId: number) => void;
   onCancel: (installmentId: number) => void;
 }) {
+  const { t, locale } = useI18n();
   const hasActive = inst.allocations.some((a) => a.active);
   const cancellable =
     inst.status === "SCHEDULED" && !hasActive && Number(inst.paid) === 0;
@@ -461,39 +462,39 @@ function InstallmentRow({
     <div className={styles.installment}>
       <div className={styles.installmentHead}>
         <span className={styles.installmentSeq}>
-          תשלום {inst.sequence} · {formatDate(inst.dueAt)}
+          {t("money.payables.detail.installmentHead", { sequence: inst.sequence, date: formatDate(inst.dueAt, locale) })}
         </span>
         <span className={styles.badges}>
           <span className={`${styles.badge} ${BADGE_CLASS[inst.state]}`}>
-            {STATE_LABEL[inst.state]}
+            {stateLabel(t, inst.state)}
           </span>
         </span>
       </div>
 
       <div className={styles.figures}>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>לתשלום</span>
+          <span className={styles.figureLabel}>{t("money.payables.detail.due")}</span>
           <span className={styles.figureValue}>
-            {formatMoney(inst.scheduled, currency)}
+            {formatMoney(inst.scheduled, currency, locale)}
           </span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>שולם</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.paid")}</span>
           <span className={styles.figureValue}>
-            {formatMoney(inst.paid, currency)}
+            {formatMoney(inst.paid, currency, locale)}
           </span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>נותר</span>
+          <span className={styles.figureLabel}>{t("money.payables.list.remaining")}</span>
           <span className={styles.figureValue}>
-            {formatMoney(inst.remaining, currency)}
+            {formatMoney(inst.remaining, currency, locale)}
           </span>
         </span>
       </div>
 
       {inst.state === "SETTLED_LEGACY" && (
         <span className={styles.nextLine}>
-          סומן כטופל לפני שהפנקס קיים — לא נרשם תשלום, ואינו נספר כשולם.
+          {t("money.payables.detail.settledLegacy")}
         </span>
       )}
 
@@ -503,10 +504,10 @@ function InstallmentRow({
           className={a.active ? styles.allocation : styles.allocationReversed}
         >
           <span>
-            {formatMoney(a.amount, currency)} · {METHOD_LABEL[a.paymentMethod] ?? a.paymentMethod} ·{" "}
-            {formatDate(a.paymentPaidAt)}
-            {a.reversedAt ? ` · בוטל השיוך${a.reversalReason ? ` (${a.reversalReason})` : ""}` : ""}
-            {!a.reversedAt && a.paymentStatus === "VOID" ? " · התשלום בוטל" : ""}
+            {formatMoney(a.amount, currency, locale)} · {methodLabel(t, a.paymentMethod) ?? a.paymentMethod} ·{" "}
+            {formatDate(a.paymentPaidAt, locale)}
+            {a.reversedAt ? ` · ${t("money.payables.detail.allocReversedTag")}${a.reversalReason ? ` (${a.reversalReason})` : ""}` : ""}
+            {!a.reversedAt && a.paymentStatus === "VOID" ? ` · ${t("money.payables.detail.allocPaymentVoided")}` : ""}
           </span>
           {a.active && (
             <button
@@ -514,7 +515,7 @@ function InstallmentRow({
               className={styles.buttonQuiet}
               onClick={() => onReverse(a.id)}
             >
-              בטל שיוך
+              {t("money.payables.detail.reverseAllocation")}
             </button>
           )}
         </div>
@@ -527,13 +528,13 @@ function InstallmentRow({
             className={styles.buttonQuiet}
             onClick={() => onCancel(inst.id)}
           >
-            בטל תשלום זה
+            {t("money.payables.detail.cancelInstallment")}
           </button>
         </div>
       )}
       {inst.status === "SCHEDULED" && hasActive && (
         <span className={styles.nextLine}>
-          לא ניתן לבטל תשלום שכבר שויך אליו כסף. יש לבטל קודם את השיוך.
+          {t("money.payables.detail.cannotCancel")}
         </span>
       )}
     </div>
@@ -549,6 +550,7 @@ function PaymentForm({
   detail: CommitmentDetailApi;
   onDone: (message: string) => void;
 }) {
+  const { t, locale } = useI18n();
   const open = useMemo(
     () =>
       detail.installments.filter(
@@ -585,7 +587,7 @@ function PaymentForm({
   if (open.length === 0) {
     return (
       <div className={styles.empty}>
-        אין תשלומים פתוחים לשיוך בהתחייבות הזו.
+        {t("money.payables.detail.noOpenInstallments")}
       </div>
     );
   }
@@ -606,19 +608,19 @@ function PaymentForm({
       });
 
       if (result.replayed) {
-        onDone("זהו אותו תשלום שנרשם קודם — לא נוצר תשלום נוסף.");
+        onDone(t("money.payables.detail.replayed"));
         return;
       }
       const surplus = Number(result.unallocated ?? "0");
       onDone(
         surplus > 0
-          ? `התשלום נרשם. ${formatMoney(String(surplus), detail.currency)} לא שויכו ונשארו פתוחים.`
-          : "התשלום נרשם ושויך במלואו.",
+          ? t("money.payables.detail.recordedUnallocated", { amount: formatMoney(String(surplus), detail.currency, locale) })
+          : t("money.payables.detail.recordedFull"),
       );
       setAmount("");
       setSelected([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "רישום התשלום נכשל");
+      setError(e instanceof Error ? e.message : t("money.payables.detail.recordFailed"));
     } finally {
       setBusy(false);
     }
@@ -629,7 +631,7 @@ function PaymentForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pm-amount">
-            סכום ששולם
+            {t("money.payables.detail.amountPaid")}
           </label>
           <input
             id="pm-amount"
@@ -643,7 +645,7 @@ function PaymentForm({
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pm-date">
-            תאריך התשלום
+            {t("money.payables.detail.paidAt")}
           </label>
           <input
             id="pm-date"
@@ -659,7 +661,7 @@ function PaymentForm({
       <div className={styles.formRow2}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pm-method">
-            אמצעי תשלום
+            {t("money.payables.prepare.form.method")}
           </label>
           <select
             id="pm-method"
@@ -669,14 +671,14 @@ function PaymentForm({
           >
             {METHODS.map((m) => (
               <option key={m} value={m}>
-                {METHOD_LABEL[m] ?? m}
+                {methodLabel(t, m) ?? m}
               </option>
             ))}
           </select>
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="pm-ref">
-            אסמכתא (רשות)
+            {t("money.payables.detail.referenceOptional")}
           </label>
           <input
             id="pm-ref"
@@ -689,7 +691,7 @@ function PaymentForm({
 
       <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <legend className={styles.label}>
-          שיוך לתשלומים (אם לא נבחר — לפי סדר מועדי הפירעון)
+          {t("money.payables.detail.allocateLegend")}
         </legend>
         {open.map((inst) => (
           <label key={inst.id} className={styles.checkboxRow}>
@@ -706,22 +708,25 @@ function PaymentForm({
               }
             />
             <span>
-              תשלום {inst.sequence} · {formatDate(inst.dueAt)} · נותר{" "}
-              {formatMoney(inst.remaining, detail.currency)}
+              {t("money.payables.cheques.form.installmentOption", {
+                sequence: inst.sequence,
+                date: formatDate(inst.dueAt, locale),
+                amount: formatMoney(inst.remaining, detail.currency, locale),
+              })}
             </span>
           </label>
         ))}
       </fieldset>
 
       <div className={styles.notice}>
-        סכום גבוה מהנדרש לא יחולק לתשלומים אחרים מעצמו — העודף יישאר פתוח ויוצג כאן.
+        {t("money.payables.detail.overpayNotice")}
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
 
       <div className={styles.formActions}>
         <button type="submit" className={styles.buttonPrimary} disabled={busy}>
-          {busy ? "רושם…" : "רשום תשלום"}
+          {busy ? t("money.common.recording") : t("money.payables.detail.submit")}
         </button>
       </div>
     </form>

@@ -41,6 +41,9 @@ import { GoalsFlagshipScreen } from "./bot-goals-screen";
 import { KnowledgeProfileScreen } from "./bot-knowledge-screen";
 import { MemoryPolicyScreen } from "./bot-memory-screen";
 import { LearningScreen } from "./bot-learning-screen";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
+import { botOptionLabel, localizeKeyOptions, localizeWorkModes } from "./bot-i18n";
 
 type FinalActionValue = FinalAction;
 
@@ -92,36 +95,37 @@ function normalizeFinalAction(value: string | null): FinalActionValue {
   return "LEAVE_MESSAGE";
 }
 
-function areaMeta(area: BotSettingsArea): { title: string; eyebrow: string } {
+function areaMeta(area: BotSettingsArea, t: Translator): { title: string; eyebrow: string } {
   switch (area) {
     case "goal":
-      return { title: "המטרה שלו", eyebrow: "נגזר מהקיים" };
+      return { title: t("content.bot.editor.meta.goal.title"), eyebrow: t("content.bot.editor.meta.goal.eyebrow") };
     case "personality":
-      return { title: "האופי שלו", eyebrow: "בקרוב" };
+      return { title: t("content.bot.editor.meta.personality.title"), eyebrow: t("content.bot.editor.meta.personality.eyebrow") };
     case "voice":
-      return { title: "איך הוא מדבר", eyebrow: "הודעת פתיחה" };
+      return { title: t("content.bot.editor.meta.voice.title"), eyebrow: t("content.bot.editor.meta.voice.eyebrow") };
     case "conversation":
-      return { title: "איך השיחה עובדת", eyebrow: "שאלות legacy" };
+      return { title: t("content.bot.editor.meta.conversation.title"), eyebrow: t("content.bot.editor.meta.conversation.eyebrow") };
     case "approach":
-      return { title: "הגישה שלו", eyebrow: "בקרוב" };
+      return { title: t("content.bot.editor.meta.approach.title"), eyebrow: t("content.bot.editor.meta.approach.eyebrow") };
     case "knowledge":
-      return { title: "מה הוא יודע", eyebrow: "קישור קטלוג" };
+      return { title: t("content.bot.editor.meta.knowledge.title"), eyebrow: t("content.bot.editor.meta.knowledge.eyebrow") };
     case "memory":
-      return { title: "מה הוא זוכר על לקוחות", eyebrow: "בקרוב" };
+      return { title: t("content.bot.editor.meta.memory.title"), eyebrow: t("content.bot.editor.meta.memory.eyebrow") };
     case "autonomy":
-      return { title: "כמה עצמאות נתת לו", eyebrow: "draft-only" };
+      return { title: t("content.bot.editor.meta.autonomy.title"), eyebrow: t("content.bot.editor.meta.autonomy.eyebrow") };
     case "allowed":
-      return { title: "מה הוא רשאי לעשות", eyebrow: "סיום שיחה" };
+      return { title: t("content.bot.editor.meta.allowed.title"), eyebrow: t("content.bot.editor.meta.allowed.eyebrow") };
     case "forbidden":
-      return { title: "מה אסור לו", eyebrow: "גבולות" };
+      return { title: t("content.bot.editor.meta.forbidden.title"), eyebrow: t("content.bot.editor.meta.forbidden.eyebrow") };
     case "handoff":
-      return { title: "מתי מעביר אליי", eyebrow: "גבולות העברה" };
+      return { title: t("content.bot.editor.meta.handoff.title"), eyebrow: t("content.bot.editor.meta.handoff.eyebrow") };
     case "learning":
-      return { title: "איך הוא משתפר", eyebrow: "בקרוב" };
+      return { title: t("content.bot.editor.meta.learning.title"), eyebrow: t("content.bot.editor.meta.learning.eyebrow") };
   }
 }
 
 export function useBotSettingsEditorState() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,8 +156,8 @@ export function useBotSettingsEditorState() {
   }, [questionsLines]);
 
   const finalActionLabels = useMemo(
-    () => Object.fromEntries(FINAL_ACTIONS.map((a) => [a.value, a.label])),
-    []
+    () => Object.fromEntries(FINAL_ACTIONS.map((a) => [a.value, botOptionLabel(t, "finalAction", a.value, a.label)])),
+    [t]
   );
 
   const finalActionPreviewText = useMemo(() => {
@@ -206,11 +210,11 @@ export function useBotSettingsEditorState() {
       setProductLinkUrl((s.productLinkUrl ?? "").trim());
       setProductLinkIntro(s.productLinkIntro ?? "");
     } catch {
-      setError("לא ניתן לטעון את הגדרות הבוט");
+      setError(t("content.bot.common.errors.loadSettings"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,14 +230,14 @@ export function useBotSettingsEditorState() {
     setSaving(true);
     setError(null);
     if (welcomeMessage.length > 8000) {
-      setError("הודעת הפתיחה ארוכה מדי");
+      setError(t("content.bot.common.errors.welcomeTooLong"));
       setSaving(false);
       return;
     }
     if (finalAction === "SEND_LINK") {
       const url = websiteUrl.trim();
       if (!url) {
-        setError("בחרת שליחת קישור — נא למלא כתובת אתר");
+        setError(t("content.bot.common.errors.sendLinkMissingUrl"));
         setSaving(false);
         return;
       }
@@ -242,7 +246,7 @@ export function useBotSettingsEditorState() {
     if (productLinkEnabled) {
       const pl = productLinkUrl.trim();
       if (!isValidProductLinkUrl(pl)) {
-        setError("כשמפעילים עזרה עם מוצרים — נא למלא קישור מלא ותקין (https://…)");
+        setError(t("content.bot.common.errors.productLinkInvalid"));
         setSaving(false);
         return;
       }
@@ -286,7 +290,7 @@ export function useBotSettingsEditorState() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.bot.common.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -300,7 +304,7 @@ export function useBotSettingsEditorState() {
       window.setTimeout(() => setSavedOk(false), 2500);
       await load();
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setSaving(false);
     }
@@ -355,8 +359,9 @@ const builderScreenStyle: CSSProperties = {
 };
 
 export function BotSettingsEditor({ area }: { area: BotSettingsArea }) {
+  const { t } = useI18n();
   const state = useBotSettingsEditorState();
-  const meta = areaMeta(area);
+  const meta = areaMeta(area, t);
 
   const pageStyle: CSSProperties = {
     minHeight: "100dvh",
@@ -433,19 +438,19 @@ export function BotSettingsEditor({ area }: { area: BotSettingsArea }) {
   }
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <main style={shellStyle}>
         <AreaHeader
           title={meta.title}
           subtitle={meta.eyebrow}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <div style={{ display: "grid", gap: TOKEN.space.lg, padding: "14px 18px 0" }}>
-            {renderArea(area, state, cardStyle)}
+            {renderArea(area, state, cardStyle, t)}
             {isSavableArea(area) ? <SavePanel state={state} /> : null}
           </div>
         )}
@@ -461,7 +466,7 @@ function isSavableArea(area: BotSettingsArea): boolean {
   return !["memory", "learning"].includes(area);
 }
 
-function renderArea(area: BotSettingsArea, state: EditorState, cardStyle: CSSProperties) {
+function renderArea(area: BotSettingsArea, state: EditorState, cardStyle: CSSProperties, t: Translator) {
   switch (area) {
     case "goal":
       return <GoalSection state={state} cardStyle={cardStyle} />;
@@ -478,17 +483,18 @@ function renderArea(area: BotSettingsArea, state: EditorState, cardStyle: CSSPro
     case "handoff":
       return <HandoffSection state={state} cardStyle={cardStyle} />;
     case "personality":
-      return <SoonSection cardStyle={cardStyle} title="האופי שלו" body="אופי, traits וטון אישיות עדיין לא מחוברים לבוט החי." />;
+      return <SoonSection cardStyle={cardStyle} title={t("content.bot.editor.meta.personality.title")} body={t("content.bot.editor.soon.personality")} />;
     case "approach":
-      return <SoonSection cardStyle={cardStyle} title="הגישה שלו" body="מכירה עדינה, יוזמה והתנגדויות ידרשו config ו-runtime נפרדים." />;
+      return <SoonSection cardStyle={cardStyle} title={t("content.bot.editor.meta.approach.title")} body={t("content.bot.editor.soon.approach")} />;
     case "memory":
-      return <SoonSection cardStyle={cardStyle} title="מה הוא זוכר על לקוחות" body="אין זיכרון לקוח פעיל בשיחות בשלב הזה." />;
+      return <SoonSection cardStyle={cardStyle} title={t("content.bot.editor.meta.memory.title")} body={t("content.bot.editor.soon.memory")} />;
     case "learning":
-      return <SoonSection cardStyle={cardStyle} title="איך הוא משתפר" body="אין מנוע המלצות או למידה מאישורים בשלב 1." />;
+      return <SoonSection cardStyle={cardStyle} title={t("content.bot.editor.meta.learning.title")} body={t("content.bot.editor.soon.learning")} />;
   }
 }
 
 function SavePanel({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   return (
     <section style={{ display: "grid", gap: 10 }}>
       {state.error ? (
@@ -498,7 +504,7 @@ function SavePanel({ state }: { state: EditorState }) {
       ) : null}
       {state.savedOk ? (
         <div style={{ fontSize: TOKEN.font.body, color: TOKEN.semantic.success.ink, fontWeight: TOKEN.weight.semibold }}>
-          נשמר בהצלחה
+          {t("content.bot.common.savedSuccess")}
         </div>
       ) : null}
       <button
@@ -519,18 +525,19 @@ function SavePanel({ state }: { state: EditorState }) {
           minHeight: 52,
         }}
       >
-        {state.saving ? "שומר..." : "שמור שינויים"}
+        {state.saving ? t("content.bot.common.saving") : t("content.bot.common.saveChanges")}
       </button>
     </section>
   );
 }
 
 function GoalSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>מטרה בשלב 1</h2>
+      <h2 style={sectionTitle}>{t("content.bot.editor.goalTitle")}</h2>
       <p style={sectionHint}>
-        אין Goal Library חי. כרגע המטרה נגזרת ממצב העבודה, שאלות השיחה, ופעולת הסיום הקיימת.
+        {t("content.bot.editor.goalHint")}
       </p>
       <WorkModeControls state={state} />
     </section>
@@ -538,12 +545,13 @@ function GoalSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSP
 }
 
 function WelcomeSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>איך הבוט מקבל לקוחות</h2>
-      <p style={sectionHint}>זה המשפט הראשון שהלקוח רואה — קצר, חם וברור.</p>
+      <h2 style={sectionTitle}>{t("content.bot.common.welcomeTitle")}</h2>
+      <p style={sectionHint}>{t("content.bot.common.welcomeHint")}</p>
       <label style={labelWrap}>
-        <span style={labelStyle}>הודעת פתיחה</span>
+        <span style={labelStyle}>{t("content.bot.common.welcomeMessage")}</span>
         <textarea
           value={state.welcomeMessage}
           onChange={(e) => state.setWelcomeMessage(e.target.value)}
@@ -557,14 +565,15 @@ function WelcomeSection({ state, cardStyle }: { state: EditorState; cardStyle: C
 }
 
 function QuestionsSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>מה הבוט שואל</h2>
+      <h2 style={sectionTitle}>{t("content.bot.common.questionsTitle")}</h2>
       <p style={sectionHint}>
-        שורה אחת לכל שאלה. זה נשאר מנגנון legacy {"{items}"}; אין חיבור חי ל-Structured Fields v2 בשלב הזה.
+        {t("content.bot.editor.questionsLegacyHint")}
       </p>
       <label style={labelWrap}>
-        <span style={labelStyle}>שאלות legacy</span>
+        <span style={labelStyle}>{t("content.bot.editor.questionsLegacy")}</span>
         <textarea
           value={state.questionsLines}
           onChange={(e) => state.setQuestionsLines(e.target.value)}
@@ -578,26 +587,27 @@ function QuestionsSection({ state, cardStyle }: { state: EditorState; cardStyle:
 }
 
 function FinalActionSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>מה קורה אחרי שהפרטים נאספו</h2>
-      <p style={sectionHint}>בוחרים מה הבוט עושה ברגע שמסיים את השאלות.</p>
+      <h2 style={sectionTitle}>{t("content.bot.common.finalActionTitle")}</h2>
+      <p style={sectionHint}>{t("content.bot.common.finalActionHint")}</p>
       <div style={{ display: "grid", gap: 14 }}>
         <label style={labelWrap}>
-          <span style={labelStyle}>פעולה לאחר השאלות</span>
+          <span style={labelStyle}>{t("content.bot.common.finalActionSelect")}</span>
           <select
             value={state.finalAction}
             onChange={(e) => state.setFinalAction(e.target.value as FinalActionValue)}
             style={{ ...inputStyle, minHeight: 44 }}
           >
             {FINAL_ACTIONS.map((a) => (
-              <option key={a.value} value={a.value}>{a.label}</option>
+              <option key={a.value} value={a.value}>{botOptionLabel(t, "finalAction", a.value, a.label)}</option>
             ))}
           </select>
         </label>
         {state.finalAction === "SEND_LINK" ? (
           <label style={labelWrap}>
-            <span style={labelStyle}>כתובת קישור (URL)</span>
+            <span style={labelStyle}>{t("content.bot.common.linkUrl")}</span>
             <input
               type="url"
               inputMode="url"
@@ -610,7 +620,7 @@ function FinalActionSection({ state, cardStyle }: { state: EditorState; cardStyl
           </label>
         ) : null}
         <p style={{ margin: 0, fontSize: TOKEN.font.meta, color: TOKEN.ink.meta }}>
-          הבוט יפעל לפי: <strong style={{ color: TOKEN.ink.secondary }}>{state.finalActionLabels[state.finalAction] ?? state.finalAction}</strong>
+          {t("content.bot.common.botActsBy")} <strong style={{ color: TOKEN.ink.secondary }}>{state.finalActionLabels[state.finalAction] ?? state.finalAction}</strong>
         </p>
       </div>
     </section>
@@ -618,11 +628,12 @@ function FinalActionSection({ state, cardStyle }: { state: EditorState; cardStyl
 }
 
 function ProductLinkSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>קישור מהיר לקטלוג</h2>
+      <h2 style={sectionTitle}>{t("content.bot.common.catalogLinkTitle")}</h2>
       <p style={sectionHint}>
-        כשלקוח מבקש לראות מוצרים — chip באינבוקס ימלא את ההודעה עם הקישור שלך. אתה בודק ושולח בלחיצה אחת.
+        {t("content.bot.common.catalogLinkHint")}
       </p>
       <label style={{ display: "flex", alignItems: "flex-start", gap: 12, fontSize: TOKEN.font.body, color: TOKEN.ink.primary, cursor: "pointer", lineHeight: 1.45, marginBottom: 16 }}>
         <input
@@ -631,10 +642,10 @@ function ProductLinkSection({ state, cardStyle }: { state: EditorState; cardStyl
           onChange={(e) => state.setProductLinkEnabled(e.target.checked)}
           style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
         />
-        <span>הצע קישור לקטלוג באינבוקס</span>
+        <span>{t("content.bot.common.offerCatalogLink")}</span>
       </label>
       <label style={{ ...labelWrap, marginBottom: 14 }}>
-        <span style={labelStyle}>כתובת דף (URL)</span>
+        <span style={labelStyle}>{t("content.bot.common.pageUrl")}</span>
         <input
           type="url"
           inputMode="url"
@@ -646,7 +657,7 @@ function ProductLinkSection({ state, cardStyle }: { state: EditorState; cardStyl
         />
       </label>
       <label style={labelWrap}>
-        <span style={labelStyle}>משפט קצר לפני הקישור (אופציונלי)</span>
+        <span style={labelStyle}>{t("content.bot.common.linkIntroOptional")}</span>
         <textarea
           value={state.productLinkIntro}
           onChange={(e) => state.setProductLinkIntro(e.target.value)}
@@ -660,23 +671,24 @@ function ProductLinkSection({ state, cardStyle }: { state: EditorState; cardStyl
 }
 
 function ConversationFlagshipScreen({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={builderScreenStyle}>
         <AreaHeader
-          title="איך השיחה עובדת"
-          subtitle="השאלות שהבוט מכין לפי סדר, במנגנון legacy הקיים."
+          title={t("content.bot.editor.meta.conversation.title")}
+          subtitle={t("content.bot.editor.conversation.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
               <BuilderTextAreaField
-                label="שאלות legacy"
-                hint="שורה אחת לכל שאלה. נשמר באותו מבנה {items} שקיים היום."
+                label={t("content.bot.editor.questionsLegacy")}
+                hint={t("content.bot.editor.conversation.fieldHint")}
                 value={state.questionsLines}
                 onChange={state.setQuestionsLines}
                 rows={7}
@@ -684,7 +696,7 @@ function ConversationFlagshipScreen({ state }: { state: EditorState }) {
               />
             </section>
             <GuardNote>
-              Structured Fields v2 לא מחובר כמקור חי במסך הזה. השמירה נשארת על שאלות legacy בלבד.
+              {t("content.bot.editor.conversation.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -692,7 +704,7 @@ function ConversationFlagshipScreen({ state }: { state: EditorState }) {
               saving={state.saving}
               saved={state.savedOk}
               error={state.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -702,25 +714,26 @@ function ConversationFlagshipScreen({ state }: { state: EditorState }) {
 }
 
 function AllowedFlagshipScreen({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={builderScreenStyle}>
         <AreaHeader
-          title="מה הוא רשאי לעשות"
-          subtitle="בוחרים את פעולת הסיום הקיימת אחרי שהפרטים נאספו."
+          title={t("content.bot.editor.meta.allowed.title")}
+          subtitle={t("content.bot.editor.allowed.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <section style={areaPanelStyle}>
               {FINAL_ACTIONS.map((action) => (
                 <ChoiceRow
                   key={action.value}
-                  label={action.label}
-                  hint={finalActionHint(action.value)}
+                  label={botOptionLabel(t, "finalAction", action.value, action.label)}
+                  hint={finalActionHint(action.value, t)}
                   selected={state.finalAction === action.value}
                   onSelect={() => state.setFinalAction(action.value)}
                 />
@@ -728,7 +741,7 @@ function AllowedFlagshipScreen({ state }: { state: EditorState }) {
               {state.finalAction === "SEND_LINK" ? (
                 <div style={{ padding: "16px 0" }}>
                   <BuilderTextField
-                    label="כתובת קישור (URL)"
+                    label={t("content.bot.common.linkUrl")}
                     value={state.websiteUrl}
                     onChange={state.setWebsiteUrl}
                     placeholder="https://..."
@@ -740,7 +753,7 @@ function AllowedFlagshipScreen({ state }: { state: EditorState }) {
               ) : null}
             </section>
             <GuardNote>
-              הערך שנשמר נשאר אותה פעולת סיום קיימת. אין כאן Action Catalog חדש.
+              {t("content.bot.editor.allowed.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -748,7 +761,7 @@ function AllowedFlagshipScreen({ state }: { state: EditorState }) {
               saving={state.saving}
               saved={state.savedOk}
               error={state.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -758,24 +771,25 @@ function AllowedFlagshipScreen({ state }: { state: EditorState }) {
 }
 
 function AutonomyFlagshipScreen({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={builderScreenStyle}>
         <AreaHeader
-          title="כמה עצמאות נתת לו"
-          subtitle="המצב האמיתי בקוד הוא draft-only: רמות 1-2 בלבד."
+          title={t("content.bot.editor.meta.autonomy.title")}
+          subtitle={t("content.bot.editor.autonomy.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
               <div style={{ margin: "0 18px 14px" }}>
-                <h2 style={sectionTitle}>מצב עבודה</h2>
+                <h2 style={sectionTitle}>{t("content.bot.common.workModeTitle")}</h2>
                 <p style={{ ...sectionHint, marginBottom: 0 }}>
-                  בחר אם הבוט כבוי, או מכין טיוטות שאתה מאשר ושולח.
+                  {t("content.bot.common.workModeHint")}
                 </p>
               </div>
               <div style={{ margin: "0 18px" }}>
@@ -783,21 +797,21 @@ function AutonomyFlagshipScreen({ state }: { state: EditorState }) {
               </div>
               <div style={{ display: "grid", gap: 10, margin: "16px 18px 0" }}>
                 {[
-                  { n: "1", title: "ידני — אני עונה בעצמי", active: state.workMode === "MANUAL", soon: false },
-                  { n: "2", title: "טיוטות חכמות — הבוט מכין, אני שולח", active: state.workMode !== "MANUAL", soon: false },
-                  { n: "3", title: "מבצע אחרי אישור", active: false, soon: true },
-                  { n: "4", title: "מבצע לבד", active: false, soon: true },
+                  { n: "1", title: t("content.bot.levels.manual"), active: state.workMode === "MANUAL", soon: false },
+                  { n: "2", title: t("content.bot.levels.smart"), active: state.workMode !== "MANUAL", soon: false },
+                  { n: "3", title: t("content.bot.levels.afterApproval"), active: false, soon: true },
+                  { n: "4", title: t("content.bot.levels.alone"), active: false, soon: true },
                 ].map((level) => (
                   <div key={level.n} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: TOKEN.radius.input, border: "1px solid " + (level.active ? TOKEN.brand.softBorder : TOKEN.border.DEFAULT), background: level.active ? TOKEN.brand.soft : TOKEN.surface.card, opacity: level.soon ? 0.72 : 1 }}>
                     <span style={{ fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>{level.n}</span>
                     <span style={{ flex: 1, fontSize: TOKEN.font.body, color: TOKEN.ink.secondary }}>{level.title}</span>
-                    <span style={chipStyle(level.active ? "ready" : level.soon ? "soon" : "edit")}>{level.soon ? "בקרוב" : level.active ? "פעיל" : "זמין"}</span>
+                    <span style={chipStyle(level.active ? "ready" : level.soon ? "soon" : "edit")}>{level.soon ? t("content.bot.common.soon") : level.active ? t("content.bot.common.active") : t("content.bot.common.available")}</span>
                   </div>
                 ))}
               </div>
             </section>
             <GuardNote>
-              רמות ביצוע אחרי אישור וביצוע לבד אינן פעילות בשלב הזה.
+              {t("content.bot.editor.autonomy.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -805,7 +819,7 @@ function AutonomyFlagshipScreen({ state }: { state: EditorState }) {
               saving={state.saving}
               saved={state.savedOk}
               error={state.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -815,45 +829,47 @@ function AutonomyFlagshipScreen({ state }: { state: EditorState }) {
 }
 
 function ForbiddenPlaceholderScreen() {
+  const { t } = useI18n();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={builderScreenStyle}>
         <AreaHeader
-          title="מה אסור לו"
-          subtitle="גבולות אסור נפרדים עדיין לא מחוברים לבוט החי."
+          title={t("content.bot.editor.meta.forbidden.title")}
+          subtitle={t("content.bot.editor.forbidden.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
           <div style={{ margin: "0 18px" }}>
-            <span style={chipStyle("soon")}>בקרוב</span>
-            <h2 style={{ ...sectionTitle, marginTop: 12 }}>אין טופס פעיל בשלב הזה</h2>
+            <span style={chipStyle("soon")}>{t("content.bot.common.soon")}</span>
+            <h2 style={{ ...sectionTitle, marginTop: 12 }}>{t("content.bot.editor.forbidden.noForm")}</h2>
             <p style={{ ...sectionHint, marginBottom: 0 }}>
-              מדיניות ה-draft-only וה-guardrails ממשיכים לפעול ברקע, אבל אין כאן state נפרד לעריכת איסורים.
+              {t("content.bot.editor.forbidden.body")}
             </p>
           </div>
         </section>
         <GuardNote>
-          Dubiz לא נותן לבוט להמציא מידע או להתחייב מעבר למה שמוגדר, גם בלי מסך איסורים פעיל.
+          {t("content.bot.editor.forbidden.guard")}
         </GuardNote>
       </main>
     </div>
   );
 }
 
-function finalActionHint(action: FinalActionValue): string {
+function finalActionHint(action: FinalActionValue, t: Translator): string {
   switch (action) {
     case "LEAVE_MESSAGE":
-      return "הבוט מסיים בהשארת הודעה רגועה.";
+      return t("content.bot.editor.allowed.hints.LEAVE_MESSAGE");
     case "COLLECT_DETAILS":
-      return "הבוט מבקש את הפרטים הדרושים להמשך טיפול.";
+      return t("content.bot.editor.allowed.hints.COLLECT_DETAILS");
     case "SEND_LINK":
-      return "הבוט מציע קישור שהוגדר כאן, בלי לשלוח לבד.";
+      return t("content.bot.editor.allowed.hints.SEND_LINK");
     case "ESCALATE":
-      return "הבוט מסמן שהשיחה עוברת לנציג/בעל העסק.";
+      return t("content.bot.editor.allowed.hints.ESCALATE");
   }
 }
 function HandoffFlagshipScreen({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   function setBoundary(key: keyof BotBoundaryPresets, checked: boolean) {
     state.setBoundaries((b) => ({ ...b, [key]: checked }));
   }
@@ -866,7 +882,7 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main
         style={{
           maxWidth: BUILDER_SHELL_MAX_WIDTH,
@@ -879,18 +895,18 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
         }}
       >
         <AreaHeader
-          title="מתי מעביר אליי"
-          subtitle="כאן קובעים מתי הבוט מפסיק להכין טיוטות ומעביר את השיחה אליך."
+          title={t("content.bot.editor.meta.handoff.title")}
+          subtitle={t("content.bot.editor.handoff.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
 
         {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <section style={areaPanelStyle}>
-              {BOT_BOUNDARY_OPTIONS.map((opt) => {
+              {localizeKeyOptions(t, "boundary", BOT_BOUNDARY_OPTIONS).map((opt) => {
                 const checked = state.boundaries[opt.key] === true;
                 return (
                   <ToggleRow
@@ -905,7 +921,7 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
                         value={state.boundaries.afterMessageCountThreshold}
                         min={3}
                         max={30}
-                        label="הודעות מהלקוח"
+                        label={t("content.bot.common.messagesFromCustomer")}
                         onChange={setThreshold}
                       />
                     ) : null}
@@ -915,7 +931,7 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
             </section>
 
             <GuardNote>
-              גם בלי הגדרה — כשהבוט לא בטוח, הוא יעדיף להעביר אליך מאשר לנחש.
+              {t("content.bot.editor.handoff.guard")}
             </GuardNote>
 
             <div style={{ flex: 1 }} />
@@ -924,7 +940,7 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
               saving={state.saving}
               saved={state.savedOk}
               error={state.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -933,14 +949,15 @@ function HandoffFlagshipScreen({ state }: { state: EditorState }) {
   );
 }
 function HandoffSection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={cardStyle}>
-      <h2 style={sectionTitle}>מתי הבוט מעביר אליך את השיחה</h2>
+      <h2 style={sectionTitle}>{t("content.bot.desk.handoffTitle")}</h2>
       <p style={sectionHint}>
-        כשהגבול מופעל — הבוט לא יכין עוד טיוטות פתיחה לשיחה הזו, ותמשיך אתה מהאינבוקס.
+        {t("content.bot.editor.handoff.sectionHint")}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {BOT_BOUNDARY_OPTIONS.map((opt) => (
+        {localizeKeyOptions(t, "boundary", BOT_BOUNDARY_OPTIONS).map((opt) => (
           <label key={opt.key} style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
             <input
               type="checkbox"
@@ -967,7 +984,7 @@ function HandoffSection({ state, cardStyle }: { state: EditorState; cardStyle: C
                     onChange={(e) => state.setBoundaries((b) => ({ ...b, afterMessageCountThreshold: Number(e.target.value) || b.afterMessageCountThreshold }))}
                     style={{ width: 56, padding: "6px 8px", borderRadius: TOKEN.radius.input, border: `1px solid ${TOKEN.border.hover}`, fontSize: TOKEN.font.body }}
                   />
-                  <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>הודעות מהלקוח</span>
+                  <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>{t("content.bot.common.messagesFromCustomer")}</span>
                 </div>
               ) : null}
             </span>
@@ -979,24 +996,25 @@ function HandoffSection({ state, cardStyle }: { state: EditorState; cardStyle: C
 }
 
 function AutonomySection({ state, cardStyle }: { state: EditorState; cardStyle: CSSProperties }) {
+  const { t } = useI18n();
   return (
     <section style={{ ...cardStyle, background: TOKEN.surface.inset, borderStyle: "dashed", borderColor: TOKEN.border.hover }}>
-      <h2 style={sectionTitle}>המצב האמיתי: draft-only</h2>
+      <h2 style={sectionTitle}>{t("content.bot.editor.autonomy.realTitle")}</h2>
       <p style={sectionHint}>
-        הרמה הפעילה בקוד היא 1-2 בלבד. ביצוע אחרי אישור וביצוע לבד מוצגים כעתידיים ולא פעילים.
+        {t("content.bot.editor.autonomy.realHint")}
       </p>
       <WorkModeControls state={state} />
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
         {[
-          { n: "1", title: "ידני — אני עונה בעצמי", active: state.workMode === "MANUAL", soon: false },
-          { n: "2", title: "טיוטות חכמות — הבוט מכין, אני שולח", active: state.workMode !== "MANUAL", soon: false },
-          { n: "3", title: "מבצע אחרי אישור", active: false, soon: true },
-          { n: "4", title: "מבצע לבד", active: false, soon: true },
+          { n: "1", title: t("content.bot.levels.manual"), active: state.workMode === "MANUAL", soon: false },
+          { n: "2", title: t("content.bot.levels.smart"), active: state.workMode !== "MANUAL", soon: false },
+          { n: "3", title: t("content.bot.levels.afterApproval"), active: false, soon: true },
+          { n: "4", title: t("content.bot.levels.alone"), active: false, soon: true },
         ].map((level) => (
           <div key={level.n} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: TOKEN.radius.input, border: "1px solid " + (level.active ? TOKEN.brand.softBorder : TOKEN.border.DEFAULT), background: level.active ? TOKEN.brand.soft : TOKEN.surface.card, opacity: level.soon ? 0.72 : 1 }}>
             <span style={{ fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>{level.n}</span>
             <span style={{ flex: 1, fontSize: TOKEN.font.body, color: TOKEN.ink.secondary }}>{level.title}</span>
-            <span style={chipStyle(level.active ? "ready" : level.soon ? "soon" : "edit")}>{level.soon ? "בקרוב" : level.active ? "פעיל" : "זמין"}</span>
+            <span style={chipStyle(level.active ? "ready" : level.soon ? "soon" : "edit")}>{level.soon ? t("content.bot.common.soon") : level.active ? t("content.bot.common.active") : t("content.bot.common.available")}</span>
           </div>
         ))}
       </div>
@@ -1005,9 +1023,10 @@ function AutonomySection({ state, cardStyle }: { state: EditorState; cardStyle: 
 }
 
 function WorkModeControls({ state }: { state: EditorState }) {
+  const { t } = useI18n();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {BOT_WORK_MODE_OPTIONS_ACTIVE.map((opt) => {
+      {localizeWorkModes(t, BOT_WORK_MODE_OPTIONS_ACTIVE).map((opt) => {
         const selected = state.workMode === opt.id;
         return (
           <button
@@ -1024,7 +1043,7 @@ function WorkModeControls({ state }: { state: EditorState }) {
               state.setShowDraftSuggestionsInInbox(patch.showDraftSuggestionsInInbox);
             }}
             style={{
-              textAlign: "right",
+              textAlign: "start",
               width: "100%",
               border: selected ? `2px solid ${TOKEN.brand.mid}` : `1px solid ${TOKEN.border.DEFAULT}`,
               borderRadius: TOKEN.radius.card,
@@ -1044,13 +1063,14 @@ function WorkModeControls({ state }: { state: EditorState }) {
 }
 
 function SoonSection({ cardStyle, title, body }: { cardStyle: CSSProperties; title: string; body: string }) {
+  const { t } = useI18n();
   return (
     <section style={{ ...cardStyle, background: TOKEN.surface.inset, borderStyle: "dashed", borderColor: TOKEN.border.hover }}>
-      <span style={chipStyle("soon")}>בקרוב</span>
+      <span style={chipStyle("soon")}>{t("content.bot.common.soon")}</span>
       <h2 style={{ ...sectionTitle, marginTop: 12 }}>{title}</h2>
       <p style={{ ...sectionHint, marginBottom: 0 }}>{body}</p>
       <p style={{ margin: "12px 0 0", fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, lineHeight: 1.45 }}>
-        אין טופס פעיל, אין backend חדש, ואין השפעה על הבוט החי.
+        {t("content.bot.editor.soon.footnote")}
       </p>
     </section>
   );

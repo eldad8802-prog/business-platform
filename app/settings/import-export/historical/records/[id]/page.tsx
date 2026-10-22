@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { getServerI18n } from "@/lib/i18n/server";
 import { HistoricalRecordDetail } from "@/components/settings/import-export/historical/HistoricalRecordDetail";
 import { HISTORICAL_RECORDS_ROUTE } from "@/components/settings/import-export/historical/historical-routes";
 import { IMPORT_EXPORT_RELEASED } from "@/components/settings/import-export/import-export-release";
@@ -23,6 +24,7 @@ export default async function HistoricalRecordPage({
   }
 
   const { id } = await params;
+  const { t } = await getServerI18n();
   const recordId = Number(id);
   if (!Number.isInteger(recordId) || recordId <= 0) {
     notFound();
@@ -31,8 +33,8 @@ export default async function HistoricalRecordPage({
   return (
     <>
       <SettingsSubPageHeader
-        title="מסמך היסטורי"
-        subtitle="הופק במערכת אחרת"
+        title={t("account.settings.historical.pages.recordTitle")}
+        subtitle={t("account.settings.historical.pages.recordSubtitle")}
         backHref={HISTORICAL_RECORDS_ROUTE}
       />
       <HistoricalRecordDetail

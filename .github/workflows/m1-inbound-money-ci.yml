@@ -57,8 +57,8 @@ jobs:
           set -euo pipefail
           F="components/collection/thread/customer-thread-screen.tsx"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/return refundOutcomeNotice\(r\.outcome\);/return r.outcome === "SETTLED" ? "ההחזר בוצע." : "חברת הסליקה לא ביצעה את ההחזר.";/' "$F"
-          grep -q 'r.outcome === "SETTLED"' "$F" || { mv "$F.bak" "$F"; echo "::error::negative-proof setup did not apply"; exit 1; }
+          perl -0pi -e 's/return refundOutcomeNotice\(r\.outcome(?:, tr)?\);/return r.outcome === "SETTLED" ? "ההחזר בוצע." : "חברת הסליקה לא ביצעה את ההחזר.";/' "$F"
+          grep -q '"ההחזר בוצע." : "חברת הסליקה לא ביצעה את ההחזר."' "$F" || { mv "$F.bak" "$F"; echo "::error::negative-proof setup did not apply"; exit 1; }
           if npx tsx components/collection/thread/refund-outcome.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "::error::NEGATIVE-PROOF FAIL: the F1 contract test passed against the old screen"; exit 1
           fi

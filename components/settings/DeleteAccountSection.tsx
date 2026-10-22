@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 /**
  * Self-service account deletion (Wave 1B). Discoverable in-app entry that satisfies
  * the app-store requirement (Apple 5.1.1(v) / Google Play). Explains what is deleted
@@ -10,7 +12,7 @@ import { useRouter } from "next/navigation";
  * calls DELETE /api/account. On success the session is cleared and the user is sent
  * to /login (the account is closed → auth fails closed).
  */
-const CONFIRM_WORD = "מחיקה";
+// The word to type ("מחיקה" in Hebrew) is the dictionary's, per language.
 
 function authToken(): string {
   if (typeof window === "undefined") return "";
@@ -19,6 +21,8 @@ function authToken(): string {
 
 export function DeleteAccountSection() {
   const router = useRouter();
+  const { t } = useI18n();
+  const CONFIRM_WORD = t("account.settings.deleteAccount.confirmWord");
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,14 +44,14 @@ export function DeleteAccountSection() {
         return;
       }
       if (res.status === 409) {
-        setError("לא ניתן למחוק את החשבון אוטומטית כאשר יש יותר ממשתמש אחד בעסק. לפנייה בנושא זה יש ליצור קשר עם התמיכה.");
+        setError(t("account.settings.deleteAccount.errorMultiUser"));
       } else if (res.status === 401) {
-        setError("החיבור פג. יש להתחבר מחדש ולנסות שוב.");
+        setError(t("account.settings.deleteAccount.errorSession"));
       } else {
-        setError("מחיקת החשבון נכשלה. נסו שוב מאוחר יותר.");
+        setError(t("account.settings.deleteAccount.errorFailed"));
       }
     } catch {
-      setError("מחיקת החשבון נכשלה. נסו שוב מאוחר יותר.");
+      setError(t("account.settings.deleteAccount.errorFailed"));
     } finally {
       setBusy(false);
     }
@@ -56,19 +60,16 @@ export function DeleteAccountSection() {
   if (done) {
     return (
       <div role="status" aria-live="polite" className="rounded-2xl dz-mist p-4 text-sm text-[var(--dz-text-secondary)] shadow-sm">
-        בקשת מחיקת החשבון התקבלה והחשבון נסגר. מעבירים אתכם למסך ההתחברות…
+        {t("account.settings.deleteAccount.done")}
       </div>
     );
   }
 
   return (
-    <section className="rounded-2xl dz-mist p-4 shadow-sm" dir="rtl">
-      <h2 className="mb-1 text-base font-bold text-[var(--dz-text-primary)]">מחיקת חשבון</h2>
+    <section className="rounded-2xl dz-mist p-4 shadow-sm">
+      <h2 className="mb-1 text-base font-bold text-[var(--dz-text-primary)]">{t("account.settings.deleteAccount.title")}</h2>
       <p className="mb-3 text-sm leading-6 text-[var(--dz-text-muted)]">
-        מחיקת החשבון תסיר את פרטי המשתמש והמידע התפעולי (לקוחות, שיחות, קבצים והחיבורים
-        החיצוניים) ותנתק את השירותים המחוברים. מסמכים ורשומות שהחוק מחייב לשמור — כמו
-        חשבוניות וקבלות ורשומות הנהלת חשבונות — עשויים להישמר לתקופת השמירה הקבועה בדין,
-        ולא ישמשו להפעלת חשבון פעיל. <span className="font-semibold text-[var(--dz-text-primary)]">הפעולה בלתי הפיכה.</span>
+        {t("account.settings.deleteAccount.body")}{" "}<span className="font-semibold text-[var(--dz-text-primary)]">{t("account.settings.deleteAccount.irreversible")}</span>
       </p>
 
       {!open ? (
@@ -78,12 +79,12 @@ export function DeleteAccountSection() {
           data-dz-action="danger"
           className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-surface-flat)] px-4 text-sm font-semibold text-[var(--dz-danger)] hover:bg-[var(--dz-danger-bg-soft)]"
         >
-          מחיקת החשבון שלי
+          {t("account.settings.deleteAccount.open")}
         </button>
       ) : (
         <div className="rounded-xl border border-[var(--dz-danger-border)] bg-[var(--dz-danger-bg-soft)] p-3">
           <label htmlFor="delete-confirm" className="mb-1 block text-sm font-medium text-[var(--dz-text-primary)]">
-            לאישור, הקלידו את המילה “{CONFIRM_WORD}”
+            {t("account.settings.deleteAccount.confirmLabel", { word: CONFIRM_WORD })}
           </label>
           <input
             id="delete-confirm"
@@ -101,7 +102,7 @@ export function DeleteAccountSection() {
               onClick={handleDelete}
               className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--dz-danger-accent)] px-4 text-sm font-semibold text-[var(--dz-text-on-brand)] disabled:opacity-50"
             >
-              {busy ? "מוחק…" : "מחיקה סופית"}
+              {busy ? t("account.settings.deleteAccount.deleting") : t("account.settings.deleteAccount.confirm")}
             </button>
             <button
               type="button"
@@ -109,7 +110,7 @@ export function DeleteAccountSection() {
               onClick={() => { setOpen(false); setConfirmText(""); setError(null); }}
               className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] dz-mist px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
             >
-              ביטול
+              {t("common.cancel")}
             </button>
           </div>
         </div>

@@ -16,6 +16,8 @@ import {
   ToggleRow,
   areaPanelStyle,
 } from "./bot-builder-area-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { localizeKeyOptions } from "./bot-i18n";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -33,6 +35,7 @@ const screenWrap: CSSProperties = {
 };
 
 export function MemoryPolicyScreen() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -51,11 +54,11 @@ export function MemoryPolicyScreen() {
       const data = await res.json();
       setPolicy({ ...emptyMemoryPolicy(), ...(data.policy ?? {}) });
     } catch {
-      setError("לא ניתן לטעון את מדיניות הזיכרון");
+      setError(t("content.bot.memory.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +87,7 @@ export function MemoryPolicyScreen() {
         body: JSON.stringify(policy),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.bot.common.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -98,30 +101,30 @@ export function MemoryPolicyScreen() {
       window.setTimeout(() => setSavedOk(false), 2500);
       await load();
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="מה הבוט זוכר על לקוחות"
-          subtitle="כאן בוחרים מה מותר לבוט לזכור על לקוחות בעתיד. זו מדיניות בלבד — בשלב הזה הבוט עדיין לא זוכר דבר בפועל."
+          title={t("content.bot.memory.title")}
+          subtitle={t("content.bot.memory.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {loading ? (
-          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             <div style={{ padding: "20px 18px 8px", fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.muted }}>
-              מה מותר לזכור על כל לקוח
+              {t("content.bot.hub.memory.section")}
             </div>
             <section style={areaPanelStyle}>
-              {MEMORY_TOGGLE_OPTIONS.map((opt) => (
+              {localizeKeyOptions(t, "memory", MEMORY_TOGGLE_OPTIONS).map((opt) => (
                 <ToggleRow
                   key={opt.key}
                   label={opt.label}
@@ -132,7 +135,7 @@ export function MemoryPolicyScreen() {
               ))}
             </section>
             <GuardNote>
-              זו הגדרת מדיניות עתידית בלבד. הבוט אינו כותב מידע על לקוחות ואינו זוכר בין שיחות בשלב הזה.
+              {t("content.bot.memory.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -140,7 +143,7 @@ export function MemoryPolicyScreen() {
               saving={saving}
               saved={savedOk}
               error={error}
-              saveLabel="שמור מדיניות"
+              saveLabel={t("content.bot.hub.memory.save")}
             />
           </>
         )}

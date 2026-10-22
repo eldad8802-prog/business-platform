@@ -1,25 +1,26 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/documents-theme";
-import { emptyMonthCopy } from "@/lib/documents/backlog-view";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 export type InboxEmptyVariant =
   | "no_documents_month"
   | "no_pending"
   | "no_approved";
 
-const COPY: Record<InboxEmptyVariant, { title: string; body: string }> = {
+const COPY: Record<InboxEmptyVariant, { title: MessageKey; body: MessageKey }> = {
   no_documents_month: {
-    title: "אין מסמכים בחודש הזה",
-    body: "מסמך חדש שיועלה או ייובא יופיע כאן לאימות קצר.",
+    title: "documents.inbox.emptyNoDocsMonthTitle",
+    body: "documents.inbox.emptyNoDocsMonthBody",
   },
   no_pending: {
-    title: "אין מסמכים שממתינים לאימות",
-    body: "המסמכים שכבר אושרו זמינים בחיפוש ובחבילת רו״ח.",
+    title: "documents.inbox.emptyNoPendingTitle",
+    body: "documents.inbox.emptyNoPendingBody",
   },
   no_approved: {
-    title: "אין מסמכים מאושרים בחודש הזה",
-    body: "אחרי אימות מסמך הוא יופיע בחיפוש ובחבילת רו״ח.",
+    title: "documents.inbox.emptyNoApprovedTitle",
+    body: "documents.inbox.emptyNoApprovedBody",
   },
 };
 
@@ -29,14 +30,16 @@ const COPY: Record<InboxEmptyVariant, { title: string; body: string }> = {
  * (rendered separately) discloses any pending work in other months.
  */
 function resolveTitle(
+  t: Translator,
   variant: InboxEmptyVariant,
   monthName?: string
 ): string {
   const name = monthName?.trim();
-  if (!name) return COPY[variant].title;
-  if (variant === "no_pending") return emptyMonthCopy(name);
-  if (variant === "no_documents_month") return `אין מסמכים ב${name}`;
-  return `אין מסמכים מאושרים ב${name}`;
+  if (!name) return t(COPY[variant].title);
+  // Same copy as emptyMonthCopy() (lib/documents/backlog-view), per language.
+  if (variant === "no_pending") return t("documents.inbox.emptyNoPendingIn", { month: name });
+  if (variant === "no_documents_month") return t("documents.inbox.emptyNoDocsIn", { month: name });
+  return t("documents.inbox.emptyNoApprovedIn", { month: name });
 }
 
 export default function InboxEmptyState({
@@ -46,9 +49,10 @@ export default function InboxEmptyState({
   variant: InboxEmptyVariant;
   monthName?: string;
 }) {
-  const copy = { ...COPY[variant], title: resolveTitle(variant, monthName) };
+  const { t } = useI18n();
+  const copy = { body: t(COPY[variant].body), title: resolveTitle(t, variant, monthName) };
   return (
-    <section dir="rtl" style={emptyStyle}>
+    <section style={emptyStyle}>
       <div style={iconStyle} aria-hidden>
         <CheckIcon />
       </div>

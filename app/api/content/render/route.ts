@@ -1,4 +1,5 @@
 import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
+import { getServerI18n } from "@/lib/i18n/server";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
@@ -49,6 +50,7 @@ type ContentResult = {
 };
 
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -105,8 +107,7 @@ export async function POST(req: Request) {
       return Response.json(
         {
           error: "brief_required",
-          message:
-            "חסר בריף יעד מספיק מפורט — לא ניתן להרכיב סרטון מהפרופיל העסקי בלבד.",
+          message: t("api.content.renderBriefRequired"),
         },
         { status: 400 }
       );

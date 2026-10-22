@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 
 /**
  * הגדרות → ייבוא וייצוא → מסמכים → ייצוא.
@@ -35,6 +37,7 @@ function filenameFromDisposition(header: string | null, fallback: string) {
 }
 
 export function DocumentsExportPanel() {
+  const { t, locale } = useI18n();
   const [useRange, setUseRange] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -50,7 +53,7 @@ export function DocumentsExportPanel() {
     if (!token?.trim()) {
       setStatus({
         kind: "error",
-        message: "חסר אסימון התחברות — התחברו מחדש ונסו שוב.",
+        message: t("account.settings.importExport.common.noToken"),
       });
       return;
     }
@@ -79,8 +82,8 @@ export function DocumentsExportPanel() {
           message:
             detail?.error ??
             (response.status === 401
-              ? "אין הרשאה. התחברו מחדש ונסו שוב."
-              : `הייצוא נכשל (${response.status}).`),
+              ? t("account.settings.importExport.common.unauthorized")
+              : t("account.settings.importExport.common.exportFailed", { status: response.status })),
         });
         return;
       }
@@ -106,7 +109,7 @@ export function DocumentsExportPanel() {
     } catch {
       setStatus({
         kind: "error",
-        message: "שגיאת רשת — בדקו את החיבור ונסו שוב.",
+        message: t("account.settings.importExport.common.network"),
       });
     }
   }
@@ -114,13 +117,11 @@ export function DocumentsExportPanel() {
   return (
     <div className="mt-6">
       <SettingsSection
-        title="ייצוא מסמכים"
-        description="קובץ ZIP הכולל את הקבצים המקוריים וקובץ אינדקס Excel."
+        title={t("account.settings.importExport.documentsExport.title")}
+        description={t("account.settings.importExport.documentsExport.description")}
       >
         <p className="text-xs leading-5 text-[var(--dz-text-muted)]">
-          תקבלו את המסמכים עצמם בדיוק כפי שנשמרו, ולצידם טבלה בעברית עם שם
-          הקובץ, התאריך, הספק, הסכום והסטטוס. מתאים לגיבוי, למעבר למערכת אחרת
-          או להעברה לרואה החשבון.
+          {t("account.settings.importExport.documentsExport.body")}
         </p>
 
         <label className="mt-4 flex items-center gap-2 text-xs text-[var(--dz-text-primary)]">
@@ -132,13 +133,13 @@ export function DocumentsExportPanel() {
               setStatus({ kind: "idle" });
             }}
           />
-          ייצוא לפי טווח תאריכים
+          {t("account.settings.importExport.documentsExport.byRange")}
         </label>
 
         {useRange ? (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-[11px] text-[var(--dz-text-muted)]">
-              מתאריך
+              {t("account.settings.importExport.documentsExport.from")}
               <input
                 type="date"
                 value={from}
@@ -147,7 +148,7 @@ export function DocumentsExportPanel() {
               />
             </label>
             <label className="flex flex-col gap-1 text-[11px] text-[var(--dz-text-muted)]">
-              עד תאריך
+              {t("account.settings.importExport.documentsExport.to")}
               <input
                 type="date"
                 value={to}
@@ -156,12 +157,12 @@ export function DocumentsExportPanel() {
               />
             </label>
             <p className="col-span-2 text-[11px] text-[var(--dz-text-muted)]">
-              הטווח מתייחס לתאריך שבו המסמך נקלט בדוביז.
+              {t("account.settings.importExport.documentsExport.rangeNote")}
             </p>
           </div>
         ) : (
           <p className="mt-3 text-[11px] text-[var(--dz-text-muted)]">
-            ייוצאו כל המסמכים שלכם, בכל סטטוס.
+            {t("account.settings.importExport.documentsExport.allNote")}
           </p>
         )}
 
@@ -171,29 +172,28 @@ export function DocumentsExportPanel() {
           disabled={working}
           className="mt-4 w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {working ? "מכין את הקבצים…" : "ייצאו מסמכים"}
+          {working ? t("account.settings.importExport.documentsExport.preparing") : t("account.settings.importExport.documentsExport.submit")}
         </button>
 
         <div aria-live="polite" className="mt-3 min-h-[1.25rem]">
           {status.kind === "working" ? (
             <p className="text-xs text-[var(--dz-text-muted)]">
-              אוספים את הקבצים. בארכיון גדול זה יכול לקחת כמה שניות.
+              {t("account.settings.importExport.documentsExport.working")}
             </p>
           ) : null}
 
           {status.kind === "done" ? (
             <div className="rounded-2xl bg-[var(--dz-background)] px-4 py-3">
               <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-                הורדנו {status.included.toLocaleString("he-IL")} מסמכים.
+                {t(status.included === 1 ? "account.settings.importExport.documentsExport.downloadedOne" : "account.settings.importExport.documentsExport.downloadedMany", { count: status.included.toLocaleString(intlTag(locale)) })}
               </p>
               {status.missing > 0 ? (
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  {status.missing.toLocaleString("he-IL")} קבצים לא נמצאו ולכן
-                  אינם בארכיון. הם מסומנים בקובץ האינדקס כדי שתדעו בדיוק מה חסר.
+                  {t(status.missing === 1 ? "account.settings.importExport.documentsExport.missingOne" : "account.settings.importExport.documentsExport.missingMany", { count: status.missing.toLocaleString(intlTag(locale)) })}
                 </p>
               ) : (
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  כל הקבצים נכללו.
+                  {t("account.settings.importExport.documentsExport.allIncluded")}
                 </p>
               )}
             </div>

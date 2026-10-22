@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
   fetchBankAccounts,
   fetchCheques,
@@ -20,6 +21,7 @@ import styles from "../payables.module.css";
  * settled either way (cleared, cancelled, replaced).
  */
 export default function ChequesPage() {
+  const { t } = useI18n();
   const [accounts, setAccounts] = useState<BankAccountApi[] | null>(null);
   const [configured, setConfigured] = useState(true);
   const [cheques, setCheques] = useState<ChequeApi[] | null>(null);
@@ -42,12 +44,12 @@ export default function ChequesPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "טעינה נכשלה");
+        setError(e instanceof Error ? e.message : t("money.payables.list.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [scope, reloadToken]);
+  }, [scope, reloadToken, t]);
 
   function changed(message: string) {
     setNotice(message);
@@ -55,15 +57,15 @@ export default function ChequesPage() {
   }
 
   return (
-    <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+    <div className={styles.page} style={PAYABLES_THEME}>
       <div className={styles.backRow}>
         <BackButton />
       </div>
 
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
-          <h1 className={styles.title}>צ׳קים וחשבונות בנק</h1>
-          <p className={styles.subtitle}>אילו צ׳קים נכתבו, מאיזה חשבון, ומה מצבם.</p>
+          <h1 className={styles.title}>{t("money.payables.list.chequesAndAccounts")}</h1>
+          <p className={styles.subtitle}>{t("money.payables.cheques.page.subtitle")}</p>
         </div>
       </header>
 
@@ -73,7 +75,7 @@ export default function ChequesPage() {
           {error}
           <div className={styles.formActions}>
             <button type="button" className={styles.buttonQuiet} onClick={reload}>
-              נסה שוב
+              {t("money.common.retry")}
             </button>
           </div>
         </div>
@@ -81,9 +83,9 @@ export default function ChequesPage() {
 
       <div className={styles.work}>
       <section>
-      <h2 className={styles.sectionTitle}>חשבונות הבנק של העסק</h2>
+      <h2 className={styles.sectionTitle}>{t("money.payables.cheques.page.accountsTitle")}</h2>
       {accounts === null && !error ? (
-        <div className={styles.empty}>טוען…</div>
+        <div className={styles.empty}>{t("money.common.loading")}</div>
       ) : (
         accounts && (
           <BankAccountsSection accounts={accounts} configured={configured} onChanged={changed} />
@@ -93,14 +95,14 @@ export default function ChequesPage() {
       <section>
 
       <div className={styles.header}>
-        <h2 className={styles.sectionTitle}>צ׳קים</h2>
+        <h2 className={styles.sectionTitle}>{t("money.payables.cheques.page.chequesTitle")}</h2>
         <div className={styles.toolbar}>
           <button
             type="button"
             className={styles.buttonQuiet}
             onClick={() => setScope((s) => (s === "open" ? "all" : "open"))}
           >
-            {scope === "open" ? "הצג הכול" : "הצג פתוחים בלבד"}
+            {scope === "open" ? t("money.payables.list.showAll") : t("money.payables.cheques.page.showOpenOnly")}
           </button>
           {accounts && accounts.some((a) => a.isActive) && (
             <button
@@ -109,7 +111,7 @@ export default function ChequesPage() {
               onClick={() => setShowForm((v) => !v)}
               aria-expanded={showForm}
             >
-              {showForm ? "סגור" : "צ׳ק חדש"}
+              {showForm ? t("money.common.close") : t("money.payables.cheques.page.newCheque")}
             </button>
           )}
         </div>
@@ -118,23 +120,22 @@ export default function ChequesPage() {
       {showForm && accounts && (
         <>
           <div className={styles.notice}>
-            צ׳ק שנכתב עבור התחייבות מסוימת כדאי לרשום מתוך עמוד ההתחייבות, כדי שייספר עליה
-            כשייפרע.
+            {t("money.payables.cheques.page.commitmentHint")}
           </div>
           <ChequeForm
             accounts={accounts}
             onCreated={(c) => {
               setShowForm(false);
-              changed(`צ׳ק #${c.chequeNumber} נרשם.`);
+              changed(t("money.payables.cheques.page.recorded", { number: c.chequeNumber }));
             }}
           />
         </>
       )}
 
-      {cheques === null && !error && <div className={styles.empty}>טוען…</div>}
+      {cheques === null && !error && <div className={styles.empty}>{t("money.common.loading")}</div>}
       {cheques !== null && cheques.length === 0 && (
         <div className={styles.empty}>
-          {scope === "open" ? "אין צ׳קים פתוחים." : "עוד לא נרשמו צ׳קים."}
+          {scope === "open" ? t("money.payables.cheques.page.noneOpen") : t("money.payables.cheques.page.noneYet")}
         </div>
       )}
       {cheques !== null && cheques.length > 0 && accounts && (

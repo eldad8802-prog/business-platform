@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
 import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 type Mode = "ADD" | "REMOVE";
 
@@ -26,21 +28,21 @@ type ReasonValue =
 
 type ReasonOption = {
   value: ReasonValue;
-  label: string;
+  label: MessageKey;
 };
 
 const ADD_REASONS: ReasonOption[] = [
-  { value: "INITIAL_STOCK", label: "מלאי התחלתי" },
-  { value: "MANUAL_ADD", label: "הוספה ידנית" },
-  { value: "RETURN", label: "החזרה" },
-  { value: "INVENTORY_COUNT_CORRECTION", label: "תיקון ספירה" },
+  { value: "INITIAL_STOCK", label: "customers.inventoryKit.reasons.initialStock" },
+  { value: "MANUAL_ADD", label: "customers.inventoryKit.reasons.manualAdd" },
+  { value: "RETURN", label: "customers.inventoryKit.reasons.return" },
+  { value: "INVENTORY_COUNT_CORRECTION", label: "customers.inventoryKit.reasons.countFix" },
 ];
 
 const REMOVE_REASONS: ReasonOption[] = [
-  { value: "MANUAL_REMOVE", label: "הפחתה ידנית" },
-  { value: "SALE", label: "מכירה" },
-  { value: "DAMAGE", label: "נזק" },
-  { value: "INVENTORY_COUNT_CORRECTION", label: "תיקון ספירה" },
+  { value: "MANUAL_REMOVE", label: "customers.inventoryKit.reasons.manualRemove" },
+  { value: "SALE", label: "customers.inventoryKit.reasons.sale" },
+  { value: "DAMAGE", label: "customers.inventoryKit.reasons.damageShort" },
+  { value: "INVENTORY_COUNT_CORRECTION", label: "customers.inventoryKit.reasons.countFix" },
 ];
 
 export default function MovementModal({
@@ -51,6 +53,7 @@ export default function MovementModal({
   onClose,
   onSuccess,
 }: Props) {
+  const { t } = useI18n();
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState<ReasonValue>("MANUAL_ADD");
   const [note, setNote] = useState("");
@@ -107,7 +110,7 @@ export default function MovementModal({
       parsedQuantity <= 0 ||
       !Number.isFinite(parsedQuantity)
     ) {
-      setError("צריך להזין כמות גדולה מ־0");
+      setError(t("customers.inventoryKit.movement.quantityRequired"));
       return;
     }
 
@@ -126,7 +129,7 @@ export default function MovementModal({
       await onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err?.message || "שגיאה בשמירת התנועה");
+      setError(err?.message || t("customers.inventoryKit.movement.saveError"));
     } finally {
       setLoading(false);
     }
@@ -134,7 +137,6 @@ export default function MovementModal({
 
   return (
     <div
-      dir="rtl"
       onClick={() => {
         if (!loading) {
           onClose();
@@ -178,7 +180,7 @@ export default function MovementModal({
         >
           <div>
             <div id="movement-modal-title" style={{ fontSize: "17px", fontWeight: 600, color: "var(--inv-text)" }}>
-              {mode === "ADD" ? "הוספת מלאי" : "הפחתת מלאי"}
+              {mode === "ADD" ? t("customers.inventoryKit.movement.addTitle") : t("customers.inventoryKit.movement.removeTitle")}
             </div>
 
             <div style={{ marginTop: "4px", fontSize: "13px", color: "var(--inv-text-muted)" }}>
@@ -201,7 +203,7 @@ export default function MovementModal({
               lineHeight: 1,
               opacity: loading ? 0.6 : 1,
             }}
-            aria-label="סגירת חלון"
+            aria-label={t("customers.inventoryKit.movement.closeWindow")}
           >
             ×
           </button>
@@ -210,7 +212,7 @@ export default function MovementModal({
         <div style={{ padding: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
           <div>
             <label htmlFor="movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-              כמות
+              {t("customers.inventoryKit.movement.quantity")}
             </label>
 
             <input
@@ -239,7 +241,7 @@ export default function MovementModal({
 
           <div>
             <label htmlFor="movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-              סיבה
+              {t("customers.inventoryKit.movement.reason")}
             </label>
 
             <select
@@ -263,7 +265,7 @@ export default function MovementModal({
             >
               {reasons.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.label)}
                 </option>
               ))}
             </select>
@@ -271,7 +273,7 @@ export default function MovementModal({
 
           <div>
             <label htmlFor="movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
-              הערה
+              {t("customers.inventoryKit.movement.note")}
             </label>
 
             <input
@@ -280,7 +282,7 @@ export default function MovementModal({
               value={note}
               disabled={loading}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="אופציונלי"
+              placeholder={t("customers.inventoryKit.movement.optional")}
               style={{
                 width: "100%",
                 minHeight: "46px",
@@ -319,7 +321,7 @@ export default function MovementModal({
                 opacity: loading ? 0.6 : 1,
               }}
             >
-              ביטול
+              {t("customers.inventoryKit.common.cancel")}
             </button>
 
             <button
@@ -341,10 +343,10 @@ export default function MovementModal({
               }}
             >
               {loading
-                ? "שומר/ת..."
+                ? t("customers.inventoryKit.movement.savingSlash")
                 : mode === "ADD"
-                ? "אישור הוספה"
-                : "אישור הפחתה"}
+                ? t("customers.inventoryKit.movement.confirmAdd")
+                : t("customers.inventoryKit.movement.confirmRemove")}
             </button>
           </div>
         </div>

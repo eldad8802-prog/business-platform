@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { MessageKey } from "@/lib/i18n/translate";
+
 /**
  * "ייבוא מסמכים במייל" — the owner-facing settings surface.
  *
@@ -41,16 +45,16 @@ type Settings = {
   suggestedSenderEmail: string | null;
 };
 
-const SENDER_STATUS_LABEL: Record<SenderView["status"], string> = {
-  PENDING_VERIFICATION: "ממתין לאימות",
-  VERIFIED: "מאומת",
-  REVOKED: "מבוטל",
+const SENDER_STATUS_LABEL: Record<SenderView["status"], MessageKey> = {
+  PENDING_VERIFICATION: "account.settings.connections.inboundEmail.senderStatus.pending",
+  VERIFIED: "account.settings.connections.inboundEmail.senderStatus.verified",
+  REVOKED: "account.settings.connections.inboundEmail.senderStatus.revoked",
 };
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: Locale): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleDateString("he-IL", {
+    return new Date(iso).toLocaleDateString(intlTag(locale), {
       day: "numeric",
       month: "long",
       year: "numeric",
@@ -61,6 +65,7 @@ function formatDate(iso: string | null): string {
 }
 
 export function InboundEmailCard() {
+  const { t, locale } = useI18n();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -83,10 +88,10 @@ export function InboundEmailCard() {
       setSettings(data);
       setSenderEmail((prev) => (prev.length > 0 ? prev : data.suggestedSenderEmail ?? ""));
     } catch {
-      setError("לא הצלחנו לטעון את ההגדרות.");
+      setError(t("account.settings.connections.inboundEmail.loadError"));
     }
     setLoading(false);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -104,16 +109,16 @@ export function InboundEmailCard() {
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setError(data.error ?? "הפעולה נכשלה.");
+          setError(data.error ?? t("account.settings.connections.inboundEmail.actionFailed"));
         } else {
           await load();
         }
       } catch {
-        setError("הפעולה נכשלה.");
+        setError(t("account.settings.connections.inboundEmail.actionFailed"));
       }
       setBusy(false);
     },
-    [load]
+    [load, t]
   );
 
   if (loading) return null;
@@ -124,21 +129,21 @@ export function InboundEmailCard() {
   const current = settings.current;
 
   return (
-    <section dir="rtl" className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
-      <h2 className="mb-1 text-base font-semibold">ייבוא מסמכים במייל</h2>
+    <section className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
+      <h2 className="mb-1 text-base font-semibold">{t("account.settings.connections.inboundEmail.pageTitle")}</h2>
       <p className="mb-4 text-sm text-black/60">
-        ניתן להעביר לכתובת הזו חשבוניות ומסמכים שמגיעים אליך במייל.
+        {t("account.settings.connections.inboundEmail.intro")}
       </p>
 
       {settings.addressUnreadable ? (
         <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">
-          לא הצלחנו להציג את הכתובת הקיימת. אל תיצרי כתובת חדשה — פנייה לתמיכה תשחזר את ההגדרה.
+          {t("account.settings.connections.inboundEmail.addressUnreadable")}
         </p>
       ) : null}
 
       {current ? (
         <div className="mb-4">
-          <div className="mb-1 text-sm font-medium">כתובת להעברת מסמכים</div>
+          <div className="mb-1 text-sm font-medium">{t("account.settings.connections.inboundEmail.addressLabel")}</div>
           <div className="flex items-center gap-2">
             <code className="flex-1 overflow-x-auto rounded-xl bg-black/5 px-3 py-2 text-sm">
               {current.address ?? current.preview}
@@ -154,7 +159,7 @@ export function InboundEmailCard() {
                 window.setTimeout(() => setCopied(false), 2000);
               }}
             >
-              {copied ? "הועתק" : "העתק"}
+              {copied ? t("account.settings.connections.inboundEmail.copied") : t("account.settings.connections.inboundEmail.copy")}
             </button>
           </div>
         </div>
@@ -165,19 +170,19 @@ export function InboundEmailCard() {
           className="mb-4 rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
           onClick={() => void post("/api/inbound-email/address", { action: "initialize" })}
         >
-          צרי כתובת
+          {t("account.settings.connections.inboundEmail.create")}
         </button>
       )}
 
       {settings.retiring.length > 0 ? (
         <div className="mb-4 space-y-2">
-          <div className="text-sm font-medium">כתובות קודמות</div>
+          <div className="text-sm font-medium">{t("account.settings.connections.inboundEmail.previous")}</div>
           {settings.retiring.map((a) => (
             <div key={a.id} className="flex items-center justify-between gap-2 rounded-xl bg-black/5 px-3 py-2">
               <div className="min-w-0">
                 <div className="truncate text-sm">{a.address ?? a.preview}</div>
                 <div className="text-xs text-black/60">
-                  {a.expired ? "כבר לא בתוקף" : `בתוקף עד ${formatDate(a.graceUntil)}`}
+                  {a.expired ? t("account.settings.connections.inboundEmail.expired") : t("account.settings.connections.inboundEmail.validUntil", { date: formatDate(a.graceUntil, locale) })}
                 </div>
               </div>
               <button
@@ -188,7 +193,7 @@ export function InboundEmailCard() {
                   void post("/api/inbound-email/address", { action: "revoke", addressId: a.id })
                 }
               >
-                בטלי עכשיו
+                {t("account.settings.connections.inboundEmail.revokeNow")}
               </button>
             </div>
           ))}
@@ -199,7 +204,7 @@ export function InboundEmailCard() {
         <div className="mb-6">
           {confirmRotate ? (
             <div className="rounded-xl border border-black/10 p-3">
-              <p className="mb-2 text-sm">הכתובת הישנה תמשיך לפעול במשך 30 יום.</p>
+              <p className="mb-2 text-sm">{t("account.settings.connections.inboundEmail.rotateNote")}</p>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -210,14 +215,14 @@ export function InboundEmailCard() {
                     setConfirmRotate(false);
                   }}
                 >
-                  החליפי כתובת
+                  {t("account.settings.connections.inboundEmail.rotateConfirm")}
                 </button>
                 <button
                   type="button"
                   className="rounded-xl border border-black/10 px-3 py-1.5 text-sm"
                   onClick={() => setConfirmRotate(false)}
                 >
-                  ביטול
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -227,14 +232,14 @@ export function InboundEmailCard() {
               className="text-sm underline"
               onClick={() => setConfirmRotate(true)}
             >
-              החלפת כתובת
+              {t("account.settings.connections.inboundEmail.rotate")}
             </button>
           )}
         </div>
       ) : null}
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold">שולחים מורשים</h3>
+        <h3 className="mb-2 text-sm font-semibold">{t("account.settings.connections.inboundEmail.senders")}</h3>
         <div className="mb-3 flex gap-2">
           <input
             type="email"
@@ -250,12 +255,12 @@ export function InboundEmailCard() {
             className="shrink-0 rounded-xl bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
             onClick={() => void post("/api/inbound-email/senders", { action: "add", email: senderEmail })}
           >
-            הוסף שולח
+            {t("account.settings.connections.inboundEmail.addSender")}
           </button>
         </div>
 
         {settings.senders.length === 0 ? (
-          <p className="text-sm text-black/60">עדיין לא הוגדרו שולחים.</p>
+          <p className="text-sm text-black/60">{t("account.settings.connections.inboundEmail.noSenders")}</p>
         ) : (
           <ul className="space-y-2">
             {settings.senders.map((s) => (
@@ -267,7 +272,7 @@ export function InboundEmailCard() {
                   <div dir="ltr" className="truncate text-start text-sm">
                     {s.email}
                   </div>
-                  <div className="text-xs text-black/60">{SENDER_STATUS_LABEL[s.status]}</div>
+                  <div className="text-xs text-black/60">{t(SENDER_STATUS_LABEL[s.status])}</div>
                 </div>
                 <button
                   type="button"
@@ -277,7 +282,7 @@ export function InboundEmailCard() {
                     void post("/api/inbound-email/senders", { action: "revoke", senderId: s.id })
                   }
                 >
-                  בטלי
+                  {t("account.settings.connections.inboundEmail.revoke")}
                 </button>
               </li>
             ))}

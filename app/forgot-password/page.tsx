@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AuthCard, authCardStyles as s } from "@/components/auth/auth-card";
 import { SUPPORT_EMAIL } from "@/components/settings/settings-hub";
 import { isPasswordResetEnabled } from "@/lib/auth/account-recovery-config";
+import { getServerI18n } from "@/lib/i18n/server";
 
 import ForgotForm from "./forgot-form";
 
@@ -12,15 +13,16 @@ import ForgotForm from "./forgot-form";
  */
 export const dynamic = "force-dynamic";
 
-export default function ForgotPasswordPage() {
+export default async function ForgotPasswordPage() {
   if (!isPasswordResetEnabled()) {
+    const { t } = await getServerI18n();
     return (
-      <AuthCard title="שחזור סיסמה" lede="האפשרות לבחור סיסמה חדשה דרך המייל עדיין לא זמינה.">
+      <AuthCard title={t("account.auth.forgot.unavailable.title")} lede={t("account.auth.forgot.unavailable.lede")}>
         <p className={s.info}>
-          אם אין לך גישה לחשבון, אפשר לכתוב לנו ל־<a className={s.link} href={`mailto:${SUPPORT_EMAIL}`} dir="ltr">{SUPPORT_EMAIL}</a> ונעזור.
+          {t("account.auth.forgot.unavailable.supportBefore")}<a className={s.link} href={`mailto:${SUPPORT_EMAIL}`} dir="ltr">{SUPPORT_EMAIL}</a>{t("account.auth.forgot.unavailable.supportAfter")}
         </p>
         <p className={s.footer}>
-          <Link href="/login" className={s.link}>חזרה לכניסה</Link>
+          <Link href="/login" className={s.link}>{t("account.auth.common.backToLogin")}</Link>
         </p>
       </AuthCard>
     );

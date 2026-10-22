@@ -116,6 +116,8 @@ export const X_CASH_01: CrossDomainRule = {
       if (remaining <= 0.009) continue;
       if (i.dueAt.getTime() < input.asOf.getTime()) { overdue += 1; continue; }
       if (i.dueAt.getTime() > horizon) continue;
+      // Amounts in different currencies are never added: only the first currency seen is summed.
+      if (currency !== null && i.currency !== currency) continue;
       dueCount += 1; dueAmount += remaining; currency = currency ?? i.currency; ids.push(i.id);
     }
     const rw = input.stored.depth?.receivablesWindow ?? null;

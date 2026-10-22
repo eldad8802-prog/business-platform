@@ -10,6 +10,7 @@
  */
 import { useId, useRef, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { CameraGlyph } from "@/components/ui/warm-surface/glyphs";
 
 import { saveBusinessLogo } from "../data/use-account-data";
@@ -36,6 +37,7 @@ type Props = {
 };
 
 export function BusinessLogo({ name, logoDataUrl, size, variant = "hero", editable = false, onSaved, className }: Props) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
   const [busy, setBusy] = useState(false);
@@ -52,12 +54,12 @@ export function BusinessLogo({ name, logoDataUrl, size, variant = "hero", editab
     try {
       const prepared = await prepareLogo(file);
       if (!prepared.ok) {
-        setError(LOGO_ERROR_MESSAGE[prepared.reason]);
+        setError(t(LOGO_ERROR_MESSAGE[prepared.reason]));
         return;
       }
       const result = await saveBusinessLogo(prepared.dataUrl);
       if (result !== "ok") {
-        setError(LOGO_ERROR_MESSAGE[result]);
+        setError(t(LOGO_ERROR_MESSAGE[result]));
         return;
       }
       setPreview(prepared.dataUrl);
@@ -77,11 +79,11 @@ export function BusinessLogo({ name, logoDataUrl, size, variant = "hero", editab
         {shown ? (
           // A data URL from the business's own profile — next/image adds nothing here.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={shown} alt={`הלוגו של ${name}`} className={styles.img} />
+          <img src={shown} alt={t("account.profile.logo.alt", { name })} className={styles.img} />
         ) : (
           <span aria-hidden="true">{initials}</span>
         )}
-        {!shown ? <span className={styles.srOnly}>{`אין לוגו לעסק ${name}`}</span> : null}
+        {!shown ? <span className={styles.srOnly}>{t("account.profile.logo.none", { name })}</span> : null}
       </span>
 
       {editable ? (
@@ -89,7 +91,7 @@ export function BusinessLogo({ name, logoDataUrl, size, variant = "hero", editab
           <button
             type="button"
             className={styles.camera}
-            aria-label={shown ? "החלפת לוגו" : "העלאת לוגו"}
+            aria-label={shown ? t("account.profile.logo.replace") : t("account.profile.logo.upload")}
             aria-describedby={error ? errorId : undefined}
             aria-busy={busy}
             disabled={busy}

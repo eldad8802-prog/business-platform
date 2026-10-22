@@ -86,6 +86,10 @@
 .accountChevron {
   flex-shrink: 0;
 }
+/* "Forward" chevron: left in RTL, mirrored for left-to-right languages. */
+:dir(ltr) .accountChevron {
+  transform: scaleX(-1);
+}
 
 /* ---- groups ------------------------------------------------------------- */
 .groups {

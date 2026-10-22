@@ -10,6 +10,8 @@
  * that way — see docs/billing-adaptive-design-report-v1.md §8.
  */
 import { TOKEN } from "@/lib/design/billing-theme";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 export type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -175,11 +177,16 @@ export const DOCUMENT_TYPE_LABEL: Record<string, string> = {
   QUOTE: "הצעת מחיר",
 };
 
-export function formatMoney(amount: string, currency: string): string {
+/**
+ * Formatters take the interface language (default Hebrew — byte-identical to the legacy output).
+ * The language only picks the Intl locale; currency always comes from the document, and the time
+ * zone stays Asia/Jerusalem.
+ */
+export function formatMoney(amount: string, currency: string, locale: Locale = "he"): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return `${amount} ${currency}`;
   try {
-    return new Intl.NumberFormat("he-IL", {
+    return new Intl.NumberFormat(intlTag(locale), {
       style: "currency",
       currency: currency || "ILS",
       minimumFractionDigits: 2,
@@ -190,12 +197,12 @@ export function formatMoney(amount: string, currency: string): string {
   }
 }
 
-export function formatDate(iso: string | null): string {
+export function formatDate(iso: string | null, locale: Locale = "he"): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   try {
-    return new Intl.DateTimeFormat("he-IL", {
+    return new Intl.DateTimeFormat(intlTag(locale), {
       timeZone: "Asia/Jerusalem",
       year: "numeric",
       month: "2-digit",
@@ -206,12 +213,12 @@ export function formatDate(iso: string | null): string {
   }
 }
 
-export function formatDateTime(iso: string | null): string {
+export function formatDateTime(iso: string | null, locale: Locale = "he"): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   try {
-    return new Intl.DateTimeFormat("he-IL", {
+    return new Intl.DateTimeFormat(intlTag(locale), {
       timeZone: "Asia/Jerusalem",
       year: "numeric",
       month: "2-digit",
@@ -224,25 +231,40 @@ export function formatDateTime(iso: string | null): string {
   }
 }
 
-export function formatQuantity(value: string): string {
+export function formatQuantity(value: string, locale: Locale = "he"): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return value;
-  return new Intl.NumberFormat("he-IL", {
+  return new Intl.NumberFormat(intlTag(locale), {
     maximumFractionDigits: 4,
   }).format(n);
 }
 
-export function formatPercent(value: string): string {
+export function formatPercent(value: string, locale: Locale = "he"): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return `${value}%`;
-  const formatted = new Intl.NumberFormat("he-IL", {
+  const formatted = new Intl.NumberFormat(intlTag(locale), {
     maximumFractionDigits: 2,
   }).format(n);
   return `${formatted}%`;
 }
 
-export function getDocumentTypeLabel(type: string): string {
+/**
+ * App-UI label for a document type. With a translator it follows the interface language; without
+ * one it is the Hebrew label (unchanged). Never used for the issued document / PDF itself.
+ */
+export function getDocumentTypeLabel(type: string, t?: Translator): string {
+  if (type === "TAX_INVOICE" || type === "QUOTE") {
+    return t ? t(`billing.docType.${type}`) : DOCUMENT_TYPE_LABEL[type];
+  }
   return DOCUMENT_TYPE_LABEL[type] ?? type;
+}
+
+/** App-UI label for a lifecycle status (Hebrew without a translator, as before). */
+export function getStatusLabel(status: string, t?: Translator): string {
+  if (status === "DRAFT" || status === "PENDING_REVIEW" || status === "ISSUED") {
+    return t ? t(`billing.status.${status}`) : STATUS_LABEL[status];
+  }
+  return status;
 }
 
 export function resolveServerLineForDraft(

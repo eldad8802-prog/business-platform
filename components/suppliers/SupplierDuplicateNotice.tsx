@@ -22,12 +22,14 @@ import type {
 } from "@/lib/api/suppliers";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
-const REASON_LABEL: Record<SupplierMatchReason, string> = {
-  TAX_ID: "אותו מספר עוסק / ח.פ.",
-  PHONE: "אותו טלפון",
-  EMAIL: "אותו אימייל",
-  NAME: "שם זהה",
+const REASON_LABEL: Record<SupplierMatchReason, MessageKey> = {
+  TAX_ID: "customers.suppliers.duplicate.reasonTaxId",
+  PHONE: "customers.suppliers.duplicate.reasonPhone",
+  EMAIL: "customers.suppliers.duplicate.reasonEmail",
+  NAME: "customers.suppliers.duplicate.reasonName",
 };
 
 /** The identifier is proof of identity; a name is only a hint. */
@@ -35,8 +37,8 @@ function isStrong(match: PossibleSupplierMatch): boolean {
   return match.reasons.includes("TAX_ID");
 }
 
-function describe(match: PossibleSupplierMatch): string {
-  return match.reasons.map((r) => REASON_LABEL[r]).join(" · ");
+function describe(match: PossibleSupplierMatch, t: Translator): string {
+  return match.reasons.map((r) => t(REASON_LABEL[r])).join(" · ");
 }
 
 /**
@@ -69,24 +71,27 @@ export function SupplierDuplicateBody({
   openExistingLabel?: (match: PossibleSupplierMatch) => string;
   keepNewLabel?: string;
 }) {
+  const { t } = useI18n();
   if (matches.length === 0) return null;
 
   const strong = matches.some(isStrong);
 
   return (
     <>
-      <h2 className="crm-modal__title">ייתכן שהספק כבר קיים</h2>
+      <h2 className="crm-modal__title">{t("customers.suppliers.duplicate.title")}</h2>
 
       <p className="crm-panel__body">
         {strong ? (
           <>
-            קיים כבר ספק עם אותו מספר עסקי כמו <bdi>{createdName}</bdi>. סביר
-            מאוד שמדובר באותו עסק.
+            {t("customers.suppliers.duplicate.strongBefore")}
+            <bdi>{createdName}</bdi>
+            {t("customers.suppliers.duplicate.strongAfter")}
           </>
         ) : (
           <>
-            מצאנו ספקים שנראים דומים ל<bdi>{createdName}</bdi>. אפשר להמשיך עם
-            הספק החדש או לעבור לקיים.
+            {t("customers.suppliers.duplicate.weakBefore")}
+            <bdi>{createdName}</bdi>
+            {t("customers.suppliers.duplicate.weakAfter")}
           </>
         )}
       </p>
@@ -109,18 +114,18 @@ export function SupplierDuplicateBody({
                   badge inside it would be clipped on long names. */}
               {!match.isActive ? (
                 <span className="crm-row__badges">
-                  <span className="crm-badge">לא פעיל</span>
+                  <span className="crm-badge">{t("customers.suppliers.common.inactiveBadge")}</span>
                 </span>
               ) : null}
               <CrmRowMeta
                 parts={[
-                  describe(match),
+                  describe(match, t),
                   match.phone ? formatPhoneForDisplay(match.phone) : null,
                 ]}
               />
             </span>
             <span className="crm-row__chevron" aria-hidden>
-              ‹
+              {t("customers.suppliers.common.chevron")}
             </span>
           </button>
         ))}
@@ -132,7 +137,7 @@ export function SupplierDuplicateBody({
           className="crm-btn crm-btn--ghost crm-btn--full"
           onClick={onKeepNew}
         >
-          {keepNewLabel ?? "להמשיך עם הספק החדש"}
+          {keepNewLabel ?? t("customers.suppliers.duplicate.keepNew")}
         </button>
       </div>
     </>
@@ -150,6 +155,7 @@ export function SupplierDuplicateNotice(props: {
   onOpenExisting: (id: number) => void;
   onKeepNew: () => void;
 }) {
+  const { t } = useI18n();
   if (props.matches.length === 0) return null;
 
   return (
@@ -158,7 +164,7 @@ export function SupplierDuplicateNotice(props: {
         className="crm-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="ייתכן שהספק כבר קיים"
+        aria-label={t("customers.suppliers.duplicate.title")}
       >
         <SupplierDuplicateBody {...props} />
       </div>

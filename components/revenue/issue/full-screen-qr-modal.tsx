@@ -1,6 +1,7 @@
 "use client";
 
 import { QRCodeCanvas } from "qrcode.react";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type FullScreenQrModalProps = {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export default function FullScreenQrModal({
   qrValue,
   onClose,
 }: FullScreenQrModalProps) {
+  const { t } = useI18n();
   if (!isOpen) return null;
 
   return (
@@ -47,7 +49,7 @@ export default function FullScreenQrModal({
             marginBottom: 10,
           }}
         >
-          QR למסירה / סריקה
+          {t("billing.couponIssue.qrTitle")}
         </div>
 
         <div
@@ -100,7 +102,7 @@ export default function FullScreenQrModal({
             width: "100%",
           }}
         >
-          סגור
+          {t("billing.couponIssue.close")}
         </button>
       </div>
     </div>

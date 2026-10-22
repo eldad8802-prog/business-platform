@@ -1,4 +1,7 @@
+"use client";
+
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function ReviewPreviewFallback({
   vendorDisplay,
@@ -9,6 +12,7 @@ export default function ReviewPreviewFallback({
   categoryDisplay: string;
   directionDisplay: string;
 }) {
+  const { t } = useI18n();
   return (
     <>
       <div style={{ textAlign: "center", fontSize: 24, fontWeight: 950, color: TOKEN.ink.primary }}>
@@ -23,7 +27,7 @@ export default function ReviewPreviewFallback({
           marginTop: 8,
         }}
       >
-        מקור המסמך
+        {t("documents.review.preview.source")}
       </div>
       <div
         style={{
@@ -38,7 +42,7 @@ export default function ReviewPreviewFallback({
           lineHeight: 1.6,
         }}
       >
-        התצוגה המקורית אינה זמינה כרגע, אבל הפרטים שזוהו מוצגים למעלה לעריכה ואישור.
+        {t("documents.review.preview.fallbackBody")}
       </div>
     </>
   );

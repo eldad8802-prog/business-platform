@@ -2,10 +2,7 @@
 
 import type { InboxFinancialPulse } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/documents-theme";
-
-function fmtMoney(n: number) {
-  return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
-}
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function StatCell({
   label,
@@ -24,7 +21,7 @@ function StatCell({
         flex: "1 1 70px",
         minWidth: 0,
         padding: "10px 14px",
-        borderLeft: "1px solid rgba(52, 60, 50, 0.12)",
+        borderInlineEnd: "1px solid rgba(52, 60, 50, 0.12)",
       }}
     >
       <div
@@ -68,7 +65,10 @@ export default function FinancialPulse({
 }: {
   pulse: InboxFinancialPulse | null;
 }) {
+  const { t, formatAmount } = useI18n();
   if (!pulse) return null;
+  // Same output as the previous local `₪` + he-IL formatter (ILS, max 2 fraction digits).
+  const fmtMoney = (n: number) => formatAmount(n, "ILS");
 
   const { fromFinancialRecords, inboxDocumentCounts } = pulse;
   const net = fromFinancialRecords.net;
@@ -85,25 +85,25 @@ export default function FinancialPulse({
       }}
     >
       <StatCell
-        label="הכנסות"
+        label={t("documents.inbox.pulseIncome")}
         value={fmtMoney(fromFinancialRecords.income)}
         valueColor={TOKEN.semantic.success.ink}
         icon="↑"
       />
       <StatCell
-        label="הוצאות"
+        label={t("documents.inbox.pulseExpense")}
         value={fmtMoney(fromFinancialRecords.expense)}
         valueColor={TOKEN.semantic.urgent.ink}
         icon="↓"
       />
       <StatCell
-        label="מאזן"
+        label={t("documents.inbox.pulseBalance")}
         value={fmtMoney(net)}
         valueColor={net >= 0 ? TOKEN.semantic.success.ink : TOKEN.semantic.urgent.ink}
         icon="="
       />
       <StatCell
-        label="ממתינים"
+        label={t("documents.inbox.pulsePending")}
         value={inboxDocumentCounts.pendingReview}
         valueColor={TOKEN.semantic.attention.ink}
         icon="⏳"

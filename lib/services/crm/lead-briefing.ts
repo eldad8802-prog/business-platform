@@ -13,6 +13,8 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import {
   evaluateLeadAttention,
   leadAttentionReasonLabel,
@@ -28,6 +30,9 @@ import { loadCallBriefing, type CallBriefing } from "@/lib/services/calls/call-a
 import { loadCommerceBriefing, type CommerceBriefing } from "@/lib/services/commerce/commerce-attention";
 
 type Tx = Prisma.TransactionClient;
+
+/** Hebrew translator — the default wherever no `t` is passed (the wording it always had). */
+const HE_T: Translator = createTranslator(he);
 
 /** Upper bound on open leads read for one briefing (counts beyond it are not claimed). */
 export const LEAD_BRIEFING_SCAN_CAP = 500;
@@ -101,7 +106,8 @@ function emptyCounts(): LeadBriefingCounts {
 export function deriveLeadBriefing(
   rows: readonly LeadBriefingFacts[],
   now: Date,
-  complete = true
+  complete = true,
+  t: Translator = HE_T
 ): LeadBriefing {
   const counts = emptyCounts();
   const items: LeadBriefingItem[] = [];
@@ -121,19 +127,20 @@ export function deriveLeadBriefing(
         openIdentityProposals: r.openIdentityProposals,
         dismissedRuleIds: r.dismissedRuleIds ?? [],
       },
-      now
+      now,
+      t
     );
     if (attention.suggestion) counts.withSuggestion += 1;
     if (!attention.needsAttention || !attention.reason) continue;
     counts.needsAttention += 1;
     counts[attention.reason] += 1;
-    const name = r.customerName?.trim() || "ליד ללא שם";
+    const name = r.customerName?.trim() || t("insights.common.unnamedLead");
     items.push({
       leadId: r.id,
       name,
       reason: attention.reason,
-      label: leadAttentionReasonLabel(attention.reason),
-      summary: [leadAttentionSummary(attention, r.nextFollowUpAt, now), r.followUpNote?.trim()]
+      label: leadAttentionReasonLabel(attention.reason, t),
+      summary: [leadAttentionSummary(attention, r.nextFollowUpAt, now, t), r.followUpNote?.trim()]
         .filter((v): v is string => Boolean(v))
         .join(" "),
       evidenceClass: attention.evidenceClass ?? "fact",
@@ -195,14 +202,14 @@ export async function loadLeadBriefingFacts(
 // ── M6 — today's new leads, with where they came from ─────────────────────────
 
 /** Where a lead came from, as the owner says it. The source is context, not a separate inbox. */
-export function leadSourceGroup(sourceChannel: string | null): { group: string; label: string } {
+export function leadSourceGroup(sourceChannel: string | null, t: Translator = HE_T): { group: string; label: string } {
   const s = (sourceChannel ?? "").trim();
-  if (s === "intake:meta.lead_ads") return { group: "meta", label: "פייסבוק/אינסטגרם" };
-  if (s === "intake:google.lead_form") return { group: "google", label: "גוגל" };
-  if (s === "intake:web.form" || s.toUpperCase() === "WEBSITE") return { group: "web", label: "האתר" };
-  if (s === "intake:whatsapp" || s.toUpperCase() === "WHATSAPP") return { group: "whatsapp", label: "וואטסאפ" };
-  if (!s || s.toUpperCase() === "MANUAL") return { group: "manual", label: "הוזנו ידנית" };
-  return { group: "other", label: "מקורות אחרים" };
+  if (s === "intake:meta.lead_ads") return { group: "meta", label: t("insights.leads.source.meta") };
+  if (s === "intake:google.lead_form") return { group: "google", label: t("insights.leads.source.google") };
+  if (s === "intake:web.form" || s.toUpperCase() === "WEBSITE") return { group: "web", label: t("insights.leads.source.web") };
+  if (s === "intake:whatsapp" || s.toUpperCase() === "WHATSAPP") return { group: "whatsapp", label: t("insights.leads.source.whatsapp") };
+  if (!s || s.toUpperCase() === "MANUAL") return { group: "manual", label: t("insights.leads.source.manual") };
+  return { group: "other", label: t("insights.leads.source.other") };
 }
 
 export type LeadArrivals = {
@@ -211,14 +218,17 @@ export type LeadArrivals = {
   bySource: { group: string; label: string; count: number }[];
 };
 
-export function deriveLeadArrivals(rows: readonly { sourceChannel: string | null; n: number }[]): LeadArrivals {
+export function deriveLeadArrivals(
+  rows: readonly { sourceChannel: string | null; n: number }[],
+  t: Translator = HE_T
+): LeadArrivals {
   const groups = new Map<string, { group: string; label: string; count: number }>();
   let today = 0;
   for (const r of rows) {
     const n = Number(r.n) || 0;
     if (n <= 0) continue;
     today += n;
-    const g = leadSourceGroup(r.sourceChannel);
+    const g = leadSourceGroup(r.sourceChannel, t);
     const cur = groups.get(g.group) ?? { ...g, count: 0 };
     cur.count += n;
     groups.set(g.group, cur);
@@ -227,24 +237,25 @@ export function deriveLeadArrivals(rows: readonly { sourceChannel: string | null
   return { today, bySource };
 }
 
-export async function loadLeadArrivals(tx: Tx, businessId: number, now: Date): Promise<LeadArrivals> {
+export async function loadLeadArrivals(tx: Tx, businessId: number, now: Date, t: Translator = HE_T): Promise<LeadArrivals> {
   const { from, toExclusive } = jerusalemDayUtcHalfOpen(jerusalemDayKey(now));
   const rows = await tx.$queryRaw<{ sourceChannel: string | null; n: number }[]>`
     SELECT l."sourceChannel", count(*)::int AS "n"
     FROM "Lead" l
     WHERE l."businessId" = ${businessId} AND l."createdAt" >= ${from} AND l."createdAt" < ${toExclusive}
     GROUP BY l."sourceChannel"`;
-  return deriveLeadArrivals(rows);
+  return deriveLeadArrivals(rows, t);
 }
 
 export async function getLeadBriefing(
   tx: Tx,
   businessId: number,
-  now = new Date()
+  now = new Date(),
+  t: Translator = HE_T
 ): Promise<LeadBriefing> {
   const { rows, complete } = await loadLeadBriefingFacts(tx, businessId);
-  const arrivals = await loadLeadArrivals(tx, businessId, now);
+  const arrivals = await loadLeadArrivals(tx, businessId, now, t);
   const calls = await loadCallBriefing(tx, businessId, now);
   const commerce = await loadCommerceBriefing(tx, businessId, now);
-  return { ...deriveLeadBriefing(rows, now, complete), arrivals, calls, commerce };
+  return { ...deriveLeadBriefing(rows, now, complete, t), arrivals, calls, commerce };
 }

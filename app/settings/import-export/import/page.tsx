@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { getServerI18n } from "@/lib/i18n/server";
 import {
   ImportScreen,
   type ImportDomainOption,
@@ -19,10 +20,11 @@ import { DATA_TRANSFER_DOMAINS } from "@/lib/data-transfer/domains";
  * six-domain registry filtered by `kind === "tabular"`, so the import engine
  * (and Prisma with it) stays out of the client bundle.
  */
-export default function ImportSettingsPage() {
+export default async function ImportSettingsPage() {
   if (!IMPORT_EXPORT_RELEASED) {
     notFound();
   }
+  const { t } = await getServerI18n();
 
   const domains: ImportDomainOption[] = DATA_TRANSFER_DOMAINS.filter(
     (domain) => domain.kind === "tabular"
@@ -36,8 +38,8 @@ export default function ImportSettingsPage() {
   return (
     <>
       <SettingsSubPageHeader
-        title="ייבוא"
-        subtitle="בדיקת קובץ לפני קליטה"
+        title={t("account.settings.importExport.actions.import.title")}
+        subtitle={t("account.settings.importExport.pages.importSubtitle")}
         backHref={IMPORT_EXPORT_ROUTE}
       />
       <ImportScreen domains={domains} />

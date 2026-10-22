@@ -43,6 +43,7 @@ import {
   type LeadLifecycleHistoryItem,
 } from "@/lib/services/crm/lead-lifecycle.service";
 import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
+import type { Translator } from "@/lib/i18n/translate";
 import {
   deriveLeadConversationIntelligence,
   evaluateLeadPriority,
@@ -165,8 +166,10 @@ function iso(value: Date | null | undefined): string | null {
 
 export async function getLeadCard(
   input: GetLeadCardInput,
-  options?: { tx?: CardTx }
+  /** `t`: the interface language of the request; default Hebrew (the text the card always had). */
+  options?: { tx?: CardTx; t?: Translator }
 ): Promise<LeadCard> {
+  const t = options?.t;
   assertBusinessId(input.businessId);
   const leadId = normalizeLeadId(input.leadId);
   const db = options?.tx ?? prisma;
@@ -245,7 +248,7 @@ export async function getLeadCard(
   // read-time from rows already in hand, through the SAME serializer the Inbox
   // uses. Nothing here writes, and nothing here touches `lead.status` — the
   // stage a conversation reports is evidence, the status is the owner's call.
-  const intelligence = deriveLeadConversationIntelligence({ conversations, now });
+  const intelligence = deriveLeadConversationIntelligence({ conversations, now, t });
   // M5 — the same lifecycle facts the attention loader reads, for this one lead.
   const tx = db as CardTx;
   const [dismissed, proposals, inbound, history, calls] = await Promise.all([
@@ -266,9 +269,10 @@ export async function getLeadCard(
       openIdentityProposals: proposals.get(lead.id) ?? 0,
       dismissedRuleIds: dismissed.get(lead.id) ?? [],
     },
-    now
+    now,
+    t
   );
-  const priority = evaluateLeadPriority({ status, attention, intelligence });
+  const priority = evaluateLeadPriority({ status, attention, intelligence, t });
 
   return {
     lead: {
@@ -326,8 +330,8 @@ export async function getLeadCard(
     lifecycle: {
       attention: {
         reason: attention.reason,
-        label: attention.reason ? leadAttentionReasonLabel(attention.reason) : null,
-        summary: attention.reason ? leadAttentionSummary(attention, lead.nextFollowUpAt, now) || null : null,
+        label: attention.reason ? leadAttentionReasonLabel(attention.reason, t) : null,
+        summary: attention.reason ? leadAttentionSummary(attention, lead.nextFollowUpAt, now, t) || null : null,
         evidenceClass: attention.evidenceClass ?? null,
       },
       suggestion: attention.suggestion
