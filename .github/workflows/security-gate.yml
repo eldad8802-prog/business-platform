@@ -117,6 +117,17 @@ jobs:
       - name: Evidence output guard (M-1)
         run: node scripts/ci/evidence-output-guard.mjs . --sql
 
+      # Money: no new sum that adds amounts of different currencies (docs/money/FINANCIAL-DATA-MODEL-AUDIT.md).
+      # REPORT-ONLY on purpose (continue-on-error): security/gate is a required check, and turning
+      # a new rule into a merge blocker is an owner decision, not something a feature PR decides.
+      # To make it blocking, remove `continue-on-error` (and nothing else).
+      - name: Cross-currency sum guard (report-only until the owner decides)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node scripts/ci/cross-currency-sum-guard.mjs --self-test
+          node scripts/ci/cross-currency-sum-guard.mjs .
+
       # ── 5. inventory, then the tests themselves ───────────────────────────
       - name: Test-coverage inventory (every test classified, every security test invoked)
         run: node scripts/ci/security-test-coverage.mjs

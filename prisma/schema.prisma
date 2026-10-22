@@ -352,6 +352,7 @@ model User {
   crmNotesCreated                            CrmNote[]
   crmAttachmentsUploaded                     CrmAttachment[]
   platformAdminMfa                           PlatformAdminMfa?
+  platformAdminPasskeys                      PlatformAdminPasskey[]
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
   authEmailTokens                            AuthEmailToken[]
@@ -396,6 +397,37 @@ model PlatformAdminMfa {
   updatedAt DateTime @updatedAt
 
   @@index([enrolledAt])
+}
+
+/// WebAuthn passkey a platform admin registered as a second way to step up
+/// (Face ID / fingerprint). Public key only — the private key never leaves the
+/// authenticator. Auth plane: app_auth reads/adds/changes; nobody deletes
+/// (removal = revokedAt). Migration 20261024090000_platform_admin_a1.
+model PlatformAdminPasskey {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// base64url credential id, as the authenticator reports it.
+  credentialId String   @unique
+  /// COSE public key bytes.
+  publicKey    Bytes
+  /// Authenticator signature counter (0 for most synced passkeys).
+  signCount    BigInt   @default(0)
+  transports   String[] @default([])
+  /// singleDevice | multiDevice
+  deviceType   String?
+  backedUp     Boolean  @default(false)
+  label        String
+  /// Issue time of the last accepted challenge. Only a strictly newer challenge is
+  /// accepted, so no signed assertion can be replayed (synced passkeys keep signCount 0).
+  lastChallengeIssuedAt DateTime?
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([userId, revokedAt])
 }
 
 /// Generic CRM subject reference (see docs/dubiz-crm-foundation-spec-v1.md §2 / E1).
