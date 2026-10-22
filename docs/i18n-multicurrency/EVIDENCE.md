@@ -1,5 +1,8 @@
 # Evidence — languages + multi-currency (branch `feat/i18n-currency-foundation`)
 
+> English activation readiness (every route, Hebrew parity, isolation, public pages, perf, runbook):
+> see [ACTIVATION-READINESS.md](ACTIVATION-READINESS.md).
+
 Local runs on Windows (2026-10-22), branch merged with `origin/main` (d207e373+). CI evidence is added
 by `.github/workflows/i18n-multicurrency-ci.yml` on the PR (ephemeral PG17).
 
