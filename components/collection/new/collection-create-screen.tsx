@@ -22,6 +22,9 @@ import {
   type BlockerCode,
 } from "../collection-client";
 import { CustomerPicker } from "../customer-picker";
+import { CollectionCurrencyChoice } from "./collection-currency-choice";
+import { offerableFrom, requestCurrency, showCurrencyChoice } from "./collection-currency";
+import type { CurrencyCode } from "@/lib/money/currency";
 
 const W = TOKEN.warm;
 const AD_HOC = "adhoc";
@@ -52,6 +55,7 @@ export function CollectionCreateScreen() {
   const thread = customerId !== null && loadedThread?.customer.id === customerId ? loadedThread : null;
   const [target, setTarget] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  const [chosenCurrency, setChosenCurrency] = useState<CurrencyCode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
@@ -106,7 +110,17 @@ export function CollectionCreateScreen() {
     () => (target && target !== AD_HOC ? thread?.openInvoices.find((i) => String(i.id) === target) ?? null : null),
     [target, thread]
   );
-  const currency = invoice?.currency ?? thread?.totals.currency ?? "ILS";
+  // Standalone requests may be raised in another currency only when the
+  // connected provider supports more than ILS; invoice-backed ones never.
+  const offerable = useMemo(() => offerableFrom(readiness?.offerableCurrencies), [readiness]);
+  const currencyChoiceShown = showCurrencyChoice({ standalone: target === AD_HOC, offerable });
+  const currency = requestCurrency({
+    invoiceCurrency: invoice?.currency,
+    threadCurrency: thread?.totals.currency,
+    chosen: chosenCurrency,
+    choiceShown: currencyChoiceShown,
+    offerable,
+  });
 
   const amountError = useMemo(() => {
     if (!amount) return null;
@@ -316,6 +330,7 @@ export function CollectionCreateScreen() {
             ) : null}
           </WarmCard>
           <WarmCard>
+            <CollectionCurrencyChoice shown={currencyChoiceShown} offerable={offerable} value={currency} onChange={setChosenCurrency} />
             {target ? (
               <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
                 <label htmlFor="amount" style={{ fontWeight: 700, color: W.ink }}>{tr("money.collection.create.howMuch", { symbol: currencySymbol(currency) })}</label>
