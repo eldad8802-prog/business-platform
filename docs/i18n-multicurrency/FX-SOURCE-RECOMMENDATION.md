@@ -4,6 +4,12 @@
 `REPRESENTATIVE` source for ILS / USD / EUR. Free, official, no account, no API key, no commercial
 commitment. Nothing in this document is enabled; activation needs the owner's approval (§7).
 
+**Status (2026-10-22):** the fetcher is BUILT but NOT ACTIVE — application PR #764 (stacked on the C-2
+migration PR #756): parser, client, append-only writer, freshness status and a cron route
+(`/api/cron/fx-rates`) that no scheduler calls and that refuses unless `FX_RATES_FETCH_ENABLED=true` and a
+writer credential exist. Proven in CI only (`.github/workflows/fx-boi-rates-lab.yml`). Activation steps:
+[FX-ACTIVATION-RUNBOOK.md](FX-ACTIVATION-RUNBOOK.md).
+
 ## 1. Why BoI
 - **Authority:** the representative rate is the reference Israeli accounting and tax practice uses for
   foreign-currency amounts; any other source would need its own justification to an accountant.
@@ -21,6 +27,14 @@ Response columns (CSV): `SERIES_CODE, FREQ, BASE_CURRENCY, COUNTER_CURRENCY, UNI
 DATA_SOURCE, …, UNIT_MULT, COMMENTS, TIME_PERIOD, OBS_VALUE, RELEASE_STATUS`. Observed: one row per
 business day (no Saturday/Sunday/holiday rows), `DATA_TYPE=OF00` (= representative), e.g.
 `RER_USD_ILS … 2026-10-21, 3.091`.
+
+**Re-probed 2026-10-22 16:15 UTC** (read-only GET from a developer machine, no key, for the PR): both series
+answered `200 text/csv;charset=UTF-8`, exactly the 15 columns above in that order, `FREQ=D`, `DATA_TYPE=OF00`,
+`UNIT_MEASURE=ILS`, `UNIT_MULT=0`, `DATA_SOURCE=BOI_MRKT`, `RELEASE_STATUS=YP`, one row per business day
+2026-10-12..2026-10-22 (incl. Friday 2026-10-16; none for Sat/Sun), today's rate already present (USD 3.107,
+EUR 3.4816). `RER_JPY_ILS` carries `UNIT_MULT=2` (1.9794 = ILS per 100 JPY) — the division rule is real. A window
+with **no observations** (a weekend only) answers **404 text/html** (a gov.il error page), not an empty CSV — the
+client treats it as a failed fetch. The lab fixtures (`.fxboi/fixtures`) are written in exactly this format.
 
 **Parser rules (each one fails closed):**
 - accept only `DATA_TYPE=OF00`, `BASE_CURRENCY ∈ {USD, EUR}`, `COUNTER_CURRENCY=ILS`, `FREQ=D`;
@@ -71,5 +85,5 @@ Monitoring: an admin-visible "last successful rate date" per pair; alert if olde
 ## 7. To activate (owner decisions)
 1. Approve BoI as the source (this document).
 2. Approve the C-2 migration (FxRate table + roles).
-3. Approve the cron entry + the writer role/credential.
+3. Approve the cron entry + the writer role/credential (FX-ACTIVATION-RUNBOOK.md).
 Until then nothing is fetched, stored or converted with real rates.
