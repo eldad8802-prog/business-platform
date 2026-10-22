@@ -11,24 +11,6 @@
       "lineAtBaseline": 77
     },
     {
-      "file": "app/(shell)/secretary/page.tsx",
-      "rule": "JS_FOLD",
-      "column": "amount",
-      "match": "return items.reduce((sum, item) => {",
-      "risk": "BROKEN",
-      "reason": "BusinessObligation.currency accepts any 3-letter code via /api/obligations (obligation-core.ts normalizeCurrency); the open/month totals add all obligations and label them with the first row's currency.",
-      "lineAtBaseline": 668
-    },
-    {
-      "file": "app/(shell)/secretary/page.tsx",
-      "rule": "FIRST_ROW_CURRENCY",
-      "column": "currency",
-      "match": "const currency = focus?.obligation.currency ?? openItems[0]?.currency ?? \"ILS\";",
-      "risk": "BROKEN",
-      "reason": "BusinessObligation.currency accepts any 3-letter code via /api/obligations (obligation-core.ts normalizeCurrency); the open/month totals add all obligations and label them with the first row's currency.",
-      "lineAtBaseline": 550
-    },
-    {
       "file": "app/(shell)/secretary/secretary-ui.tsx",
       "rule": "FIRST_ROW_CURRENCY",
       "column": "currency",
