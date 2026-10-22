@@ -7159,3 +7159,23 @@ model LandingPageVersion {
   @@unique([businessId, idempotencyKey])
   @@index([businessId, status])
 }
+
+/// Global reference exchange rates (migration 20261025090000_currency_settings_fx_rates). NOT tenant data.
+/// Append-only for every role (UPDATE / DELETE / TRUNCATE triggers): a correction is a new row with a later
+/// fetchedAt. app_runtime may only SELECT; only fx_rate_writer (lib/prisma-fx-writer.ts) may INSERT, without
+/// RETURNING. CHECKs (supported currencies, BoI ⇒ REPRESENTATIVE + quote ILS, no future rateDate) live in SQL.
+model FxRate {
+  id           Int      @id @default(autoincrement())
+  base         String
+  quote        String
+  rate         Decimal  @db.Decimal(20, 10)
+  kind         String
+  source       String
+  rateDate     DateTime @db.Date
+  fetchedAt    DateTime @default(now())
+  verification String   @default("UNVERIFIED")
+  sourceRef    String?
+
+  @@unique([base, quote, kind, source, rateDate, fetchedAt])
+  @@index([base, quote, kind, rateDate(sort: Desc), fetchedAt(sort: Desc)])
+}

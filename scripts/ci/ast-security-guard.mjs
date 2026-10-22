@@ -78,7 +78,7 @@ const SKIP_DIRS = new Set(["node_modules", ".next", ".git", "__tests__", "__mock
 const SKIP_FILE = /\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/;
 const SRC_FILE = /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/;
 
-const SANCTIONED_CLIENTS = new Set(["lib/prisma.ts", "lib/prisma-admin.ts", "lib/prisma-auth.ts", "lib/prisma-control-plane.ts"]);
+const SANCTIONED_CLIENTS = new Set(["lib/prisma.ts", "lib/prisma-admin.ts", "lib/prisma-auth.ts", "lib/prisma-control-plane.ts", "lib/prisma-fx-writer.ts"]);
 const CANONICAL_PRISMA = "lib/prisma";
 
 /** Privileged client module -> the only surfaces allowed to import it (regex on repo path). */
@@ -86,6 +86,8 @@ const PRIVILEGED = {
   "lib/prisma-admin": [/^app\/api\/platform-admin\//, /^app\/api\/dev\//, /^lib\/services\/platform-admin\//, /^lib\/services\/learning-center\//],
   "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */, /^lib\/email\/transactional\/(delivery|sweep)\.ts$/ /* the delivery half of the signup plane: TransactionalEmail only */, /^lib\/auth\/email-tokens\.ts$/ /* account links: AuthEmailToken through its definer functions only */],
   "lib/prisma-control-plane": null, // read from privwrite-guard's own allowlist below
+  // FX-BOI: the INSERT-only "FxRate" writer (fx_rate_writer member) — reachable from the BoI rate writer only.
+  "lib/prisma-fx-writer": [/^lib\/fx\/fx-rate-writer\.ts$/],
 };
 
 const ADMIN_ROUTE = /^app\/api\/(platform-admin|dev)\/.*route\.(ts|tsx|js)$/;
@@ -619,7 +621,7 @@ function selfTest() {
   const w = (p, s) => { fs.mkdirSync(path.dirname(path.join(tmp, p)), { recursive: true }); fs.writeFileSync(path.join(tmp, p), s); };
   w("prisma/migrations/1_x/migration.sql", 'ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;');
   w("lib/prisma.ts", 'import { PrismaClient } from "@prisma/client";\nexport const prisma =\n  new PrismaClient();\n');
-  const base = () => { for (const d of ["app", "lib/x", "prisma/migrations/2_n"]) fs.rmSync(path.join(tmp, d), { recursive: true, force: true }); fs.rmSync(path.join(tmp, RATCHET_FILE), { force: true }); };
+  const base = () => { for (const d of ["app", "lib/x", "lib/fx", "prisma/migrations/2_n"]) fs.rmSync(path.join(tmp, d), { recursive: true, force: true }); fs.rmSync(path.join(tmp, RATCHET_FILE), { force: true }); };
   const cases = [
     ["clean tree passes", {}, null],
     ["aliased PrismaClient", { "lib/x/a.ts": 'import { PrismaClient as C } from "@prisma/client";\nexport const c = new C();' }, "AST-1"],
@@ -634,6 +636,9 @@ function selfTest() {
     ["bare $queryRawUnsafe", { "lib/x/h.ts": 'import { prisma } from "@/lib/prisma";\nexport const f = () => prisma.$queryRawUnsafe("select 1");' }, "AST-3"],
     ["dynamic import of prisma-admin", { "lib/x/i.ts": 'export async function f() { const m = await import("@/lib/prisma-admin"); return m; }' }, "AST-4"],
     ["require of prisma-auth", { "lib/x/j.js": 'const a = require("../prisma-auth");\nmodule.exports = a;' }, "AST-4"],
+    ["FX-BOI: the rate writer client imported outside lib/fx/fx-rate-writer.ts", { "lib/fx/other.ts": 'import { getPrismaFxWriter } from "@/lib/prisma-fx-writer";\nexport const f = () => getPrismaFxWriter();' }, "AST-4"],
+    ["FX-BOI: the rate writer client from a route", { "app/api/x/route.ts": 'import { getPrismaFxWriter } from "../../../lib/prisma-fx-writer";\nexport async function GET() { getPrismaFxWriter(); return new Response("x"); }' }, "AST-4"],
+    ["FX-BOI: the rate writer client from its one approved surface", { "lib/fx/fx-rate-writer.ts": 'import { getPrismaFxWriter } from "@/lib/prisma-fx-writer";\nexport const f = () => getPrismaFxWriter();' }, null],
     ["admin route awaits something before the guard", { "app/api/platform-admin/z/route.ts": 'import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";\nimport { NextResponse } from "next/server";\nexport async function GET(req: Request) { const body = await req.json(); const a = await requirePlatformAdminOrResponse(req); if (a instanceof NextResponse) return a; return NextResponse.json(body); }\n// requirePlatformAdminOrResponse' }, "AST-5"],
     ["admin route guard result ignored", { "app/api/platform-admin/z/route.ts": 'import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";\nimport { NextResponse } from "next/server";\nexport async function GET(req: Request) { const a = await requirePlatformAdminOrResponse(req); return NextResponse.json({ a }); }' }, "AST-5"],
     ["admin route with the guard name only in a comment", { "app/api/platform-admin/z/route.ts": '// requirePlatformAdminOrResponse\nexport async function GET() { return new Response("x"); }' }, "AST-5"],
