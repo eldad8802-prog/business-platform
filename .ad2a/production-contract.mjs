@@ -342,7 +342,10 @@ export const PRODUCTION_RLS_CONTRACT = [
     table: "BusinessProfile",
     migration: "20260824210000_d2_p7_wave1_tenant_rls",
     why: "erasure anonymises the profile under a proven context",
-    policies: [{ name: "p7w1_tenant", command: "ALL", using: TENANT, check: TENANT }],
+    policies: [
+      { name: "p7w1_tenant", command: "ALL", using: TENANT, check: TENANT },
+      ADMIN_READ, // migration 20261024090000_platform_admin_a1 (Admin Control Center A1: onboarding state), TO app_admin
+    ],
   },
   {
     table: "Lead",

@@ -1,0 +1,10 @@
+{
+  "note": "PR-P: the /payables main list screen's pure grouping / filter / search model.",
+  "tests": {
+    "app/(shell)/payables/payables-list-model.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network/clock): list grouping by Israel calendar day (due today is not overdue, partly-paid late is), quick-filter counts, search by name/payee, closed rows only with the toggle, parity of the overdue group with the cost engine's overdueObligations, and wording rule L1; run on pull_request by payables-list-ci.yml",
+      "notSecurityBecause": "presentation-only grouping of rows the authenticated list API already returned; no auth, tenant, money calculation or write path is involved"
+    }
+  }
+}

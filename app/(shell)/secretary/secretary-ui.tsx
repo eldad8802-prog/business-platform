@@ -1209,7 +1209,7 @@ function HistoryCard({ obligation, obligations }: { obligation: ObligationApi; o
  * loading state — a destructive action never fires on a single tap and never
  * looks frozen while it runs. Reused by the detail screen and the today focus.
  */
-function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
+export function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
   const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
