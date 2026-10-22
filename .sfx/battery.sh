@@ -129,7 +129,7 @@ refused "BANK: another business's bank line (runtime: invisible)" "DZS05|SETTLEM
 refused "BANK: another business's bank line (owner)" "DZS05|SETTLEMENT_FACT_BANK_LINE" own "$(f "$A" "$TA" NET 180.00 ILS BANK ', "externalTransactionId"' ", $BB")"
 refused "BANK: in another currency than the bank line" "DZS05|SETTLEMENT_FACT_BANK_CURRENCY" rt "$A" "$(f "$A" "$TA" NET 355.00 USD BANK ', "externalTransactionId"' ", $BA")"
 refused "CHARGED from a bank line" "PaymentSettlementFact_charged_source" rt "$A" "$(f "$A" "$TI" CHARGED 200.00 ILS BANK ', "externalTransactionId"' ", $BA")"
-refused "PROVIDER without a reference" "PaymentSettlementFact_provider_ref" rt "$A" "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\") VALUES ($A, $TI, 'FEE', 1.00, 'ILS', 'PROVIDER')"
+refused "PROVIDER without a reference" "PaymentSettlementFact_provider_ref" rt "$A" "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"verification\") VALUES ($A, $TI, 'FEE', 1.00, 'ILS', 'PROVIDER', 'VERIFIED')"
 refused "MANUAL without a note" "PaymentSettlementFact_manual_note" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "recordedByUserId"' ", $UA")"
 refused "MANUAL with a blank note" "PaymentSettlementFact_manual_note" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "recordedByUserId", "note"' ", $UA, '   '")"
 refused "MANUAL without the user who entered it" "DZS06|SETTLEMENT_FACT_MANUAL_ACTOR" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "note"' ", 'from the statement'")"
