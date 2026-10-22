@@ -146,8 +146,11 @@ jobs:
         shell: bash
         run: |
           t0=$(date +%s.%N)
-          pkill -f "next start -p 3611" || true
+          # next start re-titles itself "next-server", so kill the LISTENER pid (pkill -f "next start" misses it)
+          pid=$(ss -Htlnp "sport = :3611" | grep -o "pid=[0-9]*" | head -n 1 | cut -d= -f2)
+          echo "stopping the ON server pid $pid"; kill "$pid"
           for i in $(seq 1 30); do ss -Htln "sport = :3611" | grep -q 3611 || break; sleep 1; done
+          ss -Htln "sport = :3611" | grep -q 3611 && { echo "port 3611 still in use"; exit 1; }
           (cd ../off && nohup npx next start -p 3611 > "$PERF_OUT/server-rollback.log" 2>&1 &)
           for i in $(seq 1 120); do curl -sf -o /dev/null http://localhost:3611/login && break; sleep 0.5; done
           t1=$(date +%s.%N)

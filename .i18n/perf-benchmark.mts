@@ -10,7 +10,8 @@
  *                                app/(corporate)/layout.tsx, applied in CI to a throwaway worktree only)
  *
  * Phases (PERF_PHASES, default all):
- *   latency   ≥25 page routes (marketing, auth, signed-in app) + 4 signed-in API controls; warm-up, then
+ *   latency   ≥25 page routes (marketing, auth, signed-in app) + 5 RSC (soft-navigation) payloads + 4 signed-in
+ *             API controls; warm-up, then
  *             N interleaved rounds (ABBA order per round) of OFF / ON / ON+dz_locale=en: TTFB (headers
  *             received) and total (body read), p50/p95/p99, ON−OFF deltas, x-nextjs-cache header.
  *   load      fixed concurrency (PERF_LOAD_CONC, default 20) for PERF_LOAD_SECONDS (default 25) per run,
@@ -93,7 +94,7 @@ async function seed() {
 type Seed = Awaited<ReturnType<typeof seed>>;
 
 // ───────────────────────────── route set ─────────────────────────────
-type Cls = "marketing" | "auth" | "app" | "api";
+type Cls = "marketing" | "auth" | "app" | "rsc" | "api";
 type R = { cls: Cls; path: string; label: string };
 function routeSet(s: Seed): R[] {
   const m = (p: string): R => ({ cls: "marketing", path: p, label: p });
@@ -109,6 +110,9 @@ function routeSet(s: Seed): R[] {
     app("/settings"), app("/settings/workspace"), app("/secretary"), app("/payables"),
     app("/inventory"), app("/inventory/items"), app("/documents"), app("/tasks"), app("/profile"),
     app("/search"), app("/tools/money"),
+    // Client-side (soft) navigation: the RSC payload the router fetches (header RSC: 1). Static in Production
+    // today (served from the CDN with the page); a function call per soft navigation with the flag ON.
+    ...["/app", "/collection", "/customers", "/billing", "/settings"].map((p): R => ({ cls: "rsc", path: p, label: `RSC ${p}` })),
     { cls: "api", path: "/api/home", label: "GET /api/home" },
     { cls: "api", path: "/api/customers", label: "GET /api/customers" },
     { cls: "api", path: "/api/leads", label: "GET /api/leads" },
@@ -122,10 +126,11 @@ async function reachable(base: string) {
 }
 
 type Hit = { status: number; ttfb: number; total: number; bytes: number; cache: string | null; html: string };
-async function hit(base: string, path: string, opts: { cookie?: string; token?: string; keepBody?: boolean } = {}): Promise<Hit> {
+async function hit(base: string, path: string, opts: { cookie?: string; token?: string; keepBody?: boolean; rsc?: boolean } = {}): Promise<Hit> {
   const headers: Record<string, string> = { "user-agent": UA, "accept-language": "he-IL,he;q=0.9", accept: "text/html,application/json" };
   if (opts.cookie) headers.cookie = opts.cookie;
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+  if (opts.rsc) { headers.rsc = "1"; headers.accept = "*/*"; }
   const t0 = performance.now();
   const res = await fetch(base + path, { headers, redirect: "manual" });
   const t1 = performance.now();
@@ -155,7 +160,7 @@ async function latency(s: Seed, hasExp: boolean) {
   for (let round = 0; round < WARM + N; round++) {
     for (const r of routes) {
       for (const v of alternate(variantsFor(r), round)) {
-        const h = await hit(v.base, r.path, { cookie: v.cookie, token: r.cls === "api" ? s.token : undefined });
+        const h = await hit(v.base, r.path, { cookie: v.cookie, token: r.cls === "api" ? s.token : undefined, rsc: r.cls === "rsc" });
         if (round < WARM) continue;
         const k = key(r, v.name);
         const e = samples.get(k) ?? { ttfb: [], total: [], status: {}, cache: {}, bytes: [] };
@@ -178,7 +183,7 @@ async function latency(s: Seed, hasExp: boolean) {
   });
   // Per class: the pooled samples of every route of the class.
   const byClass: Record<string, any> = {};
-  for (const cls of ["marketing", "auth", "app", "api"] as Cls[]) {
+  for (const cls of ["marketing", "auth", "app", "rsc", "api"] as Cls[]) {
     const names = cls === "api" ? ["off", "on"] : ["off", "on", "on-en", ...(hasExp && cls === "marketing" ? ["exp", "exp-en"] : [])];
     const pooled: Record<string, { ttfb: Summary; total: Summary }> = {};
     for (const v of names) {
@@ -373,13 +378,12 @@ function visibleText(html: string) {
     .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 }
 const titleOf = (html: string) => /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? "";
+/** The marketing wrapper's pin: a <div lang="he" dir="rtl"> before <main id="main-content"> (layout.tsx), or none. */
 const wrapperAttrs = (html: string) => {
   const i = html.indexOf('id="main-content"');
   if (i < 0) return "no-wrapper";
-  const before = html.slice(0, i);
-  const open = before.lastIndexOf("<div");
-  const tag = before.slice(open, before.indexOf(">", open) + 1);
-  return `${attr(tag, "lang") || "null"}/${attr(tag, "dir") || "null"}`;
+  const pinned = /<div(?=[^>]*lang="he")(?=[^>]*dir="rtl")[^>]*>/.test(html.slice(html.indexOf("<body"), i));
+  return pinned ? "he/rtl" : "null/null";
 };
 async function experiment() {
   console.log("\n== experiment: marketing route group forced static on the flag-ON build ==");
