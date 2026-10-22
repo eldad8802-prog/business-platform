@@ -539,6 +539,7 @@ const internal = (reason: string): ModelCoverage => ({ disposition: "SYSTEM_INTE
 
 const INTERNAL: Record<string, ModelCoverage> = {
   PlatformAdminMfa: internal("platform-admin MFA secret; belongs to the operator, not to a tenant"),
+  PlatformAdminPasskey: internal("platform-admin passkey public keys (WebAuthn); belong to the operator, not to a tenant; cascade with the User row"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
   PlatformFeatureDefinition: internal("the catalogue of feature flags"),
   PlatformFeaturePolicy: internal("default policy per feature flag"),
