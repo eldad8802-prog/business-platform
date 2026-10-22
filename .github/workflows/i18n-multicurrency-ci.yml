@@ -6,8 +6,9 @@
 #   3. battery         multi-currency collection + tenant isolation through the real routes (flag OFF)
 #   4. e2e             two builds (flag ON / OFF — the flag takes effect per build), signed-in owner in Chromium at
 #                      phone / tablet / desktop × he / en; screenshots uploaded as an artifact
-#   5. migration proof the PROPOSED migration (docs/i18n-multicurrency/proposed-migration.sql) applied
-#                      to this throwaway database only: RLS, CHECKs, lock, append-only, rollback
+#   (the C-2 migration itself — prisma/migrations/20261025090000_currency_settings_fx_rates — is proven by
+#    .github/workflows/currency-fx-migration-lab.yml in Production's role topology; the earlier proposal-only
+#    proof that lived here was retired with docs/i18n-multicurrency/proposed-migration.sql)
 #
 # Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO Production.
 
@@ -143,12 +144,3 @@ jobs:
           name: i18n-e2e-screenshots
           path: ${{ runner.temp }}/i18n-shots
           if-no-files-found: ignore
-
-      - name: 5 · Proposed migration — apply, prove, roll back (THIS throwaway database only)
-        if: ${{ !cancelled() }}
-        run: |
-          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN CREATE ROLE app_runtime NOLOGIN; END IF; END \$\$;"
-          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f docs/i18n-multicurrency/proposed-migration.sql
-          npx tsx .i18n/migration-proof.mts
-          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f .i18n/rollback.sql
-          npx tsx .i18n/migration-proof.mts --rollback-check

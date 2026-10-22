@@ -1,0 +1,319 @@
+# Currency settings + FX rates / migration 20261025090000_currency_settings_fx_rates — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17, two independent clusters).
+#
+# .fx/lab.sh builds on the task reminders lab (.trp/lab.sh): Production's role topology (non-superuser CREATEROLE /
+# BYPASSRLS owner, NOLOGIN NOBYPASSRLS app_runtime + LOGIN app_runtime_prod, app_auth), the owner's DEFAULT
+# PRIVILEGES (which hand a new table to the runtime wholesale — the migration must take them back), FORCE RLS on
+# Business and the task tables, and a ledger holding EVERY migration on main; `prisma migrate deploy` over all
+# migration directories then applies exactly this one, as release-migrate would.
+#
+# job lab
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
+#      migration names only its own objects and what it builds on.
+#   1. Baseline (pending): the PREFLIGHT passes (17-19 are INFO); the proof refuses.
+#   2. A business + user (and one with a financial row) seeded BEFORE; `prisma migrate deploy` applies it: proof
+#      23/23; the preflight then fails exactly its "not there yet" checks; the seeded rows are byte-identical.
+#   3. Faults: each injected defect is caught by the proof check meant for it.
+#   4. Battery as the real roles (.fx/battery.sh): defaults, tenant isolation, per-user isolation, CHECKs, the
+#      base-currency guard incl. two real concurrent races, FxRate read-only / append-only / writer-only-appends.
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+# job compat
+#   6. Rollback: refused while a row exists; then .fx/rollback.sql returns the database to its exact pre-migration
+#      fingerprint (and the preflight passes again).
+#   7. Backward compatibility: the CURRENT application's DB-backed tests on an un-migrated database vs a migrated
+#      one vs a rolled-back one — 0 new failures.
+#   8. Re-apply after rollback: `prisma migrate deploy` applies it again whole; proof 23/23.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: currency fx — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261025090000_currency_settings_fx_rates/**"
+      - "ops/evidence/currency-fx-*.sql"
+      - ".fx/**"
+      - ".github/workflows/currency-fx-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PGHOST: localhost
+  PGPORT: "5432"
+  SUPER: lab_super
+  PGPASSWORD: fx_ci_synthetic_super_pw
+  LAB_PASSWORD: fx_ci_synthetic_role_pw
+  PREFLIGHT: ops/evidence/currency-fx-preflight.sql
+  EVIDENCE: ops/evidence/currency-fx-production-evidence.sql
+  FXM: prisma/migrations/20261025090000_currency_settings_fx_rates/migration.sql
+  AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
+  CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
+
+jobs:
+  lab:
+    name: currency fx (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: fx_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only its own objects and what it builds on
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$FXM" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
+          echo "$FXM sha256 $sum (pinned)"
+          own='"BusinessLocaleSettings"|"UserLocalePreference"|"FxRate"|"Business"|"User"'
+          fin='"BillingDocument"|"FinancialRecord"|"FinancialEvent"|"HistoricalFiscalDocument"|"PaymentRequest"|"Payment"|"Cheque"|"PaymentPreparation"|"ExternalTransaction"|"OutboundExecution"|"BusinessObligation"|"Commitment"|"CommerceOrder"'
+          others=$(grep -v '^ *--' "$FXM" | grep -oE '"[A-Z][A-Za-z]*"' | sort -u | grep -vxE "$own|$fin" || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          echo "the migration names only its three tables, Business, User and the 13 financial tables it reads"
+          if grep -v '^ *--' "$FXM" | grep -iE '^\s*(ALTER|DROP)\s+TABLE\s+"(Business|User|BillingDocument|FinancialRecord|FinancialEvent|HistoricalFiscalDocument|PaymentRequest|Payment|Cheque|PaymentPreparation|ExternalTransaction|OutboundExecution|BusinessObligation|Commitment|CommerceOrder)"'; then
+            echo "the migration alters an existing table"; exit 1
+          fi
+          echo "no existing table is altered or dropped"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .fx/lab.sh build fx_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d fx_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/pre.out)" = "20" || { echo "expected 20 rows"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline"
+
+      - name: 2. Rows seeded BEFORE; prisma migrate deploy applies it — proof 23/23; preflight fails exactly its "not there yet" checks; seeded rows unchanged
+        run: |
+          set -euo pipefail
+          bash .fx/lab.sh build fx_post
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d fx_post -c "$1"; }
+          P=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-pre-P', now()) RETURNING \"id\"")
+          Q=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-pre-Q', now()) RETURNING \"id\"")
+          su "INSERT INTO \"User\" (\"email\", \"password\", \"businessId\", \"updatedAt\") VALUES ('p@fx.lab', 'x', $P, now()), ('q@fx.lab', 'x', $Q, now())"
+          su "INSERT INTO \"BusinessObligation\" (\"businessId\", \"obligeeName\", \"amount\", \"dueAt\", \"updatedAt\") VALUES ($Q, 'fx-pre', 10.00, now(), now())"
+          snap() { su "SELECT md5(string_agg(t::text, '|' ORDER BY t::text)) FROM (SELECT b::text AS t FROM \"Business\" b UNION ALL SELECT u::text FROM \"User\" u UNION ALL SELECT o::text FROM \"BusinessObligation\" o) x"; }
+          before=$(snap)
+          echo "P=$P Q=$Q" > /tmp/seed.env
+          bash .fx/lab.sh apply fx_post | tee /tmp/post.log
+          grep -q 'Applying migration `20261025090000_currency_settings_fx_rates`' /tmp/post.log
+          test "$(grep -c 'Applying migration' /tmp/post.log)" = "1" || { echo "more than one migration applied"; exit 1; }
+          test "$(snap)" = "$before" || { echo "pre-existing rows changed"; exit 1; }
+          echo "pre-existing Business / User / financial rows byte-identical after the migration"
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d fx_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then
+            echo "proof FAILS after the release — diagnostics:"
+            lab -At -c "SELECT p.polname, pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid WHERE c.relname IN ('BusinessLocaleSettings', 'UserLocalePreference', 'FxRate')"
+            lab -At -c "SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum WHERE c.relname IN ('BusinessLocaleSettings', 'UserLocalePreference', 'FxRate') AND a.attnum > 0 AND NOT a.attisdropped"
+            lab -At -c "SELECT c.relname, c.relacl FROM pg_class c WHERE c.relname IN ('BusinessLocaleSettings', 'UserLocalePreference', 'FxRate', 'FxRate_id_seq')"
+            lab -At -c "SELECT tgname, tgtype FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ('\"BusinessLocaleSettings\"'::regclass, '\"UserLocalePreference\"'::regclass, '\"FxRate\"'::regclass)"
+            exit 1
+          fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "23" || { echo "expected 23 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 7 8 9 " || { echo "after the release: expected '4 7 8 9 ', got: $fails"; exit 1; }
+
+      - name: 2b. The intended Prisma models (MIGRATION-RUNBOOK.md §2) map onto the migrated database with no drift
+        run: |
+          set -euo pipefail
+          awk '/fx-prisma-models:start/{p=1;next} /fx-prisma-models:end/{p=0} p' docs/i18n-multicurrency/MIGRATION-RUNBOOK.md \
+            | grep -v '^```' > /tmp/models.prisma
+          test "$(grep -c '^model ' /tmp/models.prisma)" = "3" || { echo "the runbook does not hold the three models"; exit 1; }
+          node -e '
+            const fs = require("fs");
+            let s = fs.readFileSync("prisma/schema.prisma", "utf8");
+            const add = (model, lines) => {
+              const re = new RegExp("^model " + model + " \\{$", "m");
+              if (!re.test(s)) throw new Error("model " + model + " not found");
+              s = s.replace(re, (m) => m + "\n" + lines.join("\n"));
+            };
+            add("Business", ["  localeSettings BusinessLocaleSettings?", "  userLocalePreferences UserLocalePreference[]"]);
+            add("User", ["  localePreference UserLocalePreference?"]);
+            fs.writeFileSync("/tmp/with-models.prisma", s + "\n" + fs.readFileSync("/tmp/models.prisma", "utf8"));
+          '
+          PRE="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/fx_pre"
+          POST="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/fx_post"
+          export DATABASE_URL="$POST" DIRECT_URL="$POST"
+          npx prisma validate --schema /tmp/with-models.prisma
+          npx prisma migrate diff --from-url "$PRE" --to-schema-datamodel prisma/schema.prisma --script > /tmp/diff-pre.sql
+          npx prisma migrate diff --from-url "$POST" --to-schema-datamodel /tmp/with-models.prisma --script > /tmp/diff-post.sql
+          echo "drift lines un-migrated vs main schema: $(wc -l < /tmp/diff-pre.sql); migrated vs main schema + models: $(wc -l < /tmp/diff-post.sql)"
+          if ! diff /tmp/diff-pre.sql /tmp/diff-post.sql; then echo "the intended models do NOT map cleanly onto the migration"; exit 1; fi
+          echo "the three intended Prisma models map onto the migration with zero additional drift"
+
+      - name: 3. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d fx_post -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d fx_post -c "$1"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          TEN="\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int"
+          OWN="$TEN AND \"userId\" = NULLIF(current_setting('app.current_user_id', true), '')::int"
+          fault "removal privilege for the runtime" "10 13 " 'GRANT DELETE ON "BusinessLocaleSettings" TO app_runtime' 'REVOKE DELETE ON "BusinessLocaleSettings" FROM app_runtime'
+          fault "runtime may append rates" "10 13 " 'GRANT INSERT ON "FxRate" TO app_runtime' 'REVOKE INSERT ON "FxRate" FROM app_runtime'
+          fault "writer may change rates" "10 13 " 'GRANT UPDATE ON "FxRate" TO fx_rate_writer' 'REVOKE UPDATE ON "FxRate" FROM fx_rate_writer'
+          fault "PUBLIC read of preferences" "10 13 " 'GRANT SELECT ON "UserLocalePreference" TO PUBLIC' 'REVOKE SELECT ON "UserLocalePreference" FROM PUBLIC'
+          fault "read for another role" "10 13 " 'GRANT SELECT ON "BusinessLocaleSettings" TO app_auth' 'REVOKE SELECT ON "BusinessLocaleSettings" FROM app_auth'
+          fault "sequence for the runtime" "11 " 'GRANT USAGE ON SEQUENCE "FxRate_id_seq" TO app_runtime' 'REVOKE USAGE ON SEQUENCE "FxRate_id_seq" FROM app_runtime'
+          fault "column read for another role" "12 " 'GRANT SELECT ("locale") ON "UserLocalePreference" TO app_auth' 'REVOKE SELECT ("locale") ON "UserLocalePreference" FROM app_auth'
+          fault "NO FORCE row-level security" "7 " 'ALTER TABLE "UserLocalePreference" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "UserLocalePreference" FORCE ROW LEVEL SECURITY'
+          fault "a permissive FOR ALL policy" "8 " 'CREATE POLICY fx_fault_all ON "BusinessLocaleSettings" USING (true)' 'DROP POLICY fx_fault_all ON "BusinessLocaleSettings"'
+          fault "an UPDATE policy on rates" "8 " 'CREATE POLICY fx_fault_upd ON "FxRate" FOR UPDATE USING (true)' 'DROP POLICY fx_fault_upd ON "FxRate"'
+          fault "preferences readable by the whole business" "9 " \
+            "ALTER POLICY user_locale_preference_own_select ON \"UserLocalePreference\" USING ($TEN)" \
+            "ALTER POLICY user_locale_preference_own_select ON \"UserLocalePreference\" USING ($OWN)"
+          fault "settings readable across businesses" "9 " \
+            'ALTER POLICY business_locale_settings_tenant_select ON "BusinessLocaleSettings" USING (true)' \
+            "ALTER POLICY business_locale_settings_tenant_select ON \"BusinessLocaleSettings\" USING ($TEN)"
+          fault "append-only trigger disabled" "14 " 'ALTER TABLE "FxRate" DISABLE TRIGGER "FxRate_append_only"' 'ALTER TABLE "FxRate" ENABLE TRIGGER "FxRate_append_only"'
+          fault "truncate trigger disabled" "14 " 'ALTER TABLE "FxRate" DISABLE TRIGGER "FxRate_no_truncate"' 'ALTER TABLE "FxRate" ENABLE TRIGGER "FxRate_no_truncate"'
+          fault "base-currency guard disabled" "14 " 'ALTER TABLE "BusinessLocaleSettings" DISABLE TRIGGER "BusinessLocaleSettings_base_currency_lock"' 'ALTER TABLE "BusinessLocaleSettings" ENABLE TRIGGER "BusinessLocaleSettings_base_currency_lock"'
+          fault "same-business user guard disabled" "14 " 'ALTER TABLE "UserLocalePreference" DISABLE TRIGGER "UserLocalePreference_user_same_business"' 'ALTER TABLE "UserLocalePreference" ENABLE TRIGGER "UserLocalePreference_user_same_business"'
+          fault "SECURITY INVOKER guard" "15 " 'ALTER FUNCTION public.business_locale_base_currency_lock() SECURITY INVOKER' 'ALTER FUNCTION public.business_locale_base_currency_lock() SECURITY DEFINER'
+          fault "EXECUTE on the internal check for the runtime" "17 " 'GRANT EXECUTE ON FUNCTION public.business_financial_data_exists(integer) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.business_financial_data_exists(integer) FROM app_runtime'
+          fault "EXECUTE on the probe for PUBLIC" "17 " 'GRANT EXECUTE ON FUNCTION public.business_base_currency_locked() TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.business_base_currency_locked() FROM PUBLIC'
+          fault "writer can log in" "18 " 'ALTER ROLE fx_rate_writer LOGIN' 'ALTER ROLE fx_rate_writer NOLOGIN'
+          fault "writer inherits the runtime" "18 19 " 'GRANT app_runtime TO fx_rate_writer' 'REVOKE app_runtime FROM fx_rate_writer'
+          fault "writer reaches a tenant table" "19 " 'GRANT SELECT ON "Business" TO fx_rate_writer' 'REVOKE SELECT ON "Business" FROM fx_rate_writer'
+          fault "a CHECK removed" "5 " 'ALTER TABLE "FxRate" DROP CONSTRAINT "FxRate_boi_shape"' \
+            "ALTER TABLE \"FxRate\" ADD CONSTRAINT \"FxRate_boi_shape\" CHECK (\"source\" <> 'BANK_OF_ISRAEL' OR (\"kind\" = 'REPRESENTATIVE' AND \"quote\" = 'ILS'))"
+          fault "a default changed" "4 " "ALTER TABLE \"BusinessLocaleSettings\" ALTER COLUMN \"baseCurrency\" SET DEFAULT 'USD'" "ALTER TABLE \"BusinessLocaleSettings\" ALTER COLUMN \"baseCurrency\" SET DEFAULT 'ILS'"
+          fault "a row written" "20 " "INSERT INTO \"BusinessLocaleSettings\" (\"businessId\", \"updatedAt\") SELECT min(\"id\"), now() FROM \"Business\"" 'DELETE FROM "BusinessLocaleSettings"'
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 4. Battery — defaults, isolation, per-user preferences, the base-currency guard (with races), FxRate roles, as the real roles
+        run: |
+          set -euo pipefail
+          . /tmp/seed.env
+          bash .fx/battery.sh fx_post "$P" "$Q"
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .fx/lab.sh build fx_broken
+          bash .fx/lab.sh apply fx_broken --broken
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d fx_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('BusinessLocaleSettings', 'UserLocalePreference', 'FxRate', 'FxRate_id_seq'))
+            + (SELECT count(*) FROM pg_proc WHERE proname IN ('business_financial_data_exists', 'business_locale_base_currency_lock', 'business_base_currency_locked', 'fx_rate_append_only_guard'))
+            + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'business\_locale\_%' OR polname LIKE 'user\_locale\_%' OR polname LIKE 'fx\_rate\_%')")
+          led=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261025090000_currency_settings_fx_rates' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+  compat:
+    name: currency fx — rollback, re-apply and backward compatibility of the current app (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: fx_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 6. Rollback — refused while a row exists; then the exact pre-migration fingerprint; preflight passes again
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d fx_rb -v ON_ERROR_STOP=1 "$@"; }
+          fp() { lab -At -f .fx/fingerprint.sql | sort; }
+          bash .fx/lab.sh build fx_rb
+          fp > /tmp/fp0; echo "fingerprint before: $(wc -l < /tmp/fp0) objects, $(sha256sum < /tmp/fp0 | cut -c1-16)"
+          bash .fx/lab.sh apply fx_rb | tee /tmp/a1.log
+          grep -q 'Applying migration `20261025090000_currency_settings_fx_rates`' /tmp/a1.log
+          test "$(lab -f "$EVIDENCE" | grep -cE '^ +[0-9]+ \| PASS')" = "23" || { echo "proof not 23/23 after apply"; exit 1; }
+          fp > /tmp/fp1
+          lab -q -c "INSERT INTO \"BusinessLocaleSettings\" (\"businessId\", \"updatedAt\") SELECT min(\"id\"), now() FROM \"Business\""
+          if lab -f .fx/rollback.sql >/tmp/rb0.out 2>&1; then echo "rollback ran while a row exists"; exit 1; fi
+          grep -q "rollback refused: rows exist" /tmp/rb0.out || { cat /tmp/rb0.out; exit 1; }
+          lab -q -c 'DELETE FROM "BusinessLocaleSettings"'
+          fp > /tmp/fp1b; diff /tmp/fp1 /tmp/fp1b || { echo "the refused rollback changed something"; exit 1; }
+          echo "refused while a row exists; nothing changed"
+          lab -f .fx/rollback.sql
+          fp > /tmp/fp2
+          if ! diff /tmp/fp0 /tmp/fp2; then echo "rollback did NOT restore the pre-migration shape"; exit 1; fi
+          echo "rollback: fingerprint identical to before the migration ($(wc -l < /tmp/fp2) objects)"
+          test "$(lab -At -c "SELECT count(*) FROM pg_roles WHERE rolname = 'fx_rate_writer'")" = "0" || { echo "writer role left"; exit 1; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre2.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre2.out; then echo "preflight fails after rollback"; exit 1; fi
+          echo "preflight passes again after the rollback"
+
+      - name: 7. Backward compatibility — the current app's DB-backed tests, un-migrated vs migrated vs rolled back
+        run: |
+          set -euo pipefail
+          bash .fx/lab.sh build fx_r0
+          bash .fx/lab.sh build fx_r1
+          bash .fx/lab.sh apply fx_r1 > /tmp/r1-apply.log; cat /tmp/r1-apply.log
+          grep -q "Applying migration .20261025090000_currency_settings_fx_rates." /tmp/r1-apply.log
+          bash .fx/regression.sh run fx_r0 /tmp/r0.txt
+          bash .fx/regression.sh run fx_r1 /tmp/r1.txt
+          bash .fx/regression.sh run fx_rb /tmp/rb.txt
+          echo "== migrated vs un-migrated"; bash .fx/regression.sh compare /tmp/r0.txt /tmp/r1.txt
+          echo "== rolled back vs un-migrated"; bash .fx/regression.sh compare /tmp/r0.txt /tmp/rb.txt
+
+      - name: 8. Re-apply after rollback — migrate deploy applies it whole again; proof 23/23
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d fx_rb -v ON_ERROR_STOP=1 "$@"; }
+          bash .fx/lab.sh apply fx_rb | tee /tmp/a2.log
+          grep -q 'Applying migration `20261025090000_currency_settings_fx_rates`' /tmp/a2.log
+          lab -f "$EVIDENCE" | tee /tmp/ev2.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev2.out; then echo "proof FAILS after re-apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev2.out)" = "23" || { echo "expected 23 PASS"; exit 1; }
+          echo "re-applied whole after rollback: proof 23/23"

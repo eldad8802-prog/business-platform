@@ -29,10 +29,11 @@ business day (no Saturday/Sunday/holiday rows), `DATA_TYPE=OF00` (= representati
 - `TIME_PERIOD` must be a valid civil date ≤ today (Asia/Jerusalem);
 - anything else → the row is rejected and the run is reported, never "best effort".
 
-## 3. Storage (proposed table `FxRate`, docs/i18n-multicurrency/proposed-migration.sql)
+## 3. Storage (table `FxRate`, migration `20261025090000_currency_settings_fx_rates` — see MIGRATION-RUNBOOK.md)
 `kind=REPRESENTATIVE, source=BANK_OF_ISRAEL, rateDate=TIME_PERIOD, rate=numeric(20,10),
-verification=VERIFIED, sourceRef=<series code + request URL>`. Append-only (trigger); a correction is a
-new row with a later `fetchedAt`; the runtime role can only read.
+verification=VERIFIED, sourceRef=<series code + request URL>`. Append-only for every role incl. the owner (UPDATE / DELETE / TRUNCATE triggers); a correction is a
+new row with a later `fetchedAt`; the runtime role can only read. The table also refuses a
+Bank of Israel row that is not `REPRESENTATIVE` / quoted in ILS, and a `rateDate` later than `fetchedAt` + 1 day.
 
 ## 4. Update mechanism
 - **Cron** (Vercel cron, like the existing ones, authenticated with `CRON_SECRET`): once per business
@@ -41,8 +42,11 @@ new row with a later `fetchedAt`; the runtime role can only read.
 - Each run requests the **last 10 days** (not just today): it back-fills a missed day automatically and
   is idempotent (the unique index on base/quote/kind/source/rateDate/fetchedAt + "skip if an identical
   value already exists for that date").
-- **Writer identity:** a dedicated DB role with `INSERT` on `FxRate` only (no tenant tables) — created
-  together with the fetcher, not by the runtime.
+- **Writer identity:** the NOLOGIN role `fx_rate_writer` (created by the C-2 migration) holds `INSERT` on
+  `FxRate` + `USAGE` on its sequence and nothing else — **no SELECT**: the fetcher appends without
+  `RETURNING` (Prisma `createMany` or a raw `INSERT`) and checks “identical value already stored” through
+  the runtime role's `SELECT`. Its credential is a separate LOGIN member role, created by the owner when
+  the fetcher is approved (C-3).
 
 ## 5. Failure handling (no silent conversion anywhere)
 | Situation | Behaviour |
