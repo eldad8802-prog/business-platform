@@ -11,7 +11,8 @@
  * H retry after completion · I failed · J pending/unknown · K tenant isolation ·
  * L currency/document mismatch · M two settlements one invoice · N credit ·
  * O credit/receipt race (+ credit/credit race) · P missing identity ·
- * Q resolution + retry · R historical · T transient retry/backoff/exhaustion.
+ * Q resolution + retry · R historical · T transient retry/backoff/exhaustion ·
+ * X foreign currency: money recorded, receipt held (no retry/release clears it).
  *
  * C3_ONLY=F,M… runs a subset (used by the negative proofs).
  * Synthetic data only. No secrets, no Neon, no network.
@@ -26,6 +27,7 @@ import { runWithTenantContext } from "../lib/tenant/context";
 import { processPaymentWebhook } from "../lib/services/payments/payment-webhook.service";
 import { createPaymentPrismaStore } from "../lib/services/payments/payment-store.prisma";
 import {
+  releaseDocumentIssuerHolds,
   requeueSettlement,
   settleVerifiedPayment,
   SETTLEMENT_MAX_TRANSIENT_ATTEMPTS,
@@ -632,6 +634,55 @@ async function main() {
     const stN = await settlementOf(ptx.id);
     ok("T — after 10 transient attempts → REQUIRES_ATTENTION RETRY_EXHAUSTED", stN?.status === "REQUIRES_ATTENTION" && stN?.attentionReason === "RETRY_EXHAUSTED" && stN?.attemptCount === SETTLEMENT_MAX_TRANSIENT_ATTEMPTS, JSON.stringify({ last, stN }));
     ok("T — the planted draft is still the only document; no receipt issued", (await receiptsFor(ptx.id)).length === 1 && (await receiptsFor(ptx.id))[0].status === "DRAFT");
+  }
+
+  if (run("X")) {
+    console.log("\n== X — foreign currency: the money is recorded, the receipt waits ==");
+    for (const currency of ["USD", "EUR"]) {
+      // Standalone, Dubiz issues documents: the one path that used to auto-issue.
+      const ctx = await makeBusiness(`X-${currency}`);
+      const req = await paymentRequest(ctx, "250.00", { invoiceId: null, currency });
+      const res = await webhook(req, "PAID");
+      ok(`X ${currency} — webhook PAID, verified`, res.ok && res.paymentRequestStatus === "PAID" && res.verified === true, JSON.stringify(res));
+      const ptx = await txOf(req.id);
+      const st = await settlementOf(ptx.id);
+      ok(`X ${currency} — money row PAID in ${currency}, request PAID`,
+        ptx.status === "PAID" && ptx.currency === currency &&
+        (await prisma.paymentRequest.findUniqueOrThrow({ where: { id: req.id } })).status === "PAID");
+      ok(`X ${currency} — settlement REQUIRES_ATTENTION FOREIGN_CURRENCY_DOCUMENT_HELD`, st?.status === "REQUIRES_ATTENTION" && st?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(st));
+      ok(`X ${currency} — no receipt, no document of any kind`, (await receiptsFor(ptx.id)).length === 0 &&
+        (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+      const audit = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: req.id, eventType: "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION" } });
+      ok(`X ${currency} — audit PAYMENT_ACCOUNTING_REQUIRES_ATTENTION with the reason`, (audit?.metadata as { reason?: string } | null)?.reason === "FOREIGN_CURRENCY_DOCUMENT_HELD");
+      ok(`X ${currency} — requeue refused (not retryable)`, (await requeueSettlement({ businessId: ctx.businessId, paymentTransactionId: ptx.id })).requeued === false);
+      const again = await settleVerifiedPayment({ businessId: ctx.businessId, paymentTransactionId: ptx.id });
+      ok(`X ${currency} — a further settle stays held, still no receipt`, again.outcome === "REQUIRES_ATTENTION" && (await receiptsFor(ptx.id)).length === 0, JSON.stringify(again));
+
+      // Invoice-backed against a same-currency invoice: held the same way.
+      const inv = await invoice(ctx, "1000.00", { currency });
+      const req2 = await paymentRequest(ctx, "400.00", { invoiceId: inv.id, currency });
+      await webhook(req2, "PAID");
+      const ptx2 = await txOf(req2.id);
+      ok(`X ${currency} — invoice-backed → FOREIGN_CURRENCY_DOCUMENT_HELD, no receipt`,
+        (await settlementOf(ptx2.id))?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD" && (await receiptsFor(ptx2.id)).length === 0);
+      const allocs = await prisma.billingPaymentAllocation.count({ where: { invoiceDocumentId: inv.id } });
+      ok(`X ${currency} — nothing allocated to the invoice`, allocs === 0, `allocations=${allocs}`);
+    }
+    // Held first for want of an issuer decision; the decision must not issue it.
+    const ctx = await makeBusiness("X-release");
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "NOT_CONFIGURED" } });
+    const req = await paymentRequest(ctx, "250.00", { invoiceId: null, currency: "USD" });
+    await webhook(req, "PAID");
+    const ptx = await txOf(req.id);
+    ok("X release — first held as DOCUMENT_ISSUER_NOT_CONFIGURED", (await settlementOf(ptx.id))?.attentionReason === "DOCUMENT_ISSUER_NOT_CONFIGURED");
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "DUBIZ_ISSUES" } });
+    const rel = await releaseDocumentIssuerHolds({ businessId: ctx.businessId, provider: "CARDCOM", documentIssuer: "DUBIZ_ISSUES" });
+    ok("X release — DUBIZ_ISSUES re-settles it, and it is held for its currency", rel.released.includes(ptx.id) && rel.settled === 0 &&
+      (await settlementOf(ptx.id))?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(rel));
+    ok("X release — still no receipt, money still PAID", (await receiptsFor(ptx.id)).length === 0 &&
+      (await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: ptx.id } })).status === "PAID");
+    const rel2 = await releaseDocumentIssuerHolds({ businessId: ctx.businessId, provider: "CARDCOM", documentIssuer: "DUBIZ_ISSUES" });
+    ok("X release — a second decision clears nothing", rel2.released.length === 0 && (await receiptsFor(ptx.id)).length === 0);
   }
 
   console.log(`\nC3 battery: ${pass} passed, ${failures.length} failed`);
