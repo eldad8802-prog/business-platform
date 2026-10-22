@@ -78,7 +78,7 @@ me AS (SELECT oid FROM pg_roles WHERE rolname = current_user),
 rt AS (SELECT oid FROM pg_roles WHERE rolname = 'app_runtime'),
 sf AS (SELECT * FROM rel WHERE nm = 'PaymentSettlementFact'),
 expected_expr(e) AS (VALUES ('("businessId" = (NULLIF(current_setting(''app.current_business_id''::text, true), ''''::text))::integer)')),
-cols(col, typ, notnull) AS (VALUES
+cols(col, typ, req) AS (VALUES
   ('id', 'integer', true), ('businessId', 'integer', true), ('paymentTransactionId', 'integer', true),
   ('kind', 'text', true), ('amount', 'numeric(18,2)', true), ('currency', 'text', true),
   ('providerRate', 'numeric(20,10)', false), ('rateBase', 'text', false), ('rateQuote', 'text', false),
@@ -147,7 +147,7 @@ fns_ok AS (SELECT f.oid FROM fns f
              AND NOT EXISTS (SELECT 1 FROM aclexplode(coalesce(f.proacl, acldefault('f', f.proowner))) x
                              WHERE x.privilege_type = 'EXECUTE' AND x.grantee <> f.proowner)),
 col_match AS (SELECT c.col FROM cols c JOIN pg_attribute a ON a.attrelid = (SELECT oid FROM sf) AND a.attname = c.col
-              WHERE NOT a.attisdropped AND a.attnotnull = c.notnull AND format_type(a.atttypid, a.atttypmod) = c.typ),
+              WHERE NOT a.attisdropped AND a.attnotnull = c.req AND format_type(a.atttypid, a.atttypmod) = c.typ),
 trg_match AS (SELECT e.nm FROM trg_expected e
               JOIN pg_trigger g ON g.tgname = e.nm AND g.tgrelid = (SELECT oid FROM sf) AND NOT g.tgisinternal
               JOIN pg_proc p ON p.oid = g.tgfoid AND p.proname = e.fn
