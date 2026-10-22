@@ -126,7 +126,8 @@ async function main() {
         const over = await overflow(page);
         ok(`E1 ${vp.name} ${locale} ${screen} — no horizontal overflow`, over <= 1, `${over}px`);
         if (locale === "en") {
-          const heb = await hebrewVisible(page, [a.customer]);
+          // "עברית" is the Hebrew option of the language picker — a language is always named in itself.
+          const heb = await hebrewVisible(page, [a.customer, "עברית"]);
           if (heb.length) gaps[`${vp.name} ${screen}`] = heb;
         }
         if (SHOTS) await page.screenshot({ path: `${SHOTS}/${vp.name}-${locale}${screen.replace(/\//g, "_")}.png`, fullPage: false });

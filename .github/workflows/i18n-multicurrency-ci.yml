@@ -138,7 +138,7 @@ jobs:
       - name: 5 · Proposed migration — apply, prove, roll back (THIS throwaway database only)
         if: ${{ !cancelled() }}
         run: |
-          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -c "CREATE ROLE app_runtime NOLOGIN"
+          psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -c "DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN CREATE ROLE app_runtime NOLOGIN; END IF; END $;"
           psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f docs/i18n-multicurrency/proposed-migration.sql
           npx tsx .i18n/migration-proof.mts
           psql -h localhost -U fx_owner -d dubiz_fx -v ON_ERROR_STOP=1 -f .i18n/rollback.sql
