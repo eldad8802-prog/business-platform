@@ -86,7 +86,10 @@ export function enqueueAccountLinkEmail(
   });
 }
 
-/** The WELCOME a new account owes its owner. Only signup calls this. */
+/**
+ * The WELCOME a new account owes its owner: recorded by signup, or — for an account opened with email
+ * verification — by the verification that confirms its address (lib/auth/email-tokens.ts).
+ */
 export function enqueueWelcomeEmail(
   tx: SqlClient,
   input: { userId: number; businessId: number; toEmail: string; name: string | null; now: Date; locale?: Locale }
