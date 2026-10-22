@@ -3,6 +3,21 @@
 Local runs on Windows (2026-10-22), branch merged with `origin/main` (d207e373+). CI evidence is added
 by `.github/workflows/i18n-multicurrency-ci.yml` on the PR (ephemeral PG17).
 
+## 0. CI — ephemeral PG17, run 39779015658 (head 8bca4541): all green
+| Step | Result |
+|---|---|
+| 1 · pure tests | i18n verify 30,126 · money 52 · scenarios 23 · tasks 62/62 · lead history 40 · emails 45/45 · titles + nav pass |
+| 2 · DB-backed regression, branch vs `main` on the same database | 65 pass, 7 fail **on `main` too**, **0 new failures** (rls-contract invoice-profile, lead-collision-recovery, lead-w3-closure, identity.db, payables-p46.db, agenda.db, task.db) |
+| 3 · multi-currency battery (real routes, real auth, flag OFF) | **25 / 25** |
+| 4a · e2e flag ON — signed-in owner, 15 screens × he/en × 390/820/1440, persistence (E2), language changes no data (E3), two businesses / two languages / two currency mixes (E4) | **190 / 190**; English screens with Hebrew still visible: **0** |
+| 4b · e2e flag OFF on a production build — cookie ignored, he/rtl, endpoint 404 | **5 / 5** |
+| 5 · proposed migration applied + proven + rolled back (throwaway DB) | **27 / 27** + rollback **3 / 3** |
+
+The first four CI runs of this workflow failed in the build step: after `playwright install --with-deps`
+the Turbopack build could not resolve the `next/font` (Heebo) files. Both builds now run before the
+Chromium install (8bca4541) — a CI-ordering fix only, no app change. `release/verify` (the required build)
+was green throughout.
+
 ## 1. Static
 | Check | Result |
 |---|---|
