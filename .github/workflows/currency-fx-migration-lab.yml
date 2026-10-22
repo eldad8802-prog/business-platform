@@ -279,6 +279,7 @@ jobs:
           grep -q 'Applying migration `20261025090000_currency_settings_fx_rates`' /tmp/a1.log
           test "$(lab -f "$EVIDENCE" | grep -cE '^ +[0-9]+ \| PASS')" = "23" || { echo "proof not 23/23 after apply"; exit 1; }
           fp > /tmp/fp1
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d fx_rb -c "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('fx-rb', now())"
           lab -q -c "INSERT INTO \"BusinessLocaleSettings\" (\"businessId\", \"updatedAt\") SELECT min(\"id\"), now() FROM \"Business\""
           if lab -f .fx/rollback.sql >/tmp/rb0.out 2>&1; then echo "rollback ran while a row exists"; exit 1; fi
           grep -q "rollback refused: rows exist" /tmp/rb0.out || { cat /tmp/rb0.out; exit 1; }

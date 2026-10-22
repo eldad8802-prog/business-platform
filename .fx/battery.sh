@@ -140,7 +140,7 @@ eq "U1 under another business's context sees nothing" "$(rt "$B" "$U1" 'SELECT c
 eq "U1 reads its own row" "$(rt "$A" "$U1" 'SELECT "locale" FROM "UserLocalePreference"')" "en"
 rt "$A" "$U1" "UPDATE \"UserLocalePreference\" SET \"locale\" = 'he', \"updatedAt\" = now() WHERE \"userId\" = $U1" >/dev/null; ok "U1 changes its own language"
 refused "a user of another business filed under A" "DZT03|TASK_USER_OTHER_BUSINESS" rt "$A" "$UB" "$(pref "$UB" "$A" en)"
-refused "move U1's row to another business" "row-level security|DZT03" rt "$A" "$U1" "UPDATE \"UserLocalePreference\" SET \"businessId\" = $B WHERE \"userId\" = $U1"
+refused "move U1's row to another business" "row-level security|DZT03|TASK_USER_OTHER_BUSINESS" rt "$A" "$U1" "UPDATE \"UserLocalePreference\" SET \"businessId\" = $B WHERE \"userId\" = $U1"
 refused "unknown locale" "UserLocalePreference_locale" rt "$B" "$UB" "$(pref "$UB" "$B" fr)"
 refused "removal" "permission denied" rt "$A" "$U1" "DELETE FROM \"UserLocalePreference\" WHERE \"userId\" = $U1"
 
