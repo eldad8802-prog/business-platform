@@ -72,11 +72,11 @@ CREATE TABLE "PaymentSettlementFact" (
   CONSTRAINT "PaymentSettlementFact_source" CHECK ("source" IN ('PROVIDER', 'BANK', 'MANUAL')),
   -- A charge or a settlement of nothing is not a fact. (FEE and NET may be zero: "no fee" is worth recording.)
   CONSTRAINT "PaymentSettlementFact_amount_nonzero" CHECK ("kind" NOT IN ('CHARGED', 'SETTLED') OR "amount" <> 0),
-  -- The provider's conversion rate: all three or none; only on SETTLED; positive; between two different
+  -- The provider's conversion rate: all three or none (NOT NULL spelled out: a NULL would pass a CHECK); only on SETTLED; positive; between two different
   -- registry currencies; quoted in the settled currency (the base is checked against the charge by trigger).
   CONSTRAINT "PaymentSettlementFact_rate_shape" CHECK (
        ("providerRate" IS NULL AND "rateBase" IS NULL AND "rateQuote" IS NULL)
-    OR ("kind" = 'SETTLED' AND "providerRate" > 0
+    OR ("kind" = 'SETTLED' AND "providerRate" > 0 AND "rateBase" IS NOT NULL AND "rateQuote" IS NOT NULL
         AND "rateBase" IN ('ILS', 'USD', 'EUR') AND "rateQuote" IN ('ILS', 'USD', 'EUR')
         AND "rateBase" <> "rateQuote" AND "rateQuote" = "currency")),
   -- Where the number came from — each source carries its own evidence.

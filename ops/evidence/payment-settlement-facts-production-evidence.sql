@@ -161,7 +161,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261026090000_payment_settlement_facts'
-                        AND checksum = '14ed04a880139f356e15c8b7dd69a809ae03072d22ff76d8b70ecb6159bf74a4'), 1
+                        AND checksum = '08f970613cdf92d15f4a038f595955ea76a0e4ed4d037f7659c85aac9cc446a5'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM col_match) = 18
                       AND (SELECT count(*) FROM pg_attribute WHERE attrelid = (SELECT oid FROM sf) AND attnum > 0 AND NOT attisdropped) = 18,
                       (SELECT count(*) FROM col_match)
