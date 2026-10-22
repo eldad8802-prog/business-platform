@@ -14,6 +14,7 @@ import type {
   RecurrenceCadence,
   UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
+import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
 import styles from "./secretary.module.css";
 
 export type TodayState = "critical" | "busy" | "calm";
@@ -734,10 +735,11 @@ function amountNumber(item: ObligationApi): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/** Per currency, never added across (B4): an all-ILS list renders exactly as before. */
 function sumMoney(items: ObligationApi[], f: Fmt): string {
-  const currency = items[0]?.currency ?? "ILS";
-  const total = items.reduce((sum, item) => sum + amountNumber(item), 0);
-  return formatMoneyValue(String(total), currency, f);
+  return formatObligationTotals(obligationTotalsByCurrency(items), (amount, currency) =>
+    formatMoneyValue(amount, currency, f)
+  );
 }
 
 function dateValue(iso: string): Date | null {

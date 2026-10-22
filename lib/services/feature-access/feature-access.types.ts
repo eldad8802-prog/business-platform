@@ -79,6 +79,8 @@ export type UpdateBusinessFeatureAccessResponse = {
 
 export type PlatformAdminBusinessFeaturesResponse = {
   generatedAt: string;
+  /** Whether changes can be saved on this environment (FEATURE_ACCESS_MUTATIONS_ENABLED). */
+  mutationsEnabled: boolean;
   business: {
     id: number;
     name: string;

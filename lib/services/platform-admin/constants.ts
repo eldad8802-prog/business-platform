@@ -14,6 +14,18 @@ export const PLATFORM_AUDIT_ACTIONS = {
   FEATURE_ACCESS_UPDATED: "PLATFORM_FEATURE_ACCESS_UPDATED",
   /** An indeterminate refund resolved from evidence at the provider (MFA). */
   PAYMENT_REVERSAL_RESOLVED: "PLATFORM_PAYMENT_REVERSAL_RESOLVED",
+  /** Admin Control Center home (A1). */
+  HOME_VIEWED: "PLATFORM_ADMIN_HOME_VIEWED",
+  /** A second factor was proven and an elevation issued (metadata.method). */
+  STEP_UP_SUCCEEDED: "PLATFORM_ADMIN_STEP_UP_SUCCEEDED",
+  /** A second-factor proof was refused (metadata.method, metadata.reason). */
+  STEP_UP_FAILED: "PLATFORM_ADMIN_STEP_UP_FAILED",
+  /** An authenticator app was confirmed for this admin. */
+  MFA_ENROLLED: "PLATFORM_ADMIN_MFA_ENROLLED",
+  /** The authenticator app was replaced by a new one (old one inactive from that moment). */
+  MFA_REPLACED: "PLATFORM_ADMIN_MFA_REPLACED",
+  PASSKEY_REGISTERED: "PLATFORM_ADMIN_PASSKEY_REGISTERED",
+  PASSKEY_REVOKED: "PLATFORM_ADMIN_PASSKEY_REVOKED",
 } as const;
 
 /** Throttle window for AREA_ENTERED per admin (minutes). */

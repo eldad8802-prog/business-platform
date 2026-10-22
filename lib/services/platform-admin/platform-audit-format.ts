@@ -10,13 +10,78 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.AUDIT_VIEWED]: "צפייה ביומן ביקורת",
   [PLATFORM_AUDIT_ACTIONS.AREA_ENTERED]: "כניסה לאזור Platform Admin",
   [PLATFORM_AUDIT_ACTIONS.SESSION_VIEWED]: "גישה ל-Platform Admin",
+  [PLATFORM_AUDIT_ACTIONS.HOME_VIEWED]: "צפייה בסקירה",
+  [PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED]: "שינוי גישה לפיצ׳ר",
+  [PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED]: "סגירת החזר תשלום ידנית",
+  [PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED]: "אימות נוסף הצליח",
+  [PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED]: "אימות נוסף נכשל",
+  [PLATFORM_AUDIT_ACTIONS.MFA_ENROLLED]: "אפליקציית אימות הופעלה",
+  [PLATFORM_AUDIT_ACTIONS.MFA_REPLACED]: "אפליקציית אימות הוחלפה",
+  [PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED]: "מפתח גישה נוסף",
+  [PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED]: "מפתח גישה הוסר",
+};
+
+/** Page views — read-only; everything else changed something or proved a factor. */
+const VIEW_ACTIONS = new Set<string>([
+  PLATFORM_AUDIT_ACTIONS.OVERVIEW_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.BUSINESSES_LIST_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.ATTENTION_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.USAGE_OVERVIEW_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.BUSINESS_DETAIL_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.AUDIT_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.SESSION_VIEWED,
+  PLATFORM_AUDIT_ACTIONS.HOME_VIEWED,
+]);
+
+export function isAuditViewAction(action: string): boolean {
+  return VIEW_ACTIONS.has(action);
+}
+
+/** Entering the area and proving (or failing) a factor, and managing factors. */
+const SECURITY_ACTIONS = new Set<string>([
+  PLATFORM_AUDIT_ACTIONS.AREA_ENTERED,
+  PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED,
+  PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED,
+  PLATFORM_AUDIT_ACTIONS.MFA_ENROLLED,
+  PLATFORM_AUDIT_ACTIONS.MFA_REPLACED,
+  PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED,
+  PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED,
+]);
+
+export type AuditKind = "all" | "changes" | "views" | "security";
+
+/** The action sets a kind filter selects; `changes` is everything else. */
+export const AUDIT_KIND_SETS = {
+  views: [...VIEW_ACTIONS],
+  security: [...SECURITY_ACTIONS],
+} as const;
+
+const STATE_LABELS: Record<string, string> = {
+  ENABLED: "פעיל",
+  DISABLED: "כבוי",
+  INHERIT: "ברירת מחדל",
+};
+
+const METHOD_LABELS: Record<string, string> = {
+  totp: "אפליקציית אימות",
+  recovery_code: "קוד שחזור",
+  passkey: "מפתח גישה",
+  enrollment: "הפעלת אימות",
 };
 
 const SENSITIVE_ACTIONS = new Set<string>([
   PLATFORM_AUDIT_ACTIONS.BUSINESS_DETAIL_VIEWED,
 ]);
 
-const WARNING_ACTIONS = new Set<string>([]);
+/** Changes with business or security consequence — shown with emphasis. */
+const WARNING_ACTIONS = new Set<string>([
+  PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED,
+  PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED,
+  PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED,
+  PLATFORM_AUDIT_ACTIONS.MFA_REPLACED,
+  PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED,
+  PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED,
+]);
 
 export function formatAuditActionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
@@ -67,6 +132,42 @@ export function formatAuditDetail(
     if (typeof page === "number" && typeof total === "number") {
       return `עמוד ${page} · ${total} עסקים`;
     }
+  }
+
+  if (action === PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED) {
+    const key = typeof meta.featureKey === "string" ? meta.featureKey : null;
+    const from = typeof meta.oldState === "string" ? STATE_LABELS[meta.oldState] ?? meta.oldState : null;
+    const to = typeof meta.newState === "string" ? STATE_LABELS[meta.newState] ?? meta.newState : null;
+    const reason = typeof meta.reason === "string" ? meta.reason : null;
+    if (key && to) {
+      const change = from ? `${from} ← ${to}` : to;
+      return `${key}: ${change}${reason ? ` · סיבה: ${reason}` : ""}`;
+    }
+  }
+
+  if (action === PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED) {
+    const outcome = typeof meta.outcome === "string" ? meta.outcome : null;
+    const requestId = meta.requestId;
+    if (outcome) {
+      return `תוצאה: ${outcome === "REFUNDED" ? "הוחזר" : outcome === "REJECTED" ? "נדחה" : outcome}${
+        typeof requestId === "number" || typeof requestId === "string" ? ` · בקשה ${requestId}` : ""
+      }`;
+    }
+  }
+
+  if (
+    action === PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED ||
+    action === PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED
+  ) {
+    const method = typeof meta.method === "string" ? METHOD_LABELS[meta.method] ?? meta.method : null;
+    if (method) return method;
+  }
+
+  if (
+    action === PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED ||
+    action === PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED
+  ) {
+    if (typeof meta.label === "string") return meta.label;
   }
 
   if (action === PLATFORM_AUDIT_ACTIONS.BUSINESS_DETAIL_VIEWED && meta.businessName) {

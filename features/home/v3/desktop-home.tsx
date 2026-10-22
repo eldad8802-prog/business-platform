@@ -46,6 +46,7 @@ import {
   CountPill,
   WaitingRow,
   IdentityPromptRow,
+  OtherCurrenciesMark,
 } from "./home-parts";
 import { RecommendationCard } from "./recommendation-card";
 import type { HomeView } from "./home-v3";
@@ -252,6 +253,7 @@ function Kpi({
   label,
   value,
   note,
+  extra = null,
   icon: Icon,
   tone,
   quiet = false,
@@ -261,6 +263,8 @@ function Kpi({
   label: string;
   value: string | null;
   note?: string | null;
+  /** Shown after the value (never while loading or quiet): money in other currencies. */
+  extra?: ReactNode;
   icon: IconComponent;
   tone: "plain-in" | "plain-out" | "solid" | "fresh" | "urgent";
 }) {
@@ -296,6 +300,7 @@ function Kpi({
       <span style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 25, fontWeight: 600, letterSpacing: -0.4, opacity: quiet ? 0.45 : 1 }}>
           {quiet ? "—" : value === null ? <SkeletonBlock h={26} r={8} style={{ width: 90, display: "inline-block" }} /> : value}
+          {quiet || value === null ? null : extra}
         </span>
         {note && !quiet ? <span style={{ fontSize: 12, color: t.note }}>{note}</span> : null}
       </span>
@@ -335,10 +340,10 @@ function Kpis({ view }: { view: HomeView }) {
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }} role="group" aria-label={t("home.desktop.kpiAria")}>
-      <Kpi label={t("home.desktop.incomeToday")} value={income} icon={IconArrowUp} tone="plain-in" quiet={quietIncome} />
+      <Kpi label={t("home.desktop.incomeToday")} value={income} extra={day ? <OtherCurrenciesMark others={day.incomeOtherCurrencies} /> : null} icon={IconArrowUp} tone="plain-in" quiet={quietIncome} />
       <Kpi label={t("home.desktop.expensesToday")} value={expense} icon={IconArrowDown} tone="plain-out" quiet={quietExpense} />
       <Kpi label={t("home.desktop.netToday")} value={net} icon={IconNet} tone="solid" quiet={quietIncome && quietExpense} />
-      <Kpi label={t("home.desktop.expectedIn")} value={pending} note={p.state === "ready" ? t("home.desktop.awaitingCollection") : null} icon={IconIncoming} tone="fresh" quiet={quietPending} />
+      <Kpi label={t("home.desktop.expectedIn")} value={pending} extra={p.state === "ready" ? <OtherCurrenciesMark others={p.value.otherCurrencies} /> : null} note={p.state === "ready" ? t("home.desktop.awaitingCollection") : null} icon={IconIncoming} tone="fresh" quiet={quietPending} />
       <Kpi
         quiet={quietOut}
         label={t("home.desktop.dueOut")}

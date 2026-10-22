@@ -26,6 +26,8 @@ import type { MessageKey } from "@/lib/i18n/translate";
 import type { InsightView } from "./use-home-data";
 import {
   countText,
+  formatOtherCurrencies,
+  type OtherCurrencyAmount,
   type ActivityItem,
   type ActivityKind,
   type CountClaim,
@@ -290,6 +292,22 @@ export function Note({ children, style }: { children: ReactNode; style?: CSSProp
     <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, padding: "10px 0", ...style }} role="status">
       {children}
     </div>
+  );
+}
+
+/**
+ * Beside a ₪ figure: the money in OTHER currencies that the figure does not include ("+ $300"),
+ * never converted or added. Renders nothing when there is none — every all-ILS screen is unchanged.
+ */
+export function OtherCurrenciesMark({ others }: { others?: readonly OtherCurrencyAmount[] | null }) {
+  const { t, locale } = useI18n();
+  if (!others || others.length === 0) return null;
+  const amounts = formatOtherCurrencies(others, locale);
+  const label = t("currency.otherCurrenciesExcluded", { amounts });
+  return (
+    <span title={label} aria-label={label} style={{ fontSize: "0.6em", fontWeight: 500, marginInlineStart: 6, opacity: 0.85 }}>
+      + {amounts}
+    </span>
   );
 }
 
