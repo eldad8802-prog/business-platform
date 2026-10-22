@@ -17,6 +17,10 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: task agenda / queue / cadence text identical (hash) to the pre-i18n Hebrew output, and English when a translator is passed; run on pull_request by i18n-multicurrency-ci.yml"
     },
+    "lib/services/crm/lead-history-i18n.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: lead lifecycle history / next-action labels — Hebrew dictionary identical to the server maps, English present for every kind; run on pull_request by i18n-multicurrency-ci.yml"
+    },
     "lib/email/transactional/transactional-email-i18n.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
