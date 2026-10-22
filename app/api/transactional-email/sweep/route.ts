@@ -7,9 +7,12 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
  * Transactional email sweep — retries due rows and settles expired ones
  * (lib/email/transactional/sweep.ts).
  *
- * Who may call it: the GitHub scheduled workflow (POST) with the CRON_SECRET bearer, through the
- * same dual-accept decision the other cron routes use. Never a user session, never a tenant
- * supplied by the caller. The answer is counts only — no address, no content.
+ * Who may call it, both with the CRON_SECRET bearer through the same dual-accept decision the other
+ * cron routes use: Vercel Cron (GET, every 10 minutes — vercel.json; the primary tick) and the GitHub
+ * scheduled workflow (POST — a backstop: GitHub drops most of its every-10-minute runs, observed 4–8 a day).
+ * Never a user session, never a tenant supplied by the caller. The answer is counts only — no
+ * address, no content. Safe at any cadence and concurrently (one conditional claim per row, one
+ * provider idempotency key per row).
  *
  * TRANSACTIONAL_EMAIL_ENABLED off → 200 { enabled: false } without touching the database.
  * On but misconfigured, or the auth plane not active → 500, so the scheduler goes red.
@@ -41,7 +44,12 @@ async function handle(req: NextRequest) {
   }
 }
 
-/** The GitHub scheduled workflow, with the CRON_SECRET bearer. */
+/** Vercel Cron (vercel.json, every 10 minutes) — GET with the CRON_SECRET bearer, no body. */
+export async function GET(req: NextRequest) {
+  return handle(req);
+}
+
+/** The GitHub scheduled workflow (backstop) and manual dispatch, with the CRON_SECRET bearer. */
 export async function POST(req: NextRequest) {
   return handle(req);
 }
