@@ -65,7 +65,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22'
+          node-version: '20'  # same as release/verify, whose next build passes; Node 22 + Turbopack failed to resolve the next/font Heebo files 4 runs in a row
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
