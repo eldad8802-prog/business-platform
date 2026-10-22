@@ -1,0 +1,9 @@
+{
+  "note": "VAT default rate — 18% standard (from 2025-01-01, Asia/Jerusalem civil date) / exempt dealer 0% for NEW billing lines, plus a non-blocking mismatch warning (lib/billing/vat-rate.ts).",
+  "tests": {
+    "lib/billing/vat-rate.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): dated Israeli VAT table, Asia/Jerusalem boundary, new-line default by business kind and the warning-only check; not yet wired into CI"
+    }
+  }
+}
