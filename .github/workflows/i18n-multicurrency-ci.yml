@@ -184,7 +184,6 @@ jobs:
       TEST_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
       AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
       CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
-      READINESS_OUT: ${{ runner.temp }}/readiness
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -195,6 +194,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
+      - name: Report directory
+        run: echo "READINESS_OUT=$RUNNER_TEMP/readiness" >> "$GITHUB_ENV"
 
       - name: Push schema (lab)
         run: npx prisma db push --skip-generate
