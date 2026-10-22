@@ -82,7 +82,7 @@ wr AS (SELECT oid FROM pg_roles WHERE rolname = 'fx_rate_writer'),
 tbl AS (SELECT * FROM rel WHERE nm IN ('BusinessLocaleSettings', 'UserLocalePreference', 'FxRate') AND relkind = 'r'),
 tenant_expr(e) AS (VALUES ('("businessId" = (NULLIF(current_setting(''app.current_business_id''::text, true), ''''::text))::integer)')),
 own_expr(e) AS (VALUES ('(("businessId" = (NULLIF(current_setting(''app.current_business_id''::text, true), ''''::text))::integer) AND ("userId" = (NULLIF(current_setting(''app.current_user_id''::text, true), ''''::text))::integer))')),
-cols(tbl, col, typ, notnull, dflt) AS (VALUES
+cols(tbl, col, typ, nn, dflt) AS (VALUES
   ('BusinessLocaleSettings', 'businessId', 'integer', true, NULL),
   ('BusinessLocaleSettings', 'locale', 'text', true, '''he''::text'),
   ('BusinessLocaleSettings', 'region', 'text', true, '''IL''::text'),
@@ -107,7 +107,7 @@ cols(tbl, col, typ, notnull, dflt) AS (VALUES
   ('FxRate', 'fetchedAt', 'timestamp(3) without time zone', true, 'CURRENT_TIMESTAMP'),
   ('FxRate', 'verification', 'text', true, '''UNVERIFIED''::text'),
   ('FxRate', 'sourceRef', 'text', false, NULL)),
-att AS (SELECT t.nm AS tbl, a.attname AS col, format_type(a.atttypid, a.atttypmod) AS typ, a.attnotnull AS notnull,
+att AS (SELECT t.nm AS tbl, a.attname AS col, format_type(a.atttypid, a.atttypmod) AS typ, a.attnotnull AS nn,
                pg_get_expr(d.adbin, d.adrelid) AS dflt
         FROM tbl t JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
         LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum),
@@ -205,10 +205,10 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261025090000_currency_settings_fx_rates'
                         AND checksum = '37bf684b2bd997db5cd577ad3c43c77eeedc0c03fd60cc5fbc93b67c3f1cdafd'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM cols c JOIN att a ON a.tbl = c.tbl AND a.col = c.col
-                         AND a.typ = c.typ AND a.notnull = c.notnull AND a.dflt IS NOT DISTINCT FROM c.dflt) = 24
+                         AND a.typ = c.typ AND a.nn = c.nn AND a.dflt IS NOT DISTINCT FROM c.dflt) = 24
                       AND (SELECT count(*) FROM att) = 24,
                       (SELECT count(*) FROM cols c JOIN att a ON a.tbl = c.tbl AND a.col = c.col
-                         AND a.typ = c.typ AND a.notnull = c.notnull AND a.dflt IS NOT DISTINCT FROM c.dflt)
+                         AND a.typ = c.typ AND a.nn = c.nn AND a.dflt IS NOT DISTINCT FROM c.dflt)
   UNION ALL SELECT 5, (SELECT count(*) FROM checks_expected c JOIN tbl t ON t.nm = c.tbl
                          JOIN pg_constraint k ON k.conrelid = t.oid AND k.conname = c.nm
                          WHERE k.contype = 'c' AND k.convalidated) = 15
