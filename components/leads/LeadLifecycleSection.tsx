@@ -8,7 +8,11 @@ import {
   type LeadCardDTO,
   type LeadNextActionKindValue,
 } from "@/lib/api/leads";
-import { LEAD_NEXT_ACTION_KINDS } from "@/lib/services/crm/lead-lifecycle-core";
+import {
+  LEAD_NEXT_ACTION_KINDS,
+  isLeadNextActionKind,
+  type LeadLifecycleEventKind,
+} from "@/lib/services/crm/lead-lifecycle-core";
 import { formatDateTime, isClosed, leadStatusLabel } from "@/components/leads/lead-display";
 import type { LeadStatusValue } from "@/lib/services/crm/lead-core";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -24,6 +28,22 @@ const NEXT_ACTION_LABEL_KEYS: Record<LeadNextActionKindValue, MessageKey> = {
   collect_info: "customers.leads.lifecycle.nextActions.collectInfo",
   wait_for_customer: "customers.leads.lifecycle.nextActions.waitForCustomer",
   other: "customers.leads.lifecycle.nextActions.other",
+};
+
+/** History labels by event kind (same wording as LEAD_LIFECYCLE_EVENT_LABELS, which stays Hebrew server-side). */
+const EVENT_LABEL_KEYS: Record<LeadLifecycleEventKind, MessageKey> = {
+  created: "customers.leads.lifecycle.events.created",
+  intake_attached: "customers.leads.lifecycle.events.intakeAttached",
+  status_changed: "customers.leads.lifecycle.events.statusChanged",
+  next_action_set: "customers.leads.lifecycle.events.nextActionSet",
+  next_action_rescheduled: "customers.leads.lifecycle.events.nextActionRescheduled",
+  next_action_completed: "customers.leads.lifecycle.events.nextActionCompleted",
+  next_action_cleared: "customers.leads.lifecycle.events.nextActionCleared",
+  value_updated: "customers.leads.lifecycle.events.valueUpdated",
+  suggestion_dismissed: "customers.leads.lifecycle.events.suggestionDismissed",
+  contact_attached: "customers.leads.lifecycle.events.contactAttached",
+  contact_detached: "customers.leads.lifecycle.events.contactDetached",
+  conversation_linked: "customers.leads.lifecycle.events.conversationLinked",
 };
 
 /**
@@ -230,14 +250,16 @@ export function LeadLifecycleSection({
               <li className="crm-item" key={h.seq}>
                 <div className="crm-item__main">
                   <div className="crm-item__title">
-                    {h.label}
+                    {EVENT_LABEL_KEYS[h.kind] ? t(EVENT_LABEL_KEYS[h.kind]) : h.label}
                     {h.kind === "status_changed" && h.fromStatus && h.toStatus
                       ? t("customers.leads.lifecycle.statusChange", {
                           from: leadStatusLabel(h.fromStatus as LeadStatusValue, t),
                           to: leadStatusLabel(h.toStatus as LeadStatusValue, t),
                         })
                       : null}
-                    {h.nextActionLabel ? ` · ${h.nextActionLabel}` : null}
+                    {h.nextActionLabel
+                      ? ` · ${isLeadNextActionKind(h.nextActionKind) ? t(NEXT_ACTION_LABEL_KEYS[h.nextActionKind]) : h.nextActionLabel}`
+                      : null}
                     {h.amount ? ` · ${h.amount}` : null}
                   </div>
                   <div className="crm-item__meta">

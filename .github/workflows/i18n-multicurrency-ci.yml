@@ -65,7 +65,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'  # same as release/verify, whose next build passes; Node 22 + Turbopack failed to resolve the next/font Heebo files 4 runs in a row
+          node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
@@ -75,6 +75,7 @@ jobs:
           npx tsx lib/money/money.verify.test.ts
           npx tsx lib/money/scenarios.verify.test.ts
           npx tsx lib/services/tasks/tasks-i18n.test.ts
+          npx tsx lib/services/crm/lead-history-i18n.test.ts
           npx tsx lib/email/transactional/transactional-email-i18n.test.ts
           npx tsx lib/navigation/app-title-metadata.test.ts
           npx tsx lib/knowledge/coverage/feature-coverage.test.ts
@@ -92,30 +93,37 @@ jobs:
       - name: 3 · Multi-currency battery (real routes, real auth, flag OFF)
         run: npx tsx .i18n/battery.mts
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
       # The flag is read at render time, and a flag-OFF build pre-renders the root layout statically,
       # so each phase gets its own build (Production: set the env var AND redeploy).
+      # Both builds run BEFORE the Chromium install: after `playwright install --with-deps` the Turbopack
+      # build could not resolve the next/font (Heebo) files, 4 runs in a row (release/verify, which never
+      # installs Playwright, builds the same commit fine).
       - name: Build (flag ON)
+        if: ${{ !cancelled() }}
         env:
           DUBIZ_I18N_ENABLED: "true"
-        run: npm run build
+        run: npm run build && mv .next ${{ runner.temp }}/next-on
+
+      - name: Build (flag OFF = Production today)
+        if: ${{ !cancelled() }}
+        run: npm run build && mv .next ${{ runner.temp }}/next-off
+
+      - name: Install Chromium
+        if: ${{ !cancelled() }}
+        run: npx playwright install --with-deps chromium
 
       - name: 4a · E2E flag ON — signed-in owner, 3 widths × 2 languages, persistence, data, isolation
+        if: ${{ !cancelled() }}
         env:
           DUBIZ_I18N_ENABLED: "true"
           E2E_PHASE: "on"
           E2E_SHOTS: ${{ runner.temp }}/i18n-shots
         run: |
+          rm -rf .next && mv ${{ runner.temp }}/next-on .next
           (npx next start -p 3611 > ${{ runner.temp }}/on.log 2>&1 &)
           for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3611/login && break; sleep 2; done
           npx tsx .i18n/e2e.mts
           pkill -f "next start -p 3611" || true
-
-      - name: Build (flag OFF = Production today)
-        if: ${{ !cancelled() }}
-        run: npm run build
 
       - name: 4b · E2E flag OFF — cookie ignored, Hebrew/RTL, endpoint 404
         if: ${{ !cancelled() }}
@@ -123,6 +131,7 @@ jobs:
           E2E_PHASE: "off"
           E2E_SHOTS: ${{ runner.temp }}/i18n-shots
         run: |
+          rm -rf .next && mv ${{ runner.temp }}/next-off .next
           (npx next start -p 3612 > ${{ runner.temp }}/off.log 2>&1 &)
           for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3612/login && break; sleep 2; done
           npx tsx .i18n/e2e.mts
