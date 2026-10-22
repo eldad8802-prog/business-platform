@@ -27,15 +27,19 @@ switched **off**. Nothing here changes any business's data, any tenant policy, o
 
 ## Sequence (each owner gate is explicit)
 
-0. **Merge** the A1 PR. Vercel deploys it. Until step 5, the console **says** its data plane is not connected
-   (503 `ADMIN_DATA_PLANE_UNAVAILABLE`) on the home, business list and business card instead of showing zeros.
-   Business feature access, MFA and everything outside `/admin` are unaffected. Passkeys stay off.
+Migration-first: the migration ships alone (#754); the application code (#753) merges only after it is applied.
+
+0. **Merge #754** (migration-only). Nothing in Production changes: no code reads the new shape.
 1. **Preflight** — run `prod-readonly-evidence.yml` with `ops/evidence/platform-admin-a1-preflight.sql` (from
    `main`). Expect checks 1–10 PASS (check 1 needs `20261022090000_task_reminders_push` applied first).
 2. **GATE M — migration.** Approval record `ops/release-approvals/20261024090000_platform_admin_a1.json` in its
    own PR (sha256, decision link, `preflightRun`); then `release-migrate` with
    `expected_migrations=20261024090000_platform_admin_a1` (plus only what the owner approved alongside it).
    Then run the proof `ops/evidence/platform-admin-a1-production-evidence.sql`: 20/20 PASS (21 is INFO).
+2b. **Merge #753** (application, rebased on main). Vercel deploys it. Until step 5 the console **says** its data
+   plane is not connected (503 `ADMIN_DATA_PLANE_UNAVAILABLE`) on the home, business list and business card
+   instead of showing zeros. Business feature access, MFA and everything outside `/admin` are unaffected.
+   Passkeys stay off.
 3. **Owner — secret.** One password: 48 characters of `[A-Za-z0-9_-]`
    (`openssl rand -base64 36 | tr '+/' '-_' | tr -d '='`). DIRECT URL (not `-pooler`):
    `postgresql://app_admin_prod:<password>@<direct host of ep-flat-brook-am4bhq1y>/neondb?sslmode=require&connection_limit=3`.
