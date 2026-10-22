@@ -18,6 +18,14 @@
 --   superuser / bypassrls  role attributes
 --   other_groups_n         how many other groups it belongs to
 -- A row with inherits_app_admin = false AND can_set_app_admin = false gains nothing from the A1 SELECT.
+--
+-- Part 2 closes the INDIRECT path: a LOGIN role that belongs to another group which itself belongs to
+-- app_admin is not a direct member, so part 1 cannot list it. pg_has_role resolves every path, so part 2
+-- counts over ALL LOGIN roles (pg_* excluded):
+--   effective_nonsuper_logins  non-superuser LOGIN roles that inherit app_admin OR can SET ROLE to it
+--   superuser_logins           superuser LOGIN roles (they pass every role check by definition; platform-managed)
+-- ACCEPTANCE: part 1 shows inherits_app_admin = false AND can_set_app_admin = false on every row, and
+-- part 2 shows effective_nonsuper_logins = 0.
 -- PRIVACY: catalog only. Guard-clean: no write keyword anywhere, prose included.
 -- ============================================================================
 
@@ -50,5 +58,17 @@ SELECT
   (SELECT count(*) FROM pg_auth_members m2 WHERE m2.member = mem.oid AND m2.roleid <> (SELECT oid FROM adm)) AS other_groups_n
 FROM mem
 ORDER BY member_n;
+
+\echo '== part 2: LOGIN roles with EFFECTIVE app_admin privileges by any path (counts only) =='
+
+WITH
+adm AS (SELECT oid FROM pg_roles WHERE rolname = 'app_admin'),
+logins AS (SELECT r.oid, r.rolsuper FROM pg_roles r WHERE r.rolcanlogin AND r.rolname NOT LIKE 'pg\_%')
+SELECT
+  count(*) FILTER (WHERE NOT l.rolsuper AND (pg_has_role(l.oid, (SELECT oid FROM adm), 'USAGE')
+                                          OR pg_has_role(l.oid, (SELECT oid FROM adm), 'SET'))) AS effective_nonsuper_logins,
+  count(*) FILTER (WHERE l.rolsuper)                                                              AS superuser_logins,
+  count(*)                                                                                        AS login_roles_n
+FROM logins l;
 
 ROLLBACK;
