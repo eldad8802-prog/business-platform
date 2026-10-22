@@ -158,25 +158,21 @@ export function BusinessDetailSurface({
 
   if (loading && !detail) {
     return (
-      <main
+      <div
         style={{
-          maxWidth: PA.maxWidth,
-          margin: "0 auto",
-          padding: "24px 20px 48px",
+          width: "100%",
         }}
       >
         <PlatformAdminSkeleton />
-      </main>
+      </div>
     );
   }
 
   if (notFound) {
     return (
-      <main
+      <div
         style={{
-          maxWidth: PA.maxWidth,
-          margin: "0 auto",
-          padding: "24px 20px 48px",
+          width: "100%",
         }}
       >
         <PlatformAdminEmptyState
@@ -188,16 +184,14 @@ export function BusinessDetailSurface({
             ללוח הבקרה
           </Link>
         </p>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main
+    <div
       style={{
-        maxWidth: PA.maxWidth,
-        margin: "0 auto",
-        padding: "24px 20px 48px",
+        width: "100%",
       }}
     >
       <header
@@ -214,7 +208,7 @@ export function BusinessDetailSurface({
       >
         <div>
           <div style={{ marginBottom: 8 }}>
-            <BackButton fallback="/admin" />
+            <BackButton fallback="/admin/businesses" />
           </div>
           {error ? (
             <PlatformAdminInlineError message={error} onRetry={() => void load()} />
@@ -549,6 +543,6 @@ export function BusinessDetailSurface({
           </p>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }
