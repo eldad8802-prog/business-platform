@@ -31,6 +31,7 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { safeErrorSummary } from "@/lib/security/log-safe-error";
 
 export const dynamic = "force-dynamic";
 
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
     clearRefreshCookie(res);
     return res;
   } catch (error) {
-    console.error("LOGOUT_ERROR:", error);
+    console.error("LOGOUT_ERROR:", safeErrorSummary(error));
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
