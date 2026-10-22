@@ -13,7 +13,13 @@
 --            NET      what was transferred to the business
 --   source   PROVIDER parsed from the provider's own data (sourceRef = the provider's reference, required)
 --            BANK     a matched bank line ("ExternalTransaction" of the same business and currency, required)
---            MANUAL   entered by the owner (recordedByUserId + a note, required)
+--            MANUAL   entered by the owner or a user with the financial permission (recordedByUserId — a user of
+--                     the row's business — and a note naming what was looked at, both required; the role check
+--                     itself is the application's: docs/payments/SETTLEMENT-FACTS-DESIGN.md §11)
+--   verification  VERIFIED      the facts agree (or nothing can be compared)
+--                 NEEDS_REVIEW  kept, never lost, but NOT verified: the source data disagrees (reviewReason, a
+--                               fixed set) and must be looked at; it is cleared only by a new superseding
+--                               VERIFIED fact recorded by a named user of the business, with a note
 --   There is deliberately NO source for a computed, representative (Bank of Israel) or display rate: such a number
 --   is never a fact about money received and cannot be stored here.
 --
@@ -28,8 +34,11 @@
 --   * only a PAID transaction has facts; CHARGED equals the transaction's amount and currency; CHARGED / SETTLED
 --     carry the transaction's sign, NET that sign or zero;
 --   * a rate only on SETTLED, only across two different currencies, from the charged to the settled currency;
---   * when the current SETTLED, FEE and NET are all in ONE currency, NET = SETTLED − FEE (checked at commit, so
---     the three may be written in one transaction). Across currencies nothing is computed;
+--   * when the current SETTLED, FEE and NET are all in ONE currency and NET ≠ SETTLED − FEE, all three must be
+--     NEEDS_REVIEW (checked at commit, so the writer records the disagreeing number and restates the others as
+--     NEEDS_REVIEW versions in one transaction). A disagreement is therefore always storable, never verified:
+--     only a VERIFIED fact that contradicts the others is refused. Across currencies nothing is computed;
+--   * a VERIFIED fact that supersedes a NEEDS_REVIEW one (clearing the review) names its user and carries a note;
 --   * writers of one transaction's facts are serialised (transaction-scoped advisory lock), and only under
 --     READ COMMITTED, so the commit-time check always sees the other writer's committed rows.
 --
@@ -39,7 +48,8 @@
 -- No SECURITY DEFINER function: every guard runs as the writer, and refuses what that writer cannot see.
 --
 -- Builds on 20261018090000_daily_tasks_foundation (public.task_user_same_business). Does NOT depend on
--- 20261025090000_currency_settings_fx_rates (no object of it is named): the two apply in either order.
+-- 20261025090000_currency_settings_fx_rates (no object of it is named), but the release order is fixed by the
+-- ledger-order preflight checks: 20261025090000 first (docs/payments/MIGRATION-ORDER.md).
 -- Additive only: no existing table, column, row, policy, trigger or grant is changed or removed.
 -- Reversal: .sfx/rollback.sql (owner-run, refuses while the table holds a row).
 -- ============================================================================================================
@@ -63,6 +73,8 @@ CREATE TABLE "PaymentSettlementFact" (
   "note" TEXT,
   "idempotencyKey" TEXT,
   "supersedesId" INTEGER,
+  "verification" TEXT NOT NULL,
+  "reviewReason" TEXT,
   "recordedByUserId" INTEGER,
   "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "PaymentSettlementFact_pkey" PRIMARY KEY ("id"),
@@ -85,6 +97,13 @@ CREATE TABLE "PaymentSettlementFact" (
   CONSTRAINT "PaymentSettlementFact_manual_note" CHECK ("source" <> 'MANUAL' OR btrim(coalesce("note", '')) <> ''),
   -- A bank line shows money arriving, not what the customer was charged.
   CONSTRAINT "PaymentSettlementFact_charged_source" CHECK ("kind" <> 'CHARGED' OR "source" <> 'BANK'),
+  -- Verified, or kept for review with the reason (a fixed set; there is no "estimated" / "representative" value:
+  -- such a number is never a fact).
+  CONSTRAINT "PaymentSettlementFact_verification" CHECK ("verification" IN ('VERIFIED', 'NEEDS_REVIEW')),
+  CONSTRAINT "PaymentSettlementFact_review_reason" CHECK (
+       ("verification" = 'VERIFIED' AND "reviewReason" IS NULL)
+    OR ("verification" = 'NEEDS_REVIEW' AND "reviewReason" IS NOT NULL
+        AND "reviewReason" IN ('NET_MISMATCH', 'CURRENCY_MISMATCH', 'SOURCE_CONFLICT'))),
   CONSTRAINT "PaymentSettlementFact_not_self" CHECK ("supersedesId" IS NULL OR "supersedesId" <> "id"),
   CONSTRAINT "PaymentSettlementFact_text_lengths" CHECK (
         ("sourceRef" IS NULL OR char_length("sourceRef") BETWEEN 1 AND 512)
@@ -104,12 +123,17 @@ CREATE INDEX "PaymentSettlementFact_businessId_paymentTransactionId_idx"
   ON "PaymentSettlementFact"("businessId", "paymentTransactionId");
 CREATE INDEX "PaymentSettlementFact_businessId_kind_currency_idx"
   ON "PaymentSettlementFact"("businessId", "kind", "currency");
+-- The review queue: what is kept but not verified.
+CREATE INDEX "PaymentSettlementFact_businessId_review_idx"
+  ON "PaymentSettlementFact"("businessId") WHERE "verification" = 'NEEDS_REVIEW';
 CREATE INDEX "PaymentSettlementFact_externalTransactionId_idx"
   ON "PaymentSettlementFact"("externalTransactionId") WHERE "externalTransactionId" IS NOT NULL;
 
 -- Financial evidence is never removed by a cascade: a business, a transaction, a bank line or a fact that a fact
--- rests on cannot be deleted while the fact exists. A user who recorded a fact may be erased (the reference is
--- blanked; who recorded it stays in the payment audit trail).
+-- rests on cannot be deleted while the fact exists. A user who recorded a fact may be erased: the reference is
+-- blanked (as PaymentAuditEvent.actorUserId is), the row keeps that it was entered by a person, when, and on what
+-- basis (the note). The actor rules (MANUAL, review clearance) are checked when a row is written, so the erasure
+-- does not contradict them.
 ALTER TABLE "PaymentSettlementFact" ADD CONSTRAINT "PaymentSettlementFact_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "PaymentSettlementFact" ADD CONSTRAINT "PaymentSettlementFact_paymentTransactionId_fkey"
@@ -141,6 +165,7 @@ DECLARE
   s_txn integer;
   s_kind text;
   s_business integer;
+  s_verification text;
 BEGIN
   IF current_setting('transaction_isolation') <> 'read committed' THEN
     RAISE EXCEPTION USING ERRCODE = 'DZS09',
@@ -197,12 +222,20 @@ BEGIN
   END IF;
 
   IF NEW."supersedesId" IS NOT NULL THEN
-    SELECT f."paymentTransactionId", f."kind", f."businessId" INTO s_txn, s_kind, s_business
+    SELECT f."paymentTransactionId", f."kind", f."businessId", f."verification"
+      INTO s_txn, s_kind, s_business, s_verification
       FROM "PaymentSettlementFact" f WHERE f."id" = NEW."supersedesId";
     IF NOT FOUND OR s_business IS DISTINCT FROM NEW."businessId"
        OR s_txn IS DISTINCT FROM NEW."paymentTransactionId" OR s_kind IS DISTINCT FROM NEW."kind" THEN
       RAISE EXCEPTION USING ERRCODE = 'DZS07',
         MESSAGE = 'SETTLEMENT_FACT_SUPERSEDES: a correction replaces a fact of the same transaction and kind';
+    END IF;
+    -- Clearing a review is a person's decision, audited by the row: who (a user of this business — the
+    -- same-business trigger below), when (recordedAt) and on what basis (the note). Never an automatic one.
+    IF s_verification = 'NEEDS_REVIEW' AND NEW."verification" = 'VERIFIED'
+       AND (NEW."recordedByUserId" IS NULL OR btrim(coalesce(NEW."note", '')) = '') THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZS10',
+        MESSAGE = 'SETTLEMENT_FACT_REVIEW_CLEARANCE: a VERIFIED fact that clears a review names its user and carries a note';
     END IF;
   END IF;
   RETURN NEW;
@@ -218,11 +251,14 @@ CREATE TRIGGER "PaymentSettlementFact_user_same_business"
   BEFORE INSERT ON "PaymentSettlementFact"
   FOR EACH ROW EXECUTE FUNCTION public.task_user_same_business('recordedByUserId');
 
--- ── 3. NET = SETTLED − FEE, at commit ──────────────────────────────────────────────────────────────────────
+-- ── 3. NET = SETTLED − FEE, or all three under review, at commit ──────────────────────────────────────────
 
 -- Among the CURRENT facts of the transaction (those nothing supersedes): when SETTLED, FEE and NET are all
--- present and all in one currency, they must add up. Deferred to commit so a writer may record the three (or a
--- correction of two) in one transaction. Different currencies: no arithmetic, nothing refused.
+-- present, all in one currency, and do not add up, every one of the three must be NEEDS_REVIEW — a VERIFIED fact
+-- among them is refused. The source data is never lost (a disagreement is always storable as NEEDS_REVIEW) and
+-- never shown as verified. Deferred to commit so a writer may record the three (or a correction of two, or the
+-- NEEDS_REVIEW restatement of the others) in one transaction. Different currencies: no arithmetic, nothing
+-- refused (the writer may still flag CURRENCY_MISMATCH).
 CREATE OR REPLACE FUNCTION public.payment_settlement_fact_net_check()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -232,20 +268,23 @@ DECLARE
   s_amount numeric; s_currency text;
   f_amount numeric; f_currency text;
   n_amount numeric; n_currency text;
+  verified_among integer;
 BEGIN
   SELECT max(c."amount") FILTER (WHERE c."kind" = 'SETTLED'), max(c."currency") FILTER (WHERE c."kind" = 'SETTLED'),
          max(c."amount") FILTER (WHERE c."kind" = 'FEE'),     max(c."currency") FILTER (WHERE c."kind" = 'FEE'),
-         max(c."amount") FILTER (WHERE c."kind" = 'NET'),     max(c."currency") FILTER (WHERE c."kind" = 'NET')
-    INTO s_amount, s_currency, f_amount, f_currency, n_amount, n_currency
+         max(c."amount") FILTER (WHERE c."kind" = 'NET'),     max(c."currency") FILTER (WHERE c."kind" = 'NET'),
+         count(*) FILTER (WHERE c."kind" IN ('SETTLED', 'FEE', 'NET') AND c."verification" = 'VERIFIED')
+    INTO s_amount, s_currency, f_amount, f_currency, n_amount, n_currency, verified_among
     FROM "PaymentSettlementFact" c
    WHERE c."paymentTransactionId" = NEW."paymentTransactionId"
      AND NOT EXISTS (SELECT 1 FROM "PaymentSettlementFact" s WHERE s."supersedesId" = c."id");
   IF s_amount IS NOT NULL AND f_amount IS NOT NULL AND n_amount IS NOT NULL
      AND s_currency = f_currency AND f_currency = n_currency
-     AND n_amount <> s_amount - f_amount THEN
+     AND n_amount <> s_amount - f_amount AND verified_among > 0 THEN
     RAISE EXCEPTION USING ERRCODE = 'DZS08',
-      MESSAGE = format('SETTLEMENT_FACT_NET_MISMATCH: net %s %s is not settled %s minus fee %s',
-                       n_amount, n_currency, s_amount, f_amount);
+      MESSAGE = format('SETTLEMENT_FACT_NET_MISMATCH: net %s %s is not settled %s minus fee %s, and %s of them is VERIFIED; '
+                       || 'record the disagreeing facts as NEEDS_REVIEW (reviewReason NET_MISMATCH), superseding a VERIFIED one',
+                       n_amount, n_currency, s_amount, f_amount, verified_among);
   END IF;
   RETURN NULL;
 END

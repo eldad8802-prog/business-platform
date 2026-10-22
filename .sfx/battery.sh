@@ -15,10 +15,17 @@
 #       and a user of the same business; CHARGED never from BANK; registry currencies / kinds / sources only
 #   S6  versions: one first version per kind; a correction supersedes exactly one fact of the same kind and
 #       transaction; the current fact is the one nothing supersedes; idempotency key
-#   S7  NET = SETTLED − FEE at commit when all three share a currency (incl. corrections); nothing computed
-#       across currencies; a real concurrent race (two writers) is serialised and still refused
+#   S7  NET = SETTLED − FEE at commit when all three share a currency (incl. corrections) unless all three are
+#       NEEDS_REVIEW; nothing computed across currencies; a real concurrent race (two writers) is serialised and
+#       still refused, and a NEEDS_REVIEW race is serialised and stored
+#   SR  review (owner decision 1): a disagreement is STORED as NEEDS_REVIEW (never refused, never verified); a
+#       VERIFIED fact contradicting the others is refused; the reason is required and from the fixed set;
+#       clearing = a superseding VERIFIED fact by a named user of the business with a note (MANUAL rules,
+#       owner decision 2); the originals stay
+#   SE  estimates (owner decision 3): no estimated / representative value of verification, reason, source or kind
 #   S8  append-only: UPDATE / DELETE / TRUNCATE refused for the runtime (no privilege), the owner and a superuser
-#       (trigger); recordedAt is the database's clock; a user's erasure blanks recordedByUserId and keeps the row;
+#       (trigger); recordedAt is the database's clock; a user's erasure blanks recordedByUserId and keeps the row
+#       (a MANUAL fact and a review clearance alike — the actor rules are checked when a row is written);
 #       financial parents cannot be deleted under a fact
 #   S9  privileges: app_runtime SELECT + INSERT only; no other role, no PUBLIC; READ COMMITTED only
 #
@@ -46,9 +53,11 @@ refused() {  # refused <label> <pattern> <command...>
 eq() { [ "$2" = "$3" ] || die "$1 — expected '$3', got '$2'"; ok "$1"; }
 T='"PaymentSettlementFact"'
 # f <business> <txn> <kind> <amount> <currency> <source> [<extra columns> <extra values>] — one INSERT statement
+# VER=<verification> (default VERIFIED) and WHY=<reviewReason> (default none) may prefix a call.
 f() {
-  local cols='"businessId", "paymentTransactionId", "kind", "amount", "currency", "source"'
-  local vals="$1, $2, '$3', $4, '$5', '$6'"
+  local cols='"businessId", "paymentTransactionId", "kind", "amount", "currency", "source", "verification"'
+  local vals="$1, $2, '$3', $4, '$5', '$6', '${VER:-VERIFIED}'"
+  [ -n "${WHY:-}" ] && { cols="$cols, \"reviewReason\""; vals="$vals, '$WHY'"; }
   [ "$6" = "PROVIDER" ] && { cols="$cols, \"sourceRef\""; vals="$vals, 'cc-deal-$2-$3'"; }
   echo "INSERT INTO $T ($cols${7:-}) VALUES ($vals${8:-})"
 }
@@ -71,8 +80,10 @@ TB=$(txn "$RB" 50.00 EUR)             # B: a EUR payment
 TX=$(txn "$RI" 30.00 ILS)             # A: for the race
 TK=$(txn "$RI" 20.00 ILS)             # A: for the idempotency key
 TM=$(txn "$RI" 75.00 ILS)             # A: for the manual fact of an erased user
-BA=$(bank "$A" 355.00 ILS); BU=$(bank "$A" 98.00 USD); BB=$(bank "$B" 180.00 ILS)
-echo "seed: A=$A B=$B users $UA/$UB/$UE txns USD=$TA rev=$TR pending=$TP ILS=$TI B-EUR=$TB race=$TX key=$TK manual=$TM bank A-ILS=$BA A-USD=$BU B-ILS=$BB"
+TN=$(txn "$RI" 100.00 ILS)            # A: for the review flow
+TY=$(txn "$RI" 30.00 ILS)             # A: for the review race
+BA=$(bank "$A" 355.00 ILS); BU=$(bank "$A" 98.00 USD); BB=$(bank "$B" 180.00 ILS); BN=$(bank "$A" 97.00 ILS)
+echo "seed: A=$A B=$B users $UA/$UB/$UE txns USD=$TA rev=$TR pending=$TP ILS=$TI B-EUR=$TB race=$TX key=$TK manual=$TM review=$TN review-race=$TY bank A-ILS=$BA A-USD=$BU B-ILS=$BB"
 
 echo "S1 — tenant isolation"
 rt "$A" "$(f "$A" "$TA" CHARGED 100.00 USD PROVIDER)" >/dev/null; ok "A records CHARGED 100.00 USD from the provider"
@@ -123,6 +134,10 @@ refused "MANUAL without a note" "PaymentSettlementFact_manual_note" rt "$A" "$(f
 refused "MANUAL with a blank note" "PaymentSettlementFact_manual_note" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "recordedByUserId", "note"' ", $UA, '   '")"
 refused "MANUAL without the user who entered it" "DZS06|SETTLEMENT_FACT_MANUAL_ACTOR" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "note"' ", 'from the statement'")"
 refused "MANUAL by a user of another business" "DZT03|TASK_USER_OTHER_BUSINESS" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "note", "recordedByUserId"' ", 'x', $UB")"
+refused "MANUAL by a user of another business (owner, BYPASSRLS)" "DZT03|TASK_USER_OTHER_BUSINESS" own "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "note", "recordedByUserId"' ", 'x', $UB")"
+refused "MANUAL by a user that does not exist" "DZT03|TASK_USER_OTHER_BUSINESS|foreign key" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL ', "note", "recordedByUserId"' ", 'x', 999999")"
+refused "MANUAL without the user AND without a note" "PaymentSettlementFact_manual_note|DZS06|SETTLEMENT_FACT_MANUAL_ACTOR" rt "$A" "$(f "$A" "$TI" FEE 1.00 ILS MANUAL)"
+refused "verification omitted (the writer always states it)" "verification.*not-null|null value in column \"verification\"" rt "$A" "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\") VALUES ($A, $TI, 'FEE', 1.00, 'ILS', 'PROVIDER', 'x')"
 refused "a source for a representative / computed rate" "PaymentSettlementFact_source" rt "$A" "$(f "$A" "$TA" SETTLED 370.00 ILS BANK_OF_ISRAEL)"
 refused "an unsupported currency" "PaymentSettlementFact_currency" rt "$A" "$(f "$A" "$TA" SETTLED 80.00 GBP PROVIDER)"
 refused "a lower-case currency" "PaymentSettlementFact_currency" rt "$A" "$(f "$A" "$TA" SETTLED 370.00 ils PROVIDER)"
@@ -143,8 +158,9 @@ rt "$A" "$(f "$A" "$TI" CHARGED 200.00 ILS PROVIDER ', "idempotencyKey"' ", 'car
 refused "the same idempotency key again" "PaymentSettlementFact_businessId_idempotencyKey_key" rt "$A" "$(f "$A" "$TK" CHARGED 20.00 ILS PROVIDER ', "idempotencyKey"' ", 'cardcom:deal:1'")"
 
 echo "S7 — NET = SETTLED − FEE (same currency), at commit"
-refused "FEE 10.00 + NET 350.00 against SETTLED 370.00 (one transaction)" "DZS08|NET_MISMATCH" rt "$A" "$(f "$A" "$TA" FEE 10.00 ILS PROVIDER)" "$(f "$A" "$TA" NET 350.00 ILS BANK ', "externalTransactionId"' ", $BA")"
-eq "nothing of the refused transaction is left" "$(rt "$A" "SELECT count(*) FROM $T WHERE \"paymentTransactionId\" = $TA AND \"kind\" IN ('FEE', 'NET')")" "0"
+refused "VERIFIED FEE 10.00 + NET 350.00 against SETTLED 370.00 (one transaction)" "DZS08|NET_MISMATCH" rt "$A" "$(f "$A" "$TA" FEE 10.00 ILS PROVIDER)" "$(f "$A" "$TA" NET 350.00 ILS BANK ', "externalTransactionId"' ", $BA")"
+refused "NEEDS_REVIEW FEE + NET while the contradicting SETTLED stays VERIFIED" "DZS08|NET_MISMATCH" rt "$A" "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TA" FEE 10.00 ILS PROVIDER)" "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TA" NET 350.00 ILS BANK ', "externalTransactionId"' ", $BA")"
+eq "nothing of the refused transactions is left" "$(rt "$A" "SELECT count(*) FROM $T WHERE \"paymentTransactionId\" = $TA AND \"kind\" IN ('FEE', 'NET')")" "0"
 F1=$(rt "$A" "$(f "$A" "$TA" FEE 15.00 ILS PROVIDER) RETURNING \"id\"")
 N1=$(rt "$A" "$(f "$A" "$TA" NET 355.00 ILS BANK ', "externalTransactionId"' ", $BA") RETURNING \"id\"")
 ok "FEE 15.00 then NET 355.00 from the bank line (370.00 − 15.00): accepted"
@@ -169,10 +185,67 @@ waited=$(( $(date +%s) - t0 )); wait "$bg"
 [ "$waited" -ge 1 ] || die "race: the second writer did not wait (${waited}s)"
 ok "race: the second writer waited ${waited}s for the first, then was refused"
 rt "$A" "$(f "$A" "$TX" NET 29.00 ILS PROVIDER)" >/dev/null; ok "race: NET 29.00 afterwards: accepted"
+# Review race: writer 1 records SETTLED + FEE as NEEDS_REVIEW and holds; writer 2 records a disagreeing NEEDS_REVIEW
+# NET. Writer 2 waits for writer 1, then sees all three under review and is STORED (nothing lost, nothing verified).
+( PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -v ON_ERROR_STOP=1 -U app_runtime_prod -d "$DB" \
+    -c "BEGIN" -c "SELECT set_config('app.current_business_id', '$A', true)" \
+    -c "$(VER=NEEDS_REVIEW WHY=SOURCE_CONFLICT f "$A" "$TY" SETTLED 30.00 ILS PROVIDER)" -c "$(VER=NEEDS_REVIEW WHY=SOURCE_CONFLICT f "$A" "$TY" FEE 1.00 ILS PROVIDER)" \
+    -c "SELECT pg_sleep(3)" -c "COMMIT" >/dev/null ) &
+bg=$!
+sleep 1
+t0=$(date +%s)
+rt "$A" "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TY" NET 30.00 ILS PROVIDER)" >/dev/null
+waited=$(( $(date +%s) - t0 )); wait "$bg"
+[ "$waited" -ge 1 ] || die "review race: the second writer did not wait (${waited}s)"
+ok "review race: the second writer waited ${waited}s, then its disagreeing NEEDS_REVIEW NET was stored"
+eq "review race: all three kept, none verified" "$(rt "$A" "SELECT count(*) || '|' || count(*) FILTER (WHERE \"verification\" = 'VERIFIED') FROM $T WHERE \"paymentTransactionId\" = $TY")" "3|0"
 refused "REPEATABLE READ writer" "DZS09|SETTLEMENT_FACT_ISOLATION" \
   env PGPASSWORD="$LAB_PASSWORD" psql -X -q -At -v ON_ERROR_STOP=1 -U app_runtime_prod -d "$DB" \
     -c "BEGIN ISOLATION LEVEL REPEATABLE READ" -c "SELECT set_config('app.current_business_id', '$A', true)" \
     -c "$(f "$A" "$TI" FEE 2.00 ILS PROVIDER)" -c "COMMIT"
+
+echo "SR — review: a disagreement is kept as NEEDS_REVIEW, never verified (owner decision 1)"
+SN=$(rt "$A" "$(f "$A" "$TN" SETTLED 100.00 ILS PROVIDER) RETURNING \"id\"")
+FN=$(rt "$A" "$(f "$A" "$TN" FEE 2.00 ILS PROVIDER) RETURNING \"id\"")
+ok "SETTLED 100.00 + FEE 2.00 VERIFIED (facts $SN, $FN)"
+refused "the bank shows NET 97.00 (≠ 98.00) recorded as VERIFIED" "DZS08|NET_MISMATCH" rt "$A" "$(f "$A" "$TN" NET 97.00 ILS BANK ', "externalTransactionId"' ", $BN")"
+refused "NET 97.00 as NEEDS_REVIEW alone (SETTLED and FEE still VERIFIED contradict it)" "DZS08|NET_MISMATCH" rt "$A" "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TN" NET 97.00 ILS BANK ', "externalTransactionId"' ", $BN")"
+NN=$(rt "$A" "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TN" NET 97.00 ILS BANK ', "externalTransactionId"' ", $BN") RETURNING \"id\"" \
+        "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TN" SETTLED 100.00 ILS PROVIDER ', "supersedesId"' ", $SN")" \
+        "$(VER=NEEDS_REVIEW WHY=NET_MISMATCH f "$A" "$TN" FEE 2.00 ILS PROVIDER ', "supersedesId"' ", $FN")" | head -1)
+ok "the mismatch is STORED: NET 97.00 NEEDS_REVIEW + SETTLED / FEE restated as NEEDS_REVIEW versions (NET fact $NN)"
+eq "nothing lost: the original VERIFIED facts stay, 5 rows" "$(rt "$A" "SELECT count(*) FROM $T WHERE \"paymentTransactionId\" = $TN")" "5"
+cur() { rt "$A" "SELECT string_agg(f.\"kind\" || ':' || f.\"amount\" || ':' || f.\"verification\" || ':' || coalesce(f.\"reviewReason\", '-'), ',' ORDER BY f.\"kind\") FROM $T f WHERE f.\"paymentTransactionId\" = $1 AND NOT EXISTS (SELECT 1 FROM $T s WHERE s.\"supersedesId\" = f.\"id\")"; }
+eq "the current set is all NEEDS_REVIEW (never verified)" "$(cur "$TN")" "FEE:2.00:NEEDS_REVIEW:NET_MISMATCH,NET:97.00:NEEDS_REVIEW:NET_MISMATCH,SETTLED:100.00:NEEDS_REVIEW:NET_MISMATCH"
+eq "the review queue shows the three" "$(rt "$A" "SELECT count(*) FROM $T f WHERE f.\"verification\" = 'NEEDS_REVIEW' AND f.\"paymentTransactionId\" = $TN AND NOT EXISTS (SELECT 1 FROM $T s WHERE s.\"supersedesId\" = f.\"id\")")" "3"
+FR=$(rt "$A" "SELECT f.\"id\" FROM $T f WHERE f.\"paymentTransactionId\" = $TN AND f.\"kind\" = 'FEE' AND NOT EXISTS (SELECT 1 FROM $T s WHERE s.\"supersedesId\" = f.\"id\")")
+SR=$(rt "$A" "SELECT f.\"id\" FROM $T f WHERE f.\"paymentTransactionId\" = $TN AND f.\"kind\" = 'SETTLED' AND NOT EXISTS (SELECT 1 FROM $T s WHERE s.\"supersedesId\" = f.\"id\")")
+refused "NEEDS_REVIEW without a reason" "PaymentSettlementFact_review_reason" rt "$A" "$(VER=NEEDS_REVIEW f "$A" "$TI" SETTLED 200.00 ILS PROVIDER)"
+refused "VERIFIED with a review reason" "PaymentSettlementFact_review_reason" rt "$A" "$(WHY=NET_MISMATCH f "$A" "$TI" SETTLED 200.00 ILS PROVIDER)"
+refused "a reason outside the fixed set" "PaymentSettlementFact_review_reason" rt "$A" "$(VER=NEEDS_REVIEW WHY=LOOKS_ODD f "$A" "$TI" SETTLED 200.00 ILS PROVIDER)"
+refused "a verification outside the set" "PaymentSettlementFact_(verification|review_reason)" rt "$A" "$(VER=PENDING f "$A" "$TI" SETTLED 200.00 ILS PROVIDER)"
+refused "clearing a review with no user (an automatic clearance)" "DZS10|REVIEW_CLEARANCE" rt "$A" "$(f "$A" "$TN" NET 98.00 ILS PROVIDER ', "supersedesId"' ", $NN")"
+refused "clearing a review without a note" "DZS10|REVIEW_CLEARANCE" rt "$A" "$(f "$A" "$TN" NET 98.00 ILS PROVIDER ', "supersedesId", "recordedByUserId"' ", $NN, $UA")"
+refused "clearing a review by a user of another business" "DZT03|TASK_USER_OTHER_BUSINESS" rt "$A" "$(f "$A" "$TN" NET 97.00 ILS MANUAL ', "supersedesId", "recordedByUserId", "note"' ", $NN, $UB, 'x'")"
+refused "clearing NET to VERIFIED 97.00 while it still contradicts SETTLED 100.00 − FEE 2.00" "DZS08|NET_MISMATCH" rt "$A" "$(f "$A" "$TN" NET 97.00 ILS MANUAL ', "supersedesId", "recordedByUserId", "note"' ", $NN, $UA, 'bank statement'")"
+rt "$A" "$(f "$A" "$TN" FEE 3.00 ILS MANUAL ', "supersedesId", "recordedByUserId", "note"' ", $FR, $UA, 'provider back office: fee 3.00 incl. foreign card fee'")" >/dev/null
+ok "the fee is found to be 3.00: a VERIFIED FEE by a named user with a note clears it (100.00 − 3.00 = 97.00)"
+rt "$A" "$(f "$A" "$TN" SETTLED 100.00 ILS MANUAL ', "supersedesId", "recordedByUserId", "note"' ", $SR, $UA, 'checked against the provider report'")" \
+       "$(f "$A" "$TN" NET 97.00 ILS MANUAL ', "supersedesId", "recordedByUserId", "note"' ", $NN, $UE, 'bank statement line'")" >/dev/null
+ok "SETTLED and NET cleared to VERIFIED (NET by the user who will be erased in S8)"
+eq "the current set is VERIFIED and adds up" "$(cur "$TN")" "FEE:3.00:VERIFIED:-,NET:97.00:VERIFIED:-,SETTLED:100.00:VERIFIED:-"
+eq "the whole history is kept (8 rows: 2 first, 3 under review, 3 cleared)" "$(rt "$A" "SELECT count(*) FROM $T WHERE \"paymentTransactionId\" = $TN")" "8"
+CL=$(rt "$A" "SELECT \"id\" FROM $T WHERE \"paymentTransactionId\" = $TN AND \"kind\" = 'NET' AND \"recordedByUserId\" = $UE")
+rt "$B" "$(VER=NEEDS_REVIEW WHY=CURRENCY_MISMATCH f "$B" "$TB" FEE 1.50 EUR PROVIDER ', "supersedesId"' ", (SELECT f.\"id\" FROM $T f WHERE f.\"paymentTransactionId\" = $TB AND f.\"kind\" = 'FEE')")" >/dev/null
+ok "B: a writer may flag a cross-currency set CURRENCY_MISMATCH (stored, no arithmetic)"
+
+echo "SE — estimates are never facts (owner decision 3)"
+refused "verification ESTIMATED" "PaymentSettlementFact_(verification|review_reason)" rt "$A" "$(VER=ESTIMATED f "$A" "$TA" NET 368.00 ILS PROVIDER)"
+refused "a REPRESENTATIVE_RATE review reason" "PaymentSettlementFact_review_reason" rt "$A" "$(VER=NEEDS_REVIEW WHY=REPRESENTATIVE_RATE f "$A" "$TI" SETTLED 200.00 ILS PROVIDER)"
+refused "source REPRESENTATIVE" "PaymentSettlementFact_source" rt "$A" "$(f "$A" "$TI" SETTLED 200.00 ILS REPRESENTATIVE)"
+refused "source COMPUTED" "PaymentSettlementFact_source" rt "$A" "$(f "$A" "$TI" SETTLED 200.00 ILS COMPUTED)"
+refused "kind ESTIMATE" "PaymentSettlementFact_kind" rt "$A" "$(f "$A" "$TI" ESTIMATE 200.00 ILS PROVIDER)"
+eq "no column can hold an estimate flag or a representative rate" "$(su "SELECT count(*) FROM pg_attribute WHERE attrelid = '\"PaymentSettlementFact\"'::regclass AND attnum > 0 AND NOT attisdropped AND attname ~* '(estimat|approx|represent|boi)'")" "0"
 
 echo "S8 — append-only"
 refused "runtime UPDATE" "permission denied" rt "$A" "UPDATE $T SET \"note\" = 'x' WHERE \"id\" = $S2"
@@ -181,12 +254,15 @@ refused "runtime TRUNCATE" "permission denied" rt "$A" "TRUNCATE $T"
 refused "owner UPDATE" "DZS01|APPEND_ONLY" own "UPDATE $T SET \"amount\" = 1 WHERE \"id\" = $S2"
 refused "owner DELETE" "DZS01|APPEND_ONLY" own "DELETE FROM $T WHERE \"id\" = $S2"
 refused "superuser UPDATE" "DZS01|APPEND_ONLY" su "UPDATE $T SET \"recordedByUserId\" = NULL WHERE \"recordedByUserId\" IS NOT NULL"
+refused "owner UPDATE of verification (no in-place clearing)" "DZS01|APPEND_ONLY" own "UPDATE $T SET \"verification\" = 'VERIFIED', \"reviewReason\" = NULL WHERE \"verification\" = 'NEEDS_REVIEW'"
 refused "superuser TRUNCATE" "DZS01|APPEND_ONLY" su "TRUNCATE $T"
 eq "recordedAt is the database's clock, not the writer's" \
   "$(rt "$A" "$(f "$A" "$TI" FEE 0 ILS PROVIDER ', "recordedAt"' ", '2000-01-01'") RETURNING (\"recordedAt\" > now() - interval '1 minute')::text")" "true"
 M=$(rt "$A" "$(f "$A" "$TM" SETTLED 75.00 ILS MANUAL ', "note", "recordedByUserId"' ", 'deposit seen in the bank app', $UE") RETURNING \"id\"")
 su "DELETE FROM \"User\" WHERE \"id\" = $UE"
 eq "a user's erasure blanks recordedByUserId and keeps the fact" "$(su "SELECT coalesce(\"recordedByUserId\"::text, 'null') || '|' || \"amount\" || '|' || \"source\" FROM $T WHERE \"id\" = $M")" "null|75.00|MANUAL"
+eq "... and keeps the review clearance that user recorded, still VERIFIED, note intact" "$(su "SELECT coalesce(\"recordedByUserId\"::text, 'null') || '|' || \"verification\" || '|' || \"note\" FROM $T WHERE \"id\" = $CL")" "null|VERIFIED|bank statement line"
+eq "... and the cleared set still reads VERIFIED and adds up" "$(cur "$TN")" "FEE:3.00:VERIFIED:-,NET:97.00:VERIFIED:-,SETTLED:100.00:VERIFIED:-"
 refused "deleting a transaction that has facts" "foreign key|violates" su "DELETE FROM \"PaymentTransaction\" WHERE \"id\" = $TI"
 refused "deleting a bank line that a fact rests on" "foreign key|violates|immutable" su "DELETE FROM \"ExternalTransaction\" WHERE \"id\" = $BA"
 

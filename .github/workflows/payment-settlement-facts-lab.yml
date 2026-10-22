@@ -11,14 +11,18 @@
 # job lab
 #   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
 #      migration names only its own table and what it builds on, alters no existing table, and names nothing of
-#      20261025090000_currency_settings_fx_rates (independent order).
+#      20261025090000_currency_settings_fx_rates (no object dependency; the release order is fixed by the ledger-order
+#      preflight checks — docs/payments/MIGRATION-ORDER.md).
 #   1. Baseline (pending): the PREFLIGHT passes (15-18 are INFO); the proof refuses.
 #   2. Payment rows seeded BEFORE; `prisma migrate deploy` applies it: proof 20/20; the preflight then fails exactly
 #      its "not there yet" checks; the seeded rows are byte-identical.
+#   2b. Apply order: with 20261025090000 recorded first the preflight passes unchanged; inverted, #756's check 5
+#      would observe this migration (docs/payments/MIGRATION-ORDER.md).
 #   3. Faults: each injected defect is caught by the proof check meant for it.
 #   4. Battery as the real roles (.sfx/battery.sh): isolation, transaction-business mismatch (runtime AND owner),
 #      CHARGED / sign / rate / source rules, versions, NET = SETTLED − FEE at commit incl. a real concurrent race,
-#      append-only for every role, privileges.
+#      review (a disagreement stored as NEEDS_REVIEW, a contradicting VERIFIED fact refused, clearance by a named
+#      user of the business with a note), no estimate representable, append-only for every role, privileges.
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 # job compat
 #   6. Rollback: refused while a row exists; then .sfx/rollback.sql returns the database to its exact pre-migration
@@ -108,7 +112,7 @@ jobs:
           if grep -v '^ *--' "$SFM" | grep -E 'FxRate|BusinessLocaleSettings|UserLocalePreference|business_base_currency|fx_rate'; then
             echo "the migration depends on 20261025090000_currency_settings_fx_rates"; exit 1
           fi
-          echo "nothing of 20261025090000_currency_settings_fx_rates is named: the two apply in either order"
+          echo "nothing of 20261025090000_currency_settings_fx_rates is named (no object dependency; release order: docs/payments/MIGRATION-ORDER.md)"
           if grep -v '^ *--' "$SFM" | grep -iE 'SECURITY\s+DEFINER'; then echo "a SECURITY DEFINER function"; exit 1; fi
           echo "no SECURITY DEFINER function"
 
@@ -155,6 +159,25 @@ jobs:
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "4 7 8 " || { echo "after the release: expected '4 7 8 ', got: $fails"; exit 1; }
           echo "after the release the preflight fails exactly 4 7 8 (recorded; the names now exist)"
+
+      - name: 2b. Apply order (docs/payments/MIGRATION-ORDER.md) — after 20261025090000 the preflight passes unchanged; the inverted order makes 20261025090000's own check 5 fail
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_ord
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_ord -c "$1"; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_ord -v ON_ERROR_STOP=1 "$@"; }
+          # The ledger as it is once 20261025090000_currency_settings_fx_rates (PR #756) is released first.
+          su "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, repeat('0', 64), now(), '20261025090000_currency_settings_fx_rates', 1)"
+          lab -f "$PREFLIGHT" | tee /tmp/ord.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ord.out; then echo "preflight FAILS after 20261025090000"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/ord.out)" = "19" || { echo "expected 19 rows"; exit 1; }
+          grep -qE '^ +5 \| PASS +\| +0' /tmp/ord.out || { echo "check 5 did not observe 0"; exit 1; }
+          echo "order 20261025090000 → 20261026090000: this preflight passes unchanged (check 5 observes 0)"
+          # The inverted order: 20261026090000 applied (sfx_post), 20261025090000 pending. PR #756's check 5,
+          # verbatim from ops/evidence/currency-fx-preflight.sql, observes this migration and fails.
+          inv=$(psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_post -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name > '20261025090000_currency_settings_fx_rates'")
+          test "$inv" = "1" || { echo "expected the inverted order to show 1 later migration, got $inv"; exit 1; }
+          echo "inverted order: #756's check 5 would observe $inv (FAIL) — release-migrate would refuse 20261025090000"
 
       - name: 3. Faults — each is caught by the proof, by the check meant for it
         run: |
@@ -213,14 +236,19 @@ jobs:
           fault "one-first-version key removed" "14 " 'DROP INDEX "PaymentSettlementFact_first_version_key"' \
             "CREATE UNIQUE INDEX \"PaymentSettlementFact_first_version_key\" ON $T(\"paymentTransactionId\", \"kind\") WHERE \"supersedesId\" IS NULL"
           fault "a column made required" "4 " "ALTER TABLE $T ALTER COLUMN \"note\" SET NOT NULL" "ALTER TABLE $T ALTER COLUMN \"note\" DROP NOT NULL"
+          fault "verification made optional" "4 " "ALTER TABLE $T ALTER COLUMN \"verification\" DROP NOT NULL" "ALTER TABLE $T ALTER COLUMN \"verification\" SET NOT NULL"
+          fault "the review-reason CHECK removed" "12 " "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_review_reason\"" \
+            "ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_review_reason\" CHECK ((\"verification\" = 'VERIFIED' AND \"reviewReason\" IS NULL) OR (\"verification\" = 'NEEDS_REVIEW' AND \"reviewReason\" IS NOT NULL AND \"reviewReason\" IN ('NET_MISMATCH', 'CURRENCY_MISMATCH', 'SOURCE_CONFLICT')))"
+          fault "the verification CHECK removed" "12 " "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_verification\"" \
+            "ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_verification\" CHECK (\"verification\" IN ('VERIFIED', 'NEEDS_REVIEW'))"
           fault "a column widened" "4 " "ALTER TABLE $T ALTER COLUMN \"amount\" TYPE numeric(20,4)" "ALTER TABLE $T ALTER COLUMN \"amount\" TYPE numeric(18,2)"
           fault "a fact written" "17 " \
-            "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\") VALUES ($BIZ, $TXN, 'FEE', 0, 'ILS', 'PROVIDER', 'sfx-fault')" \
+            "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\", \"verification\") VALUES ($BIZ, $TXN, 'FEE', 0, 'ILS', 'PROVIDER', 'sfx-fault', 'VERIFIED')" \
             "ALTER TABLE $T DISABLE TRIGGER \"PaymentSettlementFact_append_only\"; DELETE FROM $T; ALTER TABLE $T ENABLE TRIGGER \"PaymentSettlementFact_append_only\""
           test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
           echo "every fault caught by its own check; proof back to 20/20"
 
-      - name: 4. Battery — isolation, mismatch, CHARGED / sign / rate / source rules, versions, NET at commit (with a race), append-only, privileges — as the real roles
+      - name: 4. Battery — isolation, mismatch, CHARGED / sign / rate / source rules, versions, NET at commit (with races), review (NEEDS_REVIEW stored, clearance audited), no estimates, append-only, privileges — as the real roles
         run: bash .sfx/battery.sh sfx_post
 
       - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
@@ -281,7 +309,7 @@ jobs:
           P=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('sfx-rb', now()) RETURNING \"id\"")
           R=$(su "INSERT INTO \"PaymentRequest\" (\"businessId\", \"provider\", \"amount\", \"currency\", \"status\", \"updatedAt\") VALUES ($P, 'CARDCOM', 10.00, 'ILS', 'PAID', now()) RETURNING \"id\"")
           X=$(su "INSERT INTO \"PaymentTransaction\" (\"paymentRequestId\", \"provider\", \"providerTransactionId\", \"amount\", \"currency\", \"status\") VALUES ($R, 'CARDCOM', 'sfx-rb', 10.00, 'ILS', 'PAID') RETURNING \"id\"")
-          lab -q -c "INSERT INTO \"PaymentSettlementFact\" (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\") VALUES ($P, $X, 'CHARGED', 10.00, 'ILS', 'PROVIDER', 'sfx-rb')"
+          lab -q -c "INSERT INTO \"PaymentSettlementFact\" (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\", \"verification\") VALUES ($P, $X, 'CHARGED', 10.00, 'ILS', 'PROVIDER', 'sfx-rb', 'VERIFIED')"
           if lab -f .sfx/rollback.sql >/tmp/rb0.out 2>&1; then echo "rollback ran while a row exists"; exit 1; fi
           grep -q "rollback refused: rows exist" /tmp/rb0.out || { cat /tmp/rb0.out; exit 1; }
           fp > /tmp/fp1b; diff /tmp/fp1 /tmp/fp1b || { echo "the refused rollback changed something"; exit 1; }

@@ -6,16 +6,18 @@
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, its sha256 is the reviewed one, nothing is unfinished or rolled back;
---   * "PaymentSettlementFact": its 18 columns with their exact types and nullability; RLS ENABLED + FORCED;
+--   * "PaymentSettlementFact": its 20 columns with their exact types and nullability; RLS ENABLED + FORCED;
 --     exactly two tenant policies (read, append), PERMISSIVE, for PUBLIC, each expression equal to the tenant GUC
 --     expression; no change or removal policy; its ACL is exactly app_runtime read / append and its sequence
 --     USAGE / SELECT; no column-level privilege; G4: no role reaches it except app_runtime members with read /
 --     append (the Neon platform admin path of run 39461027340 is set aside exactly as in the daily tasks proof,
 --     and counted in check 18);
---   * its eleven CHECK constraints, five foreign keys (four RESTRICT, the recording user SET NULL), the three
+--   * its thirteen CHECK constraints (incl. verification VERIFIED | NEEDS_REVIEW and the fixed review reasons),
+--     five foreign keys (four RESTRICT, the recording user SET NULL), the three
 --     partial unique keys (one first version per kind, one successor per fact, idempotency key);
 --   * its five triggers, enabled: the fact guard and the same-business user guard (before a new row), the
---     NET check at the end of the transaction (a DEFERRABLE INITIALLY DEFERRED constraint trigger), the
+--     NET check at the end of the transaction (a DEFERRABLE INITIALLY DEFERRED constraint trigger: a disagreeing
+--     set must be all NEEDS_REVIEW), the
 --     append-only guards (before a change or removal of a row, before the table is emptied);
 --   * its three functions: not SECURITY DEFINER, search_path pinned, owned by the migration role, EXECUTE for
 --     nobody but the owner (no PUBLIC);
@@ -34,7 +36,7 @@
 \echo ' 1 the migration is recorded and finished (observed = finished rows)'
 \echo ' 2 no ledger row is unfinished or rolled back (observed = such rows)'
 \echo ' 3 the recorded checksum is the reviewed sha256 of migration.sql'
-\echo ' 4 "PaymentSettlementFact" has exactly its 18 columns, each with its type and nullability (observed = matching, of 18)'
+\echo ' 4 "PaymentSettlementFact" has exactly its 20 columns, each with its type and nullability (observed = matching, of 20)'
 \echo ' 5 "PaymentSettlementFact": RLS ENABLED + FORCED (observed = 1 if both)'
 \echo ' 6 exactly two payment_settlement_fact_* policies (read, append), PERMISSIVE, PUBLIC; no other policy on the table (observed = policies)'
 \echo ' 7 every policy expression equals the tenant GUC expression exactly (observed = mismatches)'
@@ -42,7 +44,7 @@
 \echo ' 9 the sequence ACL is exactly app_runtime USAGE, SELECT (observed = grantee x privilege pairs)'
 \echo '10 no column-level privilege on the table (observed = column grants)'
 \echo '11 G4: no role reaches the table except app_runtime members with read / append (observed = pairs outside that, after the check 18 exception)'
-\echo '12 the eleven CHECK constraints exist and are validated (observed = of 11)'
+\echo '12 the thirteen CHECK constraints exist and are validated (observed = of 13)'
 \echo '13 the five foreign keys exist with their on-removal actions: Business, PaymentTransaction, ExternalTransaction, the superseded fact RESTRICT; the recording user SET NULL (observed = of 5)'
 \echo '14 the three partial unique keys exist: first version per kind, one successor per fact, idempotency key (observed = of 3)'
 \echo '15 the five triggers exist, enabled, with their timing, events and functions; the NET check is deferred to the end of the transaction (observed = of 5)'
@@ -84,12 +86,14 @@ cols(col, typ, req) AS (VALUES
   ('providerRate', 'numeric(20,10)', false), ('rateBase', 'text', false), ('rateQuote', 'text', false),
   ('source', 'text', true), ('sourceRef', 'text', false), ('externalTransactionId', 'integer', false),
   ('occurredAt', 'timestamp(3) without time zone', false), ('note', 'text', false), ('idempotencyKey', 'text', false),
-  ('supersedesId', 'integer', false), ('recordedByUserId', 'integer', false),
+  ('supersedesId', 'integer', false), ('verification', 'text', true), ('reviewReason', 'text', false),
+  ('recordedByUserId', 'integer', false),
   ('recordedAt', 'timestamp(3) without time zone', true)),
 checks_expected(nm) AS (VALUES ('PaymentSettlementFact_kind'), ('PaymentSettlementFact_currency'),
   ('PaymentSettlementFact_source'), ('PaymentSettlementFact_amount_nonzero'), ('PaymentSettlementFact_rate_shape'),
   ('PaymentSettlementFact_bank_line'), ('PaymentSettlementFact_provider_ref'), ('PaymentSettlementFact_manual_note'),
-  ('PaymentSettlementFact_charged_source'), ('PaymentSettlementFact_not_self'), ('PaymentSettlementFact_text_lengths')),
+  ('PaymentSettlementFact_charged_source'), ('PaymentSettlementFact_not_self'), ('PaymentSettlementFact_text_lengths'),
+  ('PaymentSettlementFact_verification'), ('PaymentSettlementFact_review_reason')),
 fks_expected(nm, target, del) AS (VALUES
   ('PaymentSettlementFact_businessId_fkey', 'Business', 'r'),
   ('PaymentSettlementFact_paymentTransactionId_fkey', 'PaymentTransaction', 'r'),
@@ -161,9 +165,9 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261026090000_payment_settlement_facts'
-                        AND checksum = '08f970613cdf92d15f4a038f595955ea76a0e4ed4d037f7659c85aac9cc446a5'), 1
-  UNION ALL SELECT 4, (SELECT count(*) FROM col_match) = 18
-                      AND (SELECT count(*) FROM pg_attribute WHERE attrelid = (SELECT oid FROM sf) AND attnum > 0 AND NOT attisdropped) = 18,
+                        AND checksum = '9c43c301298dd03f37aef2fb1b785b550eab310462dac490c435f926409039f9'), 1
+  UNION ALL SELECT 4, (SELECT count(*) FROM col_match) = 20
+                      AND (SELECT count(*) FROM pg_attribute WHERE attrelid = (SELECT oid FROM sf) AND attnum > 0 AND NOT attisdropped) = 20,
                       (SELECT count(*) FROM col_match)
   UNION ALL SELECT 5, (SELECT relrowsecurity AND relforcerowsecurity FROM sf) IS TRUE,
                       (SELECT CASE WHEN relrowsecurity AND relforcerowsecurity THEN 1 ELSE 0 END FROM sf)
@@ -187,7 +191,7 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM pg_attribute a CROSS JOIN LATERAL aclexplode(a.attacl) x WHERE a.attrelid = (SELECT oid FROM sf))
   UNION ALL SELECT 11, NOT EXISTS (SELECT 1 FROM g4_outside), (SELECT count(*) FROM g4_outside)
   UNION ALL SELECT 12, (SELECT count(*) FROM checks_expected e JOIN pg_constraint k ON k.conname = e.nm AND k.contype = 'c'
-                          AND k.conrelid = (SELECT oid FROM sf) WHERE k.convalidated) = 11,
+                          AND k.conrelid = (SELECT oid FROM sf) WHERE k.convalidated) = 13,
                        (SELECT count(*) FROM checks_expected e JOIN pg_constraint k ON k.conname = e.nm AND k.contype = 'c'
                           AND k.conrelid = (SELECT oid FROM sf) WHERE k.convalidated)
   UNION ALL SELECT 13, (SELECT count(*) FROM fks_expected e JOIN pg_constraint k ON k.conname = e.nm AND k.contype = 'f'

@@ -62,10 +62,12 @@ sources and must be versioned. Mixing the two would make the clearing record mut
 | `sourceRef` | text null (≤512) | the provider's reference (deal / deposit / report id); **required for PROVIDER** |
 | `externalTransactionId` | int null, FK ExternalTransaction RESTRICT | the matched bank line; **required iff BANK** |
 | `occurredAt` | timestamp null | when the money moved, per the source (value date / settlement date) |
-| `note` | text null (≤1000) | **required for MANUAL** (what the owner looked at) |
+| `note` | text null (≤1000) | **required for MANUAL** and for a **review clearance** (what was looked at: the data source / evidence) |
 | `idempotencyKey` | text null (≤200) | unique per business — a re-delivered observation is the same fact |
 | `supersedesId` | int null, FK self RESTRICT | the fact this version corrects |
-| `recordedByUserId` | int null, FK User SET NULL | who recorded it; **required at insert for MANUAL**; blanked on user erasure |
+| `verification` | text NOT NULL CHECK | `VERIFIED` / `NEEDS_REVIEW` — always stated by the writer (no default). There is **no** "estimated" / "representative" value |
+| `reviewReason` | text null CHECK | required iff `NEEDS_REVIEW`, one of `NET_MISMATCH` / `CURRENCY_MISMATCH` / `SOURCE_CONFLICT`; null iff `VERIFIED` |
+| `recordedByUserId` | int null, FK User SET NULL | who recorded it — a user **of the row's business** (enforced); **required at insert for MANUAL and for a review clearance**; blanked on user erasure |
 | `recordedAt` | timestamp | always the database's clock (the guard overwrites whatever the writer sent) |
 
 The three sources map to what exists:
@@ -78,8 +80,10 @@ The three sources map to what exists:
   its amount is positive; a BANK fact must be in the bank line's own currency and of the same business. A deposit
   is usually a **batch** of many payments, so the bank line's amount is not compared to the fact's amount; the
   per-payment NET of a batch is a PROVIDER number (the provider's deposit report) or MANUAL.
-* **MANUAL** — the owner typed it (from the provider's back office or a statement), with a note; audited by the
-  row itself (who, when, what it replaced) and, in the application PR, a `PaymentAuditEvent`.
+* **MANUAL** — the business owner (or, once a member model exists, a user holding the financial permission
+  `payments.settlement.record`, §11.2) typed it from the provider's back office or a statement, with a note naming
+  the data source; audited by the row itself (who = `recordedByUserId`, when = `recordedAt`, the database's clock,
+  data source = `note`, what it replaced = `supersedesId`) and, in the application PR, a `PaymentAuditEvent`.
 
 ## 3. Invariants (all enforced in the database, all proven in the lab)
 
@@ -96,16 +100,24 @@ The three sources map to what exists:
 6. **Rate:** all of `providerRate` / `rateBase` / `rateQuote` or none; only on `SETTLED`; `> 0`; base ≠ quote;
    quote = the settled currency; base = the charged currency. No rate on a same-currency settlement.
 7. **Sources carry evidence:** PROVIDER → `sourceRef`; BANK ⇔ `externalTransactionId` (same business, same
-   currency); MANUAL → `note` + `recordedByUserId` (a user of the same business); `CHARGED` never from BANK.
-8. **NET = SETTLED − FEE** among the *current* facts of a transaction, **only when all three are in one
-   currency**, checked at **commit** (a deferred constraint trigger, so the three — or a correction of two — can be
-   written in one transaction). Across currencies **nothing is computed** and nothing is refused.
+   currency); MANUAL → `note` + `recordedByUserId` (a user of the same business — refused for a user of another
+   business, also for a BYPASSRLS writer); `CHARGED` never from BANK.
+8. **NET = SETTLED − FEE, or all three under review** — among the *current* facts of a transaction, **when all
+   three are in one currency** and NET ≠ SETTLED − FEE, every one of the three must be `NEEDS_REVIEW`; a
+   `VERIFIED` fact among them is refused. Checked at **commit** (a deferred constraint trigger, so the three — or a
+   correction of two, or the NEEDS_REVIEW restatement of the others — can be written in one transaction). A
+   disagreement is therefore **always storable and never verified**. Across currencies **nothing is computed** and
+   nothing is refused (a writer may still flag `CURRENCY_MISMATCH`).
+8a. **Review clearance** — a `VERIFIED` fact superseding a `NEEDS_REVIEW` one names `recordedByUserId` (a user
+   of the business) and carries a `note`; an automatic (user-less) clearance is refused. After a clearance the
+   invariant 8 still holds: a clearance that leaves the set contradicting is refused.
    Concurrent writers of one transaction's facts are serialised by a transaction-scoped advisory lock, and facts
    are written only under READ COMMITTED, so the commit-time check always sees the other writer's committed rows
    (the lab proves this with a real two-session race).
 9. **Append-only for every role** (UPDATE / DELETE / TRUNCATE refused by trigger — owner and superuser too; the
-   runtime has no such privilege at all). The single exception is the FK action blanking `recordedByUserId` when a
-   user is erased. Financial parents (business, transaction, bank line, superseded fact) cannot be deleted under a
+   runtime has no such privilege at all) — a review is never cleared in place. The single exception is the FK
+   action blanking `recordedByUserId` when a user is erased; the actor rules (7, 8a) are checked when a row is
+   written, so an erased user's MANUAL facts and clearances stay valid rows (the lab proves both). Financial parents (business, transaction, bank line, superseded fact) cannot be deleted under a
    fact (RESTRICT).
 10. **Versions:** one first version per (transaction, kind); each fact superseded at most once; a correction must
     be the same transaction and kind ⇒ every kind is one linear chain with exactly one **current** fact (the one
@@ -131,16 +143,19 @@ The three sources map to what exists:
 | Rate | "שער הסולק: 3.70" | only `providerRate`; never a Bank of Israel rate |
 | FEE | "עמלה" — `15.00 ₪` | only from a FEE fact; "derived" (`SETTLED − NET`, same currency, exact arithmetic) is shown as **מחושב** with both inputs on hover |
 | NET | "הועבר לחשבון" — `355.00 ₪` | only from a NET fact |
+| Needs review | the number + "דורש בדיקה" chip + the reason (נטו לא תואם / מטבע לא תואם / מקורות סותרים) | shown with its source, **never** as verified and never in a verified total; clearing it is a new fact by the owner (§11.2) |
 | Missing | "טרם התקבל מידע מהסולק" | never filled with an estimate |
-| Estimate | `≈ 368 ₪` "הערכה לפי שער יציג של בנק ישראל, לא סכום שהתקבל" | optional, visually distinct (muted, ≈, tooltip), **never** in a "received" / "net" slot, never summed into received totals |
+| Estimate | `≈ 368 ₪` "הערכה לפי שער יציג של בנק ישראל, לא סכום שהתקבל" | **never stored** (no source / verification / kind can hold it — the lab proves it); computed at display time only, for information only; **visually distinct** (muted, ≈, its own line, tooltip), **never** in a "received" / "net" slot, **never** part of the received or net totals. The application PR must render it in its own component and test that no total includes it |
 
 Every number has a source line: provider (+ reference), bank line (date + bank account), or manual (who, when,
 note). A superseded value is visible in the history ("עודכן מ־368.00").
 
 ## 6. Home / collection summaries
 
-* An **ILS received total** sums only the *current* `SETTLED` (or `NET`, for "transferred") facts whose
-  `currency = 'ILS'`. Index `(businessId, kind, currency)` serves it.
+* An **ILS received total** sums only the *current*, **`VERIFIED`** `SETTLED` (or `NET`, for "transferred")
+  facts whose `currency = 'ILS'`. Index `(businessId, kind, currency)` serves it. A current `NEEDS_REVIEW` fact
+  is not in it: it is listed separately as attention ("₪ 97 דורש בדיקה"), from the partial index
+  `(businessId) WHERE verification = 'NEEDS_REVIEW'`.
 * Payments without such a fact are **not** in that total. They are shown **per currency** from `CHARGED`
   (`sumByCurrency` in `lib/money/aggregate.ts`), e.g. "₪ 12,400 התקבל · $ 300 + € 120 ממתינים לנתוני סליקה".
 * A representative-rate equivalent of the foreign part may be shown only as a separate, clearly marked
@@ -150,10 +165,10 @@ note). A superseded value is visible in the history ("עודכן מ־368.00").
 
 ## 7. Dependency on the currency migration
 
-This migration **does not depend on** `20261025090000_currency_settings_fx_rates` (branch
-`db/currency-fx-migration`) and names none of its objects (the lab asserts it). The two can be applied in either
-order. One coordination note: the currency migration's preflight check 5 ("no recorded migration sorts after it")
-would fail if this one (20261026…) is applied first; its runbook should then accept exactly this name.
+This migration has **no object dependency on** `20261025090000_currency_settings_fx_rates` (branch
+`db/currency-fx-migration`) and names none of its objects (the lab asserts it). The **release order is still
+fixed**: `20261025090000` first, then `20261026090000` — the only order in which both preflights pass unchanged.
+The analysis, the inverted-order consequence and the gates are in [MIGRATION-ORDER.md](MIGRATION-ORDER.md).
 
 ## 8. What is needed from CardCom (owner to ask CardCom support)
 
@@ -188,7 +203,12 @@ SETTLED / FEE / NET come from BANK (matched deposit) or MANUAL.
 * **PR-3 — CHARGED from the webhook.** Inside the existing settlement transaction, record `CHARGED / PROVIDER`
   (sourceRef = provider transaction id, idempotency key `provider:txn:<id>`); reversals likewise from the refund
   service. Backfill job (owner-run) for existing PAID transactions.
-* **PR-4 — MANUAL entry UI** on the payment page (owner, MFA-free tenant action; `PaymentAuditEvent`).
+* **PR-4 — MANUAL entry + review UI** on the payment page: enter a MANUAL fact; see NEEDS_REVIEW facts with
+  their reason; clear one (a superseding VERIFIED fact with a note). The route checks the permission of §11.2
+  (`payments.settlement.record`) before writing, sets `recordedByUserId` = the session user and writes a
+  `PaymentAuditEvent` (`SETTLEMENT_FACT_RECORDED` / `SETTLEMENT_REVIEW_CLEARED`) in the same transaction.
+  An ingester (PR-5 / PR-6) that meets a disagreement writes the NEEDS_REVIEW set (the disagreeing number + the
+  restated others) instead of dropping it.
 * **PR-5 — BANK matching** — suggest incoming `ExternalTransaction` (CREDIT) lines for a payment's NET / SETTLED,
   owner confirms (same rules as payables reconciliation: amount alone never establishes identity).
 * **PR-6 — PROVIDER settlement data** — only after CardCom's answers (§8): parse fee / net / rate from the API or
@@ -211,12 +231,68 @@ The reversal is `.sfx/rollback.sql`, run **as the migration role**:
 
 ## 11. Owner decisions
 
-1. **Strict NET invariant** (as built: a disagreeing SETTLED / FEE / NET in one currency is refused at commit; the
-   writer must correct one of them) vs. record-and-flag (store the disagreement and show it as attention). Strict
-   is safer for what the owner sees; it means an automatic ingester that meets a disagreement records nothing and
-   raises attention instead.
-2. **Who may enter MANUAL facts** — owner only, or any member of the business.
-3. **Whether to show a representative-rate estimate at all** (§5 last row) or only per-currency totals.
-4. **Backfill** of CHARGED for existing PAID transactions (PR-3) — yes / no.
-5. **Asking CardCom** the questions in §8 (and who asks).
-6. **Apply order** with `20261025090000_currency_settings_fx_rates` (§7).
+Decided by the owner on 2026-10-23 and implemented in this PR (decisions 4–5 stay open):
+
+### 11.1 NET mismatch → record and flag, never lose, never verify
+
+The strict refusal is replaced. A set of current SETTLED / FEE / NET in one currency that does not add up is
+**stored**, as `NEEDS_REVIEW` (`reviewReason = NET_MISMATCH`), never as verified:
+
+* the writer that meets the disagreement records the disagreeing number as NEEDS_REVIEW **and restates** the
+  other current facts of the set as NEEDS_REVIEW versions (same values and source, `supersedesId` = the VERIFIED
+  fact) — in one transaction. Append-only: the original VERIFIED rows stay, so nothing is lost;
+* the commit-time check refuses only a **VERIFIED** fact contradicting the others (DZS08); the error says how to
+  store the set instead. So data is always storable, and a mismatch is never silently "verified";
+* `reviewReason` is a fixed set: `NET_MISMATCH` (the DB's own arithmetic), `CURRENCY_MISMATCH` and
+  `SOURCE_CONFLICT` (the writer's judgement, e.g. a currency other than the provider stated, or the provider and
+  the bank disagree on one number). A NEEDS_REVIEW fact is always storable, even when the set adds up;
+* **clearing** = a new superseding `VERIFIED` fact by a named user of the business with a note (DZS10), and the
+  set must then add up (DZS08). Each fact of the set is cleared by its own successor (a clearance of one may
+  already make the set consistent — e.g. the fee found to be 3.00 — but the others stay flagged until cleared);
+* serialisation is unchanged: the advisory lock + READ COMMITTED; the lab runs a refused VERIFIED race and a
+  stored NEEDS_REVIEW race (the second writer waits, then sees the first writer's committed rows).
+
+### 11.2 Who may enter MANUAL facts / clear a review — the DB vs application split
+
+What exists: `User.businessId` (each user belongs to exactly one business; today every business has exactly one
+user, its owner — signup creates it and account deletion speaks of "the sole user") and `User.role`
+(`USER` / `PLATFORM_ADMIN`), which is **platform** scope, not a business or financial role (the platform admin is
+also an ordinary owner of their own business). There is no membership, business-role or permission table, and
+`BusinessFeatureAccess` is feature gating, not a user permission. So:
+
+| Rule | Enforced by |
+|---|---|
+| MANUAL ⇒ `recordedByUserId` NOT NULL | DB — guard DZS06 (at insert) |
+| MANUAL ⇒ a non-blank `note` (the data source / evidence) | DB — CHECK `PaymentSettlementFact_manual_note` |
+| the recording user belongs to the row's business (also for BYPASSRLS writers) | DB — `task_user_same_business('recordedByUserId')` (DZT03) |
+| review clearance ⇒ user + note | DB — guard DZS10 |
+| when / what it replaced | DB — `recordedAt` (database clock, writer's value overwritten), `supersedesId` |
+| **the user is the business owner or holds the financial permission** | **Application** — the route of PR-4 |
+
+The application check: permission **`payments.settlement.record`**. Until a member / permission model exists it
+resolves to "the authenticated session user (`getCurrentUser`) whose `businessId` is the tenant of the request —
+i.e. the business owner"; a platform admin's elevated / support access to **another** business never satisfies it
+(and the DB refuses that user anyway: another business). When a member model is introduced, only the owner and
+members granted `payments.settlement.record` pass. The DB does **not** check `User.role`: it carries no business
+meaning and checking it would wrongly refuse the platform admin's own business.
+
+**Erasure stays coherent:** the actor rules are checked when a row is written (BEFORE INSERT), not as a CHECK, so the
+FK action that blanks `recordedByUserId` on a user's erasure (the one append-only exception) keeps MANUAL facts
+and clearances valid; the row keeps that a person entered it, when, and the note. The lab proves both.
+
+### 11.3 Representative / estimated (≈) amounts
+
+Never stored as facts — there is no source value for them, and no source, kind, verification or review reason can
+represent one (the lab proves each). They may be **shown separately, for information only**, never inside
+received or net totals; the application PR renders them distinctly (§5 last row) and tests that no total includes
+them.
+
+### 11.4 Apply order with `20261025090000_currency_settings_fx_rates`
+
+`20261025090000` first, then this migration — see [MIGRATION-ORDER.md](MIGRATION-ORDER.md). No safety check is
+changed for it.
+
+### Still open
+
+1. **Backfill** of CHARGED for existing PAID transactions (PR-3) — yes / no.
+2. **Asking CardCom** the questions in §8 (and who asks).
