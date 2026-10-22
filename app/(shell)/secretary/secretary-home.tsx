@@ -5,8 +5,8 @@
  *
  * A workspace that stays an assistant, not a table: one status sentence built
  * from the server's counts, every item that needs the owner with its action in
- * the row, quiet tracking kept apart, and the existing cost and leads cards in
- * a side column.
+ * the row, quiet tracking kept apart, and the existing cost card in a side
+ * column. Leads are not the Secretary's: they live on the home screen.
  *
  * Flow is unchanged:
  *   - "סמן שטופל" calls the page's existing onCompleteFlow — the same "שילמת?"
@@ -22,7 +22,6 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { BusinessCostCard } from "@/components/business-cost/BusinessCostCard";
-import { LeadsBriefingCard } from "@/components/leads/LeadsBriefingCard";
 import { formatMoney } from "@/lib/ui/money";
 import { ReleaseControl, secretaryVars } from "./secretary-ui";
 import {
@@ -109,8 +108,6 @@ export function SecretaryHome({ view, actions, now = new Date() }: { view: Secre
         <aside className={s.side} aria-label="תמונת מצב">
           {/* What the business costs — the existing card, from the business-cost engine. */}
           <BusinessCostCard embedded />
-          {/* The sales side — the existing leads card. */}
-          <LeadsBriefingCard embedded />
         </aside>
       </div>
     </main>

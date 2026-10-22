@@ -1,0 +1,19 @@
+{
+  "note": "fix/per-currency-totals-a1: Home income (B2), collection workspace (B3) and Secretary (B4) totals never add currencies together; read-side only, all-ILS output byte-identical to main 06f425ea.",
+  "tests": {
+    "lib/services/home/home-per-currency.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (prisma.$transaction stubbed in memory, no DB/network): /api/home/day and /api/home/collection legacy fields byte-identical to a fixture captured on main for all-ILS data, and with ILS+USD the shekel figures exclude USD, per-currency lines and flags are set; not yet wired into CI (product-test debt, like its siblings)"
+    },
+    "lib/services/payments/collection-workspace-per-currency.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "read-side display totals only: no authorization, settlement, provider or tenant logic is exercised",
+      "reason": "product behaviour; pure (in-memory payment store + stubbed prisma.paymentRequest, no DB/network): collection workspace summary and sumPaidBetween amount/count byte-identical to main for all-ILS data, ILS-only headline with per-currency lines when mixed; not yet wired into CI (product-test debt)"
+    },
+    "app/(shell)/secretary/obligation-totals.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "pure display text of obligation totals; no auth, session, tenant or data-access code is involved",
+      "reason": "product behaviour; pure: Secretary obligation totals text identical to the pre-change functions (kept verbatim) for every single-currency list in he/en, and per-currency text (never a cross-currency sum) when mixed; not yet wired into CI (product-test debt)"
+    }
+  }
+}

@@ -41,21 +41,41 @@ import {
   type JerusalemDayKey,
 } from "@/lib/utils/jerusalem-day";
 import { jerusalemMonthUtcHalfOpen } from "@/lib/utils/jerusalem-month-range";
+import { currencyOrBase } from "@/lib/money/currency-split";
+import {
+  addToCurrency,
+  foldPaidGroups,
+  hasOtherCurrency,
+  HOME_CURRENCY,
+  listCurrencyTotals,
+  type HomeCurrencyTotal,
+} from "@/lib/services/home/home-currency";
 
 export type HomeDayFigure = {
-  /** 24 Israeli hours, `hours[9]` is 09:00–09:59. Money, as a fixed string. */
+  /** 24 Israeli hours, `hours[9]` is 09:00–09:59. Money in `currency` (ILS) only, as a fixed string. */
   hours: string[];
+  /** Money in `currency` (ILS) only — another currency is never added in. */
   total: string;
+  /** Every verified payment of the day, whatever its currency (a count adds no money). */
   count: number;
   /** True whenever the range was read from the database directly. */
   complete: boolean;
+  /** The currency of `hours` and `total`: always ILS (the screen draws ₪). */
+  currency: string;
+  /** Per-currency totals, ILS first; only currencies that occurred (empty on a day with nothing). */
+  totalsByCurrency: HomeCurrencyTotal[];
+  /** True when money in another currency came in — `total` does not include it. */
+  isMixedCurrency: boolean;
 };
 
 export type HomeMonthFigure = {
   /** `YYYY-MM` in Israel. */
   key: string;
+  /** ILS only (see totalsByCurrency). */
   amount: string;
+  /** Every verified payment of the month, whatever its currency. */
   count: number;
+  /** ILS only (see previousTotalsByCurrency). */
   previousAmount: string;
   previousCount: number;
   /**
@@ -64,6 +84,12 @@ export type HomeMonthFigure = {
    * "no change" are different facts.
    */
   changePct: number | null;
+  /** The currency of `amount` / `previousAmount` / `changePct`: always ILS. */
+  currency: string;
+  totalsByCurrency: HomeCurrencyTotal[];
+  previousTotalsByCurrency: HomeCurrencyTotal[];
+  /** True when either month holds money in another currency, which the ILS figures leave out. */
+  isMixedCurrency: boolean;
 };
 
 export type HomeActivityFigure = {
@@ -137,7 +163,7 @@ export async function loadHomeDay(
 
     const rows = await tx.paymentTransaction.findMany({
       where: paidWhere(dayRange.from, dayRange.toExclusive),
-      select: { amount: true, createdAt: true },
+      select: { amount: true, currency: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     });
 
@@ -147,28 +173,37 @@ export async function loadHomeDay(
       return { timezone: ISRAEL_TIME_ZONE, date, isToday, day, month: null, activity: null };
     }
 
-    const [current, previous] = await Promise.all([
-      tx.paymentTransaction.aggregate({
+    // Grouped by currency (still exactly two reads): the ILS group is the figure, every other
+    // currency is reported beside it and never added in.
+    const [currentGroups, previousGroups] = await Promise.all([
+      tx.paymentTransaction.groupBy({
+        by: ["currency"],
         where: paidWhere(thisMonth.from, thisMonth.toExclusive),
         _sum: { amount: true },
         _count: { _all: true },
       }),
-      tx.paymentTransaction.aggregate({
+      tx.paymentTransaction.groupBy({
+        by: ["currency"],
         where: paidWhere(prevMonth.from, prevMonth.toExclusive),
         _sum: { amount: true },
         _count: { _all: true },
       }),
     ]);
+    const current = foldPaidGroups(currentGroups);
+    const previous = foldPaidGroups(previousGroups);
 
-    const amount = current._sum.amount ?? ZERO;
-    const previousAmount = previous._sum.amount ?? ZERO;
     const month: HomeMonthFigure = {
       key: monthKey,
-      amount: amount.toFixed(2),
-      count: current._count._all,
-      previousAmount: previousAmount.toFixed(2),
-      previousCount: previous._count._all,
-      changePct: monthChangePct(amount, previousAmount),
+      amount: current.amount.toFixed(2),
+      count: current.count,
+      previousAmount: previous.amount.toFixed(2),
+      previousCount: previous.count,
+      changePct: monthChangePct(current.amount, previous.amount),
+      currency: HOME_CURRENCY,
+      totalsByCurrency: current.totalsByCurrency,
+      previousTotalsByCurrency: previous.totalsByCurrency,
+      isMixedCurrency:
+        hasOtherCurrency(current.totalsByCurrency) || hasOtherCurrency(previous.totalsByCurrency),
     };
 
     // "עוד היום" describes today and only today, so it is read for the
@@ -211,20 +246,28 @@ export async function loadHomeDay(
  * test that can put two payments in the same hour.
  */
 export function bucketByJerusalemHour(
-  rows: { amount: Prisma.Decimal | number | string; createdAt: Date }[]
+  rows: { amount: Prisma.Decimal | number | string; createdAt: Date; currency?: string | null }[]
 ): HomeDayFigure {
   const buckets = Array.from({ length: 24 }, () => ZERO);
   let total = ZERO;
+  const byCurrency = new Map<string, { total: Prisma.Decimal; count: number }>();
   for (const row of rows) {
+    addToCurrency(byCurrency, row.currency, row.amount);
+    // Only ILS money is drawn and totalled: another currency is never added to shekels.
+    if (currencyOrBase(row.currency) !== HOME_CURRENCY) continue;
     const hour = jerusalemHour(row.createdAt);
     buckets[hour] = buckets[hour].plus(row.amount);
     total = total.plus(row.amount);
   }
+  const totalsByCurrency = listCurrencyTotals(byCurrency);
   return {
     hours: buckets.map((b) => b.toFixed(2)),
     total: total.toFixed(2),
     count: rows.length,
     complete: true,
+    currency: HOME_CURRENCY,
+    totalsByCurrency,
+    isMixedCurrency: hasOtherCurrency(totalsByCurrency),
   };
 }
 

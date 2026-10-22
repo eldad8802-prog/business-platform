@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import {
   BUSINESS_DOC_BACKLOG_THRESHOLD,
   MAX_ATTENTION_ITEMS,
@@ -99,7 +99,7 @@ function buildPlatformLevelItems(
 }
 
 async function buildPerBusinessItems(): Promise<PlatformAttentionItem[]> {
-  const rows = await prisma.business.findMany({
+  const rows = await getPrismaAdmin().business.findMany({
     where: {
       name: { not: PLATFORM_SYSTEM_BUSINESS_NAME },
       documentsV2: {

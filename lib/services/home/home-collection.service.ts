@@ -34,16 +34,33 @@ import {
   type JerusalemDayKey,
 } from "@/lib/utils/jerusalem-day";
 import { jerusalemMonthUtcHalfOpen } from "@/lib/utils/jerusalem-month-range";
+import { currencyOrBase } from "@/lib/money/currency-split";
+import {
+  addToCurrency,
+  foldPaidGroups,
+  hasOtherCurrency,
+  HOME_CURRENCY,
+  listCurrencyTotals,
+  type HomeCurrencyTotal,
+} from "@/lib/services/home/home-currency";
 
 export type HomePeriod = "today" | "yesterday" | "week";
 
 export type HomeSeries = {
-  /** Cumulative ₪ at each point: 24 hours for a day, 7 days for a week. */
+  /** Cumulative ₪ at each point: 24 hours for a day, 7 days for a week. ILS money only. */
   points: string[];
   /** How many leading points have actually happened. Never the whole array for a day in progress. */
   elapsedPoints: number;
+  /** ILS only — another currency is never added in (see totalsByCurrency). */
   total: string;
+  /** Every verified payment in the window, whatever its currency (a count adds no money). */
   count: number;
+  /** The currency of `points` and `total`: always ILS (the screen draws ₪). */
+  currency: string;
+  /** Per-currency totals, ILS first; only currencies that occurred. */
+  totalsByCurrency: HomeCurrencyTotal[];
+  /** True when money in another currency came in — `points` / `total` do not include it. */
+  isMixedCurrency: boolean;
 };
 
 export type HomeCollectionReadModel = {
@@ -54,7 +71,7 @@ export type HomeCollectionReadModel = {
   current: HomeSeries;
   /** The period before, over its whole length — the dashed line. */
   previous: HomeSeries;
-  /** The previous period measured only as far as the current one has reached. */
+  /** The previous period measured only as far as the current one has reached. ILS only. */
   previousAtSamePoint: string;
   /**
    * Current against previous AT THE SAME POINT, rounded. `null` — never 0 —
@@ -69,16 +86,25 @@ export type HomeCollectionReadModel = {
   previousWindow: { from: JerusalemDayKey; to: JerusalemDayKey };
   month: {
     key: string;
+    /** ILS only (see totalsByCurrency). */
     amount: string;
+    /** Every verified payment of the month, whatever its currency. */
     count: number;
+    /** ILS only (see previousTotalsByCurrency). */
     previousAmount: string;
     changePct: number | null;
+    currency: string;
+    totalsByCurrency: HomeCurrencyTotal[];
+    previousTotalsByCurrency: HomeCurrencyTotal[];
+    isMixedCurrency: boolean;
   } | null;
+  /** True when any figure above left out money in a currency other than ILS. */
+  isMixedCurrency: boolean;
 };
 
 const ZERO = new Prisma.Decimal(0);
 
-type PaidRow = { amount: Prisma.Decimal; createdAt: Date };
+type PaidRow = { amount: Prisma.Decimal; createdAt: Date; currency?: string | null };
 
 /** The windows a period covers, and where the comparison is cut. */
 export function resolveWindows(period: HomePeriod, now: Date) {
@@ -131,23 +157,30 @@ export function resolveWindows(period: HomePeriod, now: Date) {
   };
 }
 
-/** Cumulative totals per bucket, and the running total. */
+/**
+ * Cumulative ILS totals per bucket, and the running ILS total. Rows in another currency are kept
+ * on their own line in `totalsByCurrency` and never enter the points; `count` is every row.
+ */
 export function cumulate(
   rows: PaidRow[],
   bucketOf: (row: PaidRow) => number,
   length: number
-): { points: string[]; total: Prisma.Decimal; count: number } {
+): { points: string[]; total: Prisma.Decimal; count: number; totalsByCurrency: HomeCurrencyTotal[] } {
   const perBucket = Array.from({ length }, () => ZERO);
+  const byCurrency = new Map<string, { total: Prisma.Decimal; count: number }>();
   for (const row of rows) {
     const index = bucketOf(row);
-    if (index >= 0 && index < length) perBucket[index] = perBucket[index].plus(row.amount);
+    if (index < 0 || index >= length) continue;
+    addToCurrency(byCurrency, row.currency, row.amount);
+    if (currencyOrBase(row.currency) !== HOME_CURRENCY) continue;
+    perBucket[index] = perBucket[index].plus(row.amount);
   }
   let running = ZERO;
   const points = perBucket.map((value) => {
     running = running.plus(value);
     return running.toFixed(2);
   });
-  return { points, total: running, count: rows.length };
+  return { points, total: running, count: rows.length, totalsByCurrency: listCurrencyTotals(byCurrency) };
 }
 
 /** A change a business can read. `null` when there is nothing to compare against. */
@@ -189,21 +222,24 @@ export async function loadHomeCollection(
     });
 
     markHomeCollection("T5");
-    const [currentRows, previousRows, monthAgg, prevMonthAgg] = await Promise.all([
+    const [currentRows, previousRows, monthGroups, prevMonthGroups] = await Promise.all([
       tx.paymentTransaction.findMany({
         where: paidWhere(w.currentStart, w.currentEnd),
-        select: { amount: true, createdAt: true },
+        select: { amount: true, currency: true, createdAt: true },
       }),
       tx.paymentTransaction.findMany({
         where: paidWhere(w.previousStart, w.previousEnd),
-        select: { amount: true, createdAt: true },
+        select: { amount: true, currency: true, createdAt: true },
       }),
-      tx.paymentTransaction.aggregate({
+      // Grouped by currency (still four reads): the ILS group is the month figure.
+      tx.paymentTransaction.groupBy({
+        by: ["currency"],
         where: paidWhere(thisMonth.from, thisMonth.toExclusive),
         _sum: { amount: true },
         _count: { _all: true },
       }),
-      tx.paymentTransaction.aggregate({
+      tx.paymentTransaction.groupBy({
+        by: ["currency"],
         where: paidWhere(prevMonth.from, prevMonth.toExclusive),
         _sum: { amount: true },
         _count: { _all: true },
@@ -225,12 +261,21 @@ export async function loadHomeCollection(
     const current = cumulate(currentRows, currentBucket, w.length);
     const previous = cumulate(previousRows, previousBucket, w.length);
 
-    // The previous period, measured only as far as the current one has reached.
-    const comparableRows = previousRows.filter((row) => row.createdAt < w.previousCut);
+    // The previous period, measured only as far as the current one has reached — in ILS, like
+    // the current total it is compared with.
+    const comparableRows = previousRows.filter(
+      (row) => row.createdAt < w.previousCut && currencyOrBase(row.currency) === HOME_CURRENCY
+    );
     const previousAtSamePoint = comparableRows.reduce((sum, row) => sum.plus(row.amount), ZERO);
 
-    const monthAmount = monthAgg._sum.amount ?? ZERO;
-    const prevMonthAmount = prevMonthAgg._sum.amount ?? ZERO;
+    const monthFold = foldPaidGroups(monthGroups);
+    const prevMonthFold = foldPaidGroups(prevMonthGroups);
+    const monthAmount = monthFold.amount;
+    const prevMonthAmount = prevMonthFold.amount;
+    const currentMixed = hasOtherCurrency(current.totalsByCurrency);
+    const previousMixed = hasOtherCurrency(previous.totalsByCurrency);
+    const monthMixed =
+      hasOtherCurrency(monthFold.totalsByCurrency) || hasOtherCurrency(prevMonthFold.totalsByCurrency);
 
     return {
       timezone: ISRAEL_TIME_ZONE,
@@ -241,12 +286,18 @@ export async function loadHomeCollection(
         elapsedPoints: w.elapsedPoints,
         total: current.total.toFixed(2),
         count: current.count,
+        currency: HOME_CURRENCY,
+        totalsByCurrency: current.totalsByCurrency,
+        isMixedCurrency: currentMixed,
       },
       previous: {
         points: previous.points,
         elapsedPoints: w.length,
         total: previous.total.toFixed(2),
         count: previous.count,
+        currency: HOME_CURRENCY,
+        totalsByCurrency: previous.totalsByCurrency,
+        isMixedCurrency: previousMixed,
       },
       previousAtSamePoint: previousAtSamePoint.toFixed(2),
       changePct: changeAgainst(current.total, previousAtSamePoint),
@@ -256,10 +307,15 @@ export async function loadHomeCollection(
       month: {
         key: monthKey,
         amount: monthAmount.toFixed(2),
-        count: monthAgg._count._all,
+        count: monthFold.count,
         previousAmount: prevMonthAmount.toFixed(2),
         changePct: changeAgainst(monthAmount, prevMonthAmount),
+        currency: HOME_CURRENCY,
+        totalsByCurrency: monthFold.totalsByCurrency,
+        previousTotalsByCurrency: prevMonthFold.totalsByCurrency,
+        isMixedCurrency: monthMixed,
       },
+      isMixedCurrency: currentMixed || previousMixed || monthMixed,
     };
   }, { onPhase: homeCollectionTxObserver });
   markHomeCollection("T7");

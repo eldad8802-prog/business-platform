@@ -11,7 +11,9 @@
 # Safe at any cadence and concurrently: each row is claimed by one conditional UPDATE, and every attempt
 # of a row carries the same provider idempotency key (te:<id>).
 #
-# WHY GITHUB ACTIONS. Same as intake-sweep.yml: Vercel Hobby crons run at most daily.
+# BACKSTOP ONLY. The primary 10-minute tick is Vercel Cron (vercel.json, GET, same CRON_SECRET bearer):
+# GitHub drops most scheduled */10 runs on this repo (observed 4-8 runs a day, median gap ~4h, Oct 2026),
+# and the team is on Vercel Pro, so the old "Hobby crons are daily" reason no longer holds.
 # The only secret is CRON_SECRET, read ONLY from the protected `cron` environment (main-only). The
 # endpoint answers counts only; they go to the step summary.
 

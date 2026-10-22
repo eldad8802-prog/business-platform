@@ -35,6 +35,7 @@ on:
       - "lib/email/transactional/**"
       - "lib/security/rate-limit.ts"
       - "lib/security/rate-limiter/**"
+      - "lib/security/log-safe-error*.ts"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261017090000_auth_email_tokens/**"
       - ".aet/**"
@@ -105,6 +106,11 @@ jobs:
 
       - name: 1. Pure suite
         run: npx tsx lib/auth/account-recovery.test.ts
+
+      - name: 1b. Auth limits while Redis is unreachable (local fallback, recovery, bursts) + safe auth logs
+        run: |
+          npx tsx lib/security/rate-limiter/auth-fallback.verify.test.ts
+          npx tsx lib/security/log-safe-error.test.ts
 
       - name: 2. App battery — real routes, real roles, migration applied
         run: |

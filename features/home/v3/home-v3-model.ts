@@ -53,6 +53,32 @@ export function formatNumber(n: number): string {
   return `${n < 0 && rounded !== 0 ? "−" : ""}${rounded.toLocaleString("en-US")}`;
 }
 
+/**
+ * Money in a currency other than ILS, carried BESIDE a ₪ figure that does not include it. The
+ * server never adds currencies together (audit B2/B3); the screen shows the ₪ figure and marks
+ * that other currencies exist, listing each one.
+ */
+export type OtherCurrencyAmount = { currency: string; total: string };
+
+/** Every non-ILS entry of a wire `totalsByCurrency` (`total` or `amount`). Absent / malformed → []. */
+export function otherCurrenciesOf(totals: unknown): OtherCurrencyAmount[] {
+  if (!Array.isArray(totals)) return [];
+  const out: OtherCurrencyAmount[] = [];
+  for (const entry of totals) {
+    if (!entry || typeof entry !== "object") continue;
+    const { currency, total, amount } = entry as { currency?: unknown; total?: unknown; amount?: unknown };
+    const value = typeof total === "string" ? total : typeof amount === "string" ? amount : null;
+    if (typeof currency !== "string" || currency === "ILS" || value === null) continue;
+    out.push({ currency, total: value });
+  }
+  return out;
+}
+
+/** "$300 · €50" — each currency in its own symbol, never converted or added. */
+export function formatOtherCurrencies(others: readonly OtherCurrencyAmount[], locale: Locale = "he"): string {
+  return others.map((o) => formatAmount(o.total, o.currency, { locale })).join(" · ");
+}
+
 export function toNumber(raw: string | number | null | undefined): number | null {
   if (raw === null || raw === undefined || raw === "") return null;
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -137,6 +163,8 @@ export type CashflowSeries = {
   /** Whether bars carry expenses at all (false for the hourly view). */
   expenseByBar: boolean;
   defaultIndex: number;
+  /** Present only when money in another currency came in; `income` / bars never include it. */
+  incomeOtherCurrencies?: OtherCurrencyAmount[];
 };
 
 export function netOf(series: Pick<CashflowSeries, "income" | "expense">): number | null {
@@ -156,6 +184,7 @@ export function buildDaySeries(input: {
   incomeTotal: string;
   expenseToday: string | null;
   now: Date;
+  incomeOtherCurrencies?: OtherCurrencyAmount[];
 }): CashflowSeries {
   const bars: CashflowBar[] = [];
   for (let h = CHART_FIRST_HOUR; h <= CHART_LAST_HOUR; h++) {
@@ -170,6 +199,7 @@ export function buildDaySeries(input: {
     expense: toNumber(input.expenseToday),
     expenseByBar: false,
     defaultIndex: clamped - CHART_FIRST_HOUR,
+    ...(input.incomeOtherCurrencies?.length ? { incomeOtherCurrencies: input.incomeOtherCurrencies } : {}),
   };
 }
 
@@ -189,6 +219,7 @@ export function buildWeekSeries(input: {
   dayKeys: string[];
   expenses: string[];
   locale?: Locale;
+  incomeOtherCurrencies?: OtherCurrencyAmount[];
 }): CashflowSeries | null {
   const { cumulativeIncome, dayKeys, expenses } = input;
   const weekday = weekdayShort(input.locale ?? "he");
@@ -216,6 +247,7 @@ export function buildWeekSeries(input: {
     expense: expenseTotal,
     expenseByBar: true,
     defaultIndex: 6,
+    ...(input.incomeOtherCurrencies?.length ? { incomeOtherCurrencies: input.incomeOtherCurrencies } : {}),
   };
 }
 

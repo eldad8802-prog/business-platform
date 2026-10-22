@@ -1,12 +1,8 @@
 "use client";
 
-import { AdminControlSurface } from "@/components/platform-admin/admin-control-surface";
-import { PlatformAdminGate } from "@/components/platform-admin/platform-admin-gate";
+import { AdminConsole } from "@/components/platform-admin/console/admin-console";
+import { HomeSurface } from "@/components/platform-admin/console/home-surface";
 
 export default function PlatformAdminPage() {
-  return (
-    <PlatformAdminGate>
-      {(session) => <AdminControlSurface session={session} />}
-    </PlatformAdminGate>
-  );
+  return <AdminConsole title="סקירה">{() => <HomeSurface />}</AdminConsole>;
 }

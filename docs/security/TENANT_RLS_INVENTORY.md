@@ -145,7 +145,7 @@ Application-level safety today, from the trace (not database-enforced):
 | Nested `withTenantTransaction` opens a second top-level transaction | fix: an ALS guard |
 | `POSApiKey` erasure DELETEs, but the hand grant has none | verify the Production grant |
 | The legacy POS env-secret comparison is not constant-time | fix |
-| `PlatformAuditEvent`, `PlatformAdminMfa` and one platform-usage read use the tenant runtime client | move to the admin plane and revoke |
+| `PlatformAuditEvent`, `PlatformAdminMfa` and one platform-usage read use the tenant runtime client | Admin Control Center A1: every platform-admin READ (usage, attention, business list and detail) moved to the admin plane (`docs/security/ADMIN_CONTROL_CENTER_A1_RELEASE.md`). Kept on the runtime by design: the `PlatformAuditEvent` append (the admin plane is SELECT-only). Still open: `PlatformAdminMfa` to the auth plane (T-04) |
 | `/api/knowledge/derive` accepts any `businessId` with `CRON_SECRET` | owner review |
 | The execution status of `20260908180000`, and the default `AUTH_PLANE_ENABLED` | owner review |
 | The public coupon page reads the issuer's `BusinessProfile` through the global client, so FORCE RLS returns no profile (a **product bug, not a leak**) | fix |

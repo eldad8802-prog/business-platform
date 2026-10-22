@@ -52,6 +52,18 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+/** The platform-admin read plane (ADMIN_DATABASE_URL / app_admin login) is not configured here. */
+export const ADMIN_DATA_PLANE_UNAVAILABLE = "ADMIN_DATA_PLANE_UNAVAILABLE" as const;
+
+export class AdminDataPlaneUnavailableError extends AppError {
+  constructor(
+    message = "The platform-admin data plane is not configured on this environment"
+  ) {
+    super(message, 503, ADMIN_DATA_PLANE_UNAVAILABLE);
+    this.name = "AdminDataPlaneUnavailableError";
+  }
+}
+
 export const BILLING_PDF_RENDERER_POLICY_ERROR =
   "BILLING_PDF_RENDERER_POLICY_VIOLATION" as const;
 
