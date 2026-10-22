@@ -74,10 +74,10 @@ async function pool<T>(items: T[], n: number, fn: (item: T, i: number) => Promis
 // ───────────────────────────── seed ─────────────────────────────
 type Biz = { id: number; userId: number; token: string; data: string[]; fills: Record<string, Record<string, string>>; unseeded: Record<string, string> };
 
-async function seedBusiness(label: string, customer: string): Promise<Biz> {
+async function seedBusiness(label: string, customer: string, setUp = true): Promise<Biz> {
   const b = await prisma.business.create({ data: { name: `e2e-${label}-${uniq()}` } });
   const u = await prisma.user.create({ data: { email: `e2e-${label}-${uniq()}@example.test`, password: "x", businessId: b.id, role: "USER", name: `${label} Owner` } });
-  await prisma.businessProfile.create({ data: { businessId: b.id, billingLegalName: `${label} Synthetic Ltd`, billingBusinessKind: "LTD_COMPANY", billingTaxId: "999999998", billingAddress: "1 Test St", billingPhone: "0500000000", billingEmail: "e2e@example.test" } });
+  await prisma.businessProfile.create({ data: { businessId: b.id, billingLegalName: `${label} Synthetic Ltd`, billingBusinessKind: "LTD_COMPANY", billingTaxId: "999999998", billingAddress: "1 Test St", billingPhone: "0500000000", billingEmail: "e2e@example.test", onboardingCompletedAt: setUp ? new Date(Date.now() - 30 * DAY) : null } });
   const c = await prisma.customer.create({ data: { businessId: b.id, name: customer, phone: "0501234567" } });
   const inv = await prisma.billingDocument.create({
     data: {
@@ -206,6 +206,9 @@ async function main() {
   const routes = enumeratePages("app");
   const A = await seedBusiness("A", "Alpha Customer");
   const B = await seedBusiness("B", "לקוח בטא");
+  // A business that has NOT finished setup: the first-run screens (/setup, /onboarding) are seen with it;
+  // a set-up business is sent on to Home from there.
+  const S = await seedBusiness("S", "Sigma Customer", false);
   const browser = await chromium.launch();
 
   // Route list: every page.tsx; dynamic segments filled from A's rows.
@@ -226,8 +229,9 @@ async function main() {
   }
   report.routes = { total: routes.length, visited: items.length, unreachable, notes: items.filter((i) => i.note).map((i) => ({ pattern: i.route.pattern, note: i.note })) };
   console.log(`routes: ${routes.length} page files, ${items.length} visited, ${unreachable.length} not fillable`);
-  const tokenFor = (it: Item, biz: Biz) => (it.audience === "public" ? null : biz.token);
-  const excludeA = [...A.data, "עברית"]; // "עברית" = the Hebrew option of the language picker (a language is named in itself)
+  const FIRST_RUN = new Set(["/setup", "/onboarding"]);
+  const tokenFor = (it: Item, biz: Biz) => (it.audience === "public" ? null : FIRST_RUN.has(it.route.pattern) ? S.token : biz.token);
+  const excludeA = [...A.data, ...S.data, "עברית"]; // "עברית" = the Hebrew option of the language picker (a language is named in itself)
 
   // ── R1 route matrix (flag ON) ──
   console.log("\n== R1 — route matrix: every route × he/en × 390/820/1440 (flag ON) ==");
@@ -240,12 +244,14 @@ async function main() {
     delete rest.text;
     matrix.push({ route: it.route.pattern, vp: vp.name, locale, ...rest, hebrew: locale === "en" ? s.hebrew : [] });
   });
+  const preexistingCrash = new Set<string>();
   const cell = (r: string, vp: string, l: string) => matrix.find((c) => c.route === r && c.vp === vp && c.locale === l)!;
   for (const it of items) {
     for (const vp of VIEWPORTS) {
       const h = cell(it.route.pattern, vp.name, "he");
       const e = cell(it.route.pattern, vp.name, "en");
       const tag = `${vp.name} ${it.route.pattern}`;
+      if (h.errorBoundary && e.errorBoundary) { preexistingCrash.add(it.route.pattern); continue; } // same crash in both languages: not an i18n finding (R2 compares it with OFF)
       ok(`R1 ${tag} he — lang/dir he/rtl`, h.lang === "he" && h.dir === "rtl", `${h.lang}/${h.dir}`);
       ok(`R1 ${tag} en — lang/dir en/ltr`, e.lang === "en" && e.dir === "ltr", `${e.lang}/${e.dir}`);
       ok(`R1 ${tag} en — no English-only server error`, !((e.status ?? 0) >= 500 && (h.status ?? 0) < 500), `${h.status}→${e.status}`);
@@ -272,6 +278,7 @@ async function main() {
     errorCells: matrix.filter((c) => c.errorBoundary || c.pageErrors.length || (c.status ?? 0) >= 400).map((c) => `${c.vp} ${c.locale} ${c.route} status=${c.status} boundary=${c.errorBoundary} pageErrors=${c.pageErrors.slice(0, 2).join(" | ")}`),
     consoleErrorSamples: Object.fromEntries([...new Set(matrix.flatMap((c) => c.consoleErrors))].slice(0, 40).map((m) => [m, sum((c) => c.consoleErrors.includes(m))])),
     redirected: [...new Set(matrix.filter((c) => c.path !== fillRoute(c.route, A.fills)?.split("?")[0]).map((c) => `${c.route} → ${c.path}`))],
+    crashInBothLanguages: [...preexistingCrash],
     hebrewLeftRoutes: Object.keys(hebrewLeft).length,
     hebrewLeft,
   };
@@ -279,9 +286,10 @@ async function main() {
 
   // ── R2 Hebrew users unaffected ──
   console.log("\n== R2 — Hebrew parity: flag ON (no cookie / dz_locale=he / English browser) = flag OFF ==");
-  const parity: Array<{ route: string; vp: string; variant: string; result: "identical" | "identical-after-volatile" | "expected" | "different"; attempts: number; detail?: string }> = [];
+  const parity: Array<{ route: string; vp: string; variant: string; result: "identical" | "identical-after-volatile" | "expected" | "both-crash" | "different"; attempts: number; detail?: string }> = [];
   const COMING_SOON = HE.settingsLocale.comingSoon;
   const compare = (off: Shot, on: Shot, route: string) => {
+    if (off.errorBoundary && on.errorBoundary && off.path === on.path) return { r: "both-crash" as const, d: `the flag-OFF build crashes the same way (${off.pageErrors[0] ?? "error boundary"}) — pre-existing, not caused by the flag` };
     const meta = off.lang === on.lang && off.dir === on.dir && off.title === on.title && off.path === on.path && on.lang === "he" && on.dir === "rtl";
     if (!meta) return { r: "different" as const, d: `meta off=${off.lang}/${off.dir}/"${off.title}"/${off.path} on=${on.lang}/${on.dir}/"${on.title}"/${on.path}` };
     const [ro, rn] = [normalizeVisible(off.text, "raw"), normalizeVisible(on.text, "raw")];
@@ -334,7 +342,7 @@ async function main() {
   const pc = (v: string, r: string) => parity.filter((p) => p.variant === v && p.result === r).length;
   report.parity = {
     comparisons: parity.length,
-    byVariant: Object.fromEntries(["no-cookie", "dz_locale=he", "en-US browser, no cookie"].map((v) => [v, { identical: pc(v, "identical"), identicalAfterVolatile: pc(v, "identical-after-volatile"), expected: pc(v, "expected"), different: pc(v, "different") }])),
+    byVariant: Object.fromEntries(["no-cookie", "dz_locale=he", "en-US browser, no cookie"].map((v) => [v, { identical: pc(v, "identical"), identicalAfterVolatile: pc(v, "identical-after-volatile"), expected: pc(v, "expected"), bothCrash: pc(v, "both-crash"), different: pc(v, "different") }])),
     retried: parity.filter((p) => p.attempts > 1).map((p) => `${p.vp} ${p.route} [${p.variant}] ×${p.attempts} → ${p.result}`),
     differences: parity.filter((p) => p.result !== "identical").map((p) => `${p.vp} ${p.route} [${p.variant}] ${p.result}${p.detail ? ": " + p.detail : ""}`),
     ssrIdentical: ssr.filter((s) => s.identical).length,
@@ -440,6 +448,15 @@ async function main() {
         rows.push({ route: it.route.pattern, vp: vp.name, ...r });
         ok(`R4 ${vp.name} ${it.route.pattern} — Hebrew-only content stays RTL + lang=he under dz_locale=en`, r.mainDir === "rtl" && r.contentLang === "he", JSON.stringify(r));
         ok(`R4 ${vp.name} ${it.route.pattern} — no horizontal overflow under dz_locale=en`, r.overflow <= 1, `${r.overflow}px`);
+        await ctx.close();
+      }
+      // In Hebrew (flag OFF, and flag ON without a cookie) the marketing wrapper carries no pin at all.
+      for (const base of [OFF, ON]) {
+        const ctx = await newCtx(browser, { base, token: null, locale: null, vp: VIEWPORTS[2] });
+        const page = await ctx.newPage();
+        await page.goto(base + it.url, { waitUntil: "domcontentloaded" });
+        const attrs = await page.evaluate(() => { const w = document.querySelector("#main-content")?.parentElement; return w ? `${w.getAttribute("lang")}/${w.getAttribute("dir")}` : "no-wrapper"; });
+        ok(`R4 ${it.route.pattern} — Hebrew render unchanged: no lang/dir pin on the wrapper (${base === OFF ? "flag OFF" : "flag ON, no cookie"})`, attrs === "null/null", attrs);
         await ctx.close();
       }
     }
