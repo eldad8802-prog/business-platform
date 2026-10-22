@@ -184,11 +184,12 @@ export function exactRate(obsValue: string, unitMult: number): { ok: true; rate:
   if (!OBS_RE.test(obsValue)) return { ok: false, reason: "OBS_VALUE is not a plain positive decimal" };
   let scaled: bigint;
   try {
-    // Parsing at RATE_SCALE + unitMult places and reading the integer at RATE_SCALE divides by 10^unitMult
-    // exactly; a value with more places than that cannot be stored exactly and is refused (no rounding).
-    scaled = parseScaled(obsValue, RATE_SCALE + unitMult);
+    // value / 10^unitMult at RATE_SCALE places = value × 10^(RATE_SCALE − unitMult): parsing at
+    // RATE_SCALE − unitMult places and reading the integer at RATE_SCALE divides exactly; a value with more
+    // places than that cannot be stored exactly and is refused (no rounding).
+    scaled = parseScaled(obsValue, RATE_SCALE - unitMult);
   } catch {
-    return { ok: false, reason: `OBS_VALUE has more than ${RATE_SCALE + unitMult} decimal places` };
+    return { ok: false, reason: `OBS_VALUE has more than ${RATE_SCALE - unitMult} decimal places (UNIT_MULT ${unitMult})` };
   }
   if (scaled <= BigInt(0)) return { ok: false, reason: "OBS_VALUE is not positive" };
   const rate = formatScaled(scaled, RATE_SCALE);
