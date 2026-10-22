@@ -79,7 +79,7 @@ rt "$A" "$(f "$A" "$TA" CHARGED 100.00 USD PROVIDER)" >/dev/null; ok "A records 
 eq "A sees exactly its fact" "$(rt "$A" "SELECT count(*) FROM $T")" "1"
 eq "B sees nothing of A" "$(rt "$B" "SELECT count(*) FROM $T")" "0"
 eq "no tenant context sees nothing" "$(rt "" "SELECT count(*) FROM $T")" "0"
-refused "append without tenant context" "row-level security" rt "" "$(f "$A" "$TI" CHARGED 200.00 ILS PROVIDER)"
+refused "append without tenant context (the transaction is invisible, or RLS)" "row-level security|DZS02" rt "" "$(f "$A" "$TI" CHARGED 200.00 ILS PROVIDER)"
 refused "append a row of another business (A's context, businessId B)" "row-level security|DZS02" rt "$A" "$(f "$B" "$TB" CHARGED 50.00 EUR PROVIDER)"
 
 echo "S2 — the transaction belongs to the row's business; PAID only"
