@@ -1,7 +1,6 @@
 "use client";
 
 import { LeadsBriefingCard } from "@/components/leads/LeadsBriefingCard";
-import { BusinessCostCard } from "@/components/business-cost/BusinessCostCard";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -33,14 +32,14 @@ import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import {
   SecretaryErrorBoundary,
   SecretaryFlowScreen,
-  SecretaryHomeScreen,
   SecretaryHomeSkeleton,
   TodayScreen,
-  type SecretaryHomeModel,
   type SecretaryLoopMode,
   type SecretaryScreenName,
   type TodayModel,
 } from "./secretary-ui";
+import { SecretaryHome, SecretaryHomeLoadError, SecretaryHomeLoading } from "./secretary-home";
+import { buildSecretaryHome } from "./secretary-home-model";
 
 type LoadState =
   | { status: "loading" }
@@ -390,7 +389,9 @@ function SecretaryPageInner() {
   // the fixed bottom bar (a sibling stacking context) otherwise floats over
   // their bottom CTAs (e.g. "מסור למזכירה"). The home screen keeps the nav so
   // the user can move to other sections of the app.
-  useHideShellChrome(Boolean(route.screen) || route.showToday);
+  // The "שילמת?" sheet now also opens from the main screen, where the fixed bottom bar would cover its
+  // lower buttons ("ביטול"); hide the chrome while it is open, as the inner screens already do.
+  useHideShellChrome(Boolean(route.screen) || route.showToday || paidPrompt !== null);
 
   if (state.status === "ready") {
     const focus = state.briefing.attention[0]?.obligation ?? null;
@@ -449,23 +450,37 @@ function SecretaryPageInner() {
       );
     }
 
+    // The main screen (alternative B). Its actions are the existing flows:
+    // "סמן שטופל" → onCompleteFlow ("שילמת?" at the same step), "כבר לא
+    // רלוונטי" → onReleaseFlow. The cost and leads cards sit in its side column.
     return (
       <SecretaryErrorBoundary>
-        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing, t, tag)}>
-          {/* Phase 3 — what the business costs, from the one business-cost engine. */}
-          <BusinessCostCard />
-        </SecretaryHomeScreen>
-        {/* M5 — the sales side of the Secretary: leads that need the owner today. */}
-        <LeadsBriefingCard />
+        <SecretaryHome view={buildSecretaryHome(state.briefing)} actions={{ onHandled: onCompleteFlow, onRelease: onReleaseFlow }} />
+        {paidSheet}
         {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
       </SecretaryErrorBoundary>
     );
   }
 
+  const onMainScreen = !route.screen && !route.showToday;
+
   if (state.status === "loading") {
-    // Instant, calm skeleton of the home shell — entry never shows a blank
-    // screen or a blocking "checking…" page while the briefing is in flight.
-    return <SecretaryHomeSkeleton />;
+    // Instant, calm skeleton — entry never shows a blank screen or a blocking
+    // "checking…" page while the briefing is in flight. The inner screens keep
+    // their existing skeleton.
+    return onMainScreen ? <SecretaryHomeLoading /> : <SecretaryHomeSkeleton />;
+  }
+
+  if (onMainScreen) {
+    return (
+      <SecretaryHomeLoadError
+        message={state.message}
+        onRetry={async () => {
+          const token = tokenRef.current;
+          if (token) await refreshAfterMutation(token);
+        }}
+      />
+    );
   }
 
   return (
@@ -541,83 +556,6 @@ const retryButtonStyle = {
   cursor: "pointer",
 };
 
-function homeModelFromBriefing(briefing: BriefingApi, t: Translator, tag: string): SecretaryHomeModel {
-  const focus = briefing.attention[0] ?? null;
-  const openItems = uniqueBriefingObligations([
-    ...briefing.attention.map((item) => item.obligation),
-    ...briefing.watching,
-  ]);
-  const currency = focus?.obligation.currency ?? openItems[0]?.currency ?? "ILS";
-  const allAmount = formatHomeAmount(String(sumObligationAmounts(openItems)), currency, tag);
-  const hasToday =
-    briefing.state === "CRITICAL" ||
-    briefing.attention.some((item) => item.reason === "OVERDUE" || item.reason === "DUE_TODAY");
-
-  if (briefing.counts.open === 0) {
-    return {
-      state: "new",
-      title: t("tasks.secretary.page.homeNew.title"),
-      subtitle: t("tasks.secretary.page.homeNew.subtitle"),
-      todayHref: "/secretary?today=1",
-      allHref: "/secretary?screen=all",
-      addHref: "/secretary?screen=bank",
-      today: { label: t("tasks.secretary.page.homeNew.label"), body: t("tasks.secretary.page.homeNew.body") },
-      queue: [],
-    };
-  }
-
-  if (focus) {
-    return {
-      state: "due",
-      title: hasToday ? t("tasks.secretary.page.homeDue.titleToday") : t("tasks.secretary.page.homeDue.titleWeek"),
-      subtitle: hasToday ? t("tasks.secretary.page.homeDue.subtitleToday") : t("tasks.secretary.page.homeDue.subtitleWeek"),
-      todayHref: "/secretary?today=1",
-      allHref: "/secretary?screen=all",
-      addHref: "/secretary?screen=bank",
-      today: {
-        label: t("tasks.secretary.page.myDay"),
-        badge: dueBadge(focus.reason, t),
-        body: displayObligeeName(focus.obligation.obligeeName, t),
-        amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency, tag),
-      },
-      all: {
-        line: t("tasks.secretary.page.trackingCount", { count: briefing.counts.open.toLocaleString(tag) }),
-        amount: allAmount,
-        suffix: t("tasks.secretary.page.toSpend"),
-      },
-      queue: openItems.map((item) => ({
-        id: item.id,
-        name: displayObligeeName(item.obligeeName, t),
-        amount: formatHomeAmount(item.amount, item.currency, tag),
-        reason: briefing.attention.find((row) => row.obligation.id === item.id)
-          ? dueBadge(briefing.attention.find((row) => row.obligation.id === item.id)!.reason, t)
-          : t("tasks.secretary.page.tracking"),
-      })),
-    };
-  }
-
-  return {
-    state: "calm",
-    title: t("tasks.secretary.page.homeCalm.title"),
-    subtitle: t("tasks.secretary.page.homeCalm.subtitle", { count: briefing.counts.open.toLocaleString(tag) }),
-    todayHref: "/secretary?today=1",
-    allHref: "/secretary?screen=all",
-    addHref: "/secretary?screen=bank",
-    today: { label: t("tasks.secretary.page.myDay"), body: t("tasks.secretary.page.homeCalm.body") },
-    all: {
-      line: t("tasks.secretary.page.trackingCount", { count: briefing.counts.open.toLocaleString(tag) }),
-      amount: allAmount,
-      suffix: t("tasks.secretary.page.toSpend"),
-    },
-    queue: openItems.map((item) => ({
-      id: item.id,
-      name: displayObligeeName(item.obligeeName, t),
-      amount: formatHomeAmount(item.amount, item.currency, tag),
-      reason: t("tasks.secretary.page.tracking"),
-    })),
-  };
-}
-
 function todayModelFromBriefing(briefing: BriefingApi, t: Translator, tag: string): TodayModel {
   const focus = briefing.attention[0] ?? null;
   if (!focus) {
@@ -653,22 +591,6 @@ function todayModelFromBriefing(briefing: BriefingApi, t: Translator, tag: strin
       subline: t("tasks.secretary.page.today.watchSubline"),
     },
   };
-}
-
-function uniqueBriefingObligations(items: ObligationApi[]): ObligationApi[] {
-  const seen = new Set<number>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
-}
-
-function sumObligationAmounts(items: ObligationApi[]): number {
-  return items.reduce((sum, item) => {
-    const amount = Number(item.amount);
-    return Number.isFinite(amount) ? sum + amount : sum;
-  }, 0);
 }
 
 /** Money in the obligation's own currency; `tag` = the interface language ("he-IL" → the legacy output). */
