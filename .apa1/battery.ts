@@ -21,6 +21,7 @@
  *
  * Synthetic data only. Exit 0 = every check passed. Prints check names and booleans only.
  */
+import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
 type Check = { name: string; ok: boolean; detail?: string };
@@ -267,6 +268,33 @@ async function passkeys(s: Seed) {
   check("E10 a malformed credential id is refused by the shape check", shape === "23514", String(shape));
 }
 
+/* F — the admin audit WRITE path. The admin plane is SELECT-only, so the console's audit append runs on the
+ * tenant runtime's reviewed privilege (20261003090000: SELECT + INSERT kept; UPDATE, DELETE, TRUNCATE revoked).
+ * The lab builds pre-M6 history with `db push`, so the runtime's revokes are applied here FROM THAT MIGRATION'S
+ * OWN TEXT (not restated by hand) before the runtime login is tested: append works, nothing can be rewritten
+ * or removed, by the runtime or by the admin plane. */
+async function auditTrail(s: Seed) {
+  const sql = readFileSync("prisma/migrations/20261003090000_control_plane_production_privileges/migration.sql", "utf8");
+  const revoke = sql.match(/REVOKE UPDATE, DELETE, TRUNCATE ON "PlatformAuditEvent" FROM app_runtime;/g) ?? [];
+  check("F0 Production's runtime revoke on the audit trail is in 20261003090000 (applied verbatim)", revoke.length === 1);
+  if (revoke.length === 1) await owner.$executeRawUnsafe(revoke[0]);
+
+  const appended = await sqlState(() =>
+    runtime.$executeRawUnsafe(`INSERT INTO "PlatformAuditEvent" ("actorUserId", "action", "targetType") VALUES ($1, 'LAB_F_APPEND', 'SYSTEM')`, s.userA)
+  );
+  check("F1 the runtime can append to the admin audit trail", appended === null, String(appended));
+  check("F2 the runtime cannot rewrite an audit row (UPDATE)", denied(await sqlState(() => runtime.$executeRawUnsafe(`UPDATE "PlatformAuditEvent" SET "action" = 'FORGED' WHERE "action" = 'LAB_F_APPEND'`))));
+  check("F3 the runtime cannot re-attribute an audit row (UPDATE actorUserId)", denied(await sqlState(() => runtime.$executeRawUnsafe(`UPDATE "PlatformAuditEvent" SET "actorUserId" = $1 WHERE "action" = 'LAB_F_APPEND'`, s.userB))));
+  check("F4 the runtime cannot delete audit rows", denied(await sqlState(() => runtime.$executeRawUnsafe(`DELETE FROM "PlatformAuditEvent" WHERE "action" = 'LAB_F_APPEND'`))));
+  check("F5 the runtime cannot truncate the audit trail", denied(await sqlState(() => runtime.$executeRawUnsafe(`TRUNCATE "PlatformAuditEvent"`))));
+  check("F6 the admin plane cannot rewrite an audit row", denied(await sqlState(() => admin.$executeRawUnsafe(`UPDATE "PlatformAuditEvent" SET "action" = 'FORGED' WHERE "action" = 'LAB_F_APPEND'`))));
+  check("F7 the admin plane cannot delete audit rows", denied(await sqlState(() => admin.$executeRawUnsafe(`DELETE FROM "PlatformAuditEvent" WHERE "action" = 'LAB_F_APPEND'`))));
+  const kept = await owner.platformAuditEvent.count({ where: { action: "LAB_F_APPEND", actorUserId: s.userA } });
+  check("F8 the appended row is intact after every refused change", kept === 1, String(kept));
+  check("F9 the audit trail has no RLS to bypass and no businessId to cross (platform-level by design)",
+    (await owner.$queryRawUnsafe<{ rls: boolean }[]>(`SELECT relrowsecurity AS rls FROM pg_class WHERE relname = 'PlatformAuditEvent'`))[0]?.rls === false);
+}
+
 const DB_ONLY = process.argv.includes("--db-only");
 
 async function main() {
@@ -281,6 +309,7 @@ async function main() {
     await services(s);
   }
   await passkeys(s);
+  await auditTrail(s);
 
   const failed = checks.filter((c) => !c.ok);
   for (const c of checks) {
