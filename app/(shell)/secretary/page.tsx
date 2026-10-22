@@ -1,6 +1,5 @@
 "use client";
 
-import { LeadsBriefingCard } from "@/components/leads/LeadsBriefingCard";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -428,7 +427,7 @@ function SecretaryPageInner() {
     if (route.showToday && sharedToday) {
       return (
         <SecretaryErrorBoundary>
-          <SecretaryToday onPaymentHandled={(id) => onCompleteFlow(id)} aside={<LeadsBriefingCard />} />
+          <SecretaryToday onPaymentHandled={(id) => onCompleteFlow(id)} />
           {paidSheet}
           {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
         </SecretaryErrorBoundary>
@@ -452,7 +451,7 @@ function SecretaryPageInner() {
 
     // The main screen (alternative B). Its actions are the existing flows:
     // "סמן שטופל" → onCompleteFlow ("שילמת?" at the same step), "כבר לא
-    // רלוונטי" → onReleaseFlow. The cost and leads cards sit in its side column.
+    // רלוונטי" → onReleaseFlow. The cost card sits in its side column.
     return (
       <SecretaryErrorBoundary>
         <SecretaryHome view={buildSecretaryHome(state.briefing)} actions={{ onHandled: onCompleteFlow, onRelease: onReleaseFlow }} />

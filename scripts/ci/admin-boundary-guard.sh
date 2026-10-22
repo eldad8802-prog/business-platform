@@ -80,6 +80,12 @@ fi
 # the account a request names, and records the link's email in TransactionalEmail
 # in the same transaction. It never changes a password itself: only
 # auth_password_reset_consume does, given a valid unused link.
+#
+# lib/auth/admin-passkey.service.ts joins it for the platform-admin passkey factor
+# (Admin Control Center A1, migration 20261024090000). PlatformAdminPasskey is
+# authentication material granted to app_auth ALONE — the runtime and the admin
+# read plane hold nothing on it — so its only reader and writer is this plane.
+# The module touches PlatformAdminPasskey and nothing else.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -89,6 +95,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
     | grep -vE "(^|/)lib/auth/admin-mfa\\.service\\.ts:" \
+    | grep -vE "(^|/)lib/auth/admin-passkey\\.service\\.ts:" \
     | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
     | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
@@ -162,7 +169,11 @@ done
 # a route may use it ONLY if explicitly allowlisted here. Everything else under
 # the admin namespaces must call the full requirePlatformAdmin[OrResponse],
 # which enforces MFA once PLATFORM_ADMIN_MFA_REQUIRED is on.
-CI3_IDENTITY_ONLY_ALLOWLIST="app/api/platform-admin/mfa/(enroll|confirm|verify)/route\.ts|app/api/platform-admin/session/route\.ts"
+# A1 adds the passkey ASSERTION pair (options + verify): it is the second way to
+# obtain the step-up, exactly like mfa/verify. Adding or removing a passkey is
+# NOT here — those routes use the full guard (a factor can only be added by an
+# admin who has just proven one).
+CI3_IDENTITY_ONLY_ALLOWLIST="app/api/platform-admin/mfa/(enroll|confirm|verify)/route\.ts|app/api/platform-admin/passkeys/auth/(options|verify)/route\.ts|app/api/platform-admin/session/route\.ts"
 
 while IFS= read -r route; do
   rel="${route#"$ROOT"/}"
@@ -205,8 +216,13 @@ CI3B_EOF
 # Legacy = admin services still on the tenant singleton, pending migration.
 # This list may only shrink; removing an entry after migrating it is mandatory.
 # Ratchet history: platform-audit-list migrated (W2-GATE); platform-overview
-# migrated (Wave 2).
-CI4_LEGACY_REGEX="platform-(attention|businesses|business-detail|usage-overview|audit)\.service\.ts"
+# migrated (Wave 2); attention, businesses, business-detail and usage-overview
+# migrated (Admin Control Center A1).
+# platform-audit is the ONE permanent entry: it is the append-only audit WRITER,
+# and the admin read plane is SELECT-only by doctrine (no app_admin INSERT
+# anywhere), so the append runs on the runtime's reviewed SELECT+INSERT on
+# "PlatformAuditEvent" (20261003090000). It reads nothing cross-tenant.
+CI4_LEGACY_REGEX="platform-audit\.service\.ts"
 ci4="$(
   grep -rnE "from ['\"]@/lib/prisma['\"]" \
     "$ROOT/lib/services/platform-admin" \

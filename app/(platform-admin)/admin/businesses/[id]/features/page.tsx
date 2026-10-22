@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { BusinessFeaturesSurface } from "@/components/platform-admin/business-features-surface";
-import { PlatformAdminGate } from "@/components/platform-admin/platform-admin-gate";
+import { AdminConsole } from "@/components/platform-admin/console/admin-console";
 
 export default function PlatformAdminBusinessFeaturesPage() {
   const params = useParams();
@@ -11,10 +11,11 @@ export default function PlatformAdminBusinessFeaturesPage() {
     typeof rawId === "string" ? Number(rawId) : Number.NaN;
 
   return (
-    <PlatformAdminGate>
-      {(session) => (
-        <BusinessFeaturesSurface session={session} businessId={businessId} />
-      )}
-    </PlatformAdminGate>
+    <AdminConsole
+      title="גישה לפיצ׳רים"
+      backHref={Number.isInteger(businessId) ? `/admin/businesses/${businessId}` : "/admin/businesses"}
+    >
+      {(session) => <BusinessFeaturesSurface session={session} businessId={businessId} />}
+    </AdminConsole>
   );
 }

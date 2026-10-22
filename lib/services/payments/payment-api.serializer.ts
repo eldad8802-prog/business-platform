@@ -10,6 +10,7 @@ import type {
 import type { CollectionViewState } from "./collection-view";
 import type {
   CollectionItemView,
+  CollectionMoneyFigure,
   CollectionWorkspaceResult,
 } from "./collection-workspace.service";
 
@@ -159,9 +160,9 @@ export interface CollectionItemApi {
 
 export interface CollectionWorkspaceApi {
   summary: {
-    pending: { amount: string; count: number };
-    collectedThisMonth: { amount: string; count: number };
-    expired: { amount: string; count: number };
+    pending: CollectionMoneyFigure;
+    collectedThisMonth: CollectionMoneyFigure;
+    expired: CollectionMoneyFigure;
   };
   attention: CollectionItemApi[];
   active: CollectionItemApi[];

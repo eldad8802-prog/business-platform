@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconInfo } from "@/components/navigation/nav-icons";
@@ -18,6 +18,7 @@ import {
   type CashflowSeries,
   type Load,
 } from "./home-v3-model";
+import { OtherCurrenciesMark } from "./home-parts";
 
 /**
  * "הכנסות והוצאות" — the dark teal card, drawn per the approved references:
@@ -193,7 +194,7 @@ export function CashflowCard({
           : { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }
       }
     >
-      <SplitTile variant={variant} dot={INCOME} label={t("home.cashflow.income")} value={series.state === "loading" ? null : value ? money(value.income) : "—"} />
+      <SplitTile variant={variant} dot={INCOME} label={t("home.cashflow.income")} value={series.state === "loading" ? null : value ? money(value.income) : "—"} extra={value ? <OtherCurrenciesMark others={value.incomeOtherCurrencies} /> : null} />
       <SplitTile
         variant={variant}
         dot={EXPENSE}
@@ -331,7 +332,7 @@ function XAxis({ ticks, size, marginTop }: { ticks: string[]; size: number; marg
   );
 }
 
-function SplitTile({ variant, dot, label, value }: { variant: CashflowVariant; dot: string; label: string; value: string | null }) {
+function SplitTile({ variant, dot, label, value, extra = null }: { variant: CashflowVariant; dot: string; label: string; value: string | null; extra?: ReactNode }) {
   return (
     <div
       style={{
@@ -350,6 +351,7 @@ function SplitTile({ variant, dot, label, value }: { variant: CashflowVariant; d
       </div>
       <div style={{ fontSize: variant === "tablet" ? 19 : 20, fontWeight: 600 }}>
         {value === null ? <Shimmer w={80} h={20} /> : value}
+        {value === null ? null : extra}
       </div>
     </div>
   );

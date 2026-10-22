@@ -20,7 +20,9 @@
  */
 import type {
   PlatformAdminAttentionResponse,
+  PlatformAdminBusinessFilter,
   PlatformAdminBusinessesResponse,
+  PlatformAdminHomeResponse,
   PlatformAdminOverviewResponse,
   PlatformAdminSessionResponse,
 } from "@/lib/services/platform-admin/types";
@@ -38,6 +40,7 @@ import {
   clearAdminElevation,
   getAdminElevation,
   getAdminStepUpHandler,
+  setAdminElevation,
 } from "./admin-elevation";
 
 export class PlatformAdminFetchError extends Error {
@@ -207,26 +210,131 @@ export async function patchPlatformAdminBusinessFeature(
   return data;
 }
 
-export function fetchPlatformAdminAudit(page: number, limit = 30) {
+export type PlatformAdminAuditKind = "all" | "changes" | "views" | "security";
+
+export function fetchPlatformAdminAudit(
+  page: number,
+  limit = 30,
+  filters: { kind?: PlatformAdminAuditKind; businessId?: number } = {}
+) {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
   });
+  if (filters.kind && filters.kind !== "all") params.set("kind", filters.kind);
+  if (filters.businessId) params.set("businessId", String(filters.businessId));
   return platformAdminFetch<PlatformAdminAuditResponse>(
     `/api/platform-admin/audit?${params.toString()}`
   );
 }
 
-export function fetchPlatformAdminBusinesses(page: number, limit = 20) {
+export function fetchPlatformAdminHome() {
+  return platformAdminFetch<PlatformAdminHomeResponse>("/api/platform-admin/home");
+}
+
+export function fetchPlatformAdminBusinesses(input: {
+  page: number;
+  limit?: number;
+  q?: string;
+  filter?: PlatformAdminBusinessFilter;
+}) {
   const params = new URLSearchParams({
-    page: String(page),
-    limit: String(limit),
+    page: String(input.page),
+    limit: String(input.limit ?? 20),
     sort: "createdAt",
     order: "desc",
   });
+  const q = input.q?.trim();
+  if (q) params.set("q", q);
+  if (input.filter && input.filter !== "all") params.set("filter", input.filter);
   return platformAdminFetch<PlatformAdminBusinessesResponse>(
     `/api/platform-admin/businesses?${params.toString()}`
   );
+}
+
+/* ------------------------------------------------------------------------- *
+ * Admin security: authenticator app (TOTP) and passkeys.
+ * Enroll / confirm and the passkey assertion are identity-only on the server;
+ * everything else needs a live elevation and goes through the same core.
+ * ------------------------------------------------------------------------- */
+
+export async function startAdminMfaEnrollment(): Promise<{ otpauthUri: string }> {
+  const { data } = await adminRequest<{ otpauthUri: string }>("/api/platform-admin/mfa/enroll", {
+    method: "POST",
+  });
+  return data;
+}
+
+export async function confirmAdminMfaEnrollment(code: string): Promise<{ recoveryCodes: string[] }> {
+  const { data } = await adminRequest<{
+    recoveryCodes: string[];
+    elevation: string;
+    elevationExpiresInSeconds: number;
+  }>("/api/platform-admin/mfa/confirm", { method: "POST", body: JSON.stringify({ code }) });
+  // Confirming proves the factor: keep the elevation the server handed back.
+  setAdminElevation(data.elevation, data.elevationExpiresInSeconds);
+  return { recoveryCodes: data.recoveryCodes };
+}
+
+/**
+ * Replace the authenticator app atomically: begin returns the new QR and a
+ * sealed envelope; the old app keeps working until confirm proves a code from
+ * the new one. Both calls need a step-up from the last few minutes (the core
+ * prompts for one automatically).
+ */
+export async function beginAdminMfaReplacement(): Promise<{ otpauthUri: string; replacementToken: string }> {
+  const { data } = await adminRequest<{ otpauthUri: string; replacementToken: string }>(
+    "/api/platform-admin/mfa/replace/begin",
+    { method: "POST" }
+  );
+  return data;
+}
+
+export async function confirmAdminMfaReplacement(
+  replacementToken: string,
+  code: string
+): Promise<{ recoveryCodes: string[] }> {
+  const { data } = await adminRequest<{ recoveryCodes: string[] }>("/api/platform-admin/mfa/replace/confirm", {
+    method: "POST",
+    body: JSON.stringify({ replacementToken, code }),
+  });
+  return { recoveryCodes: data.recoveryCodes };
+}
+
+export type AdminPasskeyItem = {
+  id: number;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  deviceType: string | null;
+  backedUp: boolean;
+};
+
+export function fetchAdminPasskeys() {
+  return platformAdminFetch<{ available: boolean; reason?: string; passkeys: AdminPasskeyItem[] }>(
+    "/api/platform-admin/passkeys"
+  );
+}
+
+/** Options → the browser ceremony (Face ID / fingerprint) → verify. */
+export async function registerAdminPasskey(label: string): Promise<AdminPasskeyItem> {
+  const { startRegistration } = await import("@simplewebauthn/browser");
+  const { data: begin } = await adminRequest<{
+    options: Parameters<typeof startRegistration>[0]["optionsJSON"];
+    challengeToken: string;
+  }>("/api/platform-admin/passkeys/register/options", { method: "POST" });
+  const response = await startRegistration({ optionsJSON: begin.options });
+  const { data } = await adminRequest<{ passkey: AdminPasskeyItem }>(
+    "/api/platform-admin/passkeys/register/verify",
+    { method: "POST", body: JSON.stringify({ challengeToken: begin.challengeToken, response, label }) }
+  );
+  return data.passkey;
+}
+
+export async function revokeAdminPasskey(id: number): Promise<void> {
+  await adminRequest<{ revoked: boolean }>(`/api/platform-admin/passkeys/${id}/revoke`, {
+    method: "POST",
+  });
 }
 
 /**

@@ -1,0 +1,76 @@
+name: "Prod admin read plane — LOGIN role (OWNER GATE, writes roles)"
+
+# Provisions or disables the ONE Production login that joins the NOLOGIN group app_admin (the platform-admin
+# READ plane). scripts/ops/admin-read-login.ts. This WRITES to Production roles — it runs only on manual
+# dispatch, in the production-db environment (owner approval), and only after migration
+# 20261024090000_platform_admin_a1 is applied.
+#
+#   provision  create-once / rotate-password app_admin_prod (LOGIN, INHERIT, NOSUPERUSER, NOBYPASSRLS,
+#              NOCREATEDB, NOCREATEROLE, NOREPLICATION, CONNECTION LIMIT 10), member of app_admin only.
+#              Password = the one inside the production-db secret ADMIN_DATABASE_URL (the same value the
+#              owner stores in Vercel Production); sent as a plaintext PASSWORD literal over TLS because Neon
+#              accepts only plaintext (it hashes it); [A-Za-z0-9_-] only; redacted from every error.
+#              Preconditions, write and post-assertions are one transaction.
+#   disable    containment: NOLOGIN + revoke the group membership + terminate sessions. Immediate; no deploy
+#              needed. The role is never dropped.
+# Output: booleans only. No URL or password is ever printed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "provision (create/rotate the login) or disable (containment)"
+        required: true
+        type: choice
+        options: ["provision", "disable"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-admin-read-login
+  cancel-in-progress: false
+
+jobs:
+  login:
+    name: Admin read-plane login (${{ inputs.action }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Secrets present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL is not set in production-db."; exit 1; fi
+          if [ "$ACTION" = provision ] && [ -z "${ADMIN_DATABASE_URL:-}" ]; then
+            echo "::error::ADMIN_DATABASE_URL is not set in production-db — NOT RUN."; exit 1; fi
+          if [ -n "${ADMIN_DATABASE_URL:-}" ] && [ "$DIRECT_URL" = "$ADMIN_DATABASE_URL" ]; then
+            echo "::error::the admin URL equals the owner URL — refusing."; exit 1; fi
+          echo "Secrets present."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Admin read-plane login
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/admin-read-login.ts --action ${{ inputs.action }} --allow-host ep-flat-brook-am4bhq1y

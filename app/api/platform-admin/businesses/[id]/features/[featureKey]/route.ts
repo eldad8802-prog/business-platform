@@ -45,13 +45,16 @@ export async function PATCH(
   context: { params: Promise<{ id: string; featureKey: string }> }
 ) {
   try {
-    if (!isFeatureAccessMutationsEnabled()) {
-      throw new ServiceUnavailableError();
-    }
-
+    // Identity first: an unauthenticated or non-admin caller learns nothing —
+    // not even whether the mutation switch is on (it used to answer 503 to
+    // anyone, which disclosed the flag's state before authentication).
     const auth = await requirePlatformAdminOrResponse(req);
     if (auth instanceof NextResponse) {
       return auth;
+    }
+
+    if (!isFeatureAccessMutationsEnabled()) {
+      throw new ServiceUnavailableError();
     }
 
     const { id, featureKey } = await context.params;

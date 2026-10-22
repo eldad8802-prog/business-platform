@@ -45,8 +45,14 @@ function mapActionError(error: unknown): string {
     if (error.status === 409 || error.code === "NO_CHANGE") {
       return "אין שינוי בגישה";
     }
-    if (error.status === 403) {
+    if (error.code === "FEATURE_NOT_MUTABLE") {
       return "פיצ׳ר בסיסי שלא ניתן לשינוי";
+    }
+    if (error.code === "ADMIN_MFA_REQUIRED") {
+      return "נדרש אימות נוסף כדי לשמור. השינוי לא נשמר.";
+    }
+    if (error.status === 403) {
+      return "אין הרשאה לבצע את השינוי הזה";
     }
     if (error.status === 503) {
       return "מערכת שינויי גישה כבויה זמנית";

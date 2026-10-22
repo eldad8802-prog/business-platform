@@ -11,6 +11,8 @@
  * Pure dependency injection — no database, no network.
  */
 
+import { inspect } from "node:util";
+
 import {
   handleRegister,
   type RegisterDeps,
@@ -295,6 +297,42 @@ async function main() {
     });
     await handleRegister(req({ ...VALID, password: "  spaced secret  " }), deps);
     ok("open -> password not trimmed before hashing", hashed === "  spaced secret  ");
+  }
+
+  // L3: an unexpected failure is logged by class and code only — never the error object, which for
+  // a Prisma request error embeds the invocation (address, password hash) and can carry the DSN.
+  {
+    class PrismaClientKnownRequestError extends Error {
+      code = "P1001";
+      meta = { target: ["email"] };
+      constructor() {
+        super("Invalid `prisma.user.create()` invocation: { email: \"new-owner@example.test\", password: \"hashed\" } postgresql://app:s3cr3t@db.example.test/main");
+        this.name = "PrismaClientKnownRequestError";
+      }
+    }
+    const { deps } = makeDeps(true, {
+      createAccount: async () => {
+        throw new PrismaClientKnownRequestError();
+      },
+    });
+    const lines: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => {
+      // Formatted as the console itself prints them (message, stack, own properties).
+      lines.push(args.map((a) => (typeof a === "string" ? a : inspect(a, { depth: 5 }))).join(" "));
+    };
+    let res: Response;
+    try {
+      res = await handleRegister(req(), deps);
+    } finally {
+      console.error = realError;
+    }
+    const logged = lines.join("\n");
+    ok("L3: unexpected failure -> 500", res.status === 500);
+    ok("L3: the failure is still logged with class + code (diagnosable)", /REGISTER_ERROR/.test(logged) && /PrismaClientKnownRequestError/.test(logged) && /P1001/.test(logged));
+    ok("L3: the log carries no address", !logged.includes("new-owner@example.test"));
+    ok("L3: the log carries no password hash or invocation", !/hashed|invocation/.test(logged));
+    ok("L3: the log carries no connection string", !/postgresql:|s3cr3t/.test(logged));
   }
 
   // Duplicate is now decided by the DB unique index, not a racy pre-check, and

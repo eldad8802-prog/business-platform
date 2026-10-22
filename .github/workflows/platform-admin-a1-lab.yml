@@ -15,7 +15,7 @@
 #      ZERO rows without a tenant context, the real admin services returning the seeded truth, and passkeys
 #      reachable by app_auth alone (read / add / change mutable columns; no removal).
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
-#   (6. The console definitions and admin guards run in the application PR.)
+#   6. The console definitions (pure) and the admin guards.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
 
@@ -163,9 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           node_modules/.bin/prisma generate >/dev/null
-          # Migration-only PR (migration-first rule): the admin services are not here yet, so the battery runs its
-          # database sections only. The application PR drops --db-only and adds the services and pure tests.
-          node_modules/.bin/tsx .apa1/battery.ts --db-only | tee /tmp/battery.out
+          node_modules/.bin/tsx .apa1/battery.ts | tee /tmp/battery.out
           grep -qE 'A1 battery: ([0-9]+)/\1 PASS' /tmp/battery.out || { echo "battery did not pass completely"; exit 1; }
 
       - name: 5. Atomicity — the migration failing on its last statement leaves nothing behind
@@ -183,3 +181,12 @@ jobs:
           done
           test "$(grep -E '^ +12 \| INFO' /tmp/broken.out | awk -F'|' '{print $3}' | tr -d ' ')" = "0" || { echo "column grants survived the failure"; exit 1; }
           echo "nothing of A1 remains after a failed apply"
+
+      - name: 6. Console definitions (pure) and the admin guards
+        run: |
+          set -euo pipefail
+          node_modules/.bin/tsx lib/services/platform-admin/platform-admin-a1.test.ts
+          node_modules/.bin/tsx lib/auth/admin-passkey.test.ts
+          node_modules/.bin/tsx lib/auth/admin-factor-change.test.ts
+          node_modules/.bin/tsx app/api/platform-admin/admin-a1-routes.test.ts
+          bash scripts/ci/admin-boundary-guard.sh .

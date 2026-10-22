@@ -59,11 +59,13 @@ export async function createPlatformAuditEventTx(
 /**
  * Best-effort platform audit write — never throws to callers.
  *
- * D2/P7-W2-GATE migration ratchet: migrated admin routes pass the sanctioned
- * admin client (`{ db: getPrismaAdmin() }`) so the append runs as the admin
- * role; not-yet-migrated routes still default to the tenant singleton. The
- * default is removed as the remaining admin routes migrate — never add new
- * callers relying on it.
+ * The append runs as the tenant RUNTIME, deliberately: the platform-admin read
+ * plane (`app_admin`) is SELECT-only by doctrine and holds no INSERT anywhere
+ * (migration 20261024090000), while the runtime holds the reviewed
+ * SELECT+INSERT on "PlatformAuditEvent" (20261003090000 — UPDATE/DELETE
+ * revoked). "PlatformAuditEvent" has no RLS and no businessId, so no tenant
+ * context is involved. Transactional writers (the control plane) pass their own
+ * transaction client in `options.db` so mutation and audit commit together.
  */
 export async function logPlatformAuditEvent(
   input: LogPlatformAuditEventInput,
