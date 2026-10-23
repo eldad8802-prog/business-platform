@@ -10,14 +10,15 @@
  * lock come with it.
  */
 
-import { BusinessCostCard } from "@/components/business-cost/BusinessCostCard";
+import { BusinessCostCard, formatIls } from "@/components/business-cost/BusinessCostCard";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
-import { formatMoney } from "@/lib/ui/money";
 import { secretaryVars } from "./secretary-ui";
 import s from "./secretary-hub.module.css";
 
 export function SecretaryCostDrawer({ open, onClose, summary }: { open: boolean; onClose: () => void; summary: BusinessCostSummaryApi | null }) {
+  const { locale } = useI18n();
   const day = summary?.baseline.calendarDay ?? null;
   return (
     <AdaptiveOverlay open={open} onClose={onClose} variant="form" labelledBy="hub-cost-title">
@@ -34,7 +35,7 @@ export function SecretaryCostDrawer({ open, onClose, summary }: { open: boolean;
         <p className={s.calcNote}>
           <strong>זו עלות תפעול מחושבת, לא כסף ששולם.</strong>{" "}
           {day && summary
-            ? `ההוצאות הקבועות של החודש (${formatMoney(summary.baseline.monthly, summary.currency)}) מחולקות ל־${day.daysInMonth.toLocaleString("he-IL")} ימי החודש. מה ששולם בפועל מופיע בהתחייבויות.`
+            ? `ההוצאות הקבועות של החודש (${formatIls(summary.baseline.monthly, locale)}) מחולקות ל־${day.daysInMonth.toLocaleString("he-IL")} ימי החודש. מה ששולם בפועל מופיע בהתחייבויות.`
             : "מה ששולם בפועל מופיע בהתחייבויות."}
         </p>
         <BusinessCostCard embedded breakdownOpen />
