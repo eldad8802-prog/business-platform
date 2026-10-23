@@ -85,7 +85,8 @@ jobs:
       - name: Forced-breach self-test (must FAIL the evaluator)
         run: |
           set -uo pipefail
-          node ops/monitor/evaluate.mjs --samples "$STATE_DIR/samples.tsv" --force-breach > "$STATE_DIR/forced.md"; rc=$?
+          rc=0  # the default shell is bash -e: capture the exit code instead of aborting on it
+          node ops/monitor/evaluate.mjs --samples "$STATE_DIR/samples.tsv" --force-breach > "$STATE_DIR/forced.md" || rc=$?
           if [ "$rc" != "1" ]; then echo "::error::forced sustained breach did not fail the evaluator (exit $rc)"; exit 1; fi
           echo "forced sustained breach -> evaluator exit 1 (alert path works)"
 
@@ -95,10 +96,11 @@ jobs:
           FORCE_BREACH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_breach && 'true' || 'false' }}
         run: |
           set -uo pipefail
+          rc=0
           extra=""
           [ "$FORCE_BREACH" = "true" ] && extra="--force-breach"
           node ops/monitor/evaluate.mjs --samples "$STATE_DIR/samples.tsv" --prev "$STATE_DIR/prev/state.json" \
-            --state-out "$STATE_DIR/state.json" --summary "$GITHUB_STEP_SUMMARY" --run-id "$GITHUB_RUN_ID" $extra; rc=$?
+            --state-out "$STATE_DIR/state.json" --summary "$GITHUB_STEP_SUMMARY" --run-id "$GITHUB_RUN_ID" $extra || rc=$?
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           [ "$rc" = "0" ] || [ "$rc" = "1" ] || { echo "::error::evaluator error (exit $rc)"; exit 1; }
 
