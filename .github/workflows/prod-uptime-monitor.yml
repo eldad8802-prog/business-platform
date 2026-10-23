@@ -6,8 +6,8 @@
 # pre-activation baseline (ops/monitor/prod-baseline.json). See docs/ops/PROD-UPTIME-MONITOR.md.
 #
 # ALERT = this job FAILS (GitHub emails the owner about a failed scheduled run). It fails only when
-# this run AND the previous scheduled run are both BREACHING (~30 min sustained); a single cold
-# start or spike never alerts. It changes nothing: no rollback, no Vercel or Production writes.
+# this run AND the previous scheduled run (<= 8 h old: GitHub throttles schedules here to ~2.5-6 h) are
+# both BREACHING; a single cold start or spike never alerts. It changes nothing: no rollback, no Vercel or Production writes.
 #
 # Token: the default GITHUB_TOKEN only — contents: read (checkout) and actions: read (download the
 # previous scheduled run's tiny state artifact). No secrets, no environment.

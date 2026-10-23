@@ -12,7 +12,7 @@
   "reference": "/manifest.webmanifest",
   "thresholdMs": 250,
   "minBreachingTargets": 3,
-  "maxPrevStateAgeMinutes": 75,
+  "maxPrevStateAgeMinutes": 480,
   "targets": {
     "/about": { "offsetMs": 0 },
     "/app": { "offsetMs": 0 },

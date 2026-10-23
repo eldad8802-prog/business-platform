@@ -4,7 +4,7 @@ Workflow: `.github/workflows/prod-uptime-monitor.yml` · scripts: `ops/monitor/`
 
 ## What it does
 
-Every ~15 minutes (`cron: */15 * * * *`; GitHub may delay or skip scheduled runs under load) a GitHub-hosted
+Requested every 15 minutes (`cron: */15 * * * *`) — but see *Real cadence* below — a GitHub-hosted
 runner requests public, unauthenticated pages of `https://promaxgroup.co.il`: `/about`, `/app`, `/collection`,
 `/login`, `/home`, plus `/manifest.webmanifest` as the **CDN reference** (a static file served as an
 `x-vercel-cache: HIT` from the edge).
@@ -24,9 +24,18 @@ runner requests public, unauthenticated pages of `https://promaxgroup.co.il`: `/
 
 ## How alerts arrive
 
-**Alert only when this run AND the previous scheduled run are both BREACHING (~30 min sustained).** The previous
-run's verdict is read from its tiny `prod-monitor-state` artifact (3-day retention); a state older than 75 min
-(skipped schedules) is ignored. A single cold start or spike never alerts.
+**Alert only when this run AND the previous scheduled run are both BREACHING (two consecutive runs).** The previous
+run's verdict is read from its tiny `prod-monitor-state` artifact (3-day retention); a state older than 8 h is
+ignored. A single cold start or spike never alerts.
+
+### Real cadence (GitHub throttles this repository's schedules)
+
+GitHub runs scheduled workflows best-effort. On this repository the other `*/10` schedules
+(`intake-sweep`, `payment-settlement-recovery`, `transactional-email-sweep`) actually ran only every
+**~2.5–6 hours** (observed 2026-10-21 → 10-23). Expect the same for this monitor. So "previous run" means the
+previous *scheduled run that actually happened*, accepted up to 8 h old (75 min would mean it could never alert),
+and an alert can take hours, not 30 min. For minute-level detection, trigger `workflow_dispatch` from an
+external scheduler (owner choice; it would need a token, so it is not set up here).
 
 An alert = the job **fails**. GitHub emails the account owner about failed scheduled runs (Settings → Notifications
 → Actions, "failed workflows only"). Every run — healthy or not — writes a job summary table. The monitor changes
@@ -57,6 +66,6 @@ GitHub also disables scheduled workflows automatically after 60 days without rep
 
 - Detects availability and latency of public pages from one US region; it does not see signed-in flows, APIs or
   regional problems elsewhere.
-- Up to ~30–45 min to alert (two scheduled runs, plus GitHub's schedule delays). Scheduled runs are best-effort.
+- Alert latency = two scheduled runs that actually ran: ~30 min at best, hours under GitHub's throttling (see above).
 - The baseline was measured from Israel with the flag OFF; if the architecture changes intentionally (e.g. pages
   stop being CDN-cached), update `prod-baseline.json` in a reviewed PR.

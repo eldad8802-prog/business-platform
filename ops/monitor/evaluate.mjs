@@ -204,7 +204,7 @@ function selfTest() {
   const make = (ms, over = () => null) => all.flatMap((t) => [row(t, 0, 200, 5000), ...[1, 2, 3, 4, 5].map((r) => over(t, r) ?? row(t, r, 200, ms(t)))]);
   const healthy = (t) => 200 + (baseline.targets[t]?.offsetMs ?? 0);
   const recent = { at: new Date(Date.now() - 15 * 60000).toISOString(), breaching: true, runId: "prev" };
-  const stale = { at: new Date(Date.now() - 200 * 60000).toISOString(), breaching: true, runId: "old" };
+  const stale = { at: new Date(Date.now() - 600 * 60000).toISOString(), breaching: true, runId: "old" };
   const slow = (k) => (t) => healthy(t) + (pages.indexOf(t) >= 0 && pages.indexOf(t) < k ? 300 : 0);
   const ev = (rows, prev = null, force = false) => evaluate({ rows, baseline, prev, force });
   const cases = [
@@ -215,7 +215,7 @@ function selfTest() {
     ["+240 ms on every page: under the 250 ms threshold", () => !ev(make((t) => healthy(t) + (t === baseline.reference ? 0 : 240)), recent).breaching],
     ["absolute slowness that moves the reference too (runner location) is NOT a breach", () => !ev(make((t) => healthy(t) + 400), recent).breaching],
     ["one cold-start sample of 3000 ms per target: median absorbs it", () => !ev(make(healthy, (t, r) => (r === 1 ? row(t, r, 200, 3000) : null)), recent).breaching],
-    ["stale previous state (200 min) is ignored: no alert", () => { const v = ev(make(slow(3)), stale); return v.breaching && !v.alert; }],
+    ["stale previous state (600 min) is ignored: no alert", () => { const v = ev(make(slow(3)), stale); return v.breaching && !v.alert; }],
     ["previous healthy: no alert", () => !ev(make(slow(5)), { ...recent, breaching: false }).alert],
     ["any 5xx is breaching (and alerts when sustained)", () => { const v = ev(make(healthy, (t, r) => (t === "/login" && r === 3 ? row(t, r, 502, 100) : null)), recent); return v.breaching && v.alert && v.fivexx.includes("/login"); }],
     ["timeouts on a target: UNREACHABLE, breaching", () => { const v = ev(make(healthy, (t, r) => (t === "/home" && r <= 3 ? row(t, r, 0, 20000) : null))); return v.breaching && v.unreachable.includes("/home"); }],
