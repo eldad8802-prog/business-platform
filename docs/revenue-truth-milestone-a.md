@@ -39,7 +39,7 @@ again (unique per pair).
 
 ## Authority: which source counts a register day
 
-The read model (`lib/revenue/revenue-read-model.ts`, application PR) decides per
+The read model (`lib/revenue-truth/read-model.ts`, application PR) decides per
 `(sale stream, register, business day)`:
 
 | Situation | Counted | The other sources |
