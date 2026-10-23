@@ -1,0 +1,144 @@
+# Revenue truth / migration 20261028090000_revenue_truth_foundation — proof on PostgreSQL BEFORE it reaches any
+# shared database (ephemeral PG17). docs: docs/revenue-truth-milestone-a.md
+#
+# .rev/lab.sh builds Production's topology on top of the daily tasks lab: non-superuser CREATEROLE/BYPASSRLS
+# owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's DEFAULT PRIVILEGES (which hand the runtime
+# a,r,w,d on every new table), Business under FORCE RLS; ledger through M6 + P3-E + TE + AET + DT.
+#
+#   0. Static: the migration names only its own objects and the tables it builds on; it ALTERs no existing
+#      table; no other migration names its objects.
+#   1. `prisma migrate deploy` (the release-migrate mechanism) applies it to a pending lab, and every
+#      pre-existing object — tables, columns, constraints, indexes, policies, triggers, functions, enums, grants,
+#      roles, default privileges — is IDENTICAL before and after (.rev/catalog-snapshot.sql).
+#   2. Battery (.rev/battery.ts) as the real roles: catalog, four-sided isolation per table, cross-business
+#      references, append-only for every role, idempotent ingestion, arithmetic and shapes, the link guard,
+#      existing systems byte-identical.
+#   3. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   4. Rollback: refused while rows exist; on an empty database it removes every object and the catalog
+#      returns to the pre-migration snapshot; a re-apply succeeds.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network. Nothing here touches a shared database.
+
+name: revenue truth foundation — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261028090000_revenue_truth_foundation/**"
+      - ".rev/**"
+      - ".github/workflows/revenue-truth-foundation-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: revenue truth foundation (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: rev_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: rev_ci_synthetic_super_pw
+      LAB_PASSWORD: rev_ci_synthetic_role_pw
+      REV: prisma/migrations/20261028090000_revenue_truth_foundation/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Static — own objects only; no existing table altered; no other migration names its objects
+        run: |
+          set -euo pipefail
+          own='"Revenue[A-Za-z]*"'
+          base='"Business"|"Document"|"AcquisitionConnection"|"ExternalTransaction"|"BillingDocument"|"ExternalTransactionDirection"'
+          others=$(grep -oE '"[A-Z][A-Za-z]*"' "$REV" | sort -u | grep -vE "^$own\$" | grep -vxE "$base" || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          if grep -nE '^\s*ALTER TABLE "' "$REV" | grep -vE 'ALTER TABLE "Revenue[A-Za-z]*"'; then echo "the migration alters an existing table"; exit 1; fi
+          if grep -niE '^\s*(DROP|TRUNCATE|DELETE|UPDATE)\b' "$REV"; then echo "the migration drops or changes data"; exit 1; fi
+          if grep -niE 'INSERT INTO' "$REV"; then echo "the migration inserts data (no flag, no seed in milestone A)"; exit 1; fi
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261028090000_revenue_truth_foundation" ]] || continue
+            if grep -nE 'Revenue(Sale|Receipt|DailyClose|Settlement|Link|Decision)|revenue_(link|append_only|truncate)_guard' "$d/migration.sql"; then echo "$n names a revenue truth object"; exit 1; fi
+          done
+          echo "the migration names only its own objects and the tables it builds on; it alters no existing table and writes no data"
+
+      - name: 1. migrate deploy applies it — every pre-existing object identical before and after
+        run: |
+          set -euo pipefail
+          bash .rev/lab.sh rev_main
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_main -v ON_ERROR_STOP=1 -At "$@"; }
+          lab -f .rev/catalog-snapshot.sql > /tmp/catalog-before.txt
+          bash .rev/lab.sh rev_main --apply | tee /tmp/apply.log
+          grep -q 'Applying migration `20261028090000_revenue_truth_foundation`' /tmp/apply.log
+          lab -f .rev/catalog-snapshot.sql > /tmp/catalog-after.txt
+          echo "pre-existing objects measured: $(wc -l < /tmp/catalog-before.txt)"
+          if ! diff -u /tmp/catalog-before.txt /tmp/catalog-after.txt; then echo "the migration changed a pre-existing object"; exit 1; fi
+          n=$(lab -c "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^Revenue'")
+          test "$n" = "8" || { echo "expected 8 revenue tables, got $n"; exit 1; }
+          echo "8 new tables; every pre-existing object identical"
+
+      - name: 2. Battery — catalog, isolation, references, append-only, idempotency, arithmetic, link guard, existing systems
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rev_main" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/rev_main" \
+            npx tsx .rev/battery.ts
+
+      - name: 3. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .rev/lab.sh rev_broken --broken-rev
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_broken -v ON_ERROR_STOP=1 -At "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relname ~ '^Revenue')
+            + (SELECT count(*) FROM pg_type WHERE typname ~ '^Revenue')
+            + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'revenue\_%')
+            + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'revenue\_%')")
+          led=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261028090000_revenue_truth_foundation' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 4. Rollback — refused with rows; whole on an empty database (catalog back to the snapshot); re-apply succeeds
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -At "${@:2}"; }
+          if lab rev_main -1 -f .rev/rollback.sql >/tmp/rb.out 2>&1; then echo "rollback ran over existing rows"; exit 1; fi
+          grep -q REVENUE_ROLLBACK_REFUSED /tmp/rb.out
+          test "$(lab rev_main -c "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^Revenue'")" = "8"
+          echo "rollback refused while rows exist; nothing changed"
+          bash .rev/lab.sh rev_empty
+          lab rev_empty -f .rev/catalog-snapshot.sql > /tmp/empty-before.txt
+          bash .rev/lab.sh rev_empty --apply >/dev/null
+          lab rev_empty -1 -f .rev/rollback.sql
+          lab rev_empty -f .rev/catalog-snapshot.sql > /tmp/empty-after.txt
+          left=$(lab rev_empty -c "SELECT (SELECT count(*) FROM pg_class WHERE relname ~ '^Revenue') + (SELECT count(*) FROM pg_type WHERE typname ~ '^Revenue') + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'revenue\_%')")
+          test "$left" = "0" || { echo "rollback left $left object(s)"; exit 1; }
+          diff -u /tmp/empty-before.txt /tmp/empty-after.txt || { echo "rollback did not restore the catalog"; exit 1; }
+          bash .rev/lab.sh rev_empty --apply > /tmp/reapply.log
+          grep -q 'Applying migration `20261028090000_revenue_truth_foundation`' /tmp/reapply.log
+          echo "rollback whole; catalog restored; re-apply succeeds"
