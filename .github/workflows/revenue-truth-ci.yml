@@ -15,7 +15,8 @@ name: revenue truth — application (PG17)
 
 on:
   pull_request:
-    branches: [main]
+    # The application PR is stacked on the migration PR (#781), so it targets that branch until #781 is applied and merged.
+    branches: [main, db/revenue-truth-foundation]
     paths:
       - "lib/revenue-truth/**"
       - "prisma/schema.prisma"
