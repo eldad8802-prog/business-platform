@@ -40,6 +40,11 @@ export const metadata: Metadata = {
   // may override this (the public (corporate) group defines its own).
   title: { default: "Dubiz", template: "%s · Dubiz" },
   description: "Dubiz — ניהול היום־יום של העסק",
+  // Installable web app (owner-approved plan 2026-10-21): on iPhone, Web Push for task reminders works only from
+  // the app added to the home screen, which needs the manifest and these Apple settings.
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Dubiz", statusBarStyle: "default" },
+  icons: { apple: "/icons/dubiz-180.png" },
 };
 
 export const viewport: Viewport = {

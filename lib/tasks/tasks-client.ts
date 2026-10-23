@@ -73,6 +73,12 @@ export async function write<T>(intent: string, method: string, url: string, body
 }
 
 export const fetchAgenda = () => call<AgendaResponse>("GET", "/api/tasks/agenda");
+/** The personal task list: only tasks the owner created (no business items), and further ahead than a week. */
+export const fetchPersonalAgenda = () => call<AgendaResponse>("GET", "/api/tasks/agenda?scope=personal");
+
+export type PendingReminder = { id: number; taskId: number; title: string; summary: string | null; href: string; at: string };
+export const fetchPendingReminders = () => call<{ reminders: PendingReminder[] }>("GET", "/api/tasks/reminders/pending");
+export const markReminderSeen = (notificationId: number) => call<unknown>("POST", `/api/notifications/${notificationId}/read`, {});
 
 export type SyncAnswer =
   | { status: "OK"; syncVersion: number; changed: boolean }
@@ -98,24 +104,27 @@ export type RuleInput =
   | { kind: "MONTH_DAY"; monthDay: number }
   | { kind: "EVERY_N_DAYS"; intervalDays: number };
 
-export const createTask = (intent: string, input: { title: string; note?: string | null; dueOn: string | null; link: LinkInput; origin?: "OWNER" | "SECRETARY" }) =>
+/** Time and reminder: dueMinute = minutes after midnight (Israel); remindOffsetMinutes = how long before (0 = at the time). */
+export type ScheduleInput = { dueMinute?: number | null; remindOffsetMinutes?: number | null };
+
+export const createTask = (intent: string, input: { title: string; note?: string | null; dueOn: string | null; link: LinkInput; origin?: "OWNER" | "SECRETARY" } & ScheduleInput) =>
   write("create:" + intent, "POST", "/api/tasks", input);
 
-export const createSeries = (intent: string, input: { title: string; note?: string | null; link: LinkInput; rule: RuleInput; startOn?: string }) =>
+export const createSeries = (intent: string, input: { title: string; note?: string | null; link: LinkInput; rule: RuleInput; startOn?: string } & ScheduleInput) =>
   write("series:" + intent, "POST", "/api/tasks/series", input);
 
 export const editTask = (id: number, input: { expectedVersion: number; title?: string; note?: string | null; link?: LinkInput }) =>
   write(`edit:${id}:${input.expectedVersion}`, "PATCH", `/api/tasks/${id}`, input);
 
-export type TaskAction = "complete" | "cancel" | "skip" | "reopen" | "reschedule" | "snooze" | "pin" | "unpin";
-export const taskAction = (id: number, action: TaskAction, input: { expectedVersion: number; dueOn?: string }) =>
-  write(`task:${id}:${action}:${input.expectedVersion}:${input.dueOn ?? ""}`, "POST", `/api/tasks/${id}/${action}`, input);
+export type TaskAction = "complete" | "cancel" | "skip" | "reopen" | "reschedule" | "snooze" | "snooze-reminder" | "pin" | "unpin";
+export const taskAction = (id: number, action: TaskAction, input: { expectedVersion: number; dueOn?: string; until?: string } & ScheduleInput) =>
+  write(`task:${id}:${action}:${input.expectedVersion}:${input.dueOn ?? ""}:${input.until ?? ""}:${input.dueMinute ?? ""}:${input.remindOffsetMinutes ?? ""}`, "POST", `/api/tasks/${id}/${action}`, input);
 
 export type SeriesAction = "pause" | "resume" | "end";
 export const seriesAction = (id: number, action: SeriesAction, expectedVersion: number) =>
   write(`series:${id}:${action}:${expectedVersion}`, "POST", `/api/tasks/series/${id}/${action}`, { expectedVersion });
 
-export const changeSeries = (id: number, input: { expectedVersion: number; title?: string; note?: string | null; rule?: RuleInput }) =>
+export const changeSeries = (id: number, input: { expectedVersion: number; title?: string; note?: string | null; rule?: RuleInput } & ScheduleInput) =>
   write(`series-change:${id}:${input.expectedVersion}`, "PATCH", `/api/tasks/series/${id}`, input);
 
 export type SourceOp =

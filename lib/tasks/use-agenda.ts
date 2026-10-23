@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchAgenda, postSync, uuidV7, type AgendaResponse } from "./tasks-client";
+import { fetchAgenda, fetchPersonalAgenda, postSync, uuidV7, type AgendaResponse } from "./tasks-client";
 
 const CHANNEL = "dubiz-tasks";
 const STALE_SYNC_MS = 2 * 60 * 1000;
@@ -25,7 +25,9 @@ export type AgendaState =
   | { status: "error" }
   | { status: "ready"; agenda: AgendaResponse; syncing: boolean };
 
-export function useAgenda(enabled = true) {
+/** `personal`: the task centre's own list (owner's tasks only, a year ahead); the secretary reads the full agenda. */
+export function useAgenda(enabled = true, opts: { personal?: boolean } = {}) {
+  const personal = opts.personal === true;
   const [state, setState] = useState<AgendaState>({ status: "loading" });
   const versionRef = useRef<number>(-1);
   const syncKeyRef = useRef<string | null>(null);
@@ -37,7 +39,7 @@ export function useAgenda(enabled = true) {
 
   const load = useCallback(async (): Promise<AgendaResponse | null> => {
     try {
-      const agenda = await fetchAgenda();
+      const agenda = await (personal ? fetchPersonalAgenda() : fetchAgenda());
       if (!mountedRef.current) return null;
       versionRef.current = agenda.syncVersion;
       setState((prev) => ({ status: "ready", agenda, syncing: prev.status === "ready" ? prev.syncing : false }));
@@ -46,7 +48,7 @@ export function useAgenda(enabled = true) {
       if (mountedRef.current) setState((prev) => (prev.status === "ready" ? prev : { status: "error" }));
       return null;
     }
-  }, []);
+  }, [personal]);
 
   const setSyncing = (syncing: boolean) => setState((prev) => (prev.status === "ready" ? { ...prev, syncing } : prev));
 

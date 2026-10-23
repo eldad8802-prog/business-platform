@@ -26,6 +26,8 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261018090000_daily_tasks_foundation/**"
       - ".dt/**"
+      - "prisma/migrations/20261022090000_task_reminders_push/**"
+      - ".trp/**"
       - ".github/workflows/daily-tasks-a-ci.yml"
   workflow_dispatch:
 
@@ -77,7 +79,8 @@ jobs:
       - name: 2. TaskService as the restricted runtime on the real migration
         run: |
           set -euo pipefail
-          bash .dt/lab.sh dta --with-dt
+          # The task reminders migration (20261022090000) on top of the foundation, both by migrate deploy.
+          bash .trp/lab.sh dta --with-trp
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dta" \

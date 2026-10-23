@@ -193,15 +193,15 @@ type PayloadKind = "day" | "days" | "int" | "token" | "tokens" | "bool";
  * note, a name, an amount or a balance (T-M5): those never enter the journal.
  */
 export const PAYLOAD_SCHEMA: Readonly<Record<string, Readonly<Record<string, PayloadKind>>>> = Object.freeze({
-  TASK_CREATED: { dueOn: "day", origin: "token", link: "token", seriesSequence: "int" },
+  TASK_CREATED: { dueOn: "day", origin: "token", link: "token", seriesSequence: "int", dueMinute: "int", remindOffsetMinutes: "int" },
   TASK_EDITED: { fields: "tokens" },
-  TASK_RESCHEDULED: { from: "day", to: "day" },
-  TASK_SNOOZED: { from: "day", to: "day" },
+  TASK_RESCHEDULED: { from: "day", to: "day", dueMinute: "int", remindOffsetMinutes: "int", remindAt: "token" },
+  TASK_SNOOZED: { from: "day", to: "day", remindFrom: "token", remindTo: "token" },
   TASK_COMPLETED: { dueOn: "day", lateDays: "int", nextTaskId: "int" },
   TASK_CANCELED: { closeReason: "token", nextTaskId: "int" },
   TASK_REOPENED: { withdrawnTaskId: "int", from: "token" },
   OCCURRENCES_MISSED: { count: "int", dates: "days" },
-  SERIES_CREATED: { ruleKind: "token", firstTaskId: "int", startOn: "day" },
+  SERIES_CREATED: { ruleKind: "token", firstTaskId: "int", startOn: "day", dueMinute: "int", remindOffsetMinutes: "int" },
   SERIES_CHANGED: { fields: "tokens", ruleKind: "token", closedTaskId: "int", nextTaskId: "int" },
   SERIES_PAUSED: {},
   SERIES_RESUMED: { createdTaskId: "int" },

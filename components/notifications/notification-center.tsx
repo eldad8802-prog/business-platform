@@ -64,6 +64,9 @@ export function severityStyle(severity: string, t: Translator = HE_T): { label: 
       return { label: t("home.notifications.severity.CRITICAL"), bg: "var(--dz-danger-bg-soft)", color: "var(--dz-danger)", border: "rgba(155, 70, 52, 0.22)" };
     case "HIGH":
       return { label: t("home.notifications.severity.HIGH"), bg: "var(--dz-warning-bg-soft)", color: "var(--dz-warning)", border: "rgba(129, 90, 50, 0.22)" };
+    case "REMINDER":
+      // A personal task reminder the owner set (owner-approved plan 2026-10-21).
+      return { label: "תזכורת", bg: "var(--dz-brand-soft, #e6efec)", color: "var(--dz-brand, #246966)", border: "rgba(36, 105, 102, 0.2)" };
     case "MEDIUM":
       return { label: t("home.notifications.severity.MEDIUM"), bg: "var(--dz-surface-muted)", color: "var(--dz-text-secondary)", border: "rgba(52, 60, 50, 0.1)" };
     default:

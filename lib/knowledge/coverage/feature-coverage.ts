@@ -367,9 +367,11 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     key: "tasks", name: "Daily tasks (task centre, series, agenda state)", coverage: "L0_ONLY",
     reason: "Milestone A: the owner's tasks, series and the per-cycle display state are journaled in TaskEvent (owner actions apart from system observations); learning rules TASK-01..04 arrive in M7 behind the derive gate.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: ["Task", "TaskSeries", "TaskSourceState", "TaskEvent", "TaskPreferences", "TaskRequestLedger"],
+    // PushSubscription: the browsers that accepted reminders by Web Push (migration 20261022090000).
+    models: ["Task", "TaskSeries", "TaskSourceState", "TaskEvent", "TaskPreferences", "TaskRequestLedger", "PushSubscription"],
     // Milestone B: the agenda, sync and action routes and the task centre page (flag daily_tasks, OFF by default).
-    sensors: [], legacyEvents: [], routes: ["api/tasks", "page/tasks"],
+    // api/task-reminders: the QStash reminder dispatcher; api/push: Web Push subscriptions for task reminders.
+    sensors: [], legacyEvents: [], routes: ["api/tasks", "page/tasks", "api/task-reminders", "api/push"],
     target: { coverage: "LEARNS", plan: "M7: completion latency vs due day (TASK-01), snooze share per source (TASK-02), open load at day end (TASK-03), recurring done vs missed (TASK-04); SYSTEM events never count as owner habit." },
     outcome: NO_OUTCOME,
   },
