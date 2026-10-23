@@ -124,6 +124,7 @@
     "postinstall": "prisma generate",
     "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
     "verify:secretary-home": "npx tsx \"app/(shell)/secretary/secretary-home-model.verify.test.ts\"",
+    "verify:secretary-create-flow": "npx tsx \"app/(shell)/secretary/secretary-create-flow.verify.test.ts\"",
     "verify:home-routes": "npx tsx lib/navigation/home-routes.test.ts",
     "verify:home-model": "npx tsx features/home/lib/home-model.test.ts",
     "qa:home-2b": "node scripts/qa/ui/home-2b-states.mjs",
