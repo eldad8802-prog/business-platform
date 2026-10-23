@@ -24,6 +24,7 @@ import { isEmailVerificationEnabled } from "@/lib/auth/account-recovery-config";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import type { NormalizedSignup } from "@/lib/auth/signup";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
 import { runTenantJob } from "@/lib/tenant/job";
@@ -336,7 +337,7 @@ export async function handleRegister(
       );
     }
 
-    console.error("REGISTER_ERROR:", error);
+    console.error("REGISTER_ERROR:", safeErrorSummary(error));
     await recordSignupFailure(deps, "server_error");
     return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500 });
   }

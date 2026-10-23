@@ -43,14 +43,11 @@ import { join } from "node:path";
 /**
  * Files permitted to reach tenant tables on the bare client, and why.
  * Paths are repository-relative, with forward slashes.
+ *
+ * Empty since Admin Control Center A1 (T-07): platform-business-detail now
+ * reads through getPrismaAdmin() and needs no exemption.
  */
-const ALLOWLIST = new Map([
-  [
-    "lib/services/platform-admin/platform-business-detail.service.ts",
-    "platform-admin reads ACROSS tenants by design; its boundary is the admin " +
-      "identity and its p7adm_read policies, not a tenant GUC",
-  ],
-]);
+const ALLOWLIST = new Map([]);
 
 /** Directories whose contents are not application runtime code. */
 const SKIP_DIRS = new Set(["node_modules", ".next", ".git", "__tests__"]);

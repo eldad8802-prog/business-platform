@@ -4,7 +4,7 @@ import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
-import BackButton from "@/components/ui/back-button";
+import BackButton, { useGoBack } from "@/components/ui/back-button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
@@ -14,6 +14,8 @@ import type {
   RecurrenceCadence,
   UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
+import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
+import { findCategoryObligation, INSURANCE, NATIONAL_INSURANCE } from "./secretary-bank-categories";
 import styles from "./secretary.module.css";
 
 export type TodayState = "critical" | "busy" | "calm";
@@ -86,6 +88,27 @@ const CAPTURE_KINDS: CaptureKindOption[] = [
     supported: true,
   },
 ];
+
+/**
+ * Creation-flow copy that says what Dubiz actually does today (owner decision
+ * 23.10.2026, P3 restore). No reminder is sent: an open item waits in "במעקב
+ * שקט" and rises to the top of the Secretary seven days before its due date. A
+ * payment plan is saved as separate one-off payments and a post-dated cheque as
+ * a one-off payment with its number in the note; neither is a payment plan or a
+ * cheque-register entry. Hebrew only for now (English is a later task).
+ */
+const P3_COPY = {
+  checkDescription: "מספר צ'ק ותאריך פירעון",
+  checkSay: "אפשר למסור לי את פרטי הצ'ק, ואזכור את יום הפירעון.",
+  checkNote: "הצ'ק נשמר כתשלום חד־פעמי ביום הפירעון, ומספר הצ'ק נכתב בהערה. הוא לא נרשם בפנקס הצ'קים.",
+  checkSaved: "הצ'ק נשמר כתשלום חד־פעמי עם מספר הצ'ק בהערה, ולא בפנקס הצ'קים.",
+  installmentsNote: (count: number) => `הפריסה נשמרת כ־${count} תשלומים נפרדים, אחד בכל חודש. כל אחד מופיע בהתחייבויות בנפרד, ולא כתוכנית תשלומים אחת.`,
+  installmentsSaved: (count: number) => `הפריסה נשמרה כ־${count} תשלומים נפרדים. זה הראשון שבהם.`,
+  netComputed: (days: string, date: string) => `חישבתי: שוטף+${days} יוצא לתשלום ב־${date}.`,
+  createdBody: (name: string, date: string) => `שמרתי את ${name} לתשלום ב־${date}. עד אז הוא נשמר אצלי במעקב שקט, ושבוע לפני המועד הוא יעלה לראש המזכירה.`,
+  createdBodyGeneric: "שמרתי. שבוע לפני המועד זה יעלה לראש המזכירה.",
+  echoDue: (date: string) => `לתשלום: ${date}`,
+};
 
 export type SecretaryHomeModel = {
   state: SecretaryHomeState;
@@ -379,17 +402,20 @@ export function SecretaryScreen({
   title,
   backHref = "/secretary",
   compact = false,
+  backLook = "round",
 }: {
   children: ReactNode;
   title?: string;
   backHref?: string;
   compact?: boolean;
+  /** "p3": the "‹ חזרה" pill of the creation flow (owner-approved P3, 18.9.2026). Same navigation either way. */
+  backLook?: "round" | "p3";
 }) {
   return (
     <main className={styles.root} style={secretaryVars()}>
       <div className={`${styles.shell} ${compact ? styles.shellCompact : ""}`}>
         <div className={styles.topbar}>
-          <BackControl fallbackHref={backHref} />
+          {backLook === "p3" ? <P3BackControl fallbackHref={backHref} /> : <BackControl fallbackHref={backHref} />}
           {title ? <div className={styles.topTitle}>{title}</div> : null}
           <div className={styles.topSpacer} />
         </div>
@@ -409,6 +435,43 @@ function BackControl({ fallbackHref }: { fallbackHref: string }) {
   const { t } = useI18n();
   return <BackButton fallback={fallbackHref} fallbackLabel={secretaryFallbackLabel(fallbackHref, t)} />;
 }
+
+/**
+ * The creation flow's back control as it looked in P3 (`23d528d5`, the then-shared
+ * BackButton: a "‹ חזרה" pill). Only the look is P3's: navigation is today's
+ * useGoBack, so it still returns to the exact screen the owner came from.
+ */
+function P3BackControl({ fallbackHref }: { fallbackHref: string }) {
+  const goBack = useGoBack(fallbackHref);
+  return (
+    <button type="button" onClick={goBack} aria-label="חזרה" style={P3_BACK_STYLE}>
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden focusable="false">
+        <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+      <span>חזרה</span>
+    </button>
+  );
+}
+
+const P3_BACK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  height: 40,
+  padding: "0 14px",
+  borderRadius: 14,
+  border: "1px solid var(--dz-border)",
+  background: "var(--dz-surface)",
+  color: "var(--dz-brand)",
+  fontFamily: "inherit",
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  cursor: "pointer",
+  flexShrink: 0,
+  WebkitTapHighlightColor: "transparent",
+};
 
 function secretaryFallbackLabel(href: string, t: Translator): string {
   if (href.includes("screen=detail")) return t("tasks.secretary.back.toDetail");
@@ -734,10 +797,11 @@ function amountNumber(item: ObligationApi): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/** Per currency, never added across (B4): an all-ILS list renders exactly as before. */
 function sumMoney(items: ObligationApi[], f: Fmt): string {
-  const currency = items[0]?.currency ?? "ILS";
-  const total = items.reduce((sum, item) => sum + amountNumber(item), 0);
-  return formatMoneyValue(String(total), currency, f);
+  return formatObligationTotals(obligationTotalsByCurrency(items), (amount, currency) =>
+    formatMoneyValue(amount, currency, f)
+  );
 }
 
 function dateValue(iso: string): Date | null {
@@ -899,10 +963,6 @@ function EmptyMemory({ title, body }: { title: string; body: string }) {
   );
 }
 
-function findCategoryObligation(label: string, obligations: ObligationApi[]): ObligationApi | null {
-  return obligations.find((item) => item.obligeeName.includes(label)) ?? null;
-}
-
 /** Capture screen, optionally pre-filled with a known/recommended obligee name. */
 function captureHref(name?: string): string {
   return name ? screenHref("capture") + "&name=" + encodeURIComponent(name) : screenHref("capture");
@@ -989,7 +1049,7 @@ function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; l
   const firstCard = cards[0] ?? null;
   // The second argument of findCategoryObligation is a Hebrew keyword matched against stored obligee names — not UI text.
   return (
-    <SecretaryScreen title={t("tasks.secretary.bank.title")} backHref="/secretary">
+    <SecretaryScreen title={t("tasks.secretary.bank.title")} backHref="/secretary" backLook="p3">
       <Say>{t("tasks.secretary.bank.say")}</Say>
       {firstCard ? <RememberedObligationCard item={firstCard} /> : null}
       <div className={styles.category}>{t("tasks.secretary.bank.monthly")}</div>
@@ -1003,10 +1063,10 @@ function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; l
       </div>
       <div className={styles.category}>{t("tasks.secretary.bank.services")}</div>
       <div className={styles.bankGrid}>
-        <BankChip emoji="🛡️" label={t("tasks.secretary.bank.insurance")} obligation={findCategoryObligation("ביטוח", obligations)} />
+        <BankChip emoji="🛡️" label={t("tasks.secretary.bank.insurance")} obligation={findCategoryObligation(INSURANCE, obligations)} />
         <BankChip emoji="📊" label={t("tasks.secretary.bank.accountant")} obligation={findCategoryObligation("רואה חשבון", obligations)} />
         <BankChip emoji="🧾" label={t("tasks.secretary.bank.vat")} obligation={findCategoryObligation('מע"מ', obligations)} />
-        <BankChip emoji="👥" label={t("tasks.secretary.bank.nationalInsurance")} obligation={findCategoryObligation("ביטוח לאומי", obligations)} />
+        <BankChip emoji="👥" label={t("tasks.secretary.bank.nationalInsurance")} obligation={findCategoryObligation(NATIONAL_INSURANCE, obligations)} />
       </div>
       <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> {t("tasks.secretary.bank.other")}</Link>
       <GhostLink href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</GhostLink>
@@ -1207,7 +1267,7 @@ function HistoryCard({ obligation, obligations }: { obligation: ObligationApi; o
  * loading state — a destructive action never fires on a single tap and never
  * looks frozen while it runs. Reused by the detail screen and the today focus.
  */
-function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
+export function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
   const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1318,6 +1378,24 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const tasksOn = useFeatureEnabled("daily_tasks");
   const [taskMode, setTaskMode] = useState(false);
   const [taskSaved, setTaskSaved] = useState(false);
+  const router = useRouter();
+  // "הוסף עוד": a fresh, empty panel. The link it replaces pointed at the screen already open,
+  // so nothing changed and the result stayed on screen (on main and in P3 alike).
+  function startAnother() {
+    setCreated(null);
+    setError(null);
+    setObligeeName("");
+    setAmount("");
+    setDueAt("");
+    setInvoiceDate("");
+    setRecurrence("NONE");
+    setNote("");
+    setKind("regular");
+    setInstallmentCount("3");
+    setCheckNumber("");
+    setTermsDays("30");
+    router.replace(screenHref("capture"));
+  }
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
   useEffect(() => {
@@ -1442,7 +1520,12 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             </div>
           )
         ) : created ? (
-          <LoopResult mode="created" obligation={created} />
+          <LoopResult
+            mode="created"
+            obligation={created}
+            createdNote={kind === "installments" ? P3_COPY.installmentsSaved(installmentCountNumber) : kind === "postdated-check" ? P3_COPY.checkSaved : undefined}
+            onAddMore={startAnother}
+          />
         ) : <>
         <div className={styles.topbar}>
           <div className={styles.topSpacer} />
@@ -1451,6 +1534,26 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
         </div>
         <Say>{captureSayForKind(kind, t)}</Say>
         <div className={styles.captureTypeList} aria-label={t("tasks.secretary.capture.kindAria")}>
+          {CAPTURE_KINDS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={[styles.captureTypeCard, item.key === kind ? styles.captureTypeSelected : ""].join(" ")}
+              onClick={() => {
+                setKind(item.key);
+                setError(null);
+              }}
+              aria-pressed={item.key === kind}
+            >
+              <span className={styles.captureTypeIcon}>{item.icon}</span>
+              <span className={styles.captureTypeBody}>
+                <strong>{t(item.title)}</strong>
+                <small>{item.key === "postdated-check" ? P3_COPY.checkDescription : t(item.description)}</small>
+              </span>
+              <i aria-hidden="true" />
+            </button>
+          ))}
+          {/* Daily Tasks: "משימה" stays available, last in the list (owner decision 23.10.2026). */}
           {tasksOn ? (
             <button
               type="button"
@@ -1469,25 +1572,6 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
               </span>
             </button>
           ) : null}
-          {CAPTURE_KINDS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={[styles.captureTypeCard, item.key === kind ? styles.captureTypeSelected : ""].join(" ")}
-              onClick={() => {
-                setKind(item.key);
-                setError(null);
-              }}
-              aria-pressed={item.key === kind}
-            >
-              <span className={styles.captureTypeIcon}>{item.icon}</span>
-              <span className={styles.captureTypeBody}>
-                <strong>{t(item.title)}</strong>
-                <small>{t(item.description)}</small>
-              </span>
-              <i aria-hidden="true" />
-            </button>
-          ))}
         </div>
         <form className={styles.captureForm} onSubmit={submit}>
           <CaptureField label={kind === "postdated-check" ? t("tasks.secretary.capture.checkTo") : t("tasks.secretary.capture.payTo")}>
@@ -1539,6 +1623,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 </div>
               )) : <p>{t("tasks.secretary.capture.scheduleHint", { count: installmentCountNumber })}</p>}
             </section>
+            <div className={styles.captureCalmNote}>{P3_COPY.installmentsNote(installmentCountNumber)}</div>
           </> : null}
 
           {kind === "postdated-check" ? <>
@@ -1551,7 +1636,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
               </CaptureField>
             </div>
             <CaptureDateInput label={t("tasks.secretary.capture.maturityDate")} value={dueAt} fallback={t("tasks.secretary.capture.pickMaturity")} onChange={setDueAt} />
-            <div className={styles.captureCalmNote}>{t("tasks.secretary.capture.checkNote")}</div>
+            <div className={styles.captureCalmNote}>{P3_COPY.checkNote}</div>
           </> : null}
 
           {kind === "net-terms" ? <>
@@ -1569,7 +1654,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 ))}
               </div>
             </div>
-            <div className={styles.captureCalmNote}>{netDueDate ? t("tasks.secretary.capture.netComputed", { days: termsDays, date: netDueDate }) : t("tasks.secretary.capture.netPending")}</div>
+            <div className={styles.captureCalmNote}>{netDueDate ? P3_COPY.netComputed(termsDays, netDueDate) : t("tasks.secretary.capture.netPending")}</div>
           </> : null}
 
           {error ? <div className={styles.formError}>{error}</div> : null}
@@ -1664,7 +1749,7 @@ function captureSayForKind(kind: CaptureKind, t: Translator): string {
     case "installments":
       return t("tasks.secretary.capture.say.installments");
     case "postdated-check":
-      return t("tasks.secretary.capture.say.postdatedCheck");
+      return P3_COPY.checkSay;
     case "net-terms":
       return t("tasks.secretary.capture.say.netTerms");
     case "regular":
@@ -1816,19 +1901,14 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence, f: Fmt): s
   }
 }
 
-function reminderLeadDate(iso: string, f: Fmt): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return f.t("tasks.secretary.loop.inTime");
-  date.setDate(date.getDate() - 2);
-  return formatDateValue(date.toISOString(), f);
-}
-
-function LoopResult({ mode, obligation }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null }) {
+function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void }) {
   const f = useFmt();
   const { t } = f;
   const name = obligation ? displayName(obligation.obligeeName, t) : t("tasks.secretary.loop.theObligation");
   const amount = obligation ? formatMoneyValue(obligation.amount, obligation.currency, f) : "";
-  const reminder = obligation ? reminderLeadDate(obligation.dueAt, f) : t("tasks.secretary.loop.inTime");
+  // "created" says what Dubiz really does (no reminder is sent): the due date, and when it rises in the Secretary.
+  const dueDate = obligation ? formatDateValue(obligation.dueAt, f) : "";
+  const createdBody = (obligation ? P3_COPY.createdBody(name, dueDate) : P3_COPY.createdBodyGeneric) + (createdNote ? " " + createdNote : "");
   const nextDate = obligation ? nextOccurrenceLabel(obligation.dueAt, obligation.recurrence, f) : null;
   const config = mode === "met"
     ? { tone: "green", title: t("tasks.secretary.loop.metTitle", { name }), body: obligation?.recurrence === "NONE" ? t("tasks.secretary.loop.metBodyOnce") : t("tasks.secretary.loop.metBodyRecurring"), primary: t("tasks.secretary.loop.next"), secondary: t("tasks.secretary.loop.close") }
@@ -1836,16 +1916,16 @@ function LoopResult({ mode, obligation }: { mode: "met" | "snooze" | "release" |
       ? { tone: "calm", title: t("tasks.secretary.loop.snoozeTitle"), body: t("tasks.secretary.loop.snoozeBody"), primary: t("tasks.secretary.loop.close"), secondary: undefined }
       : mode === "release"
         ? { tone: "neutral", title: t("tasks.secretary.loop.releaseTitle"), body: t("tasks.secretary.loop.releaseBody"), primary: t("tasks.secretary.loop.close"), secondary: undefined }
-        : { tone: "brand", title: t("tasks.secretary.loop.createdTitle"), body: obligation ? t("tasks.secretary.loop.createdBody", { name, date: reminder }) : t("tasks.secretary.loop.createdBodyGeneric"), primary: t("tasks.secretary.loop.addMore"), secondary: t("tasks.secretary.loop.finished") };
+        : { tone: "brand", title: t("tasks.secretary.loop.createdTitle"), body: createdBody, primary: t("tasks.secretary.loop.addMore"), secondary: t("tasks.secretary.loop.finished") };
   const resultClass = [styles.loopResult, mode === "created" ? styles.loopResultCreated : ""].join(" ");
   const echoClass = [styles.echoCard, mode === "created" ? styles.echoCardCreated : ""].join(" ");
   const badgeClass = [styles.loopBadge, styles[`loopBadge_${config.tone}`]].join(" ");
   const echoMeta =
-    mode === "created" ? t("tasks.secretary.loop.echoRemind", { date: reminder }) :
+    mode === "created" ? P3_COPY.echoDue(dueDate) :
     mode === "snooze" ? t("tasks.secretary.loop.echoSnooze") :
     mode === "met" ? (nextDate ? t("tasks.secretary.loop.echoNext", { date: nextDate }) : t("tasks.secretary.loop.echoClosed")) :
     recurrenceText(obligation?.recurrence ?? "NONE", t);
-  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}><PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
+  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
 }
 
 function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | null; onSnooze?: (id: number, followUpAt: string) => Promise<void> | void }) {

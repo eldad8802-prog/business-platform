@@ -12,6 +12,8 @@ import { NextResponse } from "next/server";
 import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
 import { confirmAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
 import { issueAdminElevation, ADMIN_ELEVATION_TTL_SECONDS } from "@/lib/auth/platform-admin-elevation";
+import { PLATFORM_AUDIT_ACTIONS } from "@/lib/services/platform-admin/constants";
+import { logPlatformAuditEvent } from "@/lib/services/platform-admin/platform-audit.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +34,14 @@ export async function POST(req: Request) {
       const status = result.reason === "invalid_code" ? 401 : 409;
       return NextResponse.json({ error: "Could not confirm", code: result.reason }, { status });
     }
+
+    await logPlatformAuditEvent({
+      actorUserId: gate.id,
+      action: PLATFORM_AUDIT_ACTIONS.MFA_ENROLLED,
+      targetType: "USER",
+      targetId: String(gate.id),
+      req,
+    });
 
     // Confirming is itself a successful factor proof, so hand back an elevation
     // immediately — the admin should not have to enter a second code to keep

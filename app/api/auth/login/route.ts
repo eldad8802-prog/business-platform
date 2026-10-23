@@ -12,6 +12,7 @@ import { LOGIN_FAILURE_POLICY, loginAccountRateKey } from "@/lib/auth/account-ra
 import { readLoginDevice, setLoginDevice } from "@/lib/auth/login-device";
 import bcrypt from "bcrypt";
 import { consumeRateLimit, getClientIp, reserveAttempt } from "@/lib/security/rate-limit";
+import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
@@ -294,7 +295,7 @@ export async function POST(req: Request) {
       );
     }
 
-    console.error("LOGIN_ERROR:", error);
+    console.error("LOGIN_ERROR:", safeErrorSummary(error));
 
     return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500 });
   }

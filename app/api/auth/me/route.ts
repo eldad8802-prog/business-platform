@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authDb } from "@/lib/prisma-auth";
 import { getCurrentUser } from "@/lib/auth";
+import { safeErrorSummary } from "@/lib/security/log-safe-error";
 
 export async function GET(req: Request) {
   try {
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (error) {
-    console.error("AUTH_ME_ERROR:", error);
+    console.error("AUTH_ME_ERROR:", safeErrorSummary(error));
 
     return NextResponse.json(
       { error: "Server error" },

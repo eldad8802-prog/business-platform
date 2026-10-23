@@ -25,6 +25,10 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): the account emails (WELCOME / EMAIL_VERIFY / PASSWORD_RESET) render byte-identical Hebrew (SHA-256 of the pre-change output) for every missing/unknown locale, English only for locale 'en', the same single-use links in both languages, HTML escaping of names, and delivery passing the stored row locale; run by security-gate (pure lab) and i18n-multicurrency-ci.yml"
+    },
+    ".i18n/readiness-lib.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: helpers of the English-activation readiness CI — page-route enumeration from app/, audience classification, dynamic-segment filling, the documented Hebrew-parity normalisation (never amounts/ids), next build route-table parsing, and the customer-facing locale-reader import walk; run on pull_request by i18n-multicurrency-ci.yml"
     }
   }
 }

@@ -5,6 +5,10 @@ import {
 } from "@/lib/auth/platform-admin";
 import { getAdminMfaState } from "@/lib/auth/admin-mfa.service";
 import {
+  countActivePasskeysSafe,
+  passkeyAvailability,
+} from "@/lib/auth/admin-passkey.service";
+import {
   readAdminElevationHeader,
   verifyAdminElevation,
 } from "@/lib/auth/platform-admin-elevation";
@@ -38,10 +42,25 @@ export async function GET(req: NextRequest) {
           required: isPlatformAdminMfaRequired(),
           enrolled: state.enrolled,
           elevated: elevation.ok,
+          elevationExpiresAt: elevation.ok
+            ? new Date(elevation.expiresAt * 1000).toISOString()
+            : null,
           recoveryCodesRemaining: state.recoveryCodesRemaining,
+          passkeys: {
+            available: passkeyAvailability().enabled,
+            count: await countActivePasskeysSafe(auth.id),
+          },
         };
       })(),
       environment: process.env.NODE_ENV ?? "development",
+      // NODE_ENV is "production" on Preview too; the console marks the real
+      // deployment so a Production session is never mistaken for a test one.
+      deployment:
+        process.env.VERCEL_ENV === "production"
+          ? "production"
+          : process.env.VERCEL_ENV === "preview"
+            ? "preview"
+            : "local",
     };
 
     return NextResponse.json(body, { status: 200 });

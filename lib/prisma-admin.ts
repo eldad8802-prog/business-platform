@@ -12,12 +12,15 @@
  *   - May be imported ONLY from platform-admin/dev admin modules.
  *   - Tenant feature code must keep using the canonical `lib/prisma.ts`.
  *
- * Fail-loud contract: `ADMIN_DATABASE_URL` missing => throw at first use.
+ * Fail-loud contract: `ADMIN_DATABASE_URL` missing => throw at first use, as a
+ * typed 503 (ADMIN_DATA_PLANE_UNAVAILABLE) so the console can say so plainly
+ * instead of a bare 500 — and never as a zero.
  * There is deliberately NO fallback to DATABASE_URL or DIRECT_URL — a
  * misconfigured environment must surface as an error, never as an owner
  * connection or as silently-empty tenant-scoped reads.
  */
 import { PrismaClient } from "@prisma/client";
+import { AdminDataPlaneUnavailableError } from "@/lib/errors";
 
 const globalForPrismaAdmin = globalThis as unknown as {
   prismaAdmin?: PrismaClient;
@@ -25,9 +28,8 @@ const globalForPrismaAdmin = globalThis as unknown as {
 
 /**
  * Lazy accessor for the admin client. Throws loudly when ADMIN_DATABASE_URL
- * is not configured. Cached on globalThis outside production so dev
- * hot-reload does not accumulate connection pools (same pattern as the
- * canonical tenant singleton).
+ * is not configured. Cached on globalThis so dev hot-reload does not
+ * accumulate connection pools and one serverless instance keeps one pool.
  */
 export function getPrismaAdmin(): PrismaClient {
   if (globalForPrismaAdmin.prismaAdmin) {
@@ -36,7 +38,7 @@ export function getPrismaAdmin(): PrismaClient {
 
   const url = process.env.ADMIN_DATABASE_URL?.trim();
   if (!url) {
-    throw new Error(
+    throw new AdminDataPlaneUnavailableError(
       "ADMIN_DATABASE_URL is not configured — the platform-admin DB path is unavailable. " +
         "Refusing to fall back to the tenant or owner connection."
     );
@@ -47,10 +49,6 @@ export function getPrismaAdmin(): PrismaClient {
     log: ["warn", "error"],
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    globalForPrismaAdmin.prismaAdmin = client;
-    return client;
-  }
   globalForPrismaAdmin.prismaAdmin = client;
   return client;
 }

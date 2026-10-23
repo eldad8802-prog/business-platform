@@ -84,7 +84,7 @@ const CANONICAL_PRISMA = "lib/prisma";
 /** Privileged client module -> the only surfaces allowed to import it (regex on repo path). */
 const PRIVILEGED = {
   "lib/prisma-admin": [/^app\/api\/platform-admin\//, /^app\/api\/dev\//, /^lib\/services\/platform-admin\//, /^lib\/services\/learning-center\//],
-  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */, /^lib\/email\/transactional\/(delivery|sweep)\.ts$/ /* the delivery half of the signup plane: TransactionalEmail only */, /^lib\/auth\/email-tokens\.ts$/ /* account links: AuthEmailToken through its definer functions only */],
+  "lib/prisma-auth": [/^app\/api\/auth\/(login|logout|me|refresh)\/route\.ts$/, /^lib\/auth\.ts$/, /^lib\/auth\/signup\.ts$/, /^lib\/auth\/session-directory\.ts$/, /^lib\/auth\/admin-mfa\.service\.ts$/ /* T-04: PlatformAdminMfa on the auth plane */, /^lib\/auth\/admin-passkey\.service\.ts$/ /* A1: PlatformAdminPasskey, app_auth only */,/^lib\/email\/transactional\/(delivery|sweep)\.ts$/ /* the delivery half of the signup plane: TransactionalEmail only */, /^lib\/auth\/email-tokens\.ts$/ /* account links: AuthEmailToken through its definer functions only */],
   "lib/prisma-control-plane": null, // read from privwrite-guard's own allowlist below
   // FX-BOI: the INSERT-only "FxRate" writer (fx_rate_writer member) — reachable from the BoI rate writer only.
   "lib/prisma-fx-writer": [/^lib\/fx\/fx-rate-writer\.ts$/],
@@ -94,7 +94,9 @@ const ADMIN_ROUTE = /^app\/api\/(platform-admin|dev)\/.*route\.(ts|tsx|js)$/;
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 const FULL_GUARDS = new Set(["requirePlatformAdmin", "requirePlatformAdminOrResponse"]);
 const IDENTITY_GUARDS = new Set(["requirePlatformAdminIdentity", "requirePlatformAdminIdentityOrResponse"]);
-const IDENTITY_ONLY_ALLOWLIST = /^app\/api\/platform-admin\/(mfa\/(enroll|confirm|verify)|session)\/route\.ts$/;
+// The step-up endpoints themselves (elevation cannot be a precondition for obtaining it): TOTP
+// enroll/confirm/verify, the passkey assertion pair (A1), and the session probe the UI reads.
+const IDENTITY_ONLY_ALLOWLIST = /^app\/api\/platform-admin\/(mfa\/(enroll|confirm|verify)|passkeys\/auth\/(options|verify)|session)\/route\.ts$/;
 
 const rel = (root, f) => path.relative(root, f).split(path.sep).join("/");
 

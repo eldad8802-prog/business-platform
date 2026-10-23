@@ -70,9 +70,14 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },
+  // Admin Control Center: the sidebar / bottom-bar destinations are roots; the
+  // business list keeps its search, filter and page per history entry.
   { pattern: "/admin", root: true },
   { pattern: "/admin/audit", root: true },
-  { pattern: "/admin/businesses/[id]", parent: "/admin", parentLabelKey: "toDashboard" },
+  { pattern: "/admin/businesses", root: true },
+  { pattern: "/admin/security", root: true },
+  { pattern: "/admin/diagnostics", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
+  { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------

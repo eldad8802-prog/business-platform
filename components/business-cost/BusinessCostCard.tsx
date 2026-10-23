@@ -20,9 +20,10 @@ const DS = TOKEN.dsv1;
 /**
  * The Secretary's own style: "3,050 ₪", agorot only when there are any. The engine reports in the
  * business's base currency (ILS; non-base rows are excluded upstream), so the symbol is not a default
- * guess. Other interface languages use the shared formatter, same currency, same digits.
+ * guess. Other interface languages use the shared formatter, same currency, same digits. Exported for the
+ * Secretary hub's day-cost card, so the card and this breakdown show the figure the same way.
  */
-const formatIls = (decimal: string, locale: Locale) => {
+export const formatIls = (decimal: string, locale: Locale) => {
   const n = Number(decimal);
   const frac = Number.isInteger(n) ? 0 : 2;
   if (locale !== "he") return formatAmount(n, "ILS", { locale }, { fixedFraction: frac > 0 });
@@ -83,13 +84,17 @@ const perPeriod = (tr: Translator, r: string) =>
  * period); an unconfirmed backbone or foreign currency stays silent in the gate.
  * Nothing here interprets, recommends or decides.
  */
-export function BusinessCostCard() {
+/**
+ * `embedded`: no top margin, for a side column that sets its own gaps. `breakdownOpen`: start with the
+ * breakdown shown (the Secretary's day-cost drawer). Content is unchanged either way.
+ */
+export function BusinessCostCard({ embedded = false, breakdownOpen = false }: { embedded?: boolean; breakdownOpen?: boolean } = {}) {
   const { t: tr, locale } = useI18n();
   const ils = (decimal: string) => formatIls(decimal, locale);
   const [summary, setSummary] = useState<BusinessCostSummaryApi | null>(null);
   const [learned, setLearned] = useState<LearnedCostInsightApi[]>([]);
   const [showAll, setShowAll] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(breakdownOpen);
   const [affirming, setAffirming] = useState<"idle" | "saving" | "failed">("idle");
 
   const loadSummary = (signal?: AbortSignal) =>
@@ -154,8 +159,8 @@ export function BusinessCostCard() {
     <section
       aria-label={tr("money.businessCost.title")}
       style={{
-        // Rendered inside the Secretary home shell, in its column.
-        marginTop: 16,
+        // Rendered inside the Secretary main screen, in its column.
+        marginTop: embedded ? 0 : 16,
         width: "100%",
         boxSizing: "border-box",
         background: DS.card,
