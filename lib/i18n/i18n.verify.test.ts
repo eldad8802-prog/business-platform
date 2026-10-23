@@ -7,10 +7,13 @@
  * output is byte-identical to the legacy formatter (backward compatibility).
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { intlTag, LOCALES, localeDirection, resolveLocale } from "@/lib/i18n/config";
 import { formatAmount, formatDate, formatMoney } from "@/lib/i18n/format";
 import { getMessages } from "@/lib/i18n/messages";
+import { en } from "@/lib/i18n/messages/en";
 import { he } from "@/lib/i18n/messages/he";
 import { interpolate, translate } from "@/lib/i18n/translate";
 import { moneyFromDecimal } from "@/lib/money/money";
@@ -93,5 +96,24 @@ eq("invalid date", formatDate("nope", { locale: "en" }), "—");
 // The root layout no longer serializes the Hebrew dictionary into every page: I18nProvider falls back to
 // the bundled `he`, which must be the very object the server would have passed (same strings, same output).
 ok("getMessages('he') is the bundled he (no per-page dictionary needed)", getMessages("he") === he);
+// English is no longer a layout prop either: components/i18n/EnglishI18nProvider (its own client chunk)
+// imports `en` directly — the very object the server registry returns, so SSR and hydration agree.
+ok("getMessages('en') is the en module the English chunk imports", getMessages("en") === en);
+{
+  const src = (p: string) =>
+    readFileSync(path.join(process.cwd(), p), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const layout = src("app/layout.tsx");
+  const provider = src("components/i18n/I18nProvider.tsx");
+  // No dictionary is ever a prop of the root provider again (it would be serialized into every HTML).
+  ok("root layout passes no messages to I18nProvider", !/messages\s*=/.test(layout) && !/getMessages/.test(layout));
+  // The provider module (in every page's client bundle) never statically imports a non-Hebrew dictionary.
+  ok(
+    "I18nProvider does not statically import the English dictionary",
+    !/from\s+["'][^"']*messages\/(en|index)["']/.test(provider) && !/from\s+["']@\/lib\/i18n\/messages["']/.test(provider)
+  );
+  ok("English is loaded through next/dynamic", /dynamic\(\s*\(\)\s*=>\s*import\(["']\.\/EnglishI18nProvider["']\)\s*\)/.test(provider));
+}
 
 console.log(`i18n.verify: ${checks} checks passed`);

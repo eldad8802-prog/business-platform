@@ -5,8 +5,7 @@ import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fa
 import { NativeShellInit } from "@/components/native/NativeShellInit";
 import { NavTrailInit } from "@/components/navigation/nav-trail-init";
 import { I18nProvider } from "@/components/i18n/I18nProvider";
-import { DEFAULT_LOCALE, localeDirection } from "@/lib/i18n/config";
-import { getMessages } from "@/lib/i18n/messages";
+import { localeDirection } from "@/lib/i18n/config";
 import { getRequestLocale } from "@/lib/i18n/server";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
@@ -63,10 +62,10 @@ export default async function RootLayout({
       className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
-        {/* Hebrew is already in the client bundle (I18nProvider imports it), so it is not serialized
-            into every page's RSC payload as a prop (≈440 KB of each HTML document before). Only another
-            language's dictionary travels with the page. Same dictionary object either way. */}
-        <I18nProvider locale={locale} messages={locale === DEFAULT_LOCALE ? undefined : getMessages(locale)}>
+        {/* No dictionary is serialized into the page: Hebrew is bundled in I18nProvider, and English is
+            its own cached client chunk that I18nProvider loads only for an English page (see
+            components/i18n/I18nProvider.tsx). Same dictionary objects as getMessages() either way. */}
+        <I18nProvider locale={locale}>
         {/* First, so the history trail is installed before any screen effect. */}
         <NavTrailInit />
         {children}
