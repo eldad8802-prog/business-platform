@@ -45,7 +45,7 @@ check(home.includes(`label: "home.desktop.shortcuts.newObligation", href: "${P3_
 const taskForm = read("features/tasks/task-form.tsx");
 check(taskForm.includes(`<Link href="${P3_START}"`) && !taskForm.includes('"/payables?new=1"'), "task form's commitment link opens P3");
 const mainScreen = read("app/(shell)/secretary/secretary-home.tsx");
-check(mainScreen.includes(`bank: "${P3_START}"`), "Secretary header 'הוספה למעקב' still opens P3");
+check(mainScreen.includes(`bank: "${P3_START}"`), "Secretary header 'הוסף התחייבות' still opens P3");
 
 // ── The flow's screens
 const ui = read("app/(shell)/secretary/secretary-ui.tsx");
