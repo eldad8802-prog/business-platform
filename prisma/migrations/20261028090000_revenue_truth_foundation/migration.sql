@@ -37,6 +37,9 @@
 --   the revision it supersedes; a changed mind on a link is a new decision. Deletion happens only as a cascade
 --   of the business itself (or of a bank line it links to).
 --
+-- NULL IN CHECKS
+--   A CHECK passes when its expression is NULL, so every comparison on a nullable column states IS NOT NULL.
+--
 -- NO FREE TEXT
 --   Every text column is a CHECK-limited token (ids, scopes, codes). No customer name, no description, no card
 --   number field exists, so no personal data can be stored here by construction.
@@ -342,7 +345,8 @@ CREATE TABLE "RevenueSettlement" (
   ),
   CONSTRAINT "RevenueSettlement_installment" CHECK (
         ("installmentNumber" IS NULL AND "installmentCount" IS NULL)
-     OR ("installmentCount" BETWEEN 1 AND 99 AND "installmentNumber" BETWEEN 1 AND "installmentCount")
+     OR ("installmentCount" IS NOT NULL AND "installmentNumber" IS NOT NULL
+         AND "installmentCount" BETWEEN 1 AND 99 AND "installmentNumber" BETWEEN 1 AND "installmentCount")
   )
 );
 CREATE UNIQUE INDEX "RevenueSettlement_businessId_id_key" ON "RevenueSettlement"("businessId", "id");
@@ -387,14 +391,14 @@ CREATE TABLE "RevenueLink" (
         AND num_nonnulls("receiptId", "dailyCloseTenderId", "settlementId", "externalTransactionId") = 0
       WHEN 'TENDER_SETTLED_BY' THEN
             num_nonnulls("receiptId", "dailyCloseTenderId") = 1 AND "settlementId" IS NOT NULL
-        AND "linkedMinor" > 0
+        AND "linkedMinor" IS NOT NULL AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "externalTransactionId", "billingDocumentId") = 0
       WHEN 'SETTLEMENT_DEPOSITED_AS' THEN
-            "settlementId" IS NOT NULL AND "externalTransactionId" IS NOT NULL AND "linkedMinor" > 0
+            "settlementId" IS NOT NULL AND "externalTransactionId" IS NOT NULL AND "linkedMinor" IS NOT NULL AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "receiptId", "dailyCloseTenderId", "billingDocumentId") = 0
       WHEN 'CASH_DEPOSITED_AS' THEN
             num_nonnulls("receiptId", "dailyCloseTenderId") = 1 AND "externalTransactionId" IS NOT NULL
-        AND "linkedMinor" > 0
+        AND "linkedMinor" IS NOT NULL AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "settlementId", "billingDocumentId") = 0
     END
   )
