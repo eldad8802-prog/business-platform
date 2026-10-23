@@ -1,0 +1,17 @@
+{
+  "note": "Monthly accountant workflow (Option B): the pure rules of the period, the package scope and the workflow, on top of migration 20261027090000_accountant_month_close. The database proofs (.acct/battery.ts, .acct/app-battery.ts) are lab scripts run by accountant-month-close-lab.yml and accountant-month-close-ci.yml.",
+  "tests": {
+    "lib/accountant/period.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: Israeli month boundaries at both DST changes, previous-month detection, and the export request parser that refuses what it cannot read (the quarter-widened-to-everything and year-ignored defects); run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/accountant/package-scope.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: package readiness (blockers vs warnings), exact per-type totals in agorot, duplicate-income and upload-date heuristics (flag, never remove), and the content fingerprint; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/accountant/workflow.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: period status derivation (accepted is not delivered), notices and the quiet reminder policy, sweep scheduling, recipient validation, which issued PDFs may enter a package (authority gate, signing), link secrets in the fragment, and an email with no financial data; run on pull_request by accountant-month-close-ci.yml"
+    }
+  }
+}

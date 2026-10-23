@@ -121,6 +121,10 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Task: { disposition: "ERASURE_MANAGED" },
   TaskSeries: { disposition: "ERASURE_MANAGED" },
   TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
+  // Monthly accountant workflow: the recipient row is deleted; every delivery's recipient snapshot is
+  // erased in place and its link revoked (account-erasure-manifest.ts).
+  AccountantRecipient: { disposition: "ERASURE_MANAGED" },
+  AccountantDelivery: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -226,6 +230,7 @@ const RETAINED: Record<string, ModelCoverage> = {
   FinancialRecord: FISCAL("the extracted fiscal facts of a document"),
   Document: FISCAL("the source artifact the fiscal record derives from — the artifact IS the evidence"),
   ExtractedData: FISCAL("extraction output bound to a retained document"),
+  AccountantPackage: FISCAL("a stored monthly copy of the retained fiscal records (scanned documents, issued documents) the accountant receives; holds counts and ids only in the row"),
   HistoricalFiscalDocument: {
     disposition: "RETAINED_BY_DESIGN",
     reason:
@@ -353,6 +358,11 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // Daily Tasks (milestone A): per-cycle display state over the business's own items. Keys are CHECK-limited
   // tokens ([A-Za-z0-9:_.-]) naming the business's entities by id; day keys, times and versions; no text.
   TaskSourceState: operational("per-cycle display state (acknowledged / snoozed / dismissed / pinned) over the business's own items: CHECK-limited id tokens, day keys and times, no text"),
+  AccountantPeriod: operational("the monthly workflow state of a business: status tokens, counts and ids (closed JSON by DB CHECK), times, a content fingerprint; no text"),
+  // Append-only trail. Account erasure nulls its only identifying column — the acting user — through
+  // accountant_erase_business(), the SECURITY DEFINER function the adapter calls in the erased business's
+  // tenant transaction (the runtime holds no UPDATE on the table). The payload can hold no text (DB CHECK).
+  AccountantWorkflowEvent: operational("append-only accountant workflow trail: event type, actor role, times, ids and short tokens (no text by DB CHECK); the acting user is erased with the account by accountant_erase_business()"),
   TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
   // Daily Tasks journal (append-only). Account erasure nulls its two identifying columns — the acting user and the
   // request digest — through task_retention_erase_business(), the SECURITY DEFINER function the adapter calls in the
