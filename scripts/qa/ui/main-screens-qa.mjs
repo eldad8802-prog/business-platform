@@ -238,14 +238,15 @@ async function secretaryChecks(page, vp, scenario, run) {
     // Every amount on a row is a fixture field: ledger.remaining 15 / 3500 / 30, watching 50.
     c.amounts = ["₪15", "₪3,500", "₪30", "₪50"].every((a) => t.includes(a));
     c.hrefs = await page.evaluate(() => {
-      const href = (txt) => [...document.querySelectorAll("main a")].find((a) => a.innerText.trim() === txt)?.getAttribute("href") ?? null;
-      return { today: href("היום שלי"), all: href("כל ההתחייבויות"), add: href("הוספה למעקב") };
+      // Version B hub (23.10.2026): "הוסף התחייבות" in the header; "היום שלי" and the full list under history.
+      const href = (txt) => [...document.querySelectorAll("main a")].find((a) => a.innerText.trim().startsWith(txt))?.getAttribute("href") ?? null;
+      return { today: href("היום שלי"), all: href("כל ההתחייבויות"), add: href("הוסף התחייבות") };
     });
     c.hrefsOk = c.hrefs.today === "/secretary?today=1" && c.hrefs.all === "/secretary?screen=all" && c.hrefs.add === "/secretary?screen=bank";
     c.paidQuestion = await checkPaidQuestion(page, vp);
     if (vp.name === "1440" || vp.name === "390") c.menu = await checkMenu(page, vp);
     if (vp.name === "1440") c.keyboard = await checkKeyboard(page);
-    c.allNav = await checkNav(page, "כל ההתחייבויות", /\/secretary\?screen=all$/, vp);
+    c.allNav = await checkNav(page, /^כל ההתחייבויות/,/\/secretary\?screen=all$/, vp);
     c.ok = c.headline && c.no3615 && c.noReminderPromise && c.amounts && c.hrefsOk && c.paidQuestion.ok && (!c.menu || c.menu.ok) && (!c.keyboard || c.keyboard.ok) && c.allNav.ok;
   } else if (scenario === "empty") {
     c.ok = t.includes("שלום, אני המזכירה שלך.");
@@ -360,7 +361,7 @@ async function checkNav(page, linkText, expect, vp) {
   const out = { ok: false };
   try {
     const start = page.url();
-    await page.locator("main").getByRole("link", { name: linkText, exact: true }).first().click();
+    await page.locator("main").getByRole("link", typeof linkText === "string" ? { name: linkText, exact: true } : { name: linkText }).first().click();
     await page.waitForURL(expect, { timeout: 15_000 });
     out.landed = page.url().replace(BASE, "");
     await settle(page);

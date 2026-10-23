@@ -52,10 +52,14 @@ export function I18nProvider({
   children,
 }: {
   locale: Locale;
-  messages: Messages;
+  /**
+   * The dictionary of `locale`. Omitted for Hebrew: the bundled `he` (above) is the same object the
+   * server would pass, so it is not serialized into every page's RSC payload.
+   */
+  messages?: Messages;
   children: ReactNode;
 }) {
-  const value = useMemo(() => build(locale, messages), [locale, messages]);
+  const value = useMemo(() => build(locale, messages ?? he), [locale, messages]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 

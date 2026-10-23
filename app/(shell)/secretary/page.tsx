@@ -454,7 +454,7 @@ function SecretaryPageInner() {
     // רלוונטי" → onReleaseFlow. The cost card sits in its side column.
     return (
       <SecretaryErrorBoundary>
-        <SecretaryHome view={buildSecretaryHome(state.briefing)} actions={{ onHandled: onCompleteFlow, onRelease: onReleaseFlow }} />
+        <SecretaryHome view={buildSecretaryHome(state.briefing)} briefing={state.briefing} actions={{ onHandled: onCompleteFlow, onRelease: onReleaseFlow }} />
         {paidSheet}
         {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
       </SecretaryErrorBoundary>

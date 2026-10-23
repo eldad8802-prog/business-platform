@@ -960,7 +960,7 @@ function StockPanel({ view }: { view: HomeView }) {
 
 const SHORTCUTS: Array<{ label: MessageKey; href: string; Icon: IconComponent; color: string; bg: string }> = [
   { label: "home.desktop.shortcuts.paymentLink", href: "/collection/new", Icon: IconCardSimple, color: TEAL, bg: "#E3F2F0" },
-  { label: "home.desktop.shortcuts.newObligation", href: "/payables?new=1", Icon: IconCalendarPlus, color: "#B4432F", bg: "#FDF0EC" },
+  { label: "home.desktop.shortcuts.newObligation", href: "/secretary?screen=bank", Icon: IconCalendarPlus, color: "#B4432F", bg: "#FDF0EC" },
   { label: "home.desktop.shortcuts.newCustomer", href: "/customers?new=1", Icon: IconUserPlus, color: "#5B4FA8", bg: "#ECE9F7" },
   { label: "home.desktop.shortcuts.uploadDocument", href: "/documents/upload", Icon: IconScan, color: "#A0601F", bg: "#FBEEDD" },
 ];

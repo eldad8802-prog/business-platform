@@ -208,7 +208,7 @@ export default function PayablesPage() {
     <main className={styles.page} style={PAYABLES_THEME} dir="rtl" aria-labelledby="payables-title">
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
-          <h1 id="payables-title" className={styles.title}>התחייבויות</h1>
+          <h1 id="payables-title" className={`${styles.title} ${list.mainTitle}`}>התחייבויות</h1>
           <p className={styles.subtitle}>
             מה העסק חייב, מתי, וכמה כבר שולם.
           </p>
