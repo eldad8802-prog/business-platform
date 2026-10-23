@@ -10,7 +10,7 @@ WITH rel AS (
    WHERE n.nspname = 'public' AND c.relname !~ '^Revenue' AND c.relname <> '_prisma_migrations'
 )
 SELECT line FROM (
-  SELECT 'rel ' || relname || ' kind=' || relkind || ' rls=' || relrowsecurity || ' force=' || relforcerowsecurity
+  SELECT 'rel ' || relname || ' kind=' || relkind::text || ' rls=' || relrowsecurity || ' force=' || relforcerowsecurity
          || ' acl=' || coalesce(relacl::text, '-') AS line
     FROM rel
   UNION ALL
@@ -27,12 +27,12 @@ SELECT line FROM (
   SELECT 'idx ' || pg_get_indexdef(i.indexrelid)
     FROM rel r JOIN pg_index i ON i.indrelid = r.oid
   UNION ALL
-  SELECT 'pol ' || r.relname || '.' || p.polname || ' cmd=' || p.polcmd || ' roles=' || p.polroles::text
+  SELECT 'pol ' || r.relname || '.' || p.polname || ' cmd=' || p.polcmd::text || ' roles=' || p.polroles::text
          || ' using=' || coalesce(pg_get_expr(p.polqual, p.polrelid), '-')
          || ' check=' || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '-')
     FROM rel r JOIN pg_policy p ON p.polrelid = r.oid
   UNION ALL
-  SELECT 'trg ' || r.relname || '.' || t.tgname || ' enabled=' || t.tgenabled || ' ' || pg_get_triggerdef(t.oid)
+  SELECT 'trg ' || r.relname || '.' || t.tgname || ' enabled=' || t.tgenabled::text || ' ' || pg_get_triggerdef(t.oid)
     FROM rel r JOIN pg_trigger t ON t.tgrelid = r.oid AND NOT t.tgisinternal
   UNION ALL
   SELECT 'fn ' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') definer=' || p.prosecdef
@@ -47,7 +47,7 @@ SELECT line FROM (
   SELECT 'role ' || rolname || ' super=' || rolsuper || ' bypass=' || rolbypassrls || ' login=' || rolcanlogin
     FROM pg_roles WHERE rolname !~ '^pg_'
   UNION ALL
-  SELECT 'defacl ' || pg_get_userbyid(defaclrole) || ' ' || defaclobjtype || ' ' || coalesce(defaclacl::text, '-')
+  SELECT 'defacl ' || pg_get_userbyid(defaclrole) || ' ' || defaclobjtype::text || ' ' || coalesce(defaclacl::text, '-')
     FROM pg_default_acl
 ) s
 ORDER BY line;
