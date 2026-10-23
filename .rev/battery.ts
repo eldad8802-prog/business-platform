@@ -322,6 +322,8 @@ async function main() {
   await bad("settlement: from a register (not an acquirer / provider) refused", `INSERT INTO "RevenueSettlement" (${stCols}) VALUES ($1, 'POS', 'FILE_STRUCTURED', 'upload.max', '${key("st")}', 'max', DATE '2026-10-22', 'ILS', 1000, 20, 0, 980, 'PASSED')`);
   await bad("settlement: installment 4 of 3 refused",
     `INSERT INTO "RevenueSettlement" (${stCols}, "installmentNumber", "installmentCount") VALUES ($1, 'ACQUIRER', 'FILE_STRUCTURED', 'upload.max', '${key("st")}', 'max', DATE '2026-10-22', 'ILS', 1000, 20, 0, 980, 'PASSED', 4, 3)`);
+  await bad("settlement: an installment count without the installment number refused (a CHECK passes on NULL unless it says IS NOT NULL)",
+    `INSERT INTO "RevenueSettlement" (${stCols}, "installmentCount") VALUES ($1, 'ACQUIRER', 'FILE_STRUCTURED', 'upload.max', '${key("st")}', 'max', DATE '2026-10-22', 'ILS', 1000, 20, 0, 980, 'PASSED', 3)`);
   await bad("receipt: installments on a cash receipt refused",
     `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "direction", "method", "receivedAt", "businessDay", "currency", "receivedMinor", "installmentCount")
      VALUES ($1, 'POS', 'API_PUSH', 'pos.lab', '${key("r")}', 'IN', 'CASH', now(), DATE '2026-10-20', 'ILS', 100, 3)`);
