@@ -234,7 +234,7 @@ CREATE TABLE "RevenueDailyClose" (
   )
 );
 CREATE UNIQUE INDEX "RevenueDailyClose_businessId_id_key" ON "RevenueDailyClose"("businessId", "id");
-CREATE UNIQUE INDEX "RevenueDailyClose_businessId_sourceScope_registerKey_externalId_revision_key"
+CREATE UNIQUE INDEX "RevenueDailyClose_source_key"
   ON "RevenueDailyClose"("businessId", "sourceScope", "registerKey", "externalId", "revision");
 CREATE INDEX "RevenueDailyClose_businessId_businessDay_idx" ON "RevenueDailyClose"("businessId", "businessDay");
 -- A revision is superseded at most once: corrections form a chain, never a fork.
