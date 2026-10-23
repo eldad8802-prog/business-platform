@@ -90,4 +90,8 @@ eq("en-IL date (day first)", formatDate("2026-10-20T22:30:00Z", { locale: "en" }
 eq("he-IL date", formatDate("2026-10-20T22:30:00Z", { locale: "he" }), "21.10.2026");
 eq("invalid date", formatDate("nope", { locale: "en" }), "—");
 
+// The root layout no longer serializes the Hebrew dictionary into every page: I18nProvider falls back to
+// the bundled `he`, which must be the very object the server would have passed (same strings, same output).
+ok("getMessages('he') is the bundled he (no per-page dictionary needed)", getMessages("he") === he);
+
 console.log(`i18n.verify: ${checks} checks passed`);

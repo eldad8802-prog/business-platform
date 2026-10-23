@@ -5,7 +5,7 @@ import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fa
 import { NativeShellInit } from "@/components/native/NativeShellInit";
 import { NavTrailInit } from "@/components/navigation/nav-trail-init";
 import { I18nProvider } from "@/components/i18n/I18nProvider";
-import { localeDirection } from "@/lib/i18n/config";
+import { DEFAULT_LOCALE, localeDirection } from "@/lib/i18n/config";
 import { getMessages } from "@/lib/i18n/messages";
 import { getRequestLocale } from "@/lib/i18n/server";
 
@@ -63,7 +63,10 @@ export default async function RootLayout({
       className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
-        <I18nProvider locale={locale} messages={getMessages(locale)}>
+        {/* Hebrew is already in the client bundle (I18nProvider imports it), so it is not serialized
+            into every page's RSC payload as a prop (≈440 KB of each HTML document before). Only another
+            language's dictionary travels with the page. Same dictionary object either way. */}
+        <I18nProvider locale={locale} messages={locale === DEFAULT_LOCALE ? undefined : getMessages(locale)}>
         {/* First, so the history trail is installed before any screen effect. */}
         <NavTrailInit />
         {children}
