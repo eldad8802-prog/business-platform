@@ -57,6 +57,12 @@ function depsWith(
 }
 
 async function main() {
+  // SEC-05 is about what an ADAPTER can encode, which only matters once a
+  // foreign currency may be requested at all. The foreign-currency kill switch
+  // (DUBIZ_FX_COLLECTION_ENABLED, default OFF) is therefore switched ON for this
+  // suite; its OFF behaviour is proven in payment-currency-offer.test.ts.
+  process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
+
   // ── 1. SERVICE LAYER ────────────────────────────────────────────────────
 
   // A supported currency goes through untouched.
@@ -131,18 +137,31 @@ async function main() {
     ok("lower-case input is normalised before the gate, not around it", true);
   }
 
-  // A pass-through adapter declares null and is not gated locally — it has no
-  // translation table to fall out of, so the provider decides.
+  // A pass-through adapter declares null and adds no restriction of its own —
+  // but a request is still limited to the Dubiz currency set (ILS/USD/EUR), so
+  // GBP is refused while EUR passes through.
   {
     const store = createInMemoryPaymentStore();
     store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    await assert.rejects(
+      () =>
+        createPaymentRequest(
+          { businessId: 1, amount: 10, currency: "GBP" },
+          depsWith(store, createStubProvider({ supportedCurrencies: null }))
+        ),
+      /cannot be charged in GBP/
+    );
+    ok(
+      "a pass-through adapter (supportedCurrencies=null) is still held to the Dubiz set",
+      store.requests.length === 0
+    );
     const res = await createPaymentRequest(
-      { businessId: 1, amount: 10, currency: "GBP" },
+      { businessId: 1, amount: 10, currency: "EUR" },
       depsWith(store, createStubProvider({ supportedCurrencies: null }))
     );
     ok(
-      "a pass-through adapter (supportedCurrencies=null) is not locally gated",
-      res.paymentRequest.currency === "GBP"
+      "a pass-through adapter (supportedCurrencies=null) adds no restriction inside the Dubiz set",
+      res.paymentRequest.currency === "EUR"
     );
   }
 

@@ -4,7 +4,14 @@ import {
   AmbiguousPaymentProviderError,
   selectPaymentProvider,
 } from "@/lib/services/payments/payment-request.service";
-import type { PaymentStore } from "@/lib/services/payments/payments.types";
+import type { PaymentProvider, PaymentStore } from "@/lib/services/payments/payments.types";
+import type { PaymentProviderAdapter } from "@/lib/services/payments/providers/payment-provider.types";
+import { resolvePaymentProvider } from "@/lib/services/payments/providers/provider-registry";
+import {
+  DEFAULT_OFFERABLE_CURRENCIES,
+  offerableCurrencies,
+} from "@/lib/services/payments/payment-currency-offer";
+import type { CurrencyCode } from "@/lib/money/currency";
 
 /**
  * Can this business collect right now — and if not, exactly what is missing?
@@ -27,22 +34,45 @@ export type CollectionBlocker =
 export type CollectionReadiness = {
   ready: boolean;
   blockers: CollectionBlocker[];
+  /**
+   * Currencies a standalone payment request may be raised in right now: the
+   * Dubiz set (ILS / USD / EUR) narrowed by the provider createPaymentRequest
+   * would select. ILS first. With no resolvable provider: ILS alone.
+   */
+  offerableCurrencies: CurrencyCode[];
 };
+
+/** The provider-dependent part of readiness — pure apart from the store read. */
+export async function loadCollectionProviderReadiness(
+  businessId: number,
+  store: Pick<PaymentStore, "listConnections">,
+  resolveProvider: (provider: PaymentProvider) => Pick<PaymentProviderAdapter, "supportedCurrencies"> = resolvePaymentProvider
+): Promise<{ blocker: CollectionBlocker | null; offerableCurrencies: CurrencyCode[] }> {
+  let provider: PaymentProvider;
+  try {
+    provider = await selectPaymentProvider({ businessId, requested: null }, store);
+  } catch (error) {
+    return {
+      blocker:
+        error instanceof AmbiguousPaymentProviderError
+          ? "PAYMENT_PROVIDER_AMBIGUOUS"
+          : "NO_PAYMENT_PROVIDER",
+      offerableCurrencies: [...DEFAULT_OFFERABLE_CURRENCIES],
+    };
+  }
+  return {
+    blocker: null,
+    offerableCurrencies: offerableCurrencies(resolveProvider(provider).supportedCurrencies),
+  };
+}
 
 export async function loadCollectionReadiness(
   businessId: number,
   store: Pick<PaymentStore, "listConnections">
 ): Promise<CollectionReadiness> {
   const blockers: CollectionBlocker[] = [];
-  try {
-    await selectPaymentProvider({ businessId, requested: null }, store);
-  } catch (error) {
-    blockers.push(
-      error instanceof AmbiguousPaymentProviderError
-        ? "PAYMENT_PROVIDER_AMBIGUOUS"
-        : "NO_PAYMENT_PROVIDER"
-    );
-  }
+  const provider = await loadCollectionProviderReadiness(businessId, store);
+  if (provider.blocker) blockers.push(provider.blocker);
   const profile = await billingTenantTx(businessId, (tx) =>
     tx.businessProfile.findUnique({
       where: { businessId },
@@ -61,5 +91,5 @@ export async function loadCollectionReadiness(
   } catch {
     blockers.push("BILLING_IDENTITY_INCOMPLETE");
   }
-  return { ready: blockers.length === 0, blockers };
+  return { ready: blockers.length === 0, blockers, offerableCurrencies: provider.offerableCurrencies };
 }

@@ -663,12 +663,36 @@ async function main() {
     }
     ok("SEC-01: an amount above the document's balance is refused under real RLS", overRefused);
 
-    // (g) SEC-05 through the real service wiring.
+    // (g0) The foreign-currency kill switch (DUBIZ_FX_COLLECTION_ENABLED,
+    // fail-closed, default OFF): any non-ILS currency is refused first, before
+    // a row exists, under real RLS.
+    delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+    {
+      const before = await reqCount(bizA.id);
+      let switchCode = null;
+      for (const currency of ["USD", "EUR", "GBP"]) {
+        try {
+          await create(bizA.id, { amount: "10.00", currency });
+        } catch (e) {
+          switchCode = switchCode === null || switchCode === e?.code ? e?.code ?? "none" : "mixed";
+        }
+      }
+      ok(
+        "FX switch OFF: USD / EUR / GBP refused FOREIGN_CURRENCY_COLLECTION_DISABLED, no PaymentRequest row",
+        switchCode === "FOREIGN_CURRENCY_COLLECTION_DISABLED" && (await reqCount(bizA.id)) === before
+      );
+    }
+
+    // (g) SEC-05 through the real service wiring — what the ADAPTER can encode,
+    // which only matters once the switch lets a foreign currency through.
+    process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
     let currencyRefused = false;
     try {
       await create(bizA.id, { amount: "10.00", currency: "GBP" });
     } catch (e) {
       currencyRefused = /cannot be charged in GBP/.test(String(e?.message));
+    } finally {
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
     }
     ok("SEC-05: an unsupported currency is refused before any provider call", currencyRefused);
 

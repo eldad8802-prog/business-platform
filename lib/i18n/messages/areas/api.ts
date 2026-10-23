@@ -153,6 +153,14 @@ export const apiHe = {
   inventory: {
     imageUploadUnavailable: "לא ניתן להעלות תמונת מוצר כרגע. נסה שוב מאוחר יותר.",
   },
+  payments: {
+    /** A payment request in a currency the Dubiz set or the connected provider does not allow. */
+    currencyNotOffered: "אי אפשר לבקש תשלום ב-{currency} דרך ספק הסליקה המחובר. אפשר לבקש ב: {allowed}.",
+    /** An invoice-backed request sent in a currency other than the invoice's. */
+    currencyMustMatchInvoice: "בקשת תשלום על חשבונית נשלחת במטבע של החשבונית ({currency}).",
+    /** Foreign-currency collection is switched off (DUBIZ_FX_COLLECTION_ENABLED): ILS only. */
+    foreignCurrencyCollectionDisabled: "גבייה ב-{currency} עדיין לא פתוחה. אפשר לבקש תשלום ב-{allowed} בלבד.",
+  },
   pricing: {
     profitLow: "נמוך",
     profitOk: "תקין",
@@ -302,6 +310,11 @@ export const apiEn: Widen<typeof apiHe> = {
   },
   inventory: {
     imageUploadUnavailable: "Product images can't be uploaded right now. Please try again later.",
+  },
+  payments: {
+    currencyNotOffered: "A payment can't be requested in {currency} through the connected payment provider. Available: {allowed}.",
+    currencyMustMatchInvoice: "A payment request for an invoice uses the invoice's currency ({currency}).",
+    foreignCurrencyCollectionDisabled: "Collecting in {currency} isn't available yet. Payment requests can be made in {allowed} only.",
   },
   pricing: {
     profitLow: "Low",
