@@ -234,7 +234,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
-    // Monthly accountant workflow (migration 20261023090000). OFF by default, like every new feature: with no
+    // Monthly accountant workflow (migration 20261027090000). OFF by default, like every new feature: with no
     // policy row the resolver falls back to this default, so a deploy that reaches Production before the
     // migration cannot switch the workflow on. Controlled verification = a business override; the general
     // rollout (owner gate G5) flips this default together with the policy row. Sending to the accountant is a
