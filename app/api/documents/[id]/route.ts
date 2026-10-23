@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -9,10 +10,11 @@ export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "לא מחובר" }, { status: 401 });
+      return Response.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     const params = await context.params; // 🔥 חשוב
@@ -20,7 +22,7 @@ export async function GET(
 
     if (isNaN(id)) {
       return Response.json(
-        { error: "מזהה מסמך לא תקין" },
+        { error: t("api.documents.invalidId") },
         { status: 400 }
       );
     }
@@ -43,13 +45,13 @@ export async function GET(
 
     if (!document) {
       return Response.json(
-        { error: "המסמך לא נמצא" },
+        { error: t("api.documents.notFound") },
         { status: 404 }
       );
     }
 
     if (document.businessId !== user.businessId) {
-      return Response.json({ error: "אין הרשאה" }, { status: 403 });
+      return Response.json({ error: t("api.common.noPermission") }, { status: 403 });
     }
 
     const debug =
@@ -106,7 +108,7 @@ export async function GET(
     console.error("GET DOCUMENT ERROR:", error);
 
     return Response.json(
-      { error: "שגיאה בטעינת המסמך. נסה שוב מאוחר יותר." },
+      { error: t("api.documents.loadFailed") },
       { status: 500 }
     );
   }

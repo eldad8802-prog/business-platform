@@ -4,7 +4,16 @@ import { PageContainer } from "@/components/ui/page-container";
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import BackButton from "@/components/ui/back-button";
-import { DEALS_ERROR, resolveDealsOutcome } from "./deals-fetch-contract";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+import { DEALS_ERROR, resolveDealsOutcome, type DealsCall } from "./deals-fetch-contract";
+
+// The contract's Hebrew messages stay the stored/tested values; the screen shows them in the active language.
+const DEALS_ERROR_KEYS: Record<DealsCall, MessageKey> = {
+  fetch: "content.pricing.opportunities.errors.fetch",
+  generate: "content.pricing.opportunities.errors.generate",
+  update: "content.pricing.opportunities.errors.update",
+};
 
 type DealStatus = "NEW" | "ACCEPTED" | "DISMISSED";
 type DealActionType = "SEND_LEAD" | "COUPON" | "REFERRAL";
@@ -27,6 +36,7 @@ type CollaborationDeal = {
 };
 
 export default function OpportunitiesPage() {
+  const { t } = useI18n();
   const [deals, setDeals] = useState<CollaborationDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -517,11 +527,17 @@ export default function OpportunitiesPage() {
     (deal) => deal.sourceType === "RULE_BASED_MATCH"
   ).length;
 
+  // A contract message (Hebrew, see deals-fetch-contract) renders in the active language; any other text as-is.
+  const errorText = (message: string) => {
+    const call = (Object.keys(DEALS_ERROR) as DealsCall[]).find((c) => DEALS_ERROR[c] === message);
+    return call ? t(DEALS_ERROR_KEYS[call]) : message;
+  };
+
   const renderReasonText = (deal: CollaborationDeal) => {
     if (deal.reasonText) {
       return (
         <div style={reasonBoxStyle}>
-          <strong>למה זה מתאים:</strong>
+          <strong>{t("content.pricing.opportunities.whyFits")}</strong>
           <div style={{ marginTop: 6 }}>{deal.reasonText}</div>
         </div>
       );
@@ -529,26 +545,25 @@ export default function OpportunitiesPage() {
 
     return (
       <div style={legacyInfoBoxStyle}>
-        הזדמנות זו נוצרה לפני שכבת ההתאמה החדשה, ולכן עדיין אין לה ציון התאמה
-        או הסבר מפורט.
+        {t("content.pricing.opportunities.legacyInfo")}
       </div>
     );
   };
 
   const renderScoreLabel = (score: number | null) => {
     if (score === null) {
-      return "ללא ציון";
+      return t("content.pricing.opportunities.score.none");
     }
 
     if (score >= 85) {
-      return `התאמה גבוהה • ${score}`;
+      return t("content.pricing.opportunities.score.high", { score });
     }
 
     if (score >= 70) {
-      return `התאמה טובה • ${score}`;
+      return t("content.pricing.opportunities.score.good", { score });
     }
 
-    return `התאמה אפשרית • ${score}`;
+    return t("content.pricing.opportunities.score.possible", { score });
   };
 
   return (
@@ -571,10 +586,9 @@ export default function OpportunitiesPage() {
             }}
           >
             <div>
-              <h1 style={titleStyle}>שיתופי פעולה</h1>
+              <h1 style={titleStyle}>{t("content.pricing.opportunities.title")}</h1>
               <p style={subtitleStyle}>
-                הזדמנויות לפעולה — פעולות עסקיות שהמערכת זיהתה עבורך,
-                שיכולות לייצר לך הכנסה נוספת בצורה פשוטה ומהירה.
+                {t("content.pricing.opportunities.subtitle")}
               </p>
             </div>
 
@@ -583,41 +597,40 @@ export default function OpportunitiesPage() {
 
           <div style={summaryRowStyle}>
             <div style={statCardStyle}>
-              <div style={statLabelStyle}>הזדמנויות לפעולה</div>
+              <div style={statLabelStyle}>{t("content.pricing.opportunities.stats.active")}</div>
               <div style={statValueStyle}>{activeDeals.length}</div>
             </div>
 
             <div style={statCardStyle}>
-              <div style={statLabelStyle}>פעולות שבוצעו</div>
+              <div style={statLabelStyle}>{t("content.pricing.opportunities.stats.done")}</div>
               <div style={statValueStyle}>{completedDeals.length}</div>
             </div>
 
             <div style={statCardStyle}>
-              <div style={statLabelStyle}>פוטנציאל הכנסה</div>
+              <div style={statLabelStyle}>{t("content.pricing.opportunities.stats.potential")}</div>
               <div style={statValueStyle}>₪{totalEstimatedValue}</div>
             </div>
 
             <div style={statCardStyle}>
-              <div style={statLabelStyle}>התאמות מדורגות</div>
+              <div style={statLabelStyle}>{t("content.pricing.opportunities.stats.ranked")}</div>
               <div style={statValueStyle}>{matchedDealsCount}</div>
             </div>
           </div>
         </div>
 
-        {error ? <div style={errorStyle}>{error}</div> : null}
+        {error ? <div style={errorStyle}>{errorText(error)}</div> : null}
 
         {loading ? (
-          <div style={emptyStyle}>טוען שיתופי פעולה...</div>
+          <div style={emptyStyle}>{t("content.pricing.opportunities.loading")}</div>
         ) : (
           <>
-            <h2 style={sectionTitleStyle}>פעולות מדורגות</h2>
+            <h2 style={sectionTitleStyle}>{t("content.pricing.opportunities.rankedActions")}</h2>
 
             {activeDeals.length === 0 ? (
               <div style={emptyStyle}>
                 {generationNotice === "no_profile" ? (
                   <>
-                    כדי לקבל התאמות מותאמות לעסק שלך, יש להשלים תחילה את פרטי
-                    העסק.
+                    {t("content.pricing.opportunities.noProfile")}
                     <div style={{ marginTop: 12 }}>
                       <button
                         type="button"
@@ -626,14 +639,13 @@ export default function OpportunitiesPage() {
                         }}
                         style={primaryButtonStyle}
                       >
-                        השלמת פרטי העסק
+                        {t("content.pricing.opportunities.completeProfile")}
                       </button>
                     </div>
                   </>
                 ) : generationNotice === "incomplete_profile" ? (
                   <>
-                    יש להשלים את תחום העסק ותת-התחום בפרטי העסק כדי לקבל התאמות
-                    מתאימות.
+                    {t("content.pricing.opportunities.incompleteProfile")}
                     <div style={{ marginTop: 12 }}>
                       <button
                         type="button"
@@ -642,15 +654,15 @@ export default function OpportunitiesPage() {
                         }}
                         style={primaryButtonStyle}
                       >
-                        עדכון פרטי העסק
+                        {t("content.pricing.opportunities.updateProfile")}
                       </button>
                     </div>
                   </>
                 ) : generationNotice === "no_matches" ? (
-                  <>עדיין אין התאמות מתאימות לעסק שלך. נעדכן אותך כשיהיו.</>
+                  <>{t("content.pricing.opportunities.noMatches")}</>
                 ) : (
                   <>
-                    אין כרגע פעולות זמינות.
+                    {t("content.pricing.opportunities.noActions")}
                     <div style={{ marginTop: 12 }}>
                       <button
                         type="button"
@@ -661,7 +673,7 @@ export default function OpportunitiesPage() {
                           opacity: generating ? 0.7 : 1,
                         }}
                       >
-                        {generating ? "מייצר פעולות..." : "צור פעולות חדשות"}
+                        {generating ? t("content.pricing.opportunities.generating") : t("content.pricing.opportunities.generate")}
                       </button>
                     </div>
                   </>
@@ -680,7 +692,7 @@ export default function OpportunitiesPage() {
                       </div>
 
                       <div style={badgeStyle(deal.status)}>
-                        {deal.status === "NEW" ? "חדש" : deal.status}
+                        {deal.status === "NEW" ? t("content.pricing.opportunities.statusNew") : deal.status}
                       </div>
                     </div>
 
@@ -690,22 +702,22 @@ export default function OpportunitiesPage() {
 
                     <div style={metaGridStyle}>
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>סוג שותף</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.partnerType")}</div>
                         <div style={metaValueStyle}>{deal.partnerType}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>סוג פעולה</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.actionType")}</div>
                         <div style={metaValueStyle}>{deal.actionType}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>ערך מוערך</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.estimatedValue")}</div>
                         <div style={metaValueStyle}>₪{deal.estimatedValue}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>עדיפות בפיד</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.feedPriority")}</div>
                         <div style={metaValueStyle}>
                           {deal.priority ?? "—"}
                         </div>
@@ -723,8 +735,8 @@ export default function OpportunitiesPage() {
                         }}
                       >
                         {actionLoadingId === deal.id
-                          ? "מעדכן..."
-                          : "בצע פעולה"}
+                          ? t("content.pricing.opportunities.updating")
+                          : t("content.pricing.opportunities.act")}
                       </button>
 
                       <button
@@ -736,7 +748,7 @@ export default function OpportunitiesPage() {
                           opacity: actionLoadingId === deal.id ? 0.7 : 1,
                         }}
                       >
-                        דחה
+                        {t("content.pricing.opportunities.dismiss")}
                       </button>
                     </div>
                   </div>
@@ -744,10 +756,10 @@ export default function OpportunitiesPage() {
               </div>
             )}
 
-            <h2 style={sectionTitleStyle}>פעולות שטופלו</h2>
+            <h2 style={sectionTitleStyle}>{t("content.pricing.opportunities.handledActions")}</h2>
 
             {completedDeals.length === 0 ? (
-              <div style={emptyStyle}>עדיין אין היסטוריית פעולות.</div>
+              <div style={emptyStyle}>{t("content.pricing.opportunities.noHistory")}</div>
             ) : (
               <div className="opp-deals" style={listStyle}>
                 {completedDeals.map((deal) => (
@@ -761,7 +773,7 @@ export default function OpportunitiesPage() {
                       </div>
 
                       <div style={badgeStyle(deal.status)}>
-                        {deal.status === "ACCEPTED" ? "התקבל" : "נדחה"}
+                        {deal.status === "ACCEPTED" ? t("content.pricing.opportunities.statusAccepted") : t("content.pricing.opportunities.statusDismissed")}
                       </div>
                     </div>
 
@@ -771,22 +783,22 @@ export default function OpportunitiesPage() {
 
                     <div style={metaGridStyle}>
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>סוג שותף</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.partnerType")}</div>
                         <div style={metaValueStyle}>{deal.partnerType}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>סוג פעולה</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.actionType")}</div>
                         <div style={metaValueStyle}>{deal.actionType}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>ערך מוערך</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.estimatedValue")}</div>
                         <div style={metaValueStyle}>₪{deal.estimatedValue}</div>
                       </div>
 
                       <div style={metaCardStyle}>
-                        <div style={metaLabelStyle}>עדיפות בפיד</div>
+                        <div style={metaLabelStyle}>{t("content.pricing.opportunities.meta.feedPriority")}</div>
                         <div style={metaValueStyle}>
                           {deal.priority ?? "—"}
                         </div>

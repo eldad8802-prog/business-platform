@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 export type GoalId = "leads" | "exposure" | "trust" | "sales" | "brand";
 export type PlatformId = "instagram" | "tiktok" | "facebook" | "unknown";
@@ -42,50 +44,52 @@ type ContentFlow = {
 type GoalCard = {
   id: GoalId;
   icon: string;
-  title: string;
-  description: string;
+  title: MessageKey;
+  description: MessageKey;
   legacyGoal: "leads" | "trust" | "exposure" | "sales";
 };
 
 type PlatformChip = {
   id: PlatformId;
-  label: string;
+  /** Brand names are shown as-is; `labelKey` is set only for translated labels. */
+  label?: string;
+  labelKey?: MessageKey;
 };
 
 const goalCards: GoalCard[] = [
   {
     id: "leads",
     icon: "📩",
-    title: "שישלחו הודעה",
-    description: "תוכן שמוביל אנשים לפנות אליך",
+    title: "content.studioFlow.options.goal.leads",
+    description: "content.studioFlow.goal.descriptions.leads",
     legacyGoal: "leads",
   },
   {
     id: "exposure",
     icon: "👀",
-    title: "שיכירו אותי",
-    description: "להגיע לעוד אנשים ולעצור את הגלילה",
+    title: "content.studioFlow.options.goal.exposure",
+    description: "content.studioFlow.goal.descriptions.exposure",
     legacyGoal: "exposure",
   },
   {
     id: "trust",
     icon: "🤝",
-    title: "שיסמכו עליי",
-    description: "לבנות אמון ולהרגיש מקצועי",
+    title: "content.studioFlow.options.goal.trust",
+    description: "content.studioFlow.goal.descriptions.trust",
     legacyGoal: "trust",
   },
   {
     id: "sales",
     icon: "🛍️",
-    title: "שיקנו / יזמינו",
-    description: "לקדם מוצר, שירות או הצעה",
+    title: "content.studioFlow.options.goal.sales",
+    description: "content.studioFlow.goal.descriptions.sales",
     legacyGoal: "sales",
   },
   {
     id: "brand",
     icon: "✨",
-    title: "שיזכרו אותי",
-    description: "לחזק את הנוכחות והמותג שלך",
+    title: "content.studioFlow.options.goal.brand",
+    description: "content.studioFlow.goal.descriptions.brand",
     legacyGoal: "exposure",
   },
 ];
@@ -94,7 +98,7 @@ const platformChips: PlatformChip[] = [
   { id: "instagram", label: "Instagram" },
   { id: "tiktok", label: "TikTok" },
   { id: "facebook", label: "Facebook" },
-  { id: "unknown", label: "עדיין לא יודע/ת" },
+  { id: "unknown", labelKey: "content.studioFlow.goal.platformUnknown" },
 ];
 
 function goalToLegacy(id: GoalId): string {
@@ -103,6 +107,7 @@ function goalToLegacy(id: GoalId): string {
 
 export default function GoalPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [selectedGoal, setSelectedGoal] = useState<GoalId | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformId | null>(
     null
@@ -156,11 +161,11 @@ export default function GoalPage() {
 
         <div style={contentAreaStyle}>
           <header style={heroStyle}>
-            <h1 style={titleStyle}>מה הכי חשוב שהתוכן הזה יעשה?</h1>
-            <p style={subtitleStyle}>בחר/י את המטרה המרכזית של הפוסט הזה.</p>
+            <h1 style={titleStyle}>{t("content.studioFlow.goal.title")}</h1>
+            <p style={subtitleStyle}>{t("content.studioFlow.goal.subtitle")}</p>
           </header>
 
-          <div style={cardsListStyle} role="radiogroup" aria-label="מטרת התוכן">
+          <div style={cardsListStyle} role="radiogroup" aria-label={t("content.studioFlow.goal.groupLabel")}>
             {goalCards.map((card) => {
               const isSelected = selectedGoal === card.id;
               return (
@@ -169,7 +174,7 @@ export default function GoalPage() {
                   type="button"
                   role="radio"
                   aria-checked={isSelected}
-                  aria-label={`${card.title} — ${card.description}`}
+                  aria-label={t("content.studioFlow.common.optionAria", { label: t(card.title), sublabel: t(card.description) })}
                   className="goal-card"
                   onClick={() => setSelectedGoal(card.id)}
                   style={goalCardStyle(isSelected)}
@@ -180,9 +185,9 @@ export default function GoalPage() {
                   </span>
                   <div style={cardTextBlockStyle}>
                     <span style={cardTitleStyle(isSelected)}>
-                      {card.title}
+                      {t(card.title)}
                     </span>
-                    <span style={cardDescStyle}>{card.description}</span>
+                    <span style={cardDescStyle}>{t(card.description)}</span>
                   </div>
                   <span style={cardRingStyle(isSelected)} aria-hidden />
                 </button>
@@ -200,7 +205,7 @@ export default function GoalPage() {
             }}
             aria-hidden={!selectedGoal}
           >
-            <p style={platformLabelStyle}>איפה זה יעלה?</p>
+            <p style={platformLabelStyle}>{t("content.studioFlow.goal.platformQuestion")}</p>
             <div style={platformChipsRowStyle}>
               {platformChips.map((chip) => {
                 const isSelected = selectedPlatform === chip.id;
@@ -213,7 +218,7 @@ export default function GoalPage() {
                     onClick={() => setSelectedPlatform(chip.id)}
                     style={platformChipStyle(isSelected)}
                   >
-                    {chip.label}
+                    {chip.labelKey ? t(chip.labelKey) : chip.label}
                   </button>
                 );
               })}
@@ -228,7 +233,7 @@ export default function GoalPage() {
             disabled={!canContinue}
             style={ctaButtonStyle(canContinue)}
           >
-            המשך
+            {t("content.studioFlow.common.continue")}
           </button>
         </div>
       </div>
@@ -269,7 +274,7 @@ const contentAreaStyle: React.CSSProperties = {
 };
 
 const heroStyle: React.CSSProperties = {
-  textAlign: "right",
+  textAlign: "start",
   marginBottom: 20,
   marginTop: 4,
 };
@@ -310,7 +315,7 @@ const goalCardStyle = (selected: boolean): React.CSSProperties => ({
     ? "linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)"
     : "var(--dz-surface)",
   cursor: "pointer",
-  textAlign: "right",
+  textAlign: "start",
   boxShadow: selected
     ? "0 8px 24px rgba(52, 60, 50, 0.12)"
     : "0 2px 10px rgba(52, 60, 50, 0.06)",
@@ -362,7 +367,7 @@ const cardRingStyle = (selected: boolean): React.CSSProperties => ({
 
 const platformSectionStyle: React.CSSProperties = {
   marginTop: 28,
-  textAlign: "right",
+  textAlign: "start",
   transition: "opacity 0.22s ease, transform 0.22s ease",
 };
 

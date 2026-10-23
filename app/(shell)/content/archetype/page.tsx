@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,9 +55,14 @@ type ContentFlow = {
 type DirectionCard = {
   id: DirectionId;
   icon: string;
+  /** Hebrew title / vibe tag — vibeTag is stored as directionReasoning (flow data, stays Hebrew). */
   title: string;
   vibeTag: string;
   fitsIf: string;
+  /** Interface labels shown on the card (translated). */
+  titleKey: MessageKey;
+  vibeTagKey: MessageKey;
+  fitsIfKey: MessageKey;
   contentArchetypeId: string;
   legacyGoal: string;
   legacyAngle: string;
@@ -70,7 +77,7 @@ type DirectionCard = {
 type ScoredDirection = DirectionCard & {
   score: number;
   isRecommended: boolean;
-  platformBadge: string | null;
+  platformBadge: MessageKey | null;
 };
 
 // ── Direction library (one per unique video.* archetype) ──────────────────────
@@ -82,6 +89,9 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     title: "שיחה אמיתית",
     vibeTag: "מרגיש טבעי ולא כמו פרסומת",
     fitsIf: "יש לך קשר אישי עם הלקוחות שלך",
+    titleKey: "content.studio.archetype.directions.authentic.title",
+    vibeTagKey: "content.studio.archetype.directions.authentic.vibeTag",
+    fitsIfKey: "content.studio.archetype.directions.authentic.fitsIf",
     contentArchetypeId: "video.creator",
     legacyGoal: "trust",
     legacyAngle: "explain",
@@ -97,6 +107,9 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     title: "פתיחה חזקה",
     vibeTag: "בנוי לעצור אנשים מהר",
     fitsIf: "רוצים להגיע לאנשים חדשים שלא מכירים אותך",
+    titleKey: "content.studio.archetype.directions.attention.title",
+    vibeTagKey: "content.studio.archetype.directions.attention.vibeTag",
+    fitsIfKey: "content.studio.archetype.directions.attention.fitsIf",
     contentArchetypeId: "video.stop_scroll",
     legacyGoal: "exposure",
     legacyAngle: "attention",
@@ -112,6 +125,9 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     title: "סיפור קצר",
     vibeTag: "בונה חיבור ורגש לאורך הסרטון",
     fitsIf: "יש לך תוצאה טובה שאפשר להראות",
+    titleKey: "content.studio.archetype.directions.proof.title",
+    vibeTagKey: "content.studio.archetype.directions.proof.vibeTag",
+    fitsIfKey: "content.studio.archetype.directions.proof.fitsIf",
     contentArchetypeId: "video.trust",
     legacyGoal: "trust",
     legacyAngle: "trust",
@@ -126,6 +142,9 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     title: "משהו שונה",
     vibeTag: "מראה את ההבדל שלך מהמתחרים",
     fitsIf: "רוצים שאנשים יבינו מה מייחד אותך",
+    titleKey: "content.studio.archetype.directions.differentiation.title",
+    vibeTagKey: "content.studio.archetype.directions.differentiation.vibeTag",
+    fitsIfKey: "content.studio.archetype.directions.differentiation.fitsIf",
     contentArchetypeId: "video.opinion",
     legacyGoal: "exposure",
     legacyAngle: "show_difference",
@@ -140,6 +159,9 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     title: "ישיר ולעניין",
     vibeTag: "הצעה ברורה שמובילה ישר לפעולה",
     fitsIf: "יש לך מבצע, שירות או הצעה ספציפית",
+    titleKey: "content.studio.archetype.directions.direct.title",
+    vibeTagKey: "content.studio.archetype.directions.direct.vibeTag",
+    fitsIfKey: "content.studio.archetype.directions.direct.fitsIf",
     contentArchetypeId: "video.leads",
     legacyGoal: "leads",
     legacyAngle: "cta",
@@ -167,10 +189,10 @@ function scoreDirection(dir: DirectionCard, signals: Signals): number {
   return score;
 }
 
-function buildPlatformBadge(dir: DirectionCard, platform: PlatformId): string | null {
+function buildPlatformBadge(dir: DirectionCard, platform: PlatformId): MessageKey | null {
   if (!dir.platformBoost?.includes(platform)) return null;
-  if (platform === "tiktok") return "עובד טוב ב-TikTok";
-  if (platform === "instagram") return "מתאים לאינסטגרם";
+  if (platform === "tiktok") return "content.studio.archetype.badgeTiktok";
+  if (platform === "instagram") return "content.studio.archetype.badgeInstagram";
   return null;
 }
 
@@ -206,6 +228,7 @@ function toGoalId(val?: string): GoalId {
 
 export default function ContentDirectionPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [signals, setSignals] = useState<Signals | null>(null);
   const [selectedId, setSelectedId] = useState<DirectionId | null>(null);
 
@@ -277,7 +300,7 @@ export default function ContentDirectionPage() {
             <div style={{ flex: 1 }} />
           </div>
           <ProgressBar progress={24} />
-          <p style={loadingTextStyle}>רגע אחד…</p>
+          <p style={loadingTextStyle}>{t("content.studio.archetype.loading")}</p>
         </div>
       </div>
     );
@@ -300,22 +323,26 @@ export default function ContentDirectionPage() {
 
         <div style={contentAreaStyle}>
           <header style={heroStyle}>
-            <h1 style={titleStyle}>איזה כיוון מרגיש הכי נכון לתוכן הזה?</h1>
+            <h1 style={titleStyle}>{t("content.studio.archetype.title")}</h1>
             <p style={subtitleStyle}>
-              בחר/י את הסגנון שהכי מתאים למה שרוצים להשיג.
+              {t("content.studio.archetype.subtitle")}
             </p>
           </header>
 
           <div
             style={cardsListStyle}
             role="radiogroup"
-            aria-label="כיוון יצירתי"
+            aria-label={t("content.studio.archetype.groupAria")}
           >
             {filteredDirections.map((card) => {
               const isSelected = effectiveSelectedId === card.id;
               const badge = card.isRecommended
-                ? "מומלץ בשבילך"
-                : card.platformBadge ?? null;
+                ? t("content.studio.archetype.recommended")
+                : card.platformBadge
+                  ? t(card.platformBadge)
+                  : null;
+              const cardTitle = t(card.titleKey);
+              const cardVibeTag = t(card.vibeTagKey);
 
               return (
                 <button
@@ -323,7 +350,7 @@ export default function ContentDirectionPage() {
                   type="button"
                   role="radio"
                   aria-checked={isSelected}
-                  aria-label={`${card.title} — ${card.vibeTag}`}
+                  aria-label={t("content.studio.archetype.cardAria", { title: cardTitle, vibeTag: cardVibeTag })}
                   className="direction-card"
                   onClick={() => setSelectedId(card.id)}
                   style={directionCardStyle(card, isSelected)}
@@ -340,7 +367,7 @@ export default function ContentDirectionPage() {
                   {/* Icon + title row */}
                   <div style={cardHeaderRowStyle}>
                     <span style={cardTitleTextStyle(isSelected)}>
-                      {card.title}
+                      {cardTitle}
                     </span>
                     <span style={cardIconStyle} aria-hidden>
                       {card.icon}
@@ -348,15 +375,15 @@ export default function ContentDirectionPage() {
                   </div>
 
                   {/* Vibe tag */}
-                  <p style={vibeTagStyle(isSelected)}>{card.vibeTag}</p>
+                  <p style={vibeTagStyle(isSelected)}>{cardVibeTag}</p>
 
                   {/* Divider */}
                   <div style={dividerStyle(isSelected)} />
 
                   {/* Fits-if */}
                   <p style={fitsIfStyle}>
-                    <span style={fitsIfLabelStyle}>מתאים אם: </span>
-                    {card.fitsIf}
+                    <span style={fitsIfLabelStyle}>{t("content.studio.archetype.fitsIfLabel")}</span>
+                    {t(card.fitsIfKey)}
                   </p>
                 </button>
               );
@@ -371,7 +398,7 @@ export default function ContentDirectionPage() {
             disabled={!canContinue}
             style={ctaButtonStyle(canContinue)}
           >
-            המשך
+            {t("content.studio.archetype.continue")}
           </button>
         </div>
       </div>
@@ -412,7 +439,7 @@ const contentAreaStyle: React.CSSProperties = {
 };
 
 const heroStyle: React.CSSProperties = {
-  textAlign: "right",
+  textAlign: "start",
   marginBottom: 20,
   marginTop: 4,
 };
@@ -436,7 +463,7 @@ const subtitleStyle: React.CSSProperties = {
 
 const loadingTextStyle: React.CSSProperties = {
   ...subtitleStyle,
-  textAlign: "right",
+  textAlign: "start",
   paddingTop: 24,
 };
 
@@ -458,7 +485,7 @@ const directionCardStyle = (
   background: selected ? card.accentBg : "var(--dz-surface)",
   padding: "clamp(16px, 4.5vw, 20px) clamp(16px, 4.5vw, 20px)",
   cursor: "pointer",
-  textAlign: "right",
+  textAlign: "start",
   display: "flex",
   flexDirection: "column",
   gap: 0,
@@ -474,7 +501,7 @@ const directionCardStyle = (
 const badgeStyle = (isRecommended: boolean): React.CSSProperties => ({
   position: "absolute",
   top: 14,
-  left: 14,
+  insetInlineEnd: 14,
   fontSize: "clamp(0.68rem, 2.5vw, 0.74rem)",
   fontWeight: 800,
   letterSpacing: "0.02em",
@@ -486,7 +513,7 @@ const badgeStyle = (isRecommended: boolean): React.CSSProperties => ({
   whiteSpace: "nowrap",
 });
 
-// row-reverse in LTR: icon (first in DOM) → rightmost; title → left of icon
+// row-reverse: icon (last in DOM) sits at the inline start; title follows it
 const cardHeaderRowStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "row-reverse",

@@ -1,35 +1,39 @@
+"use client";
+
 import type { TrustLevel } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function ReviewReliabilityScale({ level }: { level: TrustLevel }) {
+  const { t } = useI18n();
   const steps = [
     {
       key: "high",
-      label: "גבוהה",
+      label: t("documents.review.reliability.highLabel"),
       color: TOKEN.semantic.success.ink,
       bg: TOKEN.semantic.success.bgSoft,
-      text: "מוכן לאישור",
+      text: t("documents.review.reliability.highText"),
     },
     {
       key: "medium",
-      label: "בינונית",
+      label: t("documents.review.reliability.mediumLabel"),
       color: TOKEN.semantic.attention.ink,
       bg: TOKEN.semantic.attention.bgSoft,
-      text: "בדיקה קצרה",
+      text: t("documents.review.reliability.mediumText"),
     },
     {
       key: "ambiguous",
-      label: "לא מזוהה בוודאות",
+      label: t("documents.review.reliability.ambiguousLabel"),
       color: TOKEN.semantic.attention.ink,
       bg: TOKEN.semantic.attention.bgSoft,
-      text: "נדרשת בחירה",
+      text: t("documents.review.reliability.ambiguousText"),
     },
     {
       key: "low",
-      label: "נמוכה",
+      label: t("documents.review.reliability.lowLabel"),
       color: TOKEN.semantic.urgent.ink,
       bg: TOKEN.semantic.urgent.bgSoft,
-      text: "צריך תיקון",
+      text: t("documents.review.reliability.lowText"),
     },
   ] as const;
 
@@ -38,7 +42,7 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
   return (
     <div style={boxStyle}>
       <div style={headStyle}>
-        <div style={titleStyle}>רמת ביטחון</div>
+        <div style={titleStyle}>{t("documents.review.reliability.title")}</div>
         <div style={{ ...pillStyle, background: active.bg, color: active.color }}>
           {active.label}
         </div>

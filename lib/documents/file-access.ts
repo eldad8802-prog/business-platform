@@ -55,6 +55,8 @@ export function buildDocumentDownloadName(input: {
   documentId: number;
   vendorName?: string | null;
   mimeType?: string | null;
+  /** Localized base name when there is no vendor (the caller passes its translation). */
+  fallbackName?: string;
 }): string {
   const ext = extFromMime(input.mimeType);
   const safeVendor = String(input.vendorName || "")
@@ -62,7 +64,7 @@ export function buildDocumentDownloadName(input: {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 60);
-  const base = safeVendor || "מסמך";
+  const base = safeVendor || input.fallbackName || "מסמך";
   return `${base}-${input.documentId}.${ext}`;
 }
 

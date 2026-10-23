@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 /**
  * AccessibilityTrigger — a docked entry point to the one global accessibility
  * panel (AccessibilityFab owns the panel and the saved preferences).
@@ -35,7 +37,7 @@ export function AccessibilityTrigger({
   className,
   style,
   children,
-  label = "נגישות",
+  label: labelProp,
 }: {
   className?: string;
   style?: CSSProperties;
@@ -43,6 +45,8 @@ export function AccessibilityTrigger({
   children?: ReactNode;
   label?: string;
 }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("home.ui.a11yTrigger");
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
 

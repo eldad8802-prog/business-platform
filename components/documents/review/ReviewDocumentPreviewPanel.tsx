@@ -4,6 +4,7 @@ import type { PreviewView } from "@/lib/documents/review/preview-visibility";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
 import { TOKEN } from "@/lib/design/documents-theme";
 import styles from "./review-adaptive.module.css";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export type ReviewDocumentPreviewPanelProps = {
   previewView: PreviewView;
@@ -39,13 +40,14 @@ export default function ReviewDocumentPreviewPanel({
   categoryDisplay,
   directionDisplay,
 }: ReviewDocumentPreviewPanelProps) {
+  const { t } = useI18n();
   return (
-    <div className={styles.previewOuter} role="region" aria-label="תצוגת מסמך המקור">
+    <div className={styles.previewOuter} role="region" aria-label={t("documents.review.preview.sourceRegion")}>
       <div className={styles.previewInner}>
         {previewView === "pdf" ? (
           <iframe
             src={fileBlobUrl as string}
-            title="תצוגת מסמך"
+            title={t("documents.review.preview.title")}
             onError={onPreviewFailed}
             className={styles.previewMedia}
           />
@@ -53,7 +55,7 @@ export default function ReviewDocumentPreviewPanel({
           // eslint-disable-next-line @next/next/no-img-element -- Secure object URL preview, not a static/image-optimization asset.
           <img
             src={fileBlobUrl as string}
-            alt="תצוגת מסמך"
+            alt={t("documents.review.preview.title")}
             onError={onPreviewFailed}
             className={styles.previewImg}
           />
@@ -63,10 +65,10 @@ export default function ReviewDocumentPreviewPanel({
               ⏳
             </div>
             <div style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>
-              טוען תצוגת מסמך…
+              {t("documents.review.preview.loadingEllipsis")}
             </div>
             <div style={{ fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.muted }}>
-              מורידים את קובץ המקור בצורה מאובטחת.
+              {t("documents.review.preview.downloading")}
             </div>
           </div>
         ) : (

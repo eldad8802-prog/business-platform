@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 type HomeHeaderProps = {
   businessName?: string;
   greeting: string;
@@ -11,17 +13,18 @@ export default function HomeHeader({
   greeting,
   onLogout,
 }: HomeHeaderProps) {
+  const { t } = useI18n();
   return (
     <header style={styles.wrapper}>
       <div style={styles.textBlock}>
         <p style={styles.businessName}>
-          {businessName?.trim() ? businessName : "העסק שלך"}
+          {businessName?.trim() ? businessName : t("home.legacy.yourBusiness")}
         </p>
         <h1 style={styles.greeting}>{greeting}</h1>
       </div>
 
       <button type="button" onClick={onLogout} style={styles.logoutButton}>
-        התנתק
+        {t("home.legacy.logout")}
       </button>
     </header>
   );

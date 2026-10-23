@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 
 import { handleError } from "@/lib/handle-error";
 import {
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
   // feature is off every shape of request gets the same answer.
   const off = inboundManagementDisabled();
   if (off) return off;
+  const { t } = await getServerI18n();
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -41,7 +43,7 @@ export async function POST(req: Request) {
       const result = await initializeInboundAddress(guard.actor.businessId, guard.actor.userId);
       if (!result.ok) {
         return NextResponse.json(
-          { error: "שירות קבלת המסמכים במייל עדיין לא הוגדר." },
+          { error: t("api.inboundEmail.notConfigured") },
           { status: 409 }
         );
       }
@@ -56,8 +58,8 @@ export async function POST(req: Request) {
       if (!result.ok) {
         const message =
           result.reason === "NO_CURRENT_ADDRESS"
-            ? "אין כתובת פעילה להחלפה."
-            : "שירות קבלת המסמכים במייל עדיין לא הוגדר.";
+            ? t("api.inboundEmail.noActiveAddress")
+            : t("api.inboundEmail.notConfigured");
         return NextResponse.json({ error: message }, { status: 409 });
       }
       return NextResponse.json({ ok: true });
@@ -69,7 +71,7 @@ export async function POST(req: Request) {
 
       const addressId = Number(body.addressId);
       if (!Number.isInteger(addressId) || addressId <= 0) {
-        return NextResponse.json({ error: "בקשה לא תקינה." }, { status: 400 });
+        return NextResponse.json({ error: t("api.common.invalidRequestDot") }, { status: 400 });
       }
       const result = await revokeRetiringAddress(
         guard.actor.businessId,
@@ -79,12 +81,12 @@ export async function POST(req: Request) {
       if (!result.ok) {
         // Not found and not-yours are the same answer on purpose: a caller must
         // not learn that an id exists in another tenant.
-        return NextResponse.json({ error: "הכתובת לא נמצאה." }, { status: 404 });
+        return NextResponse.json({ error: t("api.inboundEmail.addressNotFound") }, { status: 404 });
       }
       return NextResponse.json({ ok: true });
     }
 
-    return NextResponse.json({ error: "בקשה לא תקינה." }, { status: 400 });
+    return NextResponse.json({ error: t("api.common.invalidRequestDot") }, { status: 400 });
   } catch (error) {
     return handleError(error);
   }

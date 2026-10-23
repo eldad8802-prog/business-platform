@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
@@ -40,6 +41,7 @@ const MAX_FILTER_LENGTH = 64;
  * touched.
  */
 export async function GET(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -92,7 +94,7 @@ export async function GET(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "טעינת ההיסטוריה נכשלה. נסו שוב מאוחר יותר.", code: "RECORDS_FAILED" },
+      { error: t("api.dataTransfer.historical.recordsFailed"), code: "RECORDS_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

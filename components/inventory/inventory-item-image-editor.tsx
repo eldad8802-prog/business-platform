@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { updateInventoryItem } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   itemId: number;
@@ -31,6 +32,7 @@ export default function InventoryItemImageEditor({
   imageUrl,
   onUpdated,
 }: Props) {
+  const { t } = useI18n();
   const [draftUrl, setDraftUrl] = useState(imageUrl || "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -62,14 +64,14 @@ export default function InventoryItemImageEditor({
 
       onUpdated(updatedItem);
       setDraftUrl(updatedItem.imageUrl || "");
-      setMessage("התמונה נשמרה בהצלחה");
+      setMessage(t("customers.inventoryKit.image.saved"));
     } catch (err: any) {
       if (err?.message === "UNAUTHORIZED") {
-        setError("אין הרשאה לעדכן את התמונה. צריך להתחבר מחדש.");
+        setError(t("customers.inventoryKit.image.unauthorizedUpdate"));
       } else if (err?.message === "NOT_FOUND") {
-        setError("המוצר לא נמצא");
+        setError(t("customers.inventoryKit.image.notFound"));
       } else {
-        setError(err?.message || "שגיאה בשמירת התמונה");
+        setError(err?.message || t("customers.inventoryKit.image.saveError"));
       }
     } finally {
       setSaving(false);
@@ -87,7 +89,7 @@ export default function InventoryItemImageEditor({
       }}
     >
       <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px", color: "var(--inv-text)" }}>
-        תמונת פריט
+        {t("customers.inventoryKit.image.title")}
       </div>
 
       <div
@@ -107,7 +109,7 @@ export default function InventoryItemImageEditor({
         {previewUrl ? (
           <img
             src={previewUrl}
-            alt="תמונת פריט"
+            alt={t("customers.inventoryKit.image.title")}
             style={{
               width: "100%",
               maxHeight: "320px",
@@ -124,7 +126,7 @@ export default function InventoryItemImageEditor({
               padding: "20px",
             }}
           >
-            אין תמונה לפריט כרגע
+            {t("customers.inventoryKit.image.noImageYet")}
           </div>
         )}
       </div>
@@ -134,7 +136,7 @@ export default function InventoryItemImageEditor({
           htmlFor="inventory-item-image-url"
           style={{ fontSize: "13px", fontWeight: 600 }}
         >
-          כתובת תמונה
+          {t("customers.inventoryKit.image.urlLabel")}
         </label>
 
         <input
@@ -176,7 +178,7 @@ export default function InventoryItemImageEditor({
               opacity: saving ? 0.7 : 1,
             }}
           >
-            {saving ? "שומר/ת..." : "שמירת תמונה"}
+            {saving ? t("customers.inventoryKit.image.savingSlash") : t("customers.inventoryKit.image.save")}
           </button>
 
           <button
@@ -195,7 +197,7 @@ export default function InventoryItemImageEditor({
               cursor: "pointer",
             }}
           >
-            ניקוי שדה
+            {t("customers.inventoryKit.image.clearField")}
           </button>
         </div>
 

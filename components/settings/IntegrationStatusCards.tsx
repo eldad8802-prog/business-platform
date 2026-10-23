@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+
 /**
  * Read-only status cards for existing integrations (Settings → Connections).
  *
@@ -21,17 +24,18 @@ function getAuthToken(): string | null {
   return localStorage.getItem("token");
 }
 
-const STATUS_LABEL: Record<Exclude<CardStatus, "loading">, string> = {
-  connected: "מחובר",
-  disconnected: "לא מחובר",
-  error: "שגיאה",
+const STATUS_LABEL: Record<Exclude<CardStatus, "loading">, MessageKey> = {
+  connected: "account.settings.connections.status.connected",
+  disconnected: "account.settings.connections.status.disconnected",
+  error: "account.settings.connections.status.error",
 };
 
 function StatusBadge({ status }: { status: CardStatus }) {
+  const { t } = useI18n();
   if (status === "loading") {
     return (
       <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
-        טוען…
+        {t("common.loading")}
       </span>
     );
   }
@@ -43,7 +47,7 @@ function StatusBadge({ status }: { status: CardStatus }) {
         : "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]";
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>
-      {STATUS_LABEL[status]}
+      {t(STATUS_LABEL[status])}
     </span>
   );
 }
@@ -63,8 +67,9 @@ function IntegrationCard({
   detail,
   manageHref,
 }: CardProps) {
+  const { t } = useI18n();
   return (
-    <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{title}</h2>
         <StatusBadge status={status} />
@@ -79,7 +84,7 @@ function IntegrationCard({
 
       {status === "error" ? (
         <p className="mt-3 text-xs leading-5 text-[var(--dz-danger)]">
-          לא הצלחנו לבדוק את מצב החיבור כרגע.
+          {t("account.settings.connections.integrations.checkError")}
         </p>
       ) : null}
 
@@ -88,7 +93,7 @@ function IntegrationCard({
           href={manageHref}
           className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
-          נהל חיבור
+          {t("account.settings.connections.integrations.manage")}
         </Link>
       </div>
     </section>
@@ -96,6 +101,7 @@ function IntegrationCard({
 }
 
 export function IntegrationStatusCards() {
+  const { t } = useI18n();
   const [whatsapp, setWhatsapp] = useState<CardStatus>("loading");
   const [whatsappDetail, setWhatsappDetail] = useState<string | null>(null);
   const [gmail, setGmail] = useState<CardStatus>("loading");
@@ -118,7 +124,7 @@ export function IntegrationStatusCards() {
         if (data?.connected) {
           setGmail("connected");
           setGmailDetail(
-            data.emailAddress ? `חשבון מקושר: ${data.emailAddress}` : null
+            data.emailAddress ? t("account.settings.connections.integrations.gmailLinked", { email: data.emailAddress }) : null
           );
         } else {
           setGmail("disconnected");
@@ -141,7 +147,7 @@ export function IntegrationStatusCards() {
         if (conn && conn.status === "CONNECTED") {
           setWhatsapp("connected");
           setWhatsappDetail(
-            conn.displayPhoneNumber ? `מספר מקושר: ${conn.displayPhoneNumber}` : null
+            conn.displayPhoneNumber ? t("account.settings.connections.integrations.whatsappLinked", { phone: conn.displayPhoneNumber }) : null
           );
         } else if (conn && conn.status === "ERROR") {
           setWhatsapp("error");
@@ -159,21 +165,21 @@ export function IntegrationStatusCards() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   // `contents` from 1200 lets each card take its own cell in the parent grid.
   return (
     <div className="flex flex-col gap-4 min-[1200px]:contents">
       <IntegrationCard
-        title="וואטסאפ"
-        description="חיבור חשבון WhatsApp Business לקבלת הודעות ופעולות בוט."
+        title={t("account.settings.connections.integrations.whatsappTitle")}
+        description={t("account.settings.connections.integrations.whatsappDescription")}
         status={whatsapp}
         detail={whatsappDetail}
         manageHref="/settings/whatsapp"
       />
       <IntegrationCard
         title="Gmail"
-        description="חיבור תיבת Gmail לייבוא מסמכים ומיילים נכנסים."
+        description={t("account.settings.connections.integrations.gmailDescription")}
         status={gmail}
         detail={gmailDetail}
         manageHref="/documents/email"

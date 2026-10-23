@@ -1,4 +1,7 @@
+"use client";
+
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   value: string;
@@ -11,6 +14,7 @@ export default function RedeemInput({
   onChange,
   onSubmit,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -27,13 +31,13 @@ export default function RedeemInput({
           marginBottom: 12,
         }}
       >
-        מימוש קופון
+        {t("billing.redeem.title")}
       </div>
 
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="הכנס קוד קופון"
+        placeholder={t("billing.redeem.enterCodePlaceholder")}
         style={{
           width: "100%",
           padding: "14px",
@@ -61,7 +65,7 @@ export default function RedeemInput({
           cursor: "pointer",
         }}
       >
-        בדוק קופון
+        {t("billing.redeem.checkCoupon")}
       </button>
     </div>
   );

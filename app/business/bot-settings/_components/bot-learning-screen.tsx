@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
 import { LEARNING_TYPE_LABELS, type LearningType } from "@/lib/features/bot";
 import { AreaHeader, BUILDER_SHELL_MAX_WIDTH, GuardNote } from "./bot-builder-area-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { botOptionLabel } from "./bot-i18n";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -28,6 +30,7 @@ const screenWrap: CSSProperties = {
 };
 
 export function LearningScreen() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -45,11 +48,11 @@ export function LearningScreen() {
       const data = await res.json();
       setItems(data.suggestions ?? []);
     } catch {
-      setError("לא ניתן לטעון את ההצעות");
+      setError(t("content.bot.common.errors.loadSuggestions"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,29 +73,29 @@ export function LearningScreen() {
         headers: { Authorization: `Bearer ${getAuthToken()}` },
       });
       if (!res.ok) {
-        setError("הפעולה נכשלה");
+        setError(t("content.bot.common.errors.actionFailed"));
         return;
       }
       // Both adopt + dismiss remove the item from the PROPOSED list.
       setItems((cur) => cur.filter((s) => s.id !== id));
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setBusyId(null);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="איך הבוט משתפר"
-          subtitle="הצעות לשיפור שתוכל לאמץ או לדחות. הבוט אף פעם לא משנה את עצמו לבד — כל שינוי עובר דרך אישור שלך."
+          title={t("content.bot.learning.title")}
+          subtitle={t("content.bot.learning.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {loading ? (
-          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
             {error ? (
@@ -104,10 +107,10 @@ export function LearningScreen() {
             {items.length === 0 ? (
               <div style={{ margin: "24px 18px", textAlign: "center", color: TOKEN.ink.muted }}>
                 <div style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.secondary }}>
-                  אין הצעות כרגע
+                  {t("content.bot.hub.learning.emptyTitle")}
                 </div>
                 <p style={{ marginTop: 6, fontSize: TOKEN.font.meta, lineHeight: 1.5 }}>
-                  כשהמערכת תזהה דפוסים שכדאי לשפר, הן יופיעו כאן לאישור שלך.
+                  {t("content.bot.learning.emptyBody")}
                 </p>
               </div>
             ) : (
@@ -123,7 +126,7 @@ export function LearningScreen() {
                     }}
                   >
                     <div style={{ fontSize: TOKEN.font.caption, fontWeight: TOKEN.weight.bold, color: TOKEN.brand.mid }}>
-                      {LEARNING_TYPE_LABELS[s.type as LearningType] ?? "הצעה"}
+                      {botOptionLabel(t, "learningType", s.type, LEARNING_TYPE_LABELS[s.type as LearningType] ?? t("content.bot.common.suggestion"))}
                     </div>
                     <div style={{ marginTop: 6, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary, lineHeight: 1.4 }}>
                       {s.title}
@@ -151,7 +154,7 @@ export function LearningScreen() {
                           cursor: busyId === s.id ? "not-allowed" : "pointer",
                         }}
                       >
-                        אמץ
+                        {t("content.bot.learning.adopt")}
                       </button>
                       <button
                         type="button"
@@ -170,7 +173,7 @@ export function LearningScreen() {
                           cursor: busyId === s.id ? "not-allowed" : "pointer",
                         }}
                       >
-                        לא צריך
+                        {t("content.bot.learning.dismiss")}
                       </button>
                     </div>
                   </div>
@@ -179,7 +182,7 @@ export function LearningScreen() {
             )}
 
             <GuardNote>
-              אימוץ הצעה מסמן את העדפתך בלבד — בשלב הזה הוא לא משנה את הבוט. הבוט לעולם לא משתנה מעצמו.
+              {t("content.bot.learning.guard")}
             </GuardNote>
           </>
         )}

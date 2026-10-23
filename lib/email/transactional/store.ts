@@ -12,6 +12,8 @@
 
 import { Prisma } from "@prisma/client";
 
+import type { Locale } from "@/lib/i18n/config";
+
 import { EMAIL_KINDS, accountLinkDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
 import type { AccountLinkPayload } from "./templates/account-links";
 import { firstNameOf, type WelcomePayload } from "./templates/welcome";
@@ -25,6 +27,7 @@ export type EnqueueInput = {
   businessId: number;
   toEmail: string;
   payload: Record<string, unknown>;
+  /** The interface language the email is written in (TransactionalEmail.locale). Absent → "he". */
   locale?: string;
   now: Date;
 };
@@ -66,6 +69,8 @@ export function enqueueAccountLinkEmail(
     toEmail: string;
     name: string | null;
     now: Date;
+    /** The requester's interface language (getServerI18n); absent → Hebrew. */
+    locale?: Locale;
   }
 ): Promise<number> {
   const payload: AccountLinkPayload = { tokenId: input.tokenId, firstName: firstNameOf(input.name) };
@@ -76,14 +81,18 @@ export function enqueueAccountLinkEmail(
     businessId: input.businessId,
     toEmail: input.toEmail,
     payload,
+    locale: input.locale,
     now: input.now,
   });
 }
 
-/** The WELCOME a new account owes its owner. Only signup calls this. */
+/**
+ * The WELCOME a new account owes its owner: recorded by signup, or — for an account opened with email
+ * verification — by the verification that confirms its address (lib/auth/email-tokens.ts).
+ */
 export function enqueueWelcomeEmail(
   tx: SqlClient,
-  input: { userId: number; businessId: number; toEmail: string; name: string | null; now: Date }
+  input: { userId: number; businessId: number; toEmail: string; name: string | null; now: Date; locale?: Locale }
 ): Promise<number> {
   const payload: WelcomePayload = { firstName: firstNameOf(input.name) };
   return enqueueTransactionalEmail(tx, {
@@ -93,6 +102,7 @@ export function enqueueWelcomeEmail(
     businessId: input.businessId,
     toEmail: input.toEmail,
     payload,
+    locale: input.locale,
     now: input.now,
   });
 }

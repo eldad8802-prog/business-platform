@@ -1,6 +1,7 @@
 "use client";
 
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { categoryLabel } from "@/lib/documents/category-label";
 import type {
   EditableField,
   ExtractionConfidenceMeta,
@@ -52,59 +53,60 @@ export default function ReviewSummarySection({
   onApproveDocumentOnly,
 }: ReviewSummarySectionProps) {
   const isFinancial = reviewMode === "financial";
+  const { t, locale } = useI18n();
 
   return (
     <section style={{ ...reviewCard, maxWidth: 780, width: "100%", margin: "0 auto" }}>
       <div style={{ fontWeight: 950, color: TOKEN.ink.primary, fontSize: 24, marginBottom: 8 }}>
-        {isFinancial ? "אישור רשומה פיננסית" : "שמירה כמסמך מידע"}
+        {isFinancial ? t("documents.review.summary.titleFinancial") : t("documents.review.summary.titleDocument")}
       </div>
       <p style={{ margin: "0 0 16px", color: TOKEN.ink.muted, fontSize: 15, lineHeight: 1.65 }}>
         {isFinancial
           ? `${aiSummaryBody} ${approvalImpact}`
-          : `${aiSummaryBody} האישור ישמור את המסמך לתיעוד, בלי ליצור רשומה פיננסית.`}
+          : t("documents.review.summary.documentSuffix", { summary: aiSummaryBody })}
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <ReviewFieldRow
-          label="סכום"
+          label={t("documents.review.fields.amount")}
           missing={!isValidPositiveAmount(draft.amount)}
           displayValue={
-            typeof draft.amount === "number" ? formatAmountDisplay(draft.amount) : ""
+            typeof draft.amount === "number" ? formatAmountDisplay(draft.amount, locale) : ""
           }
           level={trafficForAmount(extractionMeta, draft)}
           onPrimary={() => onEditField("amount")}
         />
         <ReviewFieldRow
-          label="ספק"
+          label={t("documents.review.fields.vendor")}
           missing={!hasNonEmptyText(draft.vendorName)}
           displayValue={draft.vendorName}
           level={trafficForVendor(extractionMeta, draft)}
           onPrimary={() => onEditField("vendorName")}
         />
         <ReviewFieldRow
-          label="תאריך"
+          label={t("documents.review.fields.date")}
           missing={!draft.date || !formatDateShort(draft.date)}
-          displayValue={formatDateShort(draft.date)}
+          displayValue={formatDateShort(draft.date, locale)}
           level={trafficForDate(extractionMeta, draft)}
           onPrimary={() => onEditField("date")}
         />
         <ReviewFieldRow
-          label="כיוון"
+          label={t("documents.review.fields.direction")}
           missing={draft.direction === "unknown"}
           displayValue={
             draft.direction === "expense"
-              ? "הוצאה"
+              ? t("documents.common.expense")
               : draft.direction === "income"
-                ? "הכנסה"
+                ? t("documents.common.income")
                 : ""
           }
           level={trafficForDirection(draft)}
           onPrimary={() => onEditField("direction")}
         />
         <ReviewFieldRow
-          label="קטגוריה"
+          label={t("documents.review.fields.category")}
           missing={!hasNonEmptyText(draft.category)}
-          displayValue={CATEGORY_MAP[draft.category] || draft.category}
+          displayValue={categoryLabel(t, draft.category)}
           level={trafficForCategory(extractionMeta, draft)}
           onPrimary={() => onEditField("category")}
         />
@@ -123,8 +125,8 @@ export default function ReviewSummarySection({
         }}
       >
         {isFinancial
-          ? "אחרי האישור: המסמך ייכנס לרשומות המאושרות, יהיה זמין בחיפוש וייכלל בחומר לרו״ח כשזה רלוונטי."
-          : "המסמך יישמר לתיעוד בלבד ולא ייצור רשומה פיננסית מאושרת."}
+          ? t("documents.review.summary.afterFinancial")
+          : t("documents.review.summary.afterDocument")}
       </div>
 
       <div style={{ marginTop: 18 }}>
@@ -135,9 +137,9 @@ export default function ReviewSummarySection({
           onClick={isFinancial ? onApproveFinancial : onApproveDocumentOnly}
         >
           {(() => {
-            if (loading) return "שומר...";
-            if (isFinancial && firstMissingFinancialField(draft)) return "השלם שדה נדרש";
-            return isFinancial ? "אשר ושמור" : "שמור כמסמך מידע";
+            if (loading) return t("documents.review.actions.saving");
+            if (isFinancial && firstMissingFinancialField(draft)) return t("documents.review.summary.completeRequired");
+            return isFinancial ? t("documents.review.summary.approveAndSave") : t("documents.review.actions.saveAsDocument");
           })()}
         </button>
       </div>
@@ -150,10 +152,10 @@ export default function ReviewSummarySection({
           onClick={() => onSetReviewMode(isFinancial ? "document" : "financial")}
         >
           {isFinancial
-            ? "שמור כמסמך מידע במקום"
+            ? t("documents.review.summary.saveAsDocumentInstead")
             : isUnknown
-              ? "זה מסמך פיננסי"
-              : "שמור כרשומה פיננסית"}
+              ? t("documents.review.summary.itIsFinancial")
+              : t("documents.review.summary.saveAsFinancial")}
         </button>
       </div>
     </section>

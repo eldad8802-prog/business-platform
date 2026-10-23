@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 /**
  * SkipLink — the reusable WP1 A-4 "skip to main content" control.
  *
@@ -17,11 +19,13 @@ import { useState } from "react";
  */
 export function SkipLink({
   targetId = "main-content",
-  label = "דלג לתוכן",
+  label: labelProp,
 }: {
   targetId?: string;
   label?: string;
 }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("home.ui.skipToContent");
   const [focused, setFocused] = useState(false);
 
   const hiddenStyle: React.CSSProperties = {

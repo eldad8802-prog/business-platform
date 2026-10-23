@@ -796,7 +796,7 @@ export const inventoryPrimitivesCss = `
     margin-bottom: 11px;
     background: var(--inv-card-bg);
     width: 100%;
-    text-align: right;
+    text-align: start;
     font-family: inherit;
     cursor: pointer;
     box-sizing: border-box;

@@ -4,10 +4,12 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function ContentStylePageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useI18n();
 
   const goal = params.get("goal");
   const intent = params.get("intent");
@@ -38,16 +40,16 @@ function ContentStylePageInner() {
       <ProgressBar progress={50} />
 
       <div style={baseStyles.container}>
-        <h1>בחר סגנון</h1>
+        <h1>{t("content.studioFlow.style.title")}</h1>
 
-        {card("direct", "ישיר")}
-        {card("emotional", "רגשי")}
-        {card("authority", "מקצועי")}
+        {card("direct", t("content.studioFlow.flow.styles.direct"))}
+        {card("emotional", t("content.studioFlow.flow.styles.emotional"))}
+        {card("authority", t("content.studioFlow.flow.styles.professional"))}
       </div>
 
       <div style={baseStyles.footer}>
         <button style={baseStyles.cta} onClick={next}>
-          המשך
+          {t("content.studioFlow.common.continue")}
         </button>
       </div>
     </div>

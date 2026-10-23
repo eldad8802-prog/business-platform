@@ -2,9 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table/data-table";
 import { MoneyCell } from "@/components/ui/money-cell";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
+import { categoryLabel } from "@/lib/documents/category-label";
 
 /**
  * Documents / Incoming — desktop review table (Artifact C). PRESENTATION only:
@@ -14,15 +16,8 @@ import { MoneyCell } from "@/components/ui/money-cell";
  * or derives new business state. Opening navigates to the SAME review route.
  */
 
-function formatShortDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function vendorOf(item: InboxListItem): string {
-  return item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
+function vendorOf(t: Translator, item: InboxListItem): string {
+  return item.financial?.vendorName ?? item.extracted?.vendorName ?? t("documents.common.notSpecified");
 }
 
 function amountOf(item: InboxListItem): number | null {
@@ -34,17 +29,10 @@ function dateOf(item: InboxListItem): string {
   return item.financial?.date ?? item.extracted?.date ?? item.createdAt;
 }
 
-function categoryOf(item: InboxListItem): string {
+function categoryOf(t: Translator, item: InboxListItem): string {
   const raw = item.financial?.category ?? item.extracted?.category ?? null;
-  return raw ? CATEGORY_MAP[raw] ?? raw : "כללי";
+  return raw ? categoryLabel(t, raw) : t("documents.common.general");
 }
-
-const COLUMNS: DataTableColumn<InboxListItem>[] = [
-  { key: "vendor", header: "ספק", width: "40%", render: (i) => vendorOf(i) },
-  { key: "date", header: "תאריך", width: "20%", render: (i) => formatShortDate(dateOf(i)) },
-  { key: "category", header: "קטגוריה", width: "20%", render: (i) => categoryOf(i) },
-  { key: "amount", header: "סכום", width: "20%", align: "end", render: (i) => <MoneyCell amount={amountOf(i)} /> },
-];
 
 export default function DocumentsInboxTable({
   items,
@@ -59,9 +47,31 @@ export default function DocumentsInboxTable({
   selectedId?: number | null;
 }) {
   const router = useRouter();
+  const { t, formatDate } = useI18n();
+  const columns: DataTableColumn<InboxListItem>[] = [
+    { key: "vendor", header: t("documents.review.fields.vendor"), width: "40%", render: (i) => vendorOf(t, i) },
+    {
+      key: "date",
+      header: t("documents.review.fields.date"),
+      width: "20%",
+      render: (i) => {
+        const iso = dateOf(i);
+        const text = iso ? formatDate(iso, "date") : "";
+        return text === "—" ? "" : text;
+      },
+    },
+    { key: "category", header: t("documents.review.fields.category"), width: "20%", render: (i) => categoryOf(t, i) },
+    {
+      key: "amount",
+      header: t("documents.review.fields.amount"),
+      width: "20%",
+      align: "end",
+      render: (i) => <MoneyCell amount={amountOf(i)} />,
+    },
+  ];
   return (
     <DataTable<InboxListItem>
-      columns={COLUMNS}
+      columns={columns}
       rows={items}
       getRowId={(i) => String(i.documentId)}
       selectedRowId={selectedId != null ? String(selectedId) : undefined}

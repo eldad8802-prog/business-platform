@@ -42,7 +42,7 @@ export function SkeletonBlock({
   style?: CSSProperties;
 }) {
   return (
-    <div dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 12, ...style }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, ...style }}>
       <SkeletonPulseStyles />
       {children}
     </div>

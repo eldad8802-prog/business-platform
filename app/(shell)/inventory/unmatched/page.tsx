@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   DecisionCard,
@@ -27,7 +30,7 @@ function getErrorMessage(err: unknown, fallback: string) {
 }
 
 /** Best match + confidence band, mirroring the previous scoring logic. */
-function bestMatch(pending: InventoryPendingMatchDTO, items: InventoryItemDTO[]): Match {
+function bestMatch(pending: InventoryPendingMatchDTO, items: InventoryItemDTO[], t: Translator): Match {
   const meta = pending.metadata;
   let best: InventoryItemDTO | null = null;
   let score = 0;
@@ -47,9 +50,9 @@ function bestMatch(pending: InventoryPendingMatchDTO, items: InventoryItemDTO[])
     }
   }
 
-  if (score >= 80) return { item: best, level: "high", label: "התאמה גבוהה" };
-  if (score >= 50) return { item: best, level: "mid", label: "התאמה בינונית" };
-  return { item: null, level: "low", label: "ללא התאמה" };
+  if (score >= 80) return { item: best, level: "high", label: t("customers.inventory.unmatched.match.high") };
+  if (score >= 50) return { item: best, level: "mid", label: t("customers.inventory.unmatched.match.mid") };
+  return { item: null, level: "low", label: t("customers.inventory.unmatched.match.none") };
 }
 
 const THUMB_BG: Record<ConfidenceLevel, string> = {
@@ -58,11 +61,11 @@ const THUMB_BG: Record<ConfidenceLevel, string> = {
   low: "var(--inv-danger-bg)",
 };
 
-function formatWhen(value?: string) {
+function formatWhen(value: string | undefined, locale: Locale) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(intlTag(locale), { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function UnmatchedInspector({
@@ -82,21 +85,22 @@ function UnmatchedInspector({
   onCreate: (pending: InventoryPendingMatchDTO) => void;
   onReject: (pending: InventoryPendingMatchDTO) => void;
 }) {
+  const { t } = useI18n();
   if (!pending) {
     return (
       <aside className="inv-ops__side">
-        <h2>מכירה</h2>
-        <p>בחרו מכירה. הקישור למוצר נשאר פעולה מפורשת.</p>
+        <h2>{t("customers.inventory.common.sale")}</h2>
+        <p>{t("customers.inventory.unmatched.selectHint")}</p>
       </aside>
     );
   }
-  const match = bestMatch(pending, items);
+  const match = bestMatch(pending, items, t);
   const name = pending.metadata.name || pending.metadata.sku || pending.externalSaleId;
   return (
     <aside className="inv-ops__side">
       <h2>{name}</h2>
-      <p>{pending.metadata.source || "POS"} · נמכרו {pending.metadata.quantity}</p>
-      <p>{match.item ? `התאמה מוצעת: ${match.item.name}` : "לא נמצא מוצר דומה במלאי"}</p>
+      <p>{pending.metadata.source || "POS"} · {t("customers.inventory.unmatched.soldQty", { quantity: pending.metadata.quantity })}</p>
+      <p>{match.item ? t("customers.inventory.unmatched.suggestedMatch", { name: match.item.name }) : t("customers.inventory.unmatched.noSimilar")}</p>
       <p>{match.label}</p>
       <button
         type="button"
@@ -104,15 +108,16 @@ function UnmatchedInspector({
         disabled={busy}
         onClick={() => (match.item ? onLinkSuggested(pending, match.item.id) : onSearch(pending))}
       >
-        קשר לקיים
+        {t("customers.inventory.common.linkExisting")}
       </button>
-      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onCreate(pending)}>מוצר חדש</button>
-      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onReject(pending)}>דחה</button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onCreate(pending)}>{t("customers.inventory.common.newProduct")}</button>
+      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onReject(pending)}>{t("customers.inventory.common.reject")}</button>
     </aside>
   );
 }
 
 export default function InventoryUnmatchedPage() {
+  const { t, locale } = useI18n();
   const [pendingMatches, setPendingMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,8 +135,8 @@ export default function InventoryUnmatchedPage() {
       setPendingMatches(Array.isArray(pendingData) ? pendingData : []);
       setItems(Array.isArray(itemsData) ? itemsData : []);
     } catch (err: unknown) {
-      const message = getErrorMessage(err, "שגיאה בטעינת המכירות שלא זוהו");
-      setError(message === "UNAUTHORIZED" ? "אין הרשאה. צריך להתחבר מחדש." : message);
+      const message = getErrorMessage(err, t("customers.inventory.unmatched.loadFailed"));
+      setError(message === "UNAUTHORIZED" ? t("customers.inventory.common.noAuth") : message);
     } finally {
       setLoading(false);
     }
@@ -140,6 +145,7 @@ export default function InventoryUnmatchedPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
   }, []);
 
   const activeItems = useMemo(() => items.filter((item) => item.id && item.name), [items]);
@@ -154,7 +160,7 @@ export default function InventoryUnmatchedPage() {
       setLinkQuery("");
       await loadData();
     } catch (err) {
-      setError(getErrorMessage(err, "שגיאה בשיוך המכירה"));
+      setError(getErrorMessage(err, t("customers.inventory.unmatched.linkFailed")));
     } finally {
       setBusyId(null);
     }
@@ -169,6 +175,7 @@ export default function InventoryUnmatchedPage() {
       await resolvePendingMatch(pending.id, {
         action: "CREATE_NEW",
         itemData: {
+          // Stored product name (data sent to the API) — intentionally not localized.
           name: meta.name || meta.sku || meta.barcode || "מוצר חדש מהקופה",
           unitType: "UNIT",
           minimumQuantity: 0,
@@ -181,7 +188,7 @@ export default function InventoryUnmatchedPage() {
       });
       await loadData();
     } catch (err) {
-      setError(getErrorMessage(err, "שגיאה ביצירת המוצר"));
+      setError(getErrorMessage(err, t("customers.inventory.common.createItemFailed")));
     } finally {
       setBusyId(null);
     }
@@ -195,7 +202,7 @@ export default function InventoryUnmatchedPage() {
       await resolvePendingMatch(pending.id, { action: "REJECT" });
       await loadData();
     } catch (err) {
-      setError(getErrorMessage(err, "שגיאה בדחיית האירוע"));
+      setError(getErrorMessage(err, t("customers.inventory.unmatched.rejectFailed")));
     } finally {
       setBusyId(null);
     }
@@ -211,12 +218,12 @@ export default function InventoryUnmatchedPage() {
 
   return (
     <InventorySubPage intent="data"
-      title="מכירות לא מזוהות"
+      title={t("customers.inventory.unmatched.title")}
       variant="hub"
       hubBack
       sub={
         !loading && !error
-          ? `${pendingMatches.length} מכירות מה-POS לא נמצא להן מוצר תואם`
+          ? t(pendingMatches.length === 1 ? "customers.inventory.unmatched.subOne" : "customers.inventory.unmatched.subMany", { count: pendingMatches.length })
           : undefined
       }
       bottomNav="home"
@@ -225,10 +232,10 @@ export default function InventoryUnmatchedPage() {
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
             tone="error"
-            title="משהו השתבש"
+            title={t("customers.inventory.common.somethingWrong")}
             action={
               <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void loadData()}>
-                נסה שוב
+                {t("customers.inventory.common.retry")}
               </button>
             }
           >
@@ -241,26 +248,26 @@ export default function InventoryUnmatchedPage() {
         </div>
       ) : pendingMatches.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title="אין מכירות שממתינות להתאמה">
-            כל המכירות שנקלטו מהקופה זוהו או טופלו.
+          <InventoryStatePanel title={t("customers.inventory.unmatched.emptyTitle")}>
+            {t("customers.inventory.unmatched.emptyBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
         <div className="inv-ops">
-          <div className="inv-desk-table" aria-label="מכירות שלא זוהו">
+          <div className="inv-desk-table" aria-label={t("customers.inventory.common.unmatchedSalesAria")}>
             <table>
               <thead>
                 <tr>
-                  <th>מכירה</th>
-                  <th>מקור</th>
-                  <th>כמות</th>
-                  <th>התאמה</th>
+                  <th>{t("customers.inventory.unmatched.table.sale")}</th>
+                  <th>{t("customers.inventory.unmatched.table.source")}</th>
+                  <th>{t("customers.inventory.unmatched.table.quantity")}</th>
+                  <th>{t("customers.inventory.unmatched.table.match")}</th>
                 </tr>
               </thead>
               <tbody>
                 {pendingMatches.map((pending) => {
-                  const match = bestMatch(pending, activeItems);
+                  const match = bestMatch(pending, activeItems, t);
                   return (
                     <tr
                       key={pending.id}
@@ -290,9 +297,10 @@ export default function InventoryUnmatchedPage() {
         <div className="inv-rows inv-decision-mobile">
           {pendingMatches.map((pending) => {
             const meta = pending.metadata;
-            const match = bestMatch(pending, activeItems);
+            const match = bestMatch(pending, activeItems, t);
             const busy = busyId === pending.id;
-            const rawName = meta.name || meta.sku || meta.barcode || "מכירה לא מזוהה";
+            const rawName = meta.name || meta.sku || meta.barcode || t("customers.inventory.unmatched.unrecognizedSale");
+            const when = formatWhen(pending.createdAt, locale);
             return (
               <DecisionCard key={pending.id}>
                 <div className="inv-dcard__top">
@@ -306,8 +314,8 @@ export default function InventoryUnmatchedPage() {
                   <div className="inv-row__mid">
                     <div className="inv-row__nm">&quot;{rawName}&quot;</div>
                     <div className="inv-row__meta">
-                      <bdi>{meta.source || "POS"}</bdi> · נמכרו <bdi>{meta.quantity}</bdi>
-                      {formatWhen(pending.createdAt) ? <> · <bdi>{formatWhen(pending.createdAt)}</bdi></> : null}
+                      <bdi>{meta.source || "POS"}</bdi> · {t("customers.inventory.unmatched.sold")} <bdi>{meta.quantity}</bdi>
+                      {when ? <> · <bdi>{when}</bdi></> : null}
                     </div>
                   </div>
                   <ConfidencePill level={match.level} label={match.label} />
@@ -315,28 +323,28 @@ export default function InventoryUnmatchedPage() {
 
                 <div className="inv-row__meta" style={{ marginTop: 10 }}>
                   {match.item ? (
-                    <>התאמה מוצעת: <b style={{ color: "var(--inv-text)" }}>{match.item.name}</b></>
+                    <>{t("customers.inventory.unmatched.suggestedMatchLabel")} <b style={{ color: "var(--inv-text)" }}>{match.item.name}</b></>
                   ) : (
-                    "לא נמצא מוצר דומה במלאי"
+                    t("customers.inventory.unmatched.noSimilar")
                   )}
                 </div>
 
                 <DecisionChips
                   choices={[
                     {
-                      label: "קשר לקיים",
+                      label: t("customers.inventory.common.linkExisting"),
                       primary: Boolean(match.item),
                       disabled: busy,
                       onClick: () =>
                         match.item ? void linkExisting(pending, match.item.id) : setLinkFor(pending),
                     },
                     {
-                      label: "מוצר חדש",
+                      label: t("customers.inventory.common.newProduct"),
                       primary: !match.item,
                       disabled: busy,
                       onClick: () => void createNew(pending),
                     },
-                    { label: "דחה", disabled: busy, onClick: () => void reject(pending) },
+                    { label: t("customers.inventory.common.reject"), disabled: busy, onClick: () => void reject(pending) },
                   ]}
                 />
               </DecisionCard>
@@ -348,14 +356,14 @@ export default function InventoryUnmatchedPage() {
 
       {linkFor ? (
         <BottomSheet
-          title="קישור מכירה למוצר"
-          who={`"${linkFor.metadata.name || linkFor.metadata.sku || "מכירה"}"`}
+          title={t("customers.inventory.unmatched.linkSheetTitle")}
+          who={`"${linkFor.metadata.name || linkFor.metadata.sku || t("customers.inventory.common.sale")}"`}
           onClose={() => {
             setLinkFor(null);
             setLinkQuery("");
           }}
         >
-          <InventorySearch value={linkQuery} onChange={setLinkQuery} placeholder="חיפוש מוצר במלאי" />
+          <InventorySearch value={linkQuery} onChange={setLinkQuery} placeholder={t("customers.inventory.unmatched.searchPlaceholder")} />
           <div style={{ marginTop: 12, maxHeight: 360, overflowY: "auto" }}>
             {linkItems.map((item) => (
               <button
@@ -367,13 +375,13 @@ export default function InventoryUnmatchedPage() {
               >
                 <span className="inv-row__mid">
                   <span className="inv-row__nm">{item.name}</span>
-                  <span className="inv-row__meta">כמות נוכחית: {item.currentQuantity}</span>
+                  <span className="inv-row__meta">{t("customers.inventory.unmatched.currentQty", { quantity: item.currentQuantity })}</span>
                 </span>
               </button>
             ))}
             {linkItems.length === 0 ? (
               <div className="inv-row__meta" style={{ textAlign: "center", padding: 16 }}>
-                לא נמצאו מוצרים
+                {t("customers.inventory.common.noProductsFound")}
               </div>
             ) : null}
           </div>

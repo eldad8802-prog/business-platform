@@ -94,7 +94,7 @@ export function TicketCard({
             style={{
               position: "absolute",
               top: 8,
-              left: 8,
+              insetInlineEnd: 8,
               fontSize: 9.5,
               fontWeight: 600,
               color: "var(--dz-text-on-brand)",
@@ -111,7 +111,7 @@ export function TicketCard({
             style={{
               position: "absolute",
               top: 8,
-              right: 8,
+              insetInlineStart: 8,
               // 10px was below the legible floor and the 22%-white pill gave
               // the label almost no separation from the ticket behind it.
               fontSize: 11.5,
@@ -135,8 +135,8 @@ export function TicketCard({
         style={{
           position: "absolute",
           top: 71,
-          left: 24,
-          right: 9,
+          insetInlineEnd: 24,
+          insetInlineStart: 9,
           borderTop: `2px dashed ${W.line}`,
         }}
       />
@@ -190,7 +190,7 @@ function ScissorsGlyph() {
       style={{
         position: "absolute",
         top: 65,
-        left: 5,
+        insetInlineEnd: 5,
         background: W.surface,
         borderRadius: "50%",
       }}

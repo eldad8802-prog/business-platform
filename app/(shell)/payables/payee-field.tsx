@@ -6,6 +6,7 @@ import {
   searchPayees,
   type PayeeApi,
 } from "@/lib/payables/payables-client";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import styles from "./payables.module.css";
 
 /**
@@ -33,6 +34,7 @@ export function PayeeField({
   onChange: (next: { payeeId: number | null; payeeName: string }) => void;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<PayeeApi[]>([]);
   const [active, setActive] = useState(-1);
@@ -84,7 +86,7 @@ export function PayeeField({
       onChange({ payeeId: payee.id, payeeName: payee.displayName });
       setOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "יצירת המוטב נכשלה");
+      setError(e instanceof Error ? e.message : t("money.payables.payee.createFailed"));
     } finally {
       setCreating(false);
     }
@@ -122,7 +124,7 @@ export function PayeeField({
   return (
     <div className={styles.field} ref={boxRef}>
       <label className={styles.label} htmlFor={inputId}>
-        מוטב
+        {t("money.payables.payee.label")}
       </label>
       <input
         id={inputId}
@@ -138,7 +140,7 @@ export function PayeeField({
         }
         value={payeeName}
         disabled={disabled}
-        placeholder="שם המוטב — אפשר גם טקסט חופשי"
+        placeholder={t("money.payables.payee.placeholder")}
         onChange={(e) => {
           // Typing detaches the entity link: the name no longer describes the
           // payee that was chosen, and silently keeping the id would attach the
@@ -177,7 +179,7 @@ export function PayeeField({
                 onClick={quickCreate}
                 disabled={creating}
               >
-                {creating ? "יוצר…" : `צור מוטב חדש: ${payeeName.trim()}`}
+                {creating ? t("money.common.creating") : t("money.payables.payee.createNew", { name: payeeName.trim() })}
               </button>
             </li>
           )}
@@ -186,7 +188,7 @@ export function PayeeField({
 
       {payeeId == null && payeeName.trim() !== "" && (
         <p className={styles.subtitle}>
-          יישמר כשם בלבד. אפשר להפוך אותו למוטב שמור בכל שלב.
+          {t("money.payables.payee.nameOnly")}
         </p>
       )}
       {error && <div className={styles.error}>{error}</div>}

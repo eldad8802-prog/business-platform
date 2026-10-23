@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 type Shot = {
   visual: string;
@@ -25,8 +27,17 @@ type ContentResult = {
   contentRunId?: number | null;
 };
 
+// Errors raised here carry a dictionary key (resolved at render); any other
+// error text (e.g. a browser network error) is shown as it came.
+const LOCAL_ERROR_PREFIX = "content.studioFlow.assetsUpload.errors.";
+
+function errorText(t: Translator, error: string): string {
+  return error.startsWith(LOCAL_ERROR_PREFIX) ? t(error as MessageKey) : error;
+}
+
 export default function AssetsUploadPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [contentRunId, setContentRunId] = useState<number | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
@@ -94,7 +105,7 @@ export default function AssetsUploadPage() {
     try {
       const token = localStorage.getItem("token");
       if (!token) {
-        throw new Error("כדי להעלות חומר צריך להתחבר מחדש");
+        throw new Error("content.studioFlow.assetsUpload.errors.signInAgain");
       }
 
       const formData = new FormData();
@@ -115,7 +126,7 @@ export default function AssetsUploadPage() {
       const data = await res.json();
 
       if (!res.ok || !data?.url) {
-        throw new Error("לא הצלחנו לשמור את הקובץ — נסו שוב");
+        throw new Error("content.studioFlow.assetsUpload.errors.saveRetry");
       }
 
       const isVideo = file.type.startsWith("video/");
@@ -133,7 +144,7 @@ export default function AssetsUploadPage() {
       });
     } catch (err: any) {
       console.error(err);
-      setError(err?.message || "לא הצלחנו לשמור את הקובץ");
+      setError(err?.message || "content.studioFlow.assetsUpload.errors.saveFailed");
     } finally {
       setUploadingIndex(null);
     }
@@ -141,7 +152,7 @@ export default function AssetsUploadPage() {
 
   function handleContinue() {
     if (!canContinue) {
-      setError("בחרו לפחות רגע אחד עם חומר — ואפשר להמשיך");
+      setError("content.studioFlow.assetsUpload.errors.pickOne");
       return;
     }
 
@@ -155,7 +166,7 @@ export default function AssetsUploadPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>מחברים את מה שצילמתם</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.assetsUpload.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -164,17 +175,17 @@ export default function AssetsUploadPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>עכשיו</div>
-            <h1 style={titleStyle}>צלמו לפי הרגעים האלה</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.common.now")}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.assetsUpload.title")}</h1>
             <p style={subtitleStyle}>
-              בוחרים מהגלריה לכל רגע — אנחנו נדאג לשאר.
+              {t("content.studioFlow.assetsUpload.subtitle")}
             </p>
           </div>
 
           <div style={summaryCardStyle}>
-            <div style={summaryTitleStyle}>איפה אתם נמצאים</div>
+            <div style={summaryTitleStyle}>{t("content.studioFlow.assetsUpload.progressTitle")}</div>
             <div style={summaryTextStyle}>
-              יש חומר ל־{uploadedCount} מתוך {shots.length} רגעים
+              {t("content.studioFlow.assetsUpload.progressText", { uploaded: uploadedCount, total: shots.length })}
             </div>
           </div>
 
@@ -186,30 +197,30 @@ export default function AssetsUploadPage() {
               return (
                 <div key={index} style={shotCardStyle}>
                   <div style={shotHeaderRowStyle}>
-                    <div style={sectionTitleStyle}>רגע {index + 1}</div>
+                    <div style={sectionTitleStyle}>{t("content.studioFlow.assetsUpload.shot", { n: index + 1 })}</div>
 
                     {uploadedUrl ? (
-                      <div style={uploadedBadgeStyle}>יש כאן חומר</div>
+                      <div style={uploadedBadgeStyle}>{t("content.studioFlow.assetsUpload.hasMaterial")}</div>
                     ) : (
-                      <div style={pendingBadgeStyle}>מחכים לצילום</div>
+                      <div style={pendingBadgeStyle}>{t("content.studioFlow.assetsUpload.waiting")}</div>
                     )}
                   </div>
 
                   <div style={fieldGroupStyle}>
-                    <div style={fieldLabelStyle}>מה כדאי שייראה כאן</div>
+                    <div style={fieldLabelStyle}>{t("content.studioFlow.assetsUpload.visualLabel")}</div>
                     <div style={fieldTextStyle}>{shot.visual}</div>
                   </div>
 
                   <div style={fieldGroupStyle}>
-                    <div style={fieldLabelStyle}>מה לומר ברגע הזה</div>
+                    <div style={fieldLabelStyle}>{t("content.studioFlow.assetsUpload.voiceLabel")}</div>
                     <div style={fieldTextStyle}>{shot.voice}</div>
                   </div>
 
                   <div style={uploadAreaStyle}>
                     <label style={uploadBoxStyle}>
-                      <div style={uploadBoxTitleStyle}>בוחרים תמונה או סרטון מהמכשיר</div>
+                      <div style={uploadBoxTitleStyle}>{t("content.studioFlow.assetsUpload.pickTitle")}</div>
                       <div style={uploadBoxTextStyle}>
-                        לא חייב מושלם — העיקר שירגיש אמיתי ומתאים לרגע.
+                        {t("content.studioFlow.assetsUpload.pickText")}
                       </div>
 
                       <input
@@ -223,13 +234,13 @@ export default function AssetsUploadPage() {
                     </label>
 
                     {isUploading ? (
-                      <div style={uploadingTextStyle}>רגע אחד…</div>
+                      <div style={uploadingTextStyle}>{t("content.studioFlow.common.oneMoment")}</div>
                     ) : null}
 
                     {uploadedUrl ? (
                       <>
                         <div style={uploadedTextStyle}>
-                          החומר נשמר — אפשר לעבור לרגע הבא
+                          {t("content.studioFlow.assetsUpload.saved")}
                         </div>
                         {fileTypes[index] ? (
                           <video
@@ -243,14 +254,14 @@ export default function AssetsUploadPage() {
                         ) : (
                           <img
                             src={uploadedUrl}
-                            alt={`רגע ${index + 1}`}
+                            alt={t("content.studioFlow.assetsUpload.shot", { n: index + 1 })}
                             style={previewMediaStyle}
                           />
                         )}
                       </>
                     ) : (
                       <div style={helperTextStyle}>
-                        עדיין אין כאן חומר — לחצו למעלה כדי לבחור מהגלריה
+                        {t("content.studioFlow.assetsUpload.empty")}
                       </div>
                     )}
                   </div>
@@ -261,8 +272,8 @@ export default function AssetsUploadPage() {
 
           {error ? (
             <div style={errorBoxStyle}>
-              <div style={errorTitleStyle}>רגע, משהו נתקע</div>
-              <div style={errorTextStyle}>{error}</div>
+              <div style={errorTitleStyle}>{t("content.studioFlow.common.stuckTitle")}</div>
+              <div style={errorTextStyle}>{errorText(t, error)}</div>
             </div>
           ) : null}
         </div>
@@ -274,7 +285,7 @@ export default function AssetsUploadPage() {
             onClick={handleContinue}
             disabled={!canContinue}
           >
-            המשך — מרכיבים את הסרטון
+            {t("content.studioFlow.assetsUpload.cta")}
           </button>
         </div>
       </div>

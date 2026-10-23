@@ -5,6 +5,16 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): single-use link derivation (HMAC of purpose+id under a key derived from AUTH_TOKEN_SECRET, only sha256 stored, token in the URL fragment, constant-time check), EMAIL_VERIFY / PASSWORD_RESET payload contract (no secret in the outbox) and Hebrew RTL rendering, flags OFF by default and fail-closed without a ready mail path / auth plane, forgot-password answers identically for every address with the work after the response, per-IP / per-address / per-user limits, reset clears the refresh cookie, honeypot, login reads the per-account failure limit before any password compare and spends it only on failures, Hebrew-only messages, and static scope (routes hold no DB client; only the four SECURITY DEFINER functions touch User / AuthSession / AuthEmailToken; nothing logs a token or password); run by security-gate (pure lab) and auth-plane-write-ci.yml (verify:prelaunch)"
+    },
+    "lib/security/rate-limiter/auth-fallback.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no Redis/DB): the sign-in failure lock and every auth:* / admin:mfa:* raw limit stay bounded while the shared backend is unreachable (local per-instance ledger: real counts, 3rd-failure warning, 4th-failure lock, parallel burst of 20 -> exactly 4), the shared backend is rested then authoritative again on recovery, a lock taken during the outage survives recovery, a failed shared lock write is kept locally, non-auth keys keep fail-open, config errors propagate, degradation logs carry no address digest or IP, local maps capped; run by security-gate (pure lab) and auth-account-recovery-ci.yml"
+    },
+    "lib/security/log-safe-error.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: auth error logs carry only class + machine code (no message/meta/cause/stack: no address, password hash or DSN), plus a static guard that no file under app/api/auth or lib/auth passes a raw caught error to console.*; run by security-gate (pure lab) and auth-account-recovery-ci.yml"
     }
   }
 }

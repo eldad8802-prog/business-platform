@@ -36,6 +36,8 @@ export const COLLECTIBLE_DOCUMENT_TYPE = "TAX_INVOICE" as const;
 export const COLLECTIBLE_DOCUMENT_STATUS = "ISSUED" as const;
 
 const ZERO = new Prisma.Decimal(0);
+/** Every existing business reports in ILS; the headline total uses it whenever it is present. */
+const HEADLINE_CURRENCY = "ILS";
 
 /** One issued document, with everything already applied against it. */
 export interface InvoiceRow {
@@ -86,9 +88,26 @@ export interface AwaitingCustomer {
   readonly hasNoContactChannel: boolean;
 }
 
-export interface AwaitingPaymentList {
-  readonly customers: readonly AwaitingCustomer[];
+export interface AwaitingCurrencyTotal {
+  readonly currency: string;
   readonly totalOutstanding: Prisma.Decimal;
+}
+
+export interface AwaitingPaymentList {
+  /**
+   * One entry per (customer, currency): a customer who owes in two currencies appears twice, each
+   * row with its own single-currency total — amounts in different currencies are never added.
+   */
+  readonly customers: readonly AwaitingCustomer[];
+  /** The headline total, in `currency` only (see totalsByCurrency for every currency). */
+  readonly totalOutstanding: Prisma.Decimal;
+  /** The headline currency: ILS when present (every business today), else the first by code. */
+  readonly currency: string;
+  /** Per-currency totals, headline currency first. A single entry for every ILS-only business. */
+  readonly totalsByCurrency: readonly AwaitingCurrencyTotal[];
+  /** True when debts exist in more than one currency — the headline then does not cover them all. */
+  readonly isMixedCurrency: boolean;
+  /** Distinct customers (a customer owing in two currencies counts once). */
   readonly customerCount: number;
   /**
    * Issued invoices past their expected date that carry a balance but have no
@@ -146,8 +165,9 @@ export interface BuildAwaitingListInput {
 export function buildAwaitingPaymentList(
   input: BuildAwaitingListInput,
 ): AwaitingPaymentList {
-  const byCustomer = new Map<number, AwaitingInvoice[]>();
-  const identity = new Map<number, InvoiceRow>();
+  // Keyed by customer AND currency: invoices in different currencies are never summed together.
+  const byCustomer = new Map<string, AwaitingInvoice[]>();
+  const identity = new Map<string, InvoiceRow>();
   let unassignedCount = 0;
 
   for (const row of input.rows) {
@@ -183,20 +203,24 @@ export function buildAwaitingPaymentList(
         row.creditedAmount.greaterThan(ZERO),
     };
 
-    const bucket = byCustomer.get(row.customerId);
+    const key = `${row.customerId}|${row.currency}`;
+    const bucket = byCustomer.get(key);
     if (bucket) {
       bucket.push(invoice);
     } else {
-      byCustomer.set(row.customerId, [invoice]);
-      identity.set(row.customerId, row);
+      byCustomer.set(key, [invoice]);
+      identity.set(key, row);
     }
   }
 
   const customers: AwaitingCustomer[] = [];
-  let total = ZERO;
+  const totals = new Map<string, Prisma.Decimal>();
+  const distinctCustomers = new Set<number>();
 
-  for (const [customerId, invoices] of byCustomer) {
-    const who = identity.get(customerId) as InvoiceRow;
+  for (const [key, invoices] of byCustomer) {
+    const who = identity.get(key) as InvoiceRow;
+    const customerId = who.customerId as number;
+    distinctCustomers.add(customerId);
 
     let sum = ZERO;
     let oldest = invoices[0].expectedPaymentDate;
@@ -223,7 +247,7 @@ export function buildAwaitingPaymentList(
       hasNoContactChannel: !who.customerPhone && !who.customerEmail,
     });
 
-    total = total.plus(sum);
+    totals.set(invoices[0].currency, (totals.get(invoices[0].currency) ?? ZERO).plus(sum));
   }
 
   customers.sort((a, b) => {
@@ -233,10 +257,19 @@ export function buildAwaitingPaymentList(
     return a.awaitingSince.getTime() - b.awaitingSince.getTime();
   });
 
+  const codes = [...totals.keys()].sort();
+  const headline = totals.has(HEADLINE_CURRENCY) ? HEADLINE_CURRENCY : (codes[0] ?? HEADLINE_CURRENCY);
+  const totalsByCurrency: AwaitingCurrencyTotal[] = [headline, ...codes.filter((c) => c !== headline)]
+    .filter((c) => totals.has(c))
+    .map((c) => ({ currency: c, totalOutstanding: totals.get(c) as Prisma.Decimal }));
+
   return {
     customers,
-    totalOutstanding: total,
-    customerCount: customers.length,
+    totalOutstanding: totals.get(headline) ?? ZERO,
+    currency: headline,
+    totalsByCurrency,
+    isMixedCurrency: totals.size > 1,
+    customerCount: distinctCustomers.size,
     unassignedCount,
   };
 }

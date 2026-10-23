@@ -32,6 +32,7 @@ import {
   IMPORT_EXPORT_SETTINGS_CATEGORY,
 } from "@/components/settings/import-export/import-export-release";
 import { IMPORT_EXPORT_ACTIONS } from "@/components/settings/import-export/import-export-actions";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 let passed = 0;
 
@@ -327,7 +328,18 @@ check("REUSE: the hub composes existing Settings primitives, not new ones", () =
   );
   assert.equal(src.includes("@/components/settings/SettingsRow"), true);
   assert.equal(src.includes("@/components/settings/SettingsSection"), true);
-  assert.equal(src.includes('aria-label="ייבוא וייצוא"'), true);
+  // The label is the dictionary's (i18n): the same Hebrew, by key.
+  assert.equal(src.includes('aria-label={t("account.settings.importExport.category.title")}'), true);
+  assert.equal(accountHe.settings.importExport.category.title, "ייבוא וייצוא");
+  // The rows render the dictionary copy; it must be the Hebrew the actions declare.
+  for (const action of IMPORT_EXPORT_ACTIONS) {
+    const row = action.titleKey.split(".")[4];
+    assert.equal(action.titleKey, `account.settings.importExport.actions.${row}.title`, action.key);
+    const copy = accountHe.settings.importExport.actions[row as keyof typeof accountHe.settings.importExport.actions];
+    assert.equal(copy.title, action.title, action.key);
+    assert.equal(copy.description, action.description, action.key);
+    assert.equal(action.descriptionKey, `account.settings.importExport.actions.${row}.description`, action.key);
+  }
 });
 
 check("I-2 BOUNDARY: the foundation ships no transfer machinery", () => {

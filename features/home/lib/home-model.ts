@@ -20,6 +20,9 @@ import type {
   ObligationApi,
 } from "@/lib/obligations/secretary-client";
 import type { StatusDomain, ToolGroup } from "@/lib/navigation/home-routes";
+import type { Translator } from "@/lib/i18n/translate";
+
+import { HE_T } from "./home-i18n";
 
 /* -------------------------------------------------------- load states -- */
 
@@ -66,11 +69,11 @@ export function counterFrom<T>(
  * Time-of-day greeting, computed from the viewer's own clock. Kept client-side
  * deliberately: a server hour is the wrong timezone for the owner.
  */
-export function greetingForHour(hour: number): string {
-  if (hour >= 5 && hour < 12) return "בוקר טוב";
-  if (hour >= 12 && hour < 17) return "צהריים טובים";
-  if (hour >= 17 && hour < 22) return "ערב טוב";
-  return "לילה טוב";
+export function greetingForHour(hour: number, t: Translator = HE_T): string {
+  if (hour >= 5 && hour < 12) return t("home.greeting.morning");
+  if (hour >= 12 && hour < 17) return t("home.greeting.noon");
+  if (hour >= 17 && hour < 22) return t("home.greeting.evening");
+  return t("home.greeting.night");
 }
 
 /* ------------------------------------------------------------ verdict -- */
@@ -202,15 +205,15 @@ export type TodayRow = {
 };
 
 /** A trustworthy display name — the Secretary's own rule, applied identically. */
-function displayObligeeName(name: string | null | undefined): string {
+function displayObligeeName(name: string | null | undefined, t: Translator): string {
   const trimmed = (name ?? "").trim();
-  return trimmed.length >= 2 ? trimmed : "התחייבות ללא שם";
+  return trimmed.length >= 2 ? trimmed : t("home.obligationNoName");
 }
 
-function toTodayRow(obligation: ObligationApi, badge: DueBadge): TodayRow {
+function toTodayRow(obligation: ObligationApi, badge: DueBadge, t: Translator): TodayRow {
   return {
     obligationId: obligation.id,
-    title: displayObligeeName(obligation.obligeeName),
+    title: displayObligeeName(obligation.obligeeName, t),
     amount: obligation.amount,
     currency: obligation.currency,
     dueAtIso: obligation.dueAt,
@@ -227,12 +230,12 @@ function toTodayRow(obligation: ObligationApi, badge: DueBadge): TodayRow {
  * exposes `issuedAt` and never a deadline. A document row here would have to
  * invent the date it is sorted and badged by.
  */
-export function buildTodayRows(briefing: BriefingApi, now: Date): TodayRow[] {
+export function buildTodayRows(briefing: BriefingApi, now: Date, t: Translator = HE_T): TodayRow[] {
   const rows: TodayRow[] = [];
   for (const item of briefing.attention) {
     const badge = dueBadgeFor(item.obligation.dueAt, now);
     if (!badge) continue;
-    rows.push(toTodayRow(item.obligation, badge));
+    rows.push(toTodayRow(item.obligation, badge, t));
   }
   return rows.sort(
     (a, b) => new Date(a.dueAtIso).getTime() - new Date(b.dueAtIso).getTime()
@@ -270,23 +273,25 @@ const URGENT: Severity[] = ["CRITICAL", "HIGH"];
  */
 export function groupStatus(
   items: BusinessStatusItem[],
-  domains: StatusDomain[]
+  domains: StatusDomain[],
+  t: Translator = HE_T
 ): GroupStatus {
   const domainSet = new Set<string>(domains);
   const mine = items.filter((item) => domainSet.has(item.domain));
 
-  if (mine.length === 0) return { tone: "clear", label: "הכול מטופל" };
+  if (mine.length === 0) return { tone: "clear", label: t("home.groupStatus.clear") };
   if (mine.some((item) => URGENT.includes(item.severity))) {
-    return { tone: "urgent", label: "דורש טיפול עכשיו" };
+    return { tone: "urgent", label: t("home.groupStatus.urgent") };
   }
-  return { tone: "review", label: "יש מה לבדוק" };
+  return { tone: "review", label: t("home.groupStatus.review") };
 }
 
 export function groupStatusFor(
   items: BusinessStatusItem[],
-  group: ToolGroup
+  group: ToolGroup,
+  t: Translator = HE_T
 ): GroupStatus {
-  return groupStatus(items, group.domains);
+  return groupStatus(items, group.domains, t);
 }
 
 /* --------------------------------------------------------- formatting -- */

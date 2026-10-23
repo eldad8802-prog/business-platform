@@ -8,6 +8,7 @@
  * keeps one per intent until it succeeds — so a lost answer never becomes a second write (12.9, T-Y4).
  */
 import { buildClientAuthHeaders } from "@/lib/client-session";
+import type { Translator } from "@/lib/i18n/translate";
 import type { AgendaResponse } from "@/lib/services/tasks/agenda.service";
 
 export type { AgendaResponse };
@@ -144,29 +145,30 @@ export const searchLinks = (q: string) => call<{ options: LinkOption[] }>("GET",
 
 // ── Errors in the owner's words ─────────────────────────────────────────────────────────────────
 
-export function errorText(e: unknown): string {
+/** `t`: the interface language (useI18n().t). */
+export function errorText(e: unknown, t: Translator): string {
   const code = e instanceof TasksApiError ? e.code : "";
   switch (code) {
     case "VERSION_CONFLICT":
     case "CONFLICT":
-      return "המשימה השתנתה בינתיים. רעננו את הרשימה — נסה שוב.";
+      return t("system.tasks.errors.conflict");
     case "NOT_FOUND":
-      return "הפריט כבר לא ברשימה.";
+      return t("system.tasks.errors.notFound");
     case "INVALID_INPUT":
-      return "חסר פרט או שהוא לא תקין.";
+      return t("system.tasks.errors.invalidInput");
     case "INVALID_STATE":
     case "NEXT_OCCURRENCE_IN_PROGRESS":
     case "NOT_LATEST_OCCURRENCE":
-      return "אי אפשר לבצע את הפעולה הזו כרגע.";
+      return t("system.tasks.errors.invalidState");
     case "SERIES_ENDED":
-      return "הסדרה הסתיימה.";
+      return t("system.tasks.errors.seriesEnded");
     case "LINK_NOT_FOUND":
-      return "הקישור לא נמצא בעסק.";
+      return t("system.tasks.errors.linkNotFound");
     case "LINK_LEAD_OPEN":
-      return "לליד הזה כבר יש מעקב פתוח — עדכן אותו בליד עצמו.";
+      return t("system.tasks.errors.linkLeadOpen");
     case "IDEMPOTENCY_KEY_STALE":
-      return "הבקשה ישנה מדי. נסה שוב.";
+      return t("system.tasks.errors.keyStale");
     default:
-      return "לא הצלחנו לשמור. נסה שוב.";
+      return t("system.tasks.errors.saveFailed");
   }
 }

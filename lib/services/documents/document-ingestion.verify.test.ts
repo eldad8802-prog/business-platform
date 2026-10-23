@@ -20,6 +20,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
+import { he } from "@/lib/i18n/messages/he";
+import { translate } from "@/lib/i18n/translate";
+
 import {
   DOCUMENT_MAX_UPLOAD_BYTES,
   isAllowedDocumentMime,
@@ -172,14 +175,22 @@ check("the service decides nothing about HTTP", () => {
 });
 
 check("every response the route produced before, it still produces", () => {
-  // Frozen wording and codes — these are what the client and the owner see.
-  assert.equal(routeSrc.includes('"לא מחובר"'), true); // 401
-  assert.equal(routeSrc.includes("פורמט HEIC לא נתמך"), true); // 415
-  assert.equal(routeSrc.includes("סוג קובץ לא נתמך"), true); // 400
-  assert.equal(routeSrc.includes("הקובץ גדול מדי (עד 15MB)"), true); // 413
-  assert.equal(routeSrc.includes("נראה שהמסמך הזה כבר הועלה"), true); // 409
-  assert.equal(routeSrc.includes("שגיאה בהעלאת המסמך"), true); // 500
-  assert.equal(routeSrc.includes("לא נבחר קובץ"), true); // 400
+  // Frozen wording and codes — these are what the client and the owner see. The words live in the
+  // i18n dictionary (api.*); the route names the key and the Hebrew text is unchanged.
+  const frozen: Array<[string, string]> = [
+    ["api.common.unauthenticated", "לא מחובר"], // 401
+    ["api.common.heicUnsupported", "פורמט HEIC לא נתמך"], // 415
+    ["api.common.unsupportedFileType", "סוג קובץ לא נתמך"], // 400
+    ["api.common.fileTooLarge15", "הקובץ גדול מדי (עד 15MB)"], // 413
+    ["api.documents.upload.duplicate", "נראה שהמסמך הזה כבר הועלה"], // 409
+    ["api.documents.upload.failed", "שגיאה בהעלאת המסמך"], // 500
+    ["api.common.noFileSelected", "לא נבחר קובץ"], // 400
+  ];
+  for (const [key, hebrew] of frozen) {
+    assert.equal(routeSrc.includes(`t("${key}")`), true, key);
+    assert.equal(translate(he, key).startsWith(hebrew), true, key);
+  }
+  assert.equal(translate(he, "api.common.unauthenticated"), "לא מחובר");
   assert.equal(/status: 409/.test(routeSrc), true);
   assert.equal(/success: true/.test(routeSrc), true);
   assert.equal(/status: "processing"/.test(routeSrc), true);
@@ -511,9 +522,13 @@ check("the existing refusals keep their own statuses and wording", () => {
   assert.equal(routeCode.includes("status: 413"), true, "still too-large");
   assert.equal(routeCode.includes("status: 409"), true, "still duplicate");
   assert.equal(routeCode.includes("status: 401"), true, "still unauthenticated");
-  assert.equal(routeSrc.includes("פורמט HEIC לא נתמך"), true, "HEIC wording kept");
-  assert.equal(routeSrc.includes("הקובץ גדול מדי (עד 15MB)"), true);
-  assert.equal(routeSrc.includes("נראה שהמסמך הזה כבר הועלה"), true);
+  // Wording lives in the i18n dictionary; the route names the key, the Hebrew text is unchanged.
+  assert.equal(routeSrc.includes('t("api.common.heicUnsupported")'), true, "HEIC wording kept");
+  assert.equal(translate(he, "api.common.heicUnsupported").startsWith("פורמט HEIC לא נתמך"), true, "HEIC wording kept");
+  assert.equal(routeSrc.includes('t("api.common.fileTooLarge15")'), true);
+  assert.equal(translate(he, "api.common.fileTooLarge15"), "הקובץ גדול מדי (עד 15MB)");
+  assert.equal(routeSrc.includes('t("api.documents.upload.duplicate")'), true);
+  assert.equal(translate(he, "api.documents.upload.duplicate"), "נראה שהמסמך הזה כבר הועלה");
 });
 
 check("the import centre's behaviour is unchanged by the move", () => {

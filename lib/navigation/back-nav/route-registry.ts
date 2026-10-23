@@ -17,15 +17,30 @@
  * nearest registered ancestor, and finally to Home.
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import type { insightsHe } from "@/lib/i18n/messages/areas/insights";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
+
 import { pathnameOf } from "./safe-path";
+
+/** A fallback label's dictionary entry (`insights.backNav.*`). */
+export type BackLabelKey = keyof typeof insightsHe.backNav;
+
+const HE_T: Translator = createTranslator(he);
+
+function backLabel(key: BackLabelKey, t: Translator = HE_T): string {
+  return t(`insights.backNav.${key}`);
+}
 
 export type RouteRule = {
   pattern: string;
   root?: boolean;
   /** Fallback parent path (only when no verified origin exists). */
   parent?: string;
-  /** Visible label for the fallback, phrased as a destination ("לרשימת …"). */
+  /** Visible label for the fallback, phrased as a destination ("לרשימת …") — the Hebrew text of `parentLabelKey`. */
   parentLabel?: string;
+  /** The fallback label's dictionary key, so a surface can show it in the interface language. */
+  parentLabelKey?: BackLabelKey;
   /** Never a back destination. */
   transient?: boolean;
   /** Query params that distinguish screens on the same pathname. */
@@ -34,7 +49,8 @@ export type RouteRule = {
 
 export const HOME_FALLBACK = { url: "/app", label: "לבית" } as const;
 
-export const ROUTE_RULES: readonly RouteRule[] = [
+/** Rules as declared: labels by key. `ROUTE_RULES` adds each one's Hebrew `parentLabel`. */
+const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   // ---- roots (main navigation destinations and entry points) -------------
   { pattern: "/app", root: true },
   { pattern: "/", root: true, transient: true },
@@ -54,128 +70,137 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },
+  // Admin Control Center: the sidebar / bottom-bar destinations are roots; the
+  // business list keeps its search, filter and page per history entry.
   { pattern: "/admin", root: true },
   { pattern: "/admin/audit", root: true },
-  { pattern: "/admin/businesses/[id]", parent: "/admin", parentLabel: "ללוח הבקרה" },
-  { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabel: "לפרטי העסק" },
+  { pattern: "/admin/businesses", root: true },
+  { pattern: "/admin/security", root: true },
+  { pattern: "/admin/diagnostics", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
+  { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
+  { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
-  { pattern: "/pricing", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
+  { pattern: "/pricing", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
   // Setup after signup: two steps; finishing consumes them, so Back from Home
   // never re-enters a completed setup.
-  { pattern: "/setup", parent: "/app", parentLabel: "לבית", identityParams: ["step"] },
-  { pattern: "/revenue", parent: "/app", parentLabel: "לבית", identityParams: ["view", "cstep"] },
-  { pattern: "/revenue/redeem", parent: "/revenue", parentLabel: "לקופונים שלי", identityParams: ["step"] },
-  { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabel: "לקופונים" },
+  { pattern: "/setup", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
+  { pattern: "/revenue", parent: "/app", parentLabelKey: "toHome", identityParams: ["view", "cstep"] },
+  { pattern: "/revenue/redeem", parent: "/revenue", parentLabelKey: "toMyCoupons", identityParams: ["step"] },
+  { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabelKey: "toCoupons" },
   // Dubiz recommendations (owner_recommendations): the list, and one recommendation with its WHY.
-  { pattern: "/recommendations", parent: "/app", parentLabel: "לבית" },
-  { pattern: "/recommendations/[id]", parent: "/recommendations", parentLabel: "לכל ההמלצות" },
+  { pattern: "/recommendations", parent: "/app", parentLabelKey: "toHome" },
+  { pattern: "/recommendations/[id]", parent: "/recommendations", parentLabelKey: "toAllRecommendations" },
 
   // ---- content creation flow (each step's fallback = the step before) ----
-  { pattern: "/content", parent: "/app", parentLabel: "לבית" },
-  { pattern: "/content/goal", parent: "/content", parentLabel: "ליצירת תוכן" },
-  { pattern: "/content/archetype", parent: "/content/goal", parentLabel: "לבחירת המטרה" },
-  { pattern: "/content/setup", parent: "/content/archetype", parentLabel: "לבחירת הסגנון" },
-  { pattern: "/content/creator-plan", parent: "/content/setup", parentLabel: "להגדרות התוכן" },
-  { pattern: "/content/shot-direction", parent: "/content/creator-plan", parentLabel: "לתוכנית התוכן" },
-  { pattern: "/content/assets-upload", parent: "/content/shot-direction", parentLabel: "להנחיות הצילום" },
-  { pattern: "/content/ai-assets", parent: "/content/creator-plan", parentLabel: "לתוכנית התוכן" },
+  { pattern: "/content", parent: "/app", parentLabelKey: "toHome" },
+  { pattern: "/content/goal", parent: "/content", parentLabelKey: "toContentCreation" },
+  { pattern: "/content/archetype", parent: "/content/goal", parentLabelKey: "toGoalPicker" },
+  { pattern: "/content/setup", parent: "/content/archetype", parentLabelKey: "toStylePicker" },
+  { pattern: "/content/creator-plan", parent: "/content/setup", parentLabelKey: "toContentSettings" },
+  { pattern: "/content/shot-direction", parent: "/content/creator-plan", parentLabelKey: "toContentPlan" },
+  { pattern: "/content/assets-upload", parent: "/content/shot-direction", parentLabelKey: "toShotDirection" },
+  { pattern: "/content/ai-assets", parent: "/content/creator-plan", parentLabelKey: "toContentPlan" },
   // Render starts a new (quota-consuming) job on every visit: never go back INTO it.
-  { pattern: "/content/render", transient: true, parent: "/content/creator-plan", parentLabel: "לתוכנית התוכן" },
-  { pattern: "/content/result", parent: "/content", parentLabel: "ליצירת תוכן" },
+  { pattern: "/content/render", transient: true, parent: "/content/creator-plan", parentLabelKey: "toContentPlan" },
+  { pattern: "/content/result", parent: "/content", parentLabelKey: "toContentCreation" },
   // Legacy steps still routable (not linked from the current flow).
   ...[
     "/content/ai-brief", "/content/assets", "/content/context", "/content/create", "/content/direction",
     "/content/flow", "/content/format", "/content/generate", "/content/intent", "/content/mode",
     "/content/style", "/content/summary", "/content/value",
-  ].map((pattern) => ({ pattern, parent: "/content", parentLabel: "ליצירת תוכן" })),
+  ].map((pattern) => ({ pattern, parent: "/content", parentLabelKey: "toContentCreation" as const })),
 
   // ---- redirect stubs: never a back destination --------------------------
-  { pattern: "/payments", transient: true, parent: "/collection", parentLabel: "לגבייה" },
-  { pattern: "/payments/new", transient: true, parent: "/collection", parentLabel: "לגבייה" },
-  { pattern: "/payments/[id]", transient: true, parent: "/collection", parentLabel: "לגבייה" },
-  { pattern: "/business/bot/setup/success", transient: true, parent: "/business/bot", parentLabel: "לבוט שלי" },
+  { pattern: "/payments", transient: true, parent: "/collection", parentLabelKey: "toCollection" },
+  { pattern: "/payments/new", transient: true, parent: "/collection", parentLabelKey: "toCollection" },
+  { pattern: "/payments/[id]", transient: true, parent: "/collection", parentLabelKey: "toCollection" },
+  { pattern: "/business/bot/setup/success", transient: true, parent: "/business/bot", parentLabelKey: "toMyBot" },
 
   // ---- secondary hubs -----------------------------------------------------
-  { pattern: "/attention", parent: "/app", parentLabel: "לבית" },
+  { pattern: "/attention", parent: "/app", parentLabelKey: "toHome" },
 
   // ---- documents ------------------------------------------------------------
-  { pattern: "/documents/inbox", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/review/[id]", parent: "/documents", parentLabel: "לרשימת המסמכים" },
-  { pattern: "/documents/search", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/upload", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/email", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/accountant-pack", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/dashboard", parent: "/documents", parentLabel: "למסמכים" },
-  { pattern: "/documents/uniform-export", parent: "/documents", parentLabel: "למסמכים" },
+  { pattern: "/documents/inbox", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/review/[id]", parent: "/documents", parentLabelKey: "toDocumentList" },
+  { pattern: "/documents/search", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/upload", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/email", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/accountant-pack", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/dashboard", parent: "/documents", parentLabelKey: "toDocuments" },
+  { pattern: "/documents/uniform-export", parent: "/documents", parentLabelKey: "toDocuments" },
 
   // ---- billing / payables / collection -----------------------------------
-  { pattern: "/billing/[id]", parent: "/billing", parentLabel: "לרשימת החשבוניות" },
-  { pattern: "/payables/[id]", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
-  { pattern: "/payables/bank", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
-  { pattern: "/payables/cheques", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
-  { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabel: "לכל ההתחייבויות" },
-  { pattern: "/collection/new", parent: "/collection", parentLabel: "לגבייה", identityParams: ["step"] },
-  { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabel: "לגבייה" },
+  { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
+  { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },
+  { pattern: "/payables/cheques", parent: "/payables", parentLabelKey: "toAllPayables" },
+  { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabelKey: "toAllPayables" },
+  { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },
+  { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabelKey: "toCollection" },
 
   // ---- CRM ------------------------------------------------------------------
-  { pattern: "/customers/[id]", parent: "/customers", parentLabel: "לרשימת הלקוחות" },
-  { pattern: "/leads/[id]", parent: "/leads", parentLabel: "לרשימת הלידים" },
-  { pattern: "/suppliers", parent: "/tools/operations", parentLabel: "לניהול העסק" },
-  { pattern: "/suppliers/[id]", parent: "/suppliers", parentLabel: "לרשימת הספקים" },
+  { pattern: "/customers/[id]", parent: "/customers", parentLabelKey: "toCustomerList" },
+  { pattern: "/leads/[id]", parent: "/leads", parentLabelKey: "toLeadList" },
+  { pattern: "/suppliers", parent: "/tools/operations", parentLabelKey: "toBusinessManagement" },
+  { pattern: "/suppliers/[id]", parent: "/suppliers", parentLabelKey: "toSupplierList" },
 
   // ---- inventory ------------------------------------------------------------
-  { pattern: "/inventory/items", parent: "/inventory", parentLabel: "למלאי" },
-  { pattern: "/inventory/items/create", parent: "/inventory/items", parentLabel: "לרשימת המוצרים" },
-  { pattern: "/inventory/items/[id]", parent: "/inventory/items", parentLabel: "לרשימת המוצרים" },
-  { pattern: "/inventory/count", parent: "/inventory", parentLabel: "למלאי" },
-  { pattern: "/inventory/alerts", parent: "/inventory", parentLabel: "למלאי" },
-  { pattern: "/inventory/drafts", parent: "/inventory/items", parentLabel: "לרשימת המוצרים" },
-  { pattern: "/inventory/unmatched", parent: "/inventory/sales", parentLabel: "למכירות" },
-  { pattern: "/inventory/sales", parent: "/inventory", parentLabel: "למלאי" },
-  { pattern: "/inventory/sales/create", parent: "/inventory/sales", parentLabel: "למכירות" },
-  { pattern: "/inventory/supplier-purchases", parent: "/inventory", parentLabel: "למלאי" },
-  { pattern: "/inventory/supplier-purchases/history", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/import", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/integrations", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/pending", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/new", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/new/cart", parent: "/inventory/supplier-purchases/new", parentLabel: "לבחירת מוצרים" },
-  { pattern: "/inventory/supplier-purchases/new/confirm", parent: "/inventory/supplier-purchases/new/cart", parentLabel: "לסל ההזמנה" },
-  { pattern: "/inventory/supplier-purchases/[id]/send", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
-  { pattern: "/inventory/supplier-purchases/[id]/receive", parent: "/inventory/supplier-purchases", parentLabel: "למרכז ההזמנות" },
+  { pattern: "/inventory/items", parent: "/inventory", parentLabelKey: "toInventory" },
+  { pattern: "/inventory/items/create", parent: "/inventory/items", parentLabelKey: "toProductList" },
+  { pattern: "/inventory/items/[id]", parent: "/inventory/items", parentLabelKey: "toProductList" },
+  { pattern: "/inventory/count", parent: "/inventory", parentLabelKey: "toInventory" },
+  { pattern: "/inventory/alerts", parent: "/inventory", parentLabelKey: "toInventory" },
+  { pattern: "/inventory/drafts", parent: "/inventory/items", parentLabelKey: "toProductList" },
+  { pattern: "/inventory/unmatched", parent: "/inventory/sales", parentLabelKey: "toSales" },
+  { pattern: "/inventory/sales", parent: "/inventory", parentLabelKey: "toInventory" },
+  { pattern: "/inventory/sales/create", parent: "/inventory/sales", parentLabelKey: "toSales" },
+  { pattern: "/inventory/supplier-purchases", parent: "/inventory", parentLabelKey: "toInventory" },
+  { pattern: "/inventory/supplier-purchases/history", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/import", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/integrations", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/pending", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/new", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/new/cart", parent: "/inventory/supplier-purchases/new", parentLabelKey: "toProductPicker" },
+  { pattern: "/inventory/supplier-purchases/new/confirm", parent: "/inventory/supplier-purchases/new/cart", parentLabelKey: "toOrderBasket" },
+  { pattern: "/inventory/supplier-purchases/[id]/send", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/[id]/receive", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
 
   // ---- settings / business / tools ----------------------------------------
-  { pattern: "/settings/whatsapp", parent: "/settings/connections", parentLabel: "לחיבורים" },
+  { pattern: "/settings/whatsapp", parent: "/settings/connections", parentLabelKey: "toConnections" },
   // M7-B — the Dubiz Wix app's confirm page (Wix opens it after install).
-  { pattern: "/settings/connections/wix", parent: "/settings/connections", parentLabel: "לחיבורים" },
-  { pattern: "/settings/account", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/business", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/connections", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/inbound-email", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/security", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/team", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/workspace", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/import-export", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/settings/import-export/documents", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
-  { pattern: "/settings/import-export/export", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
-  { pattern: "/settings/import-export/import", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
-  { pattern: "/settings/import-export/templates", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
-  { pattern: "/settings/import-export/historical", parent: "/settings/import-export", parentLabel: "לייבוא וייצוא" },
-  { pattern: "/settings/import-export/historical/records", parent: "/settings/import-export/historical", parentLabel: "לנתונים היסטוריים" },
-  { pattern: "/settings/import-export/historical/records/[id]", parent: "/settings/import-export/historical/records", parentLabel: "לרשימת הרשומות" },
+  { pattern: "/settings/connections/wix", parent: "/settings/connections", parentLabelKey: "toConnections" },
+  { pattern: "/settings/account", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/business", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/connections", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/inbound-email", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/security", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/team", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/workspace", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/import-export", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/import-export/documents", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
+  { pattern: "/settings/import-export/export", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
+  { pattern: "/settings/import-export/import", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
+  { pattern: "/settings/import-export/templates", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
+  { pattern: "/settings/import-export/historical", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
+  { pattern: "/settings/import-export/historical/records", parent: "/settings/import-export/historical", parentLabelKey: "toHistoricalData" },
+  { pattern: "/settings/import-export/historical/records/[id]", parent: "/settings/import-export/historical/records", parentLabelKey: "toRecordList" },
   // The /tools catalogue is retired (next.config → /app); each family screen is reached from Home.
-  { pattern: "/tools/[category]", parent: "/app", parentLabel: "לבית" },
-  { pattern: "/business", parent: "/settings", parentLabel: "להגדרות" },
-  { pattern: "/business/identity", parent: "/business", parentLabel: "לפרופיל העסק" },
-  { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabel: "לנוכחות הדיגיטלית" },
+  { pattern: "/tools/[category]", parent: "/app", parentLabelKey: "toHome" },
+  { pattern: "/business", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/business/identity", parent: "/business", parentLabelKey: "toBusinessProfile" },
+  { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },
   // P3-E: ?strategy= (a fresh composition) and ?version= (a saved version) are different screens.
-  { pattern: "/business/landing-preview", parent: "/business/landing-strategy", parentLabel: "לכיווני דף הנחיתה", identityParams: ["strategy", "version"] },
-  { pattern: "/business/landing", parent: "/business/identity", parentLabel: "לנוכחות הדיגיטלית" },
-  { pattern: "/business/bot", parent: "/tools/customers", parentLabel: "ללקוחות ומכירות" },
-  { pattern: "/business/bot-settings", parent: "/business/bot", parentLabel: "לבוט שלי" },
-  { pattern: "/business/bot-settings/[area]", parent: "/business/bot-settings", parentLabel: "להגדרות הבוט" },
+  { pattern: "/business/landing-preview", parent: "/business/landing-strategy", parentLabelKey: "toLandingDirections", identityParams: ["strategy", "version"] },
+  { pattern: "/business/landing", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },
+  { pattern: "/business/bot", parent: "/tools/customers", parentLabelKey: "toCustomersSales" },
+  { pattern: "/business/bot-settings", parent: "/business/bot", parentLabelKey: "toMyBot" },
+  { pattern: "/business/bot-settings/[area]", parent: "/business/bot-settings", parentLabelKey: "toBotSettings" },
 ];
+
+export const ROUTE_RULES: readonly RouteRule[] = DECLARED_RULES.map((rule) =>
+  rule.parentLabelKey ? { ...rule, parentLabel: backLabel(rule.parentLabelKey) } : rule
+);
 
 /* ---------------------------------------------------------------- match -- */
 
@@ -238,12 +263,14 @@ export function screenKeyOf(url: string): string {
 /**
  * Destination label for an arbitrary fallback URL ("/documents" → "למסמכים"),
  * taken from any rule that declares it as a parent. Unknown → "חזרה".
+ * With `t`, in the interface language; without it, the Hebrew it always was.
  */
-export function labelForDestination(url: string): string {
+export function labelForDestination(url: string, t?: Translator): string {
   const pathname = pathnameOf(url);
-  if (pathname === HOME_FALLBACK.url) return HOME_FALLBACK.label;
+  if (pathname === HOME_FALLBACK.url) return t ? backLabel("toHome", t) : HOME_FALLBACK.label;
   const rule = ROUTE_RULES.find((r) => r.parent === pathname && r.parentLabel);
-  return rule?.parentLabel ?? "חזרה";
+  if (!t) return rule?.parentLabel ?? "חזרה";
+  return rule?.parentLabelKey ? backLabel(rule.parentLabelKey, t) : backLabel("back", t);
 }
 
 /**
@@ -251,10 +278,11 @@ export function labelForDestination(url: string): string {
  * real sub-route is registered — route-registry.test.ts enforces it — so Home
  * is only a safety net). Never returns the screen itself.
  */
-export function fallbackFor(pathname: string): { url: string; label: string } {
+export function fallbackFor(pathname: string, t?: Translator): { url: string; label: string } {
   const rule = findRouteRule(pathname);
   if (rule?.parent && rule.parent !== pathname) {
+    if (t) return { url: rule.parent, label: backLabel(rule.parentLabelKey ?? "toHome", t) };
     return { url: rule.parent, label: rule.parentLabel ?? HOME_FALLBACK.label };
   }
-  return { ...HOME_FALLBACK };
+  return t ? { url: HOME_FALLBACK.url, label: backLabel("toHome", t) } : { ...HOME_FALLBACK };
 }

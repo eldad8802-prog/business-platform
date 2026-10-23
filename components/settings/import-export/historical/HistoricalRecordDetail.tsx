@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
 import {
   EXTERNAL_ORIGIN_BADGE,
   EXTERNAL_ORIGIN_EXPLANATION,
@@ -88,11 +90,11 @@ function formatDay(day: string | null): string | null {
   return y && m && d ? `${d}/${m}/${y}` : day;
 }
 
-function formatMoney(amount: string | null, currency: string | null): string | null {
+function formatMoney(amount: string | null, currency: string | null, locale: Locale): string | null {
   if (amount === null) return null;
   const number = Number(amount);
   const text = Number.isFinite(number)
-    ? number.toLocaleString("he-IL", {
+    ? number.toLocaleString(intlTag(locale), {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })
@@ -125,7 +127,7 @@ function RelationRow({
     <li>
       <Link
         href={`${recordsBase}/${relation.id}`}
-        className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-transparent px-2 py-3 text-right transition hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
+        className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-transparent px-2 py-3 text-start transition hover:border-[var(--dz-border-subtle)] hover:bg-[var(--dz-surface-muted)]"
       >
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-bold text-[var(--dz-text-primary)]">
@@ -136,7 +138,7 @@ function RelationRow({
           </span>
         </span>
         <span
-          className="shrink-0 text-lg text-[var(--dz-text-muted)]"
+          className="shrink-0 text-lg text-[var(--dz-text-muted)] ltr:-scale-x-100"
           aria-hidden
         >
           ←
@@ -147,6 +149,7 @@ function RelationRow({
 }
 
 export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
+  const { t, locale } = useI18n();
   const [record, setRecord] = useState<RecordDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +179,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
 
       if (response.status === 404) return { kind: "missing" };
       if (response.status === 401) {
-        return { kind: "error", message: "צריך להתחבר מחדש כדי להמשיך." };
+        return { kind: "error", message: t("account.settings.historical.import.signInAgain") };
       }
       if (!response.ok || !body?.ok) {
         return {
@@ -186,9 +189,9 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       }
       return { kind: "record", value: body.record as RecordDetail };
     } catch {
-      return { kind: "error", message: "שגיאת רשת — בדקו את החיבור ונסו שוב." };
+      return { kind: "error", message: t("account.settings.importExport.common.network") };
     }
-  }, [recordId]);
+  }, [recordId, t]);
 
   function applyOutcome(outcome: Outcome) {
     setLoading(false);
@@ -223,7 +226,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
   if (loading) {
     return (
       <SettingsSection>
-        <div className="flex flex-col gap-2" aria-label="טוען מסמך">
+        <div className="flex flex-col gap-2" aria-label={t("account.settings.historical.detail.loading")}>
           <div className="h-6 w-2/3 animate-pulse rounded-full bg-[var(--dz-background)]" />
           <div className="h-24 animate-pulse rounded-2xl bg-[var(--dz-background)]" />
           <div className="h-24 animate-pulse rounded-2xl bg-[var(--dz-background)]" />
@@ -236,16 +239,16 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
     return (
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-          המסמך לא נמצא.
+          {t("account.settings.historical.detail.notFound")}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          ייתכן שהקישור ישן. חזרו לרשימה כדי למצוא את המסמך.
+          {t("account.settings.historical.detail.notFoundBody")}
         </p>
         <Link
           href={recordsBase}
           className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
         >
-          לרשימת הרשומות
+          {t("account.settings.historical.detail.toList")}
         </Link>
       </SettingsSection>
     );
@@ -255,14 +258,14 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
     return (
       <SettingsSection>
         <p className="text-xs font-semibold leading-5 text-[var(--dz-danger,#b3261e)]">
-          {error ?? "טעינת המסמך נכשלה."}
+          {error ?? t("account.settings.historical.detail.loadFailed")}
         </p>
         <button
           type="button"
           onClick={retry}
           className="mt-2 min-h-[44px] rounded-full border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
         >
-          נסו שוב
+          {t("account.settings.historical.detail.retry")}
         </button>
       </SettingsSection>
     );
@@ -271,7 +274,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
   const imported = new Date(record.importedAt);
   const importedText = Number.isNaN(imported.getTime())
     ? null
-    : imported.toLocaleDateString("he-IL");
+    : imported.toLocaleDateString(intlTag(locale));
 
   return (
     <>
@@ -290,25 +293,24 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       </SettingsSection>
 
       <div className="mt-4">
-        <SettingsSection title="פרטי המסמך המקורי">
+        <SettingsSection title={t("account.settings.historical.detail.original.title")}>
           <dl className="grid grid-cols-1 divide-y divide-[var(--dz-border-subtle)] sm:grid-cols-2 sm:gap-x-6 sm:divide-y-0">
-            <Fact label="מספר מסמך מקורי" value={record.originalDocumentNumber} />
-            <Fact label="תאריך המסמך" value={formatDay(record.originalIssueDate)} />
+            <Fact label={t("account.settings.historical.detail.original.number")} value={record.originalDocumentNumber} />
+            <Fact label={t("account.settings.historical.detail.original.date")} value={formatDay(record.originalIssueDate)} />
             <Fact
-              label="סכום כולל"
-              value={formatMoney(record.totalAmount, record.currency)}
+              label={t("account.settings.historical.detail.original.total")}
+              value={formatMoney(record.totalAmount, record.currency, locale)}
             />
             <Fact
-              label="סכום לפני מע״מ"
-              value={formatMoney(record.subtotalAmount, record.currency)}
+              label={t("account.settings.historical.detail.original.subtotal")}
+              value={formatMoney(record.subtotalAmount, record.currency, locale)}
             />
-            <Fact label="מע״מ" value={formatMoney(record.vatAmount, record.currency)} />
-            <Fact label="מטבע" value={record.currency} />
+            <Fact label={t("account.settings.historical.detail.original.vat")} value={formatMoney(record.vatAmount, record.currency, locale)} />
+            <Fact label={t("account.settings.historical.detail.original.currency")} value={record.currency} />
           </dl>
           {record.subtotalAmount === null ? (
             <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-              המערכת הקודמת לא רשמה סכום לפני מע״מ. הסכומים נשמרו בדיוק כפי
-              שהתקבלו, בלי חישוב מחדש.
+              {t("account.settings.historical.detail.original.noSubtotal")}
             </p>
           ) : null}
         </SettingsSection>
@@ -317,13 +319,13 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       {record.customerNameSnapshot || record.customerTaxIdSnapshot ? (
         <div className="mt-4">
           <SettingsSection
-            title="הלקוח, כפי שהופיע על המסמך"
-            description="תצלום מהמסמך המקורי. לא מקושר לכרטיס לקוח בדוביז ולא מעדכן אותו."
+            title={t("account.settings.historical.detail.customer.title")}
+            description={t("account.settings.historical.detail.customer.description")}
           >
             <dl className="grid grid-cols-1 divide-y divide-[var(--dz-border-subtle)] sm:grid-cols-2 sm:gap-x-6 sm:divide-y-0">
-              <Fact label="שם לקוח" value={record.customerNameSnapshot} />
+              <Fact label={t("account.settings.historical.detail.customer.name")} value={record.customerNameSnapshot} />
               <Fact
-                label="מספר עוסק / ח.פ."
+                label={t("account.settings.historical.detail.customer.taxId")}
                 value={record.customerTaxIdSnapshot}
               />
             </dl>
@@ -332,17 +334,17 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       ) : null}
 
       <div className="mt-4">
-        <SettingsSection title="מאיפה הגיע">
+        <SettingsSection title={t("account.settings.historical.detail.source.title")}>
           <dl className="grid grid-cols-1 divide-y divide-[var(--dz-border-subtle)] sm:grid-cols-2 sm:gap-x-6 sm:divide-y-0">
             <Fact
-              label="מערכת מקור"
+              label={t("account.settings.historical.detail.source.system")}
               value={record.sourceSystemNameRaw || record.sourceSystemCode}
             />
             <Fact
-              label="סוג המסמך במערכת המקור"
+              label={t("account.settings.historical.detail.source.type")}
               value={record.sourceDocumentTypeRaw}
             />
-            <Fact label="נקלט לדוביז בתאריך" value={importedText} />
+            <Fact label={t("account.settings.historical.detail.source.importedOn")} value={importedText} />
           </dl>
         </SettingsSection>
       </div>
@@ -351,11 +353,11 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       record.reversesOriginalNumberRaw ||
       record.reversedBy.length > 0 ? (
         <div className="mt-4">
-          <SettingsSection title="קשרי זיכוי">
+          <SettingsSection title={t("account.settings.historical.detail.credits.title")}>
             {record.reverses ? (
               <>
                 <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                  המסמך הזה מזכה את:
+                  {t("account.settings.historical.detail.credits.reverses")}
                 </p>
                 <ul className="mt-1 flex flex-col divide-y divide-[var(--dz-border-subtle)]">
                   <RelationRow relation={record.reverses} recordsBase={recordsBase} />
@@ -364,11 +366,10 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
             ) : record.reversesOriginalNumberRaw ? (
               <>
                 <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                  המסמך הזה מזכה את מספר {record.reversesOriginalNumberRaw}
+                  {t("account.settings.historical.detail.credits.reversesNumber", { number: record.reversesOriginalNumberRaw })}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                  המסמך המקורי לא נמצא בהיסטוריה, ולכן המספר נשמר כפי שנכתב, בלי
-                  קישור למסמך.
+                  {t("account.settings.historical.detail.credits.unresolved")}
                 </p>
               </>
             ) : null}
@@ -376,7 +377,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
             {record.reversedBy.length > 0 ? (
               <>
                 <p className="mt-4 text-xs font-semibold text-[var(--dz-text-primary)]">
-                  מסמכים שמזכים את המסמך הזה:
+                  {t("account.settings.historical.detail.credits.reversedBy")}
                 </p>
                 <ul className="mt-1 flex flex-col divide-y divide-[var(--dz-border-subtle)]">
                   {record.reversedBy.map((relation) => (
@@ -396,8 +397,7 @@ export function HistoricalRecordDetail({ recordId, recordsBase }: Props) {
       <div className="mt-4">
         <SettingsSection>
           <p className="text-xs leading-5 text-[var(--dz-text-muted)]">
-            מסמך היסטורי נשמר לצפייה בלבד. אי אפשר לערוך אותו, לשלוח אותו, להפיק
-            ממנו מסמך בדוביז או לדווח עליו.
+            {t("account.settings.historical.detail.viewOnly")}
           </p>
         </SettingsSection>
       </div>

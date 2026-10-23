@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { HE_T } from "@/features/home/lib/home-i18n";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
 /**
  * The notification centre.
@@ -54,17 +58,17 @@ type Page = {
 type Filter = "all" | "unread";
 
 /** Mirrors the attention page's severity presentation. */
-export function severityStyle(severity: string): { label: string; bg: string; color: string; border: string } {
+export function severityStyle(severity: string, t: Translator = HE_T): { label: string; bg: string; color: string; border: string } {
   switch (severity) {
     case "CRITICAL":
-      return { label: "קריטי", bg: "var(--dz-danger-bg-soft)", color: "var(--dz-danger)", border: "rgba(155, 70, 52, 0.22)" };
+      return { label: t("home.notifications.severity.CRITICAL"), bg: "var(--dz-danger-bg-soft)", color: "var(--dz-danger)", border: "rgba(155, 70, 52, 0.22)" };
     case "HIGH":
-      return { label: "גבוה", bg: "var(--dz-warning-bg-soft)", color: "var(--dz-warning)", border: "rgba(129, 90, 50, 0.22)" };
+      return { label: t("home.notifications.severity.HIGH"), bg: "var(--dz-warning-bg-soft)", color: "var(--dz-warning)", border: "rgba(129, 90, 50, 0.22)" };
     case "REMINDER":
       // A personal task reminder the owner set (owner-approved plan 2026-10-21).
       return { label: "תזכורת", bg: "var(--dz-brand-soft, #e6efec)", color: "var(--dz-brand, #246966)", border: "rgba(36, 105, 102, 0.2)" };
     case "MEDIUM":
-      return { label: "בינוני", bg: "var(--dz-surface-muted)", color: "var(--dz-text-secondary)", border: "rgba(52, 60, 50, 0.1)" };
+      return { label: t("home.notifications.severity.MEDIUM"), bg: "var(--dz-surface-muted)", color: "var(--dz-text-secondary)", border: "rgba(52, 60, 50, 0.1)" };
     default:
       return { label: severity, bg: "var(--dz-surface-muted)", color: "var(--dz-text-muted)", border: "rgba(52, 60, 50, 0.06)" };
   }
@@ -74,17 +78,17 @@ export function severityStyle(severity: string): { label: string; bg: string; co
  * Hebrew relative time, coarse on purpose. "לפני 3 שעות" is what the owner
  * needs; a timestamp to the minute is noise they have to decode.
  */
-export function relativeTime(iso: string, now: number): string {
+export function relativeTime(iso: string, now: number, t: Translator = HE_T, locale: Locale = "he"): string {
   const diff = Math.max(0, now - new Date(iso).getTime());
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "כרגע";
-  if (minutes < 60) return `לפני ${minutes} דק׳`;
+  if (minutes < 1) return t("home.notifications.timeNow");
+  if (minutes < 60) return t("home.notifications.timeMinutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `לפני ${hours} שע׳`;
+  if (hours < 24) return t("home.notifications.timeHours", { count: hours });
   const days = Math.floor(hours / 24);
-  if (days === 1) return "אתמול";
-  if (days < 30) return `לפני ${days} ימים`;
-  return new Date(iso).toLocaleDateString("he-IL");
+  if (days === 1) return t("home.notifications.timeYesterday");
+  if (days < 30) return t("home.notifications.timeDays", { count: days });
+  return new Date(iso).toLocaleDateString(intlTag(locale));
 }
 
 /** Internal links only. An href from the server is still not a reason to leave the app. */
@@ -155,6 +159,7 @@ export async function activateNotification(deps: {
 }
 export function NotificationCenter() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -162,6 +167,7 @@ export function NotificationCenter() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadingMore, setLoadingMore] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const ago = (iso: string) => relativeTime(iso, now, t, locale);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   /**
@@ -295,7 +301,7 @@ export function NotificationCenter() {
   const selected = items.find((n) => n.id === selectedId) ?? null;
 
   return (
-    <div dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <style>{`
         .notif-role { margin: 0; color: var(--dz-text-muted); font-size: 14px; line-height: 1.6; }
         .notif-role a { color: #1f6f6b; font-weight: 700; }
@@ -328,7 +334,7 @@ export function NotificationCenter() {
       `}</style>
       <header style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--dz-text-primary)", margin: 0 }}>
-          התראות
+          {t("home.notifications.title")}
         </h1>
         {unreadCount > 0 ? (
           <span
@@ -341,13 +347,13 @@ export function NotificationCenter() {
               padding: "2px 10px",
             }}
           >
-            {unreadCount} חדשות
+            {t("home.notifications.newCount", { count: unreadCount })}
           </span>
         ) : null}
 
         <div style={{ marginInlineStart: "auto", display: "flex", gap: 8 }}>
           {/* A filter, not a tab bar: two states is all a first release earns. */}
-          <div role="group" aria-label="סינון התראות" style={{ display: "flex", gap: 4 }}>
+          <div role="group" aria-label={t("home.notifications.filterAria")} style={{ display: "flex", gap: 4 }}>
             {(["all", "unread"] as const).map((f) => (
               <button
                 key={f}
@@ -369,7 +375,7 @@ export function NotificationCenter() {
                   cursor: "pointer",
                 }}
               >
-                {f === "all" ? "הכול" : "לא נקראו"}
+                {f === "all" ? t("home.notifications.filterAll") : t("home.notifications.filterUnread")}
               </button>
             ))}
           </div>
@@ -390,18 +396,18 @@ export function NotificationCenter() {
                 cursor: "pointer",
               }}
             >
-              סמן הכל כנקרא
+              {t("home.notifications.markAllRead")}
             </button>
           ) : null}
         </div>
       </header>
       <p className="notif-role">
-        כאן רואים מה קרה. מה שדורש טיפול נמצא ב<Link href="/attention">דורש תשומת לב</Link>.
+        {t("home.notifications.roleBefore")}<Link href="/attention">{t("home.notifications.roleLink")}</Link>{t("home.notifications.roleAfter")}
       </p>
 
       {status === "loading" ? (
         <p role="status" style={{ color: "var(--dz-text-muted)", fontSize: 14 }}>
-          טוען התראות…
+          {t("home.notifications.loading")}
         </p>
       ) : null}
 
@@ -420,7 +426,7 @@ export function NotificationCenter() {
           }}
         >
           <p style={{ margin: 0, color: "var(--dz-danger)", fontSize: 14, fontWeight: 600 }}>
-            לא הצלחנו לטעון את ההתראות.
+            {t("home.notifications.failed")}
           </p>
           <button
             type="button"
@@ -442,16 +448,14 @@ export function NotificationCenter() {
               cursor: "pointer",
             }}
           >
-            נסה שוב
+            {t("home.notifications.retry")}
           </button>
         </div>
       ) : null}
 
       {status === "ready" && items.length === 0 ? (
         <p style={{ color: "var(--dz-text-muted)", fontSize: 14, lineHeight: 1.7 }}>
-          {filter === "unread"
-            ? "אין התראות שלא נקראו."
-            : "אין התראות. כשמשהו ידרוש תשומת לב — הוא יופיע כאן."}
+          {filter === "unread" ? t("home.notifications.emptyUnread") : t("home.notifications.empty")}
         </p>
       ) : null}
 
@@ -470,7 +474,7 @@ export function NotificationCenter() {
                   >
                     <b style={{ fontWeight: unread ? 700 : 500 }}>{n.title}</b>
                     <span style={{ fontSize: 12, color: "var(--dz-text-muted)" }}>
-                      {unread ? "לא נקראה" : "נקראה"} · {n.resolvedAt ? "נפתר" : "פעיל"} · {relativeTime(n.lastSurfacedAt, now)}
+                      {unread ? t("home.notifications.unread") : t("home.notifications.read")} · {n.resolvedAt ? t("home.notifications.resolved") : t("home.notifications.active")} · {ago(n.lastSurfacedAt)}
                     </span>
                   </button>
                 </li>
@@ -481,9 +485,9 @@ export function NotificationCenter() {
             {selected ? (
               <>
                 <h2>{selected.title}</h2>
-                <p>{selected.readAt === null ? "לא נקראה" : "נקראה"} · {selected.resolvedAt ? "נפתר" : "פעיל"}</p>
-                {selected.summary ? <p>{selected.summary}</p> : <p>אין פירוט נוסף.</p>}
-                <p>{relativeTime(selected.lastSurfacedAt, now)}</p>
+                <p>{selected.readAt === null ? t("home.notifications.unread") : t("home.notifications.read")} · {selected.resolvedAt ? t("home.notifications.resolved") : t("home.notifications.active")}</p>
+                {selected.summary ? <p>{selected.summary}</p> : <p>{t("home.notifications.noDetail")}</p>}
+                <p>{ago(selected.lastSurfacedAt)}</p>
                 {isSafeInternalHref(selected.href) ? (
                   <Link
                     href={selected.href}
@@ -509,14 +513,14 @@ export function NotificationCenter() {
                       textDecoration: "none",
                     }}
                   >
-                    פתיחה
+                    {t("home.notifications.open")}
                   </Link>
                 ) : null}
               </>
             ) : (
               <>
-                <h2>התראה</h2>
-                <p>בחרו שורה כדי לקרוא מה קרה. הפתיחה מובילה למסך של אותו דבר.</p>
+                <h2>{t("home.notifications.sideTitle")}</h2>
+                <p>{t("home.notifications.sideHint")}</p>
               </>
             )}
           </aside>
@@ -526,7 +530,7 @@ export function NotificationCenter() {
       {status === "ready" && items.length > 0 ? (
         <ul className="notif-cards" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map((n) => {
-            const sev = severityStyle(n.severity);
+            const sev = severityStyle(n.severity, t);
             const unread = n.readAt === null;
             const resolved = n.resolvedAt !== null;
             const linkable = isSafeInternalHref(n.href);
@@ -574,10 +578,10 @@ export function NotificationCenter() {
                       {sev.label}
                     </span>
                     <span style={{ fontSize: 12, color: "var(--dz-text-muted)" }}>
-                      {resolved ? "נפתר" : "פעיל"}
+                      {resolved ? t("home.notifications.resolved") : t("home.notifications.active")}
                     </span>
                     <span style={{ fontSize: 12, color: "var(--dz-text-muted)", marginInlineStart: "auto" }}>
-                      {relativeTime(n.lastSurfacedAt, now)}
+                      {ago(n.lastSurfacedAt)}
                     </span>
                   </div>
 
@@ -610,8 +614,8 @@ export function NotificationCenter() {
 
                   {/* The state in words, for anyone not seeing the colours. */}
                   <span className="sr-only">
-                    {unread ? "לא נקראה. " : "נקראה. "}
-                    {resolved ? "הבעיה נפתרה." : "הבעיה עדיין פעילה."}
+                    {unread ? t("home.notifications.srUnread") : t("home.notifications.srRead")}{" "}
+                    {resolved ? t("home.notifications.srResolved") : t("home.notifications.srActive")}
                   </span>
                 </div>
               </article>
@@ -683,7 +687,7 @@ export function NotificationCenter() {
             cursor: loadingMore ? "default" : "pointer",
           }}
         >
-          {loadingMore ? "טוען…" : "טען עוד"}
+          {loadingMore ? t("home.notifications.loadingMore") : t("home.notifications.loadMore")}
         </button>
       ) : null}
     </div>

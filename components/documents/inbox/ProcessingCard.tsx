@@ -4,24 +4,27 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 
-function sourceLabel(source: string): string {
-  if (source === "email") return "מייל";
+function sourceLabel(t: Translator, source: string): string {
+  if (source === "email") return t("documents.common.sourceEmail");
   if (source === "whatsapp") return "WhatsApp";
-  return "העלאה";
+  return t("documents.common.sourceUpload");
 }
 
-function kindLabel(item: InboxListItem): string {
+function kindLabel(t: Translator, item: InboxListItem): string {
   if (item.preview.kind === "pdf") return "PDF";
-  if (item.preview.kind === "image") return "תמונה";
-  return "קובץ";
+  if (item.preview.kind === "image") return t("documents.common.kindImage");
+  return t("documents.common.kindFile");
 }
 
-function formatTime(iso: string | null | undefined): string {
+function formatTime(iso: string | null | undefined, locale: Locale = DEFAULT_LOCALE): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString(intlTag(locale), { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -39,11 +42,12 @@ export default function ProcessingCard({
   onRetried: () => void;
 }) {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
 
   const isFailed = item.status === "failed";
-  const meta = [sourceLabel(item.source), kindLabel(item), formatTime(item.createdAt)]
+  const meta = [sourceLabel(t, item.source), kindLabel(t, item), formatTime(item.createdAt, locale)]
     .filter(Boolean)
     .join(" · ");
 
@@ -58,18 +62,18 @@ export default function ProcessingCard({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "נסה שוב מאוחר יותר");
+        throw new Error(data?.error || t("documents.inbox.retryLater"));
       }
       onRetried();
     } catch (e) {
-      setRetryError(e instanceof Error ? e.message : "נסה שוב מאוחר יותר");
+      setRetryError(e instanceof Error ? e.message : t("documents.inbox.retryLater"));
     } finally {
       setRetrying(false);
     }
   }
 
   return (
-    <article dir="rtl" style={cardStyle}>
+    <article style={cardStyle}>
       <div
         style={{
           ...thumbStyle,
@@ -82,7 +86,7 @@ export default function ProcessingCard({
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={titleStyle}>
-          {isFailed ? "העלאה נכשלה" : "מעבד מסמך…"}
+          {isFailed ? t("documents.inbox.processingFailed") : t("documents.inbox.processing")}
         </div>
         <div style={metaStyle}>{meta}</div>
         {retryError ? <div style={retryErrorStyle}>{retryError}</div> : null}
@@ -96,7 +100,7 @@ export default function ProcessingCard({
             disabled={retrying}
             style={{ ...retryButtonStyle, opacity: retrying ? 0.6 : 1 }}
           >
-            {retrying ? "מנסה…" : "נסה שוב"}
+            {retrying ? t("documents.inbox.retrying") : t("documents.common.retry")}
           </button>
         ) : (
           <button
@@ -104,7 +108,7 @@ export default function ProcessingCard({
             onClick={() => router.push(`/documents/review/${item.documentId}`)}
             style={statusPillStyle}
           >
-            בעיבוד
+            {t("documents.inbox.statusProcessing")}
           </button>
         )}
       </div>

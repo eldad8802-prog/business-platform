@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { CHANNEL_LABELS } from "@/components/business/identity/identity-labels";
-import { STRATEGY_TITLES } from "@/lib/services/landing/landing-strategy-explain";
+import { useIdentityLabels } from "@/components/business/identity/identity-labels";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 import type { LandingStrategySet } from "@/lib/services/landing/landing-strategy-engine";
 import type { CompositionResult } from "@/lib/services/landing/composer/landing-composer";
 import { BlueprintPreview } from "./BlueprintPreview";
-import { MISSING_LABELS, SECTION_LABELS, SET_CONFLICT_LABELS } from "./landing-labels";
+import { useLandingLabels } from "./landing-labels";
 import styles from "./landing-strategy.module.css";
 
 /**
@@ -32,25 +33,28 @@ async function fetchSet(): Promise<LandingStrategySet | null> {
 }
 
 /** P3-C — send ONLY the server-issued strategy id; the server recomputes everything else. */
-async function composeDraft(strategyId: string): Promise<{ result: CompositionResult | null; error: string | null }> {
+async function composeDraft(t: Translator, strategyId: string): Promise<{ result: CompositionResult | null; error: string | null }> {
   try {
     const res = await fetch("/api/business/landing-blueprint", {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ strategyId }),
     });
-    if (res.status === 409) return { result: null, error: "הכיוון הזה השתנה בינתיים. רעננו את הדף ונסו שוב." };
-    if (res.status === 429) return { result: null, error: "נוצרו הרבה טיוטות בזמן קצר. נסו שוב בעוד כמה דקות." };
-    if (!res.ok) return { result: null, error: "לא הצלחנו ליצור טיוטה כרגע." };
+    if (res.status === 409) return { result: null, error: t("content.identity.strategy.errorChanged") };
+    if (res.status === 429) return { result: null, error: t("content.identity.strategy.errorRateLimited") };
+    if (!res.ok) return { result: null, error: t("content.identity.strategy.errorGeneric") };
     return { result: ((await res.json()) as { result: CompositionResult }).result, error: null };
   } catch {
-    return { result: null, error: "לא הצלחנו ליצור טיוטה כרגע." };
+    return { result: null, error: t("content.identity.strategy.errorGeneric") };
   }
 }
 
 const label = (map: Record<string, string>, code: string) => map[code] ?? map[code.replace(/^ASSET:/, "")] ?? code;
 
 export function LandingStrategyPreview() {
+  const { t } = useI18n();
+  const { CHANNEL_LABELS } = useIdentityLabels();
+  const { MISSING_LABELS, SECTION_LABELS, SET_CONFLICT_LABELS, strategyTitle } = useLandingLabels();
   const [set, setSet] = useState<LandingStrategySet | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [composing, setComposing] = useState<string | null>(null);
@@ -62,7 +66,7 @@ export function LandingStrategyPreview() {
     if (inFlight.current) return;
     inFlight.current = true;
     setComposing(strategyId);
-    void composeDraft(strategyId).then((r) => {
+    void composeDraft(t, strategyId).then((r) => {
       inFlight.current = false;
       setComposing(null);
       setDraft({ strategyId, ...r });
@@ -81,23 +85,23 @@ export function LandingStrategyPreview() {
     };
   }, []);
 
-  if (state === "loading") return <p className={styles.muted}>טוען…</p>;
-  if (state === "error" || !set) return <p className={styles.alert}>לא הצלחנו לטעון את הכיוונים כרגע.</p>;
+  if (state === "loading") return <p className={styles.muted}>{t("content.identity.strategy.loading")}</p>;
+  if (state === "error" || !set) return <p className={styles.alert}>{t("content.identity.strategy.loadError")}</p>;
 
   const { readiness } = set;
   return (
     <div className={styles.wrap}>
-      <section className={styles.summary} aria-label="מוכנות">
+      <section className={styles.summary} aria-label={t("content.identity.strategy.readinessAria")}>
         <div>
-          <strong>בחירת כיוון</strong>
+          <strong>{t("content.identity.strategy.chooseDirection")}</strong>
           <span className={readiness.strategy.canGenerateStrategies ? styles.ok : styles.warnText}>
-            {readiness.strategy.canGenerateStrategies ? "אפשר להציע כיוונים" : "עדיין אין מספיק מידע"}
+            {readiness.strategy.canGenerateStrategies ? t("content.identity.strategy.canSuggest") : t("content.identity.strategy.notEnough")}
           </span>
         </div>
         <div>
-          <strong>פרסום דף</strong>
+          <strong>{t("content.identity.strategy.publishPage")}</strong>
           <span className={readiness.publication.publishReady ? styles.ok : styles.warnText}>
-            {readiness.publication.publishReady ? "יש את כל מה שצריך" : "חסרים פרטים לפרסום"}
+            {readiness.publication.publishReady ? t("content.identity.strategy.hasEverything") : t("content.identity.strategy.missingDetails")}
           </span>
         </div>
       </section>
@@ -108,7 +112,7 @@ export function LandingStrategyPreview() {
 
       {set.strategies.length === 0 ? (
         <p className={styles.alert}>
-          עדיין אין כיוון שאפשר להציע בלי להמציא. {readiness.strategy.blockingReasons.map((r) => label(MISSING_LABELS, r)).join(" · ")}
+          {t("content.identity.strategy.noStrategy")} {readiness.strategy.blockingReasons.map((r) => label(MISSING_LABELS, r)).join(" · ")}
         </p>
       ) : (
         <ol className={styles.grid}>
@@ -117,31 +121,31 @@ export function LandingStrategyPreview() {
             return (
               <li key={s.id} className={styles.card}>
                 <div className={styles.cardHead}>
-                  <span className={styles.badge}>{i === 0 ? "מומלץ" : `חלופה ${i}`}</span>
-                  <h2 className={styles.h2}>{STRATEGY_TITLES[s.strategyType]}</h2>
+                  <span className={styles.badge}>{i === 0 ? t("content.identity.strategy.recommended") : t("content.identity.strategy.alternative", { n: i })}</span>
+                  <h2 className={styles.h2}>{strategyTitle(s.strategyType)}</h2>
                 </div>
                 <p className={styles.why}>{s.ownerExplanation}</p>
                 <dl className={styles.facts}>
                   <div>
-                    <dt>פעולה ללקוח</dt>
-                    <dd>{conv.kind === "ACTION" ? CHANNEL_LABELS[conv.channel] ?? conv.channel : "בלי כפתור פעולה (אין עדיין דרך פנייה מאושרת)"}</dd>
+                    <dt>{t("content.identity.strategy.customerAction")}</dt>
+                    <dd>{conv.kind === "ACTION" ? CHANNEL_LABELS[conv.channel] ?? conv.channel : t("content.identity.strategy.noAction")}</dd>
                   </div>
                   <div>
-                    <dt>במרכז הדף</dt>
+                    <dt>{t("content.identity.strategy.pageFocus")}</dt>
                     <dd>{s.offeringFocus.primary.length ? s.offeringFocus.primary.map((o) => o.name).join(" · ") : "—"}</dd>
                   </div>
                   <div>
-                    <dt>מבנה</dt>
-                    <dd>{s.recommendedSections.filter((x) => x.required || x.dataAvailable).map((x) => SECTION_LABELS[x.section] ?? x.section).join(" ← ")}</dd>
+                    <dt>{t("content.identity.strategy.structure")}</dt>
+                    <dd>{s.recommendedSections.filter((x) => x.required || x.dataAvailable).map((x) => SECTION_LABELS[x.section] ?? x.section).join(t("content.identity.strategy.sectionJoin"))}</dd>
                   </div>
                 </dl>
-                <Link className={styles.compose} href={`/business/landing-preview?strategy=${encodeURIComponent(s.id)}`}>תצוגה מקדימה של הדף ←</Link>
+                <Link className={styles.compose} href={`/business/landing-preview?strategy=${encodeURIComponent(s.id)}`}>{t("content.identity.strategy.previewLink")}</Link>
                 <button type="button" className={styles.compose} disabled={composing !== null} onClick={() => onCompose(s.id)}>
-                  {composing === s.id ? "יוצרים טיוטה…" : "יצירת טיוטת דף לכיוון הזה"}
+                  {composing === s.id ? t("content.identity.strategy.composing") : t("content.identity.strategy.compose")}
                 </button>
                 {s.publication.missing.length > 0 && (
                   <div className={styles.missing}>
-                    <strong>חסר כדי לפרסם</strong>
+                    <strong>{t("content.identity.strategy.missingToPublish")}</strong>
                     <ul>
                       {s.publication.missing.map((m) => (
                         <li key={m}>{label(MISSING_LABELS, m)}</li>
@@ -156,12 +160,12 @@ export function LandingStrategyPreview() {
       )}
       {draft && (
         <div aria-live="polite">
-          <h2 className={styles.h2}>טיוטה: {STRATEGY_TITLES[set.strategies.find((x) => x.id === draft.strategyId)?.strategyType ?? "CALL_FIRST"]}</h2>
+          <h2 className={styles.h2}>{t("content.identity.strategy.draftHeading", { title: strategyTitle(set.strategies.find((x) => x.id === draft.strategyId)?.strategyType ?? "CALL_FIRST") })}</h2>
           {draft.error ? <p className={styles.alert}>{draft.error}</p> : draft.result && <BlueprintPreview result={draft.result} />}
         </div>
       )}
       <p className={styles.muted}>
-        אלה הצעות בלבד. שום דבר לא נשמר ולא מתפרסם; דף יוצג ללקוחות רק עם פרטים שאישרת לשימוש פומבי.
+        {t("content.identity.strategy.footnote")}
       </p>
     </div>
   );

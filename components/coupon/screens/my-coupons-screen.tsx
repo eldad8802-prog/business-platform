@@ -32,7 +32,17 @@ import {
   fetchMyCoupons,
   type MyCoupon,
 } from "@/lib/coupon/api";
-import { LIFECYCLE_LABEL, type CouponLifecycleState } from "@/lib/revenue/coupon-lifecycle";
+import type { CouponLifecycleState } from "@/lib/revenue/coupon-lifecycle";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+/** Display labels for the lifecycle states (Hebrew identical to LIFECYCLE_LABEL). */
+const STATE_LABEL: Record<CouponLifecycleState, MessageKey> = {
+  ACTIVE: "content.commerce.coupon.lifecycle.ACTIVE",
+  REDEEMED: "content.commerce.coupon.lifecycle.REDEEMED",
+  EXPIRED: "content.commerce.coupon.lifecycle.EXPIRED",
+  DISABLED: "content.commerce.coupon.lifecycle.DISABLED",
+};
 
 const W = TOKEN.warm;
 
@@ -44,10 +54,11 @@ const STATE_TONE: Record<CouponLifecycleState, { color: string; bg: string }> = 
 };
 
 function StatePill({ state }: { state: CouponLifecycleState }) {
+  const { t } = useI18n();
   const tone = STATE_TONE[state];
   return (
     <span style={{ fontSize: 11.5, fontWeight: 600, color: tone.color, background: tone.bg, borderRadius: W.radius.pill, padding: "3px 10px", whiteSpace: "nowrap" }}>
-      {LIFECYCLE_LABEL[state]}
+      {t(STATE_LABEL[state])}
     </span>
   );
 }
@@ -80,6 +91,7 @@ function CouponCard({
   notice: string | null;
   onNotice: (publicId: string, message: string | null) => void;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
 
   /**
@@ -128,9 +140,9 @@ function CouponCard({
       ) : null}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 12 }}>
-        <Meta label="פורסם" value={shortDate(coupon.issuedAt)} />
-        <Meta label="בתוקף עד" value={shortDate(coupon.expiresAt)} />
-        <Meta label="מומש" value={coupon.redemptionCount > 0 ? shortDate(coupon.redeemedAt ?? "") : "טרם"} />
+        <Meta label={t("content.commerce.coupon.mine.published")} value={shortDate(coupon.issuedAt)} />
+        <Meta label={t("content.commerce.coupon.mine.validUntil")} value={shortDate(coupon.expiresAt)} />
+        <Meta label={t("content.commerce.coupon.mine.redeemed")} value={coupon.redemptionCount > 0 ? shortDate(coupon.redeemedAt ?? "") : t("content.commerce.coupon.mine.notYet")} />
       </div>
 
       {error ? (
@@ -146,23 +158,23 @@ function CouponCard({
       <div style={{ display: "flex", gap: 10, marginTop: 14, paddingTop: 13, borderTop: `1px solid ${W.line}` }}>
         {coupon.state === "ACTIVE" ? (
           <SecondaryButton onClick={busy ? undefined : () => run(disableCoupon)} disabled={busy} style={{ flex: 1 }}>
-            {busy ? "עוצר…" : "השבת קופון"}
+            {busy ? t("content.commerce.coupon.mine.stopping") : t("content.commerce.coupon.mine.disable")}
           </SecondaryButton>
         ) : null}
         {coupon.state === "DISABLED" ? (
           <SecondaryButton onClick={busy ? undefined : () => run(enableCoupon)} disabled={busy} style={{ flex: 1 }}>
-            {busy ? "מפעיל…" : "הפעל מחדש"}
+            {busy ? t("content.commerce.coupon.mine.enabling") : t("content.commerce.coupon.mine.enable")}
           </SecondaryButton>
         ) : null}
         <a href={`/revenue/coupons/${coupon.publicId}`}
           style={{ flex: 1, height: 44, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: W.radius.control, border: `1px solid ${W.line}`, background: W.surface, fontSize: 14, fontWeight: 600, color: W.ink, textDecoration: "none" }}>
-          עמוד הקופון
+          {t("content.commerce.coupon.mine.couponPage")}
         </a>
       </div>
 
       {coupon.state === "DISABLED" ? (
         <div style={{ fontSize: 12, color: W.muted2, marginTop: 10, lineHeight: 1.5 }}>
-          מושבת — לא ניתן לממש אותו והוא לא מופיע ללקוחות. אפשר להפעיל מחדש כל עוד לא פג התוקף.
+          {t("content.commerce.coupon.mine.disabledNote")}
         </div>
       ) : null}
     </div>
@@ -234,7 +246,7 @@ const COLLECTION_CSS = `
   .offer-group { padding: 12px 12px 6px; font-size: 12.5px; font-weight: 700; color: ${W.muted}; }
   .offer-row {
     width: 100%; padding: 11px 12px; border: 0; border-radius: 12px;
-    background: transparent; color: inherit; font: inherit; text-align: right; cursor: pointer;
+    background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer;
     font-size: 13px; color: ${W.muted}; font-variant-numeric: tabular-nums;
   }
   .offer-row:hover { background: ${W.surface2}; }
@@ -249,11 +261,11 @@ const COLLECTION_CSS = `
 }
 `;
 
-const DESK_COUNTS: Array<{ state: CouponLifecycleState; label: string }> = [
-  { state: "ACTIVE", label: "פעילים" },
-  { state: "DISABLED", label: "מושבתים" },
-  { state: "EXPIRED", label: "פג תוקף" },
-  { state: "REDEEMED", label: "מומשו" },
+const DESK_COUNTS: Array<{ state: CouponLifecycleState; label: MessageKey }> = [
+  { state: "ACTIVE", label: "content.commerce.coupon.mine.counts.ACTIVE" },
+  { state: "DISABLED", label: "content.commerce.coupon.mine.counts.DISABLED" },
+  { state: "EXPIRED", label: "content.commerce.coupon.mine.counts.EXPIRED" },
+  { state: "REDEEMED", label: "content.commerce.coupon.mine.counts.REDEEMED" },
 ];
 
 function Centered({ children }: { children: ReactNode }) {
@@ -273,6 +285,7 @@ export function MyCouponsScreen({
   onBrowse: () => void;
   onExit?: () => void;
 }) {
+  const { t } = useI18n();
   const [coupons, setCoupons] = useState<MyCoupon[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -338,71 +351,71 @@ export function MyCouponsScreen({
   return (
     <PhoneFrame>
       <style>{COLLECTION_CSS}</style>
-      <ScreenHeader title="הקופונים שלי" action={<BackButton onClick={onExit} />} />
+      <ScreenHeader title={t("content.commerce.coupon.mine.title")} action={<BackButton onClick={onExit} />} />
       <ScreenBody>
         <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>
-          כאן חיות ההטבות שאתה מוציא ללקוחות שלך.
+          {t("content.commerce.coupon.mine.intro")}
         </div>
 
         <div className="offer-toolbar">
-          <div className="offer-counts" aria-label="הקופונים לפי מצב">
+          <div className="offer-counts" aria-label={t("content.commerce.coupon.mine.countsAria")}>
             {coupons && coupons.length > 0
               ? DESK_COUNTS.map(({ state, label }) => {
                   const count = coupons.filter((c) => c.state === state).length;
                   return count > 0 ? (
-                    <span key={state} className="offer-count"><b>{count}</b>{label}</span>
+                    <span key={state} className="offer-count"><b>{count}</b>{t(label)}</span>
                   ) : null;
                 })
               : null}
           </div>
           <div className="offer-actions">
-            <a href="/revenue/redeem" className="offer-secondary">סרוק ומַמֵּש קופון</a>
-            <button type="button" className="offer-secondary" onClick={onBrowse}>מה עסקים אחרים מציעים</button>
+            <a href="/revenue/redeem" className="offer-secondary">{t("content.commerce.coupon.mine.scanRedeem")}</a>
+            <button type="button" className="offer-secondary" onClick={onBrowse}>{t("content.commerce.coupon.mine.whatOthersOffer")}</button>
             <PrimaryButton onClick={onCreate} style={{ width: "auto", height: 44, paddingInline: 22 }}>
-              צור קופון חדש
+              {t("content.commerce.coupon.mine.createNew")}
             </PrimaryButton>
           </div>
         </div>
 
         <div className="offer-mobile">
           <PrimaryButton onClick={onCreate} style={{ marginBottom: 20 }}>
-            צור קופון חדש
+            {t("content.commerce.coupon.mine.createNew")}
           </PrimaryButton>
         </div>
 
         {coupons === null ? (
-          <Centered>טוען את הקופונים שלך…</Centered>
+          <Centered>{t("content.commerce.coupon.mine.loading")}</Centered>
         ) : error ? (
           // A load failure is never rendered as "you have no coupons" — the two
           // are different facts and the owner is told which one this is.
           <Centered>
             <div style={{ color: "var(--dz-danger)", fontWeight: 600, marginBottom: 10 }}>{error}</div>
-            <SecondaryButton onClick={() => { setCoupons(null); void load(); }}>נסה שוב</SecondaryButton>
+            <SecondaryButton onClick={() => { setCoupons(null); void load(); }}>{t("content.commerce.coupon.mine.retry")}</SecondaryButton>
           </Centered>
         ) : coupons.length === 0 ? (
           <Centered>
             <div style={{ width: 46, height: 46, borderRadius: 14, background: W.surface2, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <StrokeIcon size={22} color={W.muted2} width={2}><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z" /></StrokeIcon>
             </div>
-            עדיין לא יצרת קופון.<br />ההטבה הראשונה שלך תופיע כאן.
+            {t("content.commerce.coupon.mine.emptyLine1")}<br />{t("content.commerce.coupon.mine.emptyLine2")}
           </Centered>
         ) : (
           <>
             <div className="offer-desk">
-              <div className="offer-queue" role="listbox" aria-label="הקופונים שלי" onKeyDown={onQueueKey}>
+              <div className="offer-queue" role="listbox" aria-label={t("content.commerce.coupon.mine.title")} onKeyDown={onQueueKey}>
                 <div className="offer-head offer-cols" aria-hidden>
-                  <span>הטבה</span>
-                  <span>פורסם</span>
-                  <span>בתוקף עד</span>
-                  <span>מצב</span>
+                  <span>{t("content.commerce.coupon.mine.colBenefit")}</span>
+                  <span>{t("content.commerce.coupon.mine.colPublished")}</span>
+                  <span>{t("content.commerce.coupon.mine.colValidUntil")}</span>
+                  <span>{t("content.commerce.coupon.mine.colState")}</span>
                 </div>
-                {live.length > 0 ? <div className="offer-group">פעיל · {live.length}</div> : null}
+                {live.length > 0 ? <div className="offer-group">{t("content.commerce.coupon.mine.groupLive", { count: live.length })}</div> : null}
                 {live.map(queueRow)}
-                {past.length > 0 ? <div className="offer-group">הסתיים · {past.length}</div> : null}
+                {past.length > 0 ? <div className="offer-group">{t("content.commerce.coupon.mine.groupPast", { count: past.length })}</div> : null}
                 {past.map(queueRow)}
               </div>
-              <aside className="offer-inspect" aria-label="הקופון שנבחר">
-                <div className="offer-inspect-label">הקופון שנבחר</div>
+              <aside className="offer-inspect" aria-label={t("content.commerce.coupon.mine.selectedAria")}>
+                <div className="offer-inspect-label">{t("content.commerce.coupon.mine.selected")}</div>
                 {current ? (
                   <CouponCard coupon={current} onChanged={load} notice={notices[current.publicId] ?? null} onNotice={setNotice} />
                 ) : null}
@@ -411,7 +424,7 @@ export function MyCouponsScreen({
             <div className="offer-mobile">
             {live.length > 0 ? (
               <>
-                <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>פעיל</div>
+                <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>{t("content.commerce.coupon.mine.live")}</div>
                 <div className="rv-coupon-collection" style={{ gap: 12, marginBottom: 26 }}>
                   {live.map((c) => <CouponCard key={c.publicId} coupon={c} onChanged={load} notice={notices[c.publicId] ?? null} onNotice={setNotice} />)}
                 </div>
@@ -420,7 +433,7 @@ export function MyCouponsScreen({
 
             {past.length > 0 ? (
               <>
-                <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>הסתיים</div>
+                <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>{t("content.commerce.coupon.mine.past")}</div>
                 <div className="rv-coupon-collection" style={{ gap: 10 }}>
                   {past.map((c) => <CouponCard key={c.publicId} coupon={c} onChanged={load} notice={notices[c.publicId] ?? null} onNotice={setNotice} />)}
                 </div>
@@ -440,9 +453,9 @@ export function MyCouponsScreen({
         <div className="offer-mobile" style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${W.line}`, display: "flex", flexDirection: "column", gap: 10 }}>
           <a href="/revenue/redeem"
             style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: W.radius.control, border: `1px solid ${W.line}`, background: W.surface, fontSize: 14, fontWeight: 600, color: W.ink, textDecoration: "none" }}>
-            סרוק ומַמֵּש קופון
+            {t("content.commerce.coupon.mine.scanRedeem")}
           </a>
-          <SecondaryButton onClick={onBrowse}>ראה מה עסקים אחרים מציעים</SecondaryButton>
+          <SecondaryButton onClick={onBrowse}>{t("content.commerce.coupon.mine.seeWhatOthersOffer")}</SecondaryButton>
         </div>
       </ScreenBody>
     </PhoneFrame>

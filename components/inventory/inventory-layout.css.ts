@@ -6,7 +6,6 @@ export const inventoryLayoutCss = `
     display: flex;
     flex-direction: column;
     background: var(--inv-page-bg, var(--dz-background));
-    direction: rtl;
   }
 
   .inv-subpage-body {

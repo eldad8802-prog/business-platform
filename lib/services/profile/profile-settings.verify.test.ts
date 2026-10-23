@@ -24,6 +24,7 @@ import { HOME_ROUTES } from "@/lib/navigation/home-routes";
 import { formatAppVersion, resolveAppVersion } from "@/lib/app-version";
 import { SETTINGS_CATEGORIES } from "@/components/settings/settings-categories";
 import { buildSettingsHub, SUPPORT_EMAIL } from "@/components/settings/settings-hub";
+import { accountHe } from "@/lib/i18n/messages/areas/account";
 
 import {
   computeProfileCompletion,
@@ -152,8 +153,10 @@ check("WhatsApp settings returns to Connections, not Tools", () => {
 /* ================================ 2. no invented capability ============== */
 
 const ALL_HUB_COPY = HUB_ROWS.map((r) => `${r.title} ${r.subtitle}`).join(" ");
-const PROFILE_SRC = read("features/account/profile/ProfileScreen.tsx");
-const HUB_SRC = read("features/account/settings/SettingsHubScreen.tsx");
+// The screens' copy lives in the i18n dictionary (lib/i18n/messages/areas/account.ts): what a screen
+// shows is its source plus its dictionary section.
+const PROFILE_SRC = read("features/account/profile/ProfileScreen.tsx") + " " + JSON.stringify(accountHe.profile);
+const HUB_SRC = read("features/account/settings/SettingsHubScreen.tsx") + " " + JSON.stringify(accountHe.settings.hub);
 
 check("the hub offers none of the capabilities Dubiz does not have", () => {
   for (const absent of ["ניהול עסקים", "צוות והרשאות", "יישומים מחוברים", "מרכז עזרה", "אילו התראות"]) {
@@ -268,8 +271,10 @@ check("the public data-deletion page names Settings paths that exist", () => {
   const titles = new Map(SETTINGS_CATEGORIES.map((c) => [c.key, c.title]));
   assert.ok(page.includes(`הגדרות ← ${titles.get("account-privacy")} ← מחיקת חשבון`), "account deletion path");
   assert.ok(page.includes(`הגדרות ← ${titles.get("connections")} ← WhatsApp ← מחיקת נתוני Meta`), "Meta path");
-  assert.ok(read("components/settings/DeleteAccountSection.tsx").includes("מחיקת חשבון"));
-  assert.ok(read("app/settings/account/page.tsx").includes(`>${titles.get("account-privacy")}<`));
+  assert.equal(accountHe.settings.deleteAccount.title, "מחיקת חשבון");
+  assert.ok(read("components/settings/DeleteAccountSection.tsx").includes('t("account.settings.deleteAccount.title")'));
+  assert.equal(accountHe.settings.categories.accountPrivacy.title, titles.get("account-privacy"));
+  assert.ok(read("app/settings/account/page.tsx").includes('>{t("account.settings.categories.accountPrivacy.title")}<'));
 });
 
 check("the tax-invoice identity error names the Settings row that exists", () => {

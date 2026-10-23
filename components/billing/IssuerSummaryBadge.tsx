@@ -7,6 +7,7 @@ import {
   type BillingBusinessKind,
 } from "@/lib/billing/business-identity";
 import { TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -32,6 +33,7 @@ function isValidLogo(v: string | null): boolean {
 }
 
 export function IssuerSummaryBadge() {
+  const { t, dir } = useI18n();
   const [data, setData] = useState<IssuerMini | null | "loading">("loading");
 
   useEffect(() => {
@@ -70,7 +72,7 @@ export function IssuerSummaryBadge() {
           color: TOKEN.ink.meta,
         }}
       >
-        בודקים את פרטי העסק למסמך…
+        {t("billing.identity.badgeChecking")}
       </div>
     );
   }
@@ -92,7 +94,7 @@ export function IssuerSummaryBadge() {
         }}
       >
         <span style={{ fontSize: 13, color: TOKEN.semantic.attention.ink }}>
-          פרטי העסק למסמכים עדיין לא הוגדרו
+          {t("billing.identity.badgeNotSet")}
         </span>
         <Link
           href="/business"
@@ -104,7 +106,7 @@ export function IssuerSummaryBadge() {
             whiteSpace: "nowrap",
           }}
         >
-          הגדרות עסק ←
+          {t("billing.identity.badgeSettingsLink")}
         </Link>
       </div>
     );
@@ -143,7 +145,7 @@ export function IssuerSummaryBadge() {
         {hasLogo ? (
           <img
             src={data.billingLogoDataUrl!}
-            alt="לוגו"
+            alt={t("billing.identity.logoAlt")}
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
@@ -155,25 +157,21 @@ export function IssuerSummaryBadge() {
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary }}>
-          {data.billingLegalName || "שם העסק לא הוגדר"}
+          {data.billingLegalName || t("billing.identity.badgeNameMissing")}
         </div>
         {data.billingBusinessKind &&
         BILLING_BUSINESS_KIND_LABELS[data.billingBusinessKind as BillingBusinessKind] ? (
           <div style={{ fontSize: 11, color: TOKEN.ink.muted }}>
-            {
-              BILLING_BUSINESS_KIND_LABELS[
-                data.billingBusinessKind as BillingBusinessKind
-              ]
-            }
+            {t(`billing.identity.kind.${data.billingBusinessKind as BillingBusinessKind}`)}
           </div>
         ) : null}
         {hasTaxId ? (
-          <div style={{ fontSize: 11, color: TOKEN.ink.muted, direction: "ltr", textAlign: "right" }}>
-            ע.מ. / ח.פ. {data.billingTaxId}
+          <div style={{ fontSize: 11, color: TOKEN.ink.muted, direction: "ltr", textAlign: dir === "rtl" ? "right" : "left" }}>
+            {t("billing.identity.badgeTaxId", { taxId: data.billingTaxId ?? "" })}
           </div>
         ) : (
           <div style={{ fontSize: 11, color: TOKEN.semantic.attention.ink, fontWeight: 600 }}>
-            מספר עוסק לא הוגדר
+            {t("billing.identity.badgeTaxIdMissing")}
           </div>
         )}
       </div>
@@ -189,7 +187,7 @@ export function IssuerSummaryBadge() {
           flexShrink: 0,
         }}
       >
-        עריכת פרטי עסק ←
+        {t("billing.identity.badgeEditLink")}
       </Link>
     </div>
   );

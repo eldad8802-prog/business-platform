@@ -1,0 +1,34 @@
+{
+  "note": "feat/i18n-currency-foundation: Hebrew/English interface (flag DUBIZ_I18N_ENABLED, off by default) and the multi-currency money engine — no schema change, Hebrew output byte-identical.",
+  "tests": {
+    "lib/i18n/i18n.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: dictionary parity (every Hebrew key exists in every language, no extras), identical {placeholders}, no Hebrew in English, locale→direction, safe fallback, Hebrew money output byte-identical to lib/ui/money.ts; run on pull_request by i18n-multicurrency-ci.yml"
+    },
+    "lib/money/money.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: exact decimal parsing (float noise refused), no arithmetic across currencies, explicit rounding, conversion refusals (missing/stale/unverified/wrong pair/future/invalid), per-currency aggregation; run on pull_request by i18n-multicurrency-ci.yml"
+    },
+    "lib/money/scenarios.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: base / transaction / display currency separation across partial payments, exchange differences, refunds and credits, rate updates and stale rates; run on pull_request by i18n-multicurrency-ci.yml"
+    },
+    "lib/services/tasks/tasks-i18n.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: task agenda / queue / cadence text identical (hash) to the pre-i18n Hebrew output, and English when a translator is passed; run on pull_request by i18n-multicurrency-ci.yml"
+    },
+    "lib/services/crm/lead-history-i18n.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: lead lifecycle history / next-action labels — Hebrew dictionary identical to the server maps, English present for every kind; run on pull_request by i18n-multicurrency-ci.yml"
+    },
+    "lib/email/transactional/transactional-email-i18n.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the account emails (WELCOME / EMAIL_VERIFY / PASSWORD_RESET) render byte-identical Hebrew (SHA-256 of the pre-change output) for every missing/unknown locale, English only for locale 'en', the same single-use links in both languages, HTML escaping of names, and delivery passing the stored row locale; run by security-gate (pure lab) and i18n-multicurrency-ci.yml"
+    },
+    ".i18n/readiness-lib.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: helpers of the English-activation readiness CI — page-route enumeration from app/, audience classification, dynamic-segment filling, the documented Hebrew-parity normalisation (never amounts/ids), next build route-table parsing, and the customer-facing locale-reader import walk; run on pull_request by i18n-multicurrency-ci.yml"
+    }
+  }
+}

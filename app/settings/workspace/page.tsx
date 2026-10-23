@@ -1,39 +1,16 @@
-import { SettingsSection } from "@/components/settings/SettingsSection";
+import { LocaleSettingsForm } from "@/components/settings/locale/LocaleSettingsForm";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
-import { WORKSPACE_LANGUAGE_LABEL } from "@/components/settings/settings-hub";
+import { isI18nEnabled } from "@/lib/i18n/config";
+import { getServerI18n } from "@/lib/i18n/server";
 import styles from "../settings-desk.module.css";
 
-const SYSTEM_VALUES: { label: string; value: string }[] = [
-  { label: "שפה", value: WORKSPACE_LANGUAGE_LABEL },
-  { label: "כיווניות", value: "מימין לשמאל (RTL)" },
-  { label: "מטבע", value: "שקל חדש (ILS)" },
-  { label: "אזור זמן", value: "Asia/Jerusalem" },
-];
-
-export default function SettingsWorkspacePage() {
+/** הגדרות ← שפה, אזור ומטבע. */
+export default async function SettingsWorkspacePage() {
+  const { t } = await getServerI18n();
   return (
     <div className={styles.focused}>
-      <SettingsSubPageHeader title="שפה ואזור" />
-      <SettingsSection title="הגדרות אזור">
-        <p className="text-sm leading-6 text-[var(--dz-text-muted)]">
-          כך המערכת מוצגת ומחשבת. כרגע לקריאה בלבד.
-        </p>
-        <div className="mt-3 divide-y divide-[var(--dz-border-subtle)]">
-          {SYSTEM_VALUES.map((row) => (
-            <div
-              key={row.label}
-              className="flex items-center justify-between gap-3 py-2"
-            >
-              <span className="text-xs font-semibold text-[var(--dz-text-muted)]">
-                {row.label}
-              </span>
-              <span className="text-sm font-medium text-[var(--dz-text-primary)]">
-                {row.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </SettingsSection>
+      <SettingsSubPageHeader title={t("settingsLocale.title")} />
+      <LocaleSettingsForm languageSwitchEnabled={isI18nEnabled()} />
     </div>
   );
 }

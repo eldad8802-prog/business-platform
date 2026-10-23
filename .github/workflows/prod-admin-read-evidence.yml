@@ -1,0 +1,61 @@
+name: Prod Read-Only Evidence (platform-admin read plane AS app_admin_prod)
+
+# Proof, READ-ONLY, through the platform-admin read login itself (app_admin_prod), BEFORE its URL is stored in
+# Vercel. scripts/ops/admin-read-evidence.ts.
+#
+#   OWNER_DATABASE_URL = secrets.DIRECT_URL           reference counts (row_security off)
+#   ADMIN_DATABASE_URL = secrets.ADMIN_DATABASE_URL   the probe identity
+#
+# Fail closed: a missing secret, a pooled URL, a foreign host, a non-read-only session or an unexpected identity
+# refuses (never a pass). Output: check names and PASS/FAIL only — no count, name, email or row.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-admin-read-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Admin read plane AS app_admin_prod (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Both connection secrets present (fail closed, nothing printed)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL (owner) is not set in production-db — refusing."; exit 1; fi
+          if [ -z "${ADMIN_DATABASE_URL:-}" ]; then echo "::error::ADMIN_DATABASE_URL is not set in production-db — NOT RUN (this is not a pass)."; exit 1; fi
+          if [ "$DIRECT_URL" = "$ADMIN_DATABASE_URL" ]; then echo "::error::owner and admin secrets are the same URL — two identities are required."; exit 1; fi
+          echo "Both connection secrets are present and distinct."
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: node_modules/.bin/prisma generate
+
+      - name: Admin read plane AS app_admin_prod (read-only, booleans only)
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+        run: node_modules/.bin/tsx scripts/ops/admin-read-evidence.ts --allow-host ep-flat-brook-am4bhq1y

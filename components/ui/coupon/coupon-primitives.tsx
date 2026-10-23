@@ -60,7 +60,6 @@ export function PhoneFrame({ children, style }: { children: ReactNode; style?: C
         display: "flex",
         flexDirection: "column",
         position: "relative",
-        direction: "rtl",
         fontFamily: "'Heebo', system-ui, sans-serif",
         color: W.ink,
         lineHeight: 1.5,

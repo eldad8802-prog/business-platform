@@ -9,10 +9,12 @@
  */
 import type { Task, TaskSeries } from "@prisma/client";
 
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { addCalendarDays, jerusalemDayKey, jerusalemDayUtcHalfOpen, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
-import { buildAgenda, type Agenda, type ManualTask, type PendingRepair, type StoredState } from "./agenda-core";
+import { HEBREW_TEXT, buildAgenda, type Agenda, type ManualTask, type PendingRepair, type StoredState } from "./agenda-core";
 import { cadenceLabel, dayKeyToDbDate, dbDateToDayKey, firstOccurrenceOnOrAfter, nextOccurrenceAfterClose, ruleOfSeries } from "./task-core";
 import { runAllAdapters } from "./sources";
 
@@ -29,14 +31,18 @@ export type AgendaResponse = Agenda & {
 
 type LinkNames = Map<string, string>;
 
-async function linkLabels(tx: Parameters<Parameters<typeof tenantTx>[1]>[0], businessId: number, tasks: Task[]): Promise<LinkNames> {
+/** The interface language the agenda's server-built text is written in (the request's; Hebrew by default). */
+export type AgendaLanguage = { t: Translator; locale: Locale };
+const HEBREW: AgendaLanguage = { t: HEBREW_TEXT, locale: DEFAULT_LOCALE };
+
+async function linkLabels(tx: Parameters<Parameters<typeof tenantTx>[1]>[0], businessId: number, tasks: Task[], t: Translator = HEBREW_TEXT): Promise<LinkNames> {
   const ids = (k: keyof Task) => [...new Set(tasks.map((t) => t[k]).filter((x): x is number => typeof x === "number"))];
   const names: LinkNames = new Map();
   const c = ids("customerId"), s = ids("supplierId"), l = ids("leadId"), d = ids("documentId");
   if (c.length) for (const r of await tx.customer.findMany({ where: { businessId, id: { in: c } }, select: { id: true, name: true } })) names.set(`customer:${r.id}`, r.name);
   if (s.length) for (const r of await tx.supplier.findMany({ where: { businessId, id: { in: s } }, select: { id: true, name: true } })) names.set(`supplier:${r.id}`, r.name);
-  if (l.length) for (const r of await tx.lead.findMany({ where: { businessId, id: { in: l } }, select: { id: true, customerName: true } })) names.set(`lead:${r.id}`, r.customerName ?? "ליד");
-  if (d.length) for (const r of await tx.document.findMany({ where: { businessId, id: { in: d } }, select: { id: true } })) names.set(`document:${r.id}`, `מסמך ${r.id}`);
+  if (l.length) for (const r of await tx.lead.findMany({ where: { businessId, id: { in: l } }, select: { id: true, customerName: true } })) names.set(`lead:${r.id}`, r.customerName ?? t("system.tasks.links.leadFallback"));
+  if (d.length) for (const r of await tx.document.findMany({ where: { businessId, id: { in: d } }, select: { id: true } })) names.set(`document:${r.id}`, t("system.tasks.links.document", { id: r.id }));
   return names;
 }
 
@@ -48,7 +54,7 @@ export function linkOf(t: Pick<Task, "customerId" | "supplierId" | "leadId" | "d
   return null;
 }
 
-export function toManualTask(t: Task, seriesById: Map<number, TaskSeries>, names: LinkNames): ManualTask {
+export function toManualTask(t: Task, seriesById: Map<number, TaskSeries>, names: LinkNames, tr: Translator = HEBREW_TEXT): ManualTask {
   const s = t.seriesId ? seriesById.get(t.seriesId) : undefined;
   return {
     id: t.id,
@@ -59,7 +65,7 @@ export function toManualTask(t: Task, seriesById: Map<number, TaskSeries>, names
     version: t.version,
     seriesId: t.seriesId,
     sequence: t.sequence,
-    cadence: s ? cadenceLabel(ruleOfSeries(s)) : null,
+    cadence: s ? cadenceLabel(ruleOfSeries(s), tr) : null,
     link: linkOf(t, names),
     createdAt: t.createdAt.toISOString(),
     dueMinute: t.dueMinute,
@@ -81,7 +87,10 @@ export function expectedOccurrence(series: TaskSeries, lastClosedDueOn: Jerusale
  * no business items (they stay in the notifications and in "מה ממתין לך") — and a year ahead instead of a week.
  * The secretary keeps the full agenda.
  */
-export async function getAgenda(businessId: number, now: Date = new Date(), opts: { personal?: boolean } = {}): Promise<AgendaResponse> {
+export async function getAgenda(
+  businessId: number, now: Date = new Date(), lang: AgendaLanguage = HEBREW, opts: { personal?: boolean } = {},
+): Promise<AgendaResponse> {
+  const { t, locale } = lang;
   const today = jerusalemDayKey(now);
   const upcomingDays = opts.personal ? 366 : 7;
   const horizon = dayKeyToDbDate(addCalendarDays(today, upcomingDays));
@@ -106,7 +115,7 @@ export async function getAgenda(businessId: number, now: Date = new Date(), opts
     const doneToday = await tx.taskEvent.count({
       where: { businessId, actor: "OWNER_USER", eventType: { in: ["TASK_COMPLETED", "SOURCE_ITEM_ACKNOWLEDGED"] }, occurredAt: { gte: from, lt: toExclusive } },
     });
-    const names = await linkLabels(tx, businessId, tasks);
+    const names = await linkLabels(tx, businessId, tasks, t);
     return { tasks, series, openBySeries, lastClosed, states, prefs, doneToday, names };
   });
 
@@ -115,10 +124,10 @@ export async function getAgenda(businessId: number, now: Date = new Date(), opts
   for (const r of stored.lastClosed) if (r.seriesId && !lastClosedBySeries.has(r.seriesId)) lastClosedBySeries.set(r.seriesId, r.dueOn ? dbDateToDayKey(r.dueOn) : null);
   const repairs: PendingRepair[] = stored.series
     .filter((s) => !s.pausedAt && !stored.openBySeries.has(s.id))
-    .map((s) => ({ seriesId: s.id, title: s.title, dueOn: expectedOccurrence(s, lastClosedBySeries.get(s.id) ?? null, today), cadence: cadenceLabel(ruleOfSeries(s)) }));
+    .map((s) => ({ seriesId: s.id, title: s.title, dueOn: expectedOccurrence(s, lastClosedBySeries.get(s.id) ?? null, today), cadence: cadenceLabel(ruleOfSeries(s), t) }));
 
   const disabled = new Set(stored.prefs?.disabledSources ?? []);
-  const results = opts.personal ? [] : await runAllAdapters({ businessId, now, today }, disabled);
+  const results = opts.personal ? [] : await runAllAdapters({ businessId, now, today, t, locale }, disabled);
   const states: StoredState[] = stored.states.map((s) => ({
     dedupeKey: s.dedupeKey, cycleKey: s.cycleKey, evidenceVersion: s.evidenceVersion,
     acknowledgedOn: s.acknowledgedOn ? dbDateToDayKey(s.acknowledgedOn) : null, ackEvidenceVersion: s.ackEvidenceVersion,
@@ -127,8 +136,8 @@ export async function getAgenda(businessId: number, now: Date = new Date(), opts
   const syncFailed = !!stored.prefs?.lastSyncFailedAt && (!stored.prefs.lastSyncAt || stored.prefs.lastSyncFailedAt > stored.prefs.lastSyncAt);
 
   const agenda = buildAgenda({
-    today, now, repairs, results, states: opts.personal ? [] : states, doneToday: stored.doneToday, syncFailed, upcomingDays,
-    tasks: stored.tasks.map((t) => toManualTask(t, seriesById, stored.names)),
+    today, now, repairs, results, states: opts.personal ? [] : states, doneToday: stored.doneToday, syncFailed, upcomingDays, t,
+    tasks: stored.tasks.map((task) => toManualTask(task, seriesById, stored.names, t)),
   });
   return {
     ...agenda,
@@ -136,7 +145,7 @@ export async function getAgenda(businessId: number, now: Date = new Date(), opts
     lastSyncAt: stored.prefs?.lastSyncAt?.toISOString() ?? null,
     lastSyncFailedAt: stored.prefs?.lastSyncFailedAt?.toISOString() ?? null,
     syncVersion: stored.prefs?.syncVersion ?? 0,
-    series: stored.series.map((s) => ({ id: s.id, title: s.title, cadence: cadenceLabel(ruleOfSeries(s)), paused: !!s.pausedAt, version: s.version })),
+    series: stored.series.map((s) => ({ id: s.id, title: s.title, cadence: cadenceLabel(ruleOfSeries(s), t), paused: !!s.pausedAt, version: s.version })),
     disabledSources: [...disabled],
   };
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createInventoryMovement } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   id: number;
@@ -12,6 +13,7 @@ type Props = {
 
 export default function InventoryItemCard({ id, name, imageUrl }: Props) {
   const router = useRouter();
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
 
   async function handleAdd(e: React.MouseEvent) {
@@ -29,7 +31,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
       });
     } catch (err) {
       console.error(err);
-      alert("שגיאה בהוספת מלאי");
+      alert(t("customers.inventoryKit.itemCard.addError"));
     } finally {
       setLoading(false);
     }
@@ -50,7 +52,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
       });
     } catch (err) {
       console.error(err);
-      alert("שגיאה בהפחתת מלאי");
+      alert(t("customers.inventoryKit.itemCard.removeError"));
     } finally {
       setLoading(false);
     }
@@ -98,7 +100,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
           />
         ) : (
           <span style={{ color: "var(--inv-text-tertiary)", fontSize: "12px" }}>
-            אין תמונה
+            {t("customers.inventoryKit.itemCard.noImage")}
           </span>
         )}
       </div>

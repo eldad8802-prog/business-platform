@@ -11,10 +11,15 @@
  * H retry after completion · I failed · J pending/unknown · K tenant isolation ·
  * L currency/document mismatch · M two settlements one invoice · N credit ·
  * O credit/receipt race (+ credit/credit race) · P missing identity ·
- * Q resolution + retry · R historical · T transient retry/backoff/exhaustion.
+ * Q resolution + retry · R historical · T transient retry/backoff/exhaustion ·
+ * X foreign currency: money recorded, receipt held (no retry/release clears it) ·
+ * Y end to end through the real routes (POST /api/payments/requests → CardCom
+ *   webhook route; only CardCom's HTTP API is answered locally): with the foreign-currency
+ *   kill switch OFF (default) USD/EUR are refused 400 FOREIGN_CURRENCY_COLLECTION_DISABLED with
+ *   no row/audit/provider call and ILS is issued; with it ON, USD/EUR held, ILS issued.
  *
  * C3_ONLY=F,M… runs a subset (used by the negative proofs).
- * Synthetic data only. No secrets, no Neon, no network.
+ * Synthetic data only. No secrets, no Neon, no network (Y answers CardCom's API in-process).
  */
 import {
   BillingDocumentStatus,
@@ -22,10 +27,17 @@ import {
   Prisma,
   PrismaClient,
 } from "@prisma/client";
+import { randomBytes, randomUUID } from "node:crypto";
+import { NextRequest } from "next/server";
 import { runWithTenantContext } from "../lib/tenant/context";
+import { signAuthToken } from "../lib/auth-token";
+import { encryptPaymentCredential } from "../lib/services/payments/payment-crypto.service";
+import * as requestsRoute from "../app/api/payments/requests/route";
+import * as cardcomWebhookRoute from "../app/api/payments/webhook/cardcom/route";
 import { processPaymentWebhook } from "../lib/services/payments/payment-webhook.service";
 import { createPaymentPrismaStore } from "../lib/services/payments/payment-store.prisma";
 import {
+  releaseDocumentIssuerHolds,
   requeueSettlement,
   settleVerifiedPayment,
   SETTLEMENT_MAX_TRANSIENT_ATTEMPTS,
@@ -632,6 +644,200 @@ async function main() {
     const stN = await settlementOf(ptx.id);
     ok("T — after 10 transient attempts → REQUIRES_ATTENTION RETRY_EXHAUSTED", stN?.status === "REQUIRES_ATTENTION" && stN?.attentionReason === "RETRY_EXHAUSTED" && stN?.attemptCount === SETTLEMENT_MAX_TRANSIENT_ATTEMPTS, JSON.stringify({ last, stN }));
     ok("T — the planted draft is still the only document; no receipt issued", (await receiptsFor(ptx.id)).length === 1 && (await receiptsFor(ptx.id))[0].status === "DRAFT");
+  }
+
+  if (run("X")) {
+    console.log("\n== X — foreign currency: the money is recorded, the receipt waits ==");
+    for (const currency of ["USD", "EUR"]) {
+      // Standalone, Dubiz issues documents: the one path that used to auto-issue.
+      const ctx = await makeBusiness(`X-${currency}`);
+      const req = await paymentRequest(ctx, "250.00", { invoiceId: null, currency });
+      const res = await webhook(req, "PAID");
+      ok(`X ${currency} — webhook PAID, verified`, res.ok && res.paymentRequestStatus === "PAID" && res.verified === true, JSON.stringify(res));
+      const ptx = await txOf(req.id);
+      const st = await settlementOf(ptx.id);
+      ok(`X ${currency} — money row PAID in ${currency}, request PAID`,
+        ptx.status === "PAID" && ptx.currency === currency &&
+        (await prisma.paymentRequest.findUniqueOrThrow({ where: { id: req.id } })).status === "PAID");
+      ok(`X ${currency} — settlement REQUIRES_ATTENTION FOREIGN_CURRENCY_DOCUMENT_HELD`, st?.status === "REQUIRES_ATTENTION" && st?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(st));
+      ok(`X ${currency} — no receipt, no document of any kind`, (await receiptsFor(ptx.id)).length === 0 &&
+        (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+      const audit = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: req.id, eventType: "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION" } });
+      ok(`X ${currency} — audit PAYMENT_ACCOUNTING_REQUIRES_ATTENTION with the reason`, (audit?.metadata as { reason?: string } | null)?.reason === "FOREIGN_CURRENCY_DOCUMENT_HELD");
+      ok(`X ${currency} — requeue refused (not retryable)`, (await requeueSettlement({ businessId: ctx.businessId, paymentTransactionId: ptx.id })).requeued === false);
+      const again = await settleVerifiedPayment({ businessId: ctx.businessId, paymentTransactionId: ptx.id });
+      ok(`X ${currency} — a further settle stays held, still no receipt`, again.outcome === "REQUIRES_ATTENTION" && (await receiptsFor(ptx.id)).length === 0, JSON.stringify(again));
+
+      // Invoice-backed against a same-currency invoice: held the same way.
+      const inv = await invoice(ctx, "1000.00", { currency });
+      const req2 = await paymentRequest(ctx, "400.00", { invoiceId: inv.id, currency });
+      await webhook(req2, "PAID");
+      const ptx2 = await txOf(req2.id);
+      ok(`X ${currency} — invoice-backed → FOREIGN_CURRENCY_DOCUMENT_HELD, no receipt`,
+        (await settlementOf(ptx2.id))?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD" && (await receiptsFor(ptx2.id)).length === 0);
+      const allocs = await prisma.billingPaymentAllocation.count({ where: { invoiceDocumentId: inv.id } });
+      ok(`X ${currency} — nothing allocated to the invoice`, allocs === 0, `allocations=${allocs}`);
+    }
+    // Held first for want of an issuer decision; the decision must not issue it.
+    const ctx = await makeBusiness("X-release");
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "NOT_CONFIGURED" } });
+    const req = await paymentRequest(ctx, "250.00", { invoiceId: null, currency: "USD" });
+    await webhook(req, "PAID");
+    const ptx = await txOf(req.id);
+    ok("X release — first held as DOCUMENT_ISSUER_NOT_CONFIGURED", (await settlementOf(ptx.id))?.attentionReason === "DOCUMENT_ISSUER_NOT_CONFIGURED");
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "DUBIZ_ISSUES" } });
+    const rel = await releaseDocumentIssuerHolds({ businessId: ctx.businessId, provider: "CARDCOM", documentIssuer: "DUBIZ_ISSUES" });
+    ok("X release — DUBIZ_ISSUES re-settles it, and it is held for its currency", rel.released.includes(ptx.id) && rel.settled === 0 &&
+      (await settlementOf(ptx.id))?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(rel));
+    ok("X release — still no receipt, money still PAID", (await receiptsFor(ptx.id)).length === 0 &&
+      (await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: ptx.id } })).status === "PAID");
+    const rel2 = await releaseDocumentIssuerHolds({ businessId: ctx.businessId, provider: "CARDCOM", documentIssuer: "DUBIZ_ISSUES" });
+    ok("X release — a second decision clears nothing", rel2.released.length === 0 && (await receiptsFor(ptx.id)).length === 0);
+  }
+
+  if (run("Y")) {
+    console.log("\n== Y — end to end through the real routes: POST /api/payments/requests → CardCom webhook route ==");
+    // The real request route and the real CardCom webhook route with the real
+    // adapter, credential decryption, routing table and settlement wiring. Only
+    // CardCom's HTTP API is answered locally (globalThis.fetch), so nothing
+    // leaves the runner. Synthetic CI-only key and URLs; never a real secret.
+    process.env.PAYMENTS_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
+    process.env.PAYMENTS_PUBLIC_BASE_URL = "https://dubiz.c3.test";
+    process.env.CARDCOM_BASE_URL = "https://cardcom.c3.test";
+    const TERMINAL = "4242";
+    type Lp = { returnValue: string; amount: number; coin: number };
+    const lowProfiles = new Map<string, Lp>();
+    const coinsSent: number[] = [];
+    let txSeq = 7000000;
+    const realFetch = globalThis.fetch;
+    const jsonRes = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    globalThis.fetch = (async (url: string | URL, init?: { body?: string }) => {
+      const u = String(url);
+      if (!u.startsWith("https://cardcom.c3.test/")) return realFetch(url as never, init as never);
+      const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
+      if (u.endsWith("/api/v11/LowProfile/Create")) {
+        const id = randomUUID();
+        coinsSent.push(Number(body.ISOCoinId));
+        lowProfiles.set(id, { returnValue: String(body.ReturnValue), amount: Number(body.Amount), coin: Number(body.ISOCoinId) });
+        return jsonRes({ ResponseCode: 0, Url: `https://cardcom.c3.test/pay/${id}`, LowProfileId: id });
+      }
+      if (u.endsWith("/api/v11/LowProfile/GetLpResult")) {
+        const lp = lowProfiles.get(String(body.LowProfileId));
+        if (!lp) return jsonRes({ ResponseCode: 5 });
+        return jsonRes({
+          ResponseCode: 0, ReturnValue: lp.returnValue, TerminalNumber: Number(TERMINAL),
+          TranzactionInfo: { ResponseCode: 0, TranzactionId: ++txSeq, Amount: lp.amount, CoinId: lp.coin, TerminalNumber: Number(TERMINAL) },
+        });
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    const e2eBusiness = async (label: string) => {
+      const ctx = await makeBusiness(label);
+      const enc = encryptPaymentCredential(JSON.stringify({ apiName: "c3-synthetic", apiPassword: "c3-synthetic" }), ctx.businessId, "CARDCOM");
+      await prisma.businessPaymentConnection.updateMany({
+        where: { businessId: ctx.businessId, provider: "CARDCOM" },
+        data: { merchantId: TERMINAL, ...enc },
+      });
+      return { ...ctx, token: signAuthToken(ctx.actorUserId) };
+    };
+    type E2eCtx = Awaited<ReturnType<typeof e2eBusiness>>;
+    const createViaRoute = async (ctx: E2eCtx, amount: string, currency: string) => {
+      const res = await requestsRoute.POST(new NextRequest("https://dubiz.c3.test/api/payments/requests", {
+        method: "POST",
+        headers: { authorization: `Bearer ${ctx.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ amount, currency, customerId: ctx.customerId }),
+      }));
+      return { status: res.status, body: (await res.json()) as { id?: number; currency?: string; status?: string } };
+    };
+    const webhookViaRoute = async (requestId: number) => {
+      const pr = await prisma.paymentRequest.findUniqueOrThrow({ where: { id: requestId } });
+      const res = await cardcomWebhookRoute.POST(new NextRequest("https://dubiz.c3.test/api/payments/webhook/cardcom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ LowProfileId: pr.providerRequestId, ReturnValue: String(pr.id) }),
+      }));
+      return res.status;
+    };
+
+    try {
+      // Y-OFF — the foreign-currency kill switch (DUBIZ_FX_COLLECTION_ENABLED,
+      // fail-closed) is OFF by default. Through the SAME real route, a fully
+      // connected CardCom business asking for USD / EUR is refused with 400
+      // FOREIGN_CURRENCY_COLLECTION_DISABLED, and nothing happens: no
+      // PaymentRequest row, no audit event, CardCom never asked.
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+      for (const currency of ["USD", "EUR", "usd"] as const) {
+        const ctx = await e2eBusiness(`Y-OFF-${currency}`);
+        const callsBefore = coinsSent.length;
+        const refused = await createViaRoute(ctx, "250.00", currency);
+        const body = refused.body as { error?: string; code?: string; offerableCurrencies?: string[] };
+        ok(`Y OFF ${currency} — POST /api/payments/requests 400 FOREIGN_CURRENCY_COLLECTION_DISABLED`,
+          refused.status === 400 && body.code === "FOREIGN_CURRENCY_COLLECTION_DISABLED" && typeof body.error === "string" && body.error.length > 0 &&
+          JSON.stringify(body.offerableCurrencies) === '["ILS"]', JSON.stringify(refused));
+        ok(`Y OFF ${currency} — no PaymentRequest row`, (await prisma.paymentRequest.count({ where: { businessId: ctx.businessId } })) === 0);
+        ok(`Y OFF ${currency} — no payment audit event`, (await prisma.paymentAuditEvent.count({ where: { businessId: ctx.businessId } })) === 0);
+        ok(`Y OFF ${currency} — CardCom was never called`, coinsSent.length === callsBefore);
+        ok(`Y OFF ${currency} — no transaction, no FinancialEvent, no BillingDocument`,
+          (await prisma.paymentTransaction.count({ where: { paymentRequest: { businessId: ctx.businessId } } })) === 0 &&
+          (await prisma.financialEvent.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+      }
+      for (const v of ["1", "TRUE", " true"]) {
+        process.env.DUBIZ_FX_COLLECTION_ENABLED = v;
+        const ctx = await e2eBusiness(`Y-OFF-v${v.trim()}`);
+        const refused = await createViaRoute(ctx, "250.00", "USD");
+        ok(`Y OFF switch=${JSON.stringify(v)} — still refused (only the exact string "true" opens it)`,
+          refused.status === 400 && (refused.body as { code?: string }).code === "FOREIGN_CURRENCY_COLLECTION_DISABLED" &&
+          (await prisma.paymentRequest.count({ where: { businessId: ctx.businessId } })) === 0, JSON.stringify(refused));
+      }
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+
+      // ILS control, switch OFF: the same two routes issue the receipt exactly as before.
+      {
+        const ctx = await e2eBusiness("Y-ILS");
+        const created = await createViaRoute(ctx, "250.00", "ILS");
+        ok("Y ILS (switch OFF) — POST /api/payments/requests 201 in ILS", created.status === 201 && created.body.currency === "ILS", JSON.stringify(created));
+        const id = created.body.id ?? -1;
+        ok("Y ILS — CardCom was asked to charge coin 1", coinsSent.at(-1) === 1, String(coinsSent.at(-1)));
+        ok("Y ILS — webhook route answers 200", (await webhookViaRoute(id)) === 200);
+        const ptx = await txOf(id);
+        ok("Y ILS — transaction PAID in ILS", ptx.status === "PAID" && ptx.currency === "ILS");
+        await assertSettled("Y ILS", ptx.id, "250", "0", "0");
+        const pa = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_SETTLED" } });
+        ok("Y ILS — payment audit PAYMENT_ACCOUNTING_SETTLED", pa != null);
+      }
+
+      // Y-ON — with the switch ON (an owner decision, never the default), USD /
+      // EUR go through and are held for their document, exactly as before.
+      process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
+      for (const [currency, coin] of [["USD", 2], ["EUR", 978]] as const) {
+        const ctx = await e2eBusiness(`Y-${currency}`);
+        const created = await createViaRoute(ctx, "250.00", currency);
+        ok(`Y ${currency} — POST /api/payments/requests 201 in ${currency}`, created.status === 201 && created.body.currency === currency && created.body.status === "PENDING", JSON.stringify(created));
+        const id = created.body.id ?? -1;
+        ok(`Y ${currency} — CardCom was asked to charge coin ${coin}`, coinsSent.at(-1) === coin, String(coinsSent.at(-1)));
+        ok(`Y ${currency} — webhook route answers 200`, (await webhookViaRoute(id)) === 200);
+        const pr = await prisma.paymentRequest.findUniqueOrThrow({ where: { id } });
+        const ptx = await txOf(id);
+        ok(`Y ${currency} — money recorded: request PAID, transaction PAID 250.00 ${currency}`,
+          pr.status === "PAID" && ptx.status === "PAID" && ptx.currency === currency && ptx.amount.toFixed(2) === "250.00",
+          JSON.stringify({ pr: pr.status, tx: ptx.status, cur: ptx.currency, amt: ptx.amount }));
+        const fe = await prisma.financialEvent.findFirst({ where: { businessId: ctx.businessId, sourceType: "PAYMENT" } });
+        ok(`Y ${currency} — money-in FinancialEvent in ${currency}`, fe?.currency === currency && fe?.amount.toFixed(2) === "250.00", JSON.stringify(fe));
+        const st = await settlementOf(ptx.id);
+        ok(`Y ${currency} — settlement REQUIRES_ATTENTION FOREIGN_CURRENCY_DOCUMENT_HELD`, st?.status === "REQUIRES_ATTENTION" && st?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(st));
+        ok(`Y ${currency} — no BillingDocument of any kind for the business`, (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+        const audit = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION" } });
+        ok(`Y ${currency} — audit PAYMENT_ACCOUNTING_REQUIRES_ATTENTION with the reason`, (audit?.metadata as { reason?: string } | null)?.reason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(audit?.metadata));
+        ok(`Y ${currency} — a duplicate webhook changes nothing`, (await webhookViaRoute(id)) === 200 &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.paymentTransaction.count({ where: { paymentRequestId: id, amount: { gt: 0 } } })) === 1);
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+    }
   }
 
   console.log(`\nC3 battery: ${pass} passed, ${failures.length} failed`);

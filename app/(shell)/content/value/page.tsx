@@ -4,10 +4,12 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function ContentValuePageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useI18n();
 
   const goal = params.get("goal");
   const intent = params.get("intent");
@@ -35,16 +37,16 @@ function ContentValuePageInner() {
       <ProgressBar progress={33} />
 
       <div style={baseStyles.container}>
-        <h1>איזה סוג תוכן?</h1>
+        <h1>{t("content.studioFlow.value.title")}</h1>
 
-        {card("offer", "הצעה")}
-        {card("value", "ערך")}
-        {card("proof", "הוכחה")}
+        {card("offer", t("content.studioFlow.flow.valueTypes.offer"))}
+        {card("value", t("content.studioFlow.flow.valueTypes.value"))}
+        {card("proof", t("content.studioFlow.flow.valueTypes.proof"))}
       </div>
 
       <div style={baseStyles.footer}>
         <button style={baseStyles.cta} onClick={next}>
-          המשך
+          {t("content.studioFlow.common.continue")}
         </button>
       </div>
     </div>

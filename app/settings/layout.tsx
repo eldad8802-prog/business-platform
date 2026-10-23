@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
+import { getServerI18n } from "@/lib/i18n/server";
 import { SettingsFrame } from "@/components/settings/SettingsFrame";
 import { ShellChrome } from "@/components/navigation/shell-chrome";
 import { formatAppVersion, resolveAppVersion } from "@/lib/app-version";
 
-export const metadata: Metadata = { title: "הגדרות" };
+// Tab title in the interface language (Hebrew source "הגדרות": lib/i18n/messages/he.ts → meta.titles.settings).
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n();
+  return { title: t("meta.titles.settings") };
+}
 
 // Settings is reached from Home's gear and the rail / sidebar, and inherits the
 // one shared navigation via ShellChrome. The hub draws its own full-width

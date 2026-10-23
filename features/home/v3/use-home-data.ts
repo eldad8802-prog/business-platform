@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 import type { SetupView } from "@/lib/services/onboarding/setup-model";
 import { loadRecommendations, type RecommendationView } from "@/features/recommendations/recommendations-client";
@@ -22,7 +23,9 @@ import {
   type DocumentWire,
   type InventoryItemWire,
   type LeadWire,
+  otherCurrenciesOf,
   type Load,
+  type OtherCurrencyAmount,
   type PaidWire,
 } from "./home-v3-model";
 
@@ -53,7 +56,8 @@ export type InsightView = { title: string; body: string | null; href: string };
 export type RecommendationHomeView = { type: RecommendationView["type"]; what: string; summary: string; waiting: number; href: string };
 
 export type HomeData = {
-  dayIncome: Load<{ hours: string[]; total: string }>;
+  /** `total` / `hours` are ILS only; `otherCurrencies` lists money in any other currency (usually []). */
+  dayIncome: Load<{ hours: string[]; total: string; otherCurrencies: OtherCurrencyAmount[] }>;
   cost: Load<BusinessCostSummaryApi>;
   briefing: Load<BriefingApi>;
   status: Load<BusinessStatusItem[]>;
@@ -68,7 +72,7 @@ export type HomeData = {
   history: Load<HomeHistory>;
   unread: boolean;
   /* desktop only */
-  pending: Load<{ amount: string; count: number }>;
+  pending: Load<{ amount: string; count: number; otherCurrencies: OtherCurrencyAmount[] }>;
   conversations: Load<ConversationWire[]>;
   inventory: Load<InventoryItemWire[]>;
   /* on demand */
@@ -94,7 +98,7 @@ const INITIAL: HomeData = {
   week: null,
 };
 
-type HomeDayWire = { day?: { hours?: string[]; total?: string } };
+type HomeDayWire = { day?: { hours?: string[]; total?: string; totalsByCurrency?: unknown } };
 type CollectionInboxWire = { waiting?: CollectionWaitingWire[]; paid?: PaidWire[] };
 type LeadsWire = { leads?: LeadWire[] };
 type DocumentsWire = {
@@ -104,10 +108,10 @@ type DocumentsWire = {
 type InsightsWire = {
   insights?: Array<{ title: string; interpretation?: string | null; factLines?: Array<{ text?: string }> }>;
 };
-type WorkspaceWire = { summary?: { pending?: { amount?: string; count?: number } } };
+type WorkspaceWire = { summary?: { pending?: { amount?: string; count?: number; totalsByCurrency?: unknown } } };
 type AttentionWire = { waitingForReply?: ConversationWire[] };
 type InventoryWire = { items?: InventoryItemWire[] };
-type CollectionWeekWire = { current?: { points?: string[]; total?: string } };
+type CollectionWeekWire = { current?: { points?: string[]; total?: string; totalsByCurrency?: unknown } };
 type CostDayWire = { cashOut?: { total?: string } };
 
 /** Fresh enough for a screen the owner opens many times a day. */
@@ -118,6 +122,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
   loadWeek: () => void;
 } {
   const [data, setData] = useState<HomeData>(INITIAL);
+  const { locale } = useI18n();
 
   const put = useCallback(<K extends keyof HomeData>(key: K, value: HomeData[K]) => {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -140,7 +145,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
 
     settle("dayIncome", fetchJsonCached<HomeDayWire>("/api/home/day?scope=day", TTL), (j) =>
       Array.isArray(j.day?.hours) && j.day?.hours.length === 24 && typeof j.day.total === "string"
-        ? ready({ hours: j.day.hours, total: j.day.total })
+        ? ready({ hours: j.day.hours, total: j.day.total, otherCurrencies: otherCurrenciesOf(j.day.totalsByCurrency) })
         : FAILED,
     );
     settle("cost", fetchJsonCached<BusinessCostSummaryApi>("/api/business-cost/summary", TTL), (j) => ready(j));
@@ -203,7 +208,9 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
     fetchJsonCached<WorkspaceWire>("/api/payments/collection-workspace", TTL)
       .then((j) => {
         const p = j.summary?.pending;
-        return p && typeof p.amount === "string" ? ready({ amount: p.amount, count: p.count ?? 0 }) : FAILED;
+        return p && typeof p.amount === "string"
+          ? ready({ amount: p.amount, count: p.count ?? 0, otherCurrencies: otherCurrenciesOf(p.totalsByCurrency) })
+          : FAILED;
       })
       .then(done("pending"), fail("pending"));
     fetchJsonCached<AttentionWire>("/api/inbox/attention?limit=50", TTL)
@@ -233,11 +240,13 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
           incomeTotal: (income as CollectionWeekWire).current?.total ?? "",
           dayKeys,
           expenses: (days as CostDayWire[]).map((d) => d.cashOut?.total ?? ""),
+          locale,
+          incomeOtherCurrencies: otherCurrenciesOf((income as CollectionWeekWire).current?.totalsByCurrency),
         });
         put("week", week ? ready(week) : FAILED);
       })
       .catch(() => put("week", FAILED));
-  }, [put]);
+  }, [put, locale]);
 
   return { data, loadWeek };
 }

@@ -2,7 +2,7 @@
 
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "@/components/whatsapp/use-whatsapp-connect";
-import { WA_COPY } from "@/components/whatsapp/wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconAlertTriangle } from "@/components/whatsapp/wa-icons";
 import { WhatsAppConnectInvitation } from "@/components/whatsapp/WhatsAppConnectInvitation";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
@@ -13,7 +13,7 @@ import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
  * The connect experience itself lives in the shared
  * {@link WhatsAppConnectInvitation} (also used by Settings) — this file only
  * adapts it and the inbox-only pieces (reconnect banner, status loader) for the
- * "שיחות עם לקוחות" screen. All copy comes from {@link WA_COPY}.
+ * "שיחות עם לקוחות" screen. All copy comes from the i18n dictionary (`inbox.whatsapp.*`).
  */
 
 /** Never-connected → the single shared invitation (moment 1). */
@@ -37,10 +37,10 @@ export function WhatsAppReconnectBanner({
   );
   const connecting = status === "connecting";
   const failed = status === "error";
-  const c = WA_COPY.banner;
+  const { t } = useI18n();
 
   return (
-    <div dir="rtl">
+    <div>
       <div
         role="status"
         style={{
@@ -77,7 +77,7 @@ export function WhatsAppReconnectBanner({
               lineHeight: 1.3,
             }}
           >
-            {failed ? c.failedTitle : c.title}
+            {failed ? t("inbox.whatsapp.banner.failedTitle") : t("inbox.whatsapp.banner.title")}
           </div>
           <div
             style={{
@@ -88,7 +88,7 @@ export function WhatsAppReconnectBanner({
               opacity: 0.85,
             }}
           >
-            {failed ? c.failedSubtitle : c.subtitle}
+            {failed ? t("inbox.whatsapp.banner.failedSubtitle") : t("inbox.whatsapp.banner.subtitle")}
           </div>
         </div>
         {/* WhatsApp Business connection is not open yet: the reconnect button stays, inactive, marked "בקרוב". */}
@@ -112,7 +112,7 @@ export function WhatsAppReconnectBanner({
             cursor: "not-allowed",
           }}
         >
-          {connecting ? c.connecting : failed ? c.retry : c.button}
+          {connecting ? t("inbox.whatsapp.banner.connecting") : failed ? t("inbox.whatsapp.banner.retry") : t("inbox.whatsapp.banner.button")}
           <ComingSoonPill />
         </button>
       </div>
@@ -131,7 +131,7 @@ export function WhatsAppReconnectBanner({
               cursor: "pointer",
             }}
           >
-            {WA_COPY.invitation.cancelLaunch}
+            {t("inbox.whatsapp.invitation.cancelLaunch")}
           </button>
         </div>
       )}
@@ -145,7 +145,7 @@ export function WhatsAppReconnectBanner({
           lineHeight: 1.5,
         }}
       >
-        {c.footnote}
+        {t("inbox.whatsapp.banner.footnote")}
       </div>
     </div>
   );
@@ -153,9 +153,9 @@ export function WhatsAppReconnectBanner({
 
 /** Shown while the connection status is still resolving. */
 export function InboxConnectionLoader() {
+  const { t } = useI18n();
   return (
     <div
-      dir="rtl"
       style={{
         minHeight: "100vh",
         background: TOKEN.surface.page,
@@ -167,7 +167,7 @@ export function InboxConnectionLoader() {
         fontWeight: TOKEN.weight.medium,
       }}
     >
-      {WA_COPY.loader}
+      {t("inbox.whatsapp.loader")}
     </div>
   );
 }

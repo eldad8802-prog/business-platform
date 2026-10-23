@@ -8,6 +8,7 @@
  */
 import Link from "next/link";
 import { TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export function WorkspaceSkeleton() {
   return (
@@ -48,6 +49,7 @@ export function ErrorBanner({
   message: string;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="alert"
@@ -62,7 +64,7 @@ export function ErrorBanner({
         gap: 12,
       }}
     >
-      <div style={{ fontWeight: 600, fontSize: 15 }}>שגיאה בטעינת המסמך</div>
+      <div style={{ fontWeight: 600, fontSize: 15 }}>{t("billing.loadStates.loadError")}</div>
       <div style={{ fontSize: 14, lineHeight: 1.5 }}>{message}</div>
       <button
         type="button"
@@ -79,13 +81,14 @@ export function ErrorBanner({
           cursor: "pointer",
         }}
       >
-        נסה שוב
+        {t("billing.loadStates.tryAgain")}
       </button>
     </div>
   );
 }
 
 export function NotFoundCard() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -101,9 +104,9 @@ export function NotFoundCard() {
         gap: 12,
       }}
     >
-      <div style={{ fontSize: 16, fontWeight: 600 }}>המסמך לא נמצא</div>
+      <div style={{ fontSize: 16, fontWeight: 600 }}>{t("billing.loadStates.notFound")}</div>
       <div style={{ fontSize: 14 }}>
-        ייתכן שהקישור שגוי או שהמסמך הוסר.
+        {t("billing.loadStates.notFoundHelp")}
       </div>
       <Link
         href="/billing"
@@ -118,7 +121,7 @@ export function NotFoundCard() {
           textDecoration: "none",
         }}
       >
-        לרשימת המסמכים
+        {t("billing.loadStates.toList")}
       </Link>
     </div>
   );

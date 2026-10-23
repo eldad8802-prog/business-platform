@@ -18,7 +18,15 @@
  *   - A source that failed or hit its fetch cap makes the picture PARTIAL: the count is marked "N+" and the empty
  *     state ("הכול תחת שליטה") is never shown.
  */
+import { getMessages } from "@/lib/i18n/messages";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import { addCalendarDays, daysBetweenDayKeys, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
+
+/**
+ * The agenda's text is built at READ time (nothing here is stored), in the interface language of the request:
+ * the routes pass the request's translator. Without one it is Hebrew — the text the agenda always had.
+ */
+export const HEBREW_TEXT: Translator = createTranslator(getMessages("he"));
 
 // ── Sources ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -36,27 +44,19 @@ export const SOURCE_KINDS: readonly SourceKind[] = [
   "supplier_payment", "customer_debt", "invoice_review", "lead", "conversation", "documents_queue", "stock",
 ];
 
-export const SOURCE_NAMES: Readonly<Record<SourceKind, string>> = {
-  supplier_payment: "תשלומים לספקים",
-  customer_debt: "גבייה מלקוחות",
-  invoice_review: "חשבוניות לבדיקה",
-  lead: "לידים",
-  conversation: "שיחות שמחכות לתשובה",
-  documents_queue: "מסמכים לבדיקה",
-  stock: "מלאי",
-};
+/** The owner-facing name of a source ("תשלומים לספקים"). */
+export function sourceName(kind: SourceKind, t: Translator = HEBREW_TEXT): string {
+  return t(`system.tasks.sources.${kind}`);
+}
+
+/** The Hebrew names (kept for callers that predate the interface language). */
+export const SOURCE_NAMES: Readonly<Record<SourceKind, string>> = Object.fromEntries(
+  SOURCE_KINDS.map((k) => [k, sourceName(k)]),
+) as Record<SourceKind, string>;
 
 /** "N <things>" for a grouped queue row. */
-export function queueTitle(kind: SourceKind, n: number): string {
-  switch (kind) {
-    case "conversation": return `${n} שיחות מחכות לתשובה`;
-    case "stock": return `${n} פריטים במלאי נמוך`;
-    case "invoice_review": return `${n} חשבוניות ממתינות לבדיקה`;
-    case "customer_debt": return `${n} לקוחות לגבייה`;
-    case "documents_queue": return `${n} מסמכים מחכים לבדיקה`;
-    case "lead": return `${n} לידים`;
-    case "supplier_payment": return `${n} תשלומים לספקים`;
-  }
+export function queueTitle(kind: SourceKind, n: number, t: Translator = HEBREW_TEXT): string {
+  return t(`system.tasks.queue.${kind}`, { n });
 }
 
 /** Never grouped: each item has its own due day and context (spec 4.4). */
@@ -144,11 +144,16 @@ export type PendingRepair = { seriesId: number; title: string; dueOn: JerusalemD
 
 export type Bucket = "OVERDUE" | "TODAY" | "NO_DATE" | "UPCOMING";
 export const BUCKETS: readonly Bucket[] = ["OVERDUE", "TODAY", "NO_DATE", "UPCOMING"];
+const BUCKET_KEYS = { OVERDUE: "overdue", TODAY: "today", NO_DATE: "noDate", UPCOMING: "upcoming" } as const;
+export function bucketTitle(bucket: Bucket, t: Translator = HEBREW_TEXT): string {
+  return t(`system.tasks.buckets.${BUCKET_KEYS[bucket]}`);
+}
+/** The Hebrew titles (kept for callers that predate the interface language). */
 export const BUCKET_TITLES: Readonly<Record<Bucket, string>> = {
-  OVERDUE: "באיחור",
-  TODAY: "היום",
-  NO_DATE: "ללא תאריך",
-  UPCOMING: "בהמשך השבוע",
+  OVERDUE: bucketTitle("OVERDUE"),
+  TODAY: bucketTitle("TODAY"),
+  NO_DATE: bucketTitle("NO_DATE"),
+  UPCOMING: bucketTitle("UPCOMING"),
 };
 export const COUNTED: ReadonlySet<Bucket> = new Set<Bucket>(["OVERDUE", "TODAY"]);
 export const ROW_CAP = 12;
@@ -234,11 +239,11 @@ export function bucketFor(placement: Placement, dueOn: JerusalemDayKey | null, t
   return daysBetweenDayKeys(today, dueOn) <= upcomingDays ? "UPCOMING" : null;
 }
 
-export function overdueLabel(dueOn: JerusalemDayKey, today: JerusalemDayKey): string {
+export function overdueLabel(dueOn: JerusalemDayKey, today: JerusalemDayKey, t: Translator = HEBREW_TEXT): string {
   const d = daysBetweenDayKeys(dueOn, today);
-  if (d === 1) return "באיחור יום";
-  if (d === 2) return "באיחור יומיים";
-  return `באיחור ${d} ימים`;
+  if (d === 1) return t("system.tasks.overdue.oneDay");
+  if (d === 2) return t("system.tasks.overdue.twoDays");
+  return t("system.tasks.overdue.days", { n: d });
 }
 
 /** "13.10" — the short Israeli date the mockups use. */
@@ -303,40 +308,45 @@ export type AgendaInput = {
   syncFailed: boolean;
   /** How far ahead UPCOMING reaches (default a week; the personal list reaches a year). */
   upcomingDays?: number;
+  /** The request's interface language; Hebrew when absent. */
+  t?: Translator;
 };
 
-function taskTags(t: ManualTask, bucket: Bucket, today: JerusalemDayKey, pinned: boolean): Tag[] {
+function taskTags(task: ManualTask, bucket: Bucket, today: JerusalemDayKey, pinned: boolean, t: Translator): Tag[] {
   const tags: Tag[] = [];
-  if (bucket === "OVERDUE" && t.dueOn) tags.push({ tone: "over", text: overdueLabel(t.dueOn, today) });
-  if (pinned) tags.push({ tone: "pin", text: "חשוב" });
-  if (t.cadence) tags.push({ tone: "rep", text: t.cadence });
+  if (bucket === "OVERDUE" && task.dueOn) tags.push({ tone: "over", text: overdueLabel(task.dueOn, today, t) });
+  if (pinned) tags.push({ tone: "pin", text: t("system.tasks.tags.pinned") });
+  if (task.cadence) tags.push({ tone: "rep", text: task.cadence });
   return tags;
 }
 
-function sourceTags(i: SourceItem, bucket: Bucket, today: JerusalemDayKey, pinned: boolean): Tag[] {
+function sourceTags(i: SourceItem, bucket: Bucket, today: JerusalemDayKey, pinned: boolean, t: Translator): Tag[] {
   const tags: Tag[] = [];
-  if (bucket === "OVERDUE" && i.dueOn) tags.push({ tone: "over", text: overdueLabel(i.dueOn, today) });
+  if (bucket === "OVERDUE" && i.dueOn) tags.push({ tone: "over", text: overdueLabel(i.dueOn, today, t) });
   if (i.reminderPostponed) {
-    const when = i.reminderPostponed.until === addCalendarDays(today, 1) ? "למחר" : `ל־${shortDate(i.reminderPostponed.until)}`;
-    tags.push({ tone: "snooze", text: `התזכורת נדחתה ${when} · עדיין לא שולם` });
+    const when = i.reminderPostponed.until === addCalendarDays(today, 1)
+      ? t("system.tasks.tags.postponedTomorrow")
+      : t("system.tasks.tags.postponedOn", { date: shortDate(i.reminderPostponed.until) });
+    tags.push({ tone: "snooze", text: t("system.tasks.tags.postponed", { when }) });
   }
-  if (pinned) tags.push({ tone: "pin", text: "חשוב" });
+  if (pinned) tags.push({ tone: "pin", text: t("system.tasks.tags.pinned") });
   return tags;
 }
 
 export function buildAgenda(input: AgendaInput): Agenda {
   const { today, now } = input;
+  const t = input.t ?? HEBREW_TEXT;
   const rows: AgendaRow[] = [];
 
-  for (const t of input.tasks) {
-    const bucket = bucketFor("BY_DATE", t.dueOn, today, input.upcomingDays);
+  for (const task of input.tasks) {
+    const bucket = bucketFor("BY_DATE", task.dueOn, today, input.upcomingDays);
     if (!bucket) continue;
-    rows.push({ type: "TASK", key: `task:${t.id}`, bucket, pinned: t.pinned, task: t, tags: taskTags(t, bucket, today, t.pinned) });
+    rows.push({ type: "TASK", key: `task:${task.id}`, bucket, pinned: task.pinned, task, tags: taskTags(task, bucket, today, task.pinned, t) });
   }
   for (const r of input.repairs) {
     const bucket = bucketFor("BY_DATE", r.dueOn, today, input.upcomingDays);
     if (!bucket) continue;
-    const tags: Tag[] = [{ tone: "upd", text: "מתעדכנת…" }];
+    const tags: Tag[] = [{ tone: "upd", text: t("system.tasks.tags.updating") }];
     if (r.cadence) tags.push({ tone: "rep", text: r.cadence });
     rows.push({ type: "REPAIR", key: `repair:${r.seriesId}`, bucket, pinned: false, repair: r, tags });
   }
@@ -369,7 +379,7 @@ export function buildAgenda(input: AgendaInput): Agenda {
     const groupable = !NEVER_GROUPED.has(kind) && (rest.length > GROUP_OVER || (handledHere.length > 0 && rest.length > 0 && rest.length + handledHere.length > GROUP_OVER));
     for (const v of groupable ? pinnedOnes : g.items) {
       const dimmed = !!v.item.reminderPostponed;
-      rows.push({ type: "SOURCE", key: v.item.dedupeKey, bucket: g.bucket, pinned: v.pinned, item: v.item, tags: sourceTags(v.item, g.bucket, today, v.pinned), dimmed });
+      rows.push({ type: "SOURCE", key: v.item.dedupeKey, bucket: g.bucket, pinned: v.pinned, item: v.item, tags: sourceTags(v.item, g.bucket, today, v.pinned, t), dimmed });
     }
     if (groupable) {
       const members = rest.map((v) => v.item);
@@ -378,11 +388,11 @@ export function buildAgenda(input: AgendaInput): Agenda {
       const newCount = handledHere.length > 0 ? members.length : null;
       rows.push({
         type: "QUEUE", key: `queue:${kind}:${g.bucket}`, bucket: g.bucket, pinned: false, sourceKind: kind,
-        title: queueTitle(kind, all.length),
-        fact: oldest ? `הוותיק מחכה מ־${shortDate(oldest.slice(0, 10))} · פתח לרשימה` : "פתח לרשימה",
-        members, action: { label: "פתח", href: all[0].action.href },
+        title: queueTitle(kind, all.length, t),
+        fact: oldest ? t("system.tasks.queue.factOldest", { date: shortDate(oldest.slice(0, 10)) }) : t("system.tasks.queue.fact"),
+        members, action: { label: t("system.tasks.queue.open"), href: all[0].action.href },
         handledToday: handledHere, newCount,
-        tags: newCount !== null ? [{ tone: "new", text: `חדשים: ${newCount}` }] : [],
+        tags: newCount !== null ? [{ tone: "new", text: t("system.tasks.tags.newCount", { n: newCount }) }] : [],
       });
     }
   }
@@ -391,11 +401,11 @@ export function buildAgenda(input: AgendaInput): Agenda {
     const inBucket = rows.filter((r) => r.bucket === bucket).sort(compareRows(bucket));
     const items = inBucket.reduce((n, r) => n + (r.type === "QUEUE" ? r.members.length : 1), 0);
     const shown = COUNTED.has(bucket) ? Math.min(ROW_CAP, inBucket.length) : inBucket.length;
-    return { bucket, title: BUCKET_TITLES[bucket], rows: inBucket, shown, total: inBucket.length, items };
+    return { bucket, title: bucketTitle(bucket, t), rows: inBucket, shown, total: inBucket.length, items };
   });
 
   const count = buckets.filter((b) => COUNTED.has(b.bucket)).reduce((n, b) => n + b.items, 0);
-  const statuses = input.results.map((r) => ({ kind: r.kind, status: r.status, name: SOURCE_NAMES[r.kind] }));
+  const statuses = input.results.map((r) => ({ kind: r.kind, status: r.status, name: sourceName(r.kind, t) }));
   const partial = input.results.some((r) => r.status === "FAILED" || r.status === "CAPPED");
   const integrity: Integrity[] = [];
   if (input.repairs.length > 0) integrity.push("REPAIR_PENDING");

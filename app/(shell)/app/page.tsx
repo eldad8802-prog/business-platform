@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconInfo } from "@/components/navigation/nav-icons";
 import { DESKTOP_QUERY, HomeV3 } from "@/features/home/v3/home-v3";
 import { useHomeData } from "@/features/home/v3/use-home-data";
@@ -58,6 +59,7 @@ function HomeErrorState({
   onRetry: () => void;
   onReLogin?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <main style={{ minHeight: "100vh", background: "#FEF8F2", color: "#1E2B2A" }}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-4 py-10 text-center">
@@ -65,9 +67,9 @@ function HomeErrorState({
           <div className="mb-3 flex justify-center" style={{ color: "#B4432F" }}>
             <IconInfo size={32} strokeWidth={1.8} />
           </div>
-          <h1 className="mb-2 text-xl" style={{ fontWeight: 600 }}>משהו השתבש</h1>
+          <h1 className="mb-2 text-xl" style={{ fontWeight: 600 }}>{t("home.page.errorTitle")}</h1>
           <p className="mb-5 text-sm leading-6" style={{ color: "#5E6B69" }}>
-            לא הצלחנו לטעון את דף הבית. אפשר לנסות שוב, או לחזור להתחברות.
+            {t("home.page.errorBody")}
           </p>
 
           <button
@@ -76,7 +78,7 @@ function HomeErrorState({
             className="w-full px-4 py-3 text-sm text-white transition active:scale-[0.99]"
             style={{ borderRadius: 14, background: "#246966", fontWeight: 600 }}
           >
-            נסה שוב
+            {t("home.page.retry")}
           </button>
 
           {onReLogin ? (
@@ -86,7 +88,7 @@ function HomeErrorState({
               className="mt-3 w-full px-4 py-3 text-sm transition active:scale-[0.99]"
               style={{ borderRadius: 14, border: "1px solid #F0E3D3", background: "#FFFFFF", color: "#1E2B2A", fontWeight: 600 }}
             >
-              התחברות מחדש
+              {t("home.page.reLogin")}
             </button>
           ) : null}
         </div>
@@ -98,6 +100,7 @@ function HomeErrorState({
 /* ------------------------------------------------------------------ page -- */
 
 function HomePage() {
+  const { t } = useI18n();
   const [data, setData] = useState<HomeResponse | null>(null);
 
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
@@ -185,7 +188,7 @@ function HomePage() {
           e.name === "AbortError") ||
         (e instanceof Error && e.name === "AbortError");
       const msg = aborted
-        ? "פג הזמן לטעינת דף הבית (timeout)"
+        ? t("home.page.timeout")
         : e instanceof Error
           ? e.message
           : "Failed to load home";
@@ -242,7 +245,7 @@ function HomePage() {
       <>
         <HomeAuthBootstrap />
         <div
-          className="pointer-events-auto fixed bottom-28 left-4 right-4 z-[99999] flex justify-center"
+          className="pointer-events-auto fixed bottom-28 start-4 end-4 z-[99999] flex justify-center"
           style={{ pointerEvents: "auto" }}
         >
           <button
@@ -250,7 +253,7 @@ function HomePage() {
             onClick={goLoginManual}
             className="w-full max-w-xs rounded-2xl border border-gray-300 bg-white px-4 py-3 text-center text-sm font-semibold text-gray-800 shadow-md"
           >
-            מעבר להתחברות (אם נתקעים כאן)
+            {t("home.page.stuckLogin")}
           </button>
         </div>
       </>
@@ -259,10 +262,8 @@ function HomePage() {
     body = (
       <main className="min-h-screen" style={{ background: "#FEF8F2", color: "#1E2B2A" }}>
         <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-6 px-4 sm:max-w-2xl sm:px-6">
-          <p className="text-center text-sm" style={{ color: "#5E6B69" }} dir="rtl">
-            {storageError
-              ? "לא ניתן לקרוא את פרטי ההתחברות מהדפדפן. אפשר לעבור ידנית להתחברות."
-              : "מעבירים לדף ההתחברות… אם לא נפתח, לחץ על הכפתור."}
+          <p className="text-center text-sm" style={{ color: "#5E6B69" }}>
+            {storageError ? t("home.page.storageError") : t("home.page.redirecting")}
           </p>
           <button
             type="button"
@@ -270,7 +271,7 @@ function HomePage() {
             className="z-[99999] w-full max-w-xs px-4 py-3.5 text-center text-sm text-white shadow-md"
             style={{ pointerEvents: "auto", borderRadius: 14, background: "#246966", fontWeight: 600 }}
           >
-            מעבר להתחברות
+            {t("home.page.goLogin")}
           </button>
         </div>
       </main>

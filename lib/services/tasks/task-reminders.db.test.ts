@@ -157,7 +157,7 @@ async function main() {
 
     console.log("personal agenda");
     await as(A.businessId, () => svc.createTask(A, req(), { title: "בעוד חודש", dueOn: addCalendarDays(TODAY, 30) }));
-    const personal = await as(A.businessId, () => getAgenda(A.businessId, NOW, { personal: true }));
+    const personal = await as(A.businessId, () => getAgenda(A.businessId, NOW, undefined, { personal: true }));
     const prow = personal.buckets.flatMap((x) => x.rows);
     ok("personal: only the owner's tasks (no business items)", prow.every((r) => r.type === "TASK" || r.type === "REPAIR"));
     ok("personal: reaches beyond a week", prow.some((r) => r.type === "TASK" && r.task.title === "בעוד חודש"));

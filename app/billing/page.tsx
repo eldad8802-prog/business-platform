@@ -14,6 +14,9 @@ import {
 } from "@/components/billing/BusinessIdentitySetupForm";
 import { TOKEN } from "@/lib/design/billing-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -44,12 +47,12 @@ type DocumentTotals = {
 
 type FilterView = "ALL" | BillingStatus | "QUOTE_TYPE";
 
-const FILTER_OPTIONS: { value: FilterView; label: string }[] = [
-  { value: "ALL", label: "הכל" },
-  { value: "DRAFT", label: "טיוטה" },
-  { value: "ISSUED", label: "הופק" },
-  { value: "QUOTE_TYPE", label: "הצעות מחיר" },
-  { value: "PENDING_REVIEW", label: "ממתין לאישור" },
+const FILTER_OPTIONS: { value: FilterView; labelKey: MessageKey }[] = [
+  { value: "ALL", labelKey: "billing.list.filterAll" },
+  { value: "DRAFT", labelKey: "billing.list.filterDraft" },
+  { value: "ISSUED", labelKey: "billing.list.filterIssued" },
+  { value: "QUOTE_TYPE", labelKey: "billing.list.filterQuotes" },
+  { value: "PENDING_REVIEW", labelKey: "billing.list.filterPendingReview" },
 ];
 
 const STATUS_STYLE: Record<
@@ -62,21 +65,21 @@ const STATUS_STYLE: Record<
   QUOTE: { bg: TOKEN.semantic.info.bg, fg: TOKEN.semantic.info.ink, border: TOKEN.semantic.info.border },
 };
 
-const DOCUMENT_TYPE_LABEL: Record<string, string> = {
-  TAX_INVOICE: "חשבונית מס",
-  QUOTE: "הצעת מחיר",
-};
+/** App-UI document type label (list only — never the legal name printed on an issued document). */
+function getDocumentTypeLabel(type: string, t: Translator): string | undefined {
+  return type === "TAX_INVOICE" || type === "QUOTE" ? t(`billing.docType.${type}`) : undefined;
+}
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
   return localStorage.getItem("token") || "1";
 }
 
-function formatMoney(amount: string, currency: string): string {
+function formatMoney(amount: string, currency: string, locale: Locale): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return `${amount} ${currency}`;
   try {
-    return new Intl.NumberFormat("he-IL", {
+    return new Intl.NumberFormat(intlTag(locale), {
       style: "currency",
       currency: currency || "ILS",
       minimumFractionDigits: 2,
@@ -87,12 +90,12 @@ function formatMoney(amount: string, currency: string): string {
   }
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: Locale): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   try {
-    return new Intl.DateTimeFormat("he-IL", {
+    return new Intl.DateTimeFormat(intlTag(locale), {
       timeZone: "Asia/Jerusalem",
       year: "numeric",
       month: "2-digit",
@@ -103,16 +106,17 @@ function formatDate(iso: string | null): string {
   }
 }
 
-function getDisplayNumber(doc: BillingDocumentListItem): string {
-  return doc.documentNumberFormatted ?? "טיוטה ללא מספר";
+function getDisplayNumber(doc: BillingDocumentListItem, t: Translator): string {
+  return doc.documentNumberFormatted ?? t("billing.list.draftNoNumber");
 }
 
-function getDisplayDate(doc: BillingDocumentListItem): string {
-  return formatDate(doc.issuedAt ?? doc.createdAt);
+function getDisplayDate(doc: BillingDocumentListItem, locale: Locale): string {
+  return formatDate(doc.issuedAt ?? doc.createdAt, locale);
 }
 
 export default function BillingHubPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [filter, setFilter] = useEntryState<FilterView>("filter", "ALL");
   const [docs, setDocs] = useState<BillingDocumentListItem[]>([]);
   const [totals, setTotals] = useState<DocumentTotals | null>(null);
@@ -142,11 +146,11 @@ export default function BillingHubPage() {
   const [visibleDocsCount, setVisibleDocsCount] = useEntryState<number>("visible", 5);
 
   useEffect(() => {
-    const t = window.setTimeout(
+    const timer = window.setTimeout(
       () => setDebouncedSearch(searchInput.trim()),
       380
     );
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(timer);
   }, [searchInput]);
 
   const loadInitial = useCallback(async () => {
@@ -172,7 +176,7 @@ export default function BillingHubPage() {
       });
 
       if (!res.ok) {
-        let message = "אירעה שגיאה בטעינת המסמכים";
+        let message = t("billing.list.loadError");
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -195,13 +199,13 @@ export default function BillingHubPage() {
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "אירעה שגיאה בטעינת המסמכים"
+        err instanceof Error ? err.message : t("billing.list.loadError")
       );
       setDocs([]);
     } finally {
       setLoading(false);
     }
-  }, [filter, debouncedSearch]);
+  }, [filter, debouncedSearch, t]);
 
   const loadMore = useCallback(async () => {
     if (nextCursor === null || loadingMore) return;
@@ -241,13 +245,13 @@ export default function BillingHubPage() {
   }, [filter, debouncedSearch, nextCursor, loadingMore]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => void loadInitial(), 0);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => void loadInitial(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadInitial]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setVisibleDocsCount(5), 0);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setVisibleDocsCount(5), 0);
+    return () => window.clearTimeout(timer);
   }, [filter, debouncedSearch]);
 
   useEffect(() => {
@@ -328,7 +332,7 @@ export default function BillingHubPage() {
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.card }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.card }}>
       <header
         className="billing-hub-header"
         style={{
@@ -346,7 +350,7 @@ export default function BillingHubPage() {
         {/* /billing is a main-nav root: back only when the user came from a
             verified in-app screen (e.g. Home / Tools on mobile). */}
         <BackButton hideWithoutOrigin />
-        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: TOKEN.ink.primary }}>חשבוניות</h1>
+        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: TOKEN.ink.primary }}>{t("billing.list.title")}</h1>
       </header>
 
       <main
@@ -360,7 +364,6 @@ export default function BillingHubPage() {
           flexDirection: "column",
           gap: 18,
           boxSizing: "border-box",
-          direction: "rtl",
         }}
       >
         {/* ─── Document workspace actions ─── */}
@@ -375,10 +378,10 @@ export default function BillingHubPage() {
         >
           <div>
             <div style={{ fontSize: 18, fontWeight: 600, color: TOKEN.ink.primary }}>
-              מה עושים עכשיו?!
+              {t("billing.list.actionsTitle")}
             </div>
             <div style={{ fontSize: 13, color: TOKEN.ink.muted, marginTop: 4 }}>
-              צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח.
+              {t("billing.list.actionsHelp")}
             </div>
           </div>
 
@@ -408,7 +411,7 @@ export default function BillingHubPage() {
                 flex: "0 1 264px",
               }}
             >
-              + צור חשבונית
+              {t("billing.list.createInvoice")}
             </button>
             <button
               className="billing-action-button"
@@ -425,7 +428,7 @@ export default function BillingHubPage() {
                 flex: "0 1 264px",
               }}
             >
-              + צור הצעת מחיר
+              {t("billing.list.createQuote")}
             </button>
           </div>
         </section>
@@ -433,7 +436,7 @@ export default function BillingHubPage() {
         {latestDraft ? (
           <section style={{ display: "grid", gap: 8 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: TOKEN.ink.primary }}>
-              המשך עבודה
+              {t("billing.list.continueWork")}
             </div>
             <ContinueDraftCard doc={latestDraft} />
           </section>
@@ -472,7 +475,7 @@ export default function BillingHubPage() {
                     color: TOKEN.ink.muted,
                   }}
                 >
-                  פרטי העסק במסמכים
+                  {t("billing.list.identitySummary")}
                 </summary>
                 <div style={{ marginTop: 10 }}>
                   <BillingIdentityBanner onIdentityResolved={setBillingIdentityOk} />
@@ -499,7 +502,7 @@ export default function BillingHubPage() {
                     color: TOKEN.ink.muted,
                   }}
                 >
-                  סקירה קצרה
+                  {t("billing.list.overviewSummary")}
                 </summary>
                 <section
                   style={{
@@ -508,13 +511,13 @@ export default function BillingHubPage() {
                     flexWrap: "wrap",
                     marginTop: 10,
                   }}
-                  aria-label="סיכום מסמכים"
+                  aria-label={t("billing.list.overviewAria")}
                 >
-                  <SummaryPill label="סה״כ" count={totals.all} />
-                  <SummaryPill label="חשבוניות" count={totals.invoices} />
-                  <SummaryPill label="הצעות מחיר" count={totals.quotes} />
-                  <SummaryPill label="טיוטות" count={totals.drafts} />
-                  <SummaryPill label="הופקו" count={totals.issued} />
+                  <SummaryPill label={t("billing.list.pillAll")} count={totals.all} />
+                  <SummaryPill label={t("billing.list.pillInvoices")} count={totals.invoices} />
+                  <SummaryPill label={t("billing.list.pillQuotes")} count={totals.quotes} />
+                  <SummaryPill label={t("billing.list.pillDrafts")} count={totals.drafts} />
+                  <SummaryPill label={t("billing.list.pillIssued")} count={totals.issued} />
                 </section>
               </details>
             ) : null}
@@ -531,7 +534,7 @@ export default function BillingHubPage() {
               padding: 12,
             }}
             role="region"
-            aria-label="חיפוש וסינון מסמכים"
+            aria-label={t("billing.list.searchAria")}
           >
             <div style={{ position: "relative" }}>
               <span
@@ -553,7 +556,7 @@ export default function BillingHubPage() {
                 type="search"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="חיפוש לפי לקוח או מספר מסמך..."
+                placeholder={t("billing.list.searchPlaceholder")}
                 style={{
                   paddingInlineStart: 34,
                   paddingInlineEnd: 12,
@@ -571,7 +574,7 @@ export default function BillingHubPage() {
             <div
               style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
               role="tablist"
-              aria-label="סינון לפי סטטוס"
+              aria-label={t("billing.list.filterAria")}
             >
               {FILTER_OPTIONS.map((opt) => {
                 const active = filter === opt.value;
@@ -593,7 +596,7 @@ export default function BillingHubPage() {
                       transition: "background 140ms ease, border-color 140ms ease",
                     }}
                   >
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </button>
                 );
               })}
@@ -624,7 +627,7 @@ export default function BillingHubPage() {
               overflowX: "hidden",
               overflowY: "hidden",
             }}
-            aria-label="ארכיון מסמכים"
+            aria-label={t("billing.list.archive")}
           >
             <div
               className="billing-archive-title-row"
@@ -638,10 +641,10 @@ export default function BillingHubPage() {
               }}
             >
               <div style={{ fontSize: 16, fontWeight: 600, color: TOKEN.ink.primary }}>
-                מסמכים אחרונים ({Math.min(visibleDocsCount, docs.length)} מתוך {docs.length})
+                {t("billing.list.recentTitle", { shown: Math.min(visibleDocsCount, docs.length), total: docs.length })}
               </div>
               <div style={{ fontSize: 12, color: TOKEN.ink.meta }}>
-                ארכיון מסמכים
+                {t("billing.list.archive")}
               </div>
             </div>
             <div
@@ -662,13 +665,13 @@ export default function BillingHubPage() {
                 whiteSpace: "nowrap",
               }}
             >
-              <span>תאריך</span>
-              <span>מספר</span>
-              <span>סוג</span>
-              <span>לקוח</span>
-              <span>סכום</span>
-              <span>סטטוס</span>
-              <span>פתיחה</span>
+              <span>{t("billing.list.colDate")}</span>
+              <span>{t("billing.list.colNumber")}</span>
+              <span>{t("billing.list.colType")}</span>
+              <span>{t("billing.list.colCustomer")}</span>
+              <span>{t("billing.list.colAmount")}</span>
+              <span>{t("billing.list.colStatus")}</span>
+              <span>{t("billing.list.colOpen")}</span>
             </div>
             <ul
               style={{
@@ -701,7 +704,7 @@ export default function BillingHubPage() {
                     cursor: loadingMore ? "wait" : "pointer",
                   }}
                 >
-                  {loadingMore ? "טוען…" : "טען עוד"}
+                  {loadingMore ? t("common.loading") : t("billing.list.loadMore")}
                 </button>
               </div>
             ) : null}
@@ -808,7 +811,7 @@ export default function BillingHubPage() {
           .billing-doc-row > div:nth-child(5) {
             order: 1;
             grid-column: 2;
-            text-align: left;
+            text-align: end;
           }
 
           .billing-doc-row > div:nth-child(6) {
@@ -832,7 +835,7 @@ export default function BillingHubPage() {
 
           .billing-active-record-amount {
             grid-column: 2 !important;
-            border-right: 0 !important;
+            border-inline-start: 0 !important;
             border-top: 1px solid ${TOKEN.border.DEFAULT} !important;
             padding: 12px 18px !important;
             justify-items: start !important;
@@ -893,7 +896,7 @@ export default function BillingHubPage() {
                 body: JSON.stringify(gateForm),
               });
               if (!res.ok) {
-                let msg = "שמירה נכשלה";
+                let msg = t("billing.identity.saveFailed");
                 try {
                   const j = await res.json();
                   if (j?.error) msg = j.error;
@@ -912,12 +915,10 @@ export default function BillingHubPage() {
               } else {
                 // Incomplete: keep the gate OPEN so the error is visible and the
                 // user can finish. Do NOT clear pendingCreateType.
-                setGateError(
-                  'חסרים עדיין שדות חובה לזהות העסק. ודאו שמולאו: שם העסק, סוג עסק, ע.מ./ח.פ., כתובת, טלפון ודוא"ל.'
-                );
+                setGateError(t("billing.list.gateIncomplete"));
               }
             } catch {
-              setGateError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
+              setGateError(t("billing.identity.saveConnectFailed"));
             } finally {
               setGateSaving(false);
             }
@@ -953,6 +954,7 @@ function IdentityGateModal({
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="dialog"
@@ -994,10 +996,10 @@ function IdentityGateModal({
             color: TOKEN.ink.primary,
           }}
         >
-          הגדרת זהות העסק
+          {t("billing.list.gateTitle")}
         </h2>
         <p style={{ margin: "0 0 14px", fontSize: 13, color: TOKEN.ink.secondary }}>
-          צריך רק להשלים את פרטי העסק שיופיעו במסמך הראשון.
+          {t("billing.list.gateHelp")}
         </p>
         <BusinessIdentitySetupForm form={form} onChange={onFormChange} />
         {error ? (
@@ -1034,7 +1036,7 @@ function IdentityGateModal({
               fontWeight: 600,
             }}
           >
-            ביטול
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -1047,7 +1049,7 @@ function IdentityGateModal({
               fontWeight: 600,
             }}
           >
-            {saving ? "שומר…" : "שמור והמשך"}
+            {saving ? t("common.saving") : t("billing.list.gateSave")}
           </button>
         </div>
       </div>
@@ -1064,6 +1066,7 @@ function CreateDraftModal({
   onClose: () => void;
   onCreated: (documentId: number) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState<string>("");
   const [pickedCustomerId, setPickedCustomerId] = useState<number | null>(
     null
@@ -1136,7 +1139,7 @@ function CreateDraftModal({
       });
 
       if (!res.ok) {
-        let message = "אירעה שגיאה ביצירת הטיוטה";
+        let message = t("billing.list.createError");
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -1152,7 +1155,7 @@ function CreateDraftModal({
       const data = await res.json();
       const id: unknown = data?.document?.id;
       if (typeof id !== "number") {
-        setErrorMsg("התקבלה תגובה לא תקינה");
+        setErrorMsg(t("billing.list.createBadResponse"));
         setSubmitting(false);
         return;
       }
@@ -1160,7 +1163,7 @@ function CreateDraftModal({
       onCreated(id);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error ? err.message : "אירעה שגיאה ביצירת הטיוטה"
+        err instanceof Error ? err.message : t("billing.list.createError")
       );
       setSubmitting(false);
     }
@@ -1175,7 +1178,7 @@ function CreateDraftModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={isQuote ? "יצירת הצעת מחיר" : "יצירת טיוטת חשבונית"}
+      aria-label={isQuote ? t("billing.list.createQuoteAria") : t("billing.list.createInvoiceTitle")}
       onClick={handleClose}
       style={{
         position: "fixed",
@@ -1223,7 +1226,7 @@ function CreateDraftModal({
               margin: 0,
             }}
           >
-            {isQuote ? "הצעת מחיר חדשה" : "יצירת טיוטת חשבונית"}
+            {isQuote ? t("billing.list.createQuoteTitle") : t("billing.list.createInvoiceTitle")}
           </h2>
           <p
             style={{
@@ -1233,8 +1236,7 @@ function CreateDraftModal({
               lineHeight: 1.55,
             }}
           >
-            בחרו למי המסמך מיועד. אחר כך נוסיף את מה שסוכם עם הלקוח ונבדוק את
-            הסיכום לפני שליחה.
+            {t("billing.list.createHelp")}
           </p>
           <div
             style={{
@@ -1250,8 +1252,8 @@ function CreateDraftModal({
             }}
           >
             {isQuote
-              ? "הצעה היא מסמך עסקי לשיתוף עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."
-              : "אחרי היצירה תועבר לטיוטה, שם בודקים את הפריטים ומפיקים חשבונית רשמית."}
+              ? t("billing.list.createQuoteNote")
+              : t("billing.list.createInvoiceNote")}
           </div>
         </section>
 
@@ -1263,7 +1265,7 @@ function CreateDraftModal({
               color: TOKEN.ink.secondary,
             }}
           >
-            לקוח קיים
+            {t("billing.list.existingCustomer")}
           </span>
           <select
             value={pickedCustomerId ?? ""}
@@ -1288,7 +1290,7 @@ function CreateDraftModal({
               boxSizing: "border-box",
             }}
           >
-            <option value="">— ללא בחירה —</option>
+            <option value="">{t("billing.list.noSelection")}</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -1306,7 +1308,7 @@ function CreateDraftModal({
               color: TOKEN.ink.secondary,
             }}
           >
-            או שם לקוח חדש
+            {t("billing.list.orNewCustomer")}
           </span>
           <input
             type="text"
@@ -1317,7 +1319,7 @@ function CreateDraftModal({
             }}
             disabled={submitting}
             autoFocus
-            placeholder='לדוגמה: חברה לדוגמה בע"מ'
+            placeholder={t("billing.list.newCustomerPlaceholder")}
             maxLength={200}
             onKeyDown={(e) => {
               if (e.key === "Enter" && canSubmit) {
@@ -1338,7 +1340,7 @@ function CreateDraftModal({
             }}
           />
           <span style={{ fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
-            השם יופיע במסמך כפי שייכתב כאן.
+            {t("billing.list.newCustomerHint")}
           </span>
         </label>
 
@@ -1381,7 +1383,7 @@ function CreateDraftModal({
               minWidth: 110,
             }}
           >
-            ביטול
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -1396,7 +1398,7 @@ function CreateDraftModal({
               minWidth: 130,
             }}
           >
-            {submitting ? "יוצר טיוטה..." : "התחל מסמך"}
+            {submitting ? t("billing.list.creatingDraft") : t("billing.list.startDocument")}
           </button>
         </div>
       </div>
@@ -1471,6 +1473,7 @@ function ErrorBanner({
   message: string;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="alert"
@@ -1485,7 +1488,7 @@ function ErrorBanner({
         gap: 12,
       }}
     >
-      <div style={{ fontWeight: 600, fontSize: 15 }}>שגיאה בטעינת המסמכים</div>
+      <div style={{ fontWeight: 600, fontSize: 15 }}>{t("billing.list.errorTitle")}</div>
       <div style={{ fontSize: 14, lineHeight: 1.5 }}>{message}</div>
       <button
         type="button"
@@ -1498,7 +1501,7 @@ function ErrorBanner({
           fontWeight: 600,
         }}
       >
-        נסה שוב
+        {t("billing.loadStates.tryAgain")}
       </button>
     </div>
   );
@@ -1513,11 +1516,13 @@ function EmptyState({
   onClearFilter: () => void;
   onCreate: () => void;
 }) {
-  const filterLabel = FILTER_OPTIONS.find((o) => o.value === filter)?.label;
+  const { t } = useI18n();
+  const filterKey = FILTER_OPTIONS.find((o) => o.value === filter)?.labelKey;
+  const filterLabel = filterKey ? t(filterKey) : undefined;
   const subtitle =
     filter === "ALL"
-      ? "התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם."
-      : `אין כרגע מסמכים בסטטוס ״${filterLabel ?? ""}״.`;
+      ? t("billing.list.emptyAllHelp")
+      : t("billing.list.emptyFilteredHelp", { filter: filterLabel ?? "" });
 
   return (
     <div
@@ -1531,7 +1536,7 @@ function EmptyState({
       }}
     >
       <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-        אין עדיין מסמכים להצגה
+        {t("billing.list.emptyTitle")}
       </div>
       <div style={{ fontSize: 14, lineHeight: 1.5 }}>{subtitle}</div>
       <div
@@ -1554,7 +1559,7 @@ function EmptyState({
               fontWeight: 600,
             }}
           >
-            התחל מסמך ללקוח
+            {t("billing.list.emptyCreate")}
           </button>
         ) : (
           <button
@@ -1567,7 +1572,7 @@ function EmptyState({
               fontWeight: 600,
             }}
           >
-            נקה סינון
+            {t("billing.list.clearFilter")}
           </button>
         )}
       </div>
@@ -1576,10 +1581,11 @@ function EmptyState({
 }
 
 function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
-  const customer = doc.customerNameSnapshot ?? "לקוח לא הוגדר";
-  const money = formatMoney(doc.totalAmount, doc.currency);
-  const typeLabel = DOCUMENT_TYPE_LABEL[doc.documentType] ?? "מסמך";
-  const number = getDisplayNumber(doc);
+  const { t, locale } = useI18n();
+  const customer = doc.customerNameSnapshot ?? t("billing.list.customerNotSet");
+  const money = formatMoney(doc.totalAmount, doc.currency, locale);
+  const typeLabel = getDocumentTypeLabel(doc.documentType, t) ?? t("billing.list.genericDocument");
+  const number = getDisplayNumber(doc, t);
 
   return (
     <Link
@@ -1610,13 +1616,13 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
         >
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
-              טיוטה
+              {t("billing.list.draftBadge")}
             </div>
             <div style={{ fontSize: 16, fontWeight: 600, color: TOKEN.ink.primary, marginTop: 4 }}>
-              {typeLabel} # {number}
+              {t("billing.list.draftCardTitle", { type: typeLabel, number })}
             </div>
             <div style={{ fontSize: 12, color: TOKEN.ink.muted, marginTop: 3 }}>
-              לקוח: {customer}
+              {t("billing.list.customerLine", { customer })}
             </div>
           </div>
         </div>
@@ -1632,17 +1638,17 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
           }}
         >
           <div style={{ fontSize: 12, color: TOKEN.ink.meta }}>
-            עודכן לאחרונה לפי רשומת המסמך
+            {t("billing.list.draftUpdatedNote")}
           </div>
           <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
-            פתח והמשך
+            {t("billing.list.openAndContinue")}
           </div>
         </div>
       </div>
       <div
         className="billing-active-record-amount"
         style={{
-          borderRight: `1px solid ${TOKEN.border.DEFAULT}`,
+          borderInlineStart: `1px solid ${TOKEN.border.DEFAULT}`,
           padding: "18px 20px",
           display: "grid",
           alignContent: "center",
@@ -1651,7 +1657,7 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
         }}
       >
         <div style={{ fontSize: 11, color: TOKEN.ink.muted, fontWeight: 600 }}>
-          סכום
+          {t("billing.list.colAmount")}
         </div>
         <div
           style={{
@@ -1676,26 +1682,27 @@ function DocumentCard({
   doc: BillingDocumentListItem;
   hasDivider?: boolean;
 }) {
+  const { t, locale } = useI18n();
   const status = doc.status;
-  const number = getDisplayNumber(doc);
+  const number = getDisplayNumber(doc, t);
   const customer = doc.customerNameSnapshot ?? "—";
-  const date = getDisplayDate(doc);
-  const money = formatMoney(doc.totalAmount, doc.currency);
+  const date = getDisplayDate(doc, locale);
+  const money = formatMoney(doc.totalAmount, doc.currency, locale);
   const pdfIssue = doc.status === "ISSUED" && doc.pdfRenderStatus === "FAILED";
   const isQuote = doc.documentType === "QUOTE";
   const isConverted = isQuote && (doc.convertedToInvoiceId ?? null) !== null;
-  const typeLabel = DOCUMENT_TYPE_LABEL[doc.documentType] ?? doc.documentType;
+  const typeLabel = getDocumentTypeLabel(doc.documentType, t) ?? doc.documentType;
   const statusTone = isQuote && status !== "PENDING_REVIEW" && !pdfIssue ? "QUOTE" : status;
   const statusStyle = STATUS_STYLE[statusTone];
   const lifecycleLabel = pdfIssue
-    ? "דורש טיפול"
+    ? t("billing.list.lifecycleNeedsAttention")
     : isQuote && status !== "PENDING_REVIEW"
-    ? "הצעה"
+    ? t("billing.list.lifecycleQuote")
     : status === "ISSUED"
-    ? "הופק"
+    ? t("billing.status.ISSUED")
     : status === "PENDING_REVIEW"
-    ? "ממתין לאישור"
-    : "טיוטה";
+    ? t("billing.status.PENDING_REVIEW")
+    : t("billing.status.DRAFT");
 
   return (
     <li>
@@ -1731,7 +1738,7 @@ function DocumentCard({
             {date}
           </div>
           <div style={{ color: TOKEN.ink.meta, fontSize: 11, marginTop: 2 }}>
-            {status === "ISSUED" ? "הופק" : status === "PENDING_REVIEW" ? "נשלח לאישור" : "עודכן"}
+            {status === "ISSUED" ? t("billing.status.ISSUED") : status === "PENDING_REVIEW" ? t("billing.list.rowSentForReview") : t("billing.list.rowUpdated")}
           </div>
         </div>
 
@@ -1772,7 +1779,7 @@ function DocumentCard({
           </div>
           {isConverted || pdfIssue ? (
             <div style={{ fontSize: 11, color: pdfIssue ? TOKEN.semantic.urgent.ink : TOKEN.semantic.success.ink, marginTop: 2, fontWeight: 600 }}>
-              {pdfIssue ? "צריך טיפול ב־PDF" : "הומרה לחשבונית"}
+              {pdfIssue ? t("billing.list.rowPdfIssue") : t("billing.list.rowConverted")}
             </div>
           ) : null}
         </div>
@@ -1826,7 +1833,7 @@ function DocumentCard({
             whiteSpace: "nowrap",
           }}
         >
-          פתח מסמך
+          {t("billing.list.openDocument")}
         </div>
       </Link>
     </li>

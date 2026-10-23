@@ -41,6 +41,11 @@ import {
   decryptAdminMfaSecret,
   encryptAdminMfaSecret,
 } from "./admin-mfa-crypto";
+import {
+  issueMfaReplacementToken,
+  seedFingerprint,
+  verifyMfaReplacementToken,
+} from "./admin-mfa-replacement";
 
 const ISSUER = "Dubiz";
 const ALGORITHM = "SHA1";
@@ -286,6 +291,93 @@ export async function verifyAdminMfaCode(
   }
 
   return { ok: false, reason: "invalid_code" };
+}
+
+/**
+ * Begin replacing an ACTIVE authenticator (a new phone, a lost phone after a
+ * recovery-code step-up). Nothing is written: the new seed travels, encrypted,
+ * inside a short-lived envelope bound to the seed it replaces, and the current
+ * authenticator keeps working until `confirmAdminMfaReplacement` proves a code
+ * from the new one. There is never a moment with no factor.
+ */
+export async function beginAdminMfaReplacement(
+  userId: number,
+  nowMs: number = Date.now()
+): Promise<
+  | { ok: true; otpauthUri: string; replacementToken: string }
+  | { ok: false; reason: "not_enrolled" }
+> {
+  const row = await prisma.platformAdminMfa.findUnique({
+    where: { userId },
+    select: { enrolledAt: true, secretEncrypted: true },
+  });
+  if (!row?.enrolledAt) return { ok: false, reason: "not_enrolled" };
+
+  const secret = new OTPAuth.Secret({ size: 20 });
+  const base32 = secret.base32;
+  const { encrypted, keyId } = encryptAdminMfaSecret(base32);
+  const replacementToken = issueMfaReplacementToken(
+    {
+      userId,
+      secretEncrypted: encrypted,
+      encryptionKeyId: keyId,
+      replaces: seedFingerprint(row.secretEncrypted),
+    },
+    nowMs
+  );
+  return { ok: true, otpauthUri: buildTotp(base32).toString(), replacementToken };
+}
+
+/**
+ * Prove a code from the NEW authenticator, then swap it in with one update that
+ * only matches while the OLD seed is still the stored one (single use; a
+ * concurrent change wins and this one is refused). Fresh recovery codes replace
+ * the old ones and are returned exactly once.
+ */
+export async function confirmAdminMfaReplacement(
+  userId: number,
+  replacementToken: unknown,
+  code: string,
+  now: Date = new Date()
+): Promise<
+  | { ok: true; recoveryCodes: string[] }
+  | { ok: false; reason: "bad_replacement" | "not_enrolled" | "superseded" | "invalid_code" }
+> {
+  const envelope = verifyMfaReplacementToken(replacementToken, userId, now.getTime());
+  if (!envelope.ok) return { ok: false, reason: "bad_replacement" };
+
+  const row = await prisma.platformAdminMfa.findUnique({
+    where: { userId },
+    select: { enrolledAt: true, secretEncrypted: true },
+  });
+  if (!row?.enrolledAt) return { ok: false, reason: "not_enrolled" };
+  if (seedFingerprint(row.secretEncrypted) !== envelope.replaces) return { ok: false, reason: "superseded" };
+
+  const secret = decryptAdminMfaSecret(envelope.secretEncrypted);
+  if (!secret) return { ok: false, reason: "bad_replacement" };
+  const delta = buildTotp(secret).validate({
+    token: (code ?? "").trim(),
+    window: DRIFT_WINDOW,
+    timestamp: now.getTime(),
+  });
+  if (delta === null) return { ok: false, reason: "invalid_code" };
+
+  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
+  const step = BigInt(Math.floor(now.getTime() / 1000 / PERIOD_SECONDS) + delta);
+  const swapped = await prisma.platformAdminMfa.updateMany({
+    where: { userId, secretEncrypted: row.secretEncrypted },
+    data: {
+      secretEncrypted: envelope.secretEncrypted,
+      encryptionKeyId: envelope.encryptionKeyId,
+      enrolledAt: now,
+      lastVerifiedAt: now,
+      lastUsedStep: step,
+      recoveryCodeHashes: codes.map(hashRecoveryCode),
+      recoveryCodesGeneratedAt: now,
+    },
+  });
+  if (swapped.count !== 1) return { ok: false, reason: "superseded" };
+  return { ok: true, recoveryCodes: codes };
 }
 
 /**

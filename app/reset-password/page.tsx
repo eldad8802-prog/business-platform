@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { AuthCard, authCardStyles as s } from "@/components/auth/auth-card";
 import { PrimaryCta } from "@/components/ui/primary-cta";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { clearClientSession } from "@/lib/client-session";
 
@@ -22,6 +23,7 @@ function takeToken(): string | null {
 }
 
 export default function ResetPasswordPage() {
+  const { t } = useI18n();
   const [token, setToken] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "checking" });
   const [password, setPassword] = useState("");
@@ -32,34 +34,34 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const t = takeToken();
-    if (!t) {
+    const linkToken = takeToken();
+    if (!linkToken) {
       // After this effect, not inside it (no synchronous cascade).
       queueMicrotask(() =>
-        setPhase({ kind: "unusable", message: "הקישור לא שלם. כדאי לפתוח אותו שוב מהמייל, או לבקש קישור חדש." })
+        setPhase({ kind: "unusable", message: t("account.auth.reset.linkIncomplete") })
       );
       return;
     }
-    queueMicrotask(() => setToken(t));
+    queueMicrotask(() => setToken(linkToken));
     fetch("/api/auth/password/reset/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: t }),
+      body: JSON.stringify({ token: linkToken }),
     })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (ok && d?.status === "VALID") setPhase({ kind: "form" });
-        else setPhase({ kind: "unusable", message: d?.error ?? "הקישור לא תקין. כדאי לבקש קישור חדש." });
+        else setPhase({ kind: "unusable", message: d?.error ?? t("account.auth.reset.linkInvalid") });
       })
       .catch(() => setPhase({ kind: "form" })); // the submit re-checks everything anyway
-  }, []);
+  }, [t]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     const next: { password?: string; confirm?: string } = {};
-    if (password.length < MIN_PASSWORD_LENGTH) next.password = `הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים`;
-    if (confirm !== password) next.confirm = "הסיסמאות לא זהות";
+    if (password.length < MIN_PASSWORD_LENGTH) next.password = t("account.auth.common.passwordTooShort", { count: MIN_PASSWORD_LENGTH });
+    if (confirm !== password) next.confirm = t("account.auth.reset.mismatch");
     setFieldError(next);
     if (Object.keys(next).length > 0 || !token) return;
     setLoading(true);
@@ -79,10 +81,10 @@ export default function ResetPasswordPage() {
       } else if (typeof data?.code === "string" && data.code.startsWith("TOKEN_")) {
         setPhase({ kind: "unusable", message: data.error });
       } else {
-        setFormError(data?.error ?? "משהו השתבש אצלנו. כדאי לנסות שוב בעוד רגע.");
+        setFormError(data?.error ?? t("account.auth.common.serverError"));
       }
     } catch {
-      setFormError("אין חיבור כרגע. כדאי לבדוק את החיבור לאינטרנט ולנסות שוב.");
+      setFormError(t("account.auth.common.offline"));
     } finally {
       setLoading(false);
     }
@@ -90,38 +92,38 @@ export default function ResetPasswordPage() {
 
   if (phase.kind === "checking") {
     return (
-      <AuthCard title="בחירת סיסמה חדשה">
-        <p className={s.info} role="status"><span className={s.spinner} aria-hidden="true" />בודקים את הקישור…</p>
+      <AuthCard title={t("account.auth.reset.title")}>
+        <p className={s.info} role="status"><span className={s.spinner} aria-hidden="true" />{t("account.auth.reset.checking")}</p>
       </AuthCard>
     );
   }
 
   if (phase.kind === "unusable") {
     return (
-      <AuthCard title="אי אפשר להשתמש בקישור">
+      <AuthCard title={t("account.auth.reset.unusableTitle")}>
         <div className={s.alert} role="alert" data-testid="reset-unusable">{phase.message}</div>
-        <PrimaryCta href="/forgot-password" block>בקשת קישור חדש</PrimaryCta>
-        <p className={s.footer}><Link href="/login" className={s.link}>חזרה לכניסה</Link></p>
+        <PrimaryCta href="/forgot-password" block>{t("account.auth.reset.requestNew")}</PrimaryCta>
+        <p className={s.footer}><Link href="/login" className={s.link}>{t("account.auth.common.backToLogin")}</Link></p>
       </AuthCard>
     );
   }
 
   if (phase.kind === "done") {
     return (
-      <AuthCard title="הסיסמה עודכנה" lede="מעכשיו נכנסים עם הסיסמה החדשה.">
+      <AuthCard title={t("account.auth.reset.doneTitle")} lede={t("account.auth.reset.doneLede")}>
         <p className={s.success} role="status" data-testid="reset-done">
-          מטעמי אבטחה ניתקנו את החשבון מכל המכשירים. בכל מכשיר נכנסים מחדש עם הסיסמה החדשה.
+          {t("account.auth.reset.doneBody")}
         </p>
-        <PrimaryCta href="/login?reset=done" block>לכניסה</PrimaryCta>
+        <PrimaryCta href="/login?reset=done" block>{t("account.auth.reset.toLogin")}</PrimaryCta>
       </AuthCard>
     );
   }
 
   return (
-    <AuthCard title="בחירת סיסמה חדשה" lede="אחרי השינוי ננתק את החשבון מכל המכשירים, ונכנסים מחדש עם הסיסמה החדשה.">
+    <AuthCard title={t("account.auth.reset.title")} lede={t("account.auth.reset.lede")}>
       <form onSubmit={submit} noValidate style={{ display: "contents" }}>
         <div className={s.field}>
-          <label className={s.label} htmlFor="reset-password">סיסמה חדשה</label>
+          <label className={s.label} htmlFor="reset-password">{t("account.auth.reset.newPasswordLabel")}</label>
           <div className={s.inputShell}>
             <input
               id="reset-password"
@@ -135,18 +137,18 @@ export default function ResetPasswordPage() {
               aria-describedby="reset-password-msg"
               dir="ltr"
             />
-            <button type="button" className={s.toggle} onClick={() => setShow((v) => !v)} aria-pressed={show} aria-controls="reset-password" aria-label={show ? "הסתרת הסיסמה" : "הצגת הסיסמה"}>
-              {show ? "הסתר" : "הצג"}
+            <button type="button" className={s.toggle} onClick={() => setShow((v) => !v)} aria-pressed={show} aria-controls="reset-password" aria-label={show ? t("account.auth.reset.hidePasswordAria") : t("account.auth.reset.showPasswordAria")}>
+              {show ? t("account.auth.common.hide") : t("account.auth.common.show")}
             </button>
           </div>
           {fieldError.password ? (
             <p id="reset-password-msg" role="alert" className={s.fieldError}>{fieldError.password}</p>
           ) : (
-            <p id="reset-password-msg" className={s.helper}>לפחות {MIN_PASSWORD_LENGTH} תווים.</p>
+            <p id="reset-password-msg" className={s.helper}>{t("account.auth.reset.minLengthHelp", { count: MIN_PASSWORD_LENGTH })}</p>
           )}
         </div>
         <div className={s.field}>
-          <label className={s.label} htmlFor="reset-confirm">אימות הסיסמה</label>
+          <label className={s.label} htmlFor="reset-confirm">{t("account.auth.reset.confirmLabel")}</label>
           <input
             id="reset-confirm"
             type={show ? "text" : "password"}
@@ -162,7 +164,7 @@ export default function ResetPasswordPage() {
         </div>
         {formError ? <div role="alert" aria-live="assertive" className={s.alert}>{formError}</div> : null}
         <PrimaryCta type="submit" block disabled={loading}>
-          {loading ? <><span className={s.spinner} aria-hidden="true" />מעדכנים…</> : "שמירת הסיסמה"}
+          {loading ? <><span className={s.spinner} aria-hidden="true" />{t("account.auth.reset.saving")}</> : t("account.auth.reset.submit")}
         </PrimaryCta>
       </form>
     </AuthCard>

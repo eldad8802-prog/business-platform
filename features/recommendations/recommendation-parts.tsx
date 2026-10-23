@@ -5,6 +5,8 @@ import Link from "next/link";
 import { IconChevronLeft, IconFileLines, IconWallet } from "@/components/navigation/nav-icons";
 
 import type { RecommendationView } from "./recommendations-client";
+import dirStyles from "@/components/ui/directional.module.css";
+
 import styles from "./recommendations.module.css";
 
 export function RecommendationIcon({ type, large }: { type: RecommendationView["type"]; large?: boolean }) {
@@ -33,7 +35,7 @@ export function RecommendationRow({ view }: { view: RecommendationView }) {
           <StageBadge view={view} />
         </span>
         <span className={styles.chevron} aria-hidden="true">
-          <IconChevronLeft size={18} strokeWidth={2} />
+          <IconChevronLeft size={18} strokeWidth={2} className={dirStyles.forward} />
         </span>
       </Link>
     </li>

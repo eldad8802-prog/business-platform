@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
         page: query.page,
         limit: query.limit,
         total: result.pagination.total,
+        // A lookup is itself accountable: who searched for which business/email.
+        q: query.q,
+        filter: query.filter,
       },
       req,
     });

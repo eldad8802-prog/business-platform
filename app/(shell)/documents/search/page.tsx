@@ -4,7 +4,11 @@ import { PageContainer } from "@/components/ui/page-container";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import { formatNumber } from "@/lib/i18n/format";
+import type { Translator } from "@/lib/i18n/translate";
+import { categoryLabel } from "@/lib/documents/category-label";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
@@ -29,16 +33,24 @@ type SearchResult = {
 
 type FilterKey = "all" | "month" | "fuel" | "income" | "expense";
 
-function formatAmount(value: number, direction: string): string {
+function formatAmount(value: number, direction: string, locale: Locale = DEFAULT_LOCALE): string {
   const sign = direction === "income" ? "+" : direction === "expense" ? "-" : "";
+  if (locale !== "he") {
+    return `${sign}${new Intl.NumberFormat(intlTag(locale), {
+      style: "currency",
+      currency: "ILS",
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: 2,
+    }).format(value)}`;
+  }
   return `${sign}₪${value.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
 }
 
-function formatDate(raw: string | null | undefined): string {
+function formatDate(raw: string | null | undefined, locale: Locale = DEFAULT_LOCALE): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("he-IL", {
+  return date.toLocaleDateString(intlTag(locale), {
     day: "numeric",
     month: "numeric",
     year: "numeric",
@@ -50,8 +62,8 @@ function currentMonthValue(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function currentMonthLabel(): string {
-  return new Date().toLocaleDateString("he-IL", {
+function currentMonthLabel(locale: Locale = DEFAULT_LOCALE): string {
+  return new Date().toLocaleDateString(intlTag(locale), {
     month: "long",
     year: "numeric",
   });
@@ -61,8 +73,13 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function categoryText(t: Translator, raw: string): string {
+  return categoryLabel(t, raw) || t("documents.common.general");
+}
+
 export default function DocumentsSearchPage() {
   const router = useRouter();
+  const { t, locale, fmt } = useI18n();
   const [mounted, setMounted] = useState(false);
   const [authHeader, setAuthHeader] = useState<string | null>(null);
   const [query, setQuery] = useEntryState("query", "");
@@ -106,12 +123,12 @@ export default function DocumentsSearchPage() {
       const items = Array.isArray(data.results) ? (data.results as SearchResult[]) : [];
       setResults(items.filter((item) => item.document?.status === "approved"));
     } catch (err) {
-      setError(errorMessage(err, "שגיאה בחיפוש"));
+      setError(errorMessage(err, t("documents.search.error")));
       setResults([]);
     } finally {
       setLoading(false);
     }
-  }, [authHeader, filter, query]);
+  }, [authHeader, filter, query, t]);
 
   useEffect(() => {
     if (!mounted || !authHeader) return;
@@ -122,27 +139,27 @@ export default function DocumentsSearchPage() {
   const filters = useMemo(
     () =>
       [
-        { key: "all" as const, label: "הכל" },
-        { key: "month" as const, label: currentMonthLabel() },
-        { key: "fuel" as const, label: "דלק" },
-        { key: "income" as const, label: "הכנסה" },
-        { key: "expense" as const, label: "הוצאה" },
+        { key: "all" as const, label: t("documents.search.all") },
+        { key: "month" as const, label: currentMonthLabel(locale) },
+        { key: "fuel" as const, label: t("documents.categories.fuel") },
+        { key: "income" as const, label: t("documents.common.income") },
+        { key: "expense" as const, label: t("documents.common.expense") },
       ] as const,
-    []
+    [t, locale]
   );
 
   if (!mounted || !authHeader) {
     return (
-      <div dir="rtl" style={pageStyle}>
+      <div style={pageStyle}>
         <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>          <Header />
-          <div style={emptyStyle}>טוען...</div>
+          <div style={emptyStyle}>{t("documents.search.loading")}</div>
         </PageContainer>
       </div>
     );
   }
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <PageContainer intent="data" className="dz-search-page" style={{ paddingBlock: "14px 40px" }}>        <Header />
 
         <label style={searchStyle}>
@@ -150,8 +167,8 @@ export default function DocumentsSearchPage() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="חיפוש לפי שם ספק או קטגוריה"
-            aria-label="חיפוש מסמכים"
+            placeholder={t("documents.search.placeholder")}
+            aria-label={t("documents.search.aria")}
             style={searchInputStyle}
           />
         </label>
@@ -172,8 +189,8 @@ export default function DocumentsSearchPage() {
 
         <div style={countStyle}>
           {loading
-            ? "טוען תוצאות..."
-            : `${results.length.toLocaleString("he-IL")} תוצאות · רשומות מאושרות בלבד`}
+            ? t("documents.search.loadingResults")
+            : t("documents.search.resultsCount", { count: formatNumber(results.length, fmt) })}
         </div>
 
         {error ? <div style={errorStyle}>{error}</div> : null}
@@ -181,7 +198,7 @@ export default function DocumentsSearchPage() {
         <div className="dz-search-desk">
         <div>
         {!loading && !error && results.length === 0 ? (
-          <section style={emptyStyle}>לא נמצאו מסמכים מאושרים לתצוגה.</section>
+          <section style={emptyStyle}>{t("documents.search.empty")}</section>
         ) : null}
 
         <section className="dz-search-cards" style={resultsStyle}>
@@ -198,20 +215,20 @@ export default function DocumentsSearchPage() {
           ))}
         </section>
 
-        <section className="dz-search-table" aria-label="תוצאות חיפוש">
+        <section className="dz-search-table" aria-label={t("documents.search.tableAria")}>
           <table>
             <thead>
               <tr>
-                <th>ספק</th>
-                <th>תאריך</th>
-                <th>קטגוריה</th>
-                <th>סכום</th>
-                <th>סטטוס</th>
+                <th>{t("documents.review.fields.vendor")}</th>
+                <th>{t("documents.review.fields.date")}</th>
+                <th>{t("documents.review.fields.category")}</th>
+                <th>{t("documents.review.fields.amount")}</th>
+                <th>{t("documents.search.status")}</th>
               </tr>
             </thead>
             <tbody>
               {results.map((item) => {
-                const category = CATEGORY_MAP[item.category] || item.category || "כללי";
+                const category = categoryText(t, item.category);
                 return (
                   <tr
                     key={item.id}
@@ -219,11 +236,11 @@ export default function DocumentsSearchPage() {
                     onClick={() => setSelectedId(item.id)}
                     style={{ cursor: "pointer" }}
                   >
-                    <td>{item.vendorName || "ללא ספק"}</td>
-                    <td>{formatDate(item.date)}</td>
+                    <td>{item.vendorName || t("documents.search.noVendor")}</td>
+                    <td>{formatDate(item.date, locale)}</td>
                     <td>{category}</td>
-                    <td>{formatAmount(item.amount, item.direction)}</td>
-                    <td>אומת</td>
+                    <td>{formatAmount(item.amount, item.direction, locale)}</td>
+                    <td>{t("documents.search.verified")}</td>
                   </tr>
                 );
               })}
@@ -231,7 +248,7 @@ export default function DocumentsSearchPage() {
           </table>
         </section>
         </div>
-        <aside className="dz-search-inspector" aria-label="המסמך שנבחר">
+        <aside className="dz-search-inspector" aria-label={t("documents.search.inspectorAria")}>
           <SearchInspector
             item={results.find((item) => item.id === selectedId) ?? null}
             onOpen={
@@ -256,28 +273,35 @@ function SearchInspector({
   item: SearchResult | null;
   onOpen?: () => void;
 }) {
+  const { t, locale } = useI18n();
   if (!item) {
-    return <p>בחרו שורה כדי להשוות ספק, תאריך, קטגוריה וסכום בלי לצאת מהרשימה.</p>;
+    return <p>{t("documents.search.inspectorHint")}</p>;
   }
-  const category = CATEGORY_MAP[item.category] || item.category || "כללי";
+  const category = categoryText(t, item.category);
   return (
     <>
-      <h2>{item.vendorName || "ללא ספק"}</h2>
+      <h2>{item.vendorName || t("documents.search.noVendor")}</h2>
       <dl>
-        <dt>תאריך</dt>
-        <dd>{formatDate(item.date) || "—"}</dd>
-        <dt>קטגוריה</dt>
+        <dt>{t("documents.review.fields.date")}</dt>
+        <dd>{formatDate(item.date, locale) || "—"}</dd>
+        <dt>{t("documents.review.fields.category")}</dt>
         <dd>{category}</dd>
-        <dt>סכום</dt>
-        <dd>{formatAmount(item.amount, item.direction)}</dd>
-        <dt>כיוון</dt>
-        <dd>{item.direction === "income" ? "הכנסה" : item.direction === "expense" ? "הוצאה" : item.direction || "—"}</dd>
-        <dt>סטטוס</dt>
-        <dd>אומת</dd>
+        <dt>{t("documents.review.fields.amount")}</dt>
+        <dd>{formatAmount(item.amount, item.direction, locale)}</dd>
+        <dt>{t("documents.review.fields.direction")}</dt>
+        <dd>
+          {item.direction === "income"
+            ? t("documents.common.income")
+            : item.direction === "expense"
+              ? t("documents.common.expense")
+              : item.direction || "—"}
+        </dd>
+        <dt>{t("documents.search.status")}</dt>
+        <dd>{t("documents.search.verified")}</dd>
       </dl>
       {onOpen ? (
         <button type="button" onClick={onOpen}>
-          פתח מסמך
+          {t("documents.search.openDocument")}
         </button>
       ) : null}
     </>
@@ -285,17 +309,19 @@ function SearchInspector({
 }
 
 function Header() {
+  const { t } = useI18n();
   return (
     <header style={headStyle}>
       <DocumentsBackButton />
-      <h1 style={titleStyle}>חיפוש מסמכים</h1>
+      <h1 style={titleStyle}>{t("documents.search.title")}</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>
   );
 }
 
 function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }) {
-  const category = CATEGORY_MAP[item.category] || item.category || "כללי";
+  const { t, locale } = useI18n();
+  const category = categoryText(t, item.category);
   const isIncome = item.direction === "income";
 
   const content = (
@@ -304,9 +330,9 @@ function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }
         {item.document?.mimeType?.includes("image") ? <ImageIcon /> : <FileTextIcon />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={vendorStyle}>{item.vendorName || "ללא ספק"}</div>
+        <div style={vendorStyle}>{item.vendorName || t("documents.search.noVendor")}</div>
         <div style={metaStyle}>
-          {formatDate(item.date)}
+          {formatDate(item.date, locale)}
           {category ? ` · ${category}` : ""}
         </div>
       </div>
@@ -317,9 +343,9 @@ function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }
             color: isIncome ? TOKEN.semantic.success.ink : TOKEN.semantic.urgent.ink,
           }}
         >
-          {formatAmount(item.amount, item.direction)}
+          {formatAmount(item.amount, item.direction, locale)}
         </div>
-        <span style={approvedPillStyle}>אומת</span>
+        <span style={approvedPillStyle}>{t("documents.search.verified")}</span>
       </div>
     </>
   );
@@ -335,7 +361,7 @@ function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }
       type="button"
       onClick={onOpen}
       style={rowStyle}
-      aria-label={`פתח מסמך: ${item.vendorName || "ללא ספק"}`}
+      aria-label={t("documents.search.openDocumentAria", { vendor: item.vendorName || t("documents.search.noVendor") })}
     >
       {content}
     </button>
@@ -464,7 +490,7 @@ const rowStyle = {
   gap: 12,
   font: "inherit",
   color: "inherit",
-  textAlign: "right",
+  textAlign: "start",
   cursor: "pointer",
 } as const;
 

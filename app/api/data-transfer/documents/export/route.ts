@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -57,6 +58,7 @@ function parseDay(value: unknown, endOfDay: boolean): Date | null | "INVALID" {
  * Nothing in this handler or anything it calls writes a row or an object.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -84,13 +86,13 @@ export async function POST(req: Request) {
   const to = parseDay(body.to, true);
   if (from === "INVALID" || to === "INVALID") {
     return NextResponse.json(
-      { error: "טווח התאריכים אינו תקין", code: "INVALID_RANGE" },
+      { error: t("api.dataTransfer.documents.invalidRange"), code: "INVALID_RANGE" },
       { status: 400, headers: NO_STORE }
     );
   }
   if (from && to && from > to) {
     return NextResponse.json(
-      { error: "תאריך ההתחלה מאוחר מתאריך הסיום", code: "INVALID_RANGE" },
+      { error: t("api.dataTransfer.documents.startAfterEnd"), code: "INVALID_RANGE" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -127,7 +129,7 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof NoDocumentsToExportError) {
       return NextResponse.json(
-        { error: "אין מסמכים לייצוא בטווח שנבחר.", code: "NO_DOCUMENTS" },
+        { error: t("api.dataTransfer.documents.noDocuments"), code: "NO_DOCUMENTS" },
         { status: 400, headers: NO_STORE }
       );
     }
@@ -143,7 +145,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "ייצוא המסמכים נכשל. נסו שוב מאוחר יותר.", code: "EXPORT_FAILED" },
+      { error: t("api.dataTransfer.documents.exportFailed"), code: "EXPORT_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

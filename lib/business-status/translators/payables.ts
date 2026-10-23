@@ -1,13 +1,10 @@
+import type { Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 import { daysBetweenDayKeys, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 import type { PayableInstallmentRaw } from "../loaders";
+import { STATUS_HE_T, statusMoney } from "../i18n";
 import { severityPayablesDueSoon, severityPayablesOverdue } from "../severity-map";
 import type { BusinessStatusItemBuild } from "../types";
-
-function formatMoney(amount: PayableInstallmentRaw["scheduledAmount"], currency: string): string {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return "";
-  return `${n.toLocaleString("he-IL")} ${currency}`;
-}
 
 /**
  * Whole CALENDAR days in Israel time, via the same helper collections uses.
@@ -22,34 +19,36 @@ function calendarDaysBetween(a: Date, b: Date): number {
 }
 
 /** Hebrew that reads like Hebrew: "1 ימים" is not a sentence anyone would write. */
-function inDaysPhrase(days: number): string {
-  if (days <= 0) return "היום";
-  if (days === 1) return "מחר";
-  return `בעוד ${days} ימים`;
+function inDaysPhrase(days: number, t: Translator): string {
+  if (days <= 0) return t("insights.status.payables.today");
+  if (days === 1) return t("insights.status.payables.tomorrow");
+  return t("insights.status.payables.inDays", { days });
 }
 
-function latePhrase(days: number): string {
-  if (days <= 0) return "מועד התשלום חלף";
-  if (days === 1) return "באיחור יום אחד";
-  return `באיחור ${days} ימים`;
+function latePhrase(days: number, t: Translator): string {
+  if (days <= 0) return t("insights.status.payables.duePassed");
+  if (days === 1) return t("insights.status.payables.lateOneDay");
+  return t("insights.status.payables.lateDays", { days });
 }
 
 /**
  * A partially-paid installment states BOTH numbers. "3,000 out of 5,000" is a different fact from
  * "5,000 unpaid", and collapsing them would misrepresent what the owner still owes.
  */
-function amountSummary(row: PayableInstallmentRaw): string {
-  const total = formatMoney(row.scheduledAmount, row.currency);
+function amountSummary(row: PayableInstallmentRaw, t: Translator, locale: Locale): string {
+  const total = statusMoney(row.scheduledAmount, row.currency, locale);
   if (row.allocatedAmount > 0) {
-    const paid = `${row.allocatedAmount.toLocaleString("he-IL")} ${row.currency}`;
-    return `שולם ${paid} מתוך ${total}`;
+    const paid = statusMoney(row.allocatedAmount, row.currency, locale);
+    return t("insights.status.payables.paidOf", { paid, total });
   }
-  return `סכום: ${total}`;
+  return t("insights.status.payables.amount", { amount: total });
 }
 
 export function translatePayablesOverdue(
   rows: PayableInstallmentRaw[],
-  now: Date
+  now: Date,
+  t: Translator = STATUS_HE_T,
+  locale: Locale = "he"
 ): BusinessStatusItemBuild[] {
   return rows.map((row) => {
     const late = calendarDaysBetween(now, row.dueAt);
@@ -57,11 +56,11 @@ export function translatePayablesOverdue(
       itemId: `payables:overdue:${row.id}`,
       domain: "payables",
       semanticCategory: "ACTION_REQUIRED",
-      title: "תשלום שעבר את מועדו",
+      title: t("insights.status.payables.overdueTitle"),
       summary: [
-        row.payeeName?.trim() ? `למי: ${row.payeeName.trim()}` : row.commitmentTitle,
-        amountSummary(row),
-        latePhrase(late),
+        row.payeeName?.trim() ? t("insights.status.payables.payee", { name: row.payeeName.trim() }) : row.commitmentTitle,
+        amountSummary(row, t, locale),
+        latePhrase(late, t),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -72,7 +71,7 @@ export function translatePayablesOverdue(
       createdAt: row.dueAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח התחייבות",
+        label: t("insights.status.payables.openCommitment"),
         href: `/payables`,
       },
       sourceEngine: "payables-schedule",
@@ -87,7 +86,9 @@ export function translatePayablesOverdue(
 
 export function translatePayablesDueSoon(
   rows: PayableInstallmentRaw[],
-  now: Date
+  now: Date,
+  t: Translator = STATUS_HE_T,
+  locale: Locale = "he"
 ): BusinessStatusItemBuild[] {
   return rows.map((row) => {
     const inDays = calendarDaysBetween(row.dueAt, now);
@@ -97,11 +98,11 @@ export function translatePayablesDueSoon(
       // Not ACTION_REQUIRED: nothing is wrong yet. Saying "you must act" about a payment that is not
       // due would train the owner to discount the list, which costs more than the warning is worth.
       semanticCategory: "WARNING",
-      title: "תשלום מתקרב",
+      title: t("insights.status.payables.dueSoonTitle"),
       summary: [
-        row.payeeName?.trim() ? `למי: ${row.payeeName.trim()}` : row.commitmentTitle,
-        amountSummary(row),
-        inDaysPhrase(inDays),
+        row.payeeName?.trim() ? t("insights.status.payables.payee", { name: row.payeeName.trim() }) : row.commitmentTitle,
+        amountSummary(row, t, locale),
+        inDaysPhrase(inDays, t),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -112,7 +113,7 @@ export function translatePayablesDueSoon(
       createdAt: row.dueAt.toISOString(),
       primaryAction: {
         kind: "navigate",
-        label: "פתח התחייבות",
+        label: t("insights.status.payables.openCommitment"),
         href: `/payables`,
       },
       sourceEngine: "payables-schedule",

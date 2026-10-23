@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getInventoryItems } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   DecisionCard,
@@ -67,16 +69,17 @@ function PendingDecision({
   onApprove: (draft: Draft) => void;
   onReject: (draftId: number) => void;
 }) {
+  const { t } = useI18n();
   const totalUnits = draft.lines.reduce((sum, line) => sum + line.quantity, 0);
   return (
     <>
-      <h2>{draft.supplierName || "הזמנה ללא ספק"}</h2>
-      <p>{draft.lines.length} שורות · {totalUnits} יחידות. אישור מעדכן מלאי.</p>
+      <h2>{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</h2>
+      <p>{t("customers.purchases.pending.side.summary", { lines: draft.lines.length, units: totalUnits })}</p>
       {draft.lines.map((line) => {
         const decision = decisions[line.id];
         return (
           <div key={line.id} style={{ display: "grid", gap: 6 }}>
-            <strong>{line.rawName || "מוצר ללא שם"} · {line.quantity}</strong>
+            <strong>{line.rawName || t("customers.purchases.pending.unnamedProduct")} · {line.quantity}</strong>
             <select
               className="inv-input"
               value={decision?.action || "CREATE_NEW"}
@@ -85,8 +88,8 @@ function PendingDecision({
                 else onDecision(line.id, { action: "CREATE_NEW", name: line.rawName || "", unitType: line.unitType || "UNIT" });
               }}
             >
-              <option value="MERGE">שיוך למוצר קיים</option>
-              <option value="CREATE_NEW">יצירת מוצר חדש</option>
+              <option value="MERGE">{t("customers.purchases.pending.mergeExisting")}</option>
+              <option value="CREATE_NEW">{t("customers.purchases.pending.createNew")}</option>
             </select>
             {decision?.action === "MERGE" ? (
               <select
@@ -94,7 +97,7 @@ function PendingDecision({
                 value={decision.itemId || ""}
                 onChange={(event) => onDecision(line.id, { action: "MERGE", itemId: Number(event.target.value) })}
               >
-                <option value="">בחרו מוצר קיים</option>
+                <option value="">{t("customers.purchases.pending.pickExisting")}</option>
                 {items.map((item) => (
                   <option key={item.id} value={item.id}>{item.name} · {item.currentQuantity}</option>
                 ))}
@@ -113,18 +116,19 @@ function PendingDecision({
           </div>
         );
       })}
-      {confirmRejectId === draft.id ? <p>ביטול הזמנה הוא פעולה בלתי הפיכה. לחצו שוב כדי לאשר.</p> : null}
+      {confirmRejectId === draft.id ? <p>{t("customers.purchases.pending.side.rejectWarning")}</p> : null}
       <button type="button" className="inv-btn-primary" disabled={actionLoading} onClick={() => onApprove(draft)}>
-        {actionLoading ? "מאשר…" : "אשר קליטה"}
+        {actionLoading ? t("customers.purchases.pending.approving") : t("customers.purchases.pending.approve")}
       </button>
       <button type="button" className="inv-btn-secondary" disabled={actionLoading} onClick={() => onReject(draft.id)}>
-        {confirmRejectId === draft.id ? "אשר ביטול" : "בטל הזמנה"}
+        {confirmRejectId === draft.id ? t("customers.purchases.pending.confirmReject") : t("customers.purchases.pending.reject")}
       </button>
     </>
   );
 }
 
 export default function PendingSupplierPurchasesPage() {
+  const { t } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [decisions, setDecisions] = useState<Record<number, LineDecision>>({});
@@ -162,7 +166,7 @@ export default function PendingSupplierPurchasesPage() {
       const draftsData = await draftsResponse.json().catch(() => null);
 
       if (!draftsResponse.ok) {
-        throw new Error(draftsData?.error || "לא הצלחנו לטעון הזמנות");
+        throw new Error(draftsData?.error || t("customers.purchases.pending.loadFailed"));
       }
 
       const pendingDrafts = Array.isArray(draftsData?.drafts)
@@ -184,7 +188,7 @@ export default function PendingSupplierPurchasesPage() {
         setItems([]);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה בטעינת הזמנות");
+      setError(err instanceof Error ? err.message : t("customers.purchases.pending.loadError"));
     } finally {
       setLoading(false);
     }
@@ -194,6 +198,7 @@ export default function PendingSupplierPurchasesPage() {
     queueMicrotask(() => {
       void load();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
   }, []);
 
   function openDraft(draft: Draft) {
@@ -252,13 +257,15 @@ export default function PendingSupplierPurchasesPage() {
         const decision = decisions[line.id];
 
         if (!decision) {
-          throw new Error(`צריך לבחור פעולה עבור ${line.rawName || "שורה"}`);
+          throw new Error(
+            t("customers.purchases.pending.needAction", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
+          );
         }
 
         if (decision.action === "MERGE") {
           if (!decision.itemId) {
             throw new Error(
-              `צריך לבחור מוצר קיים עבור ${line.rawName || "שורה"}`
+              t("customers.purchases.pending.needExisting", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
             );
           }
 
@@ -271,7 +278,7 @@ export default function PendingSupplierPurchasesPage() {
 
         if (!decision.name.trim()) {
           throw new Error(
-            `צריך להזין שם מוצר חדש עבור ${line.rawName || "שורה"}`
+            t("customers.purchases.pending.needNewName", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
           );
         }
 
@@ -299,15 +306,15 @@ export default function PendingSupplierPurchasesPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(data?.error || "לא הצלחנו לאשר קליטת סחורה");
+        throw new Error(data?.error || t("customers.purchases.pending.approveFailed"));
       }
 
-      setSuccess("קליטת הסחורה אושרה והמלאי עודכן.");
+      setSuccess(t("customers.purchases.pending.approveSuccess"));
       setOpenId(null);
       setConfirmRejectId(null);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה באישור קליטה");
+      setError(err instanceof Error ? err.message : t("customers.purchases.pending.approveError"));
     } finally {
       setActionLoading(false);
     }
@@ -330,15 +337,15 @@ export default function PendingSupplierPurchasesPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(data?.error || "לא הצלחנו לבטל את ההזמנה");
+        throw new Error(data?.error || t("customers.purchases.pending.rejectFailed"));
       }
 
-      setSuccess("ההזמנה בוטלה ללא שינוי במלאי.");
+      setSuccess(t("customers.purchases.pending.rejectSuccess"));
       setOpenId(null);
       setConfirmRejectId(null);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה בביטול ההזמנה");
+      setError(err instanceof Error ? err.message : t("customers.purchases.pending.rejectError"));
     } finally {
       setActionLoading(false);
     }
@@ -357,14 +364,17 @@ export default function PendingSupplierPurchasesPage() {
 
   return (
     <InventorySubPage intent="data"
-      title="קליטת הזמנות"
+      title={t("customers.purchases.pending.title")}
       backHref="/inventory/supplier-purchases"
-      backLabel="מרכז הזמנות ספק"
+      backLabel={t("customers.purchases.common.backToHub")}
       sub={
         !loading && !error
           ? summary.totalOrders > 0
-            ? `${summary.totalOrders} הזמנות ממתינות · קליטה מעדכנת מלאי`
-            : "אין הזמנות לקליטה · קליטה מעדכנת מלאי בפועל"
+            ? t(
+                summary.totalOrders === 1 ? "customers.purchases.pending.subOne" : "customers.purchases.pending.subMany",
+                { count: summary.totalOrders }
+              )
+            : t("customers.purchases.pending.subNone")
           : undefined
       }
       bottomNav="orders"
@@ -387,32 +397,32 @@ export default function PendingSupplierPurchasesPage() {
       ) : drafts.length === 0 ? (
         <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
           <InventoryStatePanel
-            title="הכול מטופל"
+            title={t("customers.purchases.pending.emptyTitle")}
             action={
               <Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">
-                יצירת הזמנה חדשה
+                {t("customers.purchases.hub.empty.create")}
               </Link>
             }
           >
-            אין כרגע הזמנות שממתינות לקליטת סחורה.
+            {t("customers.purchases.pending.emptyBody")}
           </InventoryStatePanel>
         </div>
       ) : (
         <>
         <div className="inv-ops">
-          <div className="inv-desk-table" aria-label="הזמנות לקליטה">
+          <div className="inv-desk-table" aria-label={t("customers.purchases.pending.tableAria")}>
             <table>
               <thead>
                 <tr>
-                  <th>ספק</th>
-                  <th>שורות</th>
-                  <th>יחידות</th>
+                  <th>{t("customers.purchases.pending.cols.supplier")}</th>
+                  <th>{t("customers.purchases.pending.cols.lines")}</th>
+                  <th>{t("customers.purchases.pending.cols.units")}</th>
                 </tr>
               </thead>
               <tbody>
                 {drafts.map((draft) => (
                   <tr key={draft.id} className={openId === draft.id ? "is-selected" : undefined} onClick={() => openDraft(draft)}>
-                    <td>{draft.supplierName || "הזמנה ללא ספק"}</td>
+                    <td>{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</td>
                     <td className="num">{draft.lines.length}</td>
                     <td className="num">{draft.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
                   </tr>
@@ -433,7 +443,7 @@ export default function PendingSupplierPurchasesPage() {
                 onReject={requestRejectDraft}
               />
             ) : (
-              <><h2>קליטה</h2><p>בחרו הזמנה. האישור מעדכן מלאי, והביטול דורש לחיצה שנייה.</p></>
+              <><h2>{t("customers.purchases.pending.side.title")}</h2><p>{t("customers.purchases.pending.side.empty")}</p></>
             )}
           </aside>
         </div>
@@ -456,22 +466,33 @@ export default function PendingSupplierPurchasesPage() {
                     🚚
                   </span>
                   <div className="inv-row__mid">
-                    <div className="inv-row__nm" dir="auto">{draft.supplierName || "הזמנה ללא ספק"}</div>
+                    <div className="inv-row__nm" dir="auto">{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</div>
                     <div className="inv-row__meta">
-                      <bdi>#{draft.id}</bdi> · <bdi>{draft.lines.length}</bdi> פריטים · <bdi>{totalUnits}</bdi> יחידות
+                      <bdi>#{draft.id}</bdi> ·{" "}
+                      <BdiTemplate
+                        template={t(draft.lines.length === 1 ? "customers.purchases.common.itemsOne" : "customers.purchases.common.itemsMany")}
+                        name="count"
+                        value={draft.lines.length}
+                      />{" "}
+                      ·{" "}
+                      <BdiTemplate
+                        template={t(totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany")}
+                        name="count"
+                        value={totalUnits}
+                      />
                     </div>
                   </div>
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
-                    <InventoryBadge tone="low">ממתינה לקליטה</InventoryBadge>
+                    <InventoryBadge tone="low">{t("customers.purchases.pending.awaitingBadge")}</InventoryBadge>
                     <button type="button" className="inv-row__action" onClick={() => openDraft(draft)}>
-                      {isOpen ? "סגור" : "בדיקה ›"}
+                      {isOpen ? t("customers.purchases.pending.close") : t("customers.purchases.pending.reviewArrow")}
                     </button>
                   </span>
                 </div>
 
                 {isOpen ? (
                   <div style={{ marginTop: 14 }}>
-                    <div className="inv-seclabel">מה הגיע? · התאימו כל שורה למלאי</div>
+                    <div className="inv-seclabel">{t("customers.purchases.pending.whatArrived")}</div>
 
                     <div className="inv-olines">
                       {draft.lines.map((line) => {
@@ -479,7 +500,7 @@ export default function PendingSupplierPurchasesPage() {
                         return (
                           <div key={line.id} className="inv-oline" style={{ flexWrap: "wrap" }}>
                             <div className="inv-oline__mid">
-                              <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                              <div className="inv-oline__nm" dir="auto">{line.rawName || t("customers.purchases.pending.unnamedProduct")}</div>
                               <div className="inv-oline__sub">
                                 <bdi>{line.quantity}</bdi> {line.unitType || "UNIT"}
                               </div>
@@ -503,8 +524,8 @@ export default function PendingSupplierPurchasesPage() {
                                   }
                                 }}
                               >
-                                <option value="MERGE">שיוך למוצר קיים</option>
-                                <option value="CREATE_NEW">יצירת מוצר חדש</option>
+                                <option value="MERGE">{t("customers.purchases.pending.mergeExisting")}</option>
+                                <option value="CREATE_NEW">{t("customers.purchases.pending.createNew")}</option>
                               </select>
 
                               {decision?.action === "MERGE" ? (
@@ -518,10 +539,10 @@ export default function PendingSupplierPurchasesPage() {
                                     })
                                   }
                                 >
-                                  <option value="">בחרו מוצר קיים</option>
+                                  <option value="">{t("customers.purchases.pending.pickExisting")}</option>
                                   {items.map((item) => (
                                     <option key={item.id} value={item.id}>
-                                      {item.name} · במלאי: {item.currentQuantity}
+                                      {item.name} · {t("customers.purchases.pending.inStockColon", { qty: item.currentQuantity })}
                                     </option>
                                   ))}
                                 </select>
@@ -539,7 +560,7 @@ export default function PendingSupplierPurchasesPage() {
                                           : line.unitType || "UNIT",
                                     })
                                   }
-                                  placeholder="שם מוצר חדש"
+                                  placeholder={t("customers.purchases.pending.newNamePlaceholder")}
                                   dir="auto"
                                 />
                               )}
@@ -550,19 +571,19 @@ export default function PendingSupplierPurchasesPage() {
                     </div>
 
                     <p className="inv-field__help" style={{ marginTop: 10 }}>
-                      אישור יעדכן את המלאי ב-<bdi>{totalUnits}</bdi> יחידות ויעביר את ההזמנה להיסטוריה.
+                      <BdiTemplate template={t("customers.purchases.pending.approveNote")} name="units" value={totalUnits} />
                     </p>
 
                     {confirmRejectId === draft.id ? (
                       <div className="inv-alert inv-alert--error" style={{ marginTop: 10 }}>
-                        ביטול הזמנה הוא פעולה בלתי הפיכה. לחץ שוב כדי לאשר.
+                        {t("customers.purchases.pending.rejectWarning")}
                       </div>
                     ) : null}
 
                     <DecisionChips
                       choices={[
-                        { label: actionLoading ? "מאשר…" : "אשר קליטה", primary: true, disabled: actionLoading, onClick: () => void approveDraft(draft) },
-                        { label: confirmRejectId === draft.id ? "אשר ביטול" : "בטל הזמנה", disabled: actionLoading, onClick: () => requestRejectDraft(draft.id) },
+                        { label: actionLoading ? t("customers.purchases.pending.approving") : t("customers.purchases.pending.approve"), primary: true, disabled: actionLoading, onClick: () => void approveDraft(draft) },
+                        { label: confirmRejectId === draft.id ? t("customers.purchases.pending.confirmReject") : t("customers.purchases.pending.reject"), disabled: actionLoading, onClick: () => requestRejectDraft(draft.id) },
                       ]}
                     />
                     <Link
@@ -570,7 +591,7 @@ export default function PendingSupplierPurchasesPage() {
                       className="inv-btn-link"
                       style={{ display: "inline-block", marginTop: 10 }}
                     >
-                      חזרה לשליחה
+                      {t("customers.purchases.pending.backToSend")}
                     </Link>
                   </div>
                 ) : null}

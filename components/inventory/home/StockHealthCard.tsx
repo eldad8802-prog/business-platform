@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Stock-health card: a proportional distribution bar (ok / low / critical) plus
@@ -23,6 +24,7 @@ export function StockHealthCard({
   onLow: () => void;
   onCritical: () => void;
 }) {
+  const { t } = useI18n();
   const seg = (count: number): CSSProperties => ({
     flexGrow: count,
     flexBasis: 0,
@@ -35,8 +37,8 @@ export function StockHealthCard({
   return (
     <section className="inv-hm-health inv-hm-rise" style={{ animationDelay: "0.12s" }}>
       <div className="inv-hm-health-hh">
-        <b>בריאות המלאי</b>
-        <small>{total} מוצרים</small>
+        <b>{t("customers.inventoryKit.home.healthTitle")}</b>
+        <small>{t(total === 1 ? "customers.inventoryKit.home.productsOne" : "customers.inventoryKit.home.productsMany", { count: total })}</small>
       </div>
       <div className="inv-hm-hbar" role="presentation">
         <i className="ok" style={seg(okCount)} />
@@ -45,15 +47,15 @@ export function StockHealthCard({
       </div>
       <div className="inv-hm-hleg">
         <button type="button" className="ok" onClick={onOk}>
-          <span className="r"><span className="dot" />תקין</span>
+          <span className="r"><span className="dot" />{t("customers.inventoryKit.home.healthOk")}</span>
           <span className="v"><bdi>{okCount}</bdi></span>
         </button>
         <button type="button" className="low" onClick={onLow}>
-          <span className="r"><span className="dot" />נמוך</span>
+          <span className="r"><span className="dot" />{t("customers.inventoryKit.home.healthLow")}</span>
           <span className="v"><bdi>{lowCount}</bdi></span>
         </button>
         <button type="button" className="crit" onClick={onCritical}>
-          <span className="r"><span className="dot" />קריטי</span>
+          <span className="r"><span className="dot" />{t("customers.inventoryKit.home.healthCritical")}</span>
           <span className="v"><bdi>{criticalCount}</bdi></span>
         </button>
       </div>

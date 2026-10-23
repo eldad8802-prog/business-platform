@@ -227,10 +227,24 @@ async function main() {
     const eb = await expired.json();
     ok("check: EXPIRED → { ok:false, code TOKEN_EXPIRED } with the Hebrew reason", eb.ok === false && eb.code === "TOKEN_EXPIRED" && eb.error.includes("פג"));
 
-    const verified = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2 }) });
-    ok("verify: VERIFIED → 200", verified.status === 200 && (await verified.json()).ok === true);
-    const used = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, consume: async () => ({ status: "USED" }) });
-    ok("verify: USED → 400 TOKEN_USED", used.status === 400 && (await used.json()).code === "TOKEN_USED");
+    const vScheduled: Array<[number, number]> = [];
+    const vSchedule = (id: number, b: number) => { vScheduled.push([id, b]); };
+    const verified = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
+      rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: 77 }),
+    });
+    ok("verify: VERIFIED → 200, and the WELCOME it recorded is scheduled for that business",
+      verified.status === 200 && (await verified.json()).ok === true && JSON.stringify(vScheduled) === "[[77,2]]", JSON.stringify(vScheduled));
+    vScheduled.length = 0;
+    const verifiedNoWelcome = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
+      rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: null }),
+    });
+    ok("verify: VERIFIED with no new WELCOME (one already existed) → 200, nothing scheduled", verifiedNoWelcome.status === 200 && vScheduled.length === 0);
+    const verifiedThrows = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
+      rateLimit: allow, schedule: () => { throw new Error("boom"); }, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: 78 }),
+    });
+    ok("verify: a scheduling failure never fails the verification (200)", verifiedThrows.status === 200);
+    const used = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "USED" }) });
+    ok("verify: USED → 400 TOKEN_USED, nothing scheduled", used.status === 400 && (await used.json()).code === "TOKEN_USED" && vScheduled.length === 0);
 
     // The library refuses garbage before the database is ever asked (no DATABASE_URL in this process).
     ok("lib: a short new password is refused before anything else", (await consumePasswordReset("x", "short")).status === "WEAK_PASSWORD");
@@ -261,6 +275,12 @@ async function main() {
     scheduled = [];
     const already = await handleResend(post("/api/auth/email/resend", {}), { ...base, request: async () => ({ status: "ALREADY_VERIFIED" as const }) });
     ok("resend: already verified → 200 alreadyVerified, nothing sent", (await already.json()).alreadyVerified === true && scheduled.length === 0);
+    const notRequired = await handleResend(post("/api/auth/email/resend", {}), {
+      ...base, request: async () => ({ status: "NOT_REQUIRED" as const }), schedule: (id) => { scheduled.push(id); },
+    });
+    const nrBody = await notRequired.json();
+    ok("resend: an account opened before verification → 200 notRequired, nothing sent",
+      notRequired.status === 200 && nrBody.notRequired === true && !nrBody.message && scheduled.length === 0);
     const ceiling = await handleResend(post("/api/auth/email/resend", {}), { ...base, request: async () => ({ status: "NOT_ISSUED" as const }) });
     ok("resend: the database's hourly ceiling → 429", ceiling.status === 429);
     const limited = await handleResend(post("/api/auth/email/resend", {}), { ...base, rateLimit: deny });
@@ -270,13 +290,26 @@ async function main() {
     const statusOff = await handleStatus(new Request("http://x/api/auth/email/status"), {
       enabled: () => false,
       currentUser: async () => { asked += 1; return { id: 1 }; },
-      readVerified: async () => { asked += 1; return false; },
+      readState: async () => { asked += 1; return "PENDING" as const; },
     });
     ok("status: OFF answers { verificationEnabled:false } without reading the session or the user", (await statusOff.json()).verificationEnabled === false && asked === 0);
-    const statusAnon = await handleStatus(new Request("http://x/api/auth/email/status"), { enabled: () => true, currentUser: async () => null, readVerified: async () => false });
+    const statusAnon = await handleStatus(new Request("http://x/api/auth/email/status"), { enabled: () => true, currentUser: async () => null, readState: async () => "PENDING" as const });
     ok("status: ON and not signed in → 401", statusAnon.status === 401);
-    const statusOn = await handleStatus(new Request("http://x/api/auth/email/status"), { enabled: () => true, currentUser: async () => ({ id: 1 }), readVerified: async () => false });
-    ok("status: ON → { verificationEnabled:true, verified:false }", JSON.stringify(await statusOn.json()) === JSON.stringify({ verificationEnabled: true, verified: false }));
+    const statusFor = async (state: "PENDING" | "VERIFIED" | "NOT_REQUIRED" | null) =>
+      JSON.stringify(await (await handleStatus(new Request("http://x/api/auth/email/status"), { enabled: () => true, currentUser: async () => ({ id: 1 }), readState: async () => state })).json());
+    ok("status: ON, new account not verified → { required:true, verified:false } (the banner shows)",
+      (await statusFor("PENDING")) === JSON.stringify({ verificationEnabled: true, required: true, verified: false }));
+    ok("status: ON, verified → { required:true, verified:true }",
+      (await statusFor("VERIFIED")) === JSON.stringify({ verificationEnabled: true, required: true, verified: true }));
+    ok("status: ON, account opened before verification → { required:false } (no banner, ever)",
+      (await statusFor("NOT_REQUIRED")) === JSON.stringify({ verificationEnabled: true, required: false, verified: false }));
+
+    // The banner itself: it asks for the owner's status and shows only for required + not verified,
+    // and offers no way to hide it (it stays until the address is verified).
+    const bannerSrc = fs.readFileSync(path.join(process.cwd(), "components/auth/email-verification-banner.tsx"), "utf8");
+    ok("banner: shown only when verificationEnabled && required && !verified",
+      /d\?\.verificationEnabled === true && d\?\.required === true && d\?\.verified === false/.test(bannerSrc));
+    ok("banner: no hide control and no session-storage switch", !/sessionStorage|הסתרת ההודעה|banner\.hide|onClick=\{hide\}/.test(bannerSrc));
   }
 
   // ── 7. honeypot ────────────────────────────────────────────────────────────

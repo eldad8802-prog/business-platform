@@ -6,6 +6,7 @@ import {
   SkeletonBlock,
   skeletonBar,
 } from "./skeleton-primitives";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const cardHeaderRow = {
   display: "flex",
@@ -15,6 +16,7 @@ const cardHeaderRow = {
 };
 
 export default function DocumentsDashboardSkeleton() {
+  const { t } = useI18n();
   return (
     <SkeletonBlock>
       <div style={card}>
@@ -22,7 +24,7 @@ export default function DocumentsDashboardSkeleton() {
           <div style={iconWrap} aria-hidden>
             📊
           </div>
-          <div style={cardTitle}>סיכום</div>
+          <div style={cardTitle}>{t("documents.skeleton.summary")}</div>
         </div>
         <div
           style={{
@@ -45,7 +47,7 @@ export default function DocumentsDashboardSkeleton() {
           <div style={iconWrap} aria-hidden>
             📈
           </div>
-          <div style={cardTitle}>הכנסות מול הוצאות</div>
+          <div style={cardTitle}>{t("documents.skeleton.incomeVsExpense")}</div>
         </div>
         <div
           style={{
@@ -66,7 +68,7 @@ export default function DocumentsDashboardSkeleton() {
           <div style={iconWrap} aria-hidden>
             🧾
           </div>
-          <div style={cardTitle}>פירוט לפי קטגוריה</div>
+          <div style={cardTitle}>{t("documents.skeleton.byCategory")}</div>
         </div>
         {[0, 1, 2, 3, 4].map((i) => (
           <div

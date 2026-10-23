@@ -1,45 +1,49 @@
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import { QuickAction } from "../types/home.types";
 
-export function getHomeQuickActions(): QuickAction[] {
+const HE_T: Translator = createTranslator(he);
+
+export function getHomeQuickActions(t: Translator = HE_T): QuickAction[] {
   return [
     {
       key: "conversations",
-      title: "שיחות עם לקוחות",
+      title: t("insights.home.quick.conversations"),
       icon: "chat",
       href: "/inbox",
       status: "active",
     },
     {
       key: "attention",
-      title: "דורש תשומת לב",
+      title: t("insights.home.quick.attention"),
       icon: "spark",
       href: "/attention",
       status: "active",
     },
     {
       key: "content",
-      title: "יצירת תוכן",
+      title: t("insights.home.quick.content"),
       icon: "video",
       href: "/content",
       status: "active",
     },
     {
       key: "pricing",
-      title: "תמחור",
+      title: t("insights.home.quick.pricing"),
       icon: "percent",
       href: "/pricing",
       status: "active",
     },
     {
       key: "documents",
-      title: "מסמכים",
+      title: t("insights.home.quick.documents"),
       icon: "file",
       href: "/documents",
       status: "active",
     },
     {
       key: "secretary",
-      title: "המזכירה שלך",
+      title: t("insights.home.quick.secretary"),
       icon: "secretary",
       href: "/secretary",
       status: "active",

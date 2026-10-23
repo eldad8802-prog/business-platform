@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { executeHistoricalImport } from "@/lib/data-transfer/historical/historical-execute";
 import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config";
@@ -43,6 +44,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
  * once and never revised.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -51,7 +53,7 @@ export async function POST(req: Request) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "בקשה לא תקינה", code: "INVALID_BODY" },
+      { error: t("api.common.invalidRequest"), code: "INVALID_BODY" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -59,7 +61,7 @@ export async function POST(req: Request) {
   const file = form.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json(
-      { error: "לא נבחר קובץ", code: "FILE_MISSING" },
+      { error: t("api.common.noFileSelected"), code: "FILE_MISSING" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -67,7 +69,7 @@ export async function POST(req: Request) {
   const tooLarge = () => {
     const mb = Math.round(IMPORT_MAX_FILE_BYTES / 1024 / 1024);
     return NextResponse.json(
-      { error: `הקובץ גדול מדי (עד ${mb}MB)`, code: "FILE_TOO_LARGE" },
+      { error: t("api.common.fileTooLargeMb", { mb }), code: "FILE_TOO_LARGE" },
       { status: 413, headers: NO_STORE }
     );
   };
@@ -81,7 +83,7 @@ export async function POST(req: Request) {
   const previewToken = form.get("previewToken");
   if (typeof previewToken !== "string" || previewToken === "") {
     return NextResponse.json(
-      { error: "חסר אישור התצוגה המקדימה", code: "TOKEN_MISSING" },
+      { error: t("api.dataTransfer.historical.previewTokenMissing"), code: "TOKEN_MISSING" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -107,7 +109,7 @@ export async function POST(req: Request) {
   const decisions = parseJson<HistoricalDecisions>("decisions");
   if (!mapping.ok || !decisions.ok || !decisions.value) {
     return NextResponse.json(
-      { error: "בקשה לא תקינה", code: "INVALID_BODY" },
+      { error: t("api.common.invalidRequest"), code: "INVALID_BODY" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -144,7 +146,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "הייבוא נכשל. נסו שוב מאוחר יותר.", code: "EXECUTE_FAILED" },
+      { error: t("api.dataTransfer.historical.importFailed"), code: "EXECUTE_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

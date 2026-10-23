@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -47,26 +49,26 @@ type ContentResult = {
 };
 
 type Step = {
-  label: string;
-  description: string;
+  label: MessageKey;
+  description: MessageKey;
 };
 
 const steps: Step[] = [
   {
-    label: "בוחרים ויזואלים לכל רגע",
-    description: "לפי הכיוון שבחרת, מוצאים לכל רגע בסרטון את מה שנכון שיופיע שם.",
+    label: "content.studioFlow.aiAssets.steps.visuals.label",
+    description: "content.studioFlow.aiAssets.steps.visuals.description",
   },
   {
-    label: "מכינים את השכבות",
-    description: "מסדרים את כל החלקים כך שהסרטון ייראה שלם בפורמט ובפלטפורמה שבחרת.",
+    label: "content.studioFlow.aiAssets.steps.layers.label",
+    description: "content.studioFlow.aiAssets.steps.layers.description",
   },
   {
-    label: "מרכיבים לסרטון אחד",
-    description: "מחברים את הכל — מוכנים להרכבה הסופית.",
+    label: "content.studioFlow.aiAssets.steps.assemble.label",
+    description: "content.studioFlow.aiAssets.steps.assemble.description",
   },
 ];
 
-function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
+function getPlatformLabel(t: Translator, platform?: ContentFlow["selectedPlatform"]) {
   switch (platform) {
     case "instagram":
       return "Instagram";
@@ -75,7 +77,7 @@ function getPlatformLabel(platform?: ContentFlow["selectedPlatform"]) {
     case "facebook":
       return "Facebook";
     default:
-      return "פלטפורמה";
+      return t("content.studioFlow.common.platform");
   }
 }
 
@@ -100,13 +102,15 @@ function readAuthBearerUserId(): string | null {
 
 export default function AiAssetsPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [result, setResult] = useState<ContentResult | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [generatedCount, setGeneratedCount] = useState(0);
-  const [error, setError] = useState("");
+  // A dictionary key (resolved at render, so the effects never depend on the translator).
+  const [error, setError] = useState<MessageKey | "">("");
 
   const hasValidPayload = useMemo(() => {
     return Boolean(
@@ -173,9 +177,7 @@ export default function AiAssetsPage() {
 
         const sessionUserId = readAuthBearerUserId();
         if (!sessionUserId) {
-          setError(
-            "כדי להמשיך צריך להתחבר. מעבירים אותך למסך ההתחברות…"
-          );
+          setError("content.studioFlow.aiAssets.errors.signIn");
           router.replace("/login");
           return;
         }
@@ -210,9 +212,7 @@ export default function AiAssetsPage() {
 
         if (res.status === 401) {
           if (!cancelled) {
-            setError(
-              "פג תוקף ההתחברות או שהחשבון לא זוהה. מעבירים אותך להתחברות מחדש…"
-            );
+            setError("content.studioFlow.aiAssets.errors.sessionExpired");
             try {
               localStorage.removeItem("token");
               localStorage.removeItem("user");
@@ -234,7 +234,7 @@ export default function AiAssetsPage() {
         const count = Object.keys(assets).length;
 
         if (!count) {
-          setError("לא הצלחנו להכין את החומרים לסרטון. אפשר לנסות שוב בעוד רגע.");
+          setError("content.studioFlow.aiAssets.errors.noAssets");
           return;
         }
 
@@ -250,7 +250,7 @@ export default function AiAssetsPage() {
       } catch (err) {
         console.error(err);
         if (!cancelled) {
-          setError("לא הצלחנו להשלים את ההכנה. אפשר לנסות שוב.");
+          setError("content.studioFlow.aiAssets.errors.failed");
         }
       }
     }
@@ -270,7 +270,7 @@ export default function AiAssetsPage() {
   useEffect(() => {
     if (!flow || !result) return;
     if (hasValidPayload) return;
-    setError("לא הצלחנו לאתר את נתוני הסרטון. חזרו לבחור כיוון מחדש.");
+    setError("content.studioFlow.aiAssets.errors.missingPayload");
   }, [flow, result, hasValidPayload]);
 
   return (
@@ -279,7 +279,7 @@ export default function AiAssetsPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>מכינים את הסרטון</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.aiAssets.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -288,40 +288,39 @@ export default function AiAssetsPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>עכשיו</div>
-            <h1 style={titleStyle}>מרכיבים לך את מה שיופיע על המסך</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.common.now")}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.aiAssets.title")}</h1>
             <p style={subtitleStyle}>
-              לפי הכיוון שבחרת, אנחנו מכינים עכשיו את כל החלקים לסרטון — בלי
-              שתצטרכו להעלות כלום בשלב הזה.
+              {t("content.studioFlow.aiAssets.subtitle")}
             </p>
           </div>
 
           {flow ? (
             <div style={summaryCardStyle}>
               <div style={summaryValueStyle}>
-                {flow.selectedDirection?.title ?? "הכיוון שנבחר"}
+                {flow.selectedDirection?.title ?? t("content.studioFlow.common.chosenDirection")}
               </div>
               <div style={summaryPlatformStyle}>
-                {getPlatformLabel(flow.selectedPlatform)}
+                {getPlatformLabel(t, flow.selectedPlatform)}
               </div>
             </div>
           ) : null}
 
           {error ? (
             <div style={errorBoxStyle}>
-              <div style={errorTitleStyle}>רגע, משהו נתקע</div>
-              <div style={errorTextStyle}>{error}</div>
+              <div style={errorTitleStyle}>{t("content.studioFlow.common.stuckTitle")}</div>
+              <div style={errorTextStyle}>{t(error)}</div>
               <button
                 type="button"
                 onClick={() => router.replace("/content/creator-plan")}
                 style={errorBackButtonStyle}
               >
-                חזרה לבחירת כיוון
+                {t("content.studioFlow.aiAssets.backToDirection")}
               </button>
             </div>
           ) : (
             <div style={stepsCardStyle}>
-              <div style={stepsTitleStyle}>מה קורה עכשיו?</div>
+              <div style={stepsTitleStyle}>{t("content.studioFlow.aiAssets.stepsTitle")}</div>
 
               <div style={stepsWrapStyle}>
                 {steps.map((step, index) => {
@@ -347,10 +346,10 @@ export default function AiAssetsPage() {
 
                       <div style={stepContentStyle}>
                         <div style={stepTitleStyle(isDone || isCurrent)}>
-                          {step.label}
+                          {t(step.label)}
                         </div>
                         <div style={stepDescriptionStyle}>
-                          {step.description}
+                          {t(step.description)}
                         </div>
                       </div>
                     </div>
@@ -360,12 +359,17 @@ export default function AiAssetsPage() {
 
               <div style={statusBoxStyle(isReady)}>
                 <div style={statusTitleStyle}>
-                  {isReady ? "החומרים מוכנים" : "רגע אחד…"}
+                  {isReady ? t("content.studioFlow.aiAssets.readyTitle") : t("content.studioFlow.common.oneMoment")}
                 </div>
                 <div style={statusTextStyle}>
                   {isReady
-                    ? `הכנו ${generatedCount} חלקים לסרטון. ממשיכים להרכבה הסופית.`
-                    : "אנחנו מרכיבים עכשיו את כל מה שיופיע על המסך — זה לוקח רגע."}
+                    ? t(
+                        generatedCount === 1
+                          ? "content.studioFlow.aiAssets.readyTextOne"
+                          : "content.studioFlow.aiAssets.readyText",
+                        { count: generatedCount }
+                      )
+                    : t("content.studioFlow.aiAssets.workingText")}
                 </div>
               </div>
             </div>

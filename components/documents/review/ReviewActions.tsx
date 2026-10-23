@@ -2,6 +2,7 @@
 
 import type { ReviewMode } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { primaryDarkButton, secondaryButton } from "./review-ui";
 
 export type ReviewActionsProps = {
@@ -26,6 +27,7 @@ export default function ReviewActions({
   onSwitchToFinancial,
 }: ReviewActionsProps) {
   const financial = reviewMode === "financial";
+  const { t } = useI18n();
 
   return (
     <div
@@ -43,21 +45,21 @@ export default function ReviewActions({
         onClick={onPrimaryApprove}
       >
         {loading
-          ? "שומר..."
+          ? t("documents.review.actions.saving")
           : financial
-            ? "אשר ורשום כספית"
-            : "שמור כמסמך מידע"}
+            ? t("documents.review.actions.approveFinancial")
+            : t("documents.review.actions.saveAsDocument")}
       </button>
       {!financial ? (
         <div style={primaryHintTextStyle}>
-          שמירה כמסמך מידע לא נרשמת בהוצאות, בדוחות או בחבילת רואה החשבון.
+          {t("documents.review.actions.documentHint")}
         </div>
       ) : null}
       <div style={secondaryActionBoxStyle}>
         {financial ? (
           <>
             <div style={secondaryActionTextStyle}>
-              אם זה לא מסמך פיננסי, אפשר לשמור אותו כמידע בלבד.
+              {t("documents.review.actions.notFinancialHint")}
             </div>
             <button
               type="button"
@@ -65,13 +67,13 @@ export default function ReviewActions({
               style={secondaryButton(loading)}
               onClick={onApproveDocumentOnly}
             >
-              שמור כמסמך מידע
+              {t("documents.review.actions.saveAsDocument")}
             </button>
           </>
         ) : (
           <>
             <div style={secondaryActionTextStyle}>
-              זו בעצם קבלה או חשבונית? אפשר לרשום אותה כהוצאה או הכנסה.
+              {t("documents.review.actions.actuallyReceiptHint")}
             </div>
             <button
               type="button"
@@ -79,7 +81,7 @@ export default function ReviewActions({
               style={secondaryButton(loading)}
               onClick={onSwitchToFinancial}
             >
-              רשום כספית
+              {t("documents.review.actions.recordFinancial")}
             </button>
           </>
         )}

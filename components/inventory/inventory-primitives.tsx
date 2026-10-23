@@ -16,13 +16,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /* ============================================================= icons === */
 
 /** Chevron pointing right — the back affordance at the RTL start corner. */
 export function IconChevronStart() {
+  const { locale } = useI18n();
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      style={locale === "en" ? { transform: "scaleX(-1)" } : undefined}
+    >
       <path
         d="m9 6 6 6-6 6"
         stroke="currentColor"
@@ -222,14 +231,15 @@ export function Stepper({
   onIncrement: () => void;
   min?: number;
 }) {
+  const { t } = useI18n();
   const atMin = typeof min === "number" && value <= min;
   return (
     <div className="inv-stepper">
-      <button type="button" className="inv-stepper__btn" onClick={onDecrement} disabled={atMin} aria-label="הפחת">
+      <button type="button" className="inv-stepper__btn" onClick={onDecrement} disabled={atMin} aria-label={t("customers.inventoryKit.common.decrement")}>
         −
       </button>
       <div className="inv-stepper__val">{display ?? value}</div>
-      <button type="button" className="inv-stepper__btn" onClick={onIncrement} aria-label="הוסף">
+      <button type="button" className="inv-stepper__btn" onClick={onIncrement} aria-label={t("customers.inventoryKit.common.increment")}>
         +
       </button>
     </div>
@@ -248,13 +258,14 @@ export function MiniStepper({
   onIncrement: () => void;
   min?: number;
 }) {
+  const { t } = useI18n();
   return (
     <div className="inv-ministep">
-      <button type="button" onClick={onDecrement} disabled={value <= min} aria-label="הפחת">
+      <button type="button" onClick={onDecrement} disabled={value <= min} aria-label={t("customers.inventoryKit.common.decrement")}>
         −
       </button>
       <span>{value}</span>
-      <button type="button" onClick={onIncrement} aria-label="הוסף">
+      <button type="button" onClick={onIncrement} aria-label={t("customers.inventoryKit.common.increment")}>
         +
       </button>
     </div>
@@ -401,6 +412,7 @@ export function BottomSheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const { t } = useI18n();
   const ref = useDismissable(onClose);
 
   return (
@@ -418,7 +430,7 @@ export function BottomSheet({
           type="button"
           className="inv-sheet__grab"
           onClick={onClose}
-          aria-label="סגירה"
+          aria-label={t("customers.inventoryKit.common.close")}
           style={{ border: 0, cursor: "pointer", padding: 0 }}
         />
         <h3>{title}</h3>
@@ -432,7 +444,7 @@ export function BottomSheet({
 
 /** Standard cancel/confirm footer for a Bottom Sheet. */
 export function SheetActions({
-  cancelLabel = "ביטול",
+  cancelLabel,
   confirmLabel,
   onCancel,
   onConfirm,
@@ -444,10 +456,11 @@ export function SheetActions({
   onConfirm?: () => void;
   confirmDisabled?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="inv-sheet__actions">
       <button type="button" className="inv-sheet__ghost" onClick={onCancel}>
-        {cancelLabel}
+        {cancelLabel ?? t("customers.inventoryKit.common.cancel")}
       </button>
       <button type="button" className="inv-sheet__fill" onClick={onConfirm} disabled={confirmDisabled}>
         {confirmLabel}
@@ -465,7 +478,7 @@ export function ConfirmModal({
   title,
   body,
   confirmLabel,
-  cancelLabel = "ביטול",
+  cancelLabel,
   onConfirm,
   onCancel,
   danger,
@@ -480,6 +493,7 @@ export function ConfirmModal({
   danger?: boolean;
   confirmDisabled?: boolean;
 }) {
+  const { t } = useI18n();
   const ref = useDismissable(onCancel);
 
   return (
@@ -497,7 +511,7 @@ export function ConfirmModal({
         {body ? <p>{body}</p> : null}
         <div className="inv-modal__actions">
           <button type="button" className="inv-modal__ghost" onClick={onCancel}>
-            {cancelLabel}
+            {cancelLabel ?? t("customers.inventoryKit.common.cancel")}
           </button>
           <button
             type="button"
@@ -522,11 +536,12 @@ export function WizardSteps({
   steps: string[];
   activeIndex: number;
 }) {
+  const { t } = useI18n();
   return (
     <div className="inv-steps">
       {steps.map((step, i) => (
         <span key={step} style={{ display: "contents" }}>
-          {i > 0 ? <span className="inv-steps__arr">›</span> : null}
+          {i > 0 ? <span className="inv-steps__arr">{t("customers.inventoryKit.common.stepSeparator")}</span> : null}
           <span className={`inv-steps__s${i === activeIndex ? " is-on" : ""}`}>{step}</span>
         </span>
       ))}
@@ -798,6 +813,7 @@ export function InventorySearch({
   placeholder?: string;
   onScan?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <label className="inv-search">
       <IconSearch />
@@ -812,7 +828,7 @@ export function InventorySearch({
           type="button"
           className="inv-search__scan"
           onClick={onScan}
-          aria-label="סריקת ברקוד"
+          aria-label={t("customers.inventoryKit.common.scanBarcode")}
           style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", display: "flex", color: "var(--inv-accent)" }}
         >
           <IconScan />

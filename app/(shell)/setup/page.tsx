@@ -16,12 +16,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { useSessionIdentity } from "@/components/navigation/nav-signals";
 import { buildClientAuthHeaders, getClientAuthToken, redirectToLogin } from "@/lib/client-session";
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { DESCRIPTION_MAX, type SetupAudience, type SetupView } from "@/lib/services/onboarding/setup-model";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { invalidateCachedJson } from "@/lib/ui/cached-json";
 
 import styles from "./setup.module.css";
@@ -29,16 +31,16 @@ import styles from "./setup.module.css";
 const SETUP_URL = "/api/business/setup";
 const HISTORY_URL = "/api/home/history";
 
-const AUDIENCE_OPTIONS: Array<{ value: SetupAudience; label: string; icon: "person" | "building" | "both" }> = [
-  { value: "INDIVIDUALS", label: "לקוחות פרטיים", icon: "person" },
-  { value: "BUSINESSES", label: "עסקים", icon: "building" },
-  { value: "BOTH", label: "גם וגם", icon: "both" },
+const AUDIENCE_OPTIONS: Array<{ value: SetupAudience; label: MessageKey; icon: "person" | "building" | "both" }> = [
+  { value: "INDIVIDUALS", label: "account.setup.audience.individuals", icon: "person" },
+  { value: "BUSINESSES", label: "account.setup.audience.businesses", icon: "building" },
+  { value: "BOTH", label: "account.setup.audience.both", icon: "both" },
 ];
 
-const AUDIENCE_SUMMARY: Record<SetupAudience, string> = {
-  INDIVIDUALS: "בעיקר לקוחות פרטיים",
-  BUSINESSES: "בעיקר עסקים",
-  BOTH: "פרטיים ועסקים",
+const AUDIENCE_SUMMARY: Record<SetupAudience, MessageKey> = {
+  INDIVIDUALS: "account.setup.audienceSummary.individuals",
+  BUSINESSES: "account.setup.audienceSummary.businesses",
+  BOTH: "account.setup.audienceSummary.both",
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -46,6 +48,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 export default function SetupPage() {
   useHideShellChrome(true);
   const router = useRouter();
+  const { t } = useI18n();
   const { businessName, userName } = useSessionIdentity(true);
 
   const [description, setDescription] = useState("");
@@ -102,16 +105,16 @@ export default function SetupPage() {
       }
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setError(data?.error ?? "לא הצלחנו לשמור. אפשר לנסות שוב.");
+        setError(data?.error ?? t("account.setup.saveFailed"));
         return false;
       }
       setError("");
       return true;
     } catch {
-      setError("אין חיבור כרגע. אפשר לנסות שוב.");
+      setError(t("account.setup.offline"));
       return false;
     }
-  }, []);
+  }, [t]);
 
   const saveText = useCallback(async () => {
     const text = description.trim();
@@ -156,18 +159,18 @@ export default function SetupPage() {
     });
   };
 
-  const name = businessName ?? "העסק";
+  const name = businessName ?? t("account.setup.businessFallback");
   const firstName = userName?.split(/\s+/)[0] ?? null;
   const hasText = description.trim().length > 0;
 
   return (
-    <div className={styles.page} dir="rtl">
+    <div className={styles.page}>
       <header className={styles.top}>
         <div className={styles.logo}>
           <span className={styles.logoMark} aria-hidden="true">d</span>
           <span className={styles.logoWord} dir="ltr">dubiz</span>
         </div>
-        <AccessibilityTrigger className={styles.iconBtn} label="הגדרות נגישות" />
+        <AccessibilityTrigger className={styles.iconBtn} label={t("account.setup.a11ySettings")} />
       </header>
 
       <main className={styles.main}>
@@ -185,7 +188,7 @@ export default function SetupPage() {
                 <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5" />
               </svg>
               <span>
-                <b>המשכנו מאיפה שעצרת.</b> מה שכבר כתבת נשמר.
+                <b>{t("account.setup.resumedLead")}</b> {t("account.setup.resumedRest")}
               </span>
             </div>
           ) : (
@@ -194,26 +197,26 @@ export default function SetupPage() {
                 <circle cx="12" cy="12" r="9" />
                 <path d="M8 12.5l2.6 2.5L16 9.5" />
               </svg>
-              {firstName ? `החשבון נפתח, ${firstName}` : "החשבון נפתח"}
+              {firstName ? t("account.setup.openedNamed", { name: firstName }) : t("account.setup.opened")}
             </p>
           )}
 
           <div className={styles.head}>
             <h1 id="setup-title" className={styles.title}>
-              ספרו לנו על {name}
+              {t("account.setup.title", { name })}
             </h1>
-            <p className={styles.sub}>כמה מילים בשפה שלכם מספיקות. את השאר Dubiz ילמד מהעבודה.</p>
+            <p className={styles.sub}>{t("account.setup.sub")}</p>
           </div>
 
           <div className={styles.field}>
             <label htmlFor="setup-description" className={styles.label}>
-              ספרו לנו קצת על העסק
+              {t("account.setup.descriptionLabel")}
             </label>
             <textarea
               id="setup-description"
               className={styles.textarea}
               maxLength={DESCRIPTION_MAX}
-              placeholder="בשפה שלכם: מה אתם עושים, איך אתם עובדים, ומה חשוב לכם שנדע."
+              placeholder={t("account.setup.descriptionPlaceholder")}
               value={description}
               onChange={(e) => {
                 touchedText.current = true;
@@ -226,13 +229,13 @@ export default function SetupPage() {
             <div id="setup-description-meta" className={styles.meta}>
               <span aria-live="polite">
                 {saveState === "saving" ? (
-                  "שומרים…"
+                  t("account.setup.saving")
                 ) : saveState === "saved" ? (
                   <span className={styles.saved}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M5 12.5l4.5 4.5L19 7.5" />
                     </svg>
-                    נשמר
+                    {t("account.setup.saved")}
                   </span>
                 ) : null}
               </span>
@@ -243,7 +246,7 @@ export default function SetupPage() {
           </div>
 
           <fieldset className={styles.fieldset}>
-            <legend className={styles.label}>מי בדרך כלל הלקוחות שלכם?</legend>
+            <legend className={styles.label}>{t("account.setup.audienceLegend")}</legend>
             <div className={styles.options}>
               {AUDIENCE_OPTIONS.map((o) => {
                 const on = audience === o.value;
@@ -259,7 +262,7 @@ export default function SetupPage() {
                     <span className={styles.optionIcon} aria-hidden="true">
                       <AudienceIcon kind={o.icon} />
                     </span>
-                    <span className={styles.optionLabel}>{o.label}</span>
+                    <span className={styles.optionLabel}>{t(o.label)}</span>
                     <span className={styles.mark} aria-hidden="true">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M5 12.5l4.5 4.5L19 7.5" />
@@ -279,15 +282,15 @@ export default function SetupPage() {
 
           <div className={styles.actions}>
             <button type="submit" className={styles.primary} disabled={busy}>
-              המשך לבית
+              {t("account.setup.continue")}
             </button>
             <button type="button" className={styles.ghost} disabled={busy} onClick={() => void leave({ step: "skip" })}>
-              אמלא אחר כך
+              {t("account.setup.skip")}
             </button>
           </div>
         </form>
 
-        <aside className={styles.card} aria-label={`מה Dubiz יודע על ${name}`}>
+        <aside className={styles.card} aria-label={t("account.setup.card.ariaLabel", { name })}>
           <div className={styles.cardHead}>
             <span className={styles.cardMark} aria-hidden="true">
               {name.trim().charAt(0)}
@@ -295,32 +298,32 @@ export default function SetupPage() {
             <span className={styles.cardName}>{name}</span>
           </div>
           <div className={styles.cardSection}>
-            <span className={styles.cardEyebrow}>מה סיפרתם</span>
+            <span className={styles.cardEyebrow}>{t("account.setup.card.told")}</span>
             <div className={styles.cardRow}>
-              <span className={styles.cardKey}>על העסק</span>
-              {hasText ? <span className={styles.chipOwn}>נמסר על ידכם</span> : null}
+              <span className={styles.cardKey}>{t("account.setup.card.about")}</span>
+              {hasText ? <span className={styles.chipOwn}>{t("account.setup.card.byYou")}</span> : null}
             </div>
-            {hasText ? <p className={styles.cardQuote}>״{description.trim()}״</p> : <p className={styles.cardEmpty}>עוד לא נכתב</p>}
+            {hasText ? <p className={styles.cardQuote}>{t("account.setup.card.quote", { text: description.trim() })}</p> : <p className={styles.cardEmpty}>{t("account.setup.card.notWritten")}</p>}
             <div className={`${styles.cardRow} ${styles.cardRowSplit}`}>
-              <span className={styles.cardKey}>לקוחות</span>
+              <span className={styles.cardKey}>{t("account.setup.card.customers")}</span>
               <span className={styles.cardValue}>
-                {audience ? AUDIENCE_SUMMARY[audience] : <span className={styles.cardEmpty}>עוד לא נבחר</span>}
-                {audience ? <span className={styles.chipOwn}>נמסר על ידכם</span> : null}
+                {audience ? t(AUDIENCE_SUMMARY[audience]) : <span className={styles.cardEmpty}>{t("account.setup.card.notChosen")}</span>}
+                {audience ? <span className={styles.chipOwn}>{t("account.setup.card.byYou")}</span> : null}
               </span>
             </div>
           </div>
           <div className={`${styles.cardSection} ${styles.cardLearn}`}>
-            <span className={styles.cardEyebrow}>מה Dubiz ילמד מהעבודה</span>
-            <LearnRow title="מה אתם מוכרים" sub="מהשירותים והמוצרים שתוסיפו" />
-            <LearnRow title="איך לקוחות מגיעים אליכם" sub="מהפניות, התורים והצעות המחיר" />
-            <LearnRow title="איך הכסף זז" sub="מהמסמכים, ההכנסות וההוצאות" />
+            <span className={styles.cardEyebrow}>{t("account.setup.card.learnTitle")}</span>
+            <LearnRow title={t("account.setup.card.learnSellTitle")} sub={t("account.setup.card.learnSellSub")} badge={t("account.setup.card.learnBadge")} />
+            <LearnRow title={t("account.setup.card.learnLeadsTitle")} sub={t("account.setup.card.learnLeadsSub")} badge={t("account.setup.card.learnBadge")} />
+            <LearnRow title={t("account.setup.card.learnMoneyTitle")} sub={t("account.setup.card.learnMoneySub")} badge={t("account.setup.card.learnBadge")} />
           </div>
           <p className={styles.private}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
               <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
             </svg>
-            פרטי. לא מוצג ללקוחות בלי אישור שלכם.
+            {t("account.setup.card.private")}
           </p>
         </aside>
       </main>
@@ -328,14 +331,14 @@ export default function SetupPage() {
   );
 }
 
-function LearnRow({ title, sub }: { title: string; sub: string }) {
+function LearnRow({ title, sub, badge }: { title: string; sub: string; badge: string }) {
   return (
     <div className={styles.learn}>
       <span className={styles.learnText}>
         <span className={styles.learnTitle}>{title}</span>
         <span className={styles.learnSub}>{sub}</span>
       </span>
-      <span className={styles.chipLearn}>יילמד</span>
+      <span className={styles.chipLearn}>{badge}</span>
     </div>
   );
 }

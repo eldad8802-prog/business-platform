@@ -41,6 +41,7 @@ import bcrypt from "bcrypt";
 import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
+import type { Locale } from "@/lib/i18n/config";
 import { issueAccountLink } from "@/lib/auth/email-tokens";
 
 import {
@@ -83,6 +84,8 @@ export type CreateAccountInput = {
    * route). Only on the auth plane: the token functions are app_auth's.
    */
   sendVerification?: boolean;
+  /** The interface language of the signup request (getServerI18n) — the language of the account emails. */
+  locale?: Locale;
 };
 
 export type CreatedAccount = {
@@ -100,7 +103,8 @@ export type CreatedAccount = {
   session: { sessionId: string; credential: string; absoluteExpiresAt: Date };
   /**
    * The WELCOME row written with the account, or null when the auth plane is not
-   * active (only the signup plane may write it; see below).
+   * active (only the signup plane may write it; see below) or when a verification
+   * link was issued instead (the WELCOME then follows the verification).
    */
   welcomeEmailId: number | null;
   /** The EMAIL_VERIFY row written with the account, or null when verification is off. */
@@ -160,27 +164,31 @@ export async function createAccount(
         userAgent: input.userAgent ?? null,
       });
 
-      // The email this account is owed, recorded with it. Only the signup plane
-      // (app_auth) holds INSERT on TransactionalEmail; in the legacy mode this
-      // client is the tenant runtime, which cannot write it — so there, rather
-      // than failing every signup, no row is written.
-      const welcomeEmailId = isAuthPlaneActive()
-        ? await enqueueWelcomeEmail(tx, {
-            userId: user.id,
-            businessId: business.id,
-            toEmail: user.email,
-            name: input.name,
-            now: input.now,
-          })
-        : null;
-
       // The verification link, issued in the same transaction: the account and
       // its link exist together or not at all. Never blocks the signup: the
       // database issues nothing (and this is null) only in states a brand-new
       // account cannot be in.
       const verification =
         input.sendVerification && isAuthPlaneActive()
-          ? await issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: input.name, now: input.now })
+          ? await issueAccountLink(tx, { userId: user.id, purpose: "EMAIL_VERIFY", name: input.name, now: input.now, locale: input.locale })
+          : null;
+
+      // The email this account is owed, recorded with it. Only the signup plane
+      // (app_auth) holds INSERT on TransactionalEmail; in the legacy mode this
+      // client is the tenant runtime, which cannot write it — so there, rather
+      // than failing every signup, no row is written.
+      // With a verification link, signup sends that link ONLY: the WELCOME follows
+      // once the address is confirmed (consumeEmailVerification), never both at once.
+      const welcomeEmailId =
+        isAuthPlaneActive() && verification === null
+          ? await enqueueWelcomeEmail(tx, {
+              userId: user.id,
+              businessId: business.id,
+              toEmail: user.email,
+              name: input.name,
+              now: input.now,
+              locale: input.locale,
+            })
           : null;
 
       return {

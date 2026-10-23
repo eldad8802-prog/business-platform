@@ -135,6 +135,36 @@ export async function requirePlatformAdmin(
 /** Error code surfaced to the admin UI when a step-up is needed. */
 export const ADMIN_MFA_REQUIRED_CODE = "ADMIN_MFA_REQUIRED";
 
+/** How recent a step-up must be to add, remove or replace an admin factor. */
+export const ADMIN_FRESH_STEP_UP_MAX_AGE_SECONDS = 5 * 60;
+
+/**
+ * Factor management — adding or removing a passkey, replacing the authenticator
+ * app — must not be reachable with an elevation that is merely still alive
+ * (up to 15 minutes old): that would let a stolen elevation become a factor the
+ * thief controls for good. Call AFTER the full guard; returns the same 403
+ * `ADMIN_MFA_REQUIRED` the client already answers with a fresh prompt, unless the
+ * presented elevation was minted in the last 5 minutes.
+ *
+ * Enforced regardless of PLATFORM_ADMIN_MFA_REQUIRED: these routes are only
+ * meaningful to an admin who already holds a factor, so a fresh proof is always
+ * obtainable.
+ */
+export function freshStepUpRefusal(
+  req: Request,
+  userId: number,
+  nowMs: number = Date.now()
+): NextResponse | null {
+  const result = verifyAdminElevation(readAdminElevationHeader(req), userId, nowMs);
+  const fresh =
+    result.ok && Math.floor(nowMs / 1000) - result.issuedAt <= ADMIN_FRESH_STEP_UP_MAX_AGE_SECONDS;
+  if (fresh) return null;
+  return NextResponse.json(
+    { error: "A fresh multi-factor step-up is required", code: ADMIN_MFA_REQUIRED_CODE, fresh: true },
+    { status: 403 }
+  );
+}
+
 export function requirePlatformAdminOrResponse(
   req: Request
 ): Promise<PlatformAdminUser | NextResponse> {

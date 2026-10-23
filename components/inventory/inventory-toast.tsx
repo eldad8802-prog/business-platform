@@ -61,7 +61,6 @@ export function InventoryToastHost() {
 
   return (
     <div
-      dir="rtl"
       aria-live="polite"
       style={{
         position: "fixed",

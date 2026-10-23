@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { ValidationError } from "@/lib/errors";
 import {
+  AUDIT_KIND_SETS,
+  type AuditKind,
   formatActorDisplay,
   formatAuditActionLabel,
   formatAuditActionTone,
@@ -19,7 +21,13 @@ export type ListPlatformAuditInput = {
   limit: number;
   action?: string;
   actorUserId?: number;
+  /** all (default) · changes · views · security */
+  kind?: AuditKind;
+  /** Only events whose target is this business. */
+  businessId?: number;
 };
+
+const AUDIT_KINDS: readonly AuditKind[] = ["all", "changes", "views", "security"];
 
 function daysAgo(days: number): Date {
   const date = new Date();
@@ -58,7 +66,26 @@ export function parseListPlatformAuditQuery(
     actorUserId = parsed;
   }
 
-  return { page, limit, action, actorUserId };
+  const kindParam = searchParams.get("kind");
+  let kind: AuditKind = "all";
+  if (kindParam !== null && kindParam !== "") {
+    if (!AUDIT_KINDS.includes(kindParam as AuditKind)) {
+      throw new ValidationError("kind must be one of all, changes, views, security");
+    }
+    kind = kindParam as AuditKind;
+  }
+
+  let businessId: number | undefined;
+  const businessParam = searchParams.get("businessId");
+  if (businessParam !== null && businessParam !== "") {
+    const parsed = Number(businessParam);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new ValidationError("businessId must be a positive integer");
+    }
+    businessId = parsed;
+  }
+
+  return { page, limit, action, actorUserId, kind, businessId };
 }
 
 function buildWhere(input: ListPlatformAuditInput): Prisma.PlatformAuditEventWhereInput {
@@ -68,6 +95,23 @@ function buildWhere(input: ListPlatformAuditInput): Prisma.PlatformAuditEventWhe
   }
   if (input.actorUserId) {
     where.actorUserId = input.actorUserId;
+  }
+  if (input.businessId) {
+    where.targetType = "BUSINESS";
+    where.targetId = String(input.businessId);
+  }
+  switch (input.kind ?? "all") {
+    case "views":
+      where.AND = [{ action: { in: [...AUDIT_KIND_SETS.views] } }];
+      break;
+    case "security":
+      where.AND = [{ action: { in: [...AUDIT_KIND_SETS.security] } }];
+      break;
+    case "changes":
+      where.AND = [{ action: { notIn: [...AUDIT_KIND_SETS.views, ...AUDIT_KIND_SETS.security] } }];
+      break;
+    case "all":
+      break;
   }
   return where;
 }

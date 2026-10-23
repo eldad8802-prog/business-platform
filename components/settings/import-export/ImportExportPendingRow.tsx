@@ -35,7 +35,7 @@ export function ImportExportPendingRow({
   status = "בקרוב",
 }: Props) {
   return (
-    <div className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 text-right">
+    <div className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 text-start">
       <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-lg">
         {icon}
       </span>

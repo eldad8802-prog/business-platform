@@ -8,6 +8,7 @@ import { ActionSheet } from "./action-sheet";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
 import { PRIMARY_DESTINATIONS, isNavActive, type NavDestination } from "./nav-destinations";
 import { IconPlus } from "./nav-icons";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
 export const BOTTOM_BAR_Z_INDEX = 100;
@@ -32,6 +33,7 @@ export function BottomBar() {
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
   const chromeHidden = useShellChromeHidden();
   const hasUnread = useUnreadNotifications(pathname);
+  const { t } = useI18n();
 
   // A full-screen surface (e.g. a secretary sub-screen/modal) has requested the
   // shell chrome be hidden so its bottom CTA is not covered by the fixed bar.
@@ -42,9 +44,8 @@ export function BottomBar() {
   return (
     <>
       <nav
-        dir="rtl"
         data-component="shell-bottom-bar"
-        aria-label="ניווט תחתון"
+        aria-label={t("nav.a11y.bottomNav")}
         style={{
           position: "fixed",
           left: 0,
@@ -68,7 +69,7 @@ export function BottomBar() {
         <div style={{ display: "flex", justifyContent: "center" }}>
           <button
             type="button"
-            aria-label="פעולה חדשה"
+            aria-label={t("nav.a11y.newAction")}
             aria-expanded={actionSheetOpen}
             onClick={() => setActionSheetOpen(true)}
             className="dz-bottom__new"
@@ -129,6 +130,7 @@ function useUnreadNotifications(pathname: string): boolean {
 
 function BarLink({ dest, active, unread }: { dest: NavDestination; active: boolean; unread: boolean }) {
   const Icon = dest.icon;
+  const { t } = useI18n();
   return (
     <Link
       href={dest.href}
@@ -141,8 +143,8 @@ function BarLink({ dest, active, unread }: { dest: NavDestination; active: boole
         <Icon size={20} strokeWidth={active ? 2 : 1.8} />
         {unread ? <span className="dz-bottom__dot" aria-hidden /> : null}
       </span>
-      {dest.label}
-      {unread ? <span className="sr-only">יש התראות שלא נקראו</span> : null}
+      {t(dest.labelKey)}
+      {unread ? <span className="sr-only">{t("nav.a11y.unreadNotifications")}</span> : null}
     </Link>
   );
 }

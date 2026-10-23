@@ -26,6 +26,8 @@ import {
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * Suppliers master list (Spec v1 §23 — workspace pilot, owner-approved).
@@ -52,13 +54,14 @@ function rowMetaParts(s: SupplierListRow): Array<string | null> {
   return [s.phone ? formatPhoneForDisplay(s.phone) : null, s.email];
 }
 
-const FILTERS: Array<{ key: SupplierStatusFilter; label: string }> = [
-  { key: "active", label: "פעילים" },
-  { key: "inactive", label: "לא פעילים" },
-  { key: "all", label: "הכול" },
+const FILTERS: Array<{ key: SupplierStatusFilter; label: MessageKey }> = [
+  { key: "active", label: "customers.suppliers.list.filterActive" },
+  { key: "inactive", label: "customers.suppliers.list.filterInactive" },
+  { key: "all", label: "customers.suppliers.list.filterAll" },
 ];
 
 export function SuppliersList({ selectedId }: { selectedId: string | null }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [suppliers, setSuppliers] = useState<SupplierListRow[]>([]);
   const [query, setQuery] = useEntryState("query", "");
@@ -87,13 +90,13 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
           return;
         }
         setError(
-          err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת הספקים"
+          err instanceof Error ? err.message : t("customers.suppliers.list.errorLoad")
         );
       } finally {
         setLoading(false);
       }
     },
-    []
+    [t]
   );
 
   // Initial load.
@@ -123,10 +126,12 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
       </div>
       <div className="crm-hd">
         <div>
-          <h1 className="crm-hd__title">ספקים</h1>
+          <h1 className="crm-hd__title">{t("customers.suppliers.list.title")}</h1>
           {!loading && !error ? (
             <div className="crm-hd__sub">
-              {suppliers.length} {suppliers.length === 1 ? "ספק" : "ספקים"}
+              {suppliers.length === 1
+                ? t("customers.suppliers.list.countOne", { count: suppliers.length })
+                : t("customers.suppliers.list.countMany", { count: suppliers.length })}
             </div>
           ) : null}
         </div>
@@ -135,7 +140,7 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
           className="crm-btn crm-btn--primary"
           onClick={() => setCreateOpen(true)}
         >
-          + ספק חדש
+          {t("customers.suppliers.list.newSupplier")}
         </button>
       </div>
 
@@ -144,7 +149,7 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="חיפוש לפי שם"
+        placeholder={t("customers.suppliers.list.searchPlaceholder")}
         inputMode="search"
       />
 
@@ -181,7 +186,7 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
                   : {}),
               }}
             >
-              {f.label}
+              {t(f.label)}
             </button>
           );
         })}
@@ -189,14 +194,14 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
 
       {error ? (
         <div className="crm-panel crm-panel--error">
-          <p className="crm-panel__title">משהו השתבש</p>
+          <p className="crm-panel__title">{t("customers.suppliers.common.errorTitle")}</p>
           <p className="crm-panel__body">{error}</p>
           <button
             type="button"
             className="crm-btn crm-btn--ghost"
             onClick={() => void load(query, status)}
           >
-            נסו שוב
+            {t("customers.suppliers.common.retry")}
           </button>
         </div>
       ) : loading ? (
@@ -209,17 +214,17 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
         <div className="crm-panel">
           <p className="crm-panel__title">
             {isSearching
-              ? "לא נמצאו ספקים"
+              ? t("customers.suppliers.list.emptySearchTitle")
               : status === "inactive"
-                ? "אין ספקים לא פעילים"
-                : "עדיין אין ספקים"}
+                ? t("customers.suppliers.list.emptyInactiveTitle")
+                : t("customers.suppliers.list.emptyNoneTitle")}
           </p>
           <p className="crm-panel__body">
             {isSearching
-              ? "נסו חיפוש קצר יותר או בשם אחר."
+              ? t("customers.suppliers.list.emptySearchBody")
               : status === "inactive"
-                ? "ספקים שתשביתו יופיעו כאן."
-                : "הוסיפו את הספק הראשון כדי לנהל את פרטי הקשר וזמני האספקה במקום אחד."}
+                ? t("customers.suppliers.list.emptyInactiveBody")
+                : t("customers.suppliers.list.emptyNoneBody")}
           </p>
           {!isSearching && status !== "inactive" ? (
             <button
@@ -227,7 +232,7 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
               className="crm-btn crm-btn--primary"
               onClick={() => setCreateOpen(true)}
             >
-              + ספק חדש
+              {t("customers.suppliers.list.newSupplier")}
             </button>
           ) : null}
         </div>
@@ -253,13 +258,13 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
                       a badge inside it would be clipped on long names. */}
                   {!s.isActive ? (
                     <span className="crm-row__badges">
-                      <span className="crm-badge">לא פעיל</span>
+                      <span className="crm-badge">{t("customers.suppliers.common.inactiveBadge")}</span>
                     </span>
                   ) : null}
                   <CrmRowMeta parts={rowMetaParts(s)} />
                 </span>
                 <span className="crm-row__chevron" aria-hidden>
-                  ‹
+                  {t("customers.suppliers.common.chevron")}
                 </span>
               </a>
             );
@@ -298,6 +303,7 @@ function CreateSupplierModal({
   onClose: () => void;
   onCreated: (created: { id: number }) => void;
 }) {
+  const { t } = useI18n();
   const [form, setForm] = useState<SupplierFormState>(EMPTY_SUPPLIER_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -313,7 +319,7 @@ function CreateSupplierModal({
   }, []);
 
   async function handleSubmit() {
-    const invalid = validateSupplierForm(form);
+    const invalid = validateSupplierForm(form, t);
     if (invalid) {
       setError(invalid);
       return;
@@ -340,7 +346,7 @@ function CreateSupplierModal({
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : "לא הצלחנו ליצור ספק");
+      setError(err instanceof Error ? err.message : t("customers.suppliers.create.errorCreate"));
       setSaving(false);
     }
   }
@@ -363,10 +369,10 @@ function CreateSupplierModal({
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="ספק חדש">
-        <h2 className="crm-modal__title">ספק חדש</h2>
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label={t("customers.suppliers.create.title")}>
+        <h2 className="crm-modal__title">{t("customers.suppliers.create.title")}</h2>
         <p className="crm-panel__body" style={{ marginTop: -4 }}>
-          שם בלבד מספיק כדי להתחיל. אפשר להשלים את שאר הפרטים בכל שלב.
+          {t("customers.suppliers.create.intro")}
         </p>
 
         <SupplierForm form={form} set={set} idPrefix="sup-new" />
@@ -380,7 +386,7 @@ function CreateSupplierModal({
             onClick={() => void handleSubmit()}
             disabled={saving}
           >
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? t("customers.suppliers.common.saving") : t("customers.suppliers.common.save")}
           </button>
           <button
             type="button"
@@ -388,7 +394,7 @@ function CreateSupplierModal({
             onClick={onClose}
             disabled={saving}
           >
-            ביטול
+            {t("customers.suppliers.common.cancel")}
           </button>
         </div>
       </div>

@@ -9,6 +9,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { MAX_BUSINESS_NAME_LENGTH, MIN_NAME_LENGTH } from "@/lib/auth/signup-identity";
@@ -17,6 +18,7 @@ import { renameBusiness } from "@/lib/services/onboarding/setup.service";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -27,12 +29,12 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
   if (typeof name !== "string") {
-    return NextResponse.json({ error: "יש להזין שם עסק", field: "name" }, { status: 400 });
+    return NextResponse.json({ error: t("api.business.nameRequired"), field: "name" }, { status: 400 });
   }
   const trimmed = name.trim();
   if (trimmed.length < MIN_NAME_LENGTH || trimmed.length > MAX_BUSINESS_NAME_LENGTH) {
     return NextResponse.json(
-      { error: `שם העסק צריך להכיל ${MIN_NAME_LENGTH}–${MAX_BUSINESS_NAME_LENGTH} תווים`, field: "name" },
+      { error: t("api.business.nameLength", { min: MIN_NAME_LENGTH, max: MAX_BUSINESS_NAME_LENGTH }), field: "name" },
       { status: 400 }
     );
   }

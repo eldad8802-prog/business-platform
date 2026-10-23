@@ -4,6 +4,9 @@
  */
 import type { ReactNode } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+
 import s from "./tasks.module.css";
 
 function Svg({ size = 17, children }: { size?: number; children: ReactNode }) {
@@ -23,20 +26,21 @@ const PATHS: Record<string, ReactNode> = {
   box: <><path d="M3 7l9-4 9 4v10l-9 4-9-4z" /><path d="M3 7l9 4 9-4M12 11v10" /></>,
 };
 
-const KIND: Record<string, { icon: string; tone: string; label: string }> = {
-  supplier_payment: { icon: "wallet", tone: s.domPay, label: "תשלום לספק" },
-  customer_debt: { icon: "coin", tone: s.domCol, label: "גבייה" },
-  invoice_review: { icon: "doc", tone: s.domDoc, label: "חשבונית לבדיקה" },
-  lead: { icon: "user", tone: s.domLead, label: "ליד" },
-  conversation: { icon: "chat", tone: s.domChat, label: "שיחה" },
-  documents_queue: { icon: "doc", tone: s.domDoc, label: "מסמכים לבדיקה" },
-  stock: { icon: "box", tone: s.domStock, label: "מלאי" },
+const KIND: Record<string, { icon: string; tone: string; label: MessageKey }> = {
+  supplier_payment: { icon: "wallet", tone: s.domPay, label: "tasks.icons.supplierPayment" },
+  customer_debt: { icon: "coin", tone: s.domCol, label: "tasks.icons.customerDebt" },
+  invoice_review: { icon: "doc", tone: s.domDoc, label: "tasks.icons.invoiceReview" },
+  lead: { icon: "user", tone: s.domLead, label: "tasks.icons.lead" },
+  conversation: { icon: "chat", tone: s.domChat, label: "tasks.icons.conversation" },
+  documents_queue: { icon: "doc", tone: s.domDoc, label: "tasks.icons.documentsQueue" },
+  stock: { icon: "box", tone: s.domStock, label: "tasks.icons.stock" },
 };
 
 export function DomainIcon({ kind }: { kind: string }) {
+  const { t } = useI18n();
   const k = KIND[kind] ?? KIND.documents_queue;
   return (
-    <span className={`${s.dom} ${k.tone}`} title={k.label}>
+    <span className={`${s.dom} ${k.tone}`} title={t(k.label)}>
       <Svg>{PATHS[k.icon]}</Svg>
     </span>
   );

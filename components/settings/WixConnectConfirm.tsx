@@ -2,17 +2,22 @@
 
 import { useState } from "react";
 
-const ERRORS: Record<string, string> = {
-  source_not_enabled: "חיבור חנויות Wix עדיין לא פתוח בחשבון שלך.",
-  unavailable: "החיבור ל-Wix עדיין לא זמין.",
-  instance_invalid: "הקישור מ-Wix לא תקין או שפג תוקפו — פתח/י את האפליקציה מחדש מלוח הבקרה של Wix.",
-  app_not_installed: "האפליקציה של Dubiz לא מותקנת באתר הזה ב-Wix.",
-  wix_unavailable: "Wix לא זמין כרגע — נסה/י שוב בעוד כמה דקות.",
-  store_connected_to_another_business: "החנות הזאת כבר מחוברת לעסק אחר.",
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+/** The route's error codes → what the owner reads. */
+const ERRORS: Record<string, MessageKey> = {
+  source_not_enabled: "account.settings.connections.wix.errors.sourceNotEnabled",
+  unavailable: "account.settings.connections.wix.errors.unavailable",
+  instance_invalid: "account.settings.connections.wix.errors.instanceInvalid",
+  app_not_installed: "account.settings.connections.wix.errors.appNotInstalled",
+  wix_unavailable: "account.settings.connections.wix.errors.wixUnavailable",
+  store_connected_to_another_business: "account.settings.connections.wix.errors.storeTaken",
 };
 
 /** The owner confirms binding the Wix store they just installed Dubiz on (signed `instance` from Wix). */
 export function WixConnectConfirm({ instance }: { instance: string | null }) {
+  const { t: tr } = useI18n();
   const [state, setState] = useState<"idle" | "busy" | "done" | "signin">("idle");
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
@@ -40,26 +45,27 @@ export function WixConnectConfirm({ instance }: { instance: string | null }) {
     if (res?.status === 401) return setState("signin");
     if (!res?.ok) {
       setState("idle");
-      return setError(ERRORS[json.error ?? ""] ?? "משהו השתבש — נסה/י שוב.");
+      const code = json.error ?? "";
+      return setError(tr(Object.prototype.hasOwnProperty.call(ERRORS, code) ? ERRORS[code] : "account.settings.connections.wix.errors.generic"));
     }
     setName(json.connection?.label ?? null);
     setState("done");
   }
 
   if (!instance) {
-    return <p className="text-sm text-[var(--dz-text-muted)]">כדי לחבר חנות Wix, התקן/י את האפליקציה של Dubiz מתוך Wix ופתח/י אותה מלוח הבקרה של האתר.</p>;
+    return <p className="text-sm text-[var(--dz-text-muted)]">{tr("account.settings.connections.wix.noInstance")}</p>;
   }
   return (
     <div className="space-y-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-4 text-sm">
       {state === "done" ? (
-        <p className="text-[var(--dz-success)]">החנות{name ? ` "${name}"` : ""} חוברה. הזמנות חדשות יופיעו ב-Dubiz אוטומטית.</p>
+        <p className="text-[var(--dz-success)]">{name ? tr("account.settings.connections.wix.doneNamed", { name }) : tr("account.settings.connections.wix.done")}</p>
       ) : (
         <>
-          <p className="text-[var(--dz-text-primary)]">לחבר את חנות ה-Wix הזאת לעסק שלך ב-Dubiz? הזמנות מהחנות יופיעו ב-Dubiz — בלי לשנות מלאי, תשלומים או מסמכים.</p>
+          <p className="text-[var(--dz-text-primary)]">{tr("account.settings.connections.wix.confirm")}</p>
           {state === "signin" && (
             <p className="text-[var(--dz-text-muted)]">
-              צריך להיות מחובר/ת ל-Dubiz בדפדפן הזה.{" "}
-              <a className="underline" href="/login" target="_blank" rel="noreferrer">התחבר/י</a> ואז לחץ/י שוב על &quot;חבר&quot;.
+              {tr("account.settings.connections.wix.signinNeeded")}{" "}
+              <a className="underline" href="/login" target="_blank" rel="noreferrer">{tr("account.settings.connections.wix.signinLink")}</a>{tr("account.settings.connections.wix.signinAfter")}
             </p>
           )}
           {error && <p className="text-[var(--dz-danger)]">{error}</p>}
@@ -69,7 +75,7 @@ export function WixConnectConfirm({ instance }: { instance: string | null }) {
             disabled={state === "busy"}
             className="rounded-full bg-[var(--dz-text-primary)] px-4 py-1 text-xs font-bold text-[var(--dz-surface)] disabled:opacity-60"
           >
-            {state === "busy" ? "מחבר…" : "חבר את החנות"}
+            {state === "busy" ? tr("account.settings.connections.wix.connecting") : tr("account.settings.connections.wix.connect")}
           </button>
         </>
       )}
