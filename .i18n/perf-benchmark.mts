@@ -157,10 +157,22 @@ async function latency(s: Seed, hasExp: boolean) {
   };
   const samples = new Map<string, { ttfb: number[]; total: number[]; status: Record<string, number>; cache: Record<string, number>; bytes: number[] }>();
   const key = (r: R, v: string) => `${r.label}\u0000${v}`;
+  // An RSC request without the matching `_rsc` cache-busting parameter is answered 307 → the URL that has it
+  // (Next 16). Resolve that URL once per route × variant, then time the real payload request.
+  const rscPath = new Map<string, string>();
+  for (const r of routes.filter((x) => x.cls === "rsc")) {
+    for (const v of variantsFor(r)) {
+      const res = await fetch(v.base + r.path, { headers: { "user-agent": UA, rsc: "1", accept: "*/*", ...(v.cookie ? { cookie: v.cookie } : {}) }, redirect: "manual" });
+      const loc = res.headers.get("location");
+      await res.arrayBuffer();
+      const u = loc ? new URL(loc, v.base) : null;
+      rscPath.set(key(r, v.name), u ? u.pathname + u.search : r.path);
+    }
+  }
   for (let round = 0; round < WARM + N; round++) {
     for (const r of routes) {
       for (const v of alternate(variantsFor(r), round)) {
-        const h = await hit(v.base, r.path, { cookie: v.cookie, token: r.cls === "api" ? s.token : undefined, rsc: r.cls === "rsc" });
+        const h = await hit(v.base, rscPath.get(key(r, v.name)) ?? r.path, { cookie: v.cookie, token: r.cls === "api" ? s.token : undefined, rsc: r.cls === "rsc" });
         if (round < WARM) continue;
         const k = key(r, v.name);
         const e = samples.get(k) ?? { ttfb: [], total: [], status: {}, cache: {}, bytes: [] };
@@ -194,7 +206,11 @@ async function latency(s: Seed, hasExp: boolean) {
     byClass[cls] = { routes: routes.filter((x) => x.cls === cls).length, pooled, deltaOnOff: { ttfb: delta(pooled.off.ttfb, pooled.on.ttfb), total: delta(pooled.off.total, pooled.on.total) }, ...(pooled["on-en"] ? { deltaOnEnOff: { ttfb: delta(pooled.off.ttfb, pooled["on-en"].ttfb), total: delta(pooled.off.total, pooled["on-en"].total) } } : {}) };
   }
   for (const r of rows) ok(`latency ${r.route} — same status OFF vs ON`, JSON.stringify(Object.keys(r.per.off.status)) === JSON.stringify(Object.keys(r.per.on.status)), `${JSON.stringify(r.per.off.status)} vs ${JSON.stringify(r.per.on.status)}`);
-  return { n: N, warm: WARM, rows, byClass };
+  for (const r of routes.filter((x) => x.cls === "rsc")) {
+    const st = (v: string) => samples.get(key(r, v))?.status ?? {};
+    ok(`latency ${r.label} — RSC payload answered 200 on both builds`, !!st("off")["200"] && !!st("on")["200"], JSON.stringify([st("off"), st("on")]));
+  }
+  return { n: N, warm: WARM, rows, byClass, rscPaths: Object.fromEntries(rscPath) };
 }
 
 // ───────────────────────────── 2 · load ─────────────────────────────
@@ -382,7 +398,7 @@ const titleOf = (html: string) => /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? "
 const wrapperAttrs = (html: string) => {
   const i = html.indexOf('id="main-content"');
   if (i < 0) return "no-wrapper";
-  const pinned = /<div(?=[^>]*lang="he")(?=[^>]*dir="rtl")[^>]*>/.test(html.slice(html.indexOf("<body"), i));
+  const pinned = /<div(?=[^>]*\blang="he")(?=[^>]*\bdir="rtl")[^>]*>/.test(html.slice(Math.max(0, html.indexOf("<body")), i));
   return pinned ? "he/rtl" : "null/null";
 };
 async function experiment() {
@@ -390,7 +406,7 @@ async function experiment() {
   const pages = ["/home", "/about", "/contact", "/privacy", "/terms", "/data-deletion", "/home-prototype"];
   const rows: any[] = [];
   for (const p of pages) {
-    const get = async (base: string, cookie?: string) => { const h = await hit(base, p, { cookie, keepBody: true }); return { status: h.status, cache: h.cache, html: htmlTag(h.html), title: titleOf(h.html), text: visibleText(h.html), wrapper: wrapperAttrs(h.html) }; };
+    const get = async (base: string, cookie?: string) => { const h = await hit(base, p, { cookie, keepBody: true }); if (p === "/about") writeFileSync(`${OUT}/html-about-${base.slice(-4)}-${(cookie ?? "nocookie").replace(/[=;]/g, "_")}.html`, h.html); return { status: h.status, cache: h.cache, html: htmlTag(h.html), title: titleOf(h.html), text: visibleText(h.html), wrapper: wrapperAttrs(h.html) }; };
     const off = await get(OFF);
     const v: Record<string, any> = { off, on: await get(ON), "on-he": await get(ON, "dz_locale=he"), "on-en": await get(ON, "dz_locale=en"), exp: await get(EXP), "exp-he": await get(EXP, "dz_locale=he"), "exp-en": await get(EXP, "dz_locale=en") };
     const same = (x: any) => x.status === off.status && x.html === off.html && x.title === off.title && x.text === off.text && x.wrapper === off.wrapper;
