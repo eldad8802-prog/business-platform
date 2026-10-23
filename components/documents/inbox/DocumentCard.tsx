@@ -2,45 +2,37 @@
 
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
-import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
-import { formatMoney } from "@/lib/ui/money";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
+import { categoryLabel } from "@/lib/documents/category-label";
 import ConfidenceDots from "./ConfidenceDots";
 
-function formatShortDate(iso: string | null | undefined) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("he-IL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function sourceLabel(source: string): string {
-  if (source === "email") return "מייל";
+function sourceLabel(t: Translator, source: string): string {
+  if (source === "email") return t("documents.common.sourceEmail");
   if (source === "whatsapp") return "WhatsApp";
-  return "העלאה";
+  return t("documents.common.sourceUpload");
 }
 
-function docKindLabel(item: InboxListItem): string {
+function docKindLabel(t: Translator, item: InboxListItem): string {
   if (item.preview.kind === "pdf") return "PDF";
-  if (item.preview.kind === "image") return "תמונה";
-  return "קובץ";
+  if (item.preview.kind === "image") return t("documents.common.kindImage");
+  return t("documents.common.kindFile");
 }
 
 export default function DocumentCard({ item }: { item: InboxListItem }) {
   const router = useRouter();
+  const { t, formatAmount, formatDate } = useI18n();
   const isPending = item.status === "needs_review";
   const vendor =
-    item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
+    item.financial?.vendorName ?? item.extracted?.vendorName ?? t("documents.common.notSpecified");
   const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
-  const amountLabel = formatMoney(amountRaw);
+  const amountLabel = formatAmount(amountRaw, "ILS");
   const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
+  const formattedDate = dateIso ? formatDate(dateIso, "date") : "";
   const categoryRaw = item.financial?.category ?? item.extracted?.category ?? null;
-  const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
-  const meta = [formatShortDate(dateIso), category, sourceLabel(item.source), docKindLabel(item)]
+  const category = categoryRaw ? categoryLabel(t, categoryRaw) : t("documents.common.general");
+  const meta = [formattedDate === "—" ? "" : formattedDate, category, sourceLabel(t, item.source), docKindLabel(t, item)]
     .filter(Boolean)
     .join(" · ");
 
@@ -48,7 +40,6 @@ export default function DocumentCard({ item }: { item: InboxListItem }) {
 
   return (
     <article
-      dir="rtl"
       role="button"
       tabIndex={0}
       onClick={goReview}
@@ -82,9 +73,11 @@ export default function DocumentCard({ item }: { item: InboxListItem }) {
       </div>
 
       <div style={statusWrapStyle}>
-        <span style={statusPillStyle}>{isPending ? "ממתין" : "אושר"}</span>
+        <span style={statusPillStyle}>
+          {isPending ? t("documents.inbox.statusPending") : t("documents.inbox.statusApproved")}
+        </span>
         <span style={arrowStyle} aria-hidden>
-          ‹
+          {t("documents.common.chevronForward")}
         </span>
       </div>
     </article>

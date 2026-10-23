@@ -17,6 +17,7 @@ import {
   WarmPill,
   warmInputStyle,
 } from "@/components/ui/warm/warm-primitives";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Payment-provider connection UI — descriptor-driven.
@@ -62,6 +63,7 @@ function getAuthToken(): string | null {
 }
 
 export function PaymentConnectionCard() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<PublicConnection[]>([]);
   const [catalogue, setCatalogue] = useState<ProviderCatalogEntryWire[]>([]);
@@ -179,7 +181,7 @@ export function PaymentConnectionCard() {
 
     const missing = missingRequiredFields(selected, values);
     if (missing.length > 0) {
-      setError(`יש להזין ${missing.map((f) => f.label).join(", ")}.`);
+      setError(t("account.settings.connections.payment.missingFields", { fields: missing.map((f) => f.label).join(", ") }));
       return;
     }
 
@@ -199,30 +201,30 @@ export function PaymentConnectionCard() {
         setError(
           data && typeof data.error === "string"
             ? data.error
-            : "לא הצלחנו לשמור את החיבור."
+            : t("account.settings.connections.payment.saveFailed")
         );
         return;
       }
       clearSecrets(selected);
-      setNotice(`${selected.label} מחובר.`);
+      setNotice(t("account.settings.connections.payment.savedNotice", { provider: selected.label }));
       await load();
     } catch {
-      setError("לא הצלחנו לשמור את החיבור.");
+      setError(t("account.settings.connections.payment.saveFailed"));
     } finally {
       setSubmitting(false);
     }
   }
 
   const submitLabel = submitting
-    ? "שומר…"
+    ? t("account.settings.connections.payment.submit.saving")
     : error
-      ? "התחבר מחדש"
+      ? t("account.settings.connections.payment.submit.retry")
       : anyConnected
-        ? "עדכן חיבור"
-        : "חבר ספק";
+        ? t("account.settings.connections.payment.submit.update")
+        : t("account.settings.connections.payment.submit.connect");
 
   return (
-    <WarmCard style={{ direction: "rtl" } as React.CSSProperties}>
+    <WarmCard>
       <div
         style={{
           display: "flex",
@@ -232,17 +234,16 @@ export function PaymentConnectionCard() {
         }}
       >
         <h2 style={{ fontSize: 15, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
-          גבייה
+          {t("account.settings.connections.payment.title")}
         </h2>
         {anyConnected ? (
-          <WarmPill tone="verified">מחובר</WarmPill>
+          <WarmPill tone="verified">{t("account.settings.connections.status.connected")}</WarmPill>
         ) : (
-          <WarmPill tone="waiting">לא מחובר</WarmPill>
+          <WarmPill tone="waiting">{t("account.settings.connections.status.disconnected")}</WarmPill>
         )}
       </div>
       <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.55, color: W.muted }}>
-        חיבור ספק סליקה חיצוני. דוביז אינה שומרת פרטי כרטיס — התשלום מתבצע אצל
-        הספק.
+        {t("account.settings.connections.payment.description")}
       </p>
 
       {error ? (
@@ -280,7 +281,7 @@ export function PaymentConnectionCard() {
       ) : null}
 
       {loading ? (
-        <p style={{ marginTop: 16, fontSize: 12, color: W.muted2 }}>טוען…</p>
+        <p style={{ marginTop: 16, fontSize: 12, color: W.muted2 }}>{t("common.loading")}</p>
       ) : (
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {anyConnected ? (
@@ -296,10 +297,10 @@ export function PaymentConnectionCard() {
                   }}
                 >
                   <div style={{ fontSize: 14, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
-                    {labelForProvider(c.provider)} מחובר
+                    {t("account.settings.connections.payment.providerConnected", { provider: labelForProvider(c.provider) })}
                   </div>
                   <div style={{ marginTop: 2, fontSize: 12, color: W.muted }}>
-                    מספר מסוף: {c.merchantId ?? "—"}
+                    {t("account.settings.connections.payment.terminal", { id: c.merchantId ?? "—" })}
                   </div>
                 </div>
               ))}
@@ -319,7 +320,7 @@ export function PaymentConnectionCard() {
                 color: W.muted,
               }}
             >
-              לא הצלחנו לטעון את רשימת ספקי הסליקה. רענן את הדף ונסה שוב.
+              {t("account.settings.connections.payment.catalogueFailed")}
             </div>
           ) : catalogue.length === 0 ? (
             <div
@@ -333,7 +334,7 @@ export function PaymentConnectionCard() {
                 color: W.muted,
               }}
             >
-              אין כרגע ספק סליקה זמין לחיבור.
+              {t("account.settings.connections.payment.noProviders")}
             </div>
           ) : (
             <div>
@@ -345,10 +346,10 @@ export function PaymentConnectionCard() {
                   marginBottom: 12,
                 }}
               >
-                {anyConnected ? "הוסף / עדכן חיבור" : "חבר ספק סליקה"}
+                {anyConnected ? t("account.settings.connections.payment.formTitleUpdate") : t("account.settings.connections.payment.formTitleConnect")}
               </div>
 
-              <WarmField label="ספק">
+              <WarmField label={t("account.settings.connections.payment.providerLabel")}>
                 <select
                   value={selectedKey ?? ""}
                   onChange={(e) => {
@@ -370,7 +371,7 @@ export function PaymentConnectionCard() {
                     <WarmField
                       key={field.key}
                       label={
-                        field.required ? field.label : `${field.label} (רשות)`
+                        field.required ? field.label : t("account.settings.connections.payment.optionalField", { label: field.label })
                       }
                     >
                       <input
@@ -388,7 +389,7 @@ export function PaymentConnectionCard() {
                         style={warmInputStyle()}
                         placeholder={
                           field.type === "secret"
-                            ? "לא יוצג לאחר השמירה"
+                            ? t("account.settings.connections.payment.secretPlaceholder")
                             : field.label
                         }
                       />

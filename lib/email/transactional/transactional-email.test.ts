@@ -303,7 +303,20 @@ async function main() {
       delete process.env.RESEND_API_KEY;
       const r5 = await route.POST(new NextRequest(url, { method: "POST", headers: { authorization: `Bearer ${"s".repeat(48)}` } }));
       ok("route: flag ON but unconfigured → 500 (the scheduler goes red)", r5.status === 500);
-      ok("route: no GET (the scheduler POSTs; nothing else may trigger it)", !("GET" in route));
+      // GET = Vercel Cron (vercel.json). Exactly the same authority as POST.
+      const g1 = await route.GET(new NextRequest(url));
+      ok("route: GET without a bearer → 401", g1.status === 401);
+      const g2 = await route.GET(new NextRequest(url, { headers: { authorization: `Bearer ${"t".repeat(48)}` } }));
+      ok("route: GET with a wrong bearer → 401", g2.status === 401);
+      process.env.TRANSACTIONAL_EMAIL_ENABLED = "false";
+      const g3 = await route.GET(new NextRequest(url, { headers: { authorization: `Bearer ${"s".repeat(48)}` } }));
+      const gb3 = await g3.json();
+      ok("route: GET authorised, flag OFF → 200 { enabled: false } (no database)", g3.status === 200 && gb3.report?.enabled === false);
+      delete process.env.CRON_SECRET;
+      const g4 = await route.GET(new NextRequest(url, { headers: { authorization: "Bearer x" } }));
+      ok("route: GET with no CRON_SECRET configured → 503, fails closed", g4.status === 503);
+      const vercel = JSON.parse(fs.readFileSync(path.join(process.cwd(), "vercel.json"), "utf8")) as { crons?: { path: string; schedule: string }[] };
+      ok("cron: vercel.json schedules the sweep every 10 minutes", (vercel.crons ?? []).some((c) => c.path === "/api/transactional-email/sweep" && c.schedule === "*/10 * * * *"));
     } finally {
       for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
       Object.assign(process.env, saved);
@@ -328,9 +341,10 @@ async function main() {
     ok("scope: only signup (WELCOME) and the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) enqueue — login, setup, refresh and every other flow do not",
       JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
     const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route",
+    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification, verification → deferred WELCOME) and from the sweep route",
       JSON.stringify(deliverers) === JSON.stringify([
         "app/api/auth/email/resend/route.ts",
+        "app/api/auth/email/verify/route.ts",
         "app/api/auth/password/forgot/route.ts",
         "app/api/auth/register/route.ts",
         "app/api/transactional-email/sweep/route.ts",

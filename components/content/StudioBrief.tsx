@@ -3,6 +3,9 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
+
 /**
  * Desktop context column for the content studio (shown from 1200 by
  * `content-desktop.css`).
@@ -14,7 +17,8 @@ import { usePathname } from "next/navigation";
  * not a step rail: the studio branches (camera or AI) and a rail would imply
  * one path. Read-only — changing an answer still happens on its own step.
  *
- * The labels mirror the option lists on each step's page. A page file may
+ * The labels mirror the option lists on each step's page (dictionary keys,
+ * resolved at render). A page file may
  * only export what Next allows, so they cannot be imported from there.
  */
 
@@ -28,49 +32,59 @@ type ContentFlow = {
   selectedFormat?: string;
 };
 
-const VIBE: Record<string, string> = {
-  professional_clean: "נקי ומקצועי",
-  warm_personal: "חם ואישי",
-  bold_energetic: "אנרגטי ודינמי",
-  premium_luxury: "פרמיום ויוקרתי",
+const VIBE: Record<string, MessageKey> = {
+  professional_clean: "content.studioFlow.options.vibe.professional_clean",
+  warm_personal: "content.studioFlow.options.vibe.warm_personal",
+  bold_energetic: "content.studioFlow.options.vibe.bold_energetic",
+  premium_luxury: "content.studioFlow.options.vibe.premium_luxury",
 };
 
-const GOAL: Record<string, string> = {
-  leads: "שישלחו הודעה",
-  exposure: "שיכירו אותי",
-  trust: "שיסמכו עליי",
-  sales: "שיקנו / יזמינו",
-  brand: "שיזכרו אותי",
+const GOAL: Record<string, MessageKey> = {
+  leads: "content.studioFlow.options.goal.leads",
+  exposure: "content.studioFlow.options.goal.exposure",
+  trust: "content.studioFlow.options.goal.trust",
+  sales: "content.studioFlow.options.goal.sales",
+  brand: "content.studioFlow.options.goal.brand",
 };
 
+// Brand names are not translated.
 const PLATFORM: Record<string, string> = {
   instagram: "Instagram",
   tiktok: "TikTok",
   facebook: "Facebook",
-  unknown: "עדיין לא ידוע",
 };
 
-const DIRECTION: Record<string, string> = {
-  authentic: "שיחה אמיתית",
-  attention: "פתיחה חזקה",
-  proof: "סיפור קצר",
-  differentiation: "משהו שונה",
-  direct: "ישיר ולעניין",
+const DIRECTION: Record<string, MessageKey> = {
+  authentic: "content.studioFlow.options.direction.authentic",
+  attention: "content.studioFlow.options.direction.attention",
+  proof: "content.studioFlow.options.direction.proof",
+  differentiation: "content.studioFlow.options.direction.differentiation",
+  direct: "content.studioFlow.options.direction.direct",
 };
 
-const FORMAT: Record<string, string> = {
-  reel: "רילס",
-  video: "וידאו",
-  image: "תמונה",
-  post: "פוסט",
+const FORMAT: Record<string, MessageKey> = {
+  reel: "content.studioFlow.options.format.reel",
+  video: "content.studioFlow.options.format.video",
+  image: "content.studioFlow.options.format.image",
+  post: "content.studioFlow.options.format.post",
 };
 
-const HOW_IT_WORKS = [
-  "בוחרים איך התוכן ירגיש ומה הוא צריך לעשות",
-  "בוחרים כיוון, ו-Dubiz כותב תסריט לעסק שלך",
-  "מצטלמים בעצמך, או ש-Dubiz מייצר בלי צילום",
-  "מקבלים סרטון מוכן לפרסום",
+const HOW_IT_WORKS: readonly MessageKey[] = [
+  "content.studioFlow.brief.steps.feel",
+  "content.studioFlow.brief.steps.direction",
+  "content.studioFlow.brief.steps.film",
+  "content.studioFlow.brief.steps.ready",
 ];
+
+function platformLabel(t: Translator, platform: string): string | undefined {
+  if (platform === "unknown") return t("content.studioFlow.options.platform.unknown");
+  return PLATFORM[platform];
+}
+
+function label(t: Translator, map: Record<string, MessageKey>, id: string | undefined): string | undefined {
+  const key = id ? map[id] : undefined;
+  return key ? t(key) : undefined;
+}
 
 // The raw string is the snapshot: equal strings compare equal, so an
 // unchanged flow never re-renders. `storage` covers another tab; within this
@@ -98,19 +112,25 @@ function parseFlow(raw: string | null): ContentFlow {
   }
 }
 
-function rowsFor(flow: ContentFlow): Array<{ label: string; value: string }> {
+function rowsFor(t: Translator, flow: ContentFlow): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string | undefined }> = [
-    { label: "תחושה", value: flow.vibe ? VIBE[flow.vibe] : undefined },
+    { label: t("content.studioFlow.brief.rows.vibe"), value: label(t, VIBE, flow.vibe) },
     {
-      label: "מול המצלמה",
-      value: typeof flow.canFilm === "boolean" ? (flow.canFilm ? "כן" : "עדיף לא") : undefined,
+      label: t("content.studioFlow.brief.rows.camera"),
+      value:
+        typeof flow.canFilm === "boolean"
+          ? t(flow.canFilm ? "content.studioFlow.brief.cameraYes" : "content.studioFlow.brief.cameraNo")
+          : undefined,
     },
-    { label: "מטרה", value: flow.primaryGoal ? GOAL[flow.primaryGoal] : undefined },
-    { label: "איפה יעלה", value: flow.selectedPlatform ? PLATFORM[flow.selectedPlatform] : undefined },
-    { label: "כיוון", value: flow.directionType ? DIRECTION[flow.directionType] : undefined },
-    { label: "פורמט", value: flow.selectedFormat ? FORMAT[flow.selectedFormat] : undefined },
+    { label: t("content.studioFlow.brief.rows.goal"), value: label(t, GOAL, flow.primaryGoal) },
     {
-      label: "על העסק",
+      label: t("content.studioFlow.brief.rows.platform"),
+      value: flow.selectedPlatform ? platformLabel(t, flow.selectedPlatform) : undefined,
+    },
+    { label: t("content.studioFlow.brief.rows.direction"), value: label(t, DIRECTION, flow.directionType) },
+    { label: t("content.studioFlow.brief.rows.format"), value: label(t, FORMAT, flow.selectedFormat) },
+    {
+      label: t("content.studioFlow.brief.rows.business"),
       value: typeof flow.creatorContext === "string" && flow.creatorContext.trim()
         ? flow.creatorContext.trim()
         : undefined,
@@ -130,16 +150,17 @@ const LEGACY_STEPS = new Set(["flow", "mode", "intent", "value", "style", "conte
 export function StudioBrief() {
   // Subscribing to the pathname makes every route change re-render the brief.
   const pathname = usePathname() ?? "";
+  const { t } = useI18n();
   const raw = useSyncExternalStore(subscribe, readRaw, () => null);
-  const rows = useMemo(() => rowsFor(parseFlow(raw)), [raw]);
+  const rows = useMemo(() => rowsFor(t, parseFlow(raw)), [t, raw]);
   if (LEGACY_STEPS.has(pathname.split("/")[2] ?? "")) return null;
 
   return (
-    <aside className="studio-brief" aria-label="התוכן שנבנה">
+    <aside className="studio-brief" aria-label={t("content.studioFlow.brief.aria")}>
       {rows.length > 0 ? (
         <>
-          <h2>התוכן שנבנה</h2>
-          <p>מה שבחרת עד עכשיו. כל בחירה משתנה בשלב שלה.</p>
+          <h2>{t("content.studioFlow.brief.title")}</h2>
+          <p>{t("content.studioFlow.brief.subtitle")}</p>
           <dl>
             {rows.map((row) => (
               <div key={row.label}>
@@ -151,11 +172,11 @@ export function StudioBrief() {
         </>
       ) : (
         <>
-          <h2>איך זה עובד</h2>
-          <p>כמה בחירות קצרות, ובסוף סרטון מוכן. הבחירות יופיעו כאן בזמן שבונים.</p>
+          <h2>{t("content.studioFlow.brief.emptyTitle")}</h2>
+          <p>{t("content.studioFlow.brief.emptySubtitle")}</p>
           <ol>
             {HOW_IT_WORKS.map((step) => (
-              <li key={step}>{step}</li>
+              <li key={step}>{t(step)}</li>
             ))}
           </ol>
         </>

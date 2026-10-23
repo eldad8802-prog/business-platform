@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import {
   getInventoryCategories,
@@ -164,6 +165,7 @@ export function useOrderWizard() {
 
 export function OrderWizardProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [items, setItems] = useState<OrderWizardItem[]>([]);
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [suggestions, setSuggestions] = useState<ReorderSuggestion[]>([]);
@@ -226,8 +228,8 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     );
     setCategoryId(draft.categoryId || "");
     setError(null);
-    setSuccess("המשכנו את ההזמנה שנשמרה מקומית.");
-  }, []);
+    setSuccess(t("customers.purchases.wizard.draftRestored"));
+  }, [t]);
 
   const load = useCallback(async () => {
     try {
@@ -298,7 +300,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
           setOrder(defaults);
           const count = Object.keys(defaults).length;
           setRecommendationsBanner(
-            `הוספנו ${count} פריטים מומלצים לפי מצב המלאי. אפשר לערוך לפני ההמשך.`
+            t("customers.purchases.wizard.recommendationsBanner", { count })
           );
         } else {
           setOrder({});
@@ -308,15 +310,15 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     } catch (err: unknown) {
       const message =
         err instanceof Error && err.message === "UNAUTHORIZED"
-          ? "אין הרשאה. התחברו מחדש ונסו שוב."
+          ? t("customers.purchases.wizard.unauthorized")
           : err instanceof Error
             ? err.message
-            : "שגיאה בטעינת יצירת ההזמנה";
+            : t("customers.purchases.wizard.loadError");
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -479,13 +481,13 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
 
   const getCategoryName = useCallback(
     (item: OrderWizardItem) => {
-      if (!item.categoryId) return "ללא קטגוריה";
+      if (!item.categoryId) return t("customers.purchases.wizard.noCategory");
       return (
         categories.find((c) => c.id === item.categoryId)?.name ||
-        "ללא קטגוריה"
+        t("customers.purchases.wizard.noCategory")
       );
     },
-    [categories]
+    [categories, t]
   );
 
   const isSuggested = useCallback(
@@ -535,21 +537,21 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       [item.id]: Number(prev[item.id] || 0) + 1,
     }));
     setError(null);
-    setSuccess(`${item.name} נוסף לעגלה`);
-  }, []);
+    setSuccess(t("customers.purchases.wizard.addedToCart", { name: item.name }));
+  }, [t]);
 
   const clearOrder = useCallback(() => {
     setOrder({});
     setUnitCosts({});
     setError(null);
-    setSuccess("העגלה נוקתה");
-  }, []);
+    setSuccess(t("customers.purchases.wizard.cartCleared"));
+  }, [t]);
 
   const applyRecommendations = useCallback(() => {
     setOrder(defaultRecommendations);
-    setSuccess("המלצות המערכת הוחלו על ההזמנה");
+    setSuccess(t("customers.purchases.wizard.recommendationsApplied"));
     setError(null);
-  }, [defaultRecommendations]);
+  }, [defaultRecommendations, t]);
 
   const createOrder = useCallback(async () => {
     try {
@@ -567,7 +569,9 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
             const parsed = Number(unitCostRaw);
             if (!Number.isFinite(parsed) || parsed < 0) {
               throw new Error(
-                `עלות ליחידה לא תקינה עבור ${item?.name || "מוצר"}`
+                t("customers.purchases.wizard.invalidUnitCost", {
+                  name: item?.name || t("customers.purchases.wizard.productFallback"),
+                })
               );
             }
             unitCost = parsed;
@@ -583,7 +587,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
           };
         });
 
-      if (lines.length === 0) throw new Error("אין מוצרים להזמנה");
+      if (lines.length === 0) throw new Error(t("customers.purchases.wizard.noProducts"));
 
       const response = await fetch("/api/inventory/supplier-purchases", {
         method: "POST",
@@ -602,7 +606,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       try {
         payload = await response.json();
       } catch {
-        throw new Error("לא התקבלה תגובה תקינה מהשרת.");
+        throw new Error(t("customers.purchases.wizard.invalidServerResponse"));
       }
 
       if (!response.ok) {
@@ -612,7 +616,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
           "error" in payload &&
           typeof (payload as { error?: unknown }).error === "string"
             ? (payload as { error: string }).error
-            : "לא הצלחנו ליצור הזמנה";
+            : t("customers.purchases.wizard.createFailed");
         throw new Error(msg);
       }
 
@@ -627,15 +631,13 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      throw new Error(
-        "ההזמנה נוצרה אך לא התקבל מזהה מהשרת. רעננו את העמוד או נסו שוב."
-      );
+      throw new Error(t("customers.purchases.wizard.createdNoId"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה ביצירת הזמנה");
+      setError(err instanceof Error ? err.message : t("customers.purchases.wizard.createError"));
     } finally {
       setActionLoading(false);
     }
-  }, [order, unitCosts, items, supplierId, supplierName, clearLocalDraft, router]);
+  }, [order, unitCosts, items, supplierId, supplierName, clearLocalDraft, router, t]);
 
   const confirmExitAndGoBack = useCallback(() => {
     persistDraft();

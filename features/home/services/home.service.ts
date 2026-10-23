@@ -1,6 +1,8 @@
 import { getBusinessSignals } from "@/features/signals/services/business-signals.service";
 import { leadService } from "@/lib/services/crm/lead.service";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import { HomeResponse } from "../types/home.types";
 import { getHomeHeroAction } from "./home-decision.service";
 import { getHomeQuickActions } from "./home-shortcuts.service";
@@ -9,12 +11,17 @@ type GetHomeDataInput = {
   businessName: string;
   businessId: number;
   ownerName?: string;
+  /** Interface-language translator (the route passes getServerI18n's). Default: Hebrew. */
+  t?: Translator;
 };
+
+const HE_T: Translator = createTranslator(he);
 
 export async function getHomeData(
   input: GetHomeDataInput
 ): Promise<HomeResponse> {
   const { businessName, businessId, ownerName } = input;
+  const t = input.t ?? HE_T;
 
   const [signals, leadsNeedingAttention] = await Promise.all([
     getBusinessSignals({ businessId }),
@@ -44,16 +51,16 @@ export async function getHomeData(
       signals.hasOffers ||
       signals.hasPricingProfiles,
     hasUnusedOffers: signals.hasOffers,
-  });
+  }, t);
 
-  const quickActions = getHomeQuickActions();
+  const quickActions = getHomeQuickActions(t);
 
   return {
     heroAction,
     quickActions,
     businessSnapshot: {
       businessName,
-      greeting: `שלום ${businessName}`,
+      greeting: t("insights.home.greeting", { name: businessName }),
       ownerName: ownerName?.trim() || undefined,
     },
     leadsAttention: {

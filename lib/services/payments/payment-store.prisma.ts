@@ -8,6 +8,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { BASE_CURRENCY, currencyOrBase, orderCurrencies } from "@/lib/money/currency-split";
 import { computeOutstanding } from "@/lib/services/billing/collection/awaiting-payment.rules";
 import {
   authoritativeAllocationWhere,
@@ -754,14 +755,26 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async sumPaidBetween(businessId, from, to) {
-      const agg = await dbStep((db) => db.paymentRequest.aggregate({
+      // One read, grouped by currency: the ILS group is the figure (the same Decimal the single
+      // aggregate returned for an all-ILS business); other currencies are reported, never added.
+      const groups = await dbStep((db) => db.paymentRequest.groupBy({
+        by: ["currency"],
         where: { businessId, status: "PAID", paidAt: { gte: from, lt: to } },
         _sum: { amount: true },
         _count: { _all: true },
       }));
+      const headline = groups.find((g) => currencyOrBase(g.currency) === BASE_CURRENCY);
       return {
-        amount: (agg._sum.amount ?? new Prisma.Decimal(0)).toString(),
-        count: agg._count._all,
+        amount: (headline?._sum.amount ?? new Prisma.Decimal(0)).toString(),
+        count: groups.reduce((n, g) => n + g._count._all, 0),
+        byCurrency: orderCurrencies(groups.map((g) => currencyOrBase(g.currency)), BASE_CURRENCY).map((currency) => {
+          const g = groups.find((x) => currencyOrBase(x.currency) === currency)!;
+          return {
+            currency,
+            amount: (g._sum.amount ?? new Prisma.Decimal(0)).toString(),
+            count: g._count._all,
+          };
+        }),
       };
     },
 

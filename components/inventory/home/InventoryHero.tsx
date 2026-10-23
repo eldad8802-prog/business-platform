@@ -1,4 +1,5 @@
 import { formatStockValue } from "@/components/inventory/home/home-logic";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Teal hero — on-hand stock value + active product count.
@@ -18,17 +19,18 @@ export function InventoryHero({
   activeCount: number;
   empty?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <section className="inv-hm-hero inv-hm-rise" style={{ animationDelay: "0.06s" }}>
       <div className="inv-hm-hero-top">
-        <span className="inv-hm-hero-lbl">שווי מלאי</span>
+        <span className="inv-hm-hero-lbl">{t("customers.inventoryKit.home.stockValue")}</span>
       </div>
       <div className="inv-hm-hero-big">
         <span className="inv-hm-hero-cur">₪</span>
         <bdi>{formatStockValue(stockValue)}</bdi>
       </div>
       <div className="inv-hm-hero-foot">
-        {empty ? "עוד אין מוצרים" : `${activeCount} מוצרים פעילים`}
+        {empty ? t("customers.inventoryKit.home.noProductsYet") : t(activeCount === 1 ? "customers.inventoryKit.home.activeOne" : "customers.inventoryKit.home.activeMany", { count: activeCount })}
       </div>
     </section>
   );

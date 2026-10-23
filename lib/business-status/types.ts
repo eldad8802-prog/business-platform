@@ -77,6 +77,11 @@ export type BusinessStatusItem = {
   moneyImpactBand?: MoneyImpactBand;
   /** Inline actions. Absent for every domain that has none. */
   quickActions?: QuickAction[];
+  /**
+   * Inventory items only: the alert type behind the title. A stable, language-independent kind, so a
+   * surface can tell "critical / low stock" apart without reading the (translated) title.
+   */
+  inventoryAlertType?: "LOW_STOCK" | "CRITICAL_STOCK" | "UNMATCHED_POS_PRODUCT" | "SUSPICIOUS_CORRECTION";
 };
 
 /** Single proof-of-understanding insight (paperwork backlog). Optional on snapshot. */

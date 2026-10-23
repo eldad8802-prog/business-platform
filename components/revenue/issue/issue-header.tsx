@@ -1,4 +1,9 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 export default function IssueHeader() {
+  const { t } = useI18n();
   return (
     <div style={{ marginBottom: 24 }}>
       <div
@@ -20,7 +25,7 @@ export default function IssueHeader() {
           color: "var(--dz-text-primary)",
         }}
       >
-        הוצאת קופון
+        {t("billing.couponIssue.title")}
       </h1>
 
       <p
@@ -32,7 +37,7 @@ export default function IssueHeader() {
           color: "var(--dz-text-secondary)",
         }}
       >
-   בחר הצעה והנפק קופון ממוקד לשימוש בתנאים ברורים.
+        {t("billing.couponIssue.subtitle")}
       </p>
     </div>
   );

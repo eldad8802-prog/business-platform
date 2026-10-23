@@ -9,6 +9,12 @@
  */
 
 import type { SupplierPurchaseOrderItem } from "@/lib/api/suppliers";
+import { intlTag, type Locale } from "@/lib/i18n/config";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
+
+/** Hebrew translator — the default, so existing callers and tests keep their exact Hebrew output. */
+const HE_T: Translator = createTranslator(he);
 
 export type StatusBadge = { label: string; className: string };
 
@@ -17,26 +23,27 @@ export type StatusBadge = { label: string; className: string };
  * labels in app/(shell)/inventory/supplier-purchases/page.tsx (single source of
  * truth for the wording); rendered with the supplier card's crm-badge tones.
  */
-const STATUS_BADGE: Record<string, StatusBadge> = {
-  DRAFT: { label: "טיוטה", className: "crm-badge" },
-  CONFIRMED: { label: "מאושרת", className: "crm-badge crm-badge--info" },
-  SENT: { label: "נשלחה", className: "crm-badge crm-badge--info" },
-  AWAITING_DELIVERY: { label: "בהמתנה לאספקה", className: "crm-badge crm-badge--warning" },
-  CLOSED: { label: "נסגרה", className: "crm-badge crm-badge--success" },
-  CANCELLED: { label: "בוטלה", className: "crm-badge" },
+const STATUS_BADGE: Record<string, { labelKey: MessageKey; className: string }> = {
+  DRAFT: { labelKey: "customers.suppliers.history.status.DRAFT", className: "crm-badge" },
+  CONFIRMED: { labelKey: "customers.suppliers.history.status.CONFIRMED", className: "crm-badge crm-badge--info" },
+  SENT: { labelKey: "customers.suppliers.history.status.SENT", className: "crm-badge crm-badge--info" },
+  AWAITING_DELIVERY: { labelKey: "customers.suppliers.history.status.AWAITING_DELIVERY", className: "crm-badge crm-badge--warning" },
+  CLOSED: { labelKey: "customers.suppliers.history.status.CLOSED", className: "crm-badge crm-badge--success" },
+  CANCELLED: { labelKey: "customers.suppliers.history.status.CANCELLED", className: "crm-badge" },
 };
 
 /** Never invents a status: unknown values fall back to the raw string, neutral tone. */
-export function statusBadge(status: string): StatusBadge {
-  return STATUS_BADGE[status] ?? { label: status, className: "crm-badge" };
+export function statusBadge(status: string, t: Translator = HE_T): StatusBadge {
+  const entry = STATUS_BADGE[status];
+  return entry ? { label: t(entry.labelKey), className: entry.className } : { label: status, className: "crm-badge" };
 }
 
 /** Israeli/Hebrew date, consistent with the supplier and customer cards. */
-export function formatPurchaseDate(iso: string | null): string | null {
+export function formatPurchaseDate(iso: string | null, locale: Locale = "he"): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("he-IL", {
+  return new Intl.DateTimeFormat(intlTag(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -44,10 +51,10 @@ export function formatPurchaseDate(iso: string | null): string | null {
 }
 
 /** Human line/item count. 0 or invalid → calm fallback, never a broken "0 פריטים". */
-export function formatLineCount(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "ללא פריטים";
-  if (n === 1) return "פריט אחד";
-  return `${n} פריטים`;
+export function formatLineCount(n: number, t: Translator = HE_T): string {
+  if (!Number.isFinite(n) || n <= 0) return t("customers.suppliers.history.linesNone");
+  if (n === 1) return t("customers.suppliers.history.linesOne");
+  return t("customers.suppliers.history.linesMany", { count: n });
 }
 
 /**
@@ -74,9 +81,9 @@ export function mergePurchaseOrderItems(
  * caller can omit the line entirely rather than print ₪0 — an order with no
  * recorded costs has an UNKNOWN total, which is not the same as a zero one.
  */
-export function formatSupplierMoney(value: number | null | undefined): string | null {
+export function formatSupplierMoney(value: number | null | undefined, locale: Locale = "he"): string | null {
   if (value == null || !Number.isFinite(value) || value <= 0) return null;
-  return `₪${Math.round(value).toLocaleString("he-IL")}`;
+  return `₪${Math.round(value).toLocaleString(intlTag(locale))}`;
 }
 
 /**
@@ -85,12 +92,13 @@ export function formatSupplierMoney(value: number | null | undefined): string | 
  */
 export function costCoverageNote(
   linesWithoutCost: number,
-  totalLineCount: number
+  totalLineCount: number,
+  t: Translator = HE_T
 ): string | null {
   if (totalLineCount <= 0 || linesWithoutCost <= 0) return null;
-  if (linesWithoutCost >= totalLineCount) return "לא נרשמו עלויות בהזמנות";
+  if (linesWithoutCost >= totalLineCount) return t("customers.suppliers.history.coverageNone");
   const withCost = totalLineCount - linesWithoutCost;
-  return `מבוסס על ${withCost} מתוך ${totalLineCount} שורות שנרשמה בהן עלות`;
+  return t("customers.suppliers.history.coveragePartial", { withCost, total: totalLineCount });
 }
 
 /**
@@ -112,6 +120,13 @@ export const PRICE_TREND_LABEL: Record<"UP" | "DOWN" | "SAME", string> = {
   UP: "המחיר עלה",
   DOWN: "המחיר ירד",
   SAME: "המחיר לא השתנה",
+};
+
+/** The same labels as `PRICE_TREND_LABEL`, as dictionary keys (resolve with `t()`). */
+export const PRICE_TREND_LABEL_KEY: Record<"UP" | "DOWN" | "SAME", MessageKey> = {
+  UP: "customers.suppliers.history.trendUp",
+  DOWN: "customers.suppliers.history.trendDown",
+  SAME: "customers.suppliers.history.trendSame",
 };
 
 /** The "טען עוד" button is enabled only when there is a next page and no fetch in flight. */

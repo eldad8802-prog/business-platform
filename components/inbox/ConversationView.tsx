@@ -3,6 +3,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { createLeadFromConversation } from "@/lib/api/leads";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
@@ -40,25 +42,22 @@ type SmartIndicator = {
   border: string;
 };
 
-function resolveTitle(item: InboxItemViewModel | null): string {
-  return resolveConversationDisplayTitle(item);
+function resolveTitle(item: InboxItemViewModel | null, t: Translator): string {
+  return resolveConversationDisplayTitle(item, t);
 }
 
-function formatMessageTime(value: string): string {
+function formatMessageTime(value: string, formatTime: (date: Date) => string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("he-IL", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTime(date);
 }
 
 /** Chip shows the start of the message the owner will send — not a generic label. */
-function compactSuggestionLabel(suggestion: Suggestion): string {
-  if (suggestion.suggestionType === "STARTER_BOT_DRAFT") return "טיוטת פתיחה";
+function compactSuggestionLabel(suggestion: Suggestion, t: Translator): string {
+  if (suggestion.suggestionType === "STARTER_BOT_DRAFT") return t("inbox.view.starterDraft");
 
   const text = suggestion.text.trim();
-  if (!text) return "הצעה";
+  if (!text) return t("inbox.view.suggestion");
 
   const max = 44;
   if (text.length <= max) return text;
@@ -69,6 +68,10 @@ function compactSuggestionLabel(suggestion: Suggestion): string {
   return `${cut}…`;
 }
 
+/**
+ * Ready-made sentences dropped into the composer and SENT TO THE CUSTOMER — outbound message
+ * content, so they are intentionally not interface strings (not translated with the UI).
+ */
 function quickReplyText(kind: "product_link" | "ask_details" | "follow_up"): string {
   if (kind === "product_link") {
     return "שולח קישור עם הפרטים. צריך עזרה בבחירה?";
@@ -121,23 +124,27 @@ function textForBusinessAction(
   return byId[actionId] ?? quickReplyText("ask_details");
 }
 
-function labelForBusinessAction(actionId: string): { label: string; icon: string } {
-  const byId: Record<string, { label: string; icon: string }> = {
-    SHOW_PRODUCT_LINK: { label: "שלח קישור למוצר", icon: "↗" },
-    CREATE_FOLLOW_UP: { label: "מעקב קצר", icon: "↺" },
-    HANDOFF_TO_OWNER: { label: "קח טיפול", icon: "!" },
-    SAVE_DOCUMENT_FROM_CHAT: { label: "שמור קובץ", icon: "□" },
-    CREATE_LEAD: { label: "ברר צורך", icon: "?" },
-    MARK_QUOTE_SENT: { label: "שלח הצעת מחיר", icon: "₪" },
-    CREATE_INVOICE_DRAFT: { label: "הכן תשלום", icon: "₪" },
-    CHECK_PRODUCT_AVAILABILITY: { label: "בדוק זמינות", icon: "✓" },
-    BOOK_APPOINTMENT: { label: "תאם זמן", icon: "◷" },
-  };
-  return byId[actionId] ?? { label: "פעולה מומלצת", icon: "•" };
+const BUSINESS_ACTION_ICON: Record<string, string> = {
+  SHOW_PRODUCT_LINK: "↗",
+  CREATE_FOLLOW_UP: "↺",
+  HANDOFF_TO_OWNER: "!",
+  SAVE_DOCUMENT_FROM_CHAT: "□",
+  CREATE_LEAD: "?",
+  MARK_QUOTE_SENT: "₪",
+  CREATE_INVOICE_DRAFT: "₪",
+  CHECK_PRODUCT_AVAILABILITY: "✓",
+  BOOK_APPOINTMENT: "◷",
+};
+
+function labelForBusinessAction(actionId: string, t: Translator): { label: string; icon: string } {
+  const icon = BUSINESS_ACTION_ICON[actionId];
+  if (!icon) return { label: t("inbox.view.actions.fallback"), icon: "•" };
+  return { label: t(`inbox.view.actions.${actionId}` as MessageKey), icon };
 }
 
 function fallbackQuickActions(
   item: InboxItemViewModel | null,
+  t: Translator,
   opts?: { skipProductLink?: boolean }
 ): QuickActionChip[] {
   const situation = item?.businessSituation?.kind;
@@ -145,7 +152,7 @@ function fallbackQuickActions(
     return [
       {
         key: "follow_up_quote",
-        label: "מעקב להצעה",
+        label: t("inbox.view.chips.followUpQuote"),
         icon: "↺",
         tone: "primary",
         text: "רק מוודא שההצעה ברורה ואם יש משהו שתרצה שאחדד.",
@@ -159,7 +166,7 @@ function fallbackQuickActions(
     const chips: QuickActionChip[] = [
       {
         key: "ask_details",
-        label: "בקש עוד פרט",
+        label: t("inbox.view.chips.askDetails"),
         icon: "?",
         tone: "default",
         text: quickReplyText("ask_details"),
@@ -168,7 +175,7 @@ function fallbackQuickActions(
     if (!opts?.skipProductLink) {
       chips.push({
         key: "product_link",
-        label: "שלח קישור למוצר",
+        label: t("inbox.view.chips.productLink"),
         icon: "↗",
         tone: "default",
         text: quickReplyText("product_link"),
@@ -179,7 +186,7 @@ function fallbackQuickActions(
   return [
     {
       key: "follow_up",
-      label: "מעקב קצר",
+      label: t("inbox.view.chips.followUp"),
       icon: "↺",
       tone: "default",
       text: quickReplyText("follow_up"),
@@ -189,12 +196,13 @@ function fallbackQuickActions(
 
 function buildQuickActionChips(
   item: InboxItemViewModel | null,
+  t: Translator,
   productLinkPrefill?: { intro: string | null; url: string } | null
 ): QuickActionChip[] {
   const hasCatalogLink = !!productLinkPrefill?.url;
   const fromBusinessActions =
     item?.suggestedBusinessActions?.map((action) => {
-      const meta = labelForBusinessAction(action.id);
+      const meta = labelForBusinessAction(action.id, t);
       return {
         key: action.id,
         label: meta.label,
@@ -204,12 +212,12 @@ function buildQuickActionChips(
       } satisfies QuickActionChip;
     }) ?? [];
 
-  const fallback = fallbackQuickActions(item, {
+  const fallback = fallbackQuickActions(item, t, {
     skipProductLink: hasCatalogLink,
   });
   const doneAction: QuickActionChip = {
     key: "mark_done",
-    label: "סיים שיחה",
+    label: t("inbox.view.chips.markDone"),
     icon: "✓",
     tone: "success",
     closesConversation: true,
@@ -251,52 +259,53 @@ function avatarAccentColor(item: InboxItemViewModel | null): string {
 /** Single ambient whisper — presentation only, no logic changes. */
 function whisperLineForItem(
   item: InboxItemViewModel | null,
-  viewMode: "OPEN" | "CLOSED"
+  viewMode: "OPEN" | "CLOSED",
+  t: Translator
 ): string | null {
-  if (viewMode === "CLOSED") return "השיחה נסגרה";
+  if (viewMode === "CLOSED") return t("inbox.view.whisper.closed");
 
   if (!item) return null;
 
   if (item.humanTakeoverActive) {
-    return "אתה מטפל מכאן";
+    return t("inbox.view.whisper.takeover");
   }
 
   if (item.botFlowStatus === "IN_PROGRESS") {
-    return "טיוטה מוכנה לשליחה";
+    return t("inbox.view.whisper.draftReady");
   }
 
   if (item.botFlowStatus === "HANDOFF") {
-    return "מחכה לך";
+    return t("inbox.view.whisper.waitingForYou");
   }
 
   if (item.botFlowStatus === "COMPLETED") {
-    return "סיום פתיחה — מחכה לך";
+    return t("inbox.view.whisper.starterDone");
   }
 
   const kind = item.businessSituation?.kind;
   if (!kind) {
-    return item.needsHumanAttention ? "ממתינה לתשובה שלך" : null;
+    return item.needsHumanAttention ? t("inbox.view.whisper.awaitingYourReply") : null;
   }
 
-  const byKind: Partial<Record<string, string>> = {
-    CUSTOMER_WAITING: "ממתינה לתשובה שלך",
-    DRAFT_READY: "טיוטה מוכנה לשליחה",
-    BOT_HANDOFF: "מחכה לך",
-    BOT_COLLECTING: "טיוטה מוכנה לשליחה",
-    QUOTE_WAITING: "ממתין לתשובה על ההצעה",
-    FOLLOW_UP_DUE: "כדאי לחזור ללקוח",
-    WAITING_ON_CUSTOMER: "ממתין לתשובת הלקוח",
-    HOT_OPPORTUNITY: "הזדמנות חמה",
-    NEW_LEAD: "פנייה חדשה",
-    CLOSED: "השיחה נסגרה",
+  const byKind: Partial<Record<string, MessageKey>> = {
+    CUSTOMER_WAITING: "inbox.view.whisper.awaitingYourReply",
+    DRAFT_READY: "inbox.view.whisper.draftReady",
+    BOT_HANDOFF: "inbox.view.whisper.waitingForYou",
+    BOT_COLLECTING: "inbox.view.whisper.draftReady",
+    QUOTE_WAITING: "inbox.view.whisper.quoteWaiting",
+    FOLLOW_UP_DUE: "inbox.view.whisper.followUpDue",
+    WAITING_ON_CUSTOMER: "inbox.view.whisper.waitingOnCustomer",
+    HOT_OPPORTUNITY: "inbox.view.whisper.hotOpportunity",
+    NEW_LEAD: "inbox.view.whisper.newLead",
+    CLOSED: "inbox.view.whisper.closed",
   };
 
   if (kind === "ACTIVE") {
-    return item.needsHumanAttention ? "ממתינה לתשובה שלך" : null;
+    return item.needsHumanAttention ? t("inbox.view.whisper.awaitingYourReply") : null;
   }
 
   const mapped = byKind[kind];
-  if (mapped) return mapped;
+  if (mapped) return t(mapped);
   return item.businessSituation?.shortLabel ?? null;
 }
 
@@ -314,7 +323,8 @@ type ReplyOption =
 function buildReplyOptions(
   suggestions: Suggestion[],
   quickActionChips: QuickActionChip[],
-  activeItem: InboxItemViewModel | null
+  activeItem: InboxItemViewModel | null,
+  t: Translator
 ): ReplyOption[] {
   const generated = suggestions.filter((s) => s.status === "GENERATED");
 
@@ -331,7 +341,7 @@ function buildReplyOptions(
     options.push({
       kind: "suggestion",
       key: `suggestion-${s.id}`,
-      label: compactSuggestionLabel(s),
+      label: compactSuggestionLabel(s, t),
       suggestion: s,
     });
   });
@@ -340,7 +350,7 @@ function buildReplyOptions(
     options.push({
       kind: "suggestion",
       key: `suggestion-${s.id}`,
-      label: compactSuggestionLabel(s),
+      label: compactSuggestionLabel(s, t),
       suggestion: s,
     });
   });
@@ -388,7 +398,7 @@ function buildReplyOptions(
     options.unshift({
       kind: "domain",
       key: "CREATE_LEAD",
-      label: "צור ליד",
+      label: t("inbox.view.chips.createLead"),
       action: "create_lead",
     });
   }
@@ -451,6 +461,7 @@ export function ConversationView(props: {
   };
 }) {
   const router = useRouter();
+  const { t, formatDate } = useI18n();
   // "צור ליד" is handled here rather than plumbed down from the inbox page:
   // everything it needs is already in this component, and the inbox page has no
   // business knowing about the Leads domain.
@@ -483,10 +494,10 @@ export function ConversationView(props: {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const hasDraft = input.trim().length > 0;
-  const headerTitle = resolveTitle(activeItem);
-  const whisperLine = whisperLineForItem(activeItem, viewMode);
+  const headerTitle = resolveTitle(activeItem, t);
+  const whisperLine = whisperLineForItem(activeItem, viewMode, t);
   const accentColor = avatarAccentColor(activeItem);
-  const quickActionChips = buildQuickActionChips(activeItem, productLinkPrefill);
+  const quickActionChips = buildQuickActionChips(activeItem, t, productLinkPrefill);
 
   /**
    * Create (or adopt) the lead behind this conversation, then open it.
@@ -510,7 +521,7 @@ export function ConversationView(props: {
         return;
       }
       setLeadNotice(
-        err instanceof Error ? err.message : "לא הצלחנו ליצור ליד מהשיחה"
+        err instanceof Error ? err.message : t("inbox.view.createLeadFailed")
       );
     } finally {
       setLeadBusy(false);
@@ -519,7 +530,8 @@ export function ConversationView(props: {
   const replyOptions = buildReplyOptions(
     suggestions,
     quickActionChips,
-    activeItem
+    activeItem,
+    t
   );
 
   useEffect(() => {
@@ -586,9 +598,9 @@ export function ConversationView(props: {
             padding: 24,
           }}
         >
-          <h2 style={{ marginTop: 0, color: "var(--dz-text-primary)", fontSize: 18 }}>בחר שיחה</h2>
+          <h2 style={{ marginTop: 0, color: "var(--dz-text-primary)", fontSize: 18 }}>{t("inbox.view.pickTitle")}</h2>
           <div style={{ color: "var(--dz-text-muted)", lineHeight: 1.6, fontSize: 14 }}>
-            בחר שיחה מהרשימה כדי להמשיך את השיחה עם הלקוח.
+            {t("inbox.view.pickBody")}
           </div>
         </div>
       )}
@@ -610,7 +622,7 @@ export function ConversationView(props: {
           >
             {onBack ? (
               <span className="cv-mobile-only">
-                <BackButton onClick={onBack} label="חזרה לשיחות" />
+                <BackButton onClick={onBack} label={t("inbox.view.backToConversations")} />
               </span>
             ) : null}
 
@@ -638,7 +650,7 @@ export function ConversationView(props: {
                   style={{
                     position: "absolute",
                     bottom: 0,
-                    left: 0,
+                    insetInlineEnd: 0,
                     width: 10,
                     height: 10,
                     borderRadius: 999,
@@ -684,7 +696,7 @@ export function ConversationView(props: {
               <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
                 <button
                   type="button"
-                  aria-label="אפשרויות"
+                  aria-label={t("inbox.view.options")}
                   aria-expanded={menuOpen}
                   onClick={() => setMenuOpen((open) => !open)}
                   style={{
@@ -708,7 +720,7 @@ export function ConversationView(props: {
                     style={{
                       position: "absolute",
                       top: "100%",
-                      left: 0,
+                      insetInlineEnd: 0,
                       marginTop: 4,
                       minWidth: 168,
                       background: "var(--dz-surface)",
@@ -738,10 +750,10 @@ export function ConversationView(props: {
                           padding: "10px 12px",
                           borderRadius: 8,
                           cursor: takeOverBusy ? "wait" : "pointer",
-                          textAlign: "right",
+                          textAlign: "start",
                         }}
                       >
-                        אני מטפל מכאן
+                        {t("inbox.view.takeOver")}
                       </button>
                     ) : null}
                     <button
@@ -761,10 +773,10 @@ export function ConversationView(props: {
                         padding: "10px 12px",
                         borderRadius: 8,
                         cursor: "pointer",
-                        textAlign: "right",
+                        textAlign: "start",
                       }}
                     >
-                      סיים שיחה
+                      {t("inbox.view.endConversation")}
                     </button>
                   </div>
                 ) : null}
@@ -787,7 +799,7 @@ export function ConversationView(props: {
               }}
             >
               <span style={{ fontSize: 12, color: "var(--dz-text-muted)", lineHeight: 1.4 }}>
-                אפשר לקחת שליטה בכל רגע
+                {t("inbox.view.takeOverHint")}
               </span>
               <button
                 type="button"
@@ -806,7 +818,7 @@ export function ConversationView(props: {
                   fontFamily: "inherit",
                 }}
               >
-                אני מטפל מכאן
+                {t("inbox.view.takeOver")}
               </button>
             </div>
           ) : null}
@@ -838,7 +850,7 @@ export function ConversationView(props: {
                     padding: "24px 8px",
                   }}
                 >
-                  אין הודעות עדיין
+                  {t("inbox.view.noMessages")}
                 </div>
               )}
 
@@ -858,9 +870,12 @@ export function ConversationView(props: {
                       style={{
                         maxWidth: "var(--cv-bubble-maxw)",
                         padding: isBusiness ? "8px 12px 6px" : "8px 12px 6px",
-                        borderRadius: isBusiness
-                          ? "14px 14px 4px 14px"
-                          : "14px 14px 14px 4px",
+                        // Logical corners: the tail sits on the bubble's own side (own = inline-start,
+                        // customer = inline-end), so both languages mirror consistently.
+                        borderStartStartRadius: 14,
+                        borderStartEndRadius: 14,
+                        borderEndStartRadius: isBusiness ? 4 : 14,
+                        borderEndEndRadius: isBusiness ? 14 : 4,
                         background: isBusiness ? INBOX_SURFACE.greenBubble : "var(--dz-surface)",
                         border: isBusiness ? "none" : `1px solid ${INBOX_SURFACE.border}`,
                         boxSizing: "border-box",
@@ -868,7 +883,7 @@ export function ConversationView(props: {
                         wordBreak: "break-word",
                       }}
                     >
-                      <div style={{ color: "var(--dz-text-primary)", lineHeight: 1.5, fontSize: 14.5 }}>
+                      <div dir="auto" style={{ color: "var(--dz-text-primary)", lineHeight: 1.5, fontSize: 14.5 }}>
                         {msg.contentText}
                       </div>
                       <div
@@ -881,9 +896,9 @@ export function ConversationView(props: {
                           fontWeight: 500,
                         }}
                       >
-                        <span>{formatMessageTime(msg.createdAt)}</span>
+                        <span>{formatMessageTime(msg.createdAt, (date) => formatDate(date, "time"))}</span>
                         {isBusiness ? (
-                          <span style={{ color: "var(--dz-success-accent)", marginRight: 4 }}>✓</span>
+                          <span style={{ color: "var(--dz-success-accent)", marginInlineStart: 4 }}>✓</span>
                         ) : null}
                       </div>
                     </div>
@@ -978,13 +993,15 @@ export function ConversationView(props: {
                   gap: 6,
                   background: "var(--dz-surface)",
                   borderRadius: 24,
-                  padding: "4px 6px 4px 8px",
+                  paddingBlock: 4,
+                  paddingInlineStart: 6,
+                  paddingInlineEnd: 8,
                   boxShadow: "0 1px 3px rgba(52, 60, 50, 0.08)",
                 }}
               >
                 <button
                   type="button"
-                  aria-label="צרף קובץ"
+                  aria-label={t("inbox.view.attach")}
                   onClick={() => {
                     if (!input.trim()) onInputChange("");
                   }}
@@ -1024,7 +1041,7 @@ export function ConversationView(props: {
                     color: "var(--dz-text-primary)",
                     background: "transparent",
                   }}
-                  placeholder="הודעה"
+                  placeholder={t("inbox.view.composerPlaceholder")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -1036,7 +1053,7 @@ export function ConversationView(props: {
                   <button
                     type="button"
                     onClick={onManualReply}
-                    aria-label="נקה"
+                    aria-label={t("inbox.view.clear")}
                     style={{
                       width: 28,
                       height: 28,
@@ -1056,7 +1073,7 @@ export function ConversationView(props: {
                   type="button"
                   disabled={!hasDraft}
                   onClick={onSendBusinessMessage}
-                  aria-label="שלח"
+                  aria-label={t("inbox.view.send")}
                   style={{
                     width: 36,
                     height: 36,
@@ -1093,7 +1110,7 @@ export function ConversationView(props: {
                     opacity: 0.7,
                   }}
                 >
-                  תצוגה: הודעת לקוח
+                  {t("inbox.view.simulateCustomer")}
                 </button>
               )}
             </footer>

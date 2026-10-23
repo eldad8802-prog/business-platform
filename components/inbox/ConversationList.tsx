@@ -1,10 +1,11 @@
 import React from "react";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { resolveConversationDisplayTitle } from "@/lib/inbox-view/conversation-display-title";
 import {
-  INBOX_SIDEBAR_CATEGORY_OPTIONS,
   INBOX_SIDEBAR_LEGACY_OPEN,
   type InboxSidebarSelection,
   type InboxWorkCategoryId,
@@ -29,21 +30,36 @@ const QUIET_SIGNALS: ReadonlySet<InboxItemViewModel["primarySignal"]> = new Set(
   "fresh_lead",
 ]);
 
-function formatWaiting(waitingMinutes: number | null): string | null {
+function formatWaiting(waitingMinutes: number | null, t: Translator): string | null {
   if (waitingMinutes === null || waitingMinutes <= 0) return null;
-  if (waitingMinutes < 60) return `${waitingMinutes} דק׳`;
-  return `${Math.floor(waitingMinutes / 60)} שע׳`;
+  if (waitingMinutes < 60) return t("inbox.list.waitingMinutes", { count: waitingMinutes });
+  return t("inbox.list.waitingHours", { count: Math.floor(waitingMinutes / 60) });
 }
 
-function formatListTime(iso: string | undefined | null): string {
-  if (!iso) return "היום";
+function formatListTime(
+  iso: string | undefined | null,
+  t: Translator,
+  formatTime: (date: Date) => string
+): string {
+  if (!iso) return t("inbox.list.today");
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "היום";
-  return date.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  if (Number.isNaN(date.getTime())) return t("inbox.list.today");
+  return formatTime(date);
 }
 
-function resolveTitle(item: InboxItemViewModel): string {
-  return resolveConversationDisplayTitle(item);
+/** Work-category name (mirrors lib/inbox-view INBOX_SIDEBAR_CATEGORY_OPTIONS, translated). */
+function workCategoryLabel(id: InboxWorkCategoryId, t: Translator): string {
+  return t(`inbox.workCategories.${id}` as MessageKey);
+}
+
+function conversationsCount(count: number, t: Translator): string {
+  return count === 1
+    ? t("inbox.list.conversationsCountOne", { count })
+    : t("inbox.list.conversationsCount", { count });
+}
+
+function resolveTitle(item: InboxItemViewModel, t: Translator): string {
+  return resolveConversationDisplayTitle(item, t);
 }
 
 function initials(name: string): string {
@@ -64,12 +80,13 @@ type CategoryNavRow = {
 
 function categoryNavRowFromVisual(
   visual: (typeof INBOX_CATEGORY_VISUALS)[number],
-  count: number
+  count: number,
+  t: Translator
 ): CategoryNavRow {
   return {
     id: visual.id,
-    label: visual.label,
-    subtitle: visual.subtitle,
+    label: t(visual.labelKey),
+    subtitle: t(visual.subtitleKey),
     icon: visual.icon,
     iconBg: visual.iconBg,
     iconColor: visual.iconColor,
@@ -79,15 +96,15 @@ function categoryNavRowFromVisual(
 
 function categoryNavRowForBucket(
   id: InboxWorkCategoryId,
-  count: number
+  count: number,
+  t: Translator
 ): CategoryNavRow {
   const visual = inboxCategoryVisual(id);
-  if (visual) return categoryNavRowFromVisual(visual, count);
-  const opt = INBOX_SIDEBAR_CATEGORY_OPTIONS.find((o) => o.id === id);
+  if (visual) return categoryNavRowFromVisual(visual, count, t);
   return {
     id,
-    label: opt?.label ?? id,
-    subtitle: count > 0 ? `${count} שיחות` : "אין שיחות בקטגוריה",
+    label: workCategoryLabel(id, t),
+    subtitle: count > 0 ? conversationsCount(count, t) : t("inbox.list.categoryEmpty"),
     icon: "•",
     iconBg: "var(--dz-surface-muted)",
     iconColor: "var(--dz-text-muted)",
@@ -135,56 +152,21 @@ function urgencyToColors(level: 0 | 1 | 2 | 3): {
   };
 }
 
-const CATEGORY_ICON: Record<InboxWorkCategoryId, string> = {
-  needs_action: "⚡",
-  drafts_ready: "✍️",
-  handoff: "🤝",
-  bot_in_progress: "🤖",
-  hot_leads: "🔥",
-  follow_up: "🔔",
-  completed: "✓",
-  active: "💬",
-  closed: "🔒",
-};
-
-const CATEGORY_HELPER: Record<InboxWorkCategoryId, string> = {
-  needs_action: "לקוחות שמחכים ממך לתשובה או החלטה",
-  drafts_ready: "אפשר לסיים מהר בלי להתחיל מאפס",
-  handoff: "סדרת הטיוטות הסתיימה — אתה ממשיך",
-  bot_in_progress: "טיוטות מוכנות — אתה שולח ללקוח",
-  hot_leads: "פניות עם סיכוי גבוה להפוך לעסקה",
-  follow_up: "שיחות שלא כדאי לתת להן להיעלם",
-  completed: "טופלו. נשאר רק להיות רגוע שהכול מתועד",
-  active: "פתוחות, אבל אין משהו דחוף לעשות עכשיו",
-  closed: "שיחות שטופלו ונשמרות להיסטוריה",
-};
-
-const CATEGORY_DISPLAY_LABEL: Partial<Record<InboxWorkCategoryId, string>> = {
-  needs_action: "דחוף · דורש טיפול",
-  drafts_ready: "טיוטות מוכנות",
-  handoff: "עבר לנציג",
-  bot_in_progress: "בטיפול",
-  hot_leads: "חם · לידים",
-  follow_up: "מעקב",
-  completed: "טופל",
-  active: "ממתין ללקוח",
-  closed: "סגור",
-};
-
-function emptyMessage(selected: InboxSidebarSelection): string {
-  if (selected === INBOX_SIDEBAR_LEGACY_OPEN) return "אין שיחות פתוחות כרגע";
-  const byId: Record<InboxWorkCategoryId, string> = {
-    needs_action: "אין כרגע לקוחות שמחכים לך. אפשר לנשום.",
-    drafts_ready: "אין כרגע טיוטות מוכנות לשליחה.",
-    handoff: "אין שיחות שמחכות לך אחרי סיום הטיוטות.",
-    bot_in_progress: "אין שיחות עם טיוטות פתיחה ממתינות.",
-    hot_leads: "אין כרגע לידים חמים שדורשים תשומת לב.",
-    follow_up: "אין כרגע מעקבים פתוחים.",
-    completed: "אין שיחות שטופלו בקטגוריה הזו.",
-    active: "הכול בשליטה בקטגוריה הזו.",
-    closed: "אין שיחות סגורות להצגה.",
+function emptyMessage(selected: InboxSidebarSelection, t: Translator): string {
+  if (selected === INBOX_SIDEBAR_LEGACY_OPEN) return t("inbox.list.empty.allOpen");
+  const byId: Record<InboxWorkCategoryId, MessageKey> = {
+    needs_action: "inbox.list.empty.needs_action",
+    drafts_ready: "inbox.list.empty.drafts_ready",
+    handoff: "inbox.list.empty.handoff",
+    bot_in_progress: "inbox.list.empty.bot_in_progress",
+    hot_leads: "inbox.list.empty.hot_leads",
+    follow_up: "inbox.list.empty.follow_up",
+    completed: "inbox.list.empty.completed",
+    active: "inbox.list.empty.active",
+    closed: "inbox.list.empty.closed",
   };
-  return byId[selected as InboxWorkCategoryId] ?? "אין שיחות בקטגוריה זו כרגע";
+  const key = byId[selected as InboxWorkCategoryId];
+  return key ? t(key) : t("inbox.list.empty.fallback");
 }
 
 function countForCategory(
@@ -207,7 +189,7 @@ function countForCategory(
   return sidebarCounts.byId[category as InboxWorkCategoryId] ?? 0;
 }
 
-function statusBadgeForItem(item: InboxItemViewModel): {
+function statusBadgeForItem(item: InboxItemViewModel, t: Translator): {
   label: string;
   bg: string;
   color: string;
@@ -280,7 +262,7 @@ function statusBadgeForItem(item: InboxItemViewModel): {
 
   if (item.needsHumanAttention || item.nextBestAction?.kind === "immediate_attention") {
     return {
-      label: "מחכה לך",
+      label: t("inbox.list.badge.waitingForYou"),
       bg: "var(--dz-danger-bg)",
       color: "var(--dz-danger)",
       border: "rgba(155, 70, 52, 0.18)",
@@ -289,7 +271,7 @@ function statusBadgeForItem(item: InboxItemViewModel): {
 
   if (item.hasPendingSuggestion || item.nextBestAction?.kind === "send_ready_draft") {
     return {
-      label: "טיוטה מוכנה",
+      label: t("inbox.list.badge.draftReady"),
       bg: "var(--dz-brand-soft)",
       color: "var(--dz-brand)",
       border: "rgba(36, 105, 102, 0.18)",
@@ -298,7 +280,7 @@ function statusBadgeForItem(item: InboxItemViewModel): {
 
   if (item.botFlowStatus === "IN_PROGRESS") {
     return {
-      label: "טיוטה מוכנה",
+      label: t("inbox.list.badge.draftReady"),
       bg: "var(--dz-success-bg-soft)",
       color: "var(--dz-success)",
       border: "rgba(30, 106, 74, 0.18)",
@@ -307,7 +289,7 @@ function statusBadgeForItem(item: InboxItemViewModel): {
 
   if (item.temperatureBucket === "hot") {
     return {
-      label: "סיכוי טוב",
+      label: t("inbox.list.badge.goodChance"),
       bg: "var(--dz-warning-bg-soft)",
       color: "var(--dz-warning)",
       border: "rgba(129, 90, 50, 0.18)",
@@ -315,7 +297,7 @@ function statusBadgeForItem(item: InboxItemViewModel): {
   }
 
   return {
-    label: "במעקב",
+    label: t("inbox.list.badge.tracking"),
     bg: "var(--dz-info-bg-soft)",
     color: "var(--dz-info)",
     border: "rgba(43, 90, 133, 0.16)",
@@ -368,13 +350,13 @@ export function ConversationList(props: {
     onSearchQueryChange,
   } = props;
 
+  const { t, formatDate } = useI18n();
   const isDesktopLayout = layoutMode === "desktop";
 
   const shell: React.CSSProperties = {
     width: "100%",
     maxWidth: isDesktopLayout ? "none" : 720,
-    marginLeft: "auto",
-    marginRight: "auto",
+    marginInline: "auto",
     minWidth: 0,
     background: INBOX_SURFACE.pageBg,
     flexShrink: 0,
@@ -394,8 +376,8 @@ export function ConversationList(props: {
 
       const allOpenRow: CategoryNavRow = {
         id: INBOX_SIDEBAR_LEGACY_OPEN,
-        label: "כל השיחות",
-        subtitle: "כל השיחות הפתוחות",
+        label: t("inbox.list.allConversations"),
+        subtitle: t("inbox.list.allOpenConversations"),
         icon: "💬",
         iconBg: "var(--dz-brand-soft)",
         iconColor: "var(--dz-brand)",
@@ -413,27 +395,27 @@ export function ConversationList(props: {
       for (const id of orderedBucketIds) {
         if (seen.has(id)) continue;
         seen.add(id);
-        bucketRows.push(categoryNavRowForBucket(id, byId[id] ?? 0));
+        bucketRows.push(categoryNavRowForBucket(id, byId[id] ?? 0, t));
       }
 
       for (const visual of INBOX_CATEGORY_VISUALS) {
         if (seen.has(visual.id) || visual.id === "closed") continue;
         seen.add(visual.id);
-        bucketRows.push(categoryNavRowForBucket(visual.id, byId[visual.id] ?? 0));
+        bucketRows.push(categoryNavRowForBucket(visual.id, byId[visual.id] ?? 0, t));
       }
 
       if (!seen.has("completed") && (byId.completed ?? 0) > 0) {
-        bucketRows.push(categoryNavRowForBucket("completed", byId.completed ?? 0));
+        bucketRows.push(categoryNavRowForBucket("completed", byId.completed ?? 0, t));
       }
 
-      const closedRow = categoryNavRowForBucket("closed", byId.closed ?? 0);
+      const closedRow = categoryNavRowForBucket("closed", byId.closed ?? 0, t);
       categoryRows = [allOpenRow, ...bucketRows, closedRow];
     } else {
       categoryRows = [
         {
           id: INBOX_SIDEBAR_LEGACY_OPEN,
-          label: "פתוחות",
-          subtitle: "כל השיחות הפתוחות",
+          label: t("inbox.list.open"),
+          subtitle: t("inbox.list.allOpenConversations"),
           icon: "💬",
           iconBg: "var(--dz-surface-muted)",
           iconColor: "var(--dz-text-muted)",
@@ -441,8 +423,8 @@ export function ConversationList(props: {
         },
         {
           id: "closed",
-          label: "נסגרו",
-          subtitle: "היסטוריה",
+          label: t("inbox.list.closed"),
+          subtitle: t("inbox.list.history"),
           icon: "✓",
           iconBg: "var(--dz-success-bg-soft)",
           iconColor: "var(--dz-success)",
@@ -461,14 +443,13 @@ export function ConversationList(props: {
 
     const subtitleLine =
       openWaitingCount === 0
-        ? "אין כרגע שיחות שממתינות לך"
+        ? t("inbox.list.waitingNone")
         : openWaitingCount === 1
-          ? "יש לך שיחה אחת שממתינה לך"
-          : `יש לך ${openWaitingCount} שיחות שממתינות לך`;
+          ? t("inbox.list.waitingOne")
+          : t("inbox.list.waitingMany", { count: openWaitingCount });
 
     return (
       <div
-        dir="rtl"
         style={{
           ...shell,
           background: INBOX_SURFACE.pageBg,
@@ -492,7 +473,7 @@ export function ConversationList(props: {
               lineHeight: 1.2,
             }}
           >
-            סדר היום שלך
+            {t("inbox.list.agendaTitle")}
           </h1>
           <div style={{ fontSize: 14, color: "var(--dz-text-muted)", fontWeight: 600, lineHeight: 1.45 }}>
             {subtitleLine}
@@ -508,7 +489,7 @@ export function ConversationList(props: {
           }}
         >
           <nav
-            aria-label="קטגוריות עבודה"
+            aria-label={t("inbox.list.categoriesNav")}
             style={{ display: "flex", flexDirection: "column", gap: 8 }}
           >
             {categoryRows.map((row) => {
@@ -519,7 +500,11 @@ export function ConversationList(props: {
                   key={row.id}
                   type="button"
                   onClick={() => onChangeWorkCategory(row.id)}
-                  aria-label={`${row.label}, ${row.count} שיחות`}
+                  aria-label={
+                    row.count === 1
+                      ? t("inbox.list.categoryRowLabelOne", { label: row.label, count: row.count })
+                      : t("inbox.list.categoryRowLabel", { label: row.label, count: row.count })
+                  }
                   style={{
                     background: INBOX_SURFACE.cardBg,
                     border: `1px solid ${INBOX_SURFACE.border}`,
@@ -534,7 +519,7 @@ export function ConversationList(props: {
                     WebkitTapHighlightColor: "transparent",
                     userSelect: "none",
                     width: "100%",
-                    textAlign: "right",
+                    textAlign: "start",
                   }}
                 >
                   <div
@@ -581,7 +566,7 @@ export function ConversationList(props: {
                     >
                       {row.count}
                     </span>
-                    <span style={{ color: "var(--dz-text-disabled)", fontSize: 18, fontWeight: 700 }}>‹</span>
+                    <span style={{ color: "var(--dz-text-disabled)", fontSize: 18, fontWeight: 700 }}>{t("inbox.list.chevronForward")}</span>
                   </div>
                 </button>
               );
@@ -599,7 +584,7 @@ export function ConversationList(props: {
                   textDecoration: "none",
                 }}
               >
-                הגדרות הבוט
+                {t("inbox.list.botSettings")}
               </Link>
             </div>
           )}
@@ -614,9 +599,11 @@ export function ConversationList(props: {
       ? inboxCategoryVisual(selectedWorkCategory as InboxWorkCategoryId)
       : undefined;
 
-  const selectedLabel =
-    selectedVisual?.label ??
-    (selectedWorkCategory === INBOX_SIDEBAR_LEGACY_OPEN ? "כל השיחות" : "נסגרו");
+  const selectedLabel = selectedVisual
+    ? t(selectedVisual.labelKey)
+    : selectedWorkCategory === INBOX_SIDEBAR_LEGACY_OPEN
+      ? t("inbox.list.allConversations")
+      : t("inbox.list.closed");
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const filteredConversations =
@@ -624,14 +611,14 @@ export function ConversationList(props: {
       ? conversations
       : conversations.filter((conversation) => {
           const item = items?.find((i) => i.conversationId === conversation.id);
-          const title = item ? resolveTitle(item) : "לקוח חדש";
+          const title = item ? resolveTitle(item, t) : t("inbox.list.newCustomer");
           const snippet = item?.lastMessage?.snippet?.trim() ?? "";
           const haystack = `${title} ${snippet}`.toLowerCase();
           return haystack.includes(normalizedSearch);
         });
 
   return (
-    <div dir="rtl" style={{ ...shell, minHeight: isDesktopLayout ? "auto" : "100vh", position: "relative" }}>
+    <div style={{ ...shell, minHeight: isDesktopLayout ? "auto" : "100vh", position: "relative" }}>
       {!isDesktopLayout && (
         <div
           style={{
@@ -643,7 +630,7 @@ export function ConversationList(props: {
             gap: 12,
           }}
         >
-          <BackButton onClick={() => onBackFromList?.()} label="חזרה לקטגוריות" />
+          <BackButton onClick={() => onBackFromList?.()} label={t("inbox.list.backToCategories")} />
           <div>
             <div
               style={{ fontSize: 17, fontWeight: 900, color: "var(--dz-text-primary)", lineHeight: 1.2 }}
@@ -652,8 +639,8 @@ export function ConversationList(props: {
             </div>
             <div style={{ fontSize: 12, color: "var(--dz-text-muted)", fontWeight: 600, marginTop: 2 }}>
               {filteredConversations.length > 0
-                ? `${filteredConversations.length} שיחות`
-                : "אין כאן משהו לטפל בו"}
+                ? conversationsCount(filteredConversations.length, t)
+                : t("inbox.list.nothingHere")}
             </div>
           </div>
         </div>
@@ -681,7 +668,7 @@ export function ConversationList(props: {
               fontWeight: 600,
             }}
           >
-            {emptyMessage(selectedWorkCategory)}
+            {emptyMessage(selectedWorkCategory, t)}
           </div>
         ) : (
           filteredConversations.map((conversation) => {
@@ -705,7 +692,7 @@ export function ConversationList(props: {
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    textAlign: "right",
+                    textAlign: "start",
                     width: "100%",
                     boxShadow: "0 2px 8px rgba(52, 60, 50, 0.04)",
                     WebkitTapHighlightColor: "transparent",
@@ -729,7 +716,7 @@ export function ConversationList(props: {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 800, color: "var(--dz-text-primary)", fontSize: 15 }}>
-                      לקוח חדש
+                      {t("inbox.list.newCustomer")}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--dz-text-muted)", marginTop: 2 }}>
                       {conversation.channel}
@@ -739,10 +726,10 @@ export function ConversationList(props: {
               );
             }
 
-            const title = resolveTitle(item);
+            const title = resolveTitle(item, t);
             const snippet = item.lastMessage?.snippet?.trim() ?? "";
-            const waitingLine = formatWaiting(item.waitingMinutes);
-            const statusBadge = statusBadgeForItem(item);
+            const waitingLine = formatWaiting(item.waitingMinutes, t);
+            const statusBadge = statusBadgeForItem(item, t);
 
             const urgencyLevel: 0 | 1 | 2 | 3 =
               item.needsHumanAttention ||
@@ -774,7 +761,7 @@ export function ConversationList(props: {
                   display: "flex",
                   alignItems: "flex-start",
                   gap: 12,
-                  textAlign: "right",
+                  textAlign: "start",
                   width: "100%",
                   boxShadow: isActive ? INBOX_SURFACE.shadowActive : INBOX_SURFACE.shadow,
                   WebkitTapHighlightColor: "transparent",
@@ -834,7 +821,8 @@ export function ConversationList(props: {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {waitingLine ?? formatListTime(item.lastMessage?.at)}
+                      {waitingLine ??
+                        formatListTime(item.lastMessage?.at, t, (date) => formatDate(date, "time"))}
                     </span>
                   </div>
 
@@ -877,10 +865,10 @@ export function ConversationList(props: {
         <button
           type="button"
           onClick={onCreateConversation}
-          aria-label="צור שיחה חדשה"
+          aria-label={t("inbox.list.createConversation")}
           style={{
             position: "fixed",
-            left: 16,
+            insetInlineEnd: 16,
             bottom: 24,
             display: "inline-flex",
             alignItems: "center",
@@ -898,7 +886,7 @@ export function ConversationList(props: {
           }}
         >
           <span style={{ fontSize: 20, lineHeight: 1 }}>+</span>
-          <span>צור שיחה חדשה</span>
+          <span>{t("inbox.list.createConversation")}</span>
         </button>
       )}
     </div>

@@ -8,7 +8,8 @@ import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connec
 import { WhatsAppConnectInvitation } from "@/components/whatsapp/WhatsAppConnectInvitation";
 import { WhatsAppConnectedCard } from "@/components/whatsapp/WhatsAppConnectedCard";
 import { WhatsAppMetaDataPrivacySection } from "@/components/whatsapp/WhatsAppMetaDataPrivacySection";
-import { WA_COPY } from "@/components/whatsapp/wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { waDisconnectedNoticeText } from "@/components/whatsapp/wa-copy";
 import { WaBadge, WaPrimaryButton } from "@/components/whatsapp/wa-ui";
 import { settingsViewFor } from "@/components/whatsapp/connection-view";
 import desk from "./wa-desk.module.css";
@@ -30,13 +31,14 @@ import desk from "./wa-desk.module.css";
  * view reflects the new state.
  */
 export default function WhatsAppSettingsPage() {
+  const { t } = useI18n();
   const [reloadKey, setReloadKey] = useState(0);
   const state = useWhatsAppConnection(reloadKey);
   const view = settingsViewFor(state);
   const refresh = () => setReloadKey((k) => k + 1);
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader title="WhatsApp Business" backHref="/settings/connections" showBack />
 
       {/* Pilot: focused intent (Spec v1 §6) — the connection is a focused
@@ -48,7 +50,7 @@ export default function WhatsAppSettingsPage() {
           <div>
             {view.kind === "loading" ? (
               <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
-                טוען…
+                {t("common.loading")}
               </div>
             ) : view.kind === "load_error" ? (
               <ConnectionLoadError onRetry={refresh} />
@@ -77,7 +79,7 @@ export default function WhatsAppSettingsPage() {
 
 /** The status read failed: say so, and let the owner retry. Never "connect". */
 function ConnectionLoadError({ onRetry }: { onRetry: () => void }) {
-  const c = WA_COPY.loadError;
+  const { t } = useI18n();
   return (
     <div
       role="alert"
@@ -92,12 +94,12 @@ function ConnectionLoadError({ onRetry }: { onRetry: () => void }) {
         gap: 12,
       }}
     >
-      <WaBadge tone="neutral" label={c.badge} />
+      <WaBadge tone="neutral" label={t("inbox.whatsapp.loadError.badge")} />
       <div style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.semibold, color: TOKEN.ink.primary }}>
-        {c.heading}
+        {t("inbox.whatsapp.loadError.heading")}
       </div>
-      <div style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, lineHeight: 1.5 }}>{c.body}</div>
-      <WaPrimaryButton label={c.retry} onClick={onRetry} showGlyph={false} />
+      <div style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, lineHeight: 1.5 }}>{t("inbox.whatsapp.loadError.body")}</div>
+      <WaPrimaryButton label={t("inbox.whatsapp.loadError.retry")} onClick={onRetry} showGlyph={false} />
     </div>
   );
 }
@@ -110,8 +112,8 @@ function PreviousConnectionNotice({
   status: string;
   displayPhoneNumber: string;
 }) {
-  const c = WA_COPY.disconnectedNotice;
-  const reason = c[status] ?? c.DISCONNECTED;
+  const { t } = useI18n();
+  const reason = waDisconnectedNoticeText(status, t);
   return (
     <div
       role="status"
@@ -128,7 +130,7 @@ function PreviousConnectionNotice({
     >
       {displayPhoneNumber ? (
         <div>
-          {c.numberLabel}: <span dir="ltr">{displayPhoneNumber}</span>
+          {t("inbox.whatsapp.disconnectedNotice.numberLabel")}: <span dir="ltr">{displayPhoneNumber}</span>
         </div>
       ) : null}
       <div>{reason}</div>

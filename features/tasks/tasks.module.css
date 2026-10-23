@@ -7,7 +7,6 @@
  */
 
 .screen {
-  direction: rtl;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -22,7 +21,9 @@
 
 /* ── header ─────────────────────────────────────────────────────────────── */
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.title { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+/* Version B (23.10.2026): the same title scale as the Secretary and Payables main screens. */
+.title { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
+@media (min-width: 1200px) { .title { font-size: 27px; } }
 .date { color: var(--dz-text-secondary); font-size: 14px; }
 .grow { flex: 1; }
 .counter {
@@ -33,7 +34,7 @@
 .counterPartial { background: var(--dz-warning-bg); color: var(--dz-warning); }
 /* mobile: "משימה חדשה" is reached from the bottom bar "+" (mockup); the header button starts at tablet */
 .btn.newBtn { display: none; }
-@media (min-width: 768px) { .btn.newBtn { display: inline-flex; } }
+@media (min-width: 768px) { .btn.newBtn { display: inline-flex; min-height: 44px; padding: 0 16px; border-radius: 14px; font-size: 14px; font-weight: 600; } }
 .mobileLine { display: flex; align-items: center; gap: 8px; width: 100%; }
 @media (min-width: 768px) { .mobileLine { width: auto; } }
 

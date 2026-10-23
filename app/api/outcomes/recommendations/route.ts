@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n/server";
 import { ownerRecommendations } from "@/lib/knowledge/outcomes/owner-surface.service";
 
 /**
@@ -14,7 +15,8 @@ export async function GET(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const payload = await ownerRecommendations(user.businessId, new Date());
+    const { t, locale } = await getServerI18n();
+    const payload = await ownerRecommendations(user.businessId, new Date(), { t, locale });
     return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/outcomes/recommendations error:", error instanceof Error ? error.name : "unknown");

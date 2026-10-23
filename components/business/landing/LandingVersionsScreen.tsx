@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STRATEGY_TITLES } from "@/lib/services/landing/landing-strategy-explain";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { LandingOverview, LandingVersionSummary } from "@/lib/services/landing/persistence/landing-page.service";
 import type { CurrentReadiness } from "@/lib/services/landing/persistence/landing-version-model";
-import { currentBlockerLabel, snapshotMissingLabel, VERSION_BADGE } from "./landing-labels";
+import { useLandingLabels } from "./landing-labels";
 import {
   approveLandingDraft,
   fetchLandingOverview,
@@ -23,8 +24,9 @@ import styles from "./landing-versions.module.css";
  * Works with the composer off: viewing, previewing, approving and restoring never call a model.
  */
 
-const strategyTitle = (t: string) => STRATEGY_TITLES[t as keyof typeof STRATEGY_TITLES] ?? t;
-const dateHe = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" }) : "");
+/** Hebrew: "he-IL" exactly as before; other languages use their own Intl tag. */
+const dateIn = (locale: Locale, iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(intlTag(locale), { day: "numeric", month: "long", year: "numeric" }) : "";
 
 type Pending = { kind: "approve" | "rollback" | "retire"; version: LandingVersionSummary; key: string } | null;
 
@@ -33,19 +35,24 @@ function badgeClass(v: LandingVersionSummary): string {
 }
 
 export function ReadinessNote({ readiness }: { readiness: CurrentReadiness | null }) {
-  if (!readiness) return <p className={styles.warn}>לא ניתן לבדוק את הגרסה הזו כרגע.</p>;
-  if (readiness.publishReady) return <p className={styles.ok}>לפי מה שמאושר היום, יש בגרסה את כל מה שצריך.</p>;
+  const { t } = useI18n();
+  const { currentBlockerLabel, snapshotMissingLabel } = useLandingLabels();
+  if (!readiness) return <p className={styles.warn}>{t("content.identity.versions.readinessUnknown")}</p>;
+  if (readiness.publishReady) return <p className={styles.ok}>{t("content.identity.versions.readinessOk")}</p>;
   const items = [...readiness.blockers.map(currentBlockerLabel), ...readiness.fromSnapshot.map(snapshotMissingLabel)];
   const unique = [...new Set(items)];
   return (
     <details className={styles.readiness}>
-      <summary>{`חסרים ${unique.length} פרטים לפני שאפשר יהיה להציג את הדף`}</summary>
+      <summary>{t("content.identity.versions.readinessMissing", { count: unique.length })}</summary>
       <ul>{unique.map((m) => <li key={m}>{m}</li>)}</ul>
     </details>
   );
 }
 
 export function LandingVersionsScreen() {
+  const { t, locale } = useI18n();
+  const { VERSION_BADGE, strategyTitle } = useLandingLabels();
+  const dateHe = (iso: string | null) => dateIn(locale, iso);
   const [data, setData] = useState<(LandingOverview & { composerEnabled: boolean }) | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
@@ -57,8 +64,8 @@ export function LandingVersionsScreen() {
     if (r.ok) {
       setData(r.data);
       setLoadError(null);
-    } else setLoadError(landingErrorMessage(r));
-  }, []);
+    } else setLoadError(landingErrorMessage(t, r));
+  }, [t]);
   const load = useCallback(async () => apply(await fetchLandingOverview()), [apply]);
 
   useEffect(() => {
@@ -86,126 +93,133 @@ export function LandingVersionsScreen() {
     setBusy(false);
     setPending(null);
     if (!r.ok) {
-      setNotice(landingErrorMessage(r));
+      setNotice(landingErrorMessage(t, r));
     } else {
       setNotice(
         kind === "approve"
-          ? `גרסה ${version.versionNumber} היא עכשיו הגרסה המאושרת שלך.`
+          ? t("content.identity.versions.noticeApproved", { n: version.versionNumber })
           : kind === "rollback"
-            ? `נוצרה גרסה ${r.data.version.versionNumber} מתוך גרסה ${version.versionNumber}, והיא עכשיו הגרסה המאושרת.`
-            : `הטיוטה (גרסה ${version.versionNumber}) בוטלה. היא נשארת בהיסטוריה.`,
+            ? t("content.identity.versions.noticeRestored", { created: r.data.version.versionNumber, n: version.versionNumber })
+            : t("content.identity.versions.noticeRetired", { n: version.versionNumber }),
       );
     }
     await load();
   };
 
   if (loadError) return <p className={styles.state} role="alert">{loadError}</p>;
-  if (!data) return <p className={styles.state}>טוענים את הגרסאות…</p>;
+  if (!data) return <p className={styles.state}>{t("content.identity.versions.loading")}</p>;
 
   const { currentApproved, currentDraft, versions } = data;
 
+  // Hebrew stays literal here: landing-persistence.verify (P29) pins this wording in the screen's source.
   const confirmText = (p: NonNullable<Pending>) =>
-    p.kind === "approve"
-      ? `לאשר את גרסה ${p.version.versionNumber} כגרסה שבחרת?`
-      : p.kind === "rollback"
-        ? `ניצור גרסה חדשה המבוססת על גרסה ${p.version.versionNumber} ונגדיר אותה כגרסה המאושרת.`
-        : `לבטל את הטיוטה (גרסה ${p.version.versionNumber})? היא תישאר בהיסטוריה.`;
+    locale !== "he"
+      ? p.kind === "approve"
+        ? t("content.identity.versions.confirmApprove", { n: p.version.versionNumber })
+        : p.kind === "rollback"
+          ? t("content.identity.versions.confirmRollback", { n: p.version.versionNumber })
+          : t("content.identity.versions.confirmRetire", { n: p.version.versionNumber })
+      : p.kind === "approve"
+        ? `לאשר את גרסה ${p.version.versionNumber} כגרסה שבחרת?`
+        : p.kind === "rollback"
+          ? `ניצור גרסה חדשה המבוססת על גרסה ${p.version.versionNumber} ונגדיר אותה כגרסה המאושרת.`
+          : `לבטל את הטיוטה (גרסה ${p.version.versionNumber})? היא תישאר בהיסטוריה.`;
 
   const confirmPanel = (v: LandingVersionSummary) =>
     pending && pending.version.id === v.id ? (
-      <div className={styles.confirm} role="group" aria-label="אישור פעולה">
+      <div className={styles.confirm} role="group" aria-label={t("content.identity.versions.confirmAria")}>
         <p>{confirmText(pending)}</p>
         <div className={styles.actions}>
           <button type="button" className={styles.primary} disabled={busy} onClick={() => void confirm()}>
-            {busy ? "רגע…" : pending.kind === "approve" ? "כן, לאשר" : pending.kind === "rollback" ? "כן, לשחזר" : "כן, לבטל"}
+            {busy ? t("content.identity.versions.wait") : pending.kind === "approve" ? t("content.identity.versions.yesApprove") : pending.kind === "rollback" ? t("content.identity.versions.yesRestore") : t("content.identity.versions.yesRetire")}
           </button>
-          <button type="button" className={styles.secondary} disabled={busy} onClick={() => setPending(null)}>חזרה</button>
+          <button type="button" className={styles.secondary} disabled={busy} onClick={() => setPending(null)}>{t("content.identity.versions.cancel")}</button>
         </div>
       </div>
     ) : null;
 
   const preview = (v: LandingVersionSummary) => (
-    <Link className={styles.secondary} href={`/business/landing-preview?version=${v.id}`}>תצוגה מקדימה</Link>
+    <Link className={styles.secondary} href={`/business/landing-preview?version=${v.id}`}>{t("content.identity.versions.preview")}</Link>
   );
 
   return (
     <div className={styles.wrap}>
       <p className={styles.intro}>
-        כאן נשמרות הגרסאות של דף הנחיתה. אישור גרסה הוא הבחירה שלך — הדף עדיין לא מוצג לאף אחד.
+        {t("content.identity.versions.intro")}
       </p>
 
       {notice && <p className={styles.notice} role="status">{notice}</p>}
 
-      <section className={styles.current} aria-label="הגרסה המאושרת והטיוטה">
+      <section className={styles.current} aria-label={t("content.identity.versions.currentAria")}>
         <article className={styles.card}>
-          <h2 className={styles.cardTitle}>הגרסה המאושרת</h2>
+          <h2 className={styles.cardTitle}>{t("content.identity.versions.approvedTitle")}</h2>
           {currentApproved ? (
             <>
               <div className={styles.row}>
                 <span className={styles.badgeApproved}>{VERSION_BADGE.APPROVED}</span>
-                <strong>{`גרסה ${currentApproved.versionNumber}`}</strong>
+                <strong>{t("content.identity.versions.versionN", { n: currentApproved.versionNumber })}</strong>
                 <span className={styles.muted}>{strategyTitle(currentApproved.strategyType)}</span>
               </div>
               <p className={styles.muted}>
-                {`אושרה ב-${dateHe(currentApproved.approvedAt)}`}
-                {currentApproved.rollbackSourceVersionNumber ? ` · שוחזרה מגרסה ${currentApproved.rollbackSourceVersionNumber}` : ""}
+                {t("content.identity.versions.approvedOn", { date: dateHe(currentApproved.approvedAt) })}
+                {currentApproved.rollbackSourceVersionNumber ? t("content.identity.versions.restoredFromSuffix", { n: currentApproved.rollbackSourceVersionNumber }) : ""}
               </p>
               <ReadinessNote readiness={currentApproved.currentReadiness} />
               <div className={styles.actions}>{preview(currentApproved)}</div>
             </>
           ) : (
-            <p className={styles.muted}>עדיין לא אישרת גרסה.</p>
+            <p className={styles.muted}>{t("content.identity.versions.noApproved")}</p>
           )}
         </article>
 
         <article className={styles.card}>
-          <h2 className={styles.cardTitle}>הטיוטה הנוכחית</h2>
+          <h2 className={styles.cardTitle}>{t("content.identity.versions.draftTitle")}</h2>
           {currentDraft ? (
             <>
               <div className={styles.row}>
                 <span className={styles.badgeDraft}>{VERSION_BADGE.DRAFT}</span>
-                <strong>{`גרסה ${currentDraft.versionNumber}`}</strong>
+                <strong>{t("content.identity.versions.versionN", { n: currentDraft.versionNumber })}</strong>
                 <span className={styles.muted}>{strategyTitle(currentDraft.strategyType)}</span>
               </div>
-              <p className={styles.muted}>{`נשמרה ב-${dateHe(currentDraft.createdAt)}`}</p>
+              <p className={styles.muted}>{t("content.identity.versions.savedOn", { date: dateHe(currentDraft.createdAt) })}</p>
               <ReadinessNote readiness={currentDraft.currentReadiness} />
               <div className={styles.actions}>
                 {preview(currentDraft)}
-                <button type="button" className={styles.primary} onClick={() => ask("approve", currentDraft)}>אישור הגרסה</button>
-                <button type="button" className={styles.quiet} onClick={() => ask("retire", currentDraft)}>ביטול הטיוטה</button>
+                <button type="button" className={styles.primary} onClick={() => ask("approve", currentDraft)}>{t("content.identity.versions.approve")}</button>
+                <button type="button" className={styles.quiet} onClick={() => ask("retire", currentDraft)}>{t("content.identity.versions.retire")}</button>
               </div>
               {confirmPanel(currentDraft)}
             </>
           ) : (
-            <p className={styles.muted}>אין טיוטה פתוחה.</p>
+            <p className={styles.muted}>{t("content.identity.versions.noDraft")}</p>
           )}
-          <Link className={styles.create} href="/business/landing-strategy">יצירת גרסה חדשה ←</Link>
-          {!data.composerEnabled && <p className={styles.muted}>יצירת טיוטות חדשות עדיין לא הופעלה בחשבון הזה. הגרסאות ששמרת זמינות כרגיל.</p>}
+          <Link className={styles.create} href="/business/landing-strategy">{t("content.identity.versions.createNew")}</Link>
+          {!data.composerEnabled && <p className={styles.muted}>{t("content.identity.versions.composerOff")}</p>}
         </article>
       </section>
 
-      <section aria-label="היסטוריית גרסאות">
-        <h2 className={styles.sectionTitle}>כל הגרסאות</h2>
+      <section aria-label={t("content.identity.versions.historyAria")}>
+        <h2 className={styles.sectionTitle}>{t("content.identity.versions.allVersions")}</h2>
         {versions.length === 0 ? (
-          <p className={styles.muted}>עדיין לא נשמרה אף גרסה. אפשר לבחור כיוון, לראות תצוגה מקדימה ולשמור אותה כגרסה.</p>
+          <p className={styles.muted}>{t("content.identity.versions.noVersions")}</p>
         ) : (
           <ol className={styles.history}>
             {versions.map((v) => (
               <li key={v.id} className={styles.item}>
                 <div className={styles.row}>
                   <span className={badgeClass(v)}>{VERSION_BADGE[v.status] ?? v.status}</span>
-                  <strong>{`גרסה ${v.versionNumber}`}</strong>
+                  <strong>{t("content.identity.versions.versionN", { n: v.versionNumber })}</strong>
                   <span className={styles.muted}>{strategyTitle(v.strategyType)}</span>
                 </div>
                 <p className={styles.muted}>
-                  {`נשמרה ב-${dateHe(v.createdAt)}`}
-                  {v.approvedAt ? ` · אושרה ב-${dateHe(v.approvedAt)}` : ""}
-                  {v.rollbackSourceVersionNumber ? ` · שוחזרה מגרסה ${v.rollbackSourceVersionNumber}` : ""}
+                  {t("content.identity.versions.savedOn", { date: dateHe(v.createdAt) })}
+                  {v.approvedAt ? t("content.identity.versions.approvedOnSuffix", { date: dateHe(v.approvedAt) }) : ""}
+                  {v.rollbackSourceVersionNumber ? t("content.identity.versions.restoredFromSuffix", { n: v.rollbackSourceVersionNumber }) : ""}
                 </p>
                 <div className={styles.actions}>
                   {preview(v)}
                   {v.authority === "OWNER_APPROVED" && !v.isCurrentApproved && (
-                    <button type="button" className={styles.secondary} onClick={() => ask("rollback", v)}>שחזור כגרסה המאושרת</button>
+                    <button type="button" className={styles.secondary} onClick={() => ask("rollback", v)}>{t("content.identity.versions.restore")}</button>
                   )}
                 </div>
                 {!v.isCurrentDraft && confirmPanel(v)}

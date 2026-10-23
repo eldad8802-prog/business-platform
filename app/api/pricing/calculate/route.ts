@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
+import type { Translator } from "@/lib/i18n/translate";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
@@ -17,16 +19,17 @@ function getProfitIndicator(profitPercent: number): ProfitIndicator {
   return "HIGH";
 }
 
-function getProfitIndicatorLabel(indicator: ProfitIndicator): string {
+/** Response-only label (not stored). Hebrew is the default interface text. */
+function getProfitIndicatorLabel(indicator: ProfitIndicator, t: Translator): string {
   switch (indicator) {
     case "LOW":
-      return "נמוך";
+      return t("api.pricing.profitLow");
     case "OK":
-      return "תקין";
+      return t("api.pricing.profitOk");
     case "HIGH":
-      return "גבוה";
+      return t("api.pricing.profitHigh");
     default:
-      return "תקין";
+      return t("api.pricing.profitOk");
   }
 }
 
@@ -77,6 +80,7 @@ function buildEnhancedExplanation(params: {
 }
 
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
 
@@ -148,7 +152,7 @@ export async function POST(req: Request) {
         : 0;
 
     const profitIndicator = getProfitIndicator(profitPercent);
-    const profitIndicatorLabel = getProfitIndicatorLabel(profitIndicator);
+    const profitIndicatorLabel = getProfitIndicatorLabel(profitIndicator, t);
 
     const baseExplanation = buildExplanation(result);
     const explanation = buildEnhancedExplanation({

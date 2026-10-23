@@ -1,7 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/tokens";
-import { WA_COPY } from "./wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { WhatsAppGlyph } from "./wa-icons";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 
@@ -127,6 +127,7 @@ export function WaBadge({
 
 /** "מחברים…" centered spinner state (backend exchange in flight). */
 export function WaConnecting() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -162,7 +163,7 @@ export function WaConnecting() {
             color: TOKEN.ink.primary,
           }}
         >
-          {WA_COPY.connecting.title}
+          {t("inbox.whatsapp.connecting.title")}
         </h2>
         <p
           style={{
@@ -173,7 +174,7 @@ export function WaConnecting() {
             lineHeight: 1.5,
           }}
         >
-          {WA_COPY.connecting.body}
+          {t("inbox.whatsapp.connecting.body")}
         </p>
       </div>
     </div>

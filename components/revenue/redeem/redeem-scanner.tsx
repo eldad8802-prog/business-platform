@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   onDetected: (token: string) => void;
@@ -9,10 +10,11 @@ type Props = {
 };
 
 export default function RedeemScanner({ onDetected, isActive }: Props) {
+  const { t } = useI18n();
   const hasDetectedRef = useRef(false);
   const lastDetectedRef = useRef<string | null>(null);
 
-  const [status, setStatus] = useState("מוכן לסריקה");
+  const [status, setStatus] = useState(t("billing.redeem.readyToScan"));
   const [errorMessage, setErrorMessage] = useState("");
 
   const paused = useMemo(() => !isActive, [isActive]);
@@ -22,8 +24,8 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
     hasDetectedRef.current = false;
     lastDetectedRef.current = null;
     setErrorMessage("");
-    setStatus("מוכן לסריקה");
-  }, [isActive]);
+    setStatus(t("billing.redeem.readyToScan"));
+  }, [isActive, t]);
 
   const extractTokenFromRawValue = (rawValue: string): string | null => {
     const value = (rawValue || "").trim();
@@ -59,10 +61,10 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
   useEffect(() => {
     if (!isActive) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setErrorMessage("הדפדפן לא תומך בפתיחת מצלמה");
+      setErrorMessage(t("billing.redeem.cameraUnsupported"));
       setStatus("");
     }
-  }, [isActive]);
+  }, [isActive, t]);
 
   if (!isActive) return null;
 
@@ -111,7 +113,7 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
             const token = extractTokenFromRawValue(rawValue);
 
             if (!token) {
-              setStatus("זוהה QR אבל לא נמצא token");
+              setStatus(t("billing.redeem.qrWithoutToken"));
               return;
             }
 
@@ -121,16 +123,14 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
 
             hasDetectedRef.current = true;
             lastDetectedRef.current = token;
-            setStatus("זוהה קוד, מאמת...");
+            setStatus(t("billing.redeem.codeDetected"));
             setErrorMessage("");
             onDetected(token);
           }}
           onError={(err) => {
             console.error("QR scanner error:", err);
             setStatus("");
-            setErrorMessage(
-              "לא הצלחנו להפעיל את הסריקה. ודא שיש הרשאת מצלמה או עבור להזנה ידנית."
-            );
+            setErrorMessage(t("billing.redeem.scanFailed"));
           }}
         />
       </div>
@@ -138,7 +138,7 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
       <div
         style={{
           padding: 12,
-          textAlign: "right",
+          textAlign: "start",
           fontSize: 14,
           lineHeight: 1.5,
           color: errorMessage ? "var(--dz-danger)" : "var(--dz-text-secondary)",

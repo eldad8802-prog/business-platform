@@ -13,6 +13,7 @@ import {
   ToggleRow,
   areaPanelStyle,
 } from "./bot-builder-area-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -57,6 +58,7 @@ export function KnowledgeProfileScreen({
   setProductLinkIntro: (v: string) => void;
   onSaveSettings: () => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -84,11 +86,11 @@ export function KnowledgeProfileScreen({
       setFaq(data.knowledge?.faq ?? []);
       setServicesCount(data.bridges?.servicesCount ?? 0);
     } catch {
-      setError("לא ניתן לטעון את הידע");
+      setError(t("content.bot.common.errors.loadKnowledge"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,7 +134,7 @@ export function KnowledgeProfileScreen({
         }),
       });
       if (!res.ok) {
-        let msg = "שמירת הידע נכשלה";
+        let msg = t("content.bot.common.errors.knowledgeSaveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -148,57 +150,57 @@ export function KnowledgeProfileScreen({
       window.setTimeout(() => setSavedOk(false), 2500);
       await load();
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="מה הבוט יודע"
-          subtitle="ככל שהבוט יודע יותר על העסק, ככה התשובות שלו מדויקות יותר. (נשמר כידע — עדיין לא בשימוש בשיחה.)"
+          title={t("content.bot.knowledge.title")}
+          subtitle={t("content.bot.knowledge.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {loading ? (
-          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+          <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
         ) : (
           <>
-            <div style={sectionLabel}>ידע על העסק</div>
+            <div style={sectionLabel}>{t("content.bot.hub.knowledge.section")}</div>
             <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
               <div style={{ display: "grid", gap: 16 }}>
                 <BuilderTextField
-                  label="שעות פעילות"
-                  hint="לדוגמה: א׳–ה׳ 9:00–19:00"
+                  label={t("content.bot.hub.knowledge.hours")}
+                  hint={t("content.bot.knowledge.hoursHint")}
                   value={hours}
                   onChange={setHours}
-                  placeholder="שעות פעילות"
+                  placeholder={t("content.bot.hub.knowledge.hours")}
                 />
                 <BuilderTextField
-                  label="כתובת והגעה"
+                  label={t("content.bot.knowledge.addressLabel")}
                   value={address}
                   onChange={setAddress}
-                  placeholder="לדוגמה: הרצל 24, ירושלים"
+                  placeholder={t("content.bot.knowledge.addressPlaceholder")}
                 />
                 <BuilderTextAreaField
-                  label="מידע חופשי על העסק"
-                  hint="הערות שכדאי שהבוט יכיר."
+                  label={t("content.bot.hub.knowledge.notes")}
+                  hint={t("content.bot.knowledge.notesHint")}
                   value={notes}
                   onChange={setNotes}
                   rows={3}
-                  placeholder="לדוגמה: יש חניה בחצר, גישה לנכים..."
+                  placeholder={t("content.bot.knowledge.notesPlaceholder")}
                 />
               </div>
             </section>
 
-            <div style={sectionLabel}>שאלות נפוצות</div>
+            <div style={sectionLabel}>{t("content.bot.hub.knowledge.faq")}</div>
             <section style={{ ...areaPanelStyle, padding: "12px 0" }}>
               {faq.length === 0 ? (
                 <p style={{ margin: "4px 18px", color: TOKEN.ink.muted, fontSize: TOKEN.font.meta }}>
-                  עדיין אין שאלות נפוצות.
+                  {t("content.bot.knowledge.faqEmpty")}
                 </p>
               ) : null}
               {faq.map((item, i) => (
@@ -215,12 +217,12 @@ export function KnowledgeProfileScreen({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.muted }}>
-                      שאלה {i + 1}
+                      {t("content.bot.common.questionN", { n: i + 1 })}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeFaq(i)}
-                      aria-label="הסר שאלה"
+                      aria-label={t("content.bot.common.removeQuestion")}
                       style={{ border: 0, background: "transparent", color: TOKEN.ink.meta, cursor: "pointer", fontSize: TOKEN.font.body }}
                     >
                       ✕
@@ -229,13 +231,13 @@ export function KnowledgeProfileScreen({
                   <input
                     value={item.question}
                     onChange={(e) => updateFaq(i, { question: e.target.value })}
-                    placeholder="השאלה"
+                    placeholder={t("content.bot.common.faqQuestion")}
                     style={inputStyle}
                   />
                   <textarea
                     value={item.answer}
                     onChange={(e) => updateFaq(i, { answer: e.target.value })}
-                    placeholder="התשובה"
+                    placeholder={t("content.bot.common.faqAnswer")}
                     rows={2}
                     style={{ ...inputStyle, resize: "vertical", minHeight: 56 }}
                   />
@@ -259,22 +261,22 @@ export function KnowledgeProfileScreen({
                     cursor: "pointer",
                   }}
                 >
-                  + הוסף שאלה נפוצה
+                  {t("content.bot.common.addFaq")}
                 </button>
               ) : null}
             </section>
 
-            <div style={sectionLabel}>קישור לקטלוג</div>
+            <div style={sectionLabel}>{t("content.bot.hub.knowledge.catalog")}</div>
             <section style={areaPanelStyle}>
               <ToggleRow
-                label="הצע קישור לקטלוג באינבוקס"
-                hint="כשלקוח מבקש לראות מוצרים, האינבוקס יוכל למלא הודעה עם הקישור."
+                label={t("content.bot.common.offerCatalogLink")}
+                hint={t("content.bot.knowledge.catalogHint")}
                 checked={productLinkEnabled}
                 onChange={setProductLinkEnabled}
               />
               <div style={{ display: "grid", gap: 16, padding: "16px 0" }}>
                 <BuilderTextField
-                  label="כתובת דף (URL)"
+                  label={t("content.bot.common.pageUrl")}
                   value={productLinkUrl}
                   onChange={setProductLinkUrl}
                   placeholder="https://..."
@@ -283,8 +285,8 @@ export function KnowledgeProfileScreen({
                   dir="ltr"
                 />
                 <BuilderTextAreaField
-                  label="משפט קצר לפני הקישור"
-                  hint="אופציונלי."
+                  label={t("content.bot.common.linkIntroShort")}
+                  hint={t("content.bot.knowledge.optional")}
                   value={productLinkIntro}
                   onChange={setProductLinkIntro}
                   rows={2}
@@ -294,8 +296,9 @@ export function KnowledgeProfileScreen({
             </section>
 
             <GuardNote>
-              שירותים ומחירון נשארים במקור הקיים שלהם
-              {servicesCount > 0 ? ` (${servicesCount} שירותים מוגדרים)` : ""} — לא משוכפלים כאן. הידע נשמר אך אינו בשימוש בתשובות בשלב הזה.
+              {servicesCount > 0
+                ? t("content.bot.knowledge.guardWithServices", { count: servicesCount })
+                : t("content.bot.knowledge.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -303,7 +306,7 @@ export function KnowledgeProfileScreen({
               saving={saving}
               saved={savedOk}
               error={error}
-              saveLabel="שמור ידע"
+              saveLabel={t("content.bot.hub.knowledge.save")}
             />
           </>
         )}

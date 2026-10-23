@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type ContentFlowData = {
   mode: string;
@@ -21,6 +23,7 @@ type ContentFlowData = {
 
 export default function Page() {
   const router = useRouter();
+  const { t } = useI18n();
   const [flowData, setFlowData] = useState<ContentFlowData | null>(null);
 
   useEffect(() => {
@@ -52,11 +55,11 @@ export default function Page() {
   if (!flowData) {
     return (
       <div style={baseStyles.page}>
-        <Header title="הכנת נכסים" />
+        <Header title={t("content.studioFlow.assets.headerTitle")} />
         <ProgressBar progress={100} />
 
         <div style={baseStyles.container}>
-          <div style={emptyCard}>טוען...</div>
+          <div style={emptyCard}>{t("content.studioFlow.assets.loading")}</div>
         </div>
       </div>
     );
@@ -70,27 +73,27 @@ export default function Page() {
 
   return (
     <div style={baseStyles.page}>
-      <Header title="הכנת נכסים" />
+      <Header title={t("content.studioFlow.assets.headerTitle")} />
       <ProgressBar progress={100} />
 
       <div style={baseStyles.container}>
-        <h1 style={{ marginBottom: 8 }}>בוא נכין את התוכן שלך</h1>
+        <h1 style={{ marginBottom: 8 }}>{t("content.studioFlow.assets.title")}</h1>
 
         <div style={card}>
-          <h2 style={h2}>סוג תוכן</h2>
-          <div style={value}>{mapFormat(flowData.selectedFormat)}</div>
+          <h2 style={h2}>{t("content.studioFlow.create.format")}</h2>
+          <div style={value}>{mapFormat(t, flowData.selectedFormat)}</div>
         </div>
 
         {flowData.videoType ? (
           <div style={card}>
-            <h2 style={h2}>כיוון מוביל</h2>
+            <h2 style={h2}>{t("content.studioFlow.assets.leadDirection")}</h2>
             <div style={value}>{flowData.videoType.label}</div>
           </div>
         ) : null}
 
         {!isAI ? (
           <div style={card}>
-            <h2 style={h2}>מה צריך להכין</h2>
+            <h2 style={h2}>{t("content.studioFlow.create.assets")}</h2>
 
             {requiredAssets.map((item, idx) => (
               <div key={idx} style={instruction}>
@@ -102,7 +105,7 @@ export default function Page() {
 
         {!isAI && optionalAssets.length > 0 ? (
           <div style={card}>
-            <h2 style={h2}>אופציונלי</h2>
+            <h2 style={h2}>{t("content.studioFlow.create.optional")}</h2>
 
             {optionalAssets.map((item, idx) => (
               <div key={idx} style={instruction}>
@@ -114,16 +117,16 @@ export default function Page() {
 
         {isAI ? (
           <div style={card}>
-            <h2 style={h2}>יצירה אוטומטית</h2>
+            <h2 style={h2}>{t("content.studioFlow.assets.autoTitle")}</h2>
             <p style={{ color: "var(--dz-text-secondary)" }}>
-              המערכת תיצור עבורך את התוכן באופן אוטומטי לפי הנתונים שהזנת
+              {t("content.studioFlow.assets.autoText")}
             </p>
           </div>
         ) : null}
 
         {guidance ? (
           <div style={card}>
-            <h2 style={h2}>הכוונה</h2>
+            <h2 style={h2}>{t("content.studioFlow.assets.guidance")}</h2>
             <p style={{ color: "var(--dz-text-secondary)" }}>{guidance}</p>
           </div>
         ) : null}
@@ -131,18 +134,18 @@ export default function Page() {
 
       <div style={baseStyles.footer}>
         <button style={baseStyles.cta} onClick={handleContinue}>
-          המשך ליצירת התוכן
+          {t("content.studioFlow.assets.cta")}
         </button>
       </div>
     </div>
   );
 }
 
-function mapFormat(value: string) {
-  if (value === "reel") return "רילס";
-  if (value === "video") return "וידאו";
-  if (value === "image") return "תמונה";
-  return "פוסט";
+function mapFormat(t: Translator, value: string) {
+  if (value === "reel") return t("content.studioFlow.options.format.reel");
+  if (value === "video") return t("content.studioFlow.options.format.video");
+  if (value === "image") return t("content.studioFlow.options.format.image");
+  return t("content.studioFlow.options.format.post");
 }
 
 const card = {

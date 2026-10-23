@@ -12,6 +12,7 @@ import {
   formatIssueDate,
   getOfferSummary,
 } from "@/lib/revenue/issue/issue.helpers";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type CouponDisplayProps = {
   offer: IssueOffer;
@@ -26,10 +27,16 @@ export default function CouponDisplay({
   onOpenFullScreen,
 }: CouponDisplayProps) {
   const router = useRouter();
+  const { t, locale, formatDate } = useI18n();
+  // Hebrew keeps the legacy issue-date text byte-for-byte; other languages use the shared formatter.
+  const showDate = (value: string | null | undefined) =>
+    locale === "he" ? formatIssueDate(value) : formatDate(value, "dateTime");
   const [shareMessage, setShareMessage] = useState("");
 
   const offerSummary = getOfferSummary(offer.title, offer.description);
 
+  // The share text goes to the CUSTOMER (outbound message), not the interface — it stays in the
+  // business's Hebrew until outbound messages follow a stored customer language (i18n B-4).
   const whatsappText = [
     "היי,",
     `נוצר עבורך קופון לשימוש בתנאים הבאים: ${offer.title}`,
@@ -47,20 +54,20 @@ export default function CouponDisplay({
       )}`;
 
       window.location.href = whatsappUrl;
-      setShareMessage("פותח WhatsApp...");
+      setShareMessage(t("billing.couponIssue.whatsappOpening"));
     } catch (error) {
       console.error("WhatsApp share error:", error);
-      setShareMessage("לא הצלחנו לפתוח WhatsApp");
+      setShareMessage(t("billing.couponIssue.whatsappFailed"));
     }
   };
 
   const handleCopyMessage = async () => {
     try {
       await navigator.clipboard.writeText(whatsappText);
-      setShareMessage("ההודעה הועתקה");
+      setShareMessage(t("billing.couponIssue.messageCopied"));
     } catch (error) {
       console.error("Copy message error:", error);
-      setShareMessage("לא הצלחנו להעתיק את ההודעה");
+      setShareMessage(t("billing.couponIssue.copyFailed"));
     }
   };
 
@@ -93,7 +100,7 @@ export default function CouponDisplay({
               cursor: "pointer",
             }}
           >
-            חזרה
+            {t("common.back")}
           </button>
         </div>
 
@@ -110,7 +117,7 @@ export default function CouponDisplay({
               marginBottom: 6,
             }}
           >
-            קופון מוכן למימוש
+            {t("billing.couponIssue.couponReady")}
           </div>
 
           <div
@@ -120,8 +127,7 @@ export default function CouponDisplay({
               lineHeight: 1.6,
             }}
           >
-            זהו השלב השני בזרימת הקופונים. אפשר לשתף, להציג, ולהמשיך לשימוש
-            בפועל.
+            {t("billing.couponIssue.couponReadyHelp")}
           </div>
         </div>
 
@@ -152,7 +158,7 @@ export default function CouponDisplay({
           />
         </div>
 
-        <div style={{ textAlign: "right" }}>
+        <div style={{ textAlign: "start" }}>
           <div
             style={{
               fontSize: 14,
@@ -160,7 +166,7 @@ export default function CouponDisplay({
               marginBottom: 6,
             }}
           >
-            מה הלקוח מקבל
+            {t("billing.couponIssue.customerGets")}
           </div>
 
           <div
@@ -182,7 +188,7 @@ export default function CouponDisplay({
               marginBottom: 10,
             }}
           >
-            קופון לשימוש ממוקד בתנאים ברורים
+            {t("billing.couponIssue.couponTagline")}
           </div>
 
           <div
@@ -205,9 +211,9 @@ export default function CouponDisplay({
               lineHeight: 1.8,
             }}
           >
-            <div>קוד קופון: {coupon.token}</div>
-            <div>נוצר: {formatIssueDate(coupon.issuedAt)}</div>
-            <div>תוקף: {formatIssueDate(coupon.expiresAt)}</div>
+            <div>{t("billing.couponIssue.couponCode", { code: coupon.token })}</div>
+            <div>{t("billing.couponIssue.createdAt", { date: showDate(coupon.issuedAt) })}</div>
+            <div>{t("billing.couponIssue.validUntil", { date: showDate(coupon.expiresAt) })}</div>
           </div>
         </div>
 
@@ -242,7 +248,7 @@ export default function CouponDisplay({
               cursor: "pointer",
             }}
           >
-            שתף ב־WhatsApp
+            {t("billing.couponIssue.shareWhatsapp")}
           </button>
 
           <button
@@ -258,7 +264,7 @@ export default function CouponDisplay({
               cursor: "pointer",
             }}
           >
-            העתק הודעה
+            {t("billing.couponIssue.copyMessage")}
           </button>
 
           <button
@@ -274,7 +280,7 @@ export default function CouponDisplay({
               cursor: "pointer",
             }}
           >
-            הצג במסך מלא
+            {t("billing.couponIssue.showFullScreen")}
           </button>
         </div>
       </div>

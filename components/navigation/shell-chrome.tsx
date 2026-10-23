@@ -27,7 +27,7 @@ const WARM_GROUND_PATHS = new Set(["/profile", "/settings", "/business/identity"
  * the SAME nav source (nav-destinations) — the nav list is never duplicated.
  * Exactly one nav surface is visible at any width (mutually exclusive
  * `.shell-nav-*` display rules). The content reserves the matching inline-start
- * padding (RTL → right) for the rail/sidebar and the bottom padding for the
+ * padding (inline-start: right in Hebrew, left in English) for the rail/sidebar and the bottom padding for the
  * mobile bar.
  *
  * A single visibility signal (`useShellChromeHidden`) removes ALL nav chrome for
@@ -70,8 +70,8 @@ const shellCss = `
 .dz-bottom__item[data-active] { color: #1D5552; font-weight: 600; }
 .dz-bottom__icon { position: relative; height: 30px; display: flex; align-items: center; justify-content: center; }
 .dz-bottom__item[data-active] .dz-bottom__icon { width: 56px; border-radius: 999px; background: #E3F2F0; }
-.dz-bottom__dot { position: absolute; top: 4px; left: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
-.dz-bottom__item[data-active] .dz-bottom__dot { left: 16px; }
+.dz-bottom__dot { position: absolute; top: 4px; inset-inline-end: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
+.dz-bottom__item[data-active] .dz-bottom__dot { inset-inline-end: 16px; }
 .dz-bottom__new {
   width: 58px; height: 58px; margin-top: -30px; border-radius: 999px;
   border: 4px solid #FEF8F2; background: #246966; color: #FFFFFF;
@@ -86,7 +86,7 @@ const shellCss = `
   width: 100px; box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
   background: #FFFDFA; border-inline-end: 1px solid #F0E3D3;
   padding: 24px 10px; display: flex; flex-direction: column; align-items: center; gap: 14px;
-  direction: rtl;
+
 }
 .dz-rail__logo {
   width: 44px; height: 44px; flex-shrink: 0; border-radius: 14px;
@@ -106,8 +106,8 @@ const shellCss = `
 .dz-rail__item[data-active] { color: #1D5552; font-weight: 600; }
 .dz-rail__icon { position: relative; height: 34px; display: flex; align-items: center; justify-content: center; }
 .dz-rail__item[data-active] .dz-rail__icon { width: 60px; border-radius: 999px; background: #E3F2F0; }
-.dz-rail__dot { position: absolute; top: 5px; left: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
-.dz-rail__item[data-active] .dz-rail__dot { left: 18px; }
+.dz-rail__dot { position: absolute; top: 5px; inset-inline-end: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
+.dz-rail__item[data-active] .dz-rail__dot { inset-inline-end: 18px; }
 
 /* ---- desktop sidebar (reference: desktop.html) ---- */
 .dz-sidebar {
@@ -115,7 +115,7 @@ const shellCss = `
   width: 264px; box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
   background: #FFFDFA; border-inline-end: 1px solid #F0E3D3;
   padding: 22px 14px; display: flex; flex-direction: column; gap: 14px;
-  color: #1E2B2A; direction: rtl;
+  color: #1E2B2A;
 }
 .dz-sidebar__brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; text-decoration: none; }
 .dz-sidebar__mark {
@@ -198,7 +198,6 @@ export function ShellChrome({ children, topSlot = null }: ShellChromeProps) {
 
   return (
     <div
-      dir="rtl"
       className="flex min-h-screen w-full flex-col"
       data-shell-root
       data-chrome={chromeHidden ? "off" : "on"}

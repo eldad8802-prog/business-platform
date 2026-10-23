@@ -27,6 +27,7 @@ import type {
   WebhookEventPatch,
 } from "./payments.types";
 import { REFUND_ACCOUNTING_ATTENTION_REASON } from "./payments.types";
+import { BASE_CURRENCY, currencyOrBase, orderCurrencies } from "@/lib/money/currency-split";
 
 export interface InMemoryPaymentStore extends PaymentStore {
   /** Seed an active/inactive connection for a business. */
@@ -346,10 +347,23 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
           r.paidAt.getTime() >= from.getTime() &&
           r.paidAt.getTime() < to.getTime()
       );
-      const amount = paid.reduce((sum, r) => sum + Number(r.amount), 0);
+      // Per currency, exactly like the Prisma store: the ILS rows are the figure, nothing is added
+      // across currencies.
+      const byCurrency = new Map<string, { sum: number; count: number }>();
+      for (const r of paid) {
+        const currency = currencyOrBase(r.currency);
+        const entry = byCurrency.get(currency) ?? { sum: 0, count: 0 };
+        byCurrency.set(currency, { sum: entry.sum + Number(r.amount), count: entry.count + 1 });
+      }
+      const fixed = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
       return {
-        amount: (Math.round(amount * 100) / 100).toFixed(2),
+        amount: fixed(byCurrency.get(BASE_CURRENCY)?.sum ?? 0),
         count: paid.length,
+        byCurrency: orderCurrencies(byCurrency.keys(), BASE_CURRENCY).map((currency) => ({
+          currency,
+          amount: fixed(byCurrency.get(currency)!.sum),
+          count: byCurrency.get(currency)!.count,
+        })),
       };
     },
 

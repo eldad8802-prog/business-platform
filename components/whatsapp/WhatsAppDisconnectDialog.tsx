@@ -2,7 +2,7 @@
 
 import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 import { TOKEN } from "@/lib/design/tokens";
-import { WA_COPY } from "./wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconPower } from "./wa-icons";
 
 /**
@@ -24,7 +24,7 @@ export function WhatsAppDisconnectDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const c = WA_COPY.disconnect;
+  const { t } = useI18n();
   const dialogRef = useAccessibleDialog<HTMLDivElement>({
     isOpen: true,
     onClose: () => {
@@ -34,7 +34,6 @@ export function WhatsAppDisconnectDialog({
 
   return (
     <div
-      dir="rtl"
       onClick={onCancel}
       style={{
         position: "fixed",
@@ -50,7 +49,7 @@ export function WhatsAppDisconnectDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={c.title}
+        aria-label={t("inbox.whatsapp.disconnect.title")}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
@@ -101,7 +100,7 @@ export function WhatsAppDisconnectDialog({
             lineHeight: 1.3,
           }}
         >
-          {c.title}
+          {t("inbox.whatsapp.disconnect.title")}
         </h2>
         <p
           style={{
@@ -113,7 +112,7 @@ export function WhatsAppDisconnectDialog({
             lineHeight: 1.55,
           }}
         >
-          {c.body}
+          {t("inbox.whatsapp.disconnect.body")}
         </p>
 
         {error && (
@@ -150,7 +149,7 @@ export function WhatsAppDisconnectDialog({
               opacity: busy ? 0.6 : 1,
             }}
           >
-            {busy ? c.confirmBusy : c.confirm}
+            {busy ? t("inbox.whatsapp.disconnect.confirmBusy") : t("inbox.whatsapp.disconnect.confirm")}
           </button>
           <button
             type="button"
@@ -170,7 +169,7 @@ export function WhatsAppDisconnectDialog({
               opacity: busy ? 0.6 : 1,
             }}
           >
-            {c.cancel}
+            {t("inbox.whatsapp.disconnect.cancel")}
           </button>
         </div>
       </div>

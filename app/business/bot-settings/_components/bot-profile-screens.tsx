@@ -32,6 +32,8 @@ import {
   StickyActionBar,
   areaPanelStyle,
 } from "./bot-builder-area-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { localizeValueHintOptions, localizeValueOptions } from "./bot-i18n";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -49,6 +51,7 @@ type BotApiResponse = {
 
 /** Shared state for all BusinessBot profile-backed screens. */
 function useBotProfileState() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,11 +93,11 @@ function useBotProfileState() {
       setPriorities(a?.priorities ?? []);
       setObjections(a?.objections ?? []);
     } catch {
-      setError("לא ניתן לטעון את פרטי הבוט");
+      setError(t("content.bot.common.errors.loadProfile"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +123,7 @@ function useBotProfileState() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        let msg = "שמירה נכשלה";
+        let msg = t("content.bot.common.saveFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = String(j.error);
@@ -135,12 +138,12 @@ function useBotProfileState() {
       await load();
       return true;
     } catch {
-      setError("שגיאת רשת");
+      setError(t("content.bot.common.networkError"));
       return false;
     } finally {
       setSaving(false);
     }
-  }, [load]);
+  }, [load, t]);
 
   const voiceBlock = useMemo<BotVoiceConfig>(() => {
     const block: BotVoiceConfig = {};
@@ -312,7 +315,7 @@ function ScaleSingle<T extends string>({
               border: `1px solid ${on ? TOKEN.brand.mid : TOKEN.border.DEFAULT}`,
               background: on ? TOKEN.brand.soft : TOKEN.surface.card,
               cursor: "pointer",
-              textAlign: "right",
+              textAlign: "start",
               fontFamily: "inherit",
               width: "100%",
             }}
@@ -346,41 +349,43 @@ function ScaleSingle<T extends string>({
 }
 
 function Loading() {
+  const { t } = useI18n();
   return (
-    <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
+    <p style={{ margin: 18, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>{t("content.bot.common.loading")}</p>
   );
 }
 
 // ── Personality ──────────────────────────────────────────────────────────────
 export function PersonalityFlagshipScreen() {
+  const { t } = useI18n();
   const s = useBotProfileState();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="האופי של הבוט"
-          subtitle="איזה אופי יתאים לעסק שלך? אפשר לשלב כמה — ככה הבוט מרגיש שלך."
+          title={t("content.bot.profile.personality.title")}
+          subtitle={t("content.bot.profile.personality.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {s.loading ? (
           <Loading />
         ) : (
           <>
-            <div style={sectionLabel}>האישיות שלו</div>
+            <div style={sectionLabel}>{t("content.bot.hub.personality.traits")}</div>
             <ChipMulti
-              options={BOT_TRAIT_OPTIONS}
+              options={localizeValueOptions(t, "trait", BOT_TRAIT_OPTIONS)}
               selected={s.traits}
               onToggle={(v) => s.setTraits((list) => toggleIn(list, v))}
             />
-            <div style={sectionLabel}>כמה קצר או מפורט</div>
+            <div style={sectionLabel}>{t("content.bot.hub.personality.verbosity")}</div>
             <ScaleSingle
-              options={BOT_VERBOSITY_OPTIONS}
+              options={localizeValueHintOptions(t, "verbosity", BOT_VERBOSITY_OPTIONS)}
               selected={s.verbosity}
               onSelect={s.setVerbosity}
             />
             <GuardNote>
-              זה רק האופי — שכבה תיאורית. הבוט עדיין מכין טיוטות בלבד, ואינו שולח לבד.
+              {t("content.bot.profile.personality.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -388,7 +393,7 @@ export function PersonalityFlagshipScreen() {
               saving={s.saving}
               saved={s.savedOk}
               error={s.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -399,40 +404,41 @@ export function PersonalityFlagshipScreen() {
 
 // ── Approach ─────────────────────────────────────────────────────────────────
 export function ApproachFlagshipScreen() {
+  const { t } = useI18n();
   const s = useBotProfileState();
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="הגישה של הבוט"
-          subtitle="איך הבוט מתנהל מול לקוחות — בדיוק כמו שאתה היית רוצה."
+          title={t("content.bot.profile.approach.title")}
+          subtitle={t("content.bot.profile.approach.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {s.loading ? (
           <Loading />
         ) : (
           <>
-            <div style={sectionLabel}>סגנון מכירה</div>
+            <div style={sectionLabel}>{t("content.bot.hub.approach.saleStyle")}</div>
             <ScaleSingle
-              options={BOT_SALE_STYLE_OPTIONS}
+              options={localizeValueHintOptions(t, "saleStyle", BOT_SALE_STYLE_OPTIONS)}
               selected={s.saleStyle}
               onSelect={s.setSaleStyle}
             />
-            <div style={sectionLabel}>רמת יוזמה</div>
+            <div style={sectionLabel}>{t("content.bot.hub.approach.initiative")}</div>
             <ScaleSingle
-              options={BOT_INITIATIVE_OPTIONS}
+              options={localizeValueOptions(t, "initiative", BOT_INITIATIVE_OPTIONS)}
               selected={s.initiativeLevel}
               onSelect={s.setInitiativeLevel}
             />
-            <div style={sectionLabel}>מה הכי חשוב לבוט</div>
+            <div style={sectionLabel}>{t("content.bot.hub.approach.priorities")}</div>
             <ChipMulti
-              options={BOT_PRIORITY_OPTIONS}
+              options={localizeValueOptions(t, "priority", BOT_PRIORITY_OPTIONS)}
               selected={s.priorities}
               onToggle={(v) => s.setPriorities((list) => toggleIn(list, v))}
             />
             <GuardNote>
-              גישה היא הכוונה תיאורית בלבד בשלב הזה — אינה מחוברת לזרימת השיחה החיה.
+              {t("content.bot.profile.approach.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -440,7 +446,7 @@ export function ApproachFlagshipScreen() {
               saving={s.saving}
               saved={s.savedOk}
               error={s.error}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}
@@ -459,6 +465,7 @@ export function VoiceProfileScreen({
   onWelcomeChange: (value: string) => void;
   onSaveWelcome: () => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const s = useBotProfileState();
   const [combinedSaving, setCombinedSaving] = useState(false);
   const [combinedSaved, setCombinedSaved] = useState(false);
@@ -471,7 +478,7 @@ export function VoiceProfileScreen({
     try {
       const ok = await s.saveIdentityAndVoice();
       if (!ok) {
-        setCombinedError(s.error ?? "שמירת זהות/קול נכשלה");
+        setCombinedError(s.error ?? t("content.bot.profile.voice.saveError"));
         return;
       }
       await onSaveWelcome();
@@ -483,13 +490,13 @@ export function VoiceProfileScreen({
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
+    <div style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <main style={screenWrap}>
         <AreaHeader
-          title="איך הוא מדבר"
-          subtitle="שם, טון, שפות וקהל יעד — והודעת הפתיחה שהבוט מכין בתחילת שיחה."
+          title={t("content.bot.hub.areas.voice.title")}
+          subtitle={t("content.bot.profile.voice.subtitle")}
           backHref="/business/bot"
-          backLabel="הבוט שלי"
+          backLabel={t("content.bot.common.myBot")}
         />
         {s.loading ? (
           <Loading />
@@ -497,31 +504,31 @@ export function VoiceProfileScreen({
           <>
             <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
               <BuilderTextField
-                label="שם הבוט"
-                hint="איך הבוט מציג את עצמו (לדוגמה: רוני מ-רויאל)."
+                label={t("content.bot.common.botName")}
+                hint={t("content.bot.profile.voice.nameHint")}
                 value={s.displayName}
                 onChange={s.setDisplayName}
-                placeholder="שם הבוט"
+                placeholder={t("content.bot.common.botName")}
               />
             </section>
 
-            <div style={sectionLabel}>טון</div>
+            <div style={sectionLabel}>{t("content.bot.hub.voice.tone")}</div>
             <ChipMulti
-              options={BOT_TONE_OPTIONS}
+              options={localizeValueOptions(t, "tone", BOT_TONE_OPTIONS)}
               selected={s.tone ? [s.tone] : []}
               onToggle={(v) => s.setTone((cur) => (cur === v ? null : v))}
             />
 
-            <div style={sectionLabel}>שפות</div>
+            <div style={sectionLabel}>{t("content.bot.hub.voice.languages")}</div>
             <ChipMulti
-              options={BOT_LANGUAGE_OPTIONS}
+              options={localizeValueOptions(t, "language", BOT_LANGUAGE_OPTIONS)}
               selected={s.languages}
               onToggle={(v) => s.setLanguages((list) => toggleIn(list, v))}
             />
 
-            <div style={sectionLabel}>למי הבוט מדבר · קהל יעד</div>
+            <div style={sectionLabel}>{t("content.bot.profile.voice.audience")}</div>
             <ChipMulti
-              options={BOT_AUDIENCE_OPTIONS}
+              options={localizeValueOptions(t, "audience", BOT_AUDIENCE_OPTIONS)}
               selected={s.audienceTags}
               onToggle={(v) => s.setAudienceTags((list) => toggleIn(list, v))}
             />
@@ -529,10 +536,10 @@ export function VoiceProfileScreen({
             <section style={{ ...areaPanelStyle, padding: "16px 0", marginTop: 18 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 8, margin: "0 18px" }}>
                 <span style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold }}>
-                  הודעת פתיחה
+                  {t("content.bot.common.welcomeMessage")}
                 </span>
                 <span style={{ color: TOKEN.ink.muted, fontSize: TOKEN.font.meta }}>
-                  המשפט הראשון שהלקוח רואה. נשמר כהודעת הפתיחה הקיימת של הבוט.
+                  {t("content.bot.profile.voice.welcomeHint")}
                 </span>
                 <textarea
                   value={welcomeMessage}
@@ -559,7 +566,7 @@ export function VoiceProfileScreen({
             </section>
 
             <GuardNote>
-              שם/טון/שפות/קהל נשמרים בפרופיל הבוט; הודעת הפתיחה נשמרת בהגדרות הקיימות. אין שינוי לזרימת השיחה.
+              {t("content.bot.profile.voice.guard")}
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar
@@ -567,7 +574,7 @@ export function VoiceProfileScreen({
               saving={combinedSaving || s.saving}
               saved={combinedSaved}
               error={combinedError}
-              saveLabel="שמור"
+              saveLabel={t("content.bot.common.save")}
             />
           </>
         )}

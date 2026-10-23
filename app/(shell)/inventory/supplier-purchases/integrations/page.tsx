@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { InventoryRow, InventoryBadge, ConfirmModal } from "@/components/inventory/inventory-design";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function ConnectButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -31,51 +32,52 @@ function ConnectButton({ label, onClick }: { label: string; onClick: () => void 
 
 export default function SupplierPurchasesIntegrationsPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [comingSoon, setComingSoon] = useState(false);
 
   return (
     <InventorySubPage intent="standard"
-      title="אינטגרציות"
+      title={t("customers.purchases.integrations.title")}
       variant="hub"
       hubBack
-      sub="חברו קופה או ספק לעדכון מלאי אוטומטי"
+      sub={t("customers.purchases.integrations.sub")}
       bottomNav="orders"
     >
       <div className="inv-desk-workspace inv-ops">
       <div className="inv-rows">
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>🧾</span>}
-          title="קופה (POS)"
-          meta="מכירות מתעדכנות אוטומטית במלאי"
-          trail={<ConnectButton label="חבר" onClick={() => setComingSoon(true)} />}
+          title={t("customers.purchases.integrations.posTitle")}
+          meta={t("customers.purchases.integrations.posMeta")}
+          trail={<ConnectButton label={t("customers.purchases.integrations.connect")} onClick={() => setComingSoon(true)} />}
         />
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>📄</span>}
-          title="יבוא קבצי CSV"
-          meta="קליטת חשבוניות רכש מספקים"
-          trail={<ConnectButton label="ייבא" onClick={() => router.push("/inventory/supplier-purchases/import")} />}
+          title={t("customers.purchases.integrations.csvTitle")}
+          meta={t("customers.purchases.integrations.csvMeta")}
+          trail={<ConnectButton label={t("customers.purchases.integrations.import")} onClick={() => router.push("/inventory/supplier-purchases/import")} />}
         />
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>🔌</span>}
-          title="חיבור ספק חדש (API)"
-          meta="הזמנות ועדכוני מחיר אוטומטיים"
-          trail={<InventoryBadge tone="neutral">בקרוב</InventoryBadge>}
+          title={t("customers.purchases.integrations.apiTitle")}
+          meta={t("customers.purchases.integrations.apiMeta")}
+          trail={<InventoryBadge tone="neutral">{t("customers.purchases.integrations.comingSoon")}</InventoryBadge>}
           onClick={() => setComingSoon(true)}
         />
       </div>
       <aside className="inv-ops__side">
-        <h2>מה החיבור עושה</h2>
-        <p>קופה מעדכנת מלאי ממכירות. יבוא CSV יוצר טיוטות לבדיקה, והמלאי משתנה רק בקליטה.</p>
-        <p>חיבור API לספק עדיין לא פעיל. אין כאן סטטוס ספק מומצא.</p>
+        <h2>{t("customers.purchases.integrations.sideTitle")}</h2>
+        <p>{t("customers.purchases.integrations.sideBody1")}</p>
+        <p>{t("customers.purchases.integrations.sideBody2")}</p>
       </aside>
       </div>
 
       {comingSoon ? (
         <ConfirmModal
-          title="בשלב הבא"
-          body="יהיה אפשר להזין מפתח API מול הספק, לשמור חיבור מאובטח, ולבדוק שהחיבור תקין — לפני משיכת קטלוגים והזמנות אמיתית."
-          confirmLabel="הבנתי"
-          cancelLabel="סגירה"
+          title={t("customers.purchases.integrations.modalTitle")}
+          body={t("customers.purchases.integrations.modalBody")}
+          confirmLabel={t("customers.purchases.integrations.gotIt")}
+          cancelLabel={t("customers.purchases.integrations.close")}
           onConfirm={() => setComingSoon(false)}
           onCancel={() => setComingSoon(false)}
         />

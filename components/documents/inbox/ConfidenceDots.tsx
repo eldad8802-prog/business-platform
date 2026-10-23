@@ -2,6 +2,8 @@
 
 import type { InboxConfidenceDots } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 const DOT_COLOR: Record<
   InboxConfidenceDots[keyof InboxConfidenceDots],
@@ -14,11 +16,11 @@ const DOT_COLOR: Record<
 
 const DOT_LABEL: Record<
   InboxConfidenceDots[keyof InboxConfidenceDots],
-  string
+  MessageKey
 > = {
-  high: "גבוהה",
-  medium: "בינונית",
-  low: "נמוכה",
+  high: "documents.inbox.confidenceHigh",
+  medium: "documents.inbox.confidenceMedium",
+  low: "documents.inbox.confidenceLow",
 };
 
 function Dot({
@@ -28,6 +30,7 @@ function Dot({
   label: string;
   level: InboxConfidenceDots[keyof InboxConfidenceDots];
 }) {
+  const { t } = useI18n();
   return (
     <span
       style={{
@@ -43,7 +46,7 @@ function Dot({
         color: DOT_COLOR[level],
         whiteSpace: "nowrap",
       }}
-      title={`${label}: מהימנות ${DOT_LABEL[level]}`}
+      title={t("documents.inbox.confidenceTitle", { label, level: t(DOT_LABEL[level]) })}
     >
       <span
         aria-hidden
@@ -62,9 +65,9 @@ function Dot({
 }
 
 export default function ConfidenceDots({ dots }: { dots: InboxConfidenceDots }) {
+  const { t } = useI18n();
   return (
     <div
-      dir="rtl"
       style={{
         display: "flex",
         flexWrap: "wrap",
@@ -72,9 +75,9 @@ export default function ConfidenceDots({ dots }: { dots: InboxConfidenceDots }) 
         marginTop: 8,
       }}
     >
-      <Dot label="סכום" level={dots.amount} />
-      <Dot label="ספק" level={dots.vendor} />
-      <Dot label="תאריך" level={dots.dateProxy} />
+      <Dot label={t("documents.review.fields.amount")} level={dots.amount} />
+      <Dot label={t("documents.review.fields.vendor")} level={dots.vendor} />
+      <Dot label={t("documents.review.fields.date")} level={dots.dateProxy} />
     </div>
   );
 }

@@ -39,7 +39,9 @@ export type AttemptTicket =
 /**
  * Reserve one attempt in an exact rolling window for `key` (atomic — a parallel burst cannot exceed
  * `limit`). The ticket is then either cleared (the attempt proved legitimate: the window empties) or
- * turned into a lock. `count` includes this attempt; 0 means the backend was unavailable (fail open).
+ * turned into a lock. `count` includes this attempt. While the shared backend is unavailable the
+ * attempt is counted on this instance's local ledger instead (never an uncounted pass), and the
+ * ticket's clear / lock go to the ledger that issued it.
  */
 export async function reserveAttempt(params: {
   key: string;
@@ -50,12 +52,13 @@ export async function reserveAttempt(params: {
   const nowMs = params.nowMs ?? Date.now();
   const member = `${nowMs}:${randomUUID()}`;
   const r = await reserveRawAttempt({ key: params.key, member, limit: params.limit, windowMs: params.windowMs, nowMs });
-  if (!r.allowed) return r;
+  if (!r.allowed) return { allowed: false, locked: r.locked, retryAfterMs: r.retryAfterMs };
+  const via = r.via;
   return {
     allowed: true,
     count: r.count,
-    clear: () => clearRawAttempts(params.key),
-    lock: (lockMs: number) => lockRawAttempts(params.key, lockMs, Date.now()),
+    clear: () => clearRawAttempts(params.key, via),
+    lock: (lockMs: number) => lockRawAttempts(params.key, lockMs, Date.now(), via),
   };
 }
 

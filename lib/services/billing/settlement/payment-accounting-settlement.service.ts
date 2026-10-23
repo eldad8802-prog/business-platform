@@ -70,7 +70,11 @@ export type SettlementAttentionReason =
   // not yet said who issues them. Money recorded; the document waits.
   | "DOCUMENT_ISSUER_NOT_CONFIGURED"
   // A settled refund whose correcting document is not yet decided.
-  | "REFUND_ACCOUNTING_DECISION_REQUIRED";
+  | "REFUND_ACCOUNTING_DECISION_REQUIRED"
+  // The money arrived in a currency other than the base currency. Until the
+  // accounting rules for foreign-currency tax documents are approved, no
+  // receipt is issued automatically. Money recorded; the document waits.
+  | "FOREIGN_CURRENCY_DOCUMENT_HELD";
 
 /**
  * Attention reasons a generic "try again" must NEVER clear. Each one is a
@@ -84,7 +88,31 @@ export const NON_RETRYABLE_ATTENTION_REASONS: ReadonlySet<string> = new Set([
   "PROVIDER_IS_DOCUMENT_ISSUER",
   "DOCUMENT_ISSUER_NOT_CONFIGURED",
   "REFUND_ACCOUNTING_DECISION_REQUIRED",
+  "FOREIGN_CURRENCY_DOCUMENT_HELD",
 ]);
+
+/**
+ * The only currency Dubiz issues a tax document in automatically. ILS is the
+ * one base currency today; foreign-currency tax documents stay blocked until
+ * the owner/accountant approves the Israeli rules (rate date, VAT in ILS,
+ * uniform-file foreign-currency fields, ITA payload) — see
+ * docs/i18n-multicurrency/ARCHITECTURE.md (rule 4, open decision 4).
+ */
+export const AUTOMATIC_DOCUMENT_CURRENCY = "ILS";
+
+/**
+ * FOREIGN CURRENCY — hold the document, never the money. A verified payment in
+ * any currency other than AUTOMATIC_DOCUMENT_CURRENCY gets no automatic
+ * receipt: the PaymentTransaction stays PAID, the request PAID, and the
+ * settlement pauses with a stated reason a retry cannot clear.
+ */
+export function foreignCurrencyDocumentHoldFor(
+  currency: string
+): "FOREIGN_CURRENCY_DOCUMENT_HELD" | null {
+  return currency.trim().toUpperCase() === AUTOMATIC_DOCUMENT_CURRENCY
+    ? null
+    : "FOREIGN_CURRENCY_DOCUMENT_HELD";
+}
 
 /**
  * WHO ISSUES THE DOCUMENT — decided per connection, fail-closed.
@@ -408,6 +436,16 @@ async function settleInTx(
       customerId = request.customerId;
     }
 
+    // Every currency check above stands as it was (an invoice-backed foreign
+    // payment still pauses on CURRENCY_MISMATCH, invoices being ILS-only);
+    // what reaches here in a foreign currency — standalone, or against a
+    // foreign-currency invoice — is held before any receipt work. ILS passes
+    // through untouched.
+    const foreignHold = foreignCurrencyDocumentHoldFor(currency);
+    if (foreignHold) {
+      throw new SettlementAttention(foreignHold);
+    }
+
     if (customerId !== null) {
       const customer = await tx.customer.findFirst({
         where: { id: customerId, businessId },
@@ -688,7 +726,9 @@ async function recordTransientFailure(
  *   NOT_CONFIGURED  → nothing.
  *
  * Only rows held for THIS reason move. A payment paused for a provider-issued
- * document, a test account or a refund is never released by configuration.
+ * document, a test account, a refund or a foreign currency is never released
+ * by configuration — and a released foreign-currency payment goes through the
+ * same settlement, which pauses it again as FOREIGN_CURRENCY_DOCUMENT_HELD.
  * Tenant-scoped: the rows are found and changed inside the business's own
  * transaction, so one business can never finish another's accounting.
  */

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import {
   ConversationChannel,
   ConversationStage,
@@ -9,6 +10,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
@@ -45,11 +47,11 @@ type AttentionItem = {
   priorityType: PriorityType;
 };
 
-const REASON_TEXT: Record<ReasonCode, string> = {
-  WAITING_FOR_REPLY: "הלקוח שלח הודעה אחרונה; כדאי להשיב כשמתאים.",
+const REASON_TEXT_KEY: Record<ReasonCode, MessageKey> = {
+  WAITING_FOR_REPLY: "api.inbox.attention.waitingForReply",
   PENDING_SMART_SUGGESTION:
-    "יש הצעת תשובה שעדיין לא נשלחה או נסגרה.",
-  RECENTLY_HANDLED: "השיחה סומנה לאחרונה כסגורה.",
+    "api.inbox.attention.pendingSuggestion",
+  RECENTLY_HANDLED: "api.inbox.attention.recentlyHandled",
 };
 
 const PENDING_SUGGESTION_STATUSES: ReplySuggestionStatus[] = [
@@ -109,7 +111,8 @@ function toAttentionItemBase(
     hasPendingSuggestion: boolean;
     priorityRank: 1 | 2 | 3;
     priorityType: PriorityType;
-  }
+  },
+  t: Translator
 ): AttentionItem {
   return {
     conversationId: conversation.id,
@@ -119,7 +122,7 @@ function toAttentionItemBase(
     currentStage: conversation.currentStage,
     lastRelevantMessageText: params.lastRelevantMessageText,
     reasonCode: params.reasonCode,
-    reasonText: REASON_TEXT[params.reasonCode],
+    reasonText: t(REASON_TEXT_KEY[params.reasonCode]),
     relevantAt: params.relevantAt.toISOString(),
     createdAt: conversation.createdAt.toISOString(),
     primaryAction: "OPEN_CONVERSATION",
@@ -146,6 +149,7 @@ function pickLatestMessagePerConversation<
 }
 
 export async function GET(req: Request) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
 
@@ -253,7 +257,7 @@ export async function GET(req: Request) {
             hasPendingSuggestion: waitingWithOpenSuggestion.has(c.conversationId),
             priorityRank: 1,
             priorityType: "WAITING_FOR_REPLY",
-          }),
+          }, t),
         ];
       });
     }
@@ -331,7 +335,7 @@ export async function GET(req: Request) {
             hasPendingSuggestion: false,
             priorityRank: 2,
             priorityType: "PENDING_SMART_SUGGESTION",
-          }),
+          }, t),
         ];
       });
 
@@ -408,7 +412,7 @@ export async function GET(req: Request) {
         hasPendingSuggestion: false,
         priorityRank: 3,
         priorityType: "RECENTLY_HANDLED",
-      });
+      }, t);
     });
 
     return NextResponse.json({

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
@@ -52,6 +53,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
  * asserted structurally by the verifier.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "בקשה לא תקינה", code: "INVALID_BODY" },
+      { error: t("api.common.invalidRequest"), code: "INVALID_BODY" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -101,14 +103,14 @@ export async function POST(req: Request) {
         const file = byIndex.get(index);
         if (!file) {
           return NextResponse.json(
-            { error: "בחירה עבור קובץ שאינו בקבוצה", code: "UNKNOWN_FILE" },
+            { error: t("api.dataTransfer.documents.unknownFile"), code: "UNKNOWN_FILE" },
             { status: 400, headers: NO_STORE }
           );
         }
         if (!isDecisionPermitted(file, action)) {
           return NextResponse.json(
             {
-              error: "לא ניתן לקלוט את הקובץ הזה",
+              error: t("api.dataTransfer.documents.decisionNotPermitted"),
               code: "DECISION_NOT_PERMITTED",
               index,
             },
@@ -184,7 +186,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "בדיקת הקבצים נכשלה. נסו שוב מאוחר יותר.", code: "ANALYZE_FAILED" },
+      { error: t("api.dataTransfer.documents.analyzeFailed"), code: "ANALYZE_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

@@ -8,6 +8,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 import { ChevronGlyph } from "./glyphs";
 import styles from "./warm-surface.module.css";
 
@@ -188,7 +190,9 @@ export function WarmPill({
   return <span className={cx(styles.pill, toneCls, className)}>{children}</span>;
 }
 
-export function WarmSkeleton({ label = "טוען" }: { label?: string }) {
+export function WarmSkeleton({ label: labelProp }: { label?: string }) {
+  const { t } = useI18n();
+  const label = labelProp ?? t("home.ui.loading");
   return (
     <span className={styles.skeleton} role="status">
       <span className={styles.srOnly}>{label}</span>

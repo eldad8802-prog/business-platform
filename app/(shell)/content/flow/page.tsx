@@ -3,9 +3,12 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 function ContentFlowPageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useI18n();
 
   const [goal, setGoal] = useState("");
   const [audience, setAudience] = useState("");
@@ -58,25 +61,25 @@ function ContentFlowPageInner() {
 
   return (
     <div style={{ padding: 24, maxWidth: 500, margin: "0 auto" }}>
-      <h1 style={{ marginBottom: 20 }}>מה אתה רוצה להשיג?</h1>
+      <h1 style={{ marginBottom: 20 }}>{t("content.studioFlow.flow.title")}</h1>
 
       <div style={{ marginBottom: 20 }}>
-        <p>מטרה</p>
+        <p>{t("content.studioFlow.flow.goal")}</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Button
-            label="להביא פניות"
+            label={t("content.studioFlow.flow.goals.leads")}
             value="leads"
             selected={goal === "leads"}
             onClick={() => setGoal("leads")}
           />
           <Button
-            label="לבנות אמון"
+            label={t("content.studioFlow.flow.goals.trust")}
             value="trust"
             selected={goal === "trust"}
             onClick={() => setGoal("trust")}
           />
           <Button
-            label="למכור"
+            label={t("content.studioFlow.flow.goals.sales")}
             value="sales"
             selected={goal === "sales"}
             onClick={() => setGoal("sales")}
@@ -85,9 +88,9 @@ function ContentFlowPageInner() {
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <p>קהל יעד</p>
+        <p>{t("content.studioFlow.flow.audience")}</p>
         <input
-          placeholder="למשל: בעלי דירות לפני מעבר"
+          placeholder={t("content.studioFlow.flow.audiencePlaceholder")}
           value={audience}
           onChange={(e) => setAudience(e.target.value)}
           style={{
@@ -100,22 +103,22 @@ function ContentFlowPageInner() {
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <p>סוג תוכן</p>
+        <p>{t("content.studioFlow.flow.valueType")}</p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button
-            label="הצעה"
+            label={t("content.studioFlow.flow.valueTypes.offer")}
             value="offer"
             selected={valueType === "offer"}
             onClick={() => setValueType("offer")}
           />
           <Button
-            label="ערך"
+            label={t("content.studioFlow.flow.valueTypes.value")}
             value="value"
             selected={valueType === "value"}
             onClick={() => setValueType("value")}
           />
           <Button
-            label="הוכחה"
+            label={t("content.studioFlow.flow.valueTypes.proof")}
             value="proof"
             selected={valueType === "proof"}
             onClick={() => setValueType("proof")}
@@ -124,22 +127,22 @@ function ContentFlowPageInner() {
       </div>
 
       <div style={{ marginBottom: 30 }}>
-        <p>סגנון</p>
+        <p>{t("content.studioFlow.flow.style")}</p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button
-            label="ישיר"
+            label={t("content.studioFlow.flow.styles.direct")}
             value="direct"
             selected={style === "direct"}
             onClick={() => setStyle("direct")}
           />
           <Button
-            label="רגשי"
+            label={t("content.studioFlow.flow.styles.emotional")}
             value="emotional"
             selected={style === "emotional"}
             onClick={() => setStyle("emotional")}
           />
           <Button
-            label="מקצועי"
+            label={t("content.studioFlow.flow.styles.professional")}
             value="professional"
             selected={style === "professional"}
             onClick={() => setStyle("professional")}
@@ -161,7 +164,7 @@ function ContentFlowPageInner() {
           cursor: canContinue ? "pointer" : "not-allowed",
         }}
       >
-        המשך
+        {t("content.studioFlow.common.continue")}
       </button>
     </div>
   );

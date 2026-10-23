@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
+import { formatNumber } from "@/lib/i18n/format";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -20,6 +23,7 @@ type DuplicateInfo = {
 
 export default function DocumentsUploadPage() {
   const router = useRouter();
+  const { t, locale, fmt, formatAmount } = useI18n();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [processingName, setProcessingName] = useState("");
@@ -52,8 +56,9 @@ export default function DocumentsUploadPage() {
             extracted?: { vendorName?: string | null };
           }) => ({
             id: Number(item.documentId),
-            vendor: item.financial?.vendorName || item.extracted?.vendorName || "לא צוין",
-            status: item.status === "needs_review" ? "ממתין" : item.status === "approved" ? "אושר" : item.status || "—",
+            // Raw values; labels are resolved per language at render time.
+            vendor: item.financial?.vendorName || item.extracted?.vendorName || "",
+            status: item.status || "",
           })),
         });
       })
@@ -114,18 +119,18 @@ export default function DocumentsUploadPage() {
       }
       router.push(`/documents/review/${data.documentId}`);
     } catch (err) {
-      setError(errorMessage(err, "לא הצלחנו להעלות את המסמך"));
+      setError(errorMessage(err, t("documents.upload.error")));
       setProcessingName("");
     }
   }
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <PageContainer intent="focused" className="dz-upload" style={{ paddingBlock: "14px 40px" }}>
         <div className="dz-upload-desk">
         <header className="dz-upload-span" style={headStyle}>
           <DocumentsBackButton />
-          <h1 style={titleStyle}>העלאת קובץ</h1>
+          <h1 style={titleStyle}>{t("documents.upload.title")}</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
@@ -141,8 +146,8 @@ export default function DocumentsUploadPage() {
           }}
         >
           <UploadIcon />
-          <strong style={dropTitleStyle}>גרור קובץ או לחץ לבחירה</strong>
-          <span style={dropTextStyle}>PDF או תמונה · עד 15MB</span>
+          <strong style={dropTitleStyle}>{t("documents.upload.dropTitle")}</strong>
+          <span style={dropTextStyle}>{t("documents.upload.dropText")}</span>
         </button>
 
         <input
@@ -163,17 +168,17 @@ export default function DocumentsUploadPage() {
 
         <button type="button" style={cameraButtonStyle} onClick={() => cameraInputRef.current?.click()}>
           <CameraIcon />
-          צילום מסמך
+          {t("documents.upload.camera")}
         </button>
 
         {processingName ? (
           <>
-            <div style={labelStyle}>בעיבוד כעת</div>
+            <div style={labelStyle}>{t("documents.upload.processingNow")}</div>
             <div style={processingStyle}>
               <span style={spinnerStyle} aria-hidden />
               <div style={{ minWidth: 0 }}>
                 <div style={processingTitleStyle}>{processingName}</div>
-                <div style={processingMetaStyle}>מריץ OCR וחילוץ נתונים...</div>
+                <div style={processingMetaStyle}>{t("documents.upload.processingMeta")}</div>
               </div>
             </div>
           </>
@@ -184,22 +189,22 @@ export default function DocumentsUploadPage() {
         {duplicate ? (
           <div style={duplicateBoxStyle}>
             <strong style={duplicateTitleStyle}>
-              נראה שהמסמך הזה כבר הועלה
+              {t("documents.upload.duplicateTitle")}
             </strong>
             <div style={duplicateMetaStyle}>
               {[
                 duplicate.info.vendorName,
                 duplicate.info.amount != null
-                  ? `₪${duplicate.info.amount.toLocaleString("he-IL")}`
+                  ? formatAmount(duplicate.info.amount, "ILS")
                   : null,
                 duplicate.info.uploadedAt
                   ? new Date(duplicate.info.uploadedAt).toLocaleDateString(
-                      "he-IL"
+                      intlTag(locale)
                     )
                   : null,
               ]
                 .filter(Boolean)
-                .join(" · ") || "קובץ זהה לחלוטין קיים במערכת"}
+                .join(" · ") || t("documents.upload.duplicateIdentical")}
             </div>
             <div style={duplicateActionsStyle}>
               <button
@@ -209,34 +214,34 @@ export default function DocumentsUploadPage() {
                   router.push(`/documents/review/${duplicate.info.documentId}`)
                 }
               >
-                פתח את המסמך הקיים
+                {t("documents.upload.openExisting")}
               </button>
               <button
                 type="button"
                 style={duplicateSecondaryStyle}
                 onClick={() => void upload(duplicate.file, { allowDuplicate: true })}
               >
-                העלה בכל זאת
+                {t("documents.upload.uploadAnyway")}
               </button>
               <button
                 type="button"
                 style={duplicateSecondaryStyle}
                 onClick={() => setDuplicate(null)}
               >
-                ביטול
+                {t("documents.upload.cancel")}
               </button>
             </div>
           </div>
         ) : null}
         </div>
 
-        <aside className="dz-upload-side" aria-label="מסמכים שנכנסו">
-          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>בתור עכשיו</h2>
+        <aside className="dz-upload-side" aria-label={t("documents.upload.queueAria")}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>{t("documents.upload.queueTitle")}</h2>
           {queue.pending == null ? (
-            <p style={{ margin: 0, color: TOKEN.ink.muted }}>טוען את התור…</p>
+            <p style={{ margin: 0, color: TOKEN.ink.muted }}>{t("documents.upload.queueLoading")}</p>
           ) : (
             <p style={{ margin: 0, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
-              {queue.pending.toLocaleString("he-IL")} מסמכים ממתינים לאימות.
+              {t("documents.upload.queuePending", { count: formatNumber(queue.pending, fmt) })}
             </p>
           )}
           {queue.recent.length > 0 ? (
@@ -258,14 +263,22 @@ export default function DocumentsUploadPage() {
                       color: TOKEN.ink.primary,
                     }}
                   >
-                    <strong style={{ display: "block" }}>{item.vendor}</strong>
-                    <span style={{ color: TOKEN.ink.muted, fontSize: 13 }}>{item.status}</span>
+                    <strong style={{ display: "block" }}>
+                      {item.vendor || t("documents.common.notSpecified")}
+                    </strong>
+                    <span style={{ color: TOKEN.ink.muted, fontSize: 13 }}>
+                      {item.status === "needs_review"
+                        ? t("documents.inbox.statusPending")
+                        : item.status === "approved"
+                          ? t("documents.inbox.statusApproved")
+                          : item.status || "—"}
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
           ) : queue.pending === 0 ? (
-            <p style={{ margin: "12px 0 0", color: TOKEN.ink.muted }}>אין מסמכים ממתינים כרגע.</p>
+            <p style={{ margin: "12px 0 0", color: TOKEN.ink.muted }}>{t("documents.upload.queueEmpty")}</p>
           ) : null}
         </aside>
         </div>

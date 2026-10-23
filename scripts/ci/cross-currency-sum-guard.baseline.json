@@ -1,0 +1,305 @@
+{
+  "note": "Reviewed findings of scripts/ci/cross-currency-sum-guard.mjs at its introduction (origin/main f6c261f9). Matching is by (file, rule, match); lineAtBaseline is informational. SAFE = single-currency by construction and enforced; LATENT = correct only because every row is ILS today; BROKEN = can add different currencies now. Removing an entry is how a fix is recorded; adding one requires a risk and a reviewed reason. See docs/money/FINANCIAL-DATA-MODEL-AUDIT.md.",
+  "findings": [
+    {
+      "file": "app/(shell)/inventory/sales/create/page.tsx",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "const chargedTotal = chargedObservations.reduce((sum, observed) => {",
+      "risk": "LATENT",
+      "reason": "name collision: `observed.amount` is a typed unit price for an inventory sale, not a guarded column; inventory prices carry no currency at all (InventorySaleLine.unitPrice), ILS assumed.",
+      "lineAtBaseline": 77
+    },
+    {
+      "file": "app/api/documents/inbox/route.ts",
+      "rule": "PRISMA_SUM",
+      "column": "FinancialRecord.amount",
+      "match": "dbStep(user.businessId, (db) => db.financialRecord.aggregate({",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2).",
+      "lineAtBaseline": 236,
+      "count": 6
+    },
+    {
+      "file": "app/api/reports/summary/route.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "amount",
+      "match": "if (r.direction === \"income\") totalIncome += r.amount;",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Float arithmetic as well (totalIncome/totalExpense/profit).",
+      "lineAtBaseline": 49
+    },
+    {
+      "file": "app/api/reports/summary/route.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "amount",
+      "match": "else totalExpense += r.amount;",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2).",
+      "lineAtBaseline": 50
+    },
+    {
+      "file": "lib/business-status/loaders.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "const allocated = r.allocations.reduce((sum, a) => sum + Number(a.allocatedAmount), 0);",
+      "risk": "SAFE",
+      "reason": "allocations of ONE installment; PaymentAllocation currency is forced to the commitment currency (payables.service.ts allocation path; planAllocation throws on mismatch).",
+      "lineAtBaseline": 648
+    },
+    {
+      "file": "lib/knowledge/outcomes/evidence.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": ".reduce((s, a) => s + minor(a.allocatedAmount), 0);",
+      "risk": "SAFE",
+      "reason": "allocations of ONE installment (same currency by construction; planAllocation refuses a mismatch).",
+      "lineAtBaseline": 109
+    },
+    {
+      "file": "lib/knowledge/snapshot/cross-domain.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "const allocated = i.allocations.reduce((sum, a) => sum + Number(a.allocatedAmount), 0);",
+      "risk": "SAFE",
+      "reason": "allocations of ONE installment; the cross-installment total below it skips any second currency.",
+      "lineAtBaseline": 124
+    },
+    {
+      "file": "lib/knowledge/snapshot/snapshot-sources.ts",
+      "rule": "JS_FOLD",
+      "column": "totalAmount",
+      "match": "const credited = d.creditNotes.reduce((s, c) => s.plus(c.totalAmount), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "credit notes of ONE invoice; a credit note must carry the source invoice currency (billing-credit-reversal.service.ts:165).",
+      "lineAtBaseline": 344
+    },
+    {
+      "file": "lib/reports/accountant-export-zip.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "const sumExpense = records.reduce(",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Accountant-facing expense total.",
+      "lineAtBaseline": 305
+    },
+    {
+      "file": "lib/reports/accountant-export-zip.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "const sumIncome = records.reduce(",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Accountant-facing income total.",
+      "lineAtBaseline": 309
+    },
+    {
+      "file": "lib/services/billing/billing-credit-reversal.service.ts",
+      "rule": "PRISMA_SUM",
+      "column": "BillingDocument.totalAmount",
+      "match": "const aggregate = await tx.billingDocument.aggregate({",
+      "risk": "SAFE",
+      "reason": "credit notes referencing ONE source invoice; currency enforced equal to the source (same file :165).",
+      "lineAtBaseline": 73
+    },
+    {
+      "file": "lib/services/billing/collection/awaiting-payment.loader.ts",
+      "rule": "JS_FOLD",
+      "column": "totalAmount",
+      "match": "creditedAmount: doc.creditNotes.reduce(",
+      "risk": "SAFE",
+      "reason": "credit notes of ONE invoice (currency enforced equal to the source invoice).",
+      "lineAtBaseline": 133
+    },
+    {
+      "file": "lib/services/billing/collection/awaiting-payment.rules.ts",
+      "rule": "FIRST_ROW_CURRENCY",
+      "column": "currency",
+      "match": "currency: invoices[0].currency,",
+      "risk": "SAFE",
+      "reason": "bucket key is customerId|currency (line ~205): every invoice in the bucket has that currency, so invoices[0].currency IS the bucket currency.",
+      "lineAtBaseline": 240
+    },
+    {
+      "file": "lib/services/billing/collection/awaiting-payment.rules.ts",
+      "rule": "FIRST_ROW_CURRENCY",
+      "column": "currency",
+      "match": "totals.set(invoices[0].currency, (totals.get(invoices[0].currency) ?? ZERO).plus(sum));",
+      "risk": "SAFE",
+      "reason": "per-currency totals Map keyed by the bucket currency (bucket = customer|currency).",
+      "lineAtBaseline": 250,
+      "count": 2
+    },
+    {
+      "file": "lib/services/billing/collection/collection-inbox.service.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": ".reduce((a, t) => a.plus(t.amount.negated()), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "reversals of ONE payment request; a refund inherits the settlement currency (payment-refund.service.ts).",
+      "lineAtBaseline": 314
+    },
+    {
+      "file": "lib/services/billing/collection/collection-inbox.service.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "? dec(rc.paymentAllocationsAsReceipt.reduce((a, x) => a.plus(x.allocatedAmount), new Prisma.Decimal(0)))",
+      "risk": "SAFE",
+      "reason": "allocations of ONE receipt; assertSameCurrency(receipt, invoice) on every allocation (billing-payment-allocation.service.ts:177).",
+      "lineAtBaseline": 352
+    },
+    {
+      "file": "lib/services/billing/collection/customer-financial-thread.service.ts",
+      "rule": "JS_FOLD",
+      "column": "totalAmount",
+      "match": "const credited = inv.creditNotes.reduce((a, x) => a.plus(x.totalAmount), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "credit notes of ONE invoice; the cross-invoice balance is a per-currency Map (outstandingBy).",
+      "lineAtBaseline": 123
+    },
+    {
+      "file": "lib/services/billing/domain/billing-invoice-economic-remaining.ts",
+      "rule": "PRISMA_SUM",
+      "column": "BillingPaymentAllocation.allocatedAmount",
+      "match": "const allocated = await tx.billingPaymentAllocation.aggregate({",
+      "risk": "SAFE",
+      "reason": "allocations to ONE invoice; allocation currency asserted equal to the invoice (assertSameCurrency).",
+      "lineAtBaseline": 63
+    },
+    {
+      "file": "lib/services/billing/domain/billing-invoice-economic-remaining.ts",
+      "rule": "PRISMA_SUM",
+      "column": "BillingDocument.totalAmount",
+      "match": "const credited = await tx.billingDocument.aggregate({",
+      "risk": "SAFE",
+      "reason": "credit notes referencing ONE invoice; credit-note currency enforced equal to the source.",
+      "lineAtBaseline": 74
+    },
+    {
+      "file": "lib/services/billing/receipt/billing-receipt-allocation.rules.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "return lines.reduce(",
+      "risk": "BROKEN",
+      "reason": "audit R7: a receipt's payment lines each carry their own currency (billing-payment.validation.ts accepts any 3-letter code) and are NEVER checked against the receipt header before being summed and compared with the receipt total; an ILS receipt can be issued from a USD line.",
+      "lineAtBaseline": 132
+    },
+    {
+      "file": "lib/services/billing/receipt/billing-receipt-allocation.rules.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "return allocations.reduce(",
+      "risk": "SAFE",
+      "reason": "allocations of ONE receipt; each allocation asserted same currency as receipt and invoice.",
+      "lineAtBaseline": 141
+    },
+    {
+      "file": "lib/services/billing/receipt/billing-settlement-state.service.ts",
+      "rule": "PRISMA_SUM",
+      "column": "BillingPaymentAllocation.allocatedAmount",
+      "match": "aggregate: await tx.billingPaymentAllocation.aggregate({",
+      "risk": "SAFE",
+      "reason": "allocations to ONE invoice (assertSameCurrency on write).",
+      "lineAtBaseline": 85
+    },
+    {
+      "file": "lib/services/billing/totals/billing-totals.service.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "vatAmount",
+      "match": "vatAmount = vatAmount.plus(line.vatAmount);",
+      "risk": "SAFE",
+      "reason": "lines of ONE document; lines have no currency of their own and are in the header currency by definition.",
+      "lineAtBaseline": 45
+    },
+    {
+      "file": "lib/services/business-cost/business-cost-intelligence.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "cash += day.cashOut.totalMinor;",
+      "risk": "SAFE",
+      "reason": "business-cost totals are base-currency by construction: non-base rows are excluded (NON_BASE_CURRENCY / otherCurrency, business-cost-core.ts:528,779).",
+      "lineAtBaseline": 88
+    },
+    {
+      "file": "lib/services/business-cost/business-cost-intelligence.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "alloc += day.allocatedCost.totalMinor;",
+      "risk": "SAFE",
+      "reason": "business-cost totals are base-currency by construction (non-base rows excluded, never converted).",
+      "lineAtBaseline": 89
+    },
+    {
+      "file": "lib/services/payables/payables-cheque.service.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "? p.allocations.reduce((sum, a) => sum + toMinorUnits(a.allocatedAmount.toFixed(2)), 0)",
+      "risk": "SAFE",
+      "reason": "allocations of ONE payment; allocations take the commitment currency, which is the payment currency.",
+      "lineAtBaseline": 186
+    },
+    {
+      "file": "lib/services/payables/payables-preparation.service.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "return rows.reduce((sum, r) => sum + toMinorUnits(r.amount.toFixed(2)), 0);",
+      "risk": "SAFE",
+      "reason": "open preparations of ONE installment (preparation currency = installment currency).",
+      "lineAtBaseline": 229
+    },
+    {
+      "file": "lib/services/payables/payables-reconciliation.service.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": ".reduce((s, a) => s + toMinorUnits(a.allocatedAmount.toString()), 0);",
+      "risk": "SAFE",
+      "reason": "allocations of ONE installment (currency enforced by planAllocation).",
+      "lineAtBaseline": 254
+    },
+    {
+      "file": "lib/services/payables/secretary-ledger-cutover.service.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "const paidTotal = active.reduce((s, a) => s.plus(a.allocatedAmount), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "allocations of ONE copied installment (cutover diff).",
+      "lineAtBaseline": 181
+    },
+    {
+      "file": "lib/services/payments/payment-refund.service.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": ".reduce((sum, t) => sum + -toMinorUnits(t.amount, \"amount\"), 0);",
+      "risk": "SAFE",
+      "reason": "reversals of ONE settlement; every reversal carries the settlement currency.",
+      "lineAtBaseline": 229,
+      "count": 2
+    },
+    {
+      "file": "lib/services/payments/payment-request.service.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "const openMinor = open.reduce((sum, r) => sum + (toMinorUnits(r.amount) ?? BigInt(0)), BigInt(0));",
+      "risk": "SAFE",
+      "reason": "open requests against ONE document; assertAmountPayableAgainstDocument refuses a currency different from the document.",
+      "lineAtBaseline": 306
+    },
+    {
+      "file": "lib/services/payments/payment-store.prisma.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": "const allocatedAmount = doc.paymentAllocationsAsInvoice.reduce(",
+      "risk": "SAFE",
+      "reason": "allocations to ONE invoice (assertSameCurrency).",
+      "lineAtBaseline": 596
+    },
+    {
+      "file": "lib/services/payments/payment-store.prisma.ts",
+      "rule": "JS_FOLD",
+      "column": "totalAmount",
+      "match": "const creditedAmount = doc.creditNotes.reduce(",
+      "risk": "SAFE",
+      "reason": "credit notes of ONE invoice (currency = source).",
+      "lineAtBaseline": 600
+    }
+  ]
+}

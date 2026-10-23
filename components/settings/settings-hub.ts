@@ -19,18 +19,19 @@
  * grants, a help center, password change / 2FA, data-retention controls.
  */
 import type { WarmTone } from "@/components/ui/warm-surface/warm-surface";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
 
 import {
   SETTINGS_CATEGORIES,
   SETTINGS_GROUP_ORDER,
-  SETTINGS_GROUP_TITLES,
+  SETTINGS_GROUP_TITLE_KEYS,
   type SettingsGroupKey,
 } from "./settings-categories";
 
 export const SUPPORT_EMAIL = "support@promaxgroup.co.il";
 
-/** The workspace screen states this as read-only fact: Dubiz runs in Hebrew. */
-export const WORKSPACE_LANGUAGE_LABEL = "עברית";
+/** The hub's workspace row shows the active interface language (`localeNativeName`, lib/i18n). */
 
 /** Live values a row can show, resolved by the hub screen from real data. */
 export type HubRowValue = "workspace-language" | "active-connections";
@@ -70,13 +71,15 @@ const ROW_VALUE: Partial<Record<string, HubRowValue>> = {
   connections: "active-connections",
 };
 
+type ExtraRow = Omit<HubRow, "title" | "subtitle"> & { titleKey: MessageKey; subtitleKey?: MessageKey; subtitle?: string };
+
 /** Hub rows that are not Settings sub-routes, appended to their group. */
-const EXTRA_ROWS: Partial<Record<HubGroupKey, HubRow[]>> = {
+const EXTRA_ROWS: Partial<Record<HubGroupKey, ExtraRow[]>> = {
   account: [
     {
       key: "subscription",
-      title: "תוכנית המנוי",
-      subtitle: "תוכניות המנוי של Dubiz",
+      titleKey: "account.settings.hub.subscription.title",
+      subtitleKey: "account.settings.hub.subscription.subtitle",
       icon: "👑",
       href: null,
       badge: "soon",
@@ -85,8 +88,8 @@ const EXTRA_ROWS: Partial<Record<HubGroupKey, HubRow[]>> = {
   preferences: [
     {
       key: "document-prefs",
-      title: "העדפות מסמכים",
-      subtitle: "תבנית, חתימה ופרטים במסמכים",
+      titleKey: "account.settings.hub.documentPrefs.title",
+      subtitleKey: "account.settings.hub.documentPrefs.subtitle",
       icon: "📄",
       href: "/business",
     },
@@ -94,7 +97,7 @@ const EXTRA_ROWS: Partial<Record<HubGroupKey, HubRow[]>> = {
   help: [
     {
       key: "support",
-      title: "פנייה לתמיכה",
+      titleKey: "account.settings.hub.support.title",
       subtitle: SUPPORT_EMAIL,
       icon: "💬",
       href: `mailto:${SUPPORT_EMAIL}`,
@@ -103,24 +106,31 @@ const EXTRA_ROWS: Partial<Record<HubGroupKey, HubRow[]>> = {
   ],
 };
 
-export function buildSettingsHub(): HubGroup[] {
+/** Without a translator the hub is Hebrew (tests, and the pre-i18n output). Screens pass useI18n().t. */
+export function buildSettingsHub(t: Translator = createTranslator(he)): HubGroup[] {
+  const extra = (key: HubGroupKey): HubRow[] =>
+    (EXTRA_ROWS[key] ?? []).map(({ titleKey, subtitleKey, subtitle, ...row }) => ({
+      ...row,
+      title: t(titleKey),
+      subtitle: subtitleKey ? t(subtitleKey) : (subtitle ?? ""),
+    }));
   const groups: HubGroup[] = SETTINGS_GROUP_ORDER.map((key) => ({
     key,
-    title: SETTINGS_GROUP_TITLES[key],
+    title: t(SETTINGS_GROUP_TITLE_KEYS[key]),
     tone: GROUP_TONE[key],
     rows: [
       ...SETTINGS_CATEGORIES.filter((c) => c.group === key).map<HubRow>((c) => ({
         key: c.key,
-        title: c.title,
-        subtitle: c.description,
+        title: t(c.titleKey),
+        subtitle: t(c.descriptionKey),
         icon: c.icon,
         href: c.href,
         value: ROW_VALUE[c.key],
       })),
-      ...(EXTRA_ROWS[key] ?? []),
+      ...extra(key),
     ],
   }));
 
-  groups.push({ key: "help", title: "עזרה ותמיכה", tone: GROUP_TONE.help, rows: EXTRA_ROWS.help ?? [] });
+  groups.push({ key: "help", title: t("account.settings.groups.help"), tone: GROUP_TONE.help, rows: extra("help") });
   return groups;
 }

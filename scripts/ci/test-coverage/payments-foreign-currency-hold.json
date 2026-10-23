@@ -1,0 +1,10 @@
+{
+  "note": "Foreign-currency payment: the money is recorded, the receipt waits (no automatic foreign-currency tax document until the accounting rules are approved — docs/i18n-multicurrency/ARCHITECTURE.md).",
+  "tests": {
+    "lib/services/billing/settlement/foreign-currency-document-hold.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network; in-process fake Prisma client) fiscal-truth guard: a verified USD/EUR payment never auto-issues a receipt — standalone or invoice-backed, DUBIZ_ISSUES or a NEVER-issuing provider — and no retry, requeue, issuer-decision release or scheduled recovery can clear FOREIGN_CURRENCY_DOCUMENT_HELD; ILS reaches its usual gates unchanged; also run by c3-settlement-ci.yml"
+    }
+  }
+}

@@ -4,6 +4,10 @@ import "./globals.css";
 import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
 import { NativeShellInit } from "@/components/native/NativeShellInit";
 import { NavTrailInit } from "@/components/navigation/nav-trail-init";
+import { I18nProvider } from "@/components/i18n/I18nProvider";
+import { DEFAULT_LOCALE, localeDirection } from "@/lib/i18n/config";
+import { getMessages } from "@/lib/i18n/messages";
+import { getRequestLocale } from "@/lib/i18n/server";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
 // (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
@@ -44,23 +48,31 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Interface language → <html lang/dir>. With the i18n flag off this is always he/rtl and the
+  // cookie is never read (lib/i18n/server.ts), so rendering is exactly as before.
+  const locale = await getRequestLocale();
   return (
     <html
-      lang="he"
-      dir="rtl"
+      lang={locale}
+      dir={localeDirection(locale)}
       className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
+        {/* Hebrew is already in the client bundle (I18nProvider imports it), so it is not serialized
+            into every page's RSC payload as a prop (≈440 KB of each HTML document before). Only another
+            language's dictionary travels with the page. Same dictionary object either way. */}
+        <I18nProvider locale={locale} messages={locale === DEFAULT_LOCALE ? undefined : getMessages(locale)}>
         {/* First, so the history trail is installed before any screen effect. */}
         <NavTrailInit />
         {children}
         <NativeShellInit />
         <AccessibilityFab />
+        </I18nProvider>
         {/*
           Canonical overlay portal target (Adaptive+Native Spec v1 §11).
           Lives OUTSIDE every route group's shell content, so overlays escape

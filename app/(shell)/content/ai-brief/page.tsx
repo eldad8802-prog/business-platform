@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type StoredAsset = {
   name: string;
@@ -46,6 +47,7 @@ type ContentFlow = {
 
 export default function AIBriefPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [goalText, setGoalText] = useState("");
   const [hasAssets, setHasAssets] = useState(false);
@@ -115,7 +117,7 @@ export default function AIBriefPage() {
     const cleanGoal = goalText.trim();
 
     if (cleanGoal.length < 10) {
-      setError("צריך לכתוב בצורה ברורה מה אתה רוצה שהמערכת תיצור");
+      setError(t("content.studioFlow.aiBrief.tooShort"));
       return;
     }
 
@@ -141,7 +143,7 @@ export default function AIBriefPage() {
         <div style={topBarStyle}>
           <BackButton />
 
-          <div style={topBarTitleStyle}>הנחיה למערכת</div>
+          <div style={topBarTitleStyle}>{t("content.studioFlow.aiBrief.topBar")}</div>
 
           <div style={topBarSpacerStyle} />
         </div>
@@ -150,20 +152,18 @@ export default function AIBriefPage() {
 
         <div style={contentAreaStyle}>
           <div style={introWrapStyle}>
-            <div style={eyebrowStyle}>שלב 5</div>
-            <h1 style={titleStyle}>מה בדיוק אתה רוצה שהמערכת תיצור?</h1>
+            <div style={eyebrowStyle}>{t("content.studioFlow.aiBrief.step", { n: 5 })}</div>
+            <h1 style={titleStyle}>{t("content.studioFlow.aiBrief.title")}</h1>
 
             <p style={subtitleStyle}>
-              כתוב בצורה פשוטה מה אתה רוצה להדגיש, איזה תוכן אתה רוצה לקבל,
-              ומה אתה רוצה שיקרה אחרי שהלקוח יראה אותו.
+              {t("content.studioFlow.aiBrief.subtitle")}
             </p>
           </div>
 
           <div style={sectionCardStyle}>
-            <div style={sectionTitleStyle}>מה המטרה של התוכן הזה?</div>
+            <div style={sectionTitleStyle}>{t("content.studioFlow.aiBrief.goalTitle")}</div>
             <div style={sectionSubtitleStyle}>
-              נסח את זה במילים שלך. ככל שתהיה ברור יותר, המערכת תדע לבנות
-              עבורך תוצאה מדויקת יותר.
+              {t("content.studioFlow.aiBrief.goalSubtitle")}
             </div>
 
             <textarea
@@ -172,22 +172,21 @@ export default function AIBriefPage() {
                 setGoalText(e.target.value);
                 if (error) setError("");
               }}
-              placeholder="לדוגמה: אני רוצה סרטון קצר ומושך שמראה את רמת העבודה שלי וגורם לאנשים לשלוח הודעה"
+              placeholder={t("content.studioFlow.aiBrief.goalPlaceholder")}
               style={textareaStyle}
             />
 
             <div style={helperTextStyle}>
-              מומלץ לכתוב מה אתה רוצה להבליט, מה חשוב לך שירגישו, ומה הצעד הבא
-              שאתה רוצה שהצופה יעשה.
+              {t("content.studioFlow.aiBrief.goalHelper")}
             </div>
           </div>
 
           <div style={sectionCardStyle}>
             <div style={sectionTitleStyle}>
-              יש לך תמונות או סרטונים שתרצה שנשתמש בהם?
+              {t("content.studioFlow.aiBrief.assetsTitle")}
             </div>
             <div style={sectionSubtitleStyle}>
-              זה לא חובה, אבל זה יכול לשפר משמעותית את התוצאה
+              {t("content.studioFlow.aiBrief.assetsSubtitle")}
             </div>
 
             <div style={toggleRowStyle}>
@@ -196,7 +195,7 @@ export default function AIBriefPage() {
                 onClick={() => setHasAssets(true)}
                 style={toggleOptionStyle(hasAssets)}
               >
-                כן
+                {t("content.studioFlow.aiBrief.yes")}
               </button>
 
               <button
@@ -207,7 +206,7 @@ export default function AIBriefPage() {
                 }}
                 style={toggleOptionStyle(!hasAssets)}
               >
-                לא
+                {t("content.studioFlow.aiBrief.no")}
               </button>
             </div>
 
@@ -223,11 +222,16 @@ export default function AIBriefPage() {
 
                 {assets.length > 0 ? (
                   <div style={filesCountStyle}>
-                    נוספו {assets.length} קבצים למסלול היצירה
+                    {t(
+                      assets.length === 1
+                        ? "content.studioFlow.aiBrief.filesAddedOne"
+                        : "content.studioFlow.aiBrief.filesAdded",
+                      { count: assets.length }
+                    )}
                   </div>
                 ) : (
                   <div style={helperTextStyle}>
-                    אפשר להמשיך גם בלי להעלות כרגע
+                    {t("content.studioFlow.aiBrief.noUploadOk")}
                   </div>
                 )}
               </div>
@@ -244,7 +248,7 @@ export default function AIBriefPage() {
             onClick={handleContinue}
             disabled={!canContinue}
           >
-            הבא
+            {t("content.studioFlow.aiBrief.next")}
           </button>
         </div>
       </div>

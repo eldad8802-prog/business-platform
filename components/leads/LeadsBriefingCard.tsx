@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getLeadBriefing, type LeadBriefing } from "@/lib/api/leads";
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const DS = TOKEN.dsv1;
 
@@ -16,7 +17,9 @@ const DS = TOKEN.dsv1;
  * Read-only: it links to the lead; it never changes a stage, sends a message
  * or contacts anyone. Silent when there is nothing to say.
  */
-export function LeadsBriefingCard() {
+/** `embedded`: full width of its column, no outer margin. Content is unchanged. */
+export function LeadsBriefingCard({ embedded = false }: { embedded?: boolean } = {}) {
+  const { t } = useI18n();
   const [briefing, setBriefing] = useState<LeadBriefing | null>(null);
 
   useEffect(() => {
@@ -44,37 +47,52 @@ export function LeadsBriefingCard() {
   // M6 — today's arrivals with their sources ("3 מפייסבוק/אינסטגרם, 2 מגוגל"): context, not a separate inbox.
   if (arrivals && arrivals.today > 0) {
     const sources = arrivals.bySource.length > 1 || (arrivals.bySource[0] && arrivals.bySource[0].group !== "manual")
-      ? " · " + arrivals.bySource.map((s) => (s.group === "manual" ? `${s.count} ${s.label}` : `${s.count} מ${s.label}`)).join(", ")
+      ? " · " + arrivals.bySource.map((s) => (s.group === "manual" ? `${s.count} ${s.label}` : t("customers.leads.briefing.fromSource", { count: s.count, label: s.label }))).join(", ")
       : "";
-    lines.push(`נכנסו היום ${arrivals.today === 1 ? "ליד חדש אחד" : `${arrivals.today} לידים חדשים`}${sources}`);
+    lines.push(
+      arrivals.today === 1
+        ? t("customers.leads.briefing.arrivalsOne", { sources })
+        : t("customers.leads.briefing.arrivalsMany", { count: arrivals.today, sources })
+    );
   }
-  if (c.CUSTOMER_CALLED) lines.push(`${c.CUSTOMER_CALLED} לקוחות התקשרו ולא חזרתם אליהם`);
+  if (c.CUSTOMER_CALLED) lines.push(t("customers.leads.briefing.customerCalled", { count: c.CUSTOMER_CALLED }));
   // M7-A — calls nobody returned (known customers vs numbers Dubiz does not know). Never a number.
   if (calls && calls.unreturned.unknownNumbers > 0) {
-    lines.push(`${calls.unreturned.unknownNumbers === 1 ? "מספר לא מוכר אחד התקשר" : `${calls.unreturned.unknownNumbers} מספרים לא מוכרים התקשרו`} ולא חזרתם`);
+    lines.push(
+      calls.unreturned.unknownNumbers === 1
+        ? t("customers.leads.briefing.unknownCallerOne")
+        : t("customers.leads.briefing.unknownCallerMany", { count: calls.unreturned.unknownNumbers })
+    );
   }
   // M7-B / M7-C — exceptions only: a cancel / refund on a customer with an open lead, a connection to fix.
   if (commerce && commerce.reversals.total > 0) {
-    lines.push(`${commerce.reversals.total === 1 ? "לקוח עם ליד פתוח ביטל או קיבל זיכוי על הזמנה" : `${commerce.reversals.total} לקוחות עם ליד פתוח ביטלו או קיבלו זיכוי על הזמנה`}`);
+    lines.push(
+      commerce.reversals.total === 1
+        ? t("customers.leads.briefing.reversalOne")
+        : t("customers.leads.briefing.reversalMany", { count: commerce.reversals.total })
+    );
   }
   if (commerce && commerce.connections.length > 0) {
-    lines.push(`${commerce.connections.length === 1 ? "חיבור לחנות או לטלפוניה דורש" : `${commerce.connections.length} חיבורים לחנות או לטלפוניה דורשים`} טיפול (הגדרות ← חיבורים)`);
+    lines.push(
+      commerce.connections.length === 1
+        ? t("customers.leads.briefing.connectionOne")
+        : t("customers.leads.briefing.connectionMany", { count: commerce.connections.length })
+    );
   }
-  if (c.CUSTOMER_WROTE) lines.push(`${c.CUSTOMER_WROTE} לקוחות כתבו ומחכים לכם`);
-  if (c.FOLLOWUP_OVERDUE) lines.push(`${c.FOLLOWUP_OVERDUE} מעקבים באיחור`);
-  if (c.FOLLOWUP_DUE_TODAY) lines.push(`${c.FOLLOWUP_DUE_TODAY} מעקבים להיום`);
-  if (c.NEW_UNHANDLED) lines.push(`${c.NEW_UNHANDLED} לידים חדשים שלא טופלו`);
-  if (c.AWAITING_OWNER_DECISION) lines.push(`${c.AWAITING_OWNER_DECISION} מחכים להחלטה שלכם`);
-  if (c.QUOTE_NO_ACTIVITY) lines.push(`${c.QUOTE_NO_ACTIVITY} הצעות בלי המשך`);
-  if (c.STALLED) lines.push(`${c.STALLED} לידים תקועים`);
+  if (c.CUSTOMER_WROTE) lines.push(t("customers.leads.briefing.customerWrote", { count: c.CUSTOMER_WROTE }));
+  if (c.FOLLOWUP_OVERDUE) lines.push(t("customers.leads.briefing.followUpOverdue", { count: c.FOLLOWUP_OVERDUE }));
+  if (c.FOLLOWUP_DUE_TODAY) lines.push(t("customers.leads.briefing.followUpDueToday", { count: c.FOLLOWUP_DUE_TODAY }));
+  if (c.NEW_UNHANDLED) lines.push(t("customers.leads.briefing.newUnhandled", { count: c.NEW_UNHANDLED }));
+  if (c.AWAITING_OWNER_DECISION) lines.push(t("customers.leads.briefing.awaitingDecision", { count: c.AWAITING_OWNER_DECISION }));
+  if (c.QUOTE_NO_ACTIVITY) lines.push(t("customers.leads.briefing.quoteNoActivity", { count: c.QUOTE_NO_ACTIVITY }));
+  if (c.STALLED) lines.push(t("customers.leads.briefing.stalled", { count: c.STALLED }));
 
   return (
     <section
-      dir="rtl"
-      aria-label="לידים שמחכים לכם"
+      aria-label={t("customers.leads.briefing.ariaLabel")}
       style={{
-        margin: "16px auto",
-        width: "min(100% - 32px, 720px)",
+        margin: embedded ? 0 : "16px auto",
+        width: embedded ? "100%" : "min(100% - 32px, 720px)",
         boxSizing: "border-box",
         background: DS.card,
         border: `1px solid ${DS.line}`,
@@ -82,7 +100,7 @@ export function LeadsBriefingCard() {
         padding: 16,
       }}
     >
-      <h2 style={{ margin: 0, fontSize: 17, color: DS.ink }}>לידים היום</h2>
+      <h2 style={{ margin: 0, fontSize: 17, color: DS.ink }}>{t("customers.leads.briefing.title")}</h2>
       <ul style={{ margin: "8px 0 12px", paddingInlineStart: 18, color: DS.ink, lineHeight: 1.7 }}>
         {lines.map((l) => (
           <li key={l}>{l}</li>
@@ -106,22 +124,22 @@ export function LeadsBriefingCard() {
               <bdi>{item.name}</bdi> — {item.label}
             </div>
             <div style={{ color: DS.muted, fontSize: 14 }}>
-              {item.evidenceClass === "fact" ? "עובדה" : "מסקנה מהנתונים"}
+              {item.evidenceClass === "fact" ? t("customers.leads.common.fact") : t("customers.leads.common.inference")}
               {item.summary ? ` · ${item.summary}` : ""}
             </div>
             {item.suggestion ? (
-              <div style={{ color: DS.accent, fontSize: 14 }}>דוביז מציע: {item.suggestion.label}</div>
+              <div style={{ color: DS.accent, fontSize: 14 }}>{t("customers.leads.common.dubizSuggests", { label: item.suggestion.label })}</div>
             ) : null}
           </Link>
         ))}
       </div>
       {!briefing.complete ? (
         <p style={{ margin: "8px 0 0", color: DS.tertiary, fontSize: 13 }}>
-          יש יותר לידים פתוחים ממה שנסקר — המספרים הם לפחות.
+          {t("customers.leads.briefing.incomplete")}
         </p>
       ) : null}
       <Link href="/attention" style={{ display: "inline-block", marginTop: 12, color: DS.accent }}>
-        לתור הטיפול ›
+        {t("customers.leads.briefing.toQueue")}
       </Link>
     </section>
   );

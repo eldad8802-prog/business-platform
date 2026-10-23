@@ -29,44 +29,51 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { addCalendarDays, daysBetweenDayKeys, jerusalemDayKey, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
-import { SOURCE_KINDS, shortDate, type SourceItem, type SourceKind, type SourceResult } from "./agenda-core";
+import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
+
+import { HEBREW_TEXT, SOURCE_KINDS, shortDate, type SourceItem, type SourceKind, type SourceResult } from "./agenda-core";
 
 export const ADAPTER_TIMEOUT_MS = 6000;
 
-export type AdapterCtx = { businessId: number; now: Date; today: JerusalemDayKey };
+/**
+ * `t` / `locale`: the interface language of the request the agenda is built for (titles, facts and action labels
+ * are read-time text — nothing an adapter builds is stored). Absent → Hebrew, as before.
+ */
+export type AdapterCtx = { businessId: number; now: Date; today: JerusalemDayKey; t?: Translator; locale?: Locale };
 type AdapterOut = { items: SourceItem[]; capped: boolean };
 type Adapter = (ctx: AdapterCtx) => Promise<AdapterOut>;
 
 const epoch = (d: Date | null | undefined) => (d ? String(d.getTime()) : "0");
-const money = (amount: string | number, currency = "ILS") => {
+const money = (amount: string | number, currency = "ILS", locale: Locale = DEFAULT_LOCALE) => {
   const n = Number(amount);
-  const s = Number.isFinite(n) ? n.toLocaleString("he-IL", { maximumFractionDigits: 2 }) : String(amount);
+  const s = Number.isFinite(n) ? n.toLocaleString(intlTag(locale), { maximumFractionDigits: 2 }) : String(amount);
   return currency === "ILS" ? `₪${s}` : `${s} ${currency}`;
 };
 
 /** "לפני 3 שעות" / "מאתמול" — relative facts, a fixed template. */
-export function relativeHe(at: Date, now: Date): string {
+export function relativeHe(at: Date, now: Date, t: Translator = HEBREW_TEXT): string {
   const mins = Math.max(0, Math.round((now.getTime() - at.getTime()) / 60000));
-  if (mins < 60) return mins <= 1 ? "ממש עכשיו" : `לפני ${mins} דקות`;
+  if (mins < 60) return mins <= 1 ? t("system.tasks.relative.justNow") : t("system.tasks.relative.minutes", { n: mins });
   const hours = Math.round(mins / 60);
   const today = jerusalemDayKey(now);
   const day = jerusalemDayKey(at);
-  if (day === today) return hours === 1 ? "לפני שעה" : `לפני ${hours} שעות`;
-  if (addCalendarDays(day, 1) === today) return "מאתמול";
-  return `מ־${shortDate(day)}`;
+  if (day === today) return hours === 1 ? t("system.tasks.relative.hour") : t("system.tasks.relative.hours", { n: hours });
+  if (addCalendarDays(day, 1) === today) return t("system.tasks.relative.yesterday");
+  return t("system.tasks.relative.since", { date: shortDate(day) });
 }
 
 // ── S01 Supplier payments (the secretary's port) ─────────────────────────────────────────────────
 
-export const supplierPayments: Adapter = async ({ businessId, now, today }) => {
+export const supplierPayments: Adapter = async ({ businessId, now, today, t = HEBREW_TEXT, locale }) => {
   const briefing = await tenantTx(businessId, (tx) => getBriefing(businessId, obligationServiceDeps({ tx })));
   const items: SourceItem[] = briefing.attention.map(({ obligation: o }, idx) => {
     const dueOn = jerusalemDayKey(o.dueAt);
-    const remaining = o.ledger ? money(o.ledger.remaining, o.currency) : null;
+    const remaining = o.ledger ? money(o.ledger.remaining, o.currency, locale) : null;
     const facts = dueOn < today
-      ? [`היה אמור לצאת ב־${shortDate(dueOn)}`, "עדיין לא שולם"]
-      : dueOn === today ? ["לתשלום היום"] : [`לתשלום ב־${shortDate(dueOn)}`];
-    if (remaining) facts.push(`נותרו ${remaining}`);
+      ? [t("system.tasks.supplier.wasDue", { date: shortDate(dueOn) }), t("system.tasks.supplier.notPaid")]
+      : dueOn === today ? [t("system.tasks.supplier.dueToday")] : [t("system.tasks.supplier.dueOn", { date: shortDate(dueOn) })];
+    if (remaining) facts.push(t("system.tasks.supplier.remaining", { amount: remaining }));
     // A postponed reminder on a payment due today or overdue: the debt stays visible and counted (3.5).
     const postponed = o.followUpAt && o.followUpAt > now && dueOn <= today ? { until: jerusalemDayKey(o.followUpAt) } : null;
     return {
@@ -80,7 +87,7 @@ export const supplierPayments: Adapter = async ({ businessId, now, today }) => {
       title: o.obligeeName,
       fact: facts.join(" · "),
       factAt: o.dueAt.toISOString(),
-      action: { label: "לתשלום", href: `/secretary?screen=detail&id=${o.id}` },
+      action: { label: t("system.tasks.supplier.action"), href: `/secretary?screen=detail&id=${o.id}` },
       snooze: "PAYMENT",
       reminderPostponed: postponed,
       orderHint: idx,
@@ -101,7 +108,7 @@ export const supplierPayments: Adapter = async ({ businessId, now, today }) => {
 // ── S02 Customer debt ────────────────────────────────────────────────────────────────────────────
 
 const CUSTOMER_DEBT_CAP = 50;
-export const customerDebt: Adapter = async ({ businessId, now }) => {
+export const customerDebt: Adapter = async ({ businessId, now, t = HEBREW_TEXT, locale }) => {
   const list = await loadAwaitingPaymentList(businessId, now);
   const items: SourceItem[] = list.customers
     .filter((c) => c.customerId !== null)
@@ -117,11 +124,11 @@ export const customerDebt: Adapter = async ({ businessId, now }) => {
         placement: "TODAY",
         dueOn: null,
         severity: "NORMAL",
-        title: `גבייה: ${c.customerName ?? "לקוח"}`,
-        fact: [`${n === 1 ? "חשבונית פתוחה אחת" : `${n} חשבוניות פתוחות`}`, money(String(c.totalOutstanding), c.currency),
-               `${c.maxDaysAwaiting === 1 ? "יום אחד" : `${c.maxDaysAwaiting} יום`} אחרי המועד`].join(" · "),
+        title: t("system.tasks.debt.title", { name: c.customerName ?? t("system.tasks.debt.customerFallback") }),
+        fact: [n === 1 ? t("system.tasks.debt.oneInvoice") : t("system.tasks.debt.invoices", { n }), money(String(c.totalOutstanding), c.currency, locale),
+               t("system.tasks.debt.afterDue", { days: c.maxDaysAwaiting === 1 ? t("system.tasks.debt.oneDay") : t("system.tasks.debt.days", { n: c.maxDaysAwaiting }) })].join(" · "),
         factAt: c.awaitingSince.toISOString(),
-        action: { label: "לתזכורת", href: `/collection/c/${c.customerId}` },
+        action: { label: t("system.tasks.debt.action"), href: `/collection/c/${c.customerId}` },
         snooze: "STATE",
         entity: { kind: "customer", id: c.customerId as number },
         customerId: c.customerId as number,
@@ -133,7 +140,7 @@ export const customerDebt: Adapter = async ({ businessId, now }) => {
 // ── S06 Invoices waiting for review ──────────────────────────────────────────────────────────────
 
 const INVOICE_REVIEW_CAP = 50;
-export const invoiceReview: Adapter = async ({ businessId }) => {
+export const invoiceReview: Adapter = async ({ businessId, t = HEBREW_TEXT }) => {
   const rows = await tenantTx(businessId, (tx) => tx.billingDocument.findMany({
     where: { businessId, status: BillingDocumentStatus.PENDING_REVIEW },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -148,10 +155,10 @@ export const invoiceReview: Adapter = async ({ businessId }) => {
     placement: "NO_DATE",
     dueOn: null,
     severity: "NORMAL",
-    title: `חשבונית ${d.documentNumberFormatted ?? ""} ממתינה לבדיקה`.replace(/\s+/g, " "),
-    fact: [d.customerNameSnapshot, `נוצרה ${shortDate(jerusalemDayKey(d.createdAt))}`].filter(Boolean).join(" · "),
+    title: t("system.tasks.invoiceReview.title", { number: d.documentNumberFormatted ?? "" }).replace(/\s+/g, " "),
+    fact: [d.customerNameSnapshot, t("system.tasks.invoiceReview.created", { date: shortDate(jerusalemDayKey(d.createdAt)) })].filter(Boolean).join(" · "),
     factAt: d.createdAt.toISOString(),
-    action: { label: "לחשבונית", href: `/billing/${d.id}` },
+    action: { label: t("system.tasks.invoiceReview.action"), href: `/billing/${d.id}` },
     snooze: "STATE",
     entity: { kind: "billing_document", id: d.id },
   }));
@@ -164,7 +171,7 @@ const LEAD_SQL_LIMIT = 24; // loadLeadsNeedingAttention's own LIMIT
 const UPCOMING_LEADS_CAP = 30;
 const LEAD_REASONS = new Set(["FOLLOWUP_OVERDUE", "FOLLOWUP_DUE_TODAY", "CUSTOMER_WROTE", "NEW_UNHANDLED"]);
 
-export const leads: Adapter = async ({ businessId, now, today }) => {
+export const leads: Adapter = async ({ businessId, now, today, t = HEBREW_TEXT }) => {
   const raw = await runWithTenantContext({ businessId }, () => loadLeadsNeedingAttention(businessId, now));
   const extra = await tenantTx(businessId, async (tx) => ({
     customers: await tx.lead.findMany({ where: { businessId, id: { in: raw.map((r) => r.id) } }, select: { id: true, customerId: true } }),
@@ -184,7 +191,7 @@ export const leads: Adapter = async ({ businessId, now, today }) => {
       lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null, openIdentityProposals: r.openIdentityProposals,
     }, now);
     if (!a.needsAttention || !a.reason || !LEAD_REASONS.has(a.reason)) continue;
-    const name = r.customerName?.trim() || "ליד ללא שם";
+    const name = r.customerName?.trim() || t("system.tasks.lead.unnamed");
     const followUp = a.reason === "FOLLOWUP_OVERDUE" || a.reason === "FOLLOWUP_DUE_TODAY";
     const dueOn = followUp && r.nextFollowUpAt ? jerusalemDayKey(r.nextFollowUpAt) : null;
     const wrote = a.reason === "CUSTOMER_WROTE";
@@ -196,12 +203,12 @@ export const leads: Adapter = async ({ businessId, now, today }) => {
       placement: followUp ? "BY_DATE" : "TODAY",
       dueOn,
       severity: wrote ? "HIGH" : "NORMAL",
-      title: wrote ? `הודעה חדשה מ${name}` : followUp ? `מעקב: ${name}` : `ליד חדש: ${name}`,
-      fact: wrote && r.lastCustomerInboundAt ? `הודעה אחרונה ${relativeHe(r.lastCustomerInboundAt, now)}`
-        : followUp ? (r.followUpNote?.trim() || `מעקב מתוכנן ל־${shortDate(dueOn ?? today)}`)
-        : `נכנס ${relativeHe(r.createdAt, now)}`,
+      title: wrote ? t("system.tasks.lead.newMessage", { name }) : followUp ? t("system.tasks.lead.followUp", { name }) : t("system.tasks.lead.newLead", { name }),
+      fact: wrote && r.lastCustomerInboundAt ? t("system.tasks.lead.lastMessage", { when: relativeHe(r.lastCustomerInboundAt, now, t) })
+        : followUp ? (r.followUpNote?.trim() || t("system.tasks.lead.plannedFor", { date: shortDate(dueOn ?? today) }))
+        : t("system.tasks.lead.entered", { when: relativeHe(r.createdAt, now, t) }),
       factAt: (wrote ? r.lastCustomerInboundAt : followUp ? r.nextFollowUpAt : r.createdAt)?.toISOString() ?? null,
-      action: { label: wrote ? "לשיחה" : "לליד", href: `/leads/${r.id}` },
+      action: { label: wrote ? t("system.tasks.lead.toConversation") : t("system.tasks.lead.toLead"), href: `/leads/${r.id}` },
       snooze: "LEAD",
       entity: { kind: "lead", id: r.id },
       customerId: customerOf.get(r.id) ?? null,
@@ -212,7 +219,7 @@ export const leads: Adapter = async ({ businessId, now, today }) => {
     if (items.some((i) => i.dedupeKey === `lead:${l.id}`) || !l.nextFollowUpAt) continue;
     const dueOn = jerusalemDayKey(l.nextFollowUpAt);
     if (daysBetweenDayKeys(today, dueOn) < 1) continue;
-    const name = l.customerName?.trim() || "ליד ללא שם";
+    const name = l.customerName?.trim() || t("system.tasks.lead.unnamed");
     items.push({
       sourceKind: "lead",
       dedupeKey: `lead:${l.id}`,
@@ -221,10 +228,10 @@ export const leads: Adapter = async ({ businessId, now, today }) => {
       placement: "BY_DATE",
       dueOn,
       severity: "NORMAL",
-      title: `מעקב: ${name}`,
-      fact: l.followUpNote?.trim() || `מעקב מתוכנן ל־${shortDate(dueOn)}`,
+      title: t("system.tasks.lead.followUp", { name }),
+      fact: l.followUpNote?.trim() || t("system.tasks.lead.plannedFor", { date: shortDate(dueOn) }),
       factAt: l.nextFollowUpAt.toISOString(),
-      action: { label: "לליד", href: `/leads/${l.id}` },
+      action: { label: t("system.tasks.lead.toLead"), href: `/leads/${l.id}` },
       snooze: "LEAD",
       entity: { kind: "lead", id: l.id },
       customerId: l.customerId ?? null,
@@ -237,9 +244,19 @@ export const leads: Adapter = async ({ businessId, now, today }) => {
 // ── S16 Conversations waiting for a reply ───────────────────────────────────────────────────────
 
 const WAITING_CAP = 12; // loadAttentionWaiting's own cap (BS_ATTENTION_WAITING_CAP)
-const CHANNEL_HE: Record<string, string> = { WHATSAPP: "WhatsApp", INSTAGRAM: "Instagram", FACEBOOK: "Facebook", EMAIL: "מייל", PHONE: "טלפון", OTHER: "שיחה" };
+/** Brand names stay as they are; the rest follows the interface language. */
+function channelName(channel: string, t: Translator): string {
+  switch (channel) {
+    case "WHATSAPP": return "WhatsApp";
+    case "INSTAGRAM": return "Instagram";
+    case "FACEBOOK": return "Facebook";
+    case "EMAIL": return t("system.tasks.conversation.channel.email");
+    case "PHONE": return t("system.tasks.conversation.channel.phone");
+    default: return t("system.tasks.conversation.channel.other");
+  }
+}
 
-export const conversations: Adapter = async ({ businessId, now }) => {
+export const conversations: Adapter = async ({ businessId, now, t = HEBREW_TEXT }) => {
   const waiting = await runWithTenantContext({ businessId }, () => loadAttentionWaiting(businessId));
   const convs = await tenantTx(businessId, (tx) => tx.conversation.findMany({
     where: { businessId, id: { in: waiting.map((w) => w.conversationId) } },
@@ -256,10 +273,10 @@ export const conversations: Adapter = async ({ businessId, now }) => {
       placement: "TODAY",
       dueOn: null,
       severity: "HIGH",
-      title: `${w.customerName?.trim() || "לקוח"} מחכה לתשובה`,
-      fact: `${CHANNEL_HE[String(w.channel)] ?? "שיחה"} · הודעה אחרונה ${relativeHe(w.relevantAt, now)}`,
+      title: t("system.tasks.conversation.waiting", { name: w.customerName?.trim() || t("system.tasks.conversation.customerFallback") }),
+      fact: t("system.tasks.conversation.fact", { channel: channelName(String(w.channel), t), when: relativeHe(w.relevantAt, now, t) }),
       factAt: w.relevantAt.toISOString(),
-      action: { label: "לשיחה", href: `/inbox?conversationId=${w.conversationId}` },
+      action: { label: t("system.tasks.conversation.action"), href: `/inbox?conversationId=${w.conversationId}` },
       snooze: "STATE",
       entity: { kind: "conversation", id: w.conversationId },
       customerId: c?.customerId ?? null,
@@ -270,7 +287,7 @@ export const conversations: Adapter = async ({ businessId, now }) => {
 
 // ── S23 Documents waiting for review (always one row) ───────────────────────────────────────────
 
-export const documentsQueue: Adapter = async ({ businessId, now }) => {
+export const documentsQueue: Adapter = async ({ businessId, now, t = HEBREW_TEXT }) => {
   const { count, months, oldest } = await runWithTenantContext({ businessId }, async () => ({
     count: await countPendingReviewAllTime(businessId),
     months: await listPendingReviewMonths(businessId),
@@ -290,10 +307,10 @@ export const documentsQueue: Adapter = async ({ businessId, now }) => {
       placement: "NO_DATE",
       dueOn: null,
       severity: "NORMAL",
-      title: count === 1 ? "מסמך אחד מחכה לבדיקה" : `${count} מסמכים מחכים לבדיקה`,
-      fact: ageDays <= 0 ? "הוותיק הגיע היום" : ageDays === 1 ? "הוותיק הגיע אתמול" : `הוותיק הגיע לפני ${ageDays} ימים`,
+      title: count === 1 ? t("system.tasks.documents.one") : t("system.tasks.documents.many", { n: count }),
+      fact: ageDays <= 0 ? t("system.tasks.documents.oldestToday") : ageDays === 1 ? t("system.tasks.documents.oldestYesterday") : t("system.tasks.documents.oldestDays", { n: ageDays }),
       factAt: oldest.createdAt.toISOString(),
-      action: { label: "לתור", href: pendingReviewInboxHref(months) },
+      action: { label: t("system.tasks.documents.action"), href: pendingReviewInboxHref(months) },
       snooze: "STATE",
     }],
   };
@@ -302,7 +319,7 @@ export const documentsQueue: Adapter = async ({ businessId, now }) => {
 // ── S25 Stock alerts ─────────────────────────────────────────────────────────────────────────────
 
 const STOCK_CAP = 50;
-export const stock: Adapter = async ({ businessId }) => {
+export const stock: Adapter = async ({ businessId, t = HEBREW_TEXT }) => {
   const rows = await tenantTx(businessId, (tx) => tx.inventoryAlert.findMany({
     where: { businessId, isResolved: false, type: { in: ["LOW_STOCK", "CRITICAL_STOCK"] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -320,10 +337,11 @@ export const stock: Adapter = async ({ businessId }) => {
       placement: critical ? "TODAY" : "NO_DATE",
       dueOn: null,
       severity: critical ? "HIGH" : "NORMAL",
-      title: `${a.item?.name ?? "פריט"} — ${critical ? "מלאי קריטי" : "מלאי נמוך"}`,
-      fact: a.message?.trim() || (critical ? "המלאי מתחת לסף הקריטי" : "המלאי מתחת לסף ההזמנה"),
+      title: t("system.tasks.stock.title", { name: a.item?.name ?? t("system.tasks.stock.itemFallback"), level: critical ? t("system.tasks.stock.critical") : t("system.tasks.stock.low") }),
+      // `message` is stored with the alert (written in Hebrew when the alert was raised): shown as stored.
+      fact: a.message?.trim() || (critical ? t("system.tasks.stock.belowCritical") : t("system.tasks.stock.belowReorder")),
       factAt: a.createdAt.toISOString(),
-      action: { label: "להזמנה", href: "/inventory/alerts" },
+      action: { label: t("system.tasks.stock.action"), href: "/inventory/alerts" },
       snooze: "STATE",
       entity: { kind: "inventory_alert", id: a.id },
     } satisfies SourceItem;

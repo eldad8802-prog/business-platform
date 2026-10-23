@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
 /** Upload one file (multipart/form-data, field "file") to a CRM subject. */
 export async function POST(req: NextRequest, ctx: Ctx) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
@@ -65,10 +67,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const formData = await req.formData();
     const files = formData.getAll("file").filter((f): f is File => f instanceof File);
     if (files.length === 0) {
-      throw new ValidationError("לא נבחר קובץ");
+      throw new ValidationError(t("api.common.noFileSelected"));
     }
     if (files.length > 1) {
-      throw new ValidationError("ניתן להעלות קובץ אחד בכל פעם");
+      throw new ValidationError(t("api.crm.oneFileAtATime"));
     }
     const file = files[0];
 
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // memory — mirrors the Documents upload route. The service still validates
     // the real byte length (authoritative; a spoofed file.size cannot pass it).
     if (typeof file.size !== "number" || file.size > MAX_ATTACHMENT_BYTES) {
-      return NextResponse.json({ error: "הקובץ גדול מדי (עד 15MB)" }, { status: 413 });
+      return NextResponse.json({ error: t("api.common.fileTooLarge15") }, { status: 413 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());

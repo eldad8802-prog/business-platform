@@ -59,6 +59,7 @@ import {
   type SupplierChoice,
 } from "@/components/inventory/supplier-choices";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /** Long enough that typing a name is one request, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -68,7 +69,7 @@ export function SupplierField({
   onChange,
   orphanNames = [],
   idPrefix,
-  placeholder = "חפשו ספק קיים או הקלידו שם חדש",
+  placeholder,
   disabled = false,
 }: {
   /** The Tier-1 snapshot the item will persist. */
@@ -81,6 +82,7 @@ export function SupplierField({
   placeholder?: string;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const listId = `${idPrefix}-${reactId}-list`;
   const inputId = `${idPrefix}-${reactId}-input`;
@@ -302,7 +304,7 @@ export function SupplierField({
         autoComplete="off"
         disabled={disabled}
         value={value}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("customers.suppliers.field.placeholder")}
         onChange={(e) => {
           onChange(e.target.value);
           // The first keystroke turns browsing into filtering.
@@ -319,16 +321,16 @@ export function SupplierField({
       />
 
       {open ? (
-        <ul className="inv-sup__list" id={listId} role="listbox" aria-label="ספקים">
+        <ul className="inv-sup__list" id={listId} role="listbox" aria-label={t("customers.suppliers.field.listLabel")}>
           {searching && choices.length === 0 ? (
             <li className="inv-sup__note" role="presentation">
-              מחפש…
+              {t("customers.suppliers.field.searching")}
             </li>
           ) : null}
 
           {!searching && choices.length === 0 ? (
             <li className="inv-sup__note" role="presentation">
-              התחילו להקליד שם ספק
+              {t("customers.suppliers.field.startTyping")}
             </li>
           ) : null}
 
@@ -351,7 +353,7 @@ export function SupplierField({
                     +
                   </span>
                   <span className="inv-sup__opt-main">
-                    יצירת ספק חדש <bdi>&quot;{choice.name}&quot;</bdi>
+                    {t("customers.suppliers.field.createNew")} <bdi>&quot;{choice.name}&quot;</bdi>
                   </span>
                 </li>
               );
@@ -374,7 +376,7 @@ export function SupplierField({
                   // Named on items but never registered as a supplier. Said out
                   // loud so the owner can see which of their suppliers are real
                   // records and which are only text.
-                  <span className="inv-sup__tag">לא רשום כספק</span>
+                  <span className="inv-sup__tag">{t("customers.suppliers.field.orphanTag")}</span>
                 ) : null}
               </li>
             );
@@ -382,7 +384,7 @@ export function SupplierField({
 
           {searchFailed ? (
             <li className="inv-sup__note inv-sup__note--warn" role="presentation">
-              לא הצלחנו לטעון ספקים. אפשר להקליד שם ידנית.
+              {t("customers.suppliers.field.loadFailed")}
             </li>
           ) : null}
         </ul>
@@ -429,6 +431,7 @@ function SupplierQuickCreate({
   /** The supplier NAME to put in the field — the Tier-1 value the item stores. */
   onSelected: (name: string) => void;
 }) {
+  const { t } = useI18n();
   const [form, setForm] = useState<SupplierFormState>(() => ({
     ...EMPTY_SUPPLIER_FORM,
     name: initialName,
@@ -489,7 +492,7 @@ function SupplierQuickCreate({
 
   async function handleSubmit() {
     if (saving) return;
-    const invalid = validateSupplierForm(form);
+    const invalid = validateSupplierForm(form, t);
     if (invalid) {
       setError(invalid);
       return;
@@ -517,13 +520,13 @@ function SupplierQuickCreate({
         return;
       }
       // The item form is untouched — only this dialog reports the failure.
-      setError(err instanceof Error ? err.message : "לא הצלחנו ליצור ספק");
+      setError(err instanceof Error ? err.message : t("customers.suppliers.create.errorCreate"));
       setSaving(false);
     }
   }
 
   return (
-    <div className="crm-scope" dir="rtl">
+    <div className="crm-scope">
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <div
         className="crm-modal__backdrop"
@@ -535,7 +538,7 @@ function SupplierQuickCreate({
           className="crm-modal"
           role="dialog"
           aria-modal="true"
-          aria-label={duplicates ? "ייתכן שהספק כבר קיים" : "ספק חדש"}
+          aria-label={duplicates ? t("customers.suppliers.duplicate.title") : t("customers.suppliers.create.title")}
           // On the Edit screen this dialog opens inside the edit SHEET, which is
           // itself a role="dialog". The attribute gives anything that needs to
           // tell the two apart — tests, and a human reading the DOM — something
@@ -556,14 +559,13 @@ function SupplierQuickCreate({
                 onSelected(match ? match.name : duplicates.created.name);
               }}
               onKeepNew={() => onSelected(duplicates.created.name)}
-              keepNewLabel="להמשיך עם הספק החדש"
+              keepNewLabel={t("customers.suppliers.duplicate.keepNew")}
             />
           ) : (
             <>
-              <h2 className="crm-modal__title">ספק חדש</h2>
+              <h2 className="crm-modal__title">{t("customers.suppliers.create.title")}</h2>
               <p className="crm-panel__body" style={{ marginTop: -4 }}>
-                שם בלבד מספיק. אפשר להשלים את שאר הפרטים בכל שלב, והפריט עצמו
-                יישמר רק כשתשמרו אותו.
+                {t("customers.suppliers.field.quickCreateIntro")}
               </p>
 
               <SupplierForm form={form} set={set} idPrefix="inv-sup-new" />
@@ -577,7 +579,7 @@ function SupplierQuickCreate({
                   onClick={() => void handleSubmit()}
                   disabled={saving}
                 >
-                  {saving ? "שומר…" : "יצירת ספק"}
+                  {saving ? t("customers.suppliers.common.saving") : t("customers.suppliers.field.quickCreateSubmit")}
                 </button>
                 <button
                   type="button"
@@ -585,7 +587,7 @@ function SupplierQuickCreate({
                   onClick={onCancel}
                   disabled={saving}
                 >
-                  ביטול
+                  {t("customers.suppliers.common.cancel")}
                 </button>
               </div>
             </>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/tokens";
 import {
   BUSINESS_CATEGORY_OPTIONS as categoryOptions,
@@ -10,6 +11,7 @@ import {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [category, setCategory] = useState("");
   const [subCategory, setSubCategory] = useState("");
@@ -30,7 +32,7 @@ export default function OnboardingPage() {
   const handleSubmit = async () => {
     try {
       if (!category || !subCategory || !businessModel) {
-        alert("יש למלא את כל השדות לפני שממשיכים");
+        alert(t("account.onboarding.fillAll"));
         return;
       }
 
@@ -54,13 +56,13 @@ export default function OnboardingPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה בשמירה");
+        throw new Error(data?.error || t("account.onboarding.saveFailed"));
       }
 
       router.replace("/app");
     } catch (err) {
       console.error(err);
-      alert("שגיאה בשמירה");
+      alert(t("account.onboarding.saveFailed"));
     } finally {
       setLoading(false);
     }
@@ -71,7 +73,6 @@ export default function OnboardingPage() {
       style={{
         minHeight: "100vh",
         background: "var(--dz-surface-muted)",
-        direction: "rtl",
         padding: "24px 16px",
         display: "flex",
         alignItems: "center",
@@ -97,11 +98,11 @@ export default function OnboardingPage() {
           }}
         >
           <h1 style={{ margin: "0 0 8px 0", fontSize: 30, color: "var(--dz-text-primary)" }}>
-            הגדרת העסק
+            {t("account.onboarding.title")}
           </h1>
 
           <p style={{ margin: 0, color: "var(--dz-text-muted)", lineHeight: 1.7 }}>
-            כדי להתאים את המערכת לעסק שלך, נבקש ממך לבחור 3 פרטים בסיסיים בלבד.
+            {t("account.onboarding.subtitle")}
           </p>
         </div>
 
@@ -116,7 +117,7 @@ export default function OnboardingPage() {
                 fontSize: 14,
               }}
             >
-              תחום העסק
+              {t("account.onboarding.categoryLabel")}
             </label>
 
             <select
@@ -132,10 +133,10 @@ export default function OnboardingPage() {
                 boxSizing: "border-box",
               }}
             >
-              <option value="">בחר תחום</option>
+              <option value="">{t("account.onboarding.categoryPlaceholder")}</option>
               {categoryOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -148,7 +149,7 @@ export default function OnboardingPage() {
                 lineHeight: 1.6,
               }}
             >
-              בחר את התחום הכללי שהכי מתאים לעסק שלך.
+              {t("account.onboarding.categoryHelp")}
             </div>
           </div>
 
@@ -162,7 +163,7 @@ export default function OnboardingPage() {
                 fontSize: 14,
               }}
             >
-              תת תחום
+              {t("account.onboarding.subCategoryLabel")}
             </label>
 
             <select
@@ -180,11 +181,11 @@ export default function OnboardingPage() {
               }}
             >
               <option value="">
-                {category ? "בחר תת תחום" : "קודם בחר תחום"}
+                {category ? t("account.onboarding.subCategoryPlaceholder") : t("account.onboarding.subCategoryFirst")}
               </option>
               {availableSubCategories.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -197,7 +198,7 @@ export default function OnboardingPage() {
                 lineHeight: 1.6,
               }}
             >
-              בחר את סוג העסק המדויק יותר בתוך התחום שבחרת.
+              {t("account.onboarding.subCategoryHelp")}
             </div>
           </div>
 
@@ -211,7 +212,7 @@ export default function OnboardingPage() {
                 fontSize: 14,
               }}
             >
-              מודל עסקי
+              {t("account.onboarding.modelLabel")}
             </label>
 
             <select
@@ -229,7 +230,7 @@ export default function OnboardingPage() {
             >
               {businessModelOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -242,7 +243,7 @@ export default function OnboardingPage() {
                 lineHeight: 1.6,
               }}
             >
-              האם העסק שלך מבוסס בעיקר על שירות, על מוצר, או על שילוב של שניהם.
+              {t("account.onboarding.modelHelp")}
             </div>
           </div>
 
@@ -261,7 +262,7 @@ export default function OnboardingPage() {
               fontSize: 15,
             }}
           >
-            {loading ? "שומר..." : "שמירה והמשך"}
+            {loading ? t("account.onboarding.saving") : t("account.onboarding.submit")}
           </button>
         </div>
       </div>

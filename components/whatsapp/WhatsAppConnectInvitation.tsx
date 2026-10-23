@@ -2,7 +2,8 @@
 
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnect } from "./use-whatsapp-connect";
-import { WA_COPY, waConnectErrorText } from "./wa-copy";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { waConnectErrorText } from "./wa-copy";
 import { IconLock } from "./wa-icons";
 import { WaAvatar, WaBadge, WaConnecting, WaPrimaryButton } from "./wa-ui";
 
@@ -31,6 +32,7 @@ export function WhatsAppConnectInvitation({
   onConnected: () => void;
   notice?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const { status, detail, errorCode, start, reset, cancel } = useWhatsAppConnect(
     () => onConnected(),
     () => onConnected()
@@ -40,15 +42,15 @@ export function WhatsAppConnectInvitation({
     return (
       <ConnectSurface>
         <div style={{ ...heroStyle, gap: TOKEN.space.lg }}>
-          <WaBadge tone="neutral" label={WA_COPY.error.badge} />
+          <WaBadge tone="neutral" label={t("inbox.whatsapp.error.badge")} />
           <div style={stackStyle}>
-            <h1 style={headingStyle}>{WA_COPY.error.heading}</h1>
-            <p style={bodyStyle}>{waConnectErrorText(errorCode)}</p>
+            <h1 style={headingStyle}>{t("inbox.whatsapp.error.heading")}</h1>
+            <p style={bodyStyle}>{waConnectErrorText(errorCode, t)}</p>
           </div>
         </div>
         <div style={footerStyle}>
           <WaPrimaryButton
-            label={WA_COPY.error.retry}
+            label={t("inbox.whatsapp.error.retry")}
             onClick={() => {
               reset();
               start();
@@ -69,7 +71,6 @@ export function WhatsAppConnectInvitation({
   }
 
   const launching = detail === "launching";
-  const c = WA_COPY.invitation;
 
   return (
     <ConnectSurface>
@@ -77,8 +78,8 @@ export function WhatsAppConnectInvitation({
       <div className="wa-connect-hero" style={heroStyle}>
         <WaAvatar size={70} />
         <div style={stackStyle}>
-          <h1 style={headingStyle}>{c.heading}</h1>
-          <p style={bodyStyle}>{c.body}</p>
+          <h1 style={headingStyle}>{t("inbox.whatsapp.invitation.heading")}</h1>
+          <p style={bodyStyle}>{t("inbox.whatsapp.invitation.body")}</p>
         </div>
         <div style={trustCardStyle}>
           <span
@@ -95,7 +96,7 @@ export function WhatsAppConnectInvitation({
               lineHeight: 1.55,
             }}
           >
-            {c.trust}
+            {t("inbox.whatsapp.invitation.trust")}
           </p>
         </div>
       </div>
@@ -103,7 +104,7 @@ export function WhatsAppConnectInvitation({
       <div style={footerStyle}>
         {/* WhatsApp Business connection is not open yet: the button stays, inactive, marked "בקרוב". */}
         <WaPrimaryButton
-          label={launching ? c.connecting : c.cta}
+          label={launching ? t("inbox.whatsapp.invitation.connecting") : t("inbox.whatsapp.invitation.cta")}
           onClick={start}
           disabled={launching}
           showGlyph={!launching}
@@ -111,13 +112,13 @@ export function WhatsAppConnectInvitation({
         />
         {launching ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <p style={helperStyle}>{c.popupHint}</p>
+            <p style={helperStyle}>{t("inbox.whatsapp.invitation.popupHint")}</p>
             <button type="button" onClick={cancel} style={linkButtonStyle}>
-              {c.cancelLaunch}
+              {t("inbox.whatsapp.invitation.cancelLaunch")}
             </button>
           </div>
         ) : (
-          <p style={helperStyle}>{c.helper}</p>
+          <p style={helperStyle}>{t("inbox.whatsapp.invitation.helper")}</p>
         )}
       </div>
     </ConnectSurface>
@@ -141,7 +142,6 @@ const CONNECT_DESK_CSS = `
 function ConnectSurface({ children }: { children: React.ReactNode }) {
   return (
     <div
-      dir="rtl"
       className="wa-connect-surface"
       style={{
         minHeight: "100vh",
@@ -214,7 +214,7 @@ const trustCardStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   gap: TOKEN.space.sm,
-  textAlign: "right",
+  textAlign: "start",
 };
 
 const footerStyle: React.CSSProperties = {

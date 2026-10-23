@@ -12,6 +12,9 @@
  * each one stands for is spelled out there, next to its predicate.
  */
 
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
+
 export const HOME_HISTORY_FLAGS = [
   "income",
   "expenses",
@@ -58,15 +61,17 @@ export function whatsAppHomeState(status: string | null | undefined): WhatsAppHo
   }
 }
 
-/** The lead card's connection action — null when there is nothing to offer. */
-export function whatsAppAction(state: WhatsAppHomeState): { label: string; href: string } | null {
+const HE_T: Translator = createTranslator(he);
+
+/** The lead card's connection action — null when there is nothing to offer. Label in `t`'s language (Hebrew by default). */
+export function whatsAppAction(state: WhatsAppHomeState, t: Translator = HE_T): { label: string; href: string } | null {
   switch (state) {
     case "NEVER":
-      return { label: "חיבור וואטסאפ", href: "/settings/whatsapp" };
+      return { label: t("insights.home.whatsapp.connect"), href: "/settings/whatsapp" };
     case "DISCONNECTED":
-      return { label: "חיבור מחדש", href: "/settings/whatsapp" };
+      return { label: t("insights.home.whatsapp.reconnect"), href: "/settings/whatsapp" };
     case "ATTENTION":
-      return { label: "טיפול בחיבור", href: "/settings/whatsapp" };
+      return { label: t("insights.home.whatsapp.handle"), href: "/settings/whatsapp" };
     case "CONNECTED":
       return null;
   }

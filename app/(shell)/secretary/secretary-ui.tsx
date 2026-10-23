@@ -4,13 +4,18 @@ import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
-import BackButton from "@/components/ui/back-button";
+import BackButton, { useGoBack } from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type {
   CreateObligationInput,
   ObligationApi,
   RecurrenceCadence,
   UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
+import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
+import { findCategoryObligation, INSURANCE, NATIONAL_INSURANCE } from "./secretary-bank-categories";
 import styles from "./secretary.module.css";
 
 export type TodayState = "critical" | "busy" | "calm";
@@ -33,52 +38,77 @@ type CaptureKind = "regular" | "installments" | "postdated-check" | "net-terms";
 
 type CaptureKindOption = {
   key: CaptureKind;
-  title: string;
-  description: string;
+  title: MessageKey;
+  description: MessageKey;
   icon: string;
   supported: boolean;
 };
 
-const RECURRENCE_OPTIONS: Array<{ value: RecurrenceCadence; label: string }> = [
-  { value: "NONE", label: "חד-פעמי" },
-  { value: "WEEKLY", label: "כל שבוע" },
-  { value: "MONTHLY", label: "כל חודש" },
-  { value: "BIMONTHLY", label: "כל חודשיים" },
-  { value: "QUARTERLY", label: "כל רבעון" },
-  { value: "SEMIANNUAL", label: "כל חצי שנה" },
-  { value: "YEARLY", label: "כל שנה" },
-];
+const RECURRENCE_KEY: Record<RecurrenceCadence, MessageKey> = {
+  NONE: "tasks.secretary.recurrence.none",
+  WEEKLY: "tasks.secretary.recurrence.weekly",
+  MONTHLY: "tasks.secretary.recurrence.monthly",
+  BIMONTHLY: "tasks.secretary.recurrence.bimonthly",
+  QUARTERLY: "tasks.secretary.recurrence.quarterly",
+  SEMIANNUAL: "tasks.secretary.recurrence.semiannual",
+  YEARLY: "tasks.secretary.recurrence.yearly",
+};
+
+const RECURRENCE_OPTIONS: Array<{ value: RecurrenceCadence; label: MessageKey }> = (
+  ["NONE", "WEEKLY", "MONTHLY", "BIMONTHLY", "QUARTERLY", "SEMIANNUAL", "YEARLY"] as const
+).map((value) => ({ value, label: RECURRENCE_KEY[value] }));
 
 const CAPTURE_KINDS: CaptureKindOption[] = [
   {
     key: "regular",
-    title: "תשלום רגיל",
-    description: "למי, כמה ומתי לשלם",
+    title: "tasks.secretary.captureKinds.regular.title",
+    description: "tasks.secretary.captureKinds.regular.description",
     icon: "💳",
     supported: true,
   },
   {
     key: "installments",
-    title: "פריסת תשלומים",
-    description: "לוח תשלומים למעקב",
+    title: "tasks.secretary.captureKinds.installments.title",
+    description: "tasks.secretary.captureKinds.installments.description",
     icon: "🗓️",
     supported: true,
   },
   {
     key: "postdated-check",
-    title: "צ'ק דחוי",
-    description: "פירעון ותזכורת לפני",
+    title: "tasks.secretary.captureKinds.postdatedCheck.title",
+    description: "tasks.secretary.captureKinds.postdatedCheck.description",
     icon: "📝",
     supported: true,
   },
   {
     key: "net-terms",
-    title: "שוטף+",
-    description: "חישוב מועד תשלום",
+    title: "tasks.secretary.captureKinds.netTerms.title",
+    description: "tasks.secretary.captureKinds.netTerms.description",
     icon: "⏳",
     supported: true,
   },
 ];
+
+/**
+ * Creation-flow copy that says what Dubiz actually does today (owner decision
+ * 23.10.2026, P3 restore). No reminder is sent: an open item waits in "במעקב
+ * שקט" and rises to the top of the Secretary seven days before its due date. A
+ * payment plan is saved as separate one-off payments and a post-dated cheque as
+ * a one-off payment with its number in the note; neither is a payment plan or a
+ * cheque-register entry. Hebrew only for now (English is a later task).
+ */
+const P3_COPY = {
+  checkDescription: "מספר צ'ק ותאריך פירעון",
+  checkSay: "אפשר למסור לי את פרטי הצ'ק, ואזכור את יום הפירעון.",
+  checkNote: "הצ'ק נשמר כתשלום חד־פעמי ביום הפירעון, ומספר הצ'ק נכתב בהערה. הוא לא נרשם בפנקס הצ'קים.",
+  checkSaved: "הצ'ק נשמר כתשלום חד־פעמי עם מספר הצ'ק בהערה, ולא בפנקס הצ'קים.",
+  installmentsNote: (count: number) => `הפריסה נשמרת כ־${count} תשלומים נפרדים, אחד בכל חודש. כל אחד מופיע בהתחייבויות בנפרד, ולא כתוכנית תשלומים אחת.`,
+  installmentsSaved: (count: number) => `הפריסה נשמרה כ־${count} תשלומים נפרדים. זה הראשון שבהם.`,
+  netComputed: (days: string, date: string) => `חישבתי: שוטף+${days} יוצא לתשלום ב־${date}.`,
+  createdBody: (name: string, date: string) => `שמרתי את ${name} לתשלום ב־${date}. עד אז הוא נשמר אצלי במעקב שקט, ושבוע לפני המועד הוא יעלה לראש המזכירה.`,
+  createdBodyGeneric: "שמרתי. שבוע לפני המועד זה יעלה לראש המזכירה.",
+  echoDue: (date: string) => `לתשלום: ${date}`,
+};
 
 export type SecretaryHomeModel = {
   state: SecretaryHomeState;
@@ -248,16 +278,17 @@ export type TodayModel = {
 };
 
 export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeModel; children?: ReactNode }) {
+  const { t } = useI18n();
   const isNew = model.state === "new";
   const isDue = model.state === "due";
   return (
     <main className={styles.homeRoot} style={secretaryVars()}>
-      <section className={styles.homeShell} aria-label="המזכירה שלך">
+      <section className={styles.homeShell} aria-label={t("tasks.secretary.yourSecretary")}>
         <header className={styles.homeHead}>
           <div className={styles.homeAvatar} aria-hidden="true"><PersonIcon /></div>
           <div>
-            <div className={styles.homeWho}>המזכירה שלך</div>
-            <div className={styles.homeHello}>שלום 👋</div>
+            <div className={styles.homeWho}>{t("tasks.secretary.yourSecretary")}</div>
+            <div className={styles.homeHello}>{t("tasks.secretary.hello")}</div>
           </div>
         </header>
 
@@ -306,7 +337,7 @@ export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeM
                 <Link href={model.allHref} className={`${styles.homeCard} ${styles.homeAllCard}`}>
                   <div className={styles.homeCardRow}>
                     <div className={styles.homeIcon}><CalendarIcon /></div>
-                    <strong>כל ההתחייבויות</strong>
+                    <strong>{t("tasks.secretary.allObligations")}</strong>
                     <span className={styles.homeGo}><ChevronLeftIcon /></span>
                   </div>
                   <p>
@@ -322,12 +353,12 @@ export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeM
         {isNew ? (
           <div className={styles.homeSetNote}>
             <div className={styles.homeMiniAvatar} aria-hidden="true"><PersonIcon /></div>
-            <p>ברגע שיהיה לי מה לזכור, היום שלי וכל ההתחייבויות יופיעו כאן.</p>
+            <p>{t("tasks.secretary.homeSetNote")}</p>
           </div>
         ) : (
           <Link href={model.addHref} className={styles.homeAddRow}>
             <PlusIcon />
-            הוספה למעקב
+            {t("tasks.secretary.addToTracking")}
           </Link>
         )}
         {children}
@@ -341,14 +372,15 @@ export function SecretaryHomeScreen({ model, children }: { model: SecretaryHomeM
  * immediate — no blank screen, no blocking "checking…" page.
  */
 export function SecretaryHomeSkeleton() {
+  const { t } = useI18n();
   return (
     <main className={styles.homeRoot} style={secretaryVars()}>
-      <section className={styles.homeShell} aria-busy="true" aria-label="טוען את המזכירה">
+      <section className={styles.homeShell} aria-busy="true" aria-label={t("tasks.secretary.loadingAria")}>
         <header className={styles.homeHead}>
           <div className={styles.homeAvatar} aria-hidden="true"><PersonIcon /></div>
           <div>
-            <div className={styles.homeWho}>המזכירה שלך</div>
-            <div className={styles.homeHello}>שלום 👋</div>
+            <div className={styles.homeWho}>{t("tasks.secretary.yourSecretary")}</div>
+            <div className={styles.homeHello}>{t("tasks.secretary.hello")}</div>
           </div>
         </header>
         <section className={styles.homeStatus}>
@@ -370,17 +402,20 @@ export function SecretaryScreen({
   title,
   backHref = "/secretary",
   compact = false,
+  backLook = "round",
 }: {
   children: ReactNode;
   title?: string;
   backHref?: string;
   compact?: boolean;
+  /** "p3": the "‹ חזרה" pill of the creation flow (owner-approved P3, 18.9.2026). Same navigation either way. */
+  backLook?: "round" | "p3";
 }) {
   return (
     <main className={styles.root} style={secretaryVars()}>
       <div className={`${styles.shell} ${compact ? styles.shellCompact : ""}`}>
         <div className={styles.topbar}>
-          <BackControl fallbackHref={backHref} />
+          {backLook === "p3" ? <P3BackControl fallbackHref={backHref} /> : <BackControl fallbackHref={backHref} />}
           {title ? <div className={styles.topTitle}>{title}</div> : null}
           <div className={styles.topSpacer} />
         </div>
@@ -397,13 +432,51 @@ export function SecretaryScreen({
  * fallback, labelled with its destination.
  */
 function BackControl({ fallbackHref }: { fallbackHref: string }) {
-  return <BackButton fallback={fallbackHref} fallbackLabel={secretaryFallbackLabel(fallbackHref)} />;
+  const { t } = useI18n();
+  return <BackButton fallback={fallbackHref} fallbackLabel={secretaryFallbackLabel(fallbackHref, t)} />;
 }
 
-function secretaryFallbackLabel(href: string): string {
-  if (href.includes("screen=detail")) return "לפרטי ההתחייבות";
-  if (href.includes("screen=all")) return "לכל ההתחייבויות";
-  return "למזכירה";
+/**
+ * The creation flow's back control as it looked in P3 (`23d528d5`, the then-shared
+ * BackButton: a "‹ חזרה" pill). Only the look is P3's: navigation is today's
+ * useGoBack, so it still returns to the exact screen the owner came from.
+ */
+function P3BackControl({ fallbackHref }: { fallbackHref: string }) {
+  const goBack = useGoBack(fallbackHref);
+  return (
+    <button type="button" onClick={goBack} aria-label="חזרה" style={P3_BACK_STYLE}>
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden focusable="false">
+        <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+      <span>חזרה</span>
+    </button>
+  );
+}
+
+const P3_BACK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  height: 40,
+  padding: "0 14px",
+  borderRadius: 14,
+  border: "1px solid var(--dz-border)",
+  background: "var(--dz-surface)",
+  color: "var(--dz-brand)",
+  fontFamily: "inherit",
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  cursor: "pointer",
+  flexShrink: 0,
+  WebkitTapHighlightColor: "transparent",
+};
+
+function secretaryFallbackLabel(href: string, t: Translator): string {
+  if (href.includes("screen=detail")) return t("tasks.secretary.back.toDetail");
+  if (href.includes("screen=all")) return t("tasks.secretary.back.toAll");
+  return t("tasks.secretary.back.toSecretary");
 }
 
 export function SecretaryAvatar() {
@@ -415,6 +488,7 @@ export function SecretaryAvatar() {
 }
 
 export function SecretaryHeader({ status, tone }: { status: string; tone: TodayState | "done" }) {
+  const { t } = useI18n();
   const dotClass =
     tone === "critical"
       ? styles.dotUrgent
@@ -428,7 +502,7 @@ export function SecretaryHeader({ status, tone }: { status: string; tone: TodayS
     <header className={styles.secretaryHead}>
       <SecretaryAvatar />
       <div>
-        <div className={styles.who}>המזכירה שלך</div>
+        <div className={styles.who}>{t("tasks.secretary.yourSecretary")}</div>
         <div className={styles.status}>
           <span className={`${styles.dot} ${dotClass}`} />
           {status}
@@ -448,23 +522,28 @@ export function HeroText({ title, subtitle }: { title: string; subtitle: string 
 }
 
 export function SecretarySoftFallback({
-  title = "רגע, אני לא מצליחה לבדוק את היום שלך.",
-  message = "אני עדיין כאן. לא אציג לך מסקנה עד שהבדיקה תחזור לעבוד, ובינתיים אין צורך לעשות פעולה מתוך המסך הזה.",
+  title,
+  message,
+  variant = "check",
 }: {
   title?: string;
   message?: string;
+  /** "render": the error boundary's wording (a render failure) instead of the check-failed wording. */
+  variant?: "check" | "render";
 }) {
+  const { t } = useI18n();
+  const render = variant === "render";
   return (
     <SecretaryScreen>
-      <SecretaryHeader status="אני שומרת על זה בשקט" tone="calm" />
+      <SecretaryHeader status={t("tasks.secretary.fallback.status")} tone="calm" />
       <section className={styles.fallbackPanel}>
         <div className={styles.fallbackIcon} aria-hidden="true">!</div>
-        <h1>{title}</h1>
-        <p>{message}</p>
+        <h1>{title ?? t(render ? "tasks.secretary.fallback.renderTitle" : "tasks.secretary.fallback.title")}</h1>
+        <p>{message ?? t(render ? "tasks.secretary.fallback.renderMessage" : "tasks.secretary.fallback.message")}</p>
       </section>
       <WatchingPill
-        line="מה שאני שומרת נשאר אצלי עד שהבדיקה תחזור"
-        subline="לא אציג סכומים או פעולות כשאין לי תמונת מצב אמינה."
+        line={t("tasks.secretary.fallback.watchLine")}
+        subline={t("tasks.secretary.fallback.watchSubline")}
       />
     </SecretaryScreen>
   );
@@ -485,12 +564,7 @@ export class SecretaryErrorBoundary extends Component<{ children: ReactNode }, S
 
   render() {
     if (this.state.failed) {
-      return (
-        <SecretarySoftFallback
-          title="רגע, משהו בבדיקה נתקע."
-          message="אני לא רוצה להציג לך תמונת מצב חלקית. אני שומרת את המסך רגוע עד שהבדיקה תחזור לעבוד."
-        />
-      );
+      return <SecretarySoftFallback variant="render" />;
     }
     return this.props.children;
   }
@@ -532,6 +606,7 @@ export function FocusActions({
   onSnooze?: () => void;
   onRelease?: () => void | Promise<void>;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   return (
     <div className={styles.actions}>
@@ -549,11 +624,11 @@ export function FocusActions({
           }
         }}
       >
-        {busy ? "רגע…" : "סמן שטופל"}
+        {busy ? t("tasks.secretary.moment") : t("tasks.secretary.markHandled")}
       </button>
       <div className={styles.ghosts}>
         <button className={`${styles.button} ${styles.ghost}`} type="button" onClick={onSnooze}>
-          להזכיר לי אחר כך
+          {t("tasks.secretary.remindLater")}
         </button>
       </div>
       <ReleaseControl onRelease={onRelease} />
@@ -588,6 +663,7 @@ export function CalmCenter({
   watching: TodayModel["watching"];
   showCapture?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <>
       <section className={styles.calmCenter}>
@@ -599,7 +675,7 @@ export function CalmCenter({
       {showCapture ? (
         <Link className={styles.capture} href={screenHref("capture")}>
           <PlusIcon />
-          יש עוד תשלום שאזכור בשבילך?
+          {t("tasks.secretary.anotherPayment")}
         </Link>
       ) : null}
     </>
@@ -650,37 +726,39 @@ type ObligationCard = {
 
 type FlowAction = (id: number) => Promise<void> | void;
 
-function formatMoneyValue(amount: string, currency: string): string {
+/**
+ * The interface language for the secretary's formatters: `t` for words, `tag` for Intl ("he-IL" in Hebrew —
+ * exactly the legacy output). Money stays in the obligation's own currency; nothing is converted.
+ */
+type Fmt = { t: Translator; tag: string };
+
+function useFmt(): Fmt {
+  const { t, locale } = useI18n();
+  return { t, tag: intlTag(locale) };
+}
+
+function formatMoneyValue(amount: string, currency: string, f: Fmt): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return amount;
   try {
-    return new Intl.NumberFormat("he-IL", {
+    return new Intl.NumberFormat(f.tag, {
       style: "currency",
       currency: currency || "ILS",
       maximumFractionDigits: 0,
     }).format(n);
   } catch {
-    return n.toLocaleString("he-IL") + " ₪";
+    return n.toLocaleString(f.tag) + " ₪";
   }
 }
 
-function formatDateValue(iso: string): string {
+function formatDateValue(iso: string, f: Fmt): string {
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "תאריך לא זמין";
-  return date.toLocaleDateString("he-IL", { day: "numeric", month: "long" });
+  if (Number.isNaN(date.getTime())) return f.t("tasks.secretary.dateUnavailable");
+  return date.toLocaleDateString(f.tag, { day: "numeric", month: "long" });
 }
 
-function recurrenceText(value: RecurrenceCadence): string {
-  switch (value) {
-    case "WEEKLY": return "כל שבוע";
-    case "MONTHLY": return "כל חודש";
-    case "BIMONTHLY": return "כל חודשיים";
-    case "QUARTERLY": return "כל רבעון";
-    case "SEMIANNUAL": return "כל חצי שנה";
-    case "YEARLY": return "כל שנה";
-    case "NONE":
-    default: return "חד-פעמי";
-  }
+function recurrenceText(value: RecurrenceCadence, t: Translator): string {
+  return t(RECURRENCE_KEY[value] ?? RECURRENCE_KEY.NONE);
 }
 
 function obligationTone(item: ObligationApi): ObligationCard["tone"] {
@@ -708,9 +786,9 @@ function calendarDotTone(items: ObligationApi[]): "late" | "soon" | "calm" | nul
   if (items.some((item) => obligationStripeTone(item) === "soon")) return "soon";
   return "calm";
 }
-function obligationMeta(item: ObligationApi): string {
-  const base = formatDateValue(item.dueAt);
-  const recurrence = recurrenceText(item.recurrence);
+function obligationMeta(item: ObligationApi, f: Fmt): string {
+  const base = formatDateValue(item.dueAt, f);
+  const recurrence = recurrenceText(item.recurrence, f.t);
   return item.recurrence === "NONE" ? base : base + " · " + recurrence;
 }
 
@@ -719,10 +797,11 @@ function amountNumber(item: ObligationApi): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-function sumMoney(items: ObligationApi[]): string {
-  const currency = items[0]?.currency ?? "ILS";
-  const total = items.reduce((sum, item) => sum + amountNumber(item), 0);
-  return formatMoneyValue(String(total), currency);
+/** Per currency, never added across (B4): an all-ILS list renders exactly as before. */
+function sumMoney(items: ObligationApi[], f: Fmt): string {
+  return formatObligationTotals(obligationTotalsByCurrency(items), (amount, currency) =>
+    formatMoneyValue(amount, currency, f)
+  );
 }
 
 function dateValue(iso: string): Date | null {
@@ -730,8 +809,8 @@ function dateValue(iso: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function monthLabel(date = new Date()): string {
-  return date.toLocaleDateString("he-IL", { month: "long" });
+function monthLabel(f: Fmt, date = new Date()): string {
+  return date.toLocaleDateString(f.tag, { month: "long" });
 }
 
 function sameMonth(a: Date, b: Date): boolean {
@@ -759,15 +838,15 @@ function dueDaysFromNow(item: ObligationApi): number | null {
   return Math.round((end - start) / 86400000);
 }
 
-function shortDueLabel(item: ObligationApi): string {
+function shortDueLabel(item: ObligationApi, f: Fmt): string {
   const days = dueDaysFromNow(item);
-  if (days === null) return formatDateValue(item.dueAt);
-  if (days < 0) return "באיחור";
-  if (days === 0) return "להיום";
-  if (days === 1) return "מחר";
-  if (days === 2) return "עוד יומיים";
-  if (days <= 7) return `עוד ${days} ימים`;
-  return formatDateValue(item.dueAt);
+  if (days === null) return formatDateValue(item.dueAt, f);
+  if (days < 0) return f.t("tasks.secretary.due.overdue");
+  if (days === 0) return f.t("tasks.secretary.due.today");
+  if (days === 1) return f.t("tasks.secretary.due.tomorrow");
+  if (days === 2) return f.t("tasks.secretary.due.inTwoDays");
+  if (days <= 7) return f.t("tasks.secretary.due.inDays", { count: days });
+  return formatDateValue(item.dueAt, f);
 }
 
 function isInstallmentObligation(item: ObligationApi): boolean {
@@ -820,13 +899,13 @@ function emojiForObligation(item: ObligationApi): string {
   return "💼";
 }
 
-function cardFromObligation(item: ObligationApi): ObligationCard {
+function cardFromObligation(item: ObligationApi, f: Fmt): ObligationCard {
   return {
     id: item.id,
     emoji: emojiForObligation(item),
-    title: displayName(item.obligeeName),
-    amount: formatMoneyValue(item.amount, item.currency),
-    meta: obligationMeta(item),
+    title: displayName(item.obligeeName, f.t),
+    amount: formatMoneyValue(item.amount, item.currency, f),
+    meta: obligationMeta(item, f),
     tone: obligationTone(item),
   };
 }
@@ -841,9 +920,15 @@ function screenHref(screen: SecretaryScreenName, id?: number) {
 }
 
 /** Never render an empty or junk obligee name in the UI. */
-function displayName(name: string | null | undefined): string {
+function displayName(name: string | null | undefined, t: Translator): string {
   const trimmed = (name ?? "").trim();
-  return trimmed.length >= 2 ? trimmed : "התחייבות ללא שם";
+  return trimmed.length >= 2 ? trimmed : t("tasks.secretary.unnamed");
+}
+
+/** "Payments are recorded in <Payables>" — the note under a commitment (all-obligations inspector, detail). */
+function PaymentsNote() {
+  const { t } = useI18n();
+  return <p className={styles.inspectNote}>{t("tasks.secretary.paymentsNote.before")}<Link href="/payables">{t("tasks.secretary.paymentsNote.link")}</Link>{t("tasks.secretary.paymentsNote.after")}</p>;
 }
 
 function SayRow({ children }: { children: ReactNode }) {
@@ -878,10 +963,6 @@ function EmptyMemory({ title, body }: { title: string; body: string }) {
   );
 }
 
-function findCategoryObligation(label: string, obligations: ObligationApi[]): ObligationApi | null {
-  return obligations.find((item) => item.obligeeName.includes(label)) ?? null;
-}
-
 /** Capture screen, optionally pre-filled with a known/recommended obligee name. */
 function captureHref(name?: string): string {
   return name ? screenHref("capture") + "&name=" + encodeURIComponent(name) : screenHref("capture");
@@ -902,9 +983,10 @@ function BankChip({ emoji, label, obligation }: { emoji: string; label: string; 
 }
 
 function RememberedObligationCard({ item }: { item: ObligationCard }) {
+  const { t } = useI18n();
   return (
     <Link className={styles.rememberedCard} href={screenHref("detail", item.id)}>
-      <div className={styles.rememberedHead}>כבר אני זוכרת</div>
+      <div className={styles.rememberedHead}>{t("tasks.secretary.alreadyRemember")}</div>
       <div className={styles.rememberedBody}>
         <span className={styles.rememberedEmoji}>{item.emoji}</span>
         <strong>{item.title}</strong>
@@ -952,45 +1034,60 @@ export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode,
 }
 
 function LoadMoreObligations({ loading, hasMore, onLoadMore }: { loading: boolean; hasMore: boolean; onLoadMore?: () => void }) {
+  const { t } = useI18n();
   if (!hasMore && !loading) return null;
   return (
     <button type="button" className={`${styles.button} ${styles.ghostWide} ${styles.loadMoreButton}`} onClick={onLoadMore} disabled={loading || !onLoadMore}>
-      {loading ? "טוען..." : "הצג עוד"}
+      {loading ? t("tasks.secretary.loadingMore") : t("tasks.secretary.showMore")}
     </button>
   );
 }
 function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; loadMore?: ReactNode }) {
-  const cards = obligations.map(cardFromObligation);
+  const f = useFmt();
+  const { t } = f;
+  const cards = obligations.map((item) => cardFromObligation(item, f));
   const firstCard = cards[0] ?? null;
+  // The second argument of findCategoryObligation is a Hebrew keyword matched against stored obligee names — not UI text.
   return (
-    <SecretaryScreen title="נגדיר את ההתחייבויות" backHref="/secretary">
-      <Say>אפשר ללחוץ על כל הוצאה שיש לך, ואמלא איתך את הפרטים.</Say>
+    <SecretaryScreen title={t("tasks.secretary.bank.title")} backHref="/secretary" backLook="p3">
+      <Say>{t("tasks.secretary.bank.say")}</Say>
       {firstCard ? <RememberedObligationCard item={firstCard} /> : null}
-      <div className={styles.category}>קבועות חודשיות</div>
+      <div className={styles.category}>{t("tasks.secretary.bank.monthly")}</div>
       <div className={styles.bankGrid}>
-        <BankChip emoji="🏠" label="שכירות" obligation={findCategoryObligation("שכירות", obligations)} />
-        <BankChip emoji="🏛️" label="ארנונה" obligation={findCategoryObligation("ארנונה", obligations)} />
-        <BankChip emoji="⚡" label="חשמל" obligation={findCategoryObligation("חשמל", obligations)} />
-        <BankChip emoji="💧" label="מים" obligation={findCategoryObligation("מים", obligations)} />
-        <BankChip emoji="🌐" label="אינטרנט" obligation={findCategoryObligation("אינטרנט", obligations)} />
-        <BankChip emoji="☎️" label="טלפון" obligation={findCategoryObligation("טלפון", obligations)} />
+        <BankChip emoji="🏠" label={t("tasks.secretary.bank.rent")} obligation={findCategoryObligation("שכירות", obligations)} />
+        <BankChip emoji="🏛️" label={t("tasks.secretary.bank.arnona")} obligation={findCategoryObligation("ארנונה", obligations)} />
+        <BankChip emoji="⚡" label={t("tasks.secretary.bank.electricity")} obligation={findCategoryObligation("חשמל", obligations)} />
+        <BankChip emoji="💧" label={t("tasks.secretary.bank.water")} obligation={findCategoryObligation("מים", obligations)} />
+        <BankChip emoji="🌐" label={t("tasks.secretary.bank.internet")} obligation={findCategoryObligation("אינטרנט", obligations)} />
+        <BankChip emoji="☎️" label={t("tasks.secretary.bank.phone")} obligation={findCategoryObligation("טלפון", obligations)} />
       </div>
-      <div className={styles.category}>שירותים ומסים</div>
+      <div className={styles.category}>{t("tasks.secretary.bank.services")}</div>
       <div className={styles.bankGrid}>
-        <BankChip emoji="🛡️" label="ביטוחים" obligation={findCategoryObligation("ביטוח", obligations)} />
-        <BankChip emoji="📊" label="רואה חשבון" obligation={findCategoryObligation("רואה חשבון", obligations)} />
-        <BankChip emoji="🧾" label={'מע"מ'} obligation={findCategoryObligation('מע"מ', obligations)} />
-        <BankChip emoji="👥" label="ביטוח לאומי" obligation={findCategoryObligation("ביטוח לאומי", obligations)} />
+        <BankChip emoji="🛡️" label={t("tasks.secretary.bank.insurance")} obligation={findCategoryObligation(INSURANCE, obligations)} />
+        <BankChip emoji="📊" label={t("tasks.secretary.bank.accountant")} obligation={findCategoryObligation("רואה חשבון", obligations)} />
+        <BankChip emoji="🧾" label={t("tasks.secretary.bank.vat")} obligation={findCategoryObligation('מע"מ', obligations)} />
+        <BankChip emoji="👥" label={t("tasks.secretary.bank.nationalInsurance")} obligation={findCategoryObligation(NATIONAL_INSURANCE, obligations)} />
       </div>
-      <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> התחייבות אחרת</Link>
-      <GhostLink href={screenHref("all")}>לראות את כל ההתחייבויות</GhostLink>
+      <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> {t("tasks.secretary.bank.other")}</Link>
+      <GhostLink href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</GhostLink>
       {loadMore}
-      <PrimaryLink href="/secretary">סיימתי, חזרה ליום שלי</PrimaryLink>
+      <PrimaryLink href="/secretary">{t("tasks.secretary.bank.done")}</PrimaryLink>
     </SecretaryScreen>
   );
 }
 
+const CALENDAR_WEEKDAYS: readonly MessageKey[] = [
+  "tasks.secretary.calendarWeekdays.sun",
+  "tasks.secretary.calendarWeekdays.mon",
+  "tasks.secretary.calendarWeekdays.tue",
+  "tasks.secretary.calendarWeekdays.wed",
+  "tasks.secretary.calendarWeekdays.thu",
+  "tasks.secretary.calendarWeekdays.fri",
+  "tasks.secretary.calendarWeekdays.sat",
+];
+
 function CalendarMonth({ obligations }: { obligations: ObligationApi[] }) {
+  const { t } = useI18n();
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -1012,7 +1109,7 @@ function CalendarMonth({ obligations }: { obligations: ObligationApi[] }) {
   }
   return (
     <section className={styles.calendarCard}>
-      <div className={styles.calendarWeekdays}><span>א</span><span>ב</span><span>ג</span><span>ד</span><span>ה</span><span>ו</span><span>ש</span></div>
+      <div className={styles.calendarWeekdays}>{CALENDAR_WEEKDAYS.map((key) => <span key={key}>{t(key)}</span>)}</div>
       <div className={styles.calendarGrid}>
         {cells.map((cell) => (
           <div key={cell.key} className={`${styles.calendarDay} ${!cell.day ? styles.calendarEmpty : ""} ${cell.today ? styles.calendarToday : ""}`}>
@@ -1035,6 +1132,7 @@ function TimelineGroup({ title, items, empty, selectedId, onSelect }: { title: s
 
 function TimelineItem({ item, selected, onSelect }: { item: ObligationApi; selected?: boolean; onSelect?: (id: number) => void }) {
   const router = useRouter();
+  const f = useFmt();
   const tone = obligationTone(item);
   const stripeTone = obligationStripeTone(item);
   const done = item.state === "MET";
@@ -1054,9 +1152,9 @@ function TimelineItem({ item, selected, onSelect }: { item: ObligationApi; selec
       <span className={styles.timelineEmoji}>{emojiForObligation(item)}</span>
       <span className={styles.timelineBody}>
         <strong>{item.obligeeName}</strong>
-        <span>{done ? `טופל ב-${formatDateValue(item.metAt ?? item.updatedAt)}` : <><StatusPill tone={tone}>{shortDueLabel(item)}</StatusPill>{recurrenceText(item.recurrence)}</>}</span>
+        <span>{done ? f.t("tasks.secretary.handledOn", { date: formatDateValue(item.metAt ?? item.updatedAt, f) }) : <><StatusPill tone={tone}>{shortDueLabel(item, f)}</StatusPill>{recurrenceText(item.recurrence, f.t)}</>}</span>
       </span>
-      <b>{formatMoneyValue(item.amount, item.currency)}</b>
+      <b>{formatMoneyValue(item.amount, item.currency, f)}</b>
     </button>
   );
 }
@@ -1067,6 +1165,8 @@ function StatusPill({ tone, children }: { tone: ObligationCard["tone"] | "purple
 }
 
 function AllObligationsScreen({ obligations, loadMore }: { obligations: ObligationApi[]; loadMore?: ReactNode }) {
+  const f = useFmt();
+  const { t } = f;
   const [pickedId, setPickedId] = useState<number | null>(null);
   const now = new Date();
   // Headline count + total are computed over ALL open obligations so this
@@ -1088,47 +1188,47 @@ function AllObligationsScreen({ obligations, loadMore }: { obligations: Obligati
   const doneThisMonth = monthItems.filter((item) => item.state === "MET");
   const selected = obligations.find((item) => item.id === pickedId) ?? openAll[0] ?? obligations[0] ?? null;
   return (
-    <SecretaryScreen title="כל ההתחייבויות" backHref="/secretary">
+    <SecretaryScreen title={t("tasks.secretary.allObligations")} backHref="/secretary">
       <section className={styles.monthSummary}>
-        <span>סך הכל במעקב · להוצאה</span>
-        <strong>{sumMoney(openAll)}</strong>
+        <span>{t("tasks.secretary.all.summaryLabel")}</span>
+        <strong>{sumMoney(openAll, f)}</strong>
         <div>
-          <span><b>{openAll.length}</b><small>התחייבויות בסך הכל</small></span>
-          <span><b>{sumMoney(monthOpen)}</b><small>החודש</small></span>
-          <span><b>{sumMoney(doneThisMonth)}</b><small>טופל החודש</small></span>
+          <span><b>{openAll.length}</b><small>{t("tasks.secretary.all.totalCount")}</small></span>
+          <span><b>{sumMoney(monthOpen, f)}</b><small>{t("tasks.secretary.all.thisMonth")}</small></span>
+          <span><b>{sumMoney(doneThisMonth, f)}</b><small>{t("tasks.secretary.all.handledThisMonth")}</small></span>
         </div>
       </section>
       <div className={styles.oblDesk}>
         <div>
           {obligations.length > 0 ? (
             <>
-              <TimelineGroup title={`השבוע · ${thisWeek.length} התחייבויות`} items={thisWeek} empty="אין התחייבויות לשבוע הקרוב." selectedId={selected?.id} onSelect={setPickedId} />
-              <TimelineGroup title={`בהמשך · ${later.length}`} items={later} empty="אין עוד התחייבויות פתוחות בהמשך." selectedId={selected?.id} onSelect={setPickedId} />
-              <TimelineGroup title={`שהושלמו החודש · ${doneThisMonth.length}`} items={doneThisMonth} empty="עוד לא סומנה התחייבות שטופלה החודש." selectedId={selected?.id} onSelect={setPickedId} />
+              <TimelineGroup title={t("tasks.secretary.all.groupWeek", { count: thisWeek.length })} items={thisWeek} empty={t("tasks.secretary.all.emptyWeek")} selectedId={selected?.id} onSelect={setPickedId} />
+              <TimelineGroup title={t("tasks.secretary.all.groupLater", { count: later.length })} items={later} empty={t("tasks.secretary.all.emptyLater")} selectedId={selected?.id} onSelect={setPickedId} />
+              <TimelineGroup title={t("tasks.secretary.all.groupDone", { count: doneThisMonth.length })} items={doneThisMonth} empty={t("tasks.secretary.all.emptyDone")} selectedId={selected?.id} onSelect={setPickedId} />
             </>
-          ) : <EmptyMemory title="אין עדיין התחייבויות פתוחות" body="היומן ריק כרגע. אפשר למסור לי התחייבות ראשונה ואשמור אותה בשבילך." />}
-          <div className={styles.calendarHead}><h3>היומן שלי · {monthLabel(now)}</h3><Link href="/secretary?today=1">היום</Link></div>
+          ) : <EmptyMemory title={t("tasks.secretary.all.emptyTitle")} body={t("tasks.secretary.all.emptyBody")} />}
+          <div className={styles.calendarHead}><h3>{t("tasks.secretary.all.calendarTitle", { month: monthLabel(f, now) })}</h3><Link href="/secretary?today=1">{t("tasks.secretary.all.today")}</Link></div>
           <CalendarMonth obligations={monthItems} />
           <div className={styles.calendarLegend} aria-hidden="true">
-            <span><i className={styles.calendarDotUrgent} />באיחור</span>
-            <span><i className={styles.calendarDotSoon} />השבוע</span>
-            <span><i className={styles.calendarDotCalm} />בהמשך</span>
-            <span><b className={styles.calendarTodayKey} />היום</span>
+            <span><i className={styles.calendarDotUrgent} />{t("tasks.secretary.all.legendOverdue")}</span>
+            <span><i className={styles.calendarDotSoon} />{t("tasks.secretary.all.legendWeek")}</span>
+            <span><i className={styles.calendarDotCalm} />{t("tasks.secretary.all.legendLater")}</span>
+            <span><b className={styles.calendarTodayKey} />{t("tasks.secretary.all.today")}</span>
           </div>
           {loadMore}
-          <PrimaryLink href={screenHref("capture")}>למסור לי עוד התחייבות</PrimaryLink>
+          <PrimaryLink href={screenHref("capture")}>{t("tasks.secretary.all.handOverMore")}</PrimaryLink>
         </div>
-        <aside className={styles.oblInspect} aria-label="ההתחייבות שנבחרה">
+        <aside className={styles.oblInspect} aria-label={t("tasks.secretary.all.selectedAria")}>
           {selected ? (
             <>
               <DetailMemoryCard obligation={selected} />
               {selected.note ? <p className={styles.inspectNote}>{selected.note}</p> : null}
               <HistoryCard obligation={selected} obligations={obligations} />
-              <p className={styles.inspectNote}>הזיכרון נשאר אצל המזכירה. רישום תשלום נמצא ב<Link href="/payables">התחייבויות</Link>. סימון כטופל אינו תשלום.</p>
-              <PrimaryLink href={screenHref("detail", selected.id)}>הפעולה הבאה</PrimaryLink>
+              <PaymentsNote />
+              <PrimaryLink href={screenHref("detail", selected.id)}>{t("tasks.secretary.all.nextAction")}</PrimaryLink>
             </>
           ) : (
-            <p className={styles.inspectNote}>בחרו שורה כדי לראות למי, כמה, ומתי. הטיפול עצמו נשאר במסך של ההתחייבות.</p>
+            <p className={styles.inspectNote}>{t("tasks.secretary.all.pickRow")}</p>
           )}
         </aside>
       </div>
@@ -1137,23 +1237,26 @@ function AllObligationsScreen({ obligations, loadMore }: { obligations: Obligati
 }
 
 function DetailMemoryCard({ obligation }: { obligation: ObligationApi }) {
+  const f = useFmt();
+  const { t } = f;
   return (
-    <section className={styles.memoryDetailCard} aria-label="מה שאני זוכרת">
-      <div className={styles.memoryDetailRow}><span>{emojiForObligation(obligation)}</span><small>למי</small><strong>{displayName(obligation.obligeeName)}</strong></div>
-      <div className={styles.memoryDetailRow}><span>💰</span><small>כמה</small><strong>{formatMoneyValue(obligation.amount, obligation.currency)}</strong></div>
-      <div className={styles.memoryDetailRow}><span>📅</span><small>מתי</small><strong>{formatDateValue(obligation.dueAt)}</strong></div>
-      <div className={styles.memoryDetailRow}><span>🔄</span><small>חזרתיות</small><strong>{recurrenceText(obligation.recurrence)}</strong></div>
+    <section className={styles.memoryDetailCard} aria-label={t("tasks.secretary.memory.aria")}>
+      <div className={styles.memoryDetailRow}><span>{emojiForObligation(obligation)}</span><small>{t("tasks.secretary.memory.who")}</small><strong>{displayName(obligation.obligeeName, t)}</strong></div>
+      <div className={styles.memoryDetailRow}><span>💰</span><small>{t("tasks.secretary.memory.howMuch")}</small><strong>{formatMoneyValue(obligation.amount, obligation.currency, f)}</strong></div>
+      <div className={styles.memoryDetailRow}><span>📅</span><small>{t("tasks.secretary.memory.when")}</small><strong>{formatDateValue(obligation.dueAt, f)}</strong></div>
+      <div className={styles.memoryDetailRow}><span>🔄</span><small>{t("tasks.secretary.memory.recurrence")}</small><strong>{recurrenceText(obligation.recurrence, t)}</strong></div>
     </section>
   );
 }
 
 function HistoryCard({ obligation, obligations }: { obligation: ObligationApi; obligations: ObligationApi[] }) {
+  const f = useFmt();
   const history = obligations.filter((item) => item.state === "MET" && item.id !== obligation.id && ((item.recurrenceSeriesId && item.recurrenceSeriesId === obligation.recurrenceSeriesId) || item.obligeeName === obligation.obligeeName)).slice(0, 3);
   if (obligation.state === "MET") history.unshift(obligation);
   return (
     <section className={styles.historyCard}>
-      <div className={styles.historyTitle}>מה שכבר טופל</div>
-      {history.length > 0 ? history.map((item) => <div className={styles.historyRow} key={item.id}><span>✓</span><strong>טופל ב-{formatDateValue(item.metAt ?? item.updatedAt)}</strong><b>{formatMoneyValue(item.amount, item.currency)}</b></div>) : <p>אין לי עדיין היסטוריית תשלומים על ההתחייבות הזאת.</p>}
+      <div className={styles.historyTitle}>{f.t("tasks.secretary.history.title")}</div>
+      {history.length > 0 ? history.map((item) => <div className={styles.historyRow} key={item.id}><span>✓</span><strong>{f.t("tasks.secretary.handledOn", { date: formatDateValue(item.metAt ?? item.updatedAt, f) })}</strong><b>{formatMoneyValue(item.amount, item.currency, f)}</b></div>) : <p>{f.t("tasks.secretary.history.empty")}</p>}
     </section>
   );
 }
@@ -1164,14 +1267,15 @@ function HistoryCard({ obligation, obligations }: { obligation: ObligationApi; o
  * loading state — a destructive action never fires on a single tap and never
  * looks frozen while it runs. Reused by the detail screen and the today focus.
  */
-function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
+export function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<void> | void; disabled?: boolean }) {
+  const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   if (!onRelease) return null;
   if (confirming) {
     return (
-      <div className={styles.confirmBox} role="group" aria-label="אישור הסרה">
-        <p className={styles.confirmText}>להסיר את ההתחייבות הזאת?</p>
+      <div className={styles.confirmBox} role="group" aria-label={t("tasks.secretary.release.aria")}>
+        <p className={styles.confirmText}>{t("tasks.secretary.release.question")}</p>
         <div className={styles.confirmActions}>
           <button
             type="button"
@@ -1187,10 +1291,10 @@ function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<voi
               }
             }}
           >
-            {busy ? "רגע…" : "כן, להסיר"}
+            {busy ? t("tasks.secretary.moment") : t("tasks.secretary.release.yes")}
           </button>
           <button type="button" className={`${styles.button} ${styles.ghostWide}`} disabled={busy} onClick={() => setConfirming(false)}>
-            לא, להשאיר
+            {t("tasks.secretary.release.no")}
           </button>
         </div>
       </div>
@@ -1198,24 +1302,26 @@ function ReleaseControl({ onRelease, disabled }: { onRelease?: () => Promise<voi
   }
   return (
     <button type="button" className={`${styles.button} ${styles.ghostWide}`} disabled={disabled} onClick={() => setConfirming(true)}>
-      כבר לא רלוונטי
+      {t("tasks.secretary.release.notRelevant")}
     </button>
   );
 }
 
 function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obligation: ObligationApi | null; obligations: ObligationApi[]; onComplete?: FlowAction; onRelease?: FlowAction }) {
+  const f = useFmt();
+  const { t } = f;
   const [busy, setBusy] = useState(false);
   async function run(action?: FlowAction) { if (!obligation || !action || busy) return; setBusy(true); try { await action(obligation.id); } finally { setBusy(false); } }
-  if (!obligation) return <SecretaryScreen title="התחייבות" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לבחור" body="ברגע שתהיה התחייבות אמיתית, הפרטים שלה יופיעו כאן." /><PrimaryLink href={screenHref("capture")}>למסור התחייבות ראשונה</PrimaryLink></SecretaryScreen>;
-  const name = displayName(obligation.obligeeName);
+  if (!obligation) return <SecretaryScreen title={t("tasks.secretary.detail.title")} backHref={screenHref("all")}><EmptyMemory title={t("tasks.secretary.detail.emptyTitle")} body={t("tasks.secretary.detail.emptyBody")} /><PrimaryLink href={screenHref("capture")}>{t("tasks.secretary.detail.handOverFirst")}</PrimaryLink></SecretaryScreen>;
+  const name = displayName(obligation.obligeeName, t);
   const tone = obligation.state === "MET" ? "calm" : isInstallmentObligation(obligation) ? "purple" : obligationTone(obligation);
   const isMet = obligation.state === "MET";
   const isInstallment = isInstallmentObligation(obligation);
   const metaText = isMet
-    ? (obligation.recurrence === "NONE" ? "נסגר" : "התשלום הבא יחושב לפי " + recurrenceText(obligation.recurrence))
+    ? (obligation.recurrence === "NONE" ? t("tasks.secretary.detail.closed") : t("tasks.secretary.detail.nextBy", { recurrence: recurrenceText(obligation.recurrence, t) }))
     : isInstallment
-      ? "פריסת תשלומים במעקב"
-      : "לתשלום ב-" + formatDateValue(obligation.dueAt);
+      ? t("tasks.secretary.detail.installmentsTracked")
+      : t("tasks.secretary.detail.payOn", { date: formatDateValue(obligation.dueAt, f) });
   return (
     <SecretaryScreen title={name} backHref={screenHref("all")}>
       <div className={styles.detailDesk}>
@@ -1224,25 +1330,25 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
             <div className={styles.detailObjectTile}>{emojiForObligation(obligation)}</div>
             <div className={styles.detailObjectInfo}>
               <strong>{name}</strong>
-              <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+              <b>{formatMoneyValue(obligation.amount, obligation.currency, f)}</b>
             </div>
           </section>
           <div className={styles.detailMetaLine}>
-            <StatusPill tone={tone}>{isMet ? "טופל החודש" : isInstallment ? "פריסת תשלומים" : shortDueLabel(obligation)}</StatusPill>
+            <StatusPill tone={tone}>{isMet ? t("tasks.secretary.detail.handledThisMonth") : isInstallment ? t("tasks.secretary.detail.installments") : shortDueLabel(obligation, f)}</StatusPill>
             <span>{metaText}</span>
           </div>
-          <Say>{isMet ? "כבר טיפלת בזה החודש. אני שומרת את הזיכרון כדי שלא תצטרך לזכור שוב." : isInstallment ? "זה תשלום אחד מתוך פריסה שאני שומרת עבורך." : "זה מה שאני זוכרת על ההתחייבות הזאת."}</Say>
+          <Say>{isMet ? t("tasks.secretary.detail.sayMet") : isInstallment ? t("tasks.secretary.detail.sayInstallment") : t("tasks.secretary.detail.sayDefault")}</Say>
           <DetailMemoryCard obligation={obligation} />
           {obligation.note ? <p className={styles.inspectNote}>{obligation.note}</p> : null}
         </div>
         <div>
           <HistoryCard obligation={obligation} obligations={obligations} />
-          <p className={styles.inspectNote}>הזיכרון נשאר אצל המזכירה. רישום תשלום נמצא ב<Link href="/payables">התחייבויות</Link>. סימון כטופל אינו תשלום.</p>
+          <PaymentsNote />
           <div className={styles.actions}>
-            {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? "רגע…" : "סמן שטופל"}</PrimaryButton> : null}
+            {!isMet ? <PrimaryButton disabled={busy} onClick={() => void run(onComplete)}>{busy ? t("tasks.secretary.moment") : t("tasks.secretary.markHandled")}</PrimaryButton> : null}
             <div className={styles.ghosts}>
-              {!isMet ? <GhostLink href={screenHref("remind", obligation.id)}>להזכיר לי אחר כך</GhostLink> : null}
-              <GhostLink href={screenHref("update", obligation.id)}>עריכת התחייבות</GhostLink>
+              {!isMet ? <GhostLink href={screenHref("remind", obligation.id)}>{t("tasks.secretary.remindLater")}</GhostLink> : null}
+              <GhostLink href={screenHref("update", obligation.id)}>{t("tasks.secretary.detail.edit")}</GhostLink>
             </div>
             {!isMet ? <ReleaseControl disabled={busy} onRelease={onRelease ? () => onRelease(obligation.id) : undefined} /> : null}
           </div>
@@ -1253,6 +1359,8 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
 }
 
 function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { obligations: ObligationApi[]; onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
+  const f = useFmt();
+  const { t } = f;
   const [obligeeName, setObligeeName] = useState(prefillName ?? "");
   const [amount, setAmount] = useState("");
   const [dueAt, setDueAt] = useState("");
@@ -1270,6 +1378,24 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const tasksOn = useFeatureEnabled("daily_tasks");
   const [taskMode, setTaskMode] = useState(false);
   const [taskSaved, setTaskSaved] = useState(false);
+  const router = useRouter();
+  // "הוסף עוד": a fresh, empty panel. The link it replaces pointed at the screen already open,
+  // so nothing changed and the result stayed on screen (on main and in P3 alike).
+  function startAnother() {
+    setCreated(null);
+    setError(null);
+    setObligeeName("");
+    setAmount("");
+    setDueAt("");
+    setInvoiceDate("");
+    setRecurrence("NONE");
+    setNote("");
+    setKind("regular");
+    setInstallmentCount("3");
+    setCheckNumber("");
+    setTermsDays("30");
+    router.replace(screenHref("capture"));
+  }
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
   useEffect(() => {
@@ -1282,8 +1408,8 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   }, []);
   const selectedKind = CAPTURE_KINDS.find((item) => item.key === kind) ?? CAPTURE_KINDS[0];
   const installmentCountNumber = normalizeInstallmentCount(installmentCount);
-  const scheduleRows = buildInstallmentRows(amount, dueAt, installmentCountNumber);
-  const netDueDate = invoiceDate ? calculateNetTermsDueDate(invoiceDate, Number(termsDays)) : null;
+  const scheduleRows = buildInstallmentRows(amount, dueAt, installmentCountNumber, f);
+  const netDueDate = invoiceDate ? calculateNetTermsDueDate(invoiceDate, Number(termsDays), f) : null;
   const canSubmit = (() => {
     if (!obligeeName.trim() || !amount.trim()) return false;
     if (kind === "net-terms") return Boolean(invoiceDate.trim());
@@ -1296,7 +1422,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     event.preventDefault();
     if (busy) return;
     if (!canSubmit) {
-      setError(requiredMessageForKind(kind));
+      setError(requiredMessageForKind(kind, t));
       return;
     }
     const trimmedName = obligeeName.trim();
@@ -1347,7 +1473,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
       const saved = await onCreate?.({ obligeeName: trimmedName, amount, dueAt: dueISO, recurrence: recurrenceForKind, note: noteForKind });
       if (saved) setCreated(saved);
     } catch {
-      setError("לא הצלחתי לשמור עכשיו. אפשר לנסות שוב עוד רגע.");
+      setError(t("tasks.secretary.capture.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -1360,32 +1486,32 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
           <div className={styles.shell}>
             <div className={styles.topbar}>
               <div className={styles.topSpacer} />
-              <div className={styles.topTitle}>נגדיר את ההתחייבויות</div>
+              <div className={styles.topTitle}>{t("tasks.secretary.bank.title")}</div>
               <div className={styles.topSpacer} />
             </div>
-            <Say>אפשר ללחוץ על כל הוצאה שיש לך, ואמלא איתך את הפרטים.</Say>
-            {obligations[0] ? <RememberedObligationCard item={cardFromObligation(obligations[0])} /> : null}
-            <div className={styles.category}>קבועות חודשיות</div>
+            <Say>{t("tasks.secretary.bank.say")}</Say>
+            {obligations[0] ? <RememberedObligationCard item={cardFromObligation(obligations[0], f)} /> : null}
+            <div className={styles.category}>{t("tasks.secretary.bank.monthly")}</div>
             <div className={styles.bankGrid}>
-              <BankChip emoji="🏠" label="שכירות" obligation={findCategoryObligation("שכירות", obligations)} />
-              <BankChip emoji="🏛️" label="ארנונה" obligation={findCategoryObligation("ארנונה", obligations)} />
-              <BankChip emoji="⚡" label="חשמל" obligation={findCategoryObligation("חשמל", obligations)} />
-              <BankChip emoji="💧" label="מים" obligation={findCategoryObligation("מים", obligations)} />
+              <BankChip emoji="🏠" label={t("tasks.secretary.bank.rent")} obligation={findCategoryObligation("שכירות", obligations)} />
+              <BankChip emoji="🏛️" label={t("tasks.secretary.bank.arnona")} obligation={findCategoryObligation("ארנונה", obligations)} />
+              <BankChip emoji="⚡" label={t("tasks.secretary.bank.electricity")} obligation={findCategoryObligation("חשמל", obligations)} />
+              <BankChip emoji="💧" label={t("tasks.secretary.bank.water")} obligation={findCategoryObligation("מים", obligations)} />
             </div>
           </div>
         </div>
       </div>
       <div className={styles.captureDim} aria-hidden="true" />
-      <section className={styles.captureSheet} aria-label="התחייבות חדשה">
+      <section className={styles.captureSheet} aria-label={t("tasks.secretary.capture.newAria")}>
         <div className={styles.sheetGrip} />
-        <Link href={screenHref("bank")} className={styles.captureClose} aria-label="סגירת החלונית">×</Link>
+        <Link href={screenHref("bank")} className={styles.captureClose} aria-label={t("tasks.secretary.capture.closeAria")}>×</Link>
         {taskMode ? (
           taskSaved ? (
             <section style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
-              <Say>רשמתי. המשימה מחכה לך ב&quot;היום שלי&quot;.</Say>
+              <Say>{t("tasks.secretary.capture.taskSaved")}</Say>
               <div className={styles.loopFoot}>
-                <PrimaryLink href="/secretary?today=1">להיום שלי</PrimaryLink>
-                <GhostLink href="/tasks">כל המשימות</GhostLink>
+                <PrimaryLink href="/secretary?today=1">{t("tasks.secretary.capture.toMyDay")}</PrimaryLink>
+                <GhostLink href="/tasks">{t("tasks.secretary.capture.allTasks")}</GhostLink>
               </div>
             </section>
           ) : (
@@ -1394,33 +1520,20 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             </div>
           )
         ) : created ? (
-          <LoopResult mode="created" obligation={created} />
+          <LoopResult
+            mode="created"
+            obligation={created}
+            createdNote={kind === "installments" ? P3_COPY.installmentsSaved(installmentCountNumber) : kind === "postdated-check" ? P3_COPY.checkSaved : undefined}
+            onAddMore={startAnother}
+          />
         ) : <>
         <div className={styles.topbar}>
           <div className={styles.topSpacer} />
-          <div className={styles.topTitle}>{selectedKind.title}</div>
+          <div className={styles.topTitle}>{t(selectedKind.title)}</div>
           <div className={styles.topSpacer} />
         </div>
-        <Say>{captureSayForKind(kind)}</Say>
-        <div className={styles.captureTypeList} aria-label="סוג התחייבות">
-          {tasksOn ? (
-            <button
-              type="button"
-              className={styles.captureTypeCard}
-              onClick={() => {
-                setTaskMode(true);
-                setTaskSaved(false);
-                setError(null);
-              }}
-              aria-pressed={false}
-            >
-              <span className={styles.captureTypeIcon}>✓</span>
-              <span className={styles.captureTypeBody}>
-                <strong>משימה</strong>
-                <small>משהו לעשות, בלי סכום — נכנס לסדר היום</small>
-              </span>
-            </button>
-          ) : null}
+        <Say>{captureSayForKind(kind, t)}</Say>
+        <div className={styles.captureTypeList} aria-label={t("tasks.secretary.capture.kindAria")}>
           {CAPTURE_KINDS.map((item) => (
             <button
               key={item.key}
@@ -1434,98 +1547,118 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             >
               <span className={styles.captureTypeIcon}>{item.icon}</span>
               <span className={styles.captureTypeBody}>
-                <strong>{item.title}</strong>
-                <small>{item.description}</small>
+                <strong>{t(item.title)}</strong>
+                <small>{item.key === "postdated-check" ? P3_COPY.checkDescription : t(item.description)}</small>
               </span>
               <i aria-hidden="true" />
             </button>
           ))}
+          {/* Daily Tasks: "משימה" stays available, last in the list (owner decision 23.10.2026). */}
+          {tasksOn ? (
+            <button
+              type="button"
+              className={styles.captureTypeCard}
+              onClick={() => {
+                setTaskMode(true);
+                setTaskSaved(false);
+                setError(null);
+              }}
+              aria-pressed={false}
+            >
+              <span className={styles.captureTypeIcon}>✓</span>
+              <span className={styles.captureTypeBody}>
+                <strong>{t("tasks.secretary.capture.task")}</strong>
+                <small>{t("tasks.secretary.capture.taskDescription")}</small>
+              </span>
+            </button>
+          ) : null}
         </div>
         <form className={styles.captureForm} onSubmit={submit}>
-          <CaptureField label={kind === "postdated-check" ? "למי נמסר הצ'ק?" : "למי משלמים?"}>
-            <input className={styles.captureInput} value={obligeeName} onChange={(event) => setObligeeName(event.target.value)} placeholder="שם הספק או הגורם" />
+          <CaptureField label={kind === "postdated-check" ? t("tasks.secretary.capture.checkTo") : t("tasks.secretary.capture.payTo")}>
+            <input className={styles.captureInput} value={obligeeName} onChange={(event) => setObligeeName(event.target.value)} placeholder={t("tasks.secretary.capture.namePlaceholder")} />
           </CaptureField>
 
           {kind === "regular" ? <>
             <div className={styles.captureTwoRow}>
-              <CaptureField label="כמה">
-                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" />
+              <CaptureField label={t("tasks.secretary.capture.howMuch")}>
+                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={t("tasks.secretary.capture.amountPlaceholder")} />
               </CaptureField>
-              <CaptureField label="מטבע">
-                <input className={styles.captureInput} value="₪ שקל" readOnly aria-label="מטבע שקל" />
+              <CaptureField label={t("tasks.secretary.capture.currency")}>
+                <input className={styles.captureInput} value={t("tasks.secretary.capture.currencyValue")} readOnly aria-label={t("tasks.secretary.capture.currencyAria")} />
               </CaptureField>
             </div>
-            <CaptureDateInput label="מתי לתשלום" value={dueAt} fallback="בחר תאריך" onChange={setDueAt} />
+            <CaptureDateInput label={t("tasks.secretary.capture.whenToPay")} value={dueAt} fallback={t("tasks.secretary.capture.pickDate")} onChange={setDueAt} />
             <div className={styles.captureField}>
-              <span>תדירות</span>
-              <div className={styles.captureSegbar} role="radiogroup" aria-label="חזרתיות">
+              <span>{t("tasks.secretary.capture.frequency")}</span>
+              <div className={styles.captureSegbar} role="radiogroup" aria-label={t("tasks.secretary.capture.recurrenceAria")}>
                 {RECURRENCE_OPTIONS.map((option) => (
                   <button key={option.value} type="button" role="radio" aria-checked={recurrence === option.value} className={recurrence === option.value ? styles.captureSegOn : ""} onClick={() => setRecurrence(option.value)}>
-                    {option.label}
+                    {t(option.label)}
                   </button>
                 ))}
               </div>
             </div>
-            <CaptureField label="הערה">
-              <textarea className={styles.captureInput} value={note} onChange={(event) => setNote(event.target.value)} placeholder="משהו שכדאי שאזכור?" />
+            <CaptureField label={t("tasks.secretary.capture.note")}>
+              <textarea className={styles.captureInput} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("tasks.secretary.capture.notePlaceholder")} />
             </CaptureField>
           </> : null}
 
           {kind === "installments" ? <>
             <div className={styles.captureTwoRow}>
-              <CaptureField label="סכום כולל">
-                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" />
+              <CaptureField label={t("tasks.secretary.capture.totalAmount")}>
+                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={t("tasks.secretary.capture.amountPlaceholder")} />
               </CaptureField>
-              <CaptureField label="מספר תשלומים">
+              <CaptureField label={t("tasks.secretary.capture.installmentCount")}>
                 <input className={styles.captureInput} inputMode="numeric" value={installmentCount} onChange={(event) => setInstallmentCount(event.target.value)} placeholder="3" />
               </CaptureField>
             </div>
-            <CaptureDateInput label="תאריך ראשון" value={dueAt} fallback="בחר תשלום ראשון" onChange={setDueAt} />
-            <section className={styles.captureSchedule} aria-label="לוח התשלומים">
-              <strong>לוח התשלומים</strong>
+            <CaptureDateInput label={t("tasks.secretary.capture.firstDate")} value={dueAt} fallback={t("tasks.secretary.capture.pickFirst")} onChange={setDueAt} />
+            <section className={styles.captureSchedule} aria-label={t("tasks.secretary.capture.schedule")}>
+              <strong>{t("tasks.secretary.capture.schedule")}</strong>
               {scheduleRows.length > 0 ? scheduleRows.map((row) => (
                 <div key={row.index} className={styles.captureScheduleRow}>
                   <span>{row.index + 1}/{installmentCountNumber}</span>
                   <b>{row.amount}</b>
                   <small>{row.date}</small>
                 </div>
-              )) : <p>אחרי סכום ותאריך ראשון אראה כאן את 1/{installmentCountNumber}, 2/{installmentCountNumber} וכן הלאה.</p>}
+              )) : <p>{t("tasks.secretary.capture.scheduleHint", { count: installmentCountNumber })}</p>}
             </section>
+            <div className={styles.captureCalmNote}>{P3_COPY.installmentsNote(installmentCountNumber)}</div>
           </> : null}
 
           {kind === "postdated-check" ? <>
             <div className={styles.captureTwoRow}>
-              <CaptureField label="סכום">
-                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" />
+              <CaptureField label={t("tasks.secretary.capture.amount")}>
+                <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={t("tasks.secretary.capture.amountPlaceholder")} />
               </CaptureField>
-              <CaptureField label="מספר צ'ק">
+              <CaptureField label={t("tasks.secretary.capture.checkNumber")}>
                 <input className={styles.captureInput} value={checkNumber} onChange={(event) => setCheckNumber(event.target.value)} placeholder="000000" />
               </CaptureField>
             </div>
-            <CaptureDateInput label="תאריך פירעון" value={dueAt} fallback="בחר פירעון" onChange={setDueAt} />
-            <div className={styles.captureCalmNote}>אזכיר לך יומיים לפני הפירעון לוודא שהחשבון מכוסה, כדי שיהיה לך זמן לטפל בזה ברוגע.</div>
+            <CaptureDateInput label={t("tasks.secretary.capture.maturityDate")} value={dueAt} fallback={t("tasks.secretary.capture.pickMaturity")} onChange={setDueAt} />
+            <div className={styles.captureCalmNote}>{P3_COPY.checkNote}</div>
           </> : null}
 
           {kind === "net-terms" ? <>
-            <CaptureField label="סכום">
-              <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" />
+            <CaptureField label={t("tasks.secretary.capture.amount")}>
+              <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={t("tasks.secretary.capture.amountPlaceholder")} />
             </CaptureField>
-            <CaptureDateInput label="תאריך חשבונית" value={invoiceDate} fallback="בחר תאריך חשבונית" onChange={setInvoiceDate} />
+            <CaptureDateInput label={t("tasks.secretary.capture.invoiceDate")} value={invoiceDate} fallback={t("tasks.secretary.capture.pickInvoiceDate")} onChange={setInvoiceDate} />
             <div className={styles.captureField}>
-              <span>תנאי תשלום</span>
-              <div className={styles.captureSegbar} role="radiogroup" aria-label="תנאי תשלום">
+              <span>{t("tasks.secretary.capture.paymentTerms")}</span>
+              <div className={styles.captureSegbar} role="radiogroup" aria-label={t("tasks.secretary.capture.paymentTerms")}>
                 {(["30", "60", "90"] as const).map((value) => (
                   <button key={value} type="button" role="radio" aria-checked={termsDays === value} className={termsDays === value ? styles.captureSegOn : ""} onClick={() => setTermsDays(value)}>
-                    שוטף+{value}
+                    {t("tasks.secretary.capture.netTerm", { days: value })}
                   </button>
                 ))}
               </div>
             </div>
-            <div className={styles.captureCalmNote}>{netDueDate ? "חישבתי: שוטף+" + termsDays + " יוצא לתשלום ב-" + netDueDate + ". אזכיר לך כמה ימים לפני." : "אחרי בחירת תאריך החשבונית אחשב את מועד התשלום בפועל."}</div>
+            <div className={styles.captureCalmNote}>{netDueDate ? P3_COPY.netComputed(termsDays, netDueDate) : t("tasks.secretary.capture.netPending")}</div>
           </> : null}
 
           {error ? <div className={styles.formError}>{error}</div> : null}
-          <PrimaryButton type="submit" disabled={busy}>{busy ? "רגע…" : "מסור למזכירה"}</PrimaryButton>
+          <PrimaryButton type="submit" disabled={busy}>{busy ? t("tasks.secretary.moment") : t("tasks.secretary.capture.submit")}</PrimaryButton>
         </form>
         </>}
       </section>
@@ -1542,11 +1675,12 @@ function CaptureDateInput({ label, value, fallback, onChange }: { label: string;
   // styled display, so a tap on the field opens the OS date picker natively
   // (the reliable, cross-browser behaviour used elsewhere in the app) instead
   // of depending on showPicker() against a hidden input.
+  const f = useFmt();
   return (
     <CaptureField label={label}>
       <div className={styles.captureDateField}>
         <div className={[styles.captureInput, styles.captureDateButton].join(" ")} aria-hidden="true">
-          <span>{dateLabel(value, fallback)}</span>
+          <span>{dateLabel(value, fallback, f)}</span>
           <CalendarIcon />
         </div>
         <input
@@ -1561,8 +1695,8 @@ function CaptureDateInput({ label, value, fallback, onChange }: { label: string;
   );
 }
 
-function dateLabel(value: string, fallback: string): string {
-  return value ? formatDateValue(new Date(value + "T09:00:00").toISOString()) : fallback;
+function dateLabel(value: string, fallback: string, f: Fmt): string {
+  return value ? formatDateValue(new Date(value + "T09:00:00").toISOString(), f) : fallback;
 }
 
 function normalizeInstallmentCount(value: string): number {
@@ -1571,7 +1705,7 @@ function normalizeInstallmentCount(value: string): number {
   return Math.max(2, Math.min(24, n));
 }
 
-function buildInstallmentRows(amount: string, firstDate: string, count: number): Array<{ index: number; amount: string; date: string }> {
+function buildInstallmentRows(amount: string, firstDate: string, count: number, f: Fmt): Array<{ index: number; amount: string; date: string }> {
   const total = Number(amount);
   if (!Number.isFinite(total) || total <= 0 || !firstDate) return [];
   const first = new Date(firstDate + "T09:00:00");
@@ -1579,7 +1713,7 @@ function buildInstallmentRows(amount: string, firstDate: string, count: number):
   const each = total / count;
   return Array.from({ length: count }, (_, index) => {
     const date = addMonths(first, index);
-    return { index, amount: formatMoneyValue(String(each), "ILS"), date: formatDateValue(date.toISOString()) };
+    return { index, amount: formatMoneyValue(String(each), "ILS", f), date: formatDateValue(date.toISOString(), f) };
   });
 }
 
@@ -1591,41 +1725,43 @@ function netTermsDueDateValue(invoiceDate: string, days: number): Date | null {
   return endOfMonth;
 }
 
-function calculateNetTermsDueDate(invoiceDate: string, days: number): string | null {
+function calculateNetTermsDueDate(invoiceDate: string, days: number, f: Fmt): string | null {
   const due = netTermsDueDateValue(invoiceDate, days);
-  return due ? formatDateValue(due.toISOString()) : null;
+  return due ? formatDateValue(due.toISOString(), f) : null;
 }
 
-function requiredMessageForKind(kind: CaptureKind): string {
+function requiredMessageForKind(kind: CaptureKind, t: Translator): string {
   switch (kind) {
     case "installments":
-      return "חסרים לי שם, סכום כולל, מספר תשלומים ותאריך ראשון כדי להציג פריסה מסודרת.";
+      return t("tasks.secretary.capture.required.installments");
     case "postdated-check":
-      return "חסרים לי שם, סכום, מספר צ'ק ותאריך פירעון כדי לזכור את הצ'ק נכון.";
+      return t("tasks.secretary.capture.required.postdatedCheck");
     case "net-terms":
-      return "חסרים לי שם, סכום ותאריך חשבונית כדי לחשב את השוטף+.";
+      return t("tasks.secretary.capture.required.netTerms");
     case "regular":
     default:
-      return "חסרים לי כמה פרטים כדי לזכור את ההתחייבות: למי, כמה ומתי.";
+      return t("tasks.secretary.capture.required.regular");
   }
 }
 
-function captureSayForKind(kind: CaptureKind): string {
+function captureSayForKind(kind: CaptureKind, t: Translator): string {
   switch (kind) {
     case "installments":
-      return "כמה תשלומים, ואני אראה את הלוח לפני שאזכור אותו.";
+      return t("tasks.secretary.capture.say.installments");
     case "postdated-check":
-      return "אפשר למסור לי את פרטי הצ'ק, ואזכיר לך לפני יום הפירעון.";
+      return P3_COPY.checkSay;
     case "net-terms":
-      return "אחרי מועד החשבונית אחשב את מועד התשלום.";
+      return t("tasks.secretary.capture.say.netTerms");
     case "regular":
     default:
-      return "אפשר למסור לי את הפרטים ואני אזכור.";
+      return t("tasks.secretary.capture.say.regular");
   }
 }
 
 
 function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | null; onUpdate?: (id: number, input: UpdateObligationInput) => Promise<void> | void }) {
+  const f = useFmt();
+  const { t } = f;
   const [name, setName] = useState(obligation?.obligeeName ?? "");
   const [amount, setAmount] = useState(obligation ? String(Math.round(amountNumber(obligation))) : "");
   const [date, setDate] = useState(obligation?.dueAt.slice(0, 10) ?? "");
@@ -1634,7 +1770,7 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  if (!obligation) return <SecretaryScreen title="עריכת התחייבות" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לעריכה" body="עריכה תופיע רק אחרי שתהיה התחייבות אמיתית בזיכרון." /></SecretaryScreen>;
+  if (!obligation) return <SecretaryScreen title={t("tasks.secretary.update.title")} backHref={screenHref("all")}><EmptyMemory title={t("tasks.secretary.update.emptyTitle")} body={t("tasks.secretary.update.emptyBody")} /></SecretaryScreen>;
   const obligationId = obligation.id;
 
   // Build a patch of ONLY the fields the owner actually changed, then persist.
@@ -1643,17 +1779,17 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
     if (busy) return;
     const trimmedName = name.trim();
     if (trimmedName.length < 2) {
-      setError("צריך שם כדי שאדע למי לשלם.");
+      setError(t("tasks.secretary.update.needName"));
       return;
     }
     const num = Number(amount);
     if (!Number.isFinite(num) || num <= 0) {
-      setError("צריך סכום חוקי כדי שאוכל לזכור אותו נכון.");
+      setError(t("tasks.secretary.update.needAmount"));
       return;
     }
     const parsed = new Date(date + "T09:00:00");
     if (!date || Number.isNaN(parsed.getTime())) {
-      setError("צריך תאריך חוקי כדי שאוכל לזכור אותו נכון.");
+      setError(t("tasks.secretary.update.needDate"));
       return;
     }
     const patch: UpdateObligationInput = {};
@@ -1664,7 +1800,7 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
     const trimmedNote = note.trim() || null;
     if (trimmedNote !== (obligation!.note ?? null)) patch.note = trimmedNote;
     if (Object.keys(patch).length === 0) {
-      setError("עוד לא שינית שום פרט.");
+      setError(t("tasks.secretary.update.noChanges"));
       return;
     }
     setBusy(true);
@@ -1673,7 +1809,7 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
       await onUpdate?.(obligationId, patch);
       setDone(true);
     } catch {
-      setError("לא הצלחתי לשמור עכשיו. אפשר לנסות שוב עוד רגע.");
+      setError(t("tasks.secretary.capture.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -1682,43 +1818,43 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
   if (done) {
     // After a successful save the obligation prop already reflects the new
     // values, so the confirmation shows exactly what was persisted.
-    const savedName = displayName(obligation.obligeeName);
-    const savedAmount = formatMoneyValue(obligation.amount, obligation.currency);
+    const savedName = displayName(obligation.obligeeName, t);
+    const savedAmount = formatMoneyValue(obligation.amount, obligation.currency, f);
     return (
-      <SecretaryScreen title="עריכת התחייבות" backHref={screenHref("detail", obligationId)}>
+      <SecretaryScreen title={t("tasks.secretary.update.title")} backHref={screenHref("detail", obligationId)}>
         <section className={styles.sheetStage}>
           <div className={styles.sheetGrip} />
-          <div className={styles.okHead}><span>✓</span><p>עדכנתי. מעכשיו אני זוכרת את {savedName}: {savedAmount} לתאריך {formatDateValue(obligation.dueAt)}.</p></div>
-          <section className={styles.echoCard}><span>{emojiForObligation(obligation)}</span><div><strong>{savedName}</strong><small>{recurrenceText(obligation.recurrence)}</small></div><b>{savedAmount}</b></section>
-          <PrimaryLink href={screenHref("detail", obligationId)}>סגור</PrimaryLink>
+          <div className={styles.okHead}><span>✓</span><p>{t("tasks.secretary.update.done", { name: savedName, amount: savedAmount, date: formatDateValue(obligation.dueAt, f) })}</p></div>
+          <section className={styles.echoCard}><span>{emojiForObligation(obligation)}</span><div><strong>{savedName}</strong><small>{recurrenceText(obligation.recurrence, t)}</small></div><b>{savedAmount}</b></section>
+          <PrimaryLink href={screenHref("detail", obligationId)}>{t("tasks.secretary.update.close")}</PrimaryLink>
         </section>
       </SecretaryScreen>
     );
   }
 
   return (
-    <SecretaryScreen title="עריכת התחייבות" backHref={screenHref("detail", obligationId)}>
+    <SecretaryScreen title={t("tasks.secretary.update.title")} backHref={screenHref("detail", obligationId)}>
       <section className={styles.sheetStage}>
         <div className={styles.sheetGrip} />
-        <Say>אפשר לעדכן כל פרט — שם, סכום, תאריך חיוב או מחזוריות.</Say>
-        <FormField label="למי משלמים"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="שם הספק או הגורם" /></FormField>
-        <FormField label="סכום"><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" /></FormField>
-        <FormField label="תאריך חיוב"><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></FormField>
+        <Say>{t("tasks.secretary.update.say")}</Say>
+        <FormField label={t("tasks.secretary.update.payTo")}><input value={name} onChange={(event) => setName(event.target.value)} placeholder={t("tasks.secretary.capture.namePlaceholder")} /></FormField>
+        <FormField label={t("tasks.secretary.capture.amount")}><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={t("tasks.secretary.capture.amountPlaceholder")} /></FormField>
+        <FormField label={t("tasks.secretary.update.chargeDate")}><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></FormField>
         <div className={styles.formField}>
-          <span>מחזוריות</span>
-          <div className={styles.captureSegbar} role="radiogroup" aria-label="מחזוריות">
+          <span>{t("tasks.secretary.update.recurrence")}</span>
+          <div className={styles.captureSegbar} role="radiogroup" aria-label={t("tasks.secretary.update.recurrence")}>
             {RECURRENCE_OPTIONS.map((option) => (
               <button key={option.value} type="button" role="radio" aria-checked={recurrence === option.value} className={recurrence === option.value ? styles.captureSegOn : ""} onClick={() => setRecurrence(option.value)}>
-                {option.label}
+                {t(option.label)}
               </button>
             ))}
           </div>
         </div>
-        <FormField label="הערה"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="משהו שכדאי שאזכור?" /></FormField>
+        <FormField label={t("tasks.secretary.capture.note")}><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("tasks.secretary.capture.notePlaceholder")} /></FormField>
         {error ? <div className={styles.formError}>{error}</div> : null}
         <div className={styles.actions}>
-          <PrimaryButton disabled={busy} onClick={() => void save()}>{busy ? "רגע…" : "שמירת שינויים"}</PrimaryButton>
-          <GhostLink href={screenHref("detail", obligationId)}>ביטול</GhostLink>
+          <PrimaryButton disabled={busy} onClick={() => void save()}>{busy ? t("tasks.secretary.moment") : t("tasks.secretary.update.saveChanges")}</PrimaryButton>
+          <GhostLink href={screenHref("detail", obligationId)}>{t("tasks.common.cancel")}</GhostLink>
         </div>
       </section>
     </SecretaryScreen>
@@ -1727,86 +1863,86 @@ function UpdateScreen({ obligation, onUpdate }: { obligation: ObligationApi | nu
 
 function FormField({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.formField}><span>{label}</span>{children}</label>; }
 
-const LOOP_TITLE: Record<SecretaryLoopMode, string> = {
-  met: "טיפלנו בזה",
-  snooze: "תזכורת",
-  release: "הוסר",
-  created: "נשמר",
+const LOOP_TITLE: Record<SecretaryLoopMode, MessageKey> = {
+  met: "tasks.secretary.loopTitle.met",
+  snooze: "tasks.secretary.loopTitle.snooze",
+  release: "tasks.secretary.loopTitle.release",
+  created: "tasks.secretary.loopTitle.created",
 };
 
 function LoopsScreen({ obligation, initialMode = "met" }: { obligation: ObligationApi | null; initialMode?: SecretaryLoopMode }) {
-  return <SecretaryScreen title={LOOP_TITLE[initialMode]} backHref={obligation ? screenHref("detail", obligation.id) : "/secretary"}><LoopResult mode={initialMode} obligation={obligation} /></SecretaryScreen>;
+  const { t } = useI18n();
+  return <SecretaryScreen title={t(LOOP_TITLE[initialMode])} backHref={obligation ? screenHref("detail", obligation.id) : "/secretary"}><LoopResult mode={initialMode} obligation={obligation} /></SecretaryScreen>;
 }
 
 /** The due date of the next occurrence of a recurring obligation, or null. */
-function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence): string | null {
+function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence, f: Fmt): string | null {
   const base = dateValue(iso);
   if (!base) return null;
   switch (cadence) {
     case "WEEKLY": {
       const next = new Date(base);
       next.setDate(next.getDate() + 7);
-      return formatDateValue(next.toISOString());
+      return formatDateValue(next.toISOString(), f);
     }
     case "MONTHLY":
-      return formatDateValue(addMonths(base, 1).toISOString());
+      return formatDateValue(addMonths(base, 1).toISOString(), f);
     case "BIMONTHLY":
-      return formatDateValue(addMonths(base, 2).toISOString());
+      return formatDateValue(addMonths(base, 2).toISOString(), f);
     case "QUARTERLY":
-      return formatDateValue(addMonths(base, 3).toISOString());
+      return formatDateValue(addMonths(base, 3).toISOString(), f);
     case "SEMIANNUAL":
-      return formatDateValue(addMonths(base, 6).toISOString());
+      return formatDateValue(addMonths(base, 6).toISOString(), f);
     case "YEARLY":
-      return formatDateValue(addMonths(base, 12).toISOString());
+      return formatDateValue(addMonths(base, 12).toISOString(), f);
     case "NONE":
     default:
       return null;
   }
 }
 
-function reminderLeadDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "בזמן";
-  date.setDate(date.getDate() - 2);
-  return formatDateValue(date.toISOString());
-}
-
-function LoopResult({ mode, obligation }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null }) {
-  const name = obligation ? displayName(obligation.obligeeName) : "ההתחייבות";
-  const amount = obligation ? formatMoneyValue(obligation.amount, obligation.currency) : "";
-  const reminder = obligation ? reminderLeadDate(obligation.dueAt) : "בזמן";
-  const nextDate = obligation ? nextOccurrenceLabel(obligation.dueAt, obligation.recurrence) : null;
+function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void }) {
+  const f = useFmt();
+  const { t } = f;
+  const name = obligation ? displayName(obligation.obligeeName, t) : t("tasks.secretary.loop.theObligation");
+  const amount = obligation ? formatMoneyValue(obligation.amount, obligation.currency, f) : "";
+  // "created" says what Dubiz really does (no reminder is sent): the due date, and when it rises in the Secretary.
+  const dueDate = obligation ? formatDateValue(obligation.dueAt, f) : "";
+  const createdBody = (obligation ? P3_COPY.createdBody(name, dueDate) : P3_COPY.createdBodyGeneric) + (createdNote ? " " + createdNote : "");
+  const nextDate = obligation ? nextOccurrenceLabel(obligation.dueAt, obligation.recurrence, f) : null;
   const config = mode === "met"
-    ? { tone: "green", title: `סימנתי ש${name} טופל.`, body: obligation?.recurrence === "NONE" ? "סגרתי את זה ולא אזכיר שוב." : "רשמתי את התשלום הבא לפי החזרתיות. אין צורך לזכור אותו.", primary: "המשך לדבר הבא", secondary: "סגור" }
+    ? { tone: "green", title: t("tasks.secretary.loop.metTitle", { name }), body: obligation?.recurrence === "NONE" ? t("tasks.secretary.loop.metBodyOnce") : t("tasks.secretary.loop.metBodyRecurring"), primary: t("tasks.secretary.loop.next"), secondary: t("tasks.secretary.loop.close") }
     : mode === "snooze"
-      ? { tone: "calm", title: "בסדר, אזכיר לך שוב.", body: "עד אז זה יישאר במעקב שקט ולא ידרוש אותך.", primary: "סגור", secondary: undefined }
+      ? { tone: "calm", title: t("tasks.secretary.loop.snoozeTitle"), body: t("tasks.secretary.loop.snoozeBody"), primary: t("tasks.secretary.loop.close"), secondary: undefined }
       : mode === "release"
-        ? { tone: "neutral", title: "הבנתי. הסרתי את זה.", body: "לא אזכיר לך יותר על ההתחייבות הזאת. אפשר להוסיף אותה מחדש בכל רגע.", primary: "סגור", secondary: undefined }
-        : { tone: "brand", title: "מצוין, אני זוכרת את זה עכשיו.", body: obligation ? `אזכיר לך על ${name} ב-${reminder} — יומיים לפני מועד התשלום.` : "אזכיר לך בזמן, בלי צורך לעקוב לבד.", primary: "הוסף עוד", secondary: "סיימתי" };
+        ? { tone: "neutral", title: t("tasks.secretary.loop.releaseTitle"), body: t("tasks.secretary.loop.releaseBody"), primary: t("tasks.secretary.loop.close"), secondary: undefined }
+        : { tone: "brand", title: t("tasks.secretary.loop.createdTitle"), body: createdBody, primary: t("tasks.secretary.loop.addMore"), secondary: t("tasks.secretary.loop.finished") };
   const resultClass = [styles.loopResult, mode === "created" ? styles.loopResultCreated : ""].join(" ");
   const echoClass = [styles.echoCard, mode === "created" ? styles.echoCardCreated : ""].join(" ");
   const badgeClass = [styles.loopBadge, styles[`loopBadge_${config.tone}`]].join(" ");
   const echoMeta =
-    mode === "created" ? `אזכיר: ${reminder}` :
-    mode === "snooze" ? "אזכיר שוב בקרוב" :
-    mode === "met" ? (nextDate ? `התשלום הבא: ${nextDate}` : "טופל ונסגר") :
-    recurrenceText(obligation?.recurrence ?? "NONE");
-  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}><PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
+    mode === "created" ? P3_COPY.echoDue(dueDate) :
+    mode === "snooze" ? t("tasks.secretary.loop.echoSnooze") :
+    mode === "met" ? (nextDate ? t("tasks.secretary.loop.echoNext", { date: nextDate }) : t("tasks.secretary.loop.echoClosed")) :
+    recurrenceText(obligation?.recurrence ?? "NONE", t);
+  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
 }
 
 function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | null; onSnooze?: (id: number, followUpAt: string) => Promise<void> | void }) {
+  const f = useFmt();
+  const { t } = f;
   const [choiceKey, setChoiceKey] = useState<string>("week");
   const [customDate, setCustomDate] = useState<string>("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!obligation) return <SecretaryScreen title="תזכורת" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לדחות" body="כשיהיה פריט אמיתי במעקב, אפשר יהיה לבחור מתי להזכיר שוב." /></SecretaryScreen>;
+  if (!obligation) return <SecretaryScreen title={t("tasks.secretary.remind.title")} backHref={screenHref("all")}><EmptyMemory title={t("tasks.secretary.remind.emptyTitle")} body={t("tasks.secretary.remind.emptyBody")} /></SecretaryScreen>;
   const obligationId = obligation.id;
   const now = new Date();
   const presets = [
-    { key: "tomorrow", label: "מחר בבוקר", date: atMorning(addDays(now, 1)) },
-    { key: "week", label: "בעוד שבוע", date: atMorning(addDays(now, 7)) },
-    { key: "month", label: "בעוד חודש", date: atMorning(addMonths(now, 1)) },
+    { key: "tomorrow", label: t("tasks.secretary.remind.tomorrowMorning"), date: atMorning(addDays(now, 1)) },
+    { key: "week", label: t("tasks.secretary.remind.inAWeek"), date: atMorning(addDays(now, 7)) },
+    { key: "month", label: t("tasks.secretary.remind.inAMonth"), date: atMorning(addMonths(now, 1)) },
   ];
   const customValue = customDate ? atMorning(new Date(customDate + "T09:00:00")) : null;
   const minDate = toInputDate(addDays(now, 1));
@@ -1821,11 +1957,11 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
     if (busy) return;
     const target = resolveTarget();
     if (!target || Number.isNaN(target.getTime())) {
-      setError("צריך לבחור מתי להזכיר.");
+      setError(t("tasks.secretary.remind.needChoice"));
       return;
     }
     if (target.getTime() <= now.getTime()) {
-      setError("צריך לבחור תאריך עתידי.");
+      setError(t("tasks.secretary.remind.needFuture"));
       return;
     }
     setBusy(true);
@@ -1834,7 +1970,7 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
       await onSnooze?.(obligationId, target.toISOString());
       setDone(true);
     } catch {
-      setError("לא הצלחתי לשמור עכשיו. אפשר לנסות שוב עוד רגע.");
+      setError(t("tasks.secretary.capture.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -1842,45 +1978,46 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
 
   if (done) {
     const target = resolveTarget() ?? now;
-    return <SecretaryScreen title="תזכורת" backHref={screenHref("detail", obligation.id)}><section className={styles.loopResult}><div className={`${styles.loopBadge} ${styles.loopBadge_calm}`}>⏱</div><h2>אזכיר לך ב-{formatDateValue(target.toISOString())} בבוקר.</h2><p>עד אז זה יישאר אצלי במעקב שקט. אין צורך לחשוב על זה - אני אחזור אליך.</p><PrimaryLink href="/secretary?today=1">סגור</PrimaryLink></section></SecretaryScreen>;
+    return <SecretaryScreen title={t("tasks.secretary.remind.title")} backHref={screenHref("detail", obligation.id)}><section className={styles.loopResult}><div className={`${styles.loopBadge} ${styles.loopBadge_calm}`}>⏱</div><h2>{t("tasks.secretary.remind.doneTitle", { date: formatDateValue(target.toISOString(), f) })}</h2><p>{t("tasks.secretary.remind.doneBody")}</p><PrimaryLink href="/secretary?today=1">{t("tasks.secretary.loop.close")}</PrimaryLink></section></SecretaryScreen>;
   }
 
   return (
-    <SecretaryScreen title="תזכורת" backHref={screenHref("detail", obligation.id)}>
+    <SecretaryScreen title={t("tasks.secretary.remind.title")} backHref={screenHref("detail", obligation.id)}>
       <section className={styles.sheetStage}>
         <div className={styles.sheetGrip} />
-        <Say>מתי שאזכיר לך שוב?</Say>
+        <Say>{t("tasks.secretary.remind.say")}</Say>
         <section className={styles.contextCard}>
           <span>{emojiForObligation(obligation)}</span>
-          <div><strong>{displayName(obligation.obligeeName)}</strong><small>לתשלום ב-{formatDateValue(obligation.dueAt)}</small></div>
-          <b>{formatMoneyValue(obligation.amount, obligation.currency)}</b>
+          <div><strong>{displayName(obligation.obligeeName, t)}</strong><small>{t("tasks.secretary.detail.payOn", { date: formatDateValue(obligation.dueAt, f) })}</small></div>
+          <b>{formatMoneyValue(obligation.amount, obligation.currency, f)}</b>
         </section>
         <div className={styles.remindOptions}>
           {presets.map((option) => (
             <button key={option.key} type="button" className={`${styles.remindOption} ${choiceKey === option.key ? styles.remindOptionSelected : ""}`} onClick={() => { setChoiceKey(option.key); setError(null); }}>
-              <span>⏱</span><strong>{option.label}</strong><em>{formatDateValue(option.date.toISOString())}</em><b />
+              <span>⏱</span><strong>{option.label}</strong><em>{formatDateValue(option.date.toISOString(), f)}</em><b />
             </button>
           ))}
           <label className={`${styles.remindOption} ${choiceKey === "custom" ? styles.remindOptionSelected : ""}`}>
-            <span>🔔</span><strong>בחר תאריך אחר</strong><em>{customValue ? formatDateValue(customValue.toISOString()) : "בחירת תאריך"}</em><b />
+            <span>🔔</span><strong>{t("tasks.secretary.remind.otherDate")}</strong><em>{customValue ? formatDateValue(customValue.toISOString(), f) : t("tasks.secretary.remind.pickDate")}</em><b />
             <input
               className={styles.captureDateOverlay}
               type="date"
               min={minDate}
               value={customDate}
               onChange={(event) => { const v = event.target.value; setCustomDate(v); if (v) { setChoiceKey("custom"); setError(null); } }}
-              aria-label="בחירת תאריך לתזכורת"
+              aria-label={t("tasks.secretary.remind.pickAria")}
             />
           </label>
         </div>
         {error ? <div className={styles.formError}>{error}</div> : null}
-        <PrimaryButton disabled={busy} onClick={() => void submit()}>{busy ? "רגע…" : "אזכיר לי אז"}</PrimaryButton>
+        <PrimaryButton disabled={busy} onClick={() => void submit()}>{busy ? t("tasks.secretary.moment") : t("tasks.secretary.remind.submit")}</PrimaryButton>
       </section>
     </SecretaryScreen>
   );
 }
 
 function WatchingScreen({ obligations }: { obligations: ObligationApi[] }) {
+  const { t } = useI18n();
   const now = new Date();
   const weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -1888,15 +2025,17 @@ function WatchingScreen({ obligations }: { obligations: ObligationApi[] }) {
   const month = obligations.filter((item) => { const due = dateValue(item.dueAt); return due && due > weekEnd && due <= monthEnd; }).length;
   const far = Math.max(0, obligations.length - week - month);
   const allQuiet = obligations.length === 0 || week === 0;
-  return <SecretaryScreen title="מה שאני שומרת" backHref="/secretary"><Say>{allQuiet ? "הכל רגוע כרגע. אני שומרת את הדברים הרחוקים ואחזיר אותם בזמן." : "הכל כאן, אצלי. שום דבר לא ידרוש אותך לפני הזמן - אני אזכיר לך בדיוק כשצריך."}</Say>{allQuiet ? <section className={styles.allQuiet}><div>✓</div><h2>הכל רגוע כרגע.</h2><p>אני שומרת {obligations.length} דברים - אף אחד מהם לא דחוף. תוכל לחזור לעיסוקים שלך.</p><b>כולם רחוקים · אזכיר לך לפני כל אחד</b></section> : <><section className={styles.watchPeace}><div className={styles.watchRing}><strong>{obligations.length}</strong><span>במעקב</span></div><p>אלה הדברים שאני שומרת בשבילך עכשיו, מסודרים לפי כמה שהם קרובים.</p></section><div className={styles.watchHorizons}><Horizon title="השבוע" subtitle="כולם עם תזכורת - אזכיר לך בזמן" count={String(week)} /><Horizon title="בהמשך החודש" subtitle="עוד רחוקים, אין מה לעשות עכשיו" count={String(month)} /><Horizon title="רחוק יותר" subtitle="אשמור אותם עד שיתקרבו" count={String(far)} /></div></>}<section className={styles.reassurePanel}><p>אתה לא צריך לעבור על זה. אני עושה את זה בשבילך.</p><GhostLink href={screenHref("all")}>לראות את הכל בפירוט</GhostLink></section></SecretaryScreen>;
+  return <SecretaryScreen title={t("tasks.secretary.watching.title")} backHref="/secretary"><Say>{allQuiet ? t("tasks.secretary.watching.sayQuiet") : t("tasks.secretary.watching.sayBusy")}</Say>{allQuiet ? <section className={styles.allQuiet}><div>✓</div><h2>{t("tasks.secretary.watching.quietTitle")}</h2><p>{t("tasks.secretary.watching.quietBody", { count: obligations.length })}</p><b>{t("tasks.secretary.watching.quietFoot")}</b></section> : <><section className={styles.watchPeace}><div className={styles.watchRing}><strong>{obligations.length}</strong><span>{t("tasks.secretary.watching.tracking")}</span></div><p>{t("tasks.secretary.watching.peace")}</p></section><div className={styles.watchHorizons}><Horizon title={t("tasks.secretary.watching.weekTitle")} subtitle={t("tasks.secretary.watching.weekSubtitle")} count={String(week)} /><Horizon title={t("tasks.secretary.watching.monthTitle")} subtitle={t("tasks.secretary.watching.monthSubtitle")} count={String(month)} /><Horizon title={t("tasks.secretary.watching.farTitle")} subtitle={t("tasks.secretary.watching.farSubtitle")} count={String(far)} /></div></>}<section className={styles.reassurePanel}><p>{t("tasks.secretary.watching.reassure")}</p><GhostLink href={screenHref("all")}>{t("tasks.secretary.watching.seeAll")}</GhostLink></section></SecretaryScreen>;
 }
 
 function NotifyScreen({ obligations }: { obligations: ObligationApi[] }) {
+  const f = useFmt();
+  const { t } = f;
   const [enabled, setEnabled] = useState(true);
   const [morning, setMorning] = useState(true);
   const [quiet, setQuiet] = useState(false);
   const sample = obligations[0] ?? null;
-  return <SecretaryScreen title="התראות" backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>המזכירה שלך</strong><p>{sample ? `יש לי תזכורת על ${sample.obligeeName}.` : "אני אזכיר רק כשיש משהו שדורש אותך."}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>כך אני אדבר איתך כשמשהו מתקרב. ההתראות נשארות תזכורת שקטה, לא רשימת משימות.</Say><section className={styles.settingsGroup}><SettingRow title="התראות מהמזכירה" detail="כשמשהו מתקרב או חוזר מתזכורת" on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title="סיכום בוקר" detail="רק אם יש משהו שדורש אותך" on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title="שעות שקטות" detail="לא להפריע בערב" on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>מה תקבלי ממני</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>אזכיר לפני {formatDateValue(item.dueAt)}</em></div><small>בזמן</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>אין כרגע התחייבויות להתראות. כשיהיו, אציג כאן דוגמאות מהזיכרון האמיתי.</p> : null}</section></SecretaryScreen>;
+  return <SecretaryScreen title={t("tasks.secretary.notify.title")} backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>{t("tasks.secretary.yourSecretary")}</strong><p>{sample ? t("tasks.secretary.notify.sample", { name: sample.obligeeName }) : t("tasks.secretary.notify.noSample")}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>{t("tasks.secretary.notify.say")}</Say><section className={styles.settingsGroup}><SettingRow title={t("tasks.secretary.notify.enabledTitle")} detail={t("tasks.secretary.notify.enabledDetail")} on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.morningTitle")} detail={t("tasks.secretary.notify.morningDetail")} on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.quietTitle")} detail={t("tasks.secretary.notify.quietDetail")} on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>{t("tasks.secretary.notify.feedTitle")}</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>{t("tasks.secretary.notify.remindBefore", { date: formatDateValue(item.dueAt, f) })}</em></div><small>{t("tasks.secretary.notify.inTime")}</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>{t("tasks.secretary.notify.empty")}</p> : null}</section></SecretaryScreen>;
 }
 
 function Horizon({ title, subtitle, count }: { title: string; subtitle: string; count: string }) { return <div className={styles.horizon}><EyeIcon /><span><strong>{title}</strong><em>{subtitle}</em></span><b>{count}</b></div>; }
@@ -1998,9 +2137,10 @@ function CalendarIcon() {
   );
 }
 
+/** Drawn pointing left — "forward" in RTL; mirrored in LTR by .fwdIcon:dir(ltr). */
 function ChevronLeftIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className={styles.fwdIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15 6l-6 6 6 6" />
     </svg>
   );

@@ -1,6 +1,8 @@
 "use client";
 
 import { CATEGORIES } from "@/lib/constants/categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { categoryLabel } from "@/lib/documents/category-label";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/documents-theme";
 import DubizDateField from "@/components/documents/DubizDateField";
@@ -24,6 +26,7 @@ export default function ReviewFieldEditor({
   onConfirm,
   onCancel,
 }: ReviewFieldEditorProps) {
+  const { t } = useI18n();
   return (
     <section style={{ width: "100%" }}>
       {editField === "amount" ? (
@@ -61,7 +64,7 @@ export default function ReviewFieldEditor({
       {editField === "date" ? (
         <DubizDateField
           type="date"
-          ariaLabel="תאריך המסמך"
+          ariaLabel={t("documents.review.editor.dateAria")}
           value={draft.date ? draft.date.slice(0, 10) : ""}
           onChange={(value) =>
             onDraftChange((d) => ({
@@ -79,14 +82,14 @@ export default function ReviewFieldEditor({
             style={directionButtonStyle(draft.direction === "expense")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "expense" as Direction }))}
           >
-            הוצאה
+            {t("documents.common.expense")}
           </button>
           <button
             type="button"
             style={directionButtonStyle(draft.direction === "income")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "income" as Direction }))}
           >
-            הכנסה
+            {t("documents.common.income")}
           </button>
         </div>
       ) : null}
@@ -103,7 +106,7 @@ export default function ReviewFieldEditor({
               style={categoryButtonStyle(draft.category === c.value)}
               onClick={() => onDraftChange((d) => ({ ...d, category: c.value }))}
             >
-              {c.label}
+              {categoryLabel(t, c.value)}
             </button>
           ))}
         </div>
@@ -111,13 +114,13 @@ export default function ReviewFieldEditor({
 
       <div style={{ marginTop: 18 }}>
         <button type="button" disabled={loading} style={primaryDarkButton(loading)} onClick={onConfirm}>
-          אישור
+          {t("documents.review.editor.confirm")}
         </button>
       </div>
 
       <div style={{ marginTop: 10 }}>
         <button type="button" disabled={loading} style={secondaryButton(loading)} onClick={onCancel}>
-          ביטול
+          {t("documents.review.editor.cancel")}
         </button>
       </div>
     </section>
@@ -126,17 +129,18 @@ export default function ReviewFieldEditor({
 
 const fieldWrapStyle = { position: "relative" as const, width: "100%" };
 
-const inputWithClearStyle = { ...reviewInput, paddingLeft: 46 } as const;
+const inputWithClearStyle = { ...reviewInput, paddingInlineEnd: 46 } as const;
 
 function ClearFieldButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
-      aria-label="נקה שדה"
+      aria-label={t("documents.review.editor.clearField")}
       onClick={onClick}
       style={{
         position: "absolute",
-        left: 8,
+        insetInlineEnd: 8,
         top: "50%",
         transform: "translateY(-50%)",
         width: 34,
@@ -175,7 +179,7 @@ function categoryButtonStyle(active: boolean) {
     color: active ? TOKEN.brand.mid : TOKEN.ink.primary,
     fontWeight: TOKEN.weight.bold,
     cursor: "pointer",
-    textAlign: "right" as const,
+    textAlign: "start" as const,
     padding: "0 14px",
     fontSize: TOKEN.font.body,
   };

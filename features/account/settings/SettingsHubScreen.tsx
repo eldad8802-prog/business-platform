@@ -15,9 +15,13 @@
  * /api/profile/summary) or not shown at all.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { buildSettingsHub, WORKSPACE_LANGUAGE_LABEL, type HubRow } from "@/components/settings/settings-hub";
+import { buildSettingsHub, type HubRow } from "@/components/settings/settings-hub";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { localeNativeName } from "@/lib/i18n/config";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type Translator } from "@/lib/i18n/translate";
 import { ChevronGlyph, LogoutGlyph } from "@/components/ui/warm-surface/glyphs";
 import {
   WarmGroup,
@@ -36,42 +40,43 @@ import { BusinessLogo } from "../ui/BusinessLogo";
 import { NotificationsAction } from "../ui/header-actions";
 import s from "./settings-hub.module.css";
 
-const HUB = buildSettingsHub();
-
-export function activeConnectionsLabel(active: number): string {
-  if (active === 0) return "אין פעילים";
-  if (active === 1) return "1 פעיל";
-  return `${active} פעילים`;
+/** Without a translator: Hebrew (the pre-i18n output). */
+export function activeConnectionsLabel(active: number, t: Translator = createTranslator(he)): string {
+  if (active === 0) return t("account.settings.hub.connections.none");
+  if (active === 1) return t("account.settings.hub.connections.one", { count: active });
+  return t("account.settings.hub.connections.many", { count: active });
 }
 
 export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
   const [profile] = useProfileSummary();
   const [connections] = useConnectionsSummary();
+  const { locale, t } = useI18n();
+  const hub = useMemo(() => buildSettingsHub(t), [t]);
 
   const connectionsCount =
     connections.state === "ready" && connections.data.available ? connections.data.active : null;
 
   function rowValue(row: HubRow): string | undefined {
-    if (row.value === "workspace-language") return WORKSPACE_LANGUAGE_LABEL;
+    if (row.value === "workspace-language") return localeNativeName(locale);
     if (row.value === "active-connections" && connectionsCount !== null) {
-      return activeConnectionsLabel(connectionsCount);
+      return activeConnectionsLabel(connectionsCount, t);
     }
     return undefined;
   }
 
   return (
-    <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
+    <div className={`${warmStyles.surface} ${s.page}`}>
       <WarmPageHeading
         className={s.heading}
-        title="הגדרות"
-        subtitle="ניהול החשבון והעסק"
+        title={t("account.settings.hub.title")}
+        subtitle={t("account.settings.hub.subtitle")}
         actions={<NotificationsAction />}
       />
 
       <AccountCard profile={profile} connectionsCount={connectionsCount} />
 
       <div className={s.groups}>
-        {HUB.map((group) => (
+        {hub.map((group) => (
           <WarmGroup
             key={group.key}
             title={group.title}
@@ -90,7 +95,7 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
                   href={row.href}
                   external={row.external}
                   value={rowValue(row)}
-                  badge={row.badge === "soon" ? <WarmPill tone="sand">בקרוב</WarmPill> : undefined}
+                  badge={row.badge === "soon" ? <WarmPill tone="sand">{t("account.settings.hub.soon")}</WarmPill> : undefined}
                 />
               ))}
             </WarmRowList>
@@ -100,7 +105,7 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
 
       <footer className={s.footer}>
         <SignOutButton />
-        <span className={s.version}>Dubiz · גרסה {versionLabel} · מופעל על ידי PRO MAX GROUP</span>
+        <span className={s.version}>{t("account.settings.hub.version", { version: versionLabel })}</span>
       </footer>
     </div>
   );
@@ -113,6 +118,7 @@ function AccountCard({
   profile: Load<ProfileSummary>;
   connectionsCount: ConnectionsSummary["active"];
 }) {
+  const { t } = useI18n();
   const data = profile.state === "ready" ? profile.data : null;
   const name = data?.business.name ?? "";
 
@@ -126,12 +132,12 @@ function AccountCard({
         )}
       </span>
       <span className={s.accountText}>
-        <span className={s.accountName}>{data ? name : "החשבון העסקי שלך"}</span>
+        <span className={s.accountName}>{data ? name : t("account.settings.hub.account.fallbackName")}</span>
         <span className={s.accountLink}>
           {data?.business.categoryLabel ? (
             <span className={s.accountCategory}>{data.business.categoryLabel}</span>
           ) : null}
-          לפרופיל העסק
+          {t("account.settings.hub.account.toProfile")}
         </span>
       </span>
 
@@ -139,7 +145,7 @@ function AccountCard({
       <span className={s.accountFacts}>
         {data ? (
           <span className={s.fact}>
-            <span className={s.factLabel}>מחובר כ־</span>
+            <span className={s.factLabel}>{t("account.settings.hub.account.signedInAs")}</span>
             <span className={s.factValue} dir="ltr">
               {data.account.email}
             </span>
@@ -147,13 +153,13 @@ function AccountCard({
         ) : null}
         {data ? (
           <span className={s.fact}>
-            <span className={s.factLabel}>פרטי העסק</span>
+            <span className={s.factLabel}>{t("account.settings.hub.account.businessDetails")}</span>
             <span className={s.factValue}>{data.completion.percent}%</span>
           </span>
         ) : null}
         {connectionsCount !== null ? (
           <span className={s.fact}>
-            <span className={s.factLabel}>חיבורים פעילים</span>
+            <span className={s.factLabel}>{t("account.settings.hub.account.activeConnections")}</span>
             <span className={s.factValue}>{connectionsCount}</span>
           </span>
         ) : null}
@@ -165,6 +171,7 @@ function AccountCard({
 }
 
 function SignOutButton() {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -178,7 +185,7 @@ function SignOutButton() {
       }}
     >
       <LogoutGlyph size={18} />
-      {busy ? "מתנתק…" : "יציאה מהחשבון"}
+      {busy ? t("account.settings.hub.signingOut") : t("account.settings.hub.signOut")}
     </button>
   );
 }

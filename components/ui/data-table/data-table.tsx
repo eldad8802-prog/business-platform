@@ -56,7 +56,7 @@ export function DataTable<Row>({
   const openable = !!onRowOpen;
 
   const css = `
-[data-dt="${scope}"] { width: 100%; border-collapse: collapse; direction: rtl; table-layout: fixed; }
+[data-dt="${scope}"] { width: 100%; border-collapse: collapse; table-layout: fixed; }
 [data-dt="${scope}"] thead th {
   text-align: start; padding: 10px 12px; font-size: 12px; font-weight: 600;
   color: var(--dz-text-secondary); border-bottom: 1px solid rgba(52, 60, 50, 0.1); white-space: nowrap;

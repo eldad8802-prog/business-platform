@@ -1,4 +1,7 @@
+"use client";
+
 import { TOKEN } from "@/lib/design/tokens";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   message: string;
@@ -6,6 +9,7 @@ type Props = {
 };
 
 export default function RedeemError({ message, onRetry }: Props) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -24,7 +28,7 @@ export default function RedeemError({ message, onRetry }: Props) {
           color: "var(--dz-danger)",
         }}
       >
-        שגיאה
+        {t("billing.redeem.errorTitle")}
       </div>
 
       <div
@@ -50,7 +54,7 @@ export default function RedeemError({ message, onRetry }: Props) {
           cursor: "pointer",
         }}
       >
-        נסה שוב
+        {t("billing.redeem.tryAgain")}
       </button>
     </div>
   );

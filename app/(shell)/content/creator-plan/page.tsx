@@ -7,6 +7,8 @@ import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 // ── Types (unchanged) ─────────────────────────────────────────────────────────
 
@@ -143,53 +145,60 @@ function toneToAccent(tone?: string): ToneAccent {
   return { bg: "var(--dz-surface-muted)", border: "var(--dz-border)", ring: "var(--dz-text-secondary)" };
 }
 
-function buildMiniTags(variant: Variant, flow: ContentFlow | null): string[] {
+function buildMiniTags(t: Translator, variant: Variant, flow: ContentFlow | null): string[] {
   const tags: string[] = [];
 
-  const toneMap: Record<string, string> = {
-    warm: "חם ואישי",
-    clear: "ישיר ומקצועי",
-    energetic: "אנרגטי",
-    premium: "פרמיום",
+  const toneMap: Record<string, MessageKey> = {
+    warm: "content.studio.creatorPlan.tones.warm",
+    clear: "content.studio.creatorPlan.tones.clear",
+    energetic: "content.studio.creatorPlan.tones.energetic",
+    premium: "content.studio.creatorPlan.tones.premium",
   };
   const toneTag = toneMap[variant.tone];
-  if (toneTag) tags.push(toneTag);
+  if (toneTag) tags.push(t(toneTag));
 
-  if (flow?.goal === "trust") tags.push("בונה אמון");
-  else if (flow?.goal === "leads") tags.push("מניע לפנייה");
-  else if (flow?.goal === "exposure") tags.push("מגיע לחשיפה");
-  else if (flow?.goal === "sales") tags.push("מניע לרכישה");
+  if (flow?.goal === "trust") tags.push(t("content.studio.creatorPlan.goalTags.trust"));
+  else if (flow?.goal === "leads") tags.push(t("content.studio.creatorPlan.goalTags.leads"));
+  else if (flow?.goal === "exposure") tags.push(t("content.studio.creatorPlan.goalTags.exposure"));
+  else if (flow?.goal === "sales") tags.push(t("content.studio.creatorPlan.goalTags.sales"));
 
   return tags.slice(0, 2);
 }
 
-type DurationFeel = "קצר ומהיר" | "מאוזן" | "יותר סיפור";
+type DurationFeel = "short" | "balanced" | "story";
 
 function getDurationFeel(
   pace: string | undefined,
   platform: SelectedPlatform | undefined
 ): DurationFeel {
-  if (pace === "fast") return "קצר ומהיר";
-  if (pace === "slow" && platform !== "tiktok") return "יותר סיפור";
-  return "מאוזן";
+  if (pace === "fast") return "short";
+  if (pace === "slow" && platform !== "tiktok") return "story";
+  return "balanced";
 }
 
-function getDurationFeelLine(feel: DurationFeel): string {
-  if (feel === "קצר ומהיר") return "בנוי לעצור מהר בפיד";
-  if (feel === "יותר סיפור") return "נותן מקום לחיבור ואמון";
-  return "יש זמן להסביר בלי לאבד קצב";
+const DURATION_FEEL_LABEL: Record<DurationFeel, MessageKey> = {
+  short: "content.studio.creatorPlan.durationFeel.short",
+  balanced: "content.studio.creatorPlan.durationFeel.balanced",
+  story: "content.studio.creatorPlan.durationFeel.story",
+};
+
+function getDurationFeelLine(feel: DurationFeel): MessageKey {
+  if (feel === "short") return "content.studio.creatorPlan.durationLine.short";
+  if (feel === "story") return "content.studio.creatorPlan.durationLine.story";
+  return "content.studio.creatorPlan.durationLine.balanced";
 }
 
-const LOADING_MESSAGES = [
-  "מכינים כמה כיוונים שיכולים לעבוד",
-  "רגע — בוחרים מה ירגיש הכי נכון",
-  "כמעט מוכן",
-] as const;
+const LOADING_MESSAGES: readonly MessageKey[] = [
+  "content.studio.creatorPlan.loadingMessages.preparing",
+  "content.studio.creatorPlan.loadingMessages.choosing",
+  "content.studio.creatorPlan.loadingMessages.almost",
+];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CreatorPlanPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flow, setFlow] = useState<ContentFlow | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -262,7 +271,7 @@ export default function CreatorPlanPage() {
         setLoadingMsgIndex(0);
 
         if (!token) {
-          setError("כדי להמשיך צריך להתחבר מחדש.");
+          setError(t("content.studio.creatorPlan.errors.reLogin"));
           return;
         }
 
@@ -327,9 +336,7 @@ export default function CreatorPlanPage() {
       } catch (err) {
         console.error(err);
         if (!cancelled)
-          setError(
-            "לא הצלחנו להרכיב את התכנון כרגע. אפשר לנסות שוב בעוד רגע."
-          );
+          setError(t("content.studio.creatorPlan.errors.buildFailed"));
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -339,7 +346,7 @@ export default function CreatorPlanPage() {
     return () => {
       cancelled = true;
     };
-  }, [flow]);
+  }, [flow, t]);
 
   // ── Handlers (unchanged) ────────────────────────────────────────────────────
   function handleSelectVariant(id: string) {
@@ -358,7 +365,7 @@ export default function CreatorPlanPage() {
       if (contentEvidence && evidenceVariant) {
         const token = localStorage.getItem("token");
         if (!token) {
-          setError("כדי להמשיך צריך להתחבר מחדש.");
+          setError(t("content.studio.creatorPlan.errors.reLogin"));
           setIsSaving(false);
           return;
         }
@@ -374,7 +381,7 @@ export default function CreatorPlanPage() {
           }),
         });
         if (!decisionRes.ok) {
-          setError("לא הצלחנו לשמור את הבחירה. נסה שוב.");
+          setError(t("content.studio.creatorPlan.errors.saveFailed"));
           setIsSaving(false);
           return;
         }
@@ -395,7 +402,7 @@ export default function CreatorPlanPage() {
       );
     } catch (err) {
       console.error(err);
-      setError("לא הצלחנו לשמור את הבחירה. נסה שוב.");
+      setError(t("content.studio.creatorPlan.errors.saveFailed"));
       setIsSaving(false);
     }
   }
@@ -404,10 +411,10 @@ export default function CreatorPlanPage() {
     Boolean(selectedVariant) && !isLoading && !error && !isSaving;
 
   const ctaLabel = isSaving
-    ? "רגע אחד…"
+    ? t("content.studio.creatorPlan.saving")
     : showFilmingPrep
-      ? "המשך — לצילום"
-      : "זה הכיוון שלי";
+      ? t("content.studio.creatorPlan.ctaFilming")
+      : t("content.studio.creatorPlan.ctaChoose");
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -436,25 +443,25 @@ export default function CreatorPlanPage() {
           <header style={heroStyle}>
             {isLoading ? (
               <>
-                <div style={eyebrowLoadingStyle}>כמעט שם</div>
+                <div style={eyebrowLoadingStyle}>{t("content.studio.creatorPlan.eyebrowLoading")}</div>
                 <h1 style={titleLoadingStyle}>
                   {showFilmingPrep
-                    ? "מכינים את רשימת הצילום"
-                    : "מכינים כמה כיוונים לבחירה"}
+                    ? t("content.studio.creatorPlan.titleLoadingFilming")
+                    : t("content.studio.creatorPlan.titleLoading")}
                 </h1>
               </>
             ) : (
               <>
-                <div style={eyebrowStyle}>בחירה</div>
+                <div style={eyebrowStyle}>{t("content.studio.creatorPlan.eyebrow")}</div>
                 <h1 style={titleStyle}>
                   {showFilmingPrep
-                    ? "לפני הצילום — בחר/י את הכיוון"
-                    : "בנינו כמה כיוונים שיכולים לעבוד מצוין בשבילך"}
+                    ? t("content.studio.creatorPlan.titleFilming")
+                    : t("content.studio.creatorPlan.title")}
                 </h1>
                 <p style={subtitleStyle}>
                   {showFilmingPrep
-                    ? "בחרו סגנון, ואחר כך נרכיב רשימת ציוד וצילום."
-                    : "בחר/י את הסגנון שהכי מתאים למה שרוצים להשיג."}
+                    ? t("content.studio.creatorPlan.subtitleFilming")
+                    : t("content.studio.creatorPlan.subtitle")}
                 </p>
               </>
             )}
@@ -467,12 +474,12 @@ export default function CreatorPlanPage() {
                 <div style={loadingSpinnerStyle} aria-hidden />
               </div>
               <div style={loadingTitleStyle}>
-                {LOADING_MESSAGES[loadingMsgIndex]}
+                {t(LOADING_MESSAGES[loadingMsgIndex])}
               </div>
               <div style={loadingBodyStyle}>
                 {showFilmingPrep
-                  ? "רגע קצר — מסדרים את מה שיעזור לכם לצלם בביטחון."
-                  : "רגע קצר — מכינים כמה כיוונים שונים שתוכלו לבחור מהם."}
+                  ? t("content.studio.creatorPlan.loadingBodyFilming")
+                  : t("content.studio.creatorPlan.loadingBody")}
               </div>
             </div>
           )}
@@ -480,7 +487,7 @@ export default function CreatorPlanPage() {
           {/* ── Error ── */}
           {error && (
             <div style={errorBoxStyle}>
-              <div style={errorTitleStyle}>רגע, משהו נתקע</div>
+              <div style={errorTitleStyle}>{t("content.studio.creatorPlan.errorTitle")}</div>
               <div style={errorBodyStyle}>{error}</div>
             </div>
           )}
@@ -492,7 +499,7 @@ export default function CreatorPlanPage() {
                 ✦
               </span>
               <span style={recommendationTextStyle}>
-                לפי הוויב, המטרה והפלטפורמה שבחרת — הכיוון הראשון צפוי לעבוד הכי טוב.
+                {t("content.studio.creatorPlan.recommendation")}
               </span>
             </div>
           )}
@@ -502,14 +509,14 @@ export default function CreatorPlanPage() {
             <div
               style={cardsListStyle}
               role="radiogroup"
-              aria-label="כיוון יצירתי"
+              aria-label={t("content.studio.creatorPlan.groupAria")}
             >
               {variants.map((variant, index) => {
                 const isSelected = variant.id === selectedVariantId;
                 const isRecommended = index === 0;
                 const accent = toneToAccent(variant.tone);
                 const isPremium = variant.tone === "premium";
-                const tags = buildMiniTags(variant, flow);
+                const tags = buildMiniTags(t, variant, flow);
                 const durationFeel = getDurationFeel(variant.pace, flow?.selectedPlatform);
                 const durationLine = getDurationFeelLine(durationFeel);
 
@@ -526,8 +533,8 @@ export default function CreatorPlanPage() {
                   >
                     {/* Recommended badge */}
                     {isRecommended && (
-                      <span style={recommendedBadgeStyle} aria-label="מומלץ בשבילך">
-                        מומלץ בשבילך
+                      <span style={recommendedBadgeStyle} aria-label={t("content.studio.creatorPlan.recommended")}>
+                        {t("content.studio.creatorPlan.recommended")}
                       </span>
                     )}
 
@@ -550,7 +557,7 @@ export default function CreatorPlanPage() {
                     {/* Hook preview */}
                     {variant.script?.hook && (
                       <div style={hookWrapStyle(isPremium)}>
-                        <span style={hookLabelStyle(isPremium)}>פתיחה</span>
+                        <span style={hookLabelStyle(isPremium)}>{t("content.studio.creatorPlan.hookLabel")}</span>
                         <p style={hookTextStyle(isPremium)}>
                           "{variant.script.hook}"
                         </p>
@@ -559,13 +566,13 @@ export default function CreatorPlanPage() {
 
                     {/* Why it fits */}
                     <p style={whyItFitsStyle(isPremium)}>
-                      <span style={fitsLabelStyle(isPremium)}>מתאים אם: </span>
+                      <span style={fitsLabelStyle(isPremium)}>{t("content.studio.creatorPlan.fitsIfLabel")}</span>
                       {variant.whyItFits}
                     </p>
 
                     {/* Duration feel line */}
                     <p style={durationFeelLineStyle(isPremium)}>
-                      {durationLine}
+                      {t(durationLine)}
                     </p>
 
                     {/* Mini tags + duration feel badge */}
@@ -576,7 +583,7 @@ export default function CreatorPlanPage() {
                         </span>
                       ))}
                       <span style={durationTagStyle(isPremium)}>
-                        {durationFeel}
+                        {t(DURATION_FEEL_LABEL[durationFeel])}
                       </span>
                     </div>
 
@@ -586,18 +593,18 @@ export default function CreatorPlanPage() {
                         {variant.script?.shots?.length ? (
                           <div style={prepSectionStyle}>
                             <div style={prepSectionTitleStyle(isPremium)}>
-                              שוטים
+                              {t("content.studio.creatorPlan.prep.shots")}
                             </div>
                             {variant.script.shots.map((shot, i) => (
                               <div key={i} style={shotRowStyle(isPremium)}>
                                 <div style={shotIndexStyle(isPremium)}>
-                                  שוט {i + 1}
+                                  {t("content.studio.creatorPlan.prep.shotN", { n: i + 1 })}
                                 </div>
                                 <div style={shotFieldStyle(isPremium)}>
-                                  <strong>מה רואים:</strong> {shot.visual}
+                                  <strong>{t("content.studio.creatorPlan.prep.visual")}</strong> {shot.visual}
                                 </div>
                                 <div style={shotFieldStyle(isPremium)}>
-                                  <strong>מה אומרים:</strong> {shot.voice}
+                                  <strong>{t("content.studio.creatorPlan.prep.voice")}</strong> {shot.voice}
                                 </div>
                               </div>
                             ))}
@@ -607,21 +614,21 @@ export default function CreatorPlanPage() {
                         {variant.shotRequests?.length ? (
                           <div style={prepSectionStyle}>
                             <div style={prepSectionTitleStyle(isPremium)}>
-                              הנחיות צילום
+                              {t("content.studio.creatorPlan.prep.guidanceTitle")}
                             </div>
                             {variant.shotRequests.map((req) => (
                               <div key={req.index} style={shotRowStyle(isPremium)}>
                                 <div style={shotIndexStyle(isPremium)}>
-                                  שוט {req.index + 1}
+                                  {t("content.studio.creatorPlan.prep.shotN", { n: req.index + 1 })}
                                 </div>
                                 <div style={shotFieldStyle(isPremium)}>
-                                  <strong>מטרה:</strong> {req.purpose}
+                                  <strong>{t("content.studio.creatorPlan.prep.purpose")}</strong> {req.purpose}
                                 </div>
                                 <div style={shotFieldStyle(isPremium)}>
-                                  <strong>מה לצלם:</strong> {req.visualPrompt}
+                                  <strong>{t("content.studio.creatorPlan.prep.whatToFilm")}</strong> {req.visualPrompt}
                                 </div>
                                 <div style={shotFieldStyle(isPremium)}>
-                                  <strong>הנחיה:</strong> {req.shootingGuidance}
+                                  <strong>{t("content.studio.creatorPlan.prep.guidance")}</strong> {req.shootingGuidance}
                                 </div>
                               </div>
                             ))}
@@ -631,12 +638,12 @@ export default function CreatorPlanPage() {
                         {variant.assetsPlan ? (
                           <div style={prepSectionStyle}>
                             <div style={prepSectionTitleStyle(isPremium)}>
-                              חומרים
+                              {t("content.studio.creatorPlan.prep.assets")}
                             </div>
                             <div style={assetsGridStyle}>
                               <div>
                                 <div style={assetGroupTitleStyle(isPremium)}>
-                                  נדרשים
+                                  {t("content.studio.creatorPlan.prep.required")}
                                 </div>
                                 {variant.assetsPlan.requiredAssets.map(
                                   (item, i) => (
@@ -648,7 +655,7 @@ export default function CreatorPlanPage() {
                               </div>
                               <div>
                                 <div style={assetGroupTitleStyle(isPremium)}>
-                                  אופציונלי
+                                  {t("content.studio.creatorPlan.prep.optional")}
                                 </div>
                                 {variant.assetsPlan.optionalAssets.map(
                                   (item, i) => (
@@ -672,7 +679,7 @@ export default function CreatorPlanPage() {
           {/* Hint after selection */}
           {selectedVariant && !showFilmingPrep && !isLoading && !error && (
             <p style={aiHintStyle}>
-              אפשר לשנות בחירה בכל רגע. בהמשך נבנה את הסרטון לפי מה שבחרת.
+              {t("content.studio.creatorPlan.hint")}
             </p>
           )}
         </div>
@@ -728,7 +735,7 @@ const contentAreaStyle: React.CSSProperties = {
 // ── Hero ──────────────────────────────────────────────────────────────────────
 
 const heroStyle: React.CSSProperties = {
-  textAlign: "right",
+  textAlign: "start",
   marginBottom: 24,
   marginTop: 4,
 };
@@ -858,7 +865,7 @@ const recommendationStripStyle: React.CSSProperties = {
   borderRadius: 18,
   padding: "14px 18px",
   marginBottom: 20,
-  textAlign: "right",
+  textAlign: "start",
 };
 
 const sparkStyle: React.CSSProperties = {
@@ -904,7 +911,7 @@ const variantCardStyle = (
   padding: "clamp(20px, 5vw, 26px)",
   paddingTop: "clamp(28px, 6vw, 36px)",
   cursor: "pointer",
-  textAlign: "right",
+  textAlign: "start",
   display: "flex",
   flexDirection: "column",
   gap: 0,
@@ -922,7 +929,7 @@ const variantCardStyle = (
 const recommendedBadgeStyle: React.CSSProperties = {
   position: "absolute",
   top: 14,
-  left: 14,
+  insetInlineEnd: 14,
   fontSize: 11,
   fontWeight: 800,
   color: "var(--dz-text-on-brand)",
@@ -976,7 +983,7 @@ const cardTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   lineHeight: 1.25,
   margin: 0,
   flex: 1,
-  textAlign: "right",
+  textAlign: "start",
 });
 
 const vibeLineStyle = (isPremium: boolean): React.CSSProperties => ({
@@ -998,8 +1005,8 @@ const dividerStyle = (isPremium: boolean): React.CSSProperties => ({
 // ── Hook preview ──────────────────────────────────────────────────────────────
 
 const hookWrapStyle = (isPremium: boolean): React.CSSProperties => ({
-  borderRight: `3px solid ${isPremium ? "rgba(227, 229, 221,0.2)" : "var(--dz-border)"}`,
-  paddingRight: 12,
+  borderInlineStart: `3px solid ${isPremium ? "rgba(227, 229, 221,0.2)" : "var(--dz-border)"}`,
+  paddingInlineStart: 12,
   marginBottom: 16,
 });
 
@@ -1103,7 +1110,7 @@ const prepSectionTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 13,
   fontWeight: 800,
   color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
-  textAlign: "right",
+  textAlign: "start",
 });
 
 const shotRowStyle = (isPremium: boolean): React.CSSProperties => ({
@@ -1113,7 +1120,7 @@ const shotRowStyle = (isPremium: boolean): React.CSSProperties => ({
   display: "flex",
   flexDirection: "column",
   gap: 6,
-  textAlign: "right",
+  textAlign: "start",
 });
 
 const shotIndexStyle = (isPremium: boolean): React.CSSProperties => ({
@@ -1139,14 +1146,14 @@ const assetGroupTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   fontWeight: 800,
   color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
   marginBottom: 6,
-  textAlign: "right",
+  textAlign: "start",
 });
 
 const assetItemStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 13,
   lineHeight: 1.7,
   color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
-  textAlign: "right",
+  textAlign: "start",
 });
 
 // ── Hint ──────────────────────────────────────────────────────────────────────
@@ -1155,7 +1162,7 @@ const aiHintStyle: React.CSSProperties = {
   fontSize: "clamp(0.78rem, 2.8vw, 0.84rem)",
   lineHeight: 1.65,
   color: "var(--dz-text-muted)",
-  textAlign: "right",
+  textAlign: "start",
   marginTop: 16,
   marginBottom: 4,
   maxWidth: 480,

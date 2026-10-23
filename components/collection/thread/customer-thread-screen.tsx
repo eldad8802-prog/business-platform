@@ -7,32 +7,41 @@ import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { WarmButton, WarmCard, WarmPill, warmInputStyle } from "@/components/ui/warm/warm-primitives";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 import type { CustomerFinancialThread, ThreadEvent } from "@/lib/services/billing/collection/customer-financial-thread.service";
 import { buildPaymentRequestMessage } from "@/lib/services/billing/collection/collection-message";
 import { currencySymbol } from "@/lib/services/billing/collection/collection-display";
-import { attentionText, collectionFetch, dateTime, money, recordCollectionAction, shareOrCopy } from "../collection-client";
+import { attentionText, collectionFetch, recordCollectionAction, shareOrCopy, useCollectionFormat } from "../collection-client";
 import { refundOutcomeNotice, type RefundApiOutcome } from "./refund-outcome";
 
 const W = TOKEN.warm;
 
-function eventDeskRow(e: ThreadEvent): { what: string; amount: string } {
+function eventDeskRow(
+  e: ThreadEvent,
+  tr: Translator,
+  money: (amount: string | number, currency?: string) => string,
+): { what: string; amount: string } {
   switch (e.kind) {
     case "INVOICE_ISSUED":
-      return { what: e.number ? `חשבונית ${e.number}` : "חשבונית", amount: money(e.amount, e.currency) };
+      return { what: e.number ? tr("money.collection.shared.invoiceN", { number: e.number }) : tr("money.collection.thread.rowInvoice"), amount: money(e.amount, e.currency) };
     case "CREDIT_NOTE_ISSUED":
-      return { what: e.number ? `זיכוי ${e.number}` : "זיכוי", amount: money(e.amount, e.currency) };
+      return { what: e.number ? tr("money.collection.thread.rowCreditN", { number: e.number }) : tr("money.collection.thread.rowCredit"), amount: money(e.amount, e.currency) };
     case "REQUEST_CREATED":
-      return { what: e.invoiceNumber ? `בקשת תשלום · חשבונית ${e.invoiceNumber}` : "בקשת תשלום", amount: money(e.amount, e.currency) };
+      return {
+        what: e.invoiceNumber ? tr("money.collection.thread.rowRequestWithInvoice", { number: e.invoiceNumber }) : tr("money.collection.thread.paymentRequest"),
+        amount: money(e.amount, e.currency),
+      };
     case "REQUEST_CANCELLED":
-      return { what: "בקשה בוטלה", amount: "—" };
+      return { what: tr("money.collection.thread.rowRequestCancelled"), amount: "—" };
     case "PAYMENT_FAILED":
-      return { what: "תשלום לא אושר", amount: money(e.amount, e.currency) };
+      return { what: tr("money.collection.thread.rowPaymentNotApproved"), amount: money(e.amount, e.currency) };
     case "PAYMENT_VERIFIED":
-      return { what: "תשלום אומת", amount: money(e.amount, e.currency) };
+      return { what: tr("money.collection.thread.rowPaymentVerified"), amount: money(e.amount, e.currency) };
     case "RECEIPT_ISSUED":
-      return { what: e.number ? `קבלה ${e.number}` : "קבלה", amount: money(e.amount, e.currency) };
+      return { what: e.number ? tr("money.collection.thread.rowReceiptN", { number: e.number }) : tr("money.collection.thread.rowReceipt"), amount: money(e.amount, e.currency) };
     case "REFUND":
-      return { what: "החזר", amount: money(e.amount, e.currency) };
+      return { what: tr("money.collection.thread.rowRefund"), amount: money(e.amount, e.currency) };
   }
 }
 
@@ -67,6 +76,8 @@ type RefundState = {
  * or cancels a receipt).
  */
 export function CustomerThreadScreen({ customerId }: { customerId: number }) {
+  const { t: tr } = useI18n();
+  const { money, dateTime } = useCollectionFormat();
   const router = useRouter();
   const params = useSearchParams();
   const anchor = Number(params.get("request")) || null;
@@ -95,12 +106,12 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
         if (!cancelled) setThread(t);
       })
       .catch(() => {
-        if (!cancelled) setError("לא הצלחנו לטעון את תיק הלקוח.");
+        if (!cancelled) setError(tr("money.collection.thread.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [customerId, reloadKey]);
+  }, [customerId, reloadKey, tr]);
 
   useEffect(() => {
     if (!thread || !anchor) return;
@@ -113,7 +124,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
       setNotice(await fn());
       load();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "הפעולה לא הצליחה");
+      setNotice(e instanceof Error ? e.message : tr("money.collection.shared.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -134,7 +145,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
       // payment taken through a provider that cannot reverse must not present
       // a refund form that is going to fail on submit.
       if (!b.canRefund) {
-        setNotice("ספק הסליקה של התשלום הזה לא תומך בהחזרים.");
+        setNotice(tr("money.collection.thread.noRefundSupport"));
         setRefund(null);
         return;
       }
@@ -150,19 +161,16 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
       );
 
       if (b.hasUnresolvedRefund) {
-        setNotice(
-          "יש החזר קודם שממתין לאימות מול ספק הסליקה. הסכום שלו שמור, " +
-            "ואפשר להחזיר שוב רק אחרי שיוכרע."
-        );
+        setNotice(tr("money.collection.thread.unresolvedRefund"));
       }
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "לא ניתן להחזיר את התשלום הזה");
+      setNotice(e instanceof Error ? e.message : tr("money.collection.thread.cannotRefund"));
       setRefund(null);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
+    <div style={{ minHeight: "100%", background: W.canvas, padding: "20px 16px 96px" }}>
       <style>{`
         .col-thread { max-width: 680px; margin: 0 auto; display: grid; gap: 14px; }
         .col-thread__table, .col-thread__invoices, .col-thread__pick { display: none; }
@@ -185,7 +193,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
       <div className="col-thread">
         <div className="col-thread__span"><BackButton /></div>
         {error ? <WarmCard><p style={{ margin: 0 }}>{error}</p></WarmCard> : null}
-        {!thread && !error ? <p style={{ color: W.muted }}>טוען…</p> : null}
+        {!thread && !error ? <p style={{ color: W.muted }}>{tr("money.common.loading")}</p> : null}
         {thread ? (
           <>
             <header className="col-thread__side" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
@@ -193,20 +201,20 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                 <h1 style={{ margin: 0, fontSize: 24, color: W.ink }}>{thread.customer.name}</h1>
                 <p style={{ margin: "4px 0 0", color: W.muted, fontSize: 14 }}>
                   {Number(thread.totals.outstanding) > 0
-                    ? `נותר לגבות ${money(thread.totals.outstanding, thread.totals.currency ?? "ILS")}`
-                    : "אין יתרה פתוחה."}
+                    ? tr("money.collection.thread.remainingToCollect", { amount: money(thread.totals.outstanding, thread.totals.currency ?? "ILS") })
+                    : tr("money.collection.thread.noBalance")}
                 </p>
               </div>
               {Number(thread.totals.outstanding) > 0 ? (
-                <WarmButton onClick={() => router.push(`/collection/new?customerId=${thread.customer.id}`)}>גבה</WarmButton>
+                <WarmButton onClick={() => router.push(`/collection/new?customerId=${thread.customer.id}`)}>{tr("money.collection.shared.collect")}</WarmButton>
               ) : (
-                <WarmButton variant="secondary" onClick={() => router.push(`/collection/new?customerId=${thread.customer.id}`)}>בקשת תשלום</WarmButton>
+                <WarmButton variant="secondary" onClick={() => router.push(`/collection/new?customerId=${thread.customer.id}`)}>{tr("money.collection.thread.paymentRequest")}</WarmButton>
               )}
               {thread.openInvoices.length > 0 ? (
                 <ul className="col-thread__invoices">
                   {thread.openInvoices.map((invoice) => (
                     <li key={invoice.id}>
-                      <span>{invoice.number ? `חשבונית ${invoice.number}` : "חשבונית פתוחה"}</span>
+                      <span>{invoice.number ? tr("money.collection.shared.invoiceN", { number: invoice.number }) : tr("money.collection.thread.openInvoice")}</span>
                       <strong>{money(invoice.outstanding, invoice.currency)}</strong>
                     </li>
                   ))}
@@ -222,7 +230,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
 
             {thread.events.length === 0 ? (
               <div className="col-thread__queue">
-                <WarmCard><p style={{ margin: 0, color: W.muted }}>עדיין אין תנועות כספיות ללקוח הזה.</p></WarmCard>
+                <WarmCard><p style={{ margin: 0, color: W.muted }}>{tr("money.collection.thread.noEvents")}</p></WarmCard>
               </div>
             ) : (
               <div className="col-thread__queue">
@@ -246,18 +254,18 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                             { customerId: thread.customer.id },
                           );
                         }
-                        setNotice(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
+                        setNotice(r === "shared" ? tr("money.collection.shared.shareOpened") : r === "copied" ? tr("money.collection.shared.linkCopied") : tr("money.collection.shared.shareFailed"));
                       }}
                       onCancel={(requestId) =>
                         act(async () => {
                           await collectionFetch(`/api/payments/requests/${requestId}/cancel`, { method: "POST" });
-                          return "הבקשה בוטלה.";
+                          return tr("money.collection.thread.requestCancelled");
                         })
                       }
                       onRetry={(ptx) =>
                         act(async () => {
                           const r = await collectionFetch<{ outcome: string }>(`/api/collection/settlements/${ptx}/retry`, { method: "POST", body: "{}" });
-                          return r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED" ? "הקבלה הופקה." : "עדיין חסר משהו כדי להפיק קבלה.";
+                          return r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED" ? tr("money.collection.thread.receiptIssued") : tr("money.collection.shared.stillMissing");
                         })
                       }
                       onRefund={(t) => void openRefund(t)}
@@ -268,14 +276,14 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
               <table className="col-thread__table">
                 <thead>
                   <tr>
-                    <th>מתי</th>
-                    <th>מה קרה</th>
-                    <th>סכום</th>
+                    <th>{tr("money.collection.thread.thWhen")}</th>
+                    <th>{tr("money.collection.thread.thWhat")}</th>
+                    <th>{tr("money.collection.thread.thAmount")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {thread.events.map((e, i) => {
-                    const row = eventDeskRow(e);
+                    const row = eventDeskRow(e, tr, money);
                     return (
                       <tr
                         key={`${e.kind}-${i}`}
@@ -292,7 +300,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
               </table>
               <aside className="col-thread__pick">
                 {selectedEvent == null || !thread.events[selectedEvent] ? (
-                  <WarmCard><p style={{ margin: 0, color: W.muted }}>בחרו תנועה כדי לראות סטטוס ואת הפעולות המותרות.</p></WarmCard>
+                  <WarmCard><p style={{ margin: 0, color: W.muted }}>{tr("money.collection.thread.pickEvent")}</p></WarmCard>
                 ) : (
                   <EventCard
                     e={thread.events[selectedEvent]}
@@ -314,18 +322,18 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                           { customerId: thread.customer.id },
                         );
                       }
-                      setNotice(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
+                      setNotice(r === "shared" ? tr("money.collection.shared.shareOpened") : r === "copied" ? tr("money.collection.shared.linkCopied") : tr("money.collection.shared.shareFailed"));
                     }}
                     onCancel={(requestId) =>
                       act(async () => {
                         await collectionFetch(`/api/payments/requests/${requestId}/cancel`, { method: "POST" });
-                        return "הבקשה בוטלה.";
+                        return tr("money.collection.thread.requestCancelled");
                       })
                     }
                     onRetry={(ptx) =>
                       act(async () => {
                         const r = await collectionFetch<{ outcome: string }>(`/api/collection/settlements/${ptx}/retry`, { method: "POST", body: "{}" });
-                        return r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED" ? "הקבלה הופקה." : "עדיין חסר משהו כדי להפיק קבלה.";
+                        return r.outcome === "SETTLED" || r.outcome === "ALREADY_SETTLED" ? tr("money.collection.thread.receiptIssued") : tr("money.collection.shared.stillMissing");
                       })
                     }
                     onRefund={(t) => void openRefund(t)}
@@ -340,12 +348,12 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
 
       <AdaptiveOverlay open={refund !== null} onClose={() => setRefund(null)} variant="confirm" labelledBy="refund-title">
         <div style={{ padding: 20, display: "grid", gap: 10 }}>
-          <h2 id="refund-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>החזר כסף ללקוח</h2>
+          <h2 id="refund-title" style={{ margin: 0, fontSize: 18, color: W.ink }}>{tr("money.collection.thread.refundTitle")}</h2>
           <p style={{ margin: 0, color: W.muted, fontSize: 14 }}>
-            ההחזר מחזיר כסף דרך חברת הסליקה. הוא לא מבטל את הקבלה ולא פותח מחדש את החשבונית — אם צריך להפחית את החשבונית, הפיקו הודעת זיכוי בנפרד.
+            {tr("money.collection.thread.refundBody")}
           </p>
           {refundMax === null ? (
-            <span style={{ color: W.muted }}>בודק כמה אפשר להחזיר…</span>
+            <span style={{ color: W.muted }}>{tr("money.collection.thread.checkingRefund")}</span>
           ) : (
             <>
               {/* The whole picture, because a refund decision made against one
@@ -363,23 +371,23 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                     color: W.muted,
                   }}
                 >
-                  <dt style={{ margin: 0 }}>שולם במקור</dt>
+                  <dt style={{ margin: 0 }}>{tr("money.collection.thread.paidOriginally")}</dt>
                   <dd style={{ margin: 0, color: W.ink, fontWeight: 700 }}>
                     {money(refundState.settledAmount, refundState.currency)}
                   </dd>
-                  <dt style={{ margin: 0 }}>הוחזר עד כה</dt>
+                  <dt style={{ margin: 0 }}>{tr("money.collection.thread.refundedSoFar")}</dt>
                   <dd style={{ margin: 0, color: W.ink }}>
                     {money(refundState.refundedTotal, refundState.currency)}
                   </dd>
                   {refundState.hasUnresolvedRefund ? (
                     <>
-                      <dt style={{ margin: 0 }}>ממתין לאימות</dt>
+                      <dt style={{ margin: 0 }}>{tr("money.collection.thread.pendingVerification")}</dt>
                       <dd style={{ margin: 0, color: W.ink }}>
-                        סכום שמור עד שחברת הסליקה תאשר
+                        {tr("money.collection.thread.reservedUntil")}
                       </dd>
                     </>
                   ) : null}
-                  <dt style={{ margin: 0 }}>ניתן להחזיר עכשיו</dt>
+                  <dt style={{ margin: 0 }}>{tr("money.collection.thread.refundableNow")}</dt>
                   <dd style={{ margin: 0, color: W.ink, fontWeight: 700 }}>
                     {money(refundState.refundableRemaining, refundState.currency)}
                   </dd>
@@ -387,8 +395,8 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
               ) : null}
               <label htmlFor="refund-amount" style={{ fontWeight: 700 }}>
                 {refundState && !refundState.canRefundPartially
-                  ? `סכום (ספק הסליקה מחזיר רק את המלוא: ${money(refundMax, refund?.currency)})`
-                  : `סכום (עד ${money(refundMax, refund?.currency)})`}
+                  ? tr("money.collection.thread.amountFullOnly", { amount: money(refundMax, refund?.currency) })
+                  : tr("money.collection.thread.amountUpTo", { amount: money(refundMax, refund?.currency) })}
               </label>
               <input id="refund-amount" inputMode="decimal" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value.replace(/[^\d.]/g, ""))} style={warmInputStyle()} />
               <div style={{ display: "flex", gap: 8 }}>
@@ -402,13 +410,13 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                         body: JSON.stringify({ amount: refundAmount, idempotencyKey: refundKey }),
                       });
                       setRefund(null);
-                      return refundOutcomeNotice(r.outcome);
+                      return refundOutcomeNotice(r.outcome, tr);
                     })
                   }
                 >
-                  החזר {refundAmount ? money(refundAmount, refund?.currency) : ""}
+                  {tr("money.collection.thread.refundAction", { amount: refundAmount ? money(refundAmount, refund?.currency) : "" })}
                 </WarmButton>
-                <WarmButton variant="text" onClick={() => setRefund(null)}>ביטול</WarmButton>
+                <WarmButton variant="text" onClick={() => setRefund(null)}>{tr("money.collection.thread.cancel")}</WarmButton>
               </div>
             </>
           )}
@@ -435,6 +443,8 @@ function EventCard({
   onRetry: (paymentTransactionId: number) => void;
   onRefund: (t: RefundTarget) => void;
 }) {
+  const { t: tr } = useI18n();
+  const { money, dateTime } = useCollectionFormat();
   const frame: React.CSSProperties = highlighted ? { outline: `2px solid ${W.tealDeep}`, borderRadius: 16 } : {};
   const when = <span style={{ color: W.muted2, fontSize: 12 }}>{dateTime(e.at)}</span>;
   const row = (title: React.ReactNode, amount?: string, body?: React.ReactNode, actions?: React.ReactNode) => (
@@ -456,76 +466,85 @@ function EventCard({
   switch (e.kind) {
     case "INVOICE_ISSUED":
       return row(
-        <Link href={`/billing/${e.invoiceId}`} style={{ color: W.ink }}>חשבונית {e.number ?? ""}</Link>,
+        <Link href={`/billing/${e.invoiceId}`} style={{ color: W.ink }}>{tr("money.collection.shared.invoiceN", { number: e.number ?? "" })}</Link>,
         money(e.amount, e.currency),
-        Number(e.outstanding) > 0 ? <span>נותר לגבות {money(e.outstanding, e.currency)}</span> : <WarmPill tone="verified">סגורה</WarmPill>
+        Number(e.outstanding) > 0 ? <span>{tr("money.collection.thread.remainingToCollect", { amount: money(e.outstanding, e.currency) })}</span> : <WarmPill tone="verified">{tr("money.collection.thread.closed")}</WarmPill>
       );
     case "CREDIT_NOTE_ISSUED":
-      return row(<Link href={`/billing/${e.documentId}`} style={{ color: W.ink }}>הודעת זיכוי {e.number ?? ""}</Link>, `−${money(e.amount, e.currency)}`, <span>הפחתה מהחשבונית</span>);
+      return row(<Link href={`/billing/${e.documentId}`} style={{ color: W.ink }}>{tr("money.collection.thread.creditNoteTitle", { number: e.number ?? "" })}</Link>, `−${money(e.amount, e.currency)}`, <span>{tr("money.collection.thread.reduction")}</span>);
     case "REQUEST_CREATED":
       return row(
-        "בקשת תשלום",
+        tr("money.collection.thread.paymentRequest"),
         money(e.amount, e.currency),
         <>
-          {e.invoiceNumber ? <span>חשבונית {e.invoiceNumber}</span> : <span>ללא חשבונית</span>}
-          {e.status === "PENDING" ? <WarmPill tone="waiting">ממתין</WarmPill> : null}
-          {e.status === "CANCELLED" ? <WarmPill tone="waiting">בוטל</WarmPill> : null}
-          {e.status === "FAILED" ? <WarmPill tone="late">נכשל</WarmPill> : null}
-          {e.status === "EXPIRED" ? <WarmPill tone="late">פג תוקף</WarmPill> : null}
-          {e.status === "PAID" ? <WarmPill tone="verified">שולם</WarmPill> : null}
+          {e.invoiceNumber ? <span>{tr("money.collection.shared.invoiceN", { number: e.invoiceNumber })}</span> : <span>{tr("money.collection.thread.noInvoice")}</span>}
+          {e.status === "PENDING" ? <WarmPill tone="waiting">{tr("money.collection.shared.waiting")}</WarmPill> : null}
+          {e.status === "CANCELLED" ? <WarmPill tone="waiting">{tr("money.collection.thread.cancelledPill")}</WarmPill> : null}
+          {e.status === "FAILED" ? <WarmPill tone="late">{tr("money.collection.shared.failed")}</WarmPill> : null}
+          {e.status === "EXPIRED" ? <WarmPill tone="late">{tr("money.collection.thread.expired")}</WarmPill> : null}
+          {e.status === "PAID" ? <WarmPill tone="verified">{tr("money.collection.shared.paid")}</WarmPill> : null}
         </>,
         e.status === "PENDING" && e.paymentUrl ? (
           <>
-            <WarmButton height={40} variant="secondary" onClick={() => onShare(e.paymentUrl!, e.amount, e.currency, e.invoiceNumber)}>שתף שוב</WarmButton>
-            <WarmButton height={40} variant="text" disabled={busy} onClick={() => onCancel(e.requestId)}>בטל בקשה</WarmButton>
+            <WarmButton height={40} variant="secondary" onClick={() => onShare(e.paymentUrl!, e.amount, e.currency, e.invoiceNumber)}>{tr("money.collection.shared.shareAgain")}</WarmButton>
+            <WarmButton height={40} variant="text" disabled={busy} onClick={() => onCancel(e.requestId)}>{tr("money.collection.shared.cancelRequest")}</WarmButton>
           </>
         ) : null
       );
     case "REQUEST_CANCELLED":
       return row(
-        "בקשת התשלום בוטלה",
+        tr("money.collection.thread.requestCancelledTitle"),
         undefined,
         e.paidAfterward ? (
-          <span>הלקוח שילם בקישור גם אחרי הביטול — התשלום נרשם וטופל כרגיל.</span>
+          <span>{tr("money.collection.thread.paidAfterward")}</span>
         ) : (
-          <span>Dubiz הפסיק לבקש את התשלום הזה.</span>
+          <span>{tr("money.collection.thread.stoppedAsking")}</span>
         )
       );
     case "PAYMENT_FAILED":
-      return row("התשלום נכשל", money(e.amount, e.currency), <span>חברת הסליקה לא אישרה את התשלום.</span>);
+      return row(tr("money.collection.thread.paymentFailedTitle"), money(e.amount, e.currency), <span>{tr("money.collection.thread.providerDeclined")}</span>);
     case "PAYMENT_VERIFIED": {
-      const attention = e.accounting === "RECEIPT_ATTENTION" ? attentionText(e.attentionReason) : null;
+      const attention = e.accounting === "RECEIPT_ATTENTION" ? attentionText(e.attentionReason, tr) : null;
       return row(
-        "התשלום התקבל ואומת",
+        tr("money.collection.thread.verifiedTitle"),
         money(e.amount, e.currency),
         <>
-          <WarmPill tone="verified">שולם</WarmPill>
-          {e.accounting === "RECEIPT_PENDING" ? <span>מפיקים קבלה…</span> : null}
-          {e.accounting === "NO_AUTOMATIC_RECEIPT" ? <span>תשלום מלפני הפקת קבלות אוטומטית</span> : null}
+          <WarmPill tone="verified">{tr("money.collection.shared.paid")}</WarmPill>
+          {e.accounting === "RECEIPT_PENDING" ? <span>{tr("money.collection.shared.receiptPending")}</span> : null}
+          {e.accounting === "NO_AUTOMATIC_RECEIPT" ? <span>{tr("money.collection.shared.noAutoReceipt")}</span> : null}
           {attention ? <span>{attention.title}</span> : null}
         </>,
         <>
-          {attention ? <WarmButton height={40} disabled={busy} onClick={() => onRetry(e.paymentTransactionId)}>נסה שוב להפיק קבלה</WarmButton> : null}
-          <WarmButton height={40} variant="text" onClick={() => onRefund({ requestId: e.requestId, suggested: null, currency: e.currency })}>החזר כסף</WarmButton>
+          {attention ? <WarmButton height={40} disabled={busy} onClick={() => onRetry(e.paymentTransactionId)}>{tr("money.collection.shared.retryReceipt")}</WarmButton> : null}
+          <WarmButton height={40} variant="text" onClick={() => onRefund({ requestId: e.requestId, suggested: null, currency: e.currency })}>{tr("money.collection.thread.refundMoney")}</WarmButton>
         </>
       );
     }
     case "RECEIPT_ISSUED":
       return row(
-        <Link href={`/billing/${e.receiptId}`} style={{ color: W.ink }}>קבלה {e.number ?? ""}{e.automatic ? " (אוטומטית)" : ""}</Link>,
+        <Link href={`/billing/${e.receiptId}`} style={{ color: W.ink }}>
+          {tr("money.collection.thread.rowReceiptN", { number: e.number ?? "" })}
+          {e.automatic ? ` ${tr("money.collection.thread.automatic")}` : ""}
+        </Link>,
         money(e.amount, e.currency),
         <>
           {e.allocations.map((a) => (
-            <span key={a.invoiceId}>שויכו {money(a.amount, e.currency)} לחשבונית {a.invoiceNumber ?? ""}</span>
+            <span key={a.invoiceId}>{tr("money.collection.thread.allocated", { amount: money(a.amount, e.currency), number: a.invoiceNumber ?? "" })}</span>
           ))}
-          {Number(e.unappliedAmount) > 0 ? <WarmPill tone="partial">עודף {money(e.unappliedAmount, e.currency)} לא שויך לחוב</WarmPill> : null}
+          {Number(e.unappliedAmount) > 0 ? <WarmPill tone="partial">{tr("money.collection.thread.unappliedPill", { amount: money(e.unappliedAmount, e.currency) })}</WarmPill> : null}
         </>
       );
     case "REFUND":
       return row(
-        "החזר כסף",
+        tr("money.collection.thread.refundMoney"),
         `−${money(e.amount, e.currency)}`,
-        e.outcome === "SETTLED" ? <span>הוחזר ללקוח</span> : e.outcome === "PENDING" ? <span>ממתין לאישור חברת הסליקה</span> : <span>ההחזר לא בוצע</span>
+        e.outcome === "SETTLED" ? (
+          <span>{tr("money.collection.thread.refunded")}</span>
+        ) : e.outcome === "PENDING" ? (
+          <span>{tr("money.collection.thread.refundPending")}</span>
+        ) : (
+          <span>{tr("money.collection.thread.refundNotDone")}</span>
+        )
       );
   }
 }

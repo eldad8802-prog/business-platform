@@ -50,7 +50,7 @@
 .editPill {
   position: absolute;
   top: 14px;
-  right: 14px;
+  inset-inline-start: 14px;
   height: 30px;
   padding: 0 12px;
   border-radius: 999px;
@@ -441,6 +441,10 @@
   flex-shrink: 0;
   color: var(--dz-warm-ink-2);
 }
+/* The chevron points "forward" (left in RTL); it mirrors for left-to-right languages. */
+:dir(ltr) .rowChevron {
+  transform: scaleX(-1);
+}
 
 /* load failure */
 .loadError {
@@ -491,9 +495,9 @@
   .businessName {
     font-size: 28px;
   }
-  /* Two columns, read right-to-left (address, then phone), kept toward the logo. */
+  /* Two columns in reading order (address, then phone), kept toward the logo. */
   .contacts {
-    direction: rtl;
+
     display: grid;
     grid-template-columns: repeat(2, max-content);
     justify-content: end;
@@ -557,7 +561,7 @@
   .editPill {
     position: relative;
     top: auto;
-    right: auto;
+    inset-inline-start: auto;
     grid-area: edit;
     justify-self: start;
   }

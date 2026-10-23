@@ -10,6 +10,7 @@
 
 import { BUCKETS } from "./buckets";
 import { RateLimiterBackendError } from "./errors";
+import { localFallback } from "./local-fallback";
 import { memoryBackend } from "./memory-backend";
 import { redisBackend } from "./redis-backend";
 import type {
@@ -169,68 +170,68 @@ export async function checkRateLimit(
 }
 
 /**
+ * The AUTH fallback (sign-in, signup, reset, verification links, refresh, platform-admin MFA).
+ *
+ * These limits guard guessing and abuse, so they must never run unbounded: when the shared backend is
+ * unreachable they continue on this instance's local ledger (./local-fallback) instead of allowing
+ * everything. Every other raw key keeps its previous posture (fail open, logged).
+ *
+ * After a failed call the shared backend is rested for SHARED_BACKEND_RETRY_MS on this instance, so an
+ * outage costs one timeout per instance per interval instead of one per request; then it is tried again,
+ * and as soon as it answers it is authoritative again. A lock recorded locally during the outage keeps
+ * holding after the shared backend returns, until it expires.
+ */
+const AUTH_KEY_PREFIXES = ["auth:", "admin:mfa:"] as const;
+export const SHARED_BACKEND_RETRY_MS = 10_000;
+
+let sharedRetryMs = SHARED_BACKEND_RETRY_MS;
+let sharedRestingUntil = 0;
+let backendOverride: RateLimitBackend | null = null;
+
+function rawBackend(): RateLimitBackend {
+  return backendOverride ?? getBackend();
+}
+
+function isAuthKey(key: string): boolean {
+  return AUTH_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/** "auth:login:fail:<digest>" -> "auth:login": enough to tell which limit degraded, without the address digest or IP. */
+function keyClass(key: string): string {
+  return key.split(":").slice(0, 2).join(":");
+}
+
+function sharedResting(): boolean {
+  return Date.now() < sharedRestingUntil;
+}
+
+function noteSharedDown(op: string, key: string, error: RateLimiterBackendError): void {
+  sharedRestingUntil = Date.now() + sharedRetryMs;
+  console.error(`[rate-limit] backend_unavailable ${op} key=${keyClass(key)} -> local fallback for ${sharedRetryMs}ms`, error.message);
+}
+
+/**
  * Single raw-key limit against the shared backend. Used by the legacy
  * `consumeRateLimit` shim so all routes (auth / pos / content / csv) share the
  * production Redis store instead of per-instance memory.
  *
- * Legacy callers fail OPEN on a transient backend blip (preserving the prior
- * "never spuriously blocked" behavior), but the degradation is logged. Config
- * errors still propagate (hard fail in production).
+ * On a transient backend failure an auth key continues on the local ledger (above); any other key
+ * fails OPEN (preserving the prior "never spuriously blocked" behavior), logged. Config errors still
+ * propagate (hard fail in production).
  */
-/**
- * The attempt ledger (see RateLimitBackend.reserveAttempt). Same failure posture as
- * `consumeRawLimit`: a transient backend error ALLOWS the attempt (fail open, logged) and reports
- * count 0 ("unknown"); clear / lock errors are logged and swallowed. A config error propagates.
- */
-const ATTEMPT_PREFIX = "rl:attempt";
-
-export async function reserveRawAttempt(params: {
-  key: string;
-  member: string;
-  limit: number;
-  windowMs: number;
-  nowMs: number;
-}): Promise<AttemptReservation> {
-  try {
-    return await getBackend().reserveAttempt(ATTEMPT_PREFIX, params.key, params.member, params.limit, params.windowMs, params.nowMs);
-  } catch (error) {
-    if (error instanceof RateLimiterBackendError) {
-      console.error(`[rate-limit] backend_unavailable attempt-reserve key=${params.key} failMode=open -> allow (degraded)`, error.message);
-      return { allowed: true, count: 0 };
-    }
-    throw error;
-  }
-}
-
-export async function clearRawAttempts(key: string): Promise<void> {
-  try {
-    await getBackend().clearAttempts(ATTEMPT_PREFIX, key);
-  } catch (error) {
-    console.error(`[rate-limit] attempt-clear failed key=${key}`, error instanceof Error ? error.name : "unknown");
-  }
-}
-
-export async function lockRawAttempts(key: string, lockMs: number, nowMs: number): Promise<void> {
-  try {
-    await getBackend().lockAttempts(ATTEMPT_PREFIX, key, lockMs, nowMs);
-  } catch (error) {
-    console.error(`[rate-limit] attempt-lock failed key=${key}`, error instanceof Error ? error.name : "unknown");
-  }
-}
-
 export async function consumeRawLimit(params: {
   key: string;
   limit: number;
   windowSeconds: number;
 }): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-  const backend = getBackend();
+  const auth = isAuthKey(params.key);
+  const local = () => {
+    const r = localFallback.evaluate("rl:legacy", params.key, params.limit, params.windowSeconds);
+    return { allowed: r.success, remaining: r.remaining, resetAt: r.resetAt };
+  };
+  if (auth && sharedResting()) return local();
   try {
-    const result = await backend.evaluate(
-      "rl:legacy",
-      params.key,
-      params.limit,
-      params.windowSeconds
-    );
+    const result = await rawBackend().evaluate("rl:legacy", params.key, params.limit, params.windowSeconds);
     return {
       allowed: result.success,
       remaining: result.remaining,
@@ -238,8 +239,12 @@ export async function consumeRawLimit(params: {
     };
   } catch (error) {
     if (error instanceof RateLimiterBackendError) {
+      if (auth) {
+        noteSharedDown("legacy", params.key, error);
+        return local();
+      }
       console.error(
-        `[rate-limit] backend_unavailable legacy key=${params.key} failMode=open -> allow (degraded)`,
+        `[rate-limit] backend_unavailable legacy key=${keyClass(params.key)} failMode=open -> allow (degraded)`,
         error.message
       );
       return {
@@ -250,4 +255,69 @@ export async function consumeRawLimit(params: {
     }
     throw error;
   }
+}
+
+/**
+ * The attempt ledger (see RateLimitBackend.reserveAttempt) — the sign-in failure lock. A transient
+ * backend error continues on the local ledger (never "allow with count 0", which could never lock);
+ * `via` says which ledger holds this reservation, so its clear / lock go to the same one. A config
+ * error propagates.
+ */
+const ATTEMPT_PREFIX = "rl:attempt";
+
+export type LedgerVia = "shared" | "local";
+
+export async function reserveRawAttempt(params: {
+  key: string;
+  member: string;
+  limit: number;
+  windowMs: number;
+  nowMs: number;
+}): Promise<AttemptReservation & { via: LedgerVia }> {
+  // A lock recorded here while the shared backend was down still holds after it returns.
+  const localLock = localFallback.lockRemainingMs(ATTEMPT_PREFIX, params.key, params.nowMs);
+  if (localLock > 0) return { allowed: false, locked: true, retryAfterMs: localLock, via: "local" };
+  if (!sharedResting()) {
+    try {
+      const r = await rawBackend().reserveAttempt(ATTEMPT_PREFIX, params.key, params.member, params.limit, params.windowMs, params.nowMs);
+      return { ...r, via: "shared" };
+    } catch (error) {
+      if (!(error instanceof RateLimiterBackendError)) throw error;
+      noteSharedDown("attempt-reserve", params.key, error);
+    }
+  }
+  const r = localFallback.reserveAttempt(ATTEMPT_PREFIX, params.key, params.limit, params.windowMs, params.nowMs);
+  return { ...r, via: "local" };
+}
+
+export async function clearRawAttempts(key: string, via: LedgerVia = "shared"): Promise<void> {
+  localFallback.clearAttempts(ATTEMPT_PREFIX, key);
+  if (via === "local") return;
+  try {
+    await rawBackend().clearAttempts(ATTEMPT_PREFIX, key);
+  } catch (error) {
+    console.error(`[rate-limit] attempt-clear failed key=${keyClass(key)}`, error instanceof Error ? error.name : "unknown");
+  }
+}
+
+export async function lockRawAttempts(key: string, lockMs: number, nowMs: number, via: LedgerVia = "shared"): Promise<void> {
+  if (via === "local") {
+    localFallback.lockAttempts(ATTEMPT_PREFIX, key, lockMs, nowMs);
+    return;
+  }
+  try {
+    await rawBackend().lockAttempts(ATTEMPT_PREFIX, key, lockMs, nowMs);
+  } catch (error) {
+    // The lock must not be lost: it is kept here instead.
+    localFallback.lockAttempts(ATTEMPT_PREFIX, key, lockMs, nowMs);
+    if (error instanceof RateLimiterBackendError) noteSharedDown("attempt-lock", key, error);
+    else console.error(`[rate-limit] attempt-lock failed key=${keyClass(key)}`, error instanceof Error ? error.name : "unknown");
+  }
+}
+
+/** Test-only: substitute the shared backend (e.g. one that fails like an unreachable Redis) and the rest interval. */
+export function configureRateLimiterForTests(opts: { backend?: RateLimitBackend | null; retryMs?: number }): void {
+  if (opts.backend !== undefined) backendOverride = opts.backend;
+  if (opts.retryMs !== undefined) sharedRetryMs = opts.retryMs;
+  sharedRestingUntil = 0;
 }

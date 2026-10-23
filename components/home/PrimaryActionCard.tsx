@@ -1,5 +1,6 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/tokens";
 
 type PrimaryActionCardProps = {
@@ -15,6 +16,7 @@ export default function PrimaryActionCard({
   ctaText,
   onClick,
 }: PrimaryActionCardProps) {
+  const { t } = useI18n();
   return (
     <button type="button" onClick={onClick} style={styles.card}>
       <div style={styles.content}>
@@ -30,7 +32,7 @@ export default function PrimaryActionCard({
 
       <div style={styles.footer}>
         <span style={styles.cta}>{ctaText}</span>
-        <span style={styles.arrow}>←</span>
+        <span style={styles.arrow}>{t("home.legacy.forwardArrow")}</span>
       </div>
     </button>
   );
@@ -48,7 +50,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 18,
-    textAlign: "right",
+    textAlign: "start",
     boxShadow: TOKEN.action.primary.shadow,
   },
   content: {

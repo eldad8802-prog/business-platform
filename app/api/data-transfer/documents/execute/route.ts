@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
@@ -70,6 +71,7 @@ const STATUS_BY_CODE: Record<string, number> = {
  * before a single byte is hashed against it.
  */
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -87,7 +89,7 @@ export async function POST(req: Request) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "בקשה לא תקינה", code: "INVALID_BODY" },
+      { error: t("api.common.invalidRequest"), code: "INVALID_BODY" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -95,7 +97,7 @@ export async function POST(req: Request) {
   const previewToken = form.get("previewToken");
   if (typeof previewToken !== "string" || previewToken.length === 0) {
     return NextResponse.json(
-      { error: "חסר אישור בדיקה. יש להריץ בדיקה מחדש.", code: "TOKEN_MISSING" },
+      { error: t("api.dataTransfer.tokenMissing"), code: "TOKEN_MISSING" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -109,7 +111,7 @@ export async function POST(req: Request) {
   }
   if (!batch.decisions) {
     return NextResponse.json(
-      { error: "חסרות הבחירות שאושרו", code: "DECISIONS_MALFORMED" },
+      { error: t("api.dataTransfer.documents.decisionsMissing"), code: "DECISIONS_MALFORMED" },
       { status: 400, headers: NO_STORE }
     );
   }
@@ -140,7 +142,7 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "קליטת הקבצים נכשלה. נסו שוב מאוחר יותר.", code: "EXECUTE_FAILED" },
+      { error: t("api.dataTransfer.documents.executeFailed"), code: "EXECUTE_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

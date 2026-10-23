@@ -1,12 +1,10 @@
+import type { Locale } from "@/lib/i18n/config";
+import type { Translator } from "@/lib/i18n/translate";
 import { daysBetweenDayKeys, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 import type { StaleBillingDraftRaw, StalePaymentLinkRaw } from "../loaders";
+import { STATUS_HE_T, statusMoney } from "../i18n";
 import { severityForgottenMoney } from "../severity-map";
 import type { BusinessStatusItemBuild } from "../types";
-
-function money(amount: { toString(): string }, currency: string): string {
-  const n = Number(amount);
-  return Number.isFinite(n) ? `${n.toLocaleString("he-IL")} ${currency}` : "";
-}
 
 function ageDays(then: Date, now: Date): number {
   return Math.abs(daysBetweenDayKeys(jerusalemDayKey(then), jerusalemDayKey(now)));
@@ -20,17 +18,21 @@ function ageDays(then: Date, now: Date): number {
  */
 export function translateBillingStaleDrafts(
   rows: StaleBillingDraftRaw[],
-  now: Date
+  now: Date,
+  t: Translator = STATUS_HE_T,
+  locale: Locale = "he"
 ): BusinessStatusItemBuild[] {
   return rows.map((row) => ({
     itemId: `billing:stale_draft:${row.id}`,
     domain: "billing",
     semanticCategory: "WARNING",
-    title: "טיוטת חשבונית שלא הונפקה",
+    title: t("insights.status.billing.staleDraftTitle"),
     summary: [
-      row.customerName?.trim() ? `לקוח: ${row.customerName.trim()}` : null,
-      money(row.totalAmount, row.currency) ? `סכום: ${money(row.totalAmount, row.currency)}` : null,
-      `נוצרה לפני ${ageDays(row.createdAt, now)} ימים`,
+      row.customerName?.trim() ? t("insights.status.billing.customer", { name: row.customerName.trim() }) : null,
+      statusMoney(row.totalAmount, row.currency, locale)
+        ? t("insights.status.billing.amount", { amount: statusMoney(row.totalAmount, row.currency, locale) })
+        : null,
+      t("insights.status.billing.createdDaysAgo", { days: ageDays(row.createdAt, now) }),
     ]
       .filter(Boolean)
       .join(" · "),
@@ -38,7 +40,7 @@ export function translateBillingStaleDrafts(
     entityRef: { type: "billing_document", id: row.id },
     state: "open",
     createdAt: row.createdAt.toISOString(),
-    primaryAction: { kind: "navigate", label: "פתח טיוטה", href: `/billing/${row.id}` },
+    primaryAction: { kind: "navigate", label: t("insights.status.billing.openDraft"), href: `/billing/${row.id}` },
     sourceEngine: "billing-draft-age",
     blocking: false,
     moneyImpactBand: "medium",
@@ -49,17 +51,21 @@ export function translateBillingStaleDrafts(
 /** A payment link that was sent and never used. Still PENDING — not failed, not expired. */
 export function translateStalePaymentLinks(
   rows: StalePaymentLinkRaw[],
-  now: Date
+  now: Date,
+  t: Translator = STATUS_HE_T,
+  locale: Locale = "he"
 ): BusinessStatusItemBuild[] {
   return rows.map((row) => ({
     itemId: `billing:stale_payment_link:${row.id}`,
     domain: "billing",
     semanticCategory: "WARNING",
-    title: "בקשת תשלום שממתינה",
+    title: t("insights.status.billing.staleLinkTitle"),
     summary: [
-      money(row.amount, row.currency) ? `סכום: ${money(row.amount, row.currency)}` : null,
-      `נשלחה לפני ${ageDays(row.createdAt, now)} ימים`,
-      "טרם שולמה",
+      statusMoney(row.amount, row.currency, locale)
+        ? t("insights.status.billing.amount", { amount: statusMoney(row.amount, row.currency, locale) })
+        : null,
+      t("insights.status.billing.sentDaysAgo", { days: ageDays(row.createdAt, now) }),
+      t("insights.status.billing.notPaidYet"),
     ]
       .filter(Boolean)
       .join(" · "),
@@ -68,7 +74,7 @@ export function translateStalePaymentLinks(
     relatedRefs: row.customerId ? [{ type: "customer", id: row.customerId }] : undefined,
     state: "open",
     createdAt: row.createdAt.toISOString(),
-    primaryAction: { kind: "navigate", label: "פתח גבייה", href: `/collection` },
+    primaryAction: { kind: "navigate", label: t("insights.status.billing.openCollection"), href: `/collection` },
     sourceEngine: "payment-link-age",
     blocking: false,
     moneyImpactBand: "medium",

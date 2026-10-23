@@ -10,6 +10,8 @@
  * counts only PAID (verified) — Authority Principle preserved.
  */
 
+import { BASE_CURRENCY, currencyOrBase, orderCurrencies } from "@/lib/money/currency-split";
+
 import type { PaymentRequestRecord, PaymentStore } from "./payments.types";
 import {
   deriveCollectionView,
@@ -31,9 +33,27 @@ export interface CollectionItemView {
   expiresAt: string | null;
 }
 
+export interface CollectionCurrencyTotal {
+  currency: string;
+  amount: string;
+  count: number;
+}
+
+/**
+ * One summary figure. Amounts in different currencies are never added: `amount` is the ILS rows
+ * only (the screen draws it as ₪), `count` is every row, and the other currencies are listed in
+ * `totalsByCurrency` with `isMixedCurrency` set. For an all-ILS business `amount` / `count` are
+ * the same values as before.
+ */
 export interface CollectionMoneyFigure {
   amount: string;
   count: number;
+  /** The currency of `amount`: always ILS. */
+  currency: string;
+  /** ILS first, then the rest by code; only currencies that occurred. */
+  totalsByCurrency: CollectionCurrencyTotal[];
+  /** True when another currency occurred — `amount` does not include it. */
+  isMixedCurrency: boolean;
 }
 
 export interface CollectionSummary {
@@ -77,6 +97,30 @@ function money(sum: number): string {
   return (Math.round(sum * 100) / 100).toFixed(2);
 }
 
+type CurrencySums = Map<string, { sum: number; count: number }>;
+
+/** Adds a request into its OWN currency's running sum (the same float arithmetic as before). */
+function addInCurrency(sums: CurrencySums, record: PaymentRequestRecord): void {
+  const currency = currencyOrBase(record.currency);
+  const entry = sums.get(currency) ?? { sum: 0, count: 0 };
+  sums.set(currency, { sum: entry.sum + Number(record.amount), count: entry.count + 1 });
+}
+
+function figureOf(sums: CurrencySums, count: number): CollectionMoneyFigure {
+  const totalsByCurrency = orderCurrencies(sums.keys(), BASE_CURRENCY).map((currency) => ({
+    currency,
+    amount: money(sums.get(currency)!.sum),
+    count: sums.get(currency)!.count,
+  }));
+  return {
+    amount: money(sums.get(BASE_CURRENCY)?.sum ?? 0),
+    count,
+    currency: BASE_CURRENCY,
+    totalsByCurrency,
+    isMixedCurrency: totalsByCurrency.some((t) => t.currency !== BASE_CURRENCY),
+  };
+}
+
 /** First instant of `now`'s calendar month, and first instant of the next. */
 function monthBounds(now: Date): { from: Date; to: Date } {
   const from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
@@ -103,9 +147,9 @@ export async function getCollectionWorkspace(
 
   const attention: CollectionItemView[] = [];
   const active: CollectionItemView[] = [];
-  let pendingSum = 0;
+  const pendingSums: CurrencySums = new Map();
   let pendingCount = 0;
-  let expiredSum = 0;
+  const expiredSums: CurrencySums = new Map();
   let expiredCount = 0;
 
   for (const r of working) {
@@ -113,12 +157,12 @@ export async function getCollectionWorkspace(
     const item = toItem(r, view.state);
     if (view.bucket === "active") {
       active.push(item);
-      pendingSum += Number(r.amount);
+      addInCurrency(pendingSums, r);
       pendingCount += 1;
     } else if (view.bucket === "attention") {
       attention.push(item);
       if (view.state === "expired") {
-        expiredSum += Number(r.amount);
+        addInCurrency(expiredSums, r);
         expiredCount += 1;
       }
     }
@@ -140,12 +184,15 @@ export async function getCollectionWorkspace(
 
   return {
     summary: {
-      pending: { amount: money(pendingSum), count: pendingCount },
+      pending: figureOf(pendingSums, pendingCount),
       collectedThisMonth: {
         amount: collected.amount,
         count: collected.count,
+        currency: BASE_CURRENCY,
+        totalsByCurrency: collected.byCurrency,
+        isMixedCurrency: collected.byCurrency.some((t) => t.currency !== BASE_CURRENCY),
       },
-      expired: { amount: money(expiredSum), count: expiredCount },
+      expired: figureOf(expiredSums, expiredCount),
     },
     attention,
     active,

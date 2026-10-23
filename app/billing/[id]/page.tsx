@@ -19,9 +19,9 @@ import { LAYOUT, type PageSurfaceIntent } from "@/lib/design/tokens";
 import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
 import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
   isPaymentRequestStatus,
-  PAYMENT_REQUEST_STATUS_LABEL,
   shouldShowCollections,
   type PaymentRequestStatus,
 } from "@/lib/billing/collections-visibility";
@@ -29,7 +29,6 @@ import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-dis
 import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
   DOCUMENT_TYPE_LABEL,
-  STATUS_LABEL,
   STATUS_STYLE,
   formatDate,
   formatDateTime,
@@ -38,6 +37,7 @@ import {
   formatQuantity,
   generateLocalLineKey,
   getDocumentTypeLabel,
+  getStatusLabel,
   linesAreDirty,
   looksLikeDecimalInput,
   mapServerLinesToLocal,
@@ -190,6 +190,7 @@ export default function BillingDocumentWorkspacePage() {
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
   const router = useRouter();
+  const { t } = useI18n();
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [customerInput, setCustomerInput] = useState<string>("");
@@ -227,7 +228,7 @@ export default function BillingDocumentWorkspacePage() {
 
   const load = useCallback(async () => {
     if (!id) {
-      setState({ kind: "error", message: "מזהה מסמך חסר" });
+      setState({ kind: "error", message: t("billing.detail.missingId") });
       return;
     }
 
@@ -246,7 +247,7 @@ export default function BillingDocumentWorkspacePage() {
       }
 
       if (!res.ok) {
-        let message = "אירעה שגיאה בטעינת המסמך";
+        let message = t("billing.detail.loadError");
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -261,7 +262,7 @@ export default function BillingDocumentWorkspacePage() {
       const data = await res.json();
       const doc: BillingDocumentDetail | undefined = data?.document;
       if (!doc || typeof doc.id !== "number") {
-        setState({ kind: "error", message: "התקבלה תגובה לא תקינה" });
+        setState({ kind: "error", message: t("billing.detail.badResponse") });
         return;
       }
 
@@ -270,14 +271,14 @@ export default function BillingDocumentWorkspacePage() {
       setState({
         kind: "error",
         message:
-          err instanceof Error ? err.message : "אירעה שגיאה בטעינת המסמך",
+          err instanceof Error ? err.message : t("billing.detail.loadError"),
       });
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   useEffect(() => {
@@ -285,8 +286,8 @@ export default function BillingDocumentWorkspacePage() {
     const message = window.sessionStorage.getItem("billing:completion");
     if (!message) return;
     window.sessionStorage.removeItem("billing:completion");
-    const t = window.setTimeout(() => setCompletionNotice(message), 0);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setCompletionNotice(message), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -329,7 +330,7 @@ export default function BillingDocumentWorkspacePage() {
     }
 
     const scheduleId = ++patchScheduleRef.current;
-    const t = window.setTimeout(async () => {
+    const timer = window.setTimeout(async () => {
       if (scheduleId !== patchScheduleRef.current) return;
 
       setPatchStatus("saving");
@@ -349,15 +350,13 @@ export default function BillingDocumentWorkspacePage() {
         if (res.status === 403) {
           draftInitRef.current = null;
           await load();
-          setDraftConflictMessage(
-            "המסמך עודכן או הופק ממקום אחר"
-          );
+          setDraftConflictMessage(t("billing.detail.conflict"));
           setPatchStatus("idle");
           return;
         }
 
         if (!res.ok) {
-          let message = "שגיאה בשמירת שם הלקוח";
+          let message = t("billing.detail.saveCustomerError");
           try {
             const data = await res.json();
             if (data && typeof data.error === "string") {
@@ -375,7 +374,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setPatchError("התקבלה תגובה לא תקינה");
+          setPatchError(t("billing.detail.badResponse"));
           setPatchStatus("error");
           return;
         }
@@ -391,15 +390,15 @@ export default function BillingDocumentWorkspacePage() {
         }, 2000);
       } catch {
         if (scheduleId !== patchScheduleRef.current) return;
-        setPatchError("לא הצלחנו להתחבר כדי לשמור את שם הלקוח. נסו שוב בעוד רגע.");
+        setPatchError(t("billing.detail.saveCustomerConnectError"));
         setPatchStatus("error");
       }
     }, 800);
 
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(timer);
     };
-  }, [customerInput, id, load, state]);
+  }, [customerInput, id, load, state, t]);
 
   useEffect(() => {
     if (state.kind !== "ready") return;
@@ -416,7 +415,7 @@ export default function BillingDocumentWorkspacePage() {
     }
 
     const scheduleId = ++validUntilScheduleRef.current;
-    const t = window.setTimeout(async () => {
+    const timer = window.setTimeout(async () => {
       if (scheduleId !== validUntilScheduleRef.current) return;
 
       setValidUntilStatus("saving");
@@ -438,15 +437,13 @@ export default function BillingDocumentWorkspacePage() {
         if (res.status === 403) {
           draftInitRef.current = null;
           await load();
-          setDraftConflictMessage(
-            "המסמך עודכן או הופק ממקום אחר"
-          );
+          setDraftConflictMessage(t("billing.detail.conflict"));
           setValidUntilStatus("idle");
           return;
         }
 
         if (!res.ok) {
-          let message = "שגיאה בשמירת תוקף ההצעה";
+          let message = t("billing.detail.saveValidUntilError");
           try {
             const data = await res.json();
             if (data && typeof data.error === "string") {
@@ -464,7 +461,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setValidUntilError("התקבלה תגובה לא תקינה");
+          setValidUntilError(t("billing.detail.badResponse"));
           setValidUntilStatus("error");
           return;
         }
@@ -477,15 +474,15 @@ export default function BillingDocumentWorkspacePage() {
         }, 2000);
       } catch {
         if (scheduleId !== validUntilScheduleRef.current) return;
-        setValidUntilError("לא הצלחנו להתחבר כדי לשמור את תוקף ההצעה. נסו שוב בעוד רגע.");
+        setValidUntilError(t("billing.detail.saveValidUntilConnectError"));
         setValidUntilStatus("error");
       }
     }, 800);
 
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(timer);
     };
-  }, [validUntilInput, id, load, state]);
+  }, [validUntilInput, id, load, state, t]);
 
   async function handleSaveLines(focusNext = true): Promise<boolean> {
     if (state.kind !== "ready" || state.doc.status !== "DRAFT") return false;
@@ -518,14 +515,12 @@ export default function BillingDocumentWorkspacePage() {
       if (res.status === 403) {
         draftInitRef.current = null;
         await load();
-        setDraftConflictMessage(
-          "המסמך עודכן או הופק ממקום אחר"
-        );
+        setDraftConflictMessage(t("billing.detail.conflict"));
         return false;
       }
 
       if (!res.ok) {
-        let message = "שגיאה בשמירת הפריטים";
+        let message = t("billing.detail.saveLinesError");
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -540,7 +535,7 @@ export default function BillingDocumentWorkspacePage() {
       const data = await res.json();
       const nextDoc: BillingDocumentDetail | undefined = data?.document;
       if (!nextDoc || typeof nextDoc.id !== "number") {
-        setLinesError("התקבלה תגובה לא תקינה");
+        setLinesError(t("billing.detail.badResponse"));
         return false;
       }
 
@@ -576,11 +571,11 @@ export default function BillingDocumentWorkspacePage() {
         });
       }
       if (focusNext) {
-        setLifecycleSuccess("המסמך עודכן.");
+        setLifecycleSuccess(t("billing.detail.updated"));
       }
       return true;
     } catch {
-      setLinesError("לא הצלחנו לשמור את הפריטים. נסו שוב בעוד רגע.");
+      setLinesError(t("billing.detail.saveLinesConnectError"));
       return false;
     } finally {
       setLinesSaving(false);
@@ -608,14 +603,12 @@ export default function BillingDocumentWorkspacePage() {
       if (res.status === 403) {
         draftInitRef.current = null;
         await load();
-        setDraftConflictMessage(
-          "המסמך עודכן או הופק ממקום אחר"
-        );
+        setDraftConflictMessage(t("billing.detail.conflict"));
         return;
       }
 
       if (!res.ok) {
-        let message = "לא ניתן להמיר כעת";
+        let message = t("billing.detail.convertError");
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -630,19 +623,19 @@ export default function BillingDocumentWorkspacePage() {
       const data = await res.json();
       const invId: unknown = data?.document?.id;
       if (typeof invId !== "number") {
-        setConvertError("התקבלה תגובה לא תקינה");
+        setConvertError(t("billing.detail.badResponse"));
         return;
       }
 
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem(
           "billing:completion",
-          "החשבונית נוצרה מההצעה. אפשר לבדוק ולהפיק אותה כשמוכנים."
+          t("billing.detail.convertedNotice")
         );
       }
       router.push(`/billing/${invId}`);
     } catch {
-      setConvertError("לא הצלחנו להתחבר כדי להמיר את ההצעה. נסו שוב בעוד רגע.");
+      setConvertError(t("billing.detail.convertConnectError"));
     } finally {
       setConvertBusy(false);
     }
@@ -662,9 +655,7 @@ export default function BillingDocumentWorkspacePage() {
         if (res.status === 403) {
           draftInitRef.current = null;
           await load();
-          setDraftConflictMessage(
-            "המסמך עודכן או הופק ממקום אחר"
-          );
+          setDraftConflictMessage(t("billing.detail.conflict"));
           if (action === "issue") setIssueConfirmOpen(false);
           return;
         }
@@ -672,10 +663,10 @@ export default function BillingDocumentWorkspacePage() {
         if (!res.ok) {
           const baseMessage =
             action === "submit"
-              ? "לא הצלחנו לשלוח את המסמך לאישור."
+              ? t("billing.detail.submitError")
               : action === "revert"
-              ? "לא הצלחנו להחזיר את המסמך לטיוטה."
-              : "לא הצלחנו להפיק את המסמך.";
+              ? t("billing.detail.revertError")
+              : t("billing.detail.issueError");
           let serverDetail: string | null = null;
           try {
             const data = await res.json();
@@ -693,7 +684,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setLifecycleError("התקבלה תגובה לא תקינה");
+          setLifecycleError(t("billing.detail.badResponse"));
           return;
         }
 
@@ -707,9 +698,9 @@ export default function BillingDocumentWorkspacePage() {
         }
 
         if (action === "submit") {
-          setLifecycleSuccess("המסמך נשלח לאישור.");
+          setLifecycleSuccess(t("billing.detail.submitted"));
         } else if (action === "revert") {
-          setLifecycleSuccess("המסמך הוחזר לטיוטה.");
+          setLifecycleSuccess(t("billing.detail.reverted"));
         } else if (action === "issue") {
           // "Issued" and "allocation received" are DISTINCT states — never show a
           // generic success just because the document status is ISSUED. Derive the
@@ -726,23 +717,23 @@ export default function BillingDocumentWorkspacePage() {
               setLifecycleError(message);
             }
           } else {
-            setLifecycleSuccess("המסמך הופק.");
+            setLifecycleSuccess(t("billing.detail.issued"));
           }
           setIssueConfirmOpen(false);
         }
       } catch {
-        setLifecycleError("לא הצלחנו להתחבר. נסו שוב בעוד רגע.");
+        setLifecycleError(t("billing.detail.connectError"));
       } finally {
         setLifecycleBusy(null);
       }
     },
-    [id, load]
+    [id, load, t]
   );
 
   useEffect(() => {
     if (!lifecycleSuccess) return;
-    const t = window.setTimeout(() => setLifecycleSuccess(null), 4000);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setLifecycleSuccess(null), 4000);
+    return () => window.clearTimeout(timer);
   }, [lifecycleSuccess]);
 
   const fetchProfileForWarning = useCallback(async () => {
@@ -767,9 +758,9 @@ export default function BillingDocumentWorkspacePage() {
     state.kind === "ready"
       ? state.doc.documentNumberFormatted ??
         (state.doc.documentType === "QUOTE"
-          ? "הצעת מחיר"
-          : "טיוטה ללא מספר")
-      : "מסמך ללקוח";
+          ? t("billing.docType.QUOTE")
+          : t("billing.list.draftNoNumber"))
+      : t("billing.detail.headingFallback");
 
   const status: BillingStatus | null =
     state.kind === "ready" ? state.doc.status : null;
@@ -817,7 +808,7 @@ export default function BillingDocumentWorkspacePage() {
     if (customerDirty) {
       const trimmed = customerInput.trim();
       if (!trimmed) {
-        setPatchError("כדי לשמור לפני יציאה צריך שם לקוח.");
+        setPatchError(t("billing.detail.leaveNeedsCustomer"));
         return false;
       }
       body.customerNameSnapshot = trimmed;
@@ -845,14 +836,14 @@ export default function BillingDocumentWorkspacePage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setPatchError("לא הצלחנו לשמור את פרטי המסמך. נסו שוב.");
+        setPatchError(t("billing.detail.saveFieldsError"));
         setPatchStatus("error");
         return false;
       }
       const data = await res.json();
       const nextDoc: BillingDocumentDetail | undefined = data?.document;
       if (!nextDoc || typeof nextDoc.id !== "number") {
-        setPatchError("התקבלה תגובה לא תקינה");
+        setPatchError(t("billing.detail.badResponse"));
         setPatchStatus("error");
         return false;
       }
@@ -867,7 +858,7 @@ export default function BillingDocumentWorkspacePage() {
       }, 2000);
       return true;
     } catch {
-      setPatchError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
+      setPatchError(t("billing.identity.saveConnectFailed"));
       setPatchStatus("error");
       return false;
     }
@@ -880,12 +871,12 @@ export default function BillingDocumentWorkspacePage() {
     try {
       const fieldsSaved = await saveDraftFieldsNow();
       if (!fieldsSaved) {
-        setLeavingError("לא הצלחנו לשמור את כל השינויים. אפשר להמשיך לערוך ולנסות שוב.");
+        setLeavingError(t("billing.detail.leaveSaveAllError"));
         return;
       }
       const linesSaved = dirtyLines ? await handleSaveLines(false) : true;
       if (!linesSaved) {
-        setLeavingError("לא הצלחנו לשמור את הפריטים. אפשר להמשיך לערוך ולנסות שוב.");
+        setLeavingError(t("billing.detail.leaveSaveLinesError"));
         return;
       }
       const pending = pendingNavigation;
@@ -921,7 +912,6 @@ export default function BillingDocumentWorkspacePage() {
       <div data-billing-column style={{ margin: "0 auto" }}>
         <header
           style={{
-            direction: "rtl",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -961,7 +951,6 @@ export default function BillingDocumentWorkspacePage() {
           <div
             role="status"
             style={{
-              direction: "rtl",
               background: TOKEN.semantic.success.bg,
               border: `1px solid ${TOKEN.semantic.success.border}`,
               color: TOKEN.semantic.success.ink,
@@ -990,7 +979,7 @@ export default function BillingDocumentWorkspacePage() {
                 lineHeight: 1,
                 padding: 0,
               }}
-              aria-label="סגור"
+              aria-label={t("billing.couponIssue.close")}
             >
               ×
             </button>
@@ -1145,6 +1134,7 @@ function DocumentBody({
   convertBusy: boolean;
   convertError: string | null;
 }) {
+  const { t } = useI18n();
   const isDraft = doc.status === "DRAFT";
   const quoteLocked =
     doc.documentType === "QUOTE" && doc.convertedToInvoiceId !== null;
@@ -1215,28 +1205,28 @@ function DocumentBody({
   if (isDraft && !customerOk) {
     missing.push({
       key: "customer",
-      label: "חסר שם לקוח",
+      label: t("billing.detail.missingCustomer"),
       actionId: "billing-customer",
     });
   }
   if (isDraft && !linesOk) {
     missing.push({
       key: "lines",
-      label: "חסרה לפחות שורת פריט אחת",
+      label: t("billing.detail.missingLine"),
       actionId: "billing-lines",
     });
   }
   if (isDraft && dirtyLines) {
     missing.push({
       key: "unsaved-lines",
-      label: "יש שינויים בפריטים שלא נשמרו",
+      label: t("billing.detail.unsavedLines"),
       actionId: "billing-lines",
     });
   }
   if (isDraft && customerDirty) {
     missing.push({
       key: "unsaved-customer",
-      label: "שם הלקוח עוד לא נשמר",
+      label: t("billing.detail.unsavedCustomer"),
       actionId: "billing-customer",
     });
   }
@@ -1270,15 +1260,15 @@ function DocumentBody({
     stage === "draft_ready"
       ? { kind: "open-issue-dialog" }
       : stage === "quote_ready"
-      ? { kind: "scroll", targetId: "billing-quote-share", label: "פעולות הצעה" }
+      ? { kind: "scroll", targetId: "billing-quote-share", label: t("billing.detail.quoteActions") }
       : stage === "pending_review"
       ? {
           kind: "scroll",
           targetId: "billing-pending-actions",
-          label: "פעולות אישור/הפקה",
+          label: t("billing.detail.reviewActions"),
         }
       : stage === "issued"
-      ? { kind: "scroll", targetId: "billing-issued-actions", label: "שיתוף המסמך" }
+      ? { kind: "scroll", targetId: "billing-issued-actions", label: t("billing.detail.shareDocument") }
       : { kind: "none" };
 
   useEffect(() => {
@@ -1392,7 +1382,7 @@ function DocumentBody({
   ) : null;
 
   const detailsContext = (
-    <CollapsiblePanel title="פרטים נוספים">
+    <CollapsiblePanel title={t("billing.detail.moreDetails")}>
       <DetailsCard doc={doc} hideCustomer={isDraft} />
       {isDraft ? null : <LinesSection lines={doc.lines} currency={doc.currency} />}
       <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
@@ -1477,7 +1467,7 @@ function DocumentBody({
               lineHeight: 1,
               padding: 0,
             }}
-            aria-label="סגור"
+            aria-label={t("billing.couponIssue.close")}
           >
             ×
           </button>
@@ -1515,7 +1505,7 @@ function DocumentBody({
               lineHeight: 1,
               padding: 0,
             }}
-            aria-label="סגור"
+            aria-label={t("billing.couponIssue.close")}
           >
             ×
           </button>
@@ -1552,7 +1542,7 @@ function DocumentBody({
               lineHeight: 1,
               padding: 0,
             }}
-            aria-label="סגור"
+            aria-label={t("billing.couponIssue.close")}
           >
             ×
           </button>
@@ -1603,7 +1593,7 @@ function DocumentBody({
             customerDirty={customerDirty}
           />
           {doc.documentType === "TAX_INVOICE" ? <IssuerSummaryBadge /> : null}
-          <CollapsiblePanel title="עריכה נוספת">
+          <CollapsiblePanel title={t("billing.detail.moreEditing")}>
             {customerSection}
             {draftLinesSection}
             <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
@@ -1622,7 +1612,7 @@ function DocumentBody({
             convertBusy={convertBusy}
             onConvert={onConvertQuote}
           />
-          <CollapsiblePanel title="עריכה נוספת">
+          <CollapsiblePanel title={t("billing.detail.moreEditing")}>
             {customerSection}
             {draftLinesSection}
             <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
@@ -1706,8 +1696,8 @@ function DocumentBody({
       startWidth={RAIL_WIDTH}
       breakpointStep={DOCUMENT_DESK_MIN}
       responsive={{ mode: "switch", visible: "end" }}
-      startLabel="הקשר המסמך"
-      endLabel="תוכן השלב"
+      startLabel={t("billing.detail.railStart")}
+      endLabel={t("billing.detail.railEnd")}
     />
   );
 }
@@ -1746,20 +1736,21 @@ function StageAwarePanel({
   missing: Array<{ key: string; label: string; actionId?: string }>;
   quoteValidUntilEmpty: boolean;
 }) {
+  const { t } = useI18n();
   const isQuote = doc.documentType === "QUOTE";
 
   const title =
     stage === "issued"
-      ? "המסמך הופק"
+      ? t("billing.detail.stageIssued")
       : stage === "pending_review"
-      ? "ממתין לאישור"
+      ? t("billing.status.PENDING_REVIEW")
       : stage === "quote_converted"
-      ? "הצעת המחיר הומרה לחשבונית"
+      ? t("billing.detail.stageQuoteConverted")
       : stage === "quote_ready"
-      ? "ההצעה מוכנה ללקוח"
+      ? t("billing.detail.stageQuoteReady")
       : stage === "draft_ready"
-      ? "הטיוטה מוכנה להפקה"
-      : "כדי לאשר את המסמך חסרים פרטים";
+      ? t("billing.detail.stageDraftReady")
+      : t("billing.detail.stageMissing");
 
   const tone =
     stage === "draft_missing"
@@ -1780,7 +1771,7 @@ function StageAwarePanel({
         display: "grid",
         gap: 10,
       }}
-      aria-label="השלב הבא"
+      aria-label={t("billing.detail.nextStepAria")}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
         <div style={{ minWidth: 0 }}>
@@ -1789,20 +1780,20 @@ function StageAwarePanel({
           </div>
           <div style={{ fontSize: 13, color: TOKEN.ink.secondary, marginTop: 4, lineHeight: 1.55 }}>
             {stage === "draft_ready"
-              ? "הכל מוכן לבדיקה אחרונה. הפעולה הבאה היא הפקה רשמית ללקוח."
+              ? t("billing.detail.stageDraftReadyHelp")
               : stage === "quote_ready"
-              ? "שתפו את ההצעה עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."
+              ? t("billing.detail.quoteShareHelp")
               : stage === "quote_converted"
-              ? "ההמרה בוצעה. הפעולה הבאה היא לפתוח את החשבונית."
+              ? t("billing.detail.stageQuoteConvertedHelp")
               : stage === "pending_review"
-              ? "המסמך נבדק ומוכן להחלטה: הפקה רשמית או חזרה לעריכה."
+              ? t("billing.detail.stagePendingHelp")
               : stage === "issued"
-              ? "המסמך הרשמי מוכן לשיתוף, הורדה או צפייה."
-              : "השלימו את החסר ונוביל אתכם לפעולה הבאה."}
+              ? t("billing.detail.stageIssuedHelp")
+              : t("billing.detail.stageMissingHelp")}
           </div>
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted, whiteSpace: "nowrap" }}>
-          {isQuote ? "הצעה" : "חשבונית"} · {STATUS_LABEL[doc.status] ?? doc.status}
+          {isQuote ? t("billing.list.lifecycleQuote") : t("billing.detail.invoiceShort")} · {getStatusLabel(doc.status, t)}
         </div>
       </div>
 
@@ -1818,7 +1809,7 @@ function StageAwarePanel({
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary }}>
-            מה חסר כדי לאשר את המסמך
+            {t("billing.detail.missingTitle")}
           </div>
           <ul style={{ margin: 0, paddingInlineStart: 18 }}>
             {missing.map((m) => (
@@ -1843,7 +1834,7 @@ function StageAwarePanel({
                   onClick={() => scrollToId("billing-valid-until")}
                   style={{ ...MISSING_LINK_STYLE, color: TOKEN.ink.primary }}
                 >
-                  מומלץ למלא &quot;בתוקף עד&quot; להצעה
+                  {t("billing.detail.recommendValidUntil")}
                 </button>
               </li>
             ) : null}
@@ -1878,6 +1869,7 @@ function StickyActionBar({
   convertBusy: boolean;
   onConvert: () => void;
 }) {
+  const { t } = useI18n();
   const show =
     stage !== "draft_missing" ||
     missing.length > 0 ||
@@ -1917,7 +1909,7 @@ function StickyActionBar({
           flex: "1 1 220px",
         }}
       >
-        הפק חשבונית
+        {t("billing.detail.issueInvoice")}
       </button>
     ) : primaryAction.kind === "convert-quote" ? (
       <button
@@ -1934,7 +1926,7 @@ function StickyActionBar({
           flex: "1 1 220px",
         }}
       >
-        {convertBusy ? "יוצר חשבונית…" : "הפוך לחשבונית"}
+        {convertBusy ? t("billing.detail.creatingInvoice") : t("billing.detail.convertToInvoice")}
       </button>
     ) : primaryAction.kind === "scroll" ? (
       <button
@@ -1967,7 +1959,7 @@ function StickyActionBar({
           flex: "1 1 180px",
         }}
       >
-        המשך לשלב הבא
+        {t("billing.detail.continueNext")}
       </button>
     ) : null;
 
@@ -1993,7 +1985,7 @@ function StickyActionBar({
           flexWrap: "wrap",
         }}
         role="region"
-        aria-label="פעולה מהירה"
+        aria-label={t("billing.detail.quickActionAria")}
       >
         {primary}
         {secondary}
@@ -2019,6 +2011,7 @@ function DraftIssuePrimarySection({
   onSubmitForReview: () => void;
   customerDirty: boolean;
 }) {
+  const { t } = useI18n();
   const busy = issueLoading || submitLoading;
   return (
     <section
@@ -2034,16 +2027,14 @@ function DraftIssuePrimarySection({
       }}
     >
       <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.ink.primary }}>
-        אישור והפקה
+        {t("billing.detail.approveAndIssue")}
       </div>
       <p style={{ fontSize: 13, color: TOKEN.ink.muted, margin: 0, lineHeight: 1.55 }}>
-        בדקו שהלקוח, הפריטים והסכום נכונים. לאחר ההפקה יוקצה מספר רשמי והמסמך
-        יינעל לעריכה.
+        {t("billing.detail.approveHelp")}
       </p>
       {customerDirty ? (
         <div style={{ fontSize: 12, color: TOKEN.semantic.attention.ink, lineHeight: 1.5 }}>
-          יש שינוי בשם הלקוח שעדיין נשמר — המתינו ל&quot;נשמר&quot; או בחרו לקוח
-          מהרשימה.
+          {t("billing.detail.customerSavingHint")}
         </div>
       ) : null}
       <button
@@ -2059,7 +2050,7 @@ function DraftIssuePrimarySection({
           width: "100%",
         }}
       >
-        {issueLoading ? "פותח אישור…" : "הפק חשבונית"}
+        {issueLoading ? t("billing.detail.openingApproval") : t("billing.detail.issueInvoice")}
       </button>
 
       <details
@@ -2078,10 +2069,10 @@ function DraftIssuePrimarySection({
             color: TOKEN.ink.secondary,
           }}
         >
-          צריך אישור פנימי לפני הפקה?
+          {t("billing.detail.internalReviewQuestion")}
         </summary>
         <p style={{ fontSize: 12, color: TOKEN.ink.muted, margin: "10px 0 8px" }}>
-          מתאים כשמישהו נוסף צריך לבדוק את המסמך לפני שהוא הופך לרשמי.
+          {t("billing.detail.internalReviewHelp")}
         </p>
         <button
           type="button"
@@ -2096,7 +2087,7 @@ function DraftIssuePrimarySection({
             width: "100%",
           }}
         >
-          {submitLoading ? "מעביר…" : "שלח לאישור"}
+          {submitLoading ? t("billing.detail.moving") : t("billing.detail.sendForReview")}
         </button>
       </details>
     </section>
@@ -2114,6 +2105,7 @@ function PendingReviewLifecycleSection({
   onRevert: () => void;
   onOpenIssueDialog: () => void;
 }) {
+  const { t } = useI18n();
   const busy = lifecycleBusy !== null;
   const issueDisabled =
     doc.lines.length === 0 || busy || lifecycleBusy === "revert";
@@ -2133,10 +2125,10 @@ function PendingReviewLifecycleSection({
       }}
     >
       <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.semantic.attention.ink }}>
-        ממתין לאישור
+        {t("billing.status.PENDING_REVIEW")}
       </div>
       <p style={{ fontSize: 14, color: TOKEN.semantic.attention.ink, margin: 0, lineHeight: 1.5 }}>
-          אפשר להפוך את המסמך לרשמי, או להחזיר אותו לעריכה אם משהו עוד לא סגור.
+          {t("billing.detail.pendingHelp")}
       </p>
       <div
         style={{
@@ -2161,7 +2153,7 @@ function PendingReviewLifecycleSection({
             width: "100%",
           }}
         >
-          הפק חשבונית
+          {t("billing.detail.issueInvoice")}
         </button>
         <button
           type="button"
@@ -2181,12 +2173,12 @@ function PendingReviewLifecycleSection({
             width: "100%",
           }}
         >
-          {lifecycleBusy === "revert" ? "מעביר..." : "החזר לטיוטה"}
+          {lifecycleBusy === "revert" ? t("billing.detail.movingDots") : t("billing.detail.revertToDraft")}
         </button>
       </div>
       {doc.lines.length === 0 ? (
         <div style={{ fontSize: 12, color: TOKEN.semantic.attention.ink }}>
-          לא ניתן להפיק מסמך לפני שמוסיפים ושומרים לפחות פריט אחד.
+          {t("billing.detail.issueNeedsLine")}
         </div>
       ) : null}
     </section>
@@ -2206,6 +2198,7 @@ function IssueConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="dialog"
@@ -2248,11 +2241,10 @@ function IssueConfirmDialog({
             margin: 0,
           }}
         >
-          הפק חשבונית
+          {t("billing.detail.issueInvoice")}
         </h2>
         <p style={{ fontSize: 14, color: TOKEN.ink.secondary, margin: 0, lineHeight: 1.6 }}>
-          זה רגע האישור הסופי. למסמך יוקצה מספר רשמי ולא ניתן יהיה לערוך אותו
-          לאחר ההפקה.
+          {t("billing.detail.confirmHelp")}
         </p>
         {missingTaxId ? (
           <div
@@ -2268,15 +2260,15 @@ function IssueConfirmDialog({
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>
-              מספר עוסק / ח.פ. לא הוגדר
+              {t("billing.detail.taxIdMissingTitle")}
             </div>
             <div>
-              החשבונית תהיה אמינה וברורה יותר עם מספר עוסק. ניתן להוסיף אותו ב
+              {t("billing.detail.taxIdMissingBody")}
               <Link href="/business" style={{ fontWeight: 600, color: TOKEN.semantic.attention.ink }}>
                 {" "}
-                הגדרות העסק
+                {t("billing.detail.taxIdMissingLink")}
               </Link>
-              {" — או להמשיך כך."}
+              {t("billing.detail.taxIdMissingAfter")}
             </div>
           </div>
         ) : null}
@@ -2320,7 +2312,7 @@ function IssueConfirmDialog({
               width: "100%",
             }}
           >
-            {issuing ? "מפיק..." : "הפק חשבונית"}
+            {issuing ? t("billing.detail.issuing") : t("billing.detail.issueInvoice")}
           </button>
           <button
             type="button"
@@ -2338,7 +2330,7 @@ function IssueConfirmDialog({
               width: "100%",
             }}
           >
-            ביטול
+            {t("common.cancel")}
           </button>
         </div>
       </div>
@@ -2359,6 +2351,7 @@ function UnsavedChangesDialog({
   onLeaveWithoutSaving: () => void;
   onKeepEditing: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role="dialog"
@@ -2390,7 +2383,6 @@ function UnsavedChangesDialog({
           flexDirection: "column",
           gap: 14,
           boxShadow: TOKEN.shadow.floating,
-          direction: "rtl",
         }}
       >
         <h2
@@ -2402,10 +2394,10 @@ function UnsavedChangesDialog({
             margin: 0,
           }}
         >
-          יש שינויים שלא נשמרו
+          {t("billing.detail.unsavedTitle")}
         </h2>
         <p style={{ fontSize: 14, color: TOKEN.ink.secondary, margin: 0, lineHeight: 1.6 }}>
-          לשמור לפני שיוצאים?
+          {t("billing.detail.unsavedQuestion")}
         </p>
         {errorMessage ? (
           <div
@@ -2441,7 +2433,7 @@ function UnsavedChangesDialog({
               width: "100%",
             }}
           >
-            {saving ? "שומר…" : "שמור והמשך"}
+            {saving ? t("common.saving") : t("billing.list.gateSave")}
           </button>
           <button
             type="button"
@@ -2459,7 +2451,7 @@ function UnsavedChangesDialog({
               width: "100%",
             }}
           >
-            צא בלי לשמור
+            {t("billing.detail.leaveWithoutSaving")}
           </button>
           <button
             type="button"
@@ -2477,7 +2469,7 @@ function UnsavedChangesDialog({
               width: "100%",
             }}
           >
-            המשך עריכה
+            {t("billing.detail.keepEditing")}
           </button>
         </div>
       </div>
@@ -2516,11 +2508,12 @@ function DraftEditorSection({
   validUntilError?: string | null;
   visualTone?: "default" | "secondary";
 }) {
+  const { t } = useI18n();
   let saveHint = "";
   if (patchStatus === "saving" || validUntilStatus === "saving") {
-    saveHint = "שומר…";
+    saveHint = t("common.saving");
   } else if (patchStatus === "saved" || validUntilStatus === "saved") {
-    saveHint = "נשמר";
+    saveHint = t("common.saved");
   }
 
   const isSecondary = visualTone === "secondary";
@@ -2548,14 +2541,14 @@ function DraftEditorSection({
           color: TOKEN.ink.primary,
         }}
       >
-        {isSecondary ? "פרטי לקוח (נשמרו)" : "למי המסמך מיועד?"}
+        {isSecondary ? t("billing.detail.customerSavedTitle") : t("billing.customerPicker.label")}
       </div>
       <div style={{ fontSize: 13, color: TOKEN.ink.secondary, lineHeight: 1.5 }}>
-        בחרו לקוח או כתבו שם כפי שיופיע במסמך. הפריטים שסוכמו נשמרים בנפרד.
+        {t("billing.detail.customerHelp")}
         {showValidUntil ? (
           <>
             {" "}
-            ניתן להוסיף תאריך תוקף להצעה — הוא יופיע במסמך ללקוח.
+            {t("billing.detail.validUntilHelp")}
           </>
         ) : null}
       </div>
@@ -2572,7 +2565,7 @@ function DraftEditorSection({
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span id="billing-valid-until" />
           <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>
-            בתוקף עד (אופציונלי)
+            {t("billing.detail.validUntilLabel")}
           </span>
           <input
             type="date"
@@ -2614,7 +2607,7 @@ function DraftEditorSection({
           </span>
         ) : null}
         <span style={{ fontSize: 12, color: TOKEN.ink.meta }}>
-          סכומים ב־{doc.currency}
+          {t("billing.doc.amountsIn", { currency: doc.currency })}
         </span>
       </div>
       {patchError ? (
@@ -2687,6 +2680,7 @@ function DraftLinesSection({
   draftLocked?: boolean;
   visualTone?: "default" | "secondary";
 }) {
+  const { t } = useI18n();
   const isSecondary = visualTone === "secondary";
   return (
     <section
@@ -2711,7 +2705,7 @@ function DraftLinesSection({
           letterSpacing: "0.02em",
         }}
       >
-        {isSecondary ? "פריטים שסוכמו (נשמרו)" : "מה סוכם עם הלקוח?"} ({linesDraft.length})
+        {t(isSecondary ? "billing.detail.linesSavedTitle" : "billing.detail.linesTitle", { count: linesDraft.length })}
       </h2>
 
       {draftLocked ? (
@@ -2726,7 +2720,7 @@ function DraftLinesSection({
             lineHeight: 1.5,
           }}
         >
-          ההצעה כבר הפכה לחשבונית — הפריטים נעולים לעריכה.
+          {t("billing.detail.linesLocked")}
         </div>
       ) : null}
 
@@ -2741,7 +2735,7 @@ function DraftLinesSection({
             fontSize: 14,
           }}
         >
-          עדיין אין פריטים. הוסיפו את השירות, המוצר או התוצר שהלקוח יקבל.
+          {t("billing.detail.noLinesYet")}
         </div>
       ) : (
         <ul
@@ -2798,7 +2792,7 @@ function DraftLinesSection({
             flex: "1 1 140px",
           }}
         >
-          + הוסף פריט
+          {t("billing.detail.addLine")}
         </button>
         <button
           type="button"
@@ -2818,13 +2812,13 @@ function DraftLinesSection({
             flex: "1 1 160px",
           }}
         >
-          {linesSaving ? "שומר פריטים..." : "שמור פריטים"}
+          {linesSaving ? t("billing.detail.savingLines") : t("billing.detail.saveLines")}
         </button>
       </div>
 
       {customerDirty || patchSaving ? (
         <div style={{ fontSize: 12, color: TOKEN.semantic.attention.ink, lineHeight: 1.5 }}>
-          נשמור קודם את פרטי הלקוח
+          {t("billing.detail.savingCustomerFirst")}
         </div>
       ) : null}
 
@@ -2868,6 +2862,7 @@ function DraftLineEditorCard({
   onRemove: () => void;
   readOnly?: boolean;
 }) {
+  const { t, locale } = useI18n();
   return (
     <li
       style={{
@@ -2915,20 +2910,20 @@ function DraftLineEditorCard({
             opacity: readOnly ? 0.45 : 1,
           }}
         >
-          הסר פריט
+          {t("billing.detail.removeLine")}
         </button>
       </div>
 
       <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>
-          תיאור
+          {t("billing.detail.description")}
         </span>
         <input
           type="text"
           value={line.description}
           onChange={(e) => onChange({ description: e.target.value })}
           dir="auto"
-          placeholder="תיאור פריט"
+          placeholder={t("billing.detail.descriptionPlaceholder")}
           readOnly={readOnly}
           disabled={readOnly}
           style={{
@@ -2952,7 +2947,7 @@ function DraftLineEditorCard({
       >
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>
-            כמות
+            {t("billing.detail.quantity")}
           </span>
           <input
             type="text"
@@ -2975,7 +2970,7 @@ function DraftLineEditorCard({
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>
-            מחיר ליחידה ({currency})
+            {t("billing.detail.unitPrice", { currency })}
           </span>
           <input
             type="text"
@@ -3000,7 +2995,7 @@ function DraftLineEditorCard({
 
       <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>
-          אחוז מע&quot;מ
+          {t("billing.detail.vatPercent")}
         </span>
         <input
           type="text"
@@ -3033,16 +3028,16 @@ function DraftLineEditorCard({
             lineHeight: 1.6,
           }}
         >
-          סה&quot;כ שמור לפריט זה:{" "}
+          {t("billing.detail.savedLineTotal")}{" "}
           <span style={{ fontWeight: 600, color: TOKEN.ink.primary }}>
-            {formatMoney(serverLine.lineTotal, currency)}
+            {formatMoney(serverLine.lineTotal, currency, locale)}
           </span>
           {serverLine.description !== line.description.trim() ||
           String(serverLine.quantity).trim() !== line.quantity.trim() ||
           String(serverLine.unitPrice).trim() !== line.unitPrice.trim() ||
           String(serverLine.vatRatePercent).trim() !==
             line.vatRatePercent.trim() ? (
-            <span> — יתעדכן אחרי שמירת הפריטים</span>
+            <span>{t("billing.detail.updatesAfterSave")}</span>
           ) : null}
         </div>
       ) : (
@@ -3054,7 +3049,7 @@ function DraftLineEditorCard({
             color: TOKEN.ink.meta,
           }}
         >
-          פריט חדש — הסכום יחושב אחרי השמירה.
+          {t("billing.detail.newLineHint")}
         </div>
       )}
     </li>
@@ -3082,7 +3077,7 @@ function ShareOptionButton({
         padding: "10px 12px",
         fontSize: 14,
         fontWeight: 600,
-        textAlign: "right",
+        textAlign: "start",
       }}
     >
       {children}
@@ -3103,6 +3098,7 @@ function QuoteDraftHero({
   convertBusy: boolean;
   onConvert: () => void;
 }) {
+  const { t } = useI18n();
   const numberLabel = doc.documentNumberFormatted ?? String(doc.id);
   const pdfUrl = `/api/billing/documents/${doc.id}/pdf`;
   const downloadName = `quote-${doc.documentNumberFormatted ?? doc.id}.pdf`;
@@ -3148,39 +3144,40 @@ function QuoteDraftHero({
         ? (err as { serverMessage?: string }).serverMessage
         : undefined;
     if (status === 401) {
-      return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
+      return t("billing.detail.pdfReauth");
     }
     if (status === 403) {
       // A delivery block (allocation not yet received) carries a specific reason;
       // surface it. Only fall back to the generic authorization message otherwise.
-      return serverMessage ?? "אין הרשאה לפתוח את המסמך הזה.";
+      return serverMessage ?? t("billing.detail.pdfForbidden");
     }
     if (status === 500) {
-      return "הכנת המסמך לשיתוף נכשלה. נסו שוב.";
+      return t("billing.detail.pdfPrepareFailed");
     }
     return action === "view"
-      ? "לא הצלחנו לפתוח את המסמך. נסו שוב."
+      ? t("billing.detail.pdfViewFailed")
       : action === "share"
-      ? "לא הצלחנו להכין את המסמך לשיתוף. נסו הורדה."
-      : "לא הצלחנו להוריד את המסמך. נסו שוב.";
+      ? t("billing.detail.pdfShareFailed")
+      : t("billing.detail.pdfDownloadFailed");
   }
 
+  // Outbound message to the CUSTOMER — stays Hebrew (not interface copy; see i18n B-4).
   function handleWhatsAppQuote() {
     const body = `שלום,
 מצורפת הצעת מחיר מספר ${numberLabel}.
 ניתן לצרף את המסמך לאחר הורדה או שיתוף מהנייד.`;
     const url = `https://wa.me/?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
-    setShareNotice("פתחנו הודעה מוכנה ללקוח.");
+    setShareNotice(t("billing.detail.whatsappOpened"));
   }
 
   async function handleCopyLink() {
     try {
       const url = new URL(pdfUrl, window.location.origin).toString();
       await navigator.clipboard.writeText(url);
-      setShareNotice("הקישור למסמך הועתק.");
+      setShareNotice(t("billing.detail.linkCopied"));
     } catch {
-      setPdfError("לא הצלחנו להעתיק קישור. אפשר להוריד את המסמך ולשתף ידנית.");
+      setPdfError(t("billing.detail.copyLinkFailed"));
     }
   }
 
@@ -3195,11 +3192,9 @@ function QuoteDraftHero({
       const shareData: ShareData = { files: [file] };
       if (navigator.share && navigator.canShare?.(shareData)) {
         await navigator.share(shareData);
-        setShareNotice("המסמך מוכן לשיתוף.");
+        setShareNotice(t("billing.detail.readyToShare"));
       } else {
-        setPdfError(
-          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו הורדה או שלחו הודעה בווטסאפ והעבירו את המסמך ידנית."
-        );
+        setPdfError(t("billing.detail.fileShareUnsupported"));
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -3218,7 +3213,7 @@ function QuoteDraftHero({
     try {
       const blob = await fetchPdfBlob();
       openPdfBlobInNewTab(blob);
-      setShareNotice("המסמך נפתח בלשונית חדשה.");
+      setShareNotice(t("billing.detail.openedNewTab"));
     } catch (err) {
       setPdfError(describePdfError(err, "view"));
     } finally {
@@ -3242,7 +3237,7 @@ function QuoteDraftHero({
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setShareNotice("המסמך ירד למחשב.");
+      setShareNotice(t("billing.detail.downloaded"));
     } catch (err) {
       setPdfError(describePdfError(err, "download"));
     } finally {
@@ -3279,7 +3274,7 @@ function QuoteDraftHero({
             letterSpacing: "0.04em",
           }}
         >
-          הצעת מחיר — מסמך עסקי (לא חשבונית מס)
+          {t("billing.detail.quoteBadge")}
         </span>
         <span
           style={{
@@ -3293,8 +3288,8 @@ function QuoteDraftHero({
         </span>
         <p style={{ margin: 0, fontSize: 13, color: TOKEN.ink.secondary, lineHeight: 1.55 }}>
           {locked
-            ? "ההצעה כבר הפכה לחשבונית. ניתן עדיין לשמור עותק של ההצעה המקורית."
-            : "שתפו את ההצעה עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."}
+            ? t("billing.detail.quoteLockedHelp")
+            : t("billing.detail.quoteShareHelp")}
         </p>
       </div>
 
@@ -3344,7 +3339,7 @@ function QuoteDraftHero({
           width: "100%",
         }}
       >
-        {loadingAction ? "מכין מסמך..." : "שתף"}
+        {loadingAction ? t("billing.detail.preparing") : t("billing.detail.share")}
       </button>
 
       {shareOpen ? (
@@ -3359,19 +3354,19 @@ function QuoteDraftHero({
           }}
         >
           <ShareOptionButton onClick={() => void handleShare()} disabled={isBusy}>
-            שיתוף מהנייד
+            {t("billing.detail.shareMobile")}
           </ShareOptionButton>
           <ShareOptionButton onClick={handleWhatsAppQuote} disabled={isBusy}>
             WhatsApp
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleView()} disabled={isBusy}>
-            צפייה במסמך
+            {t("billing.detail.viewDocument")}
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleDownload()} disabled={isBusy}>
-            הורדה
+            {t("billing.detail.download")}
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleCopyLink()} disabled={isBusy}>
-            העתק קישור
+            {t("billing.detail.copyLink")}
           </ShareOptionButton>
         </div>
       ) : null}
@@ -3390,7 +3385,7 @@ function QuoteDraftHero({
             width: "100%",
           }}
         >
-          {convertBusy ? "יוצר חשבונית…" : "הפוך לחשבונית כשיש הסכמה"}
+          {convertBusy ? t("billing.detail.creatingInvoice") : t("billing.detail.convertWhenAgreed")}
         </button>
       ) : doc.convertedToInvoiceId !== null ? (
         <Link
@@ -3408,7 +3403,7 @@ function QuoteDraftHero({
             textDecoration: "none",
           }}
         >
-          פתח את החשבונית שנוצרה
+          {t("billing.detail.openCreatedInvoice")}
         </Link>
       ) : null}
     </section>
@@ -3416,8 +3411,11 @@ function QuoteDraftHero({
 }
 
 function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
-  const issuedDate = formatDateTime(doc.issuedAt);
+  const { t, locale } = useI18n();
+  const issuedDate = formatDateTime(doc.issuedAt, locale);
+  // numberLabel feeds both the screen and the outbound WhatsApp text below, which stays Hebrew.
   const numberLabel = doc.documentNumberFormatted ?? "ללא מספר";
+  const screenNumberLabel = doc.documentNumberFormatted ?? t("billing.detail.noNumber");
   const pdfUrl = `/api/billing/documents/${doc.id}/pdf`;
   const downloadName = `invoice-${doc.documentNumberFormatted ?? doc.id}.pdf`;
 
@@ -3462,39 +3460,40 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         ? (err as { serverMessage?: string }).serverMessage
         : undefined;
     if (status === 401) {
-      return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
+      return t("billing.detail.pdfReauth");
     }
     if (status === 403) {
       // A delivery block (allocation not yet received) carries a specific reason;
       // surface it. Only fall back to the generic authorization message otherwise.
-      return serverMessage ?? "אין הרשאה לפתוח את המסמך הזה.";
+      return serverMessage ?? t("billing.detail.pdfForbidden");
     }
     if (status === 500) {
-      return "המסמך הופק, אבל ההכנה לשיתוף נכשלה. נסו שוב.";
+      return t("billing.detail.pdfIssuedPrepareFailed");
     }
     return action === "view"
-      ? "לא הצלחנו לפתוח את המסמך. נסו שוב."
+      ? t("billing.detail.pdfViewFailed")
       : action === "share"
-      ? "לא הצלחנו להכין את המסמך לשיתוף. נסו הורדה."
-      : "לא הצלחנו להוריד את המסמך. נסו שוב.";
+      ? t("billing.detail.pdfShareFailed")
+      : t("billing.detail.pdfDownloadFailed");
   }
 
+  // Outbound message to the CUSTOMER — stays Hebrew (not interface copy; see i18n B-4).
   function handleWhatsAppDraft() {
     const body = `שלום,
 מצורפת חשבונית מס מספר ${numberLabel}.
 נשמח לשלוח את המסמך — נא להשתמש בכפתור "הורד" או "שתף" באפליקציה.`;
     const url = `https://wa.me/?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
-    setShareNotice("פתחנו הודעה מוכנה ללקוח.");
+    setShareNotice(t("billing.detail.whatsappOpened"));
   }
 
   async function handleCopyLink() {
     try {
       const url = new URL(pdfUrl, window.location.origin).toString();
       await navigator.clipboard.writeText(url);
-      setShareNotice("הקישור למסמך הועתק.");
+      setShareNotice(t("billing.detail.linkCopied"));
     } catch {
-      setPdfError("לא הצלחנו להעתיק קישור. אפשר להוריד את המסמך ולשתף ידנית.");
+      setPdfError(t("billing.detail.copyLinkFailed"));
     }
   }
 
@@ -3509,11 +3508,9 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       const shareData: ShareData = { files: [file] };
       if (navigator.share && navigator.canShare?.(shareData)) {
         await navigator.share(shareData);
-        setShareNotice("המסמך מוכן לשיתוף.");
+        setShareNotice(t("billing.detail.readyToShare"));
       } else {
-        setPdfError(
-          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו הורדה או שלחו הודעה בווטסאפ והעבירו את המסמך ידנית."
-        );
+        setPdfError(t("billing.detail.fileShareUnsupported"));
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -3532,7 +3529,7 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
     try {
       const blob = await fetchPdfBlob();
       openPdfBlobInNewTab(blob);
-      setShareNotice("המסמך נפתח בלשונית חדשה.");
+      setShareNotice(t("billing.detail.openedNewTab"));
     } catch (err) {
       setPdfError(describePdfError(err, "view"));
     } finally {
@@ -3556,7 +3553,7 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setShareNotice("המסמך ירד למחשב.");
+      setShareNotice(t("billing.detail.downloaded"));
     } catch (err) {
       setPdfError(describePdfError(err, "download"));
     } finally {
@@ -3593,7 +3590,7 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
             letterSpacing: "0.04em",
           }}
         >
-          מסמך הופק
+          {t("billing.detail.issuedBadge")}
         </span>
         <span
           style={{
@@ -3603,11 +3600,11 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
             lineHeight: 1.1,
           }}
         >
-          #{numberLabel}
+          #{screenNumberLabel}
         </span>
         {issuedDate ? (
           <span style={{ fontSize: 14, color: TOKEN.ink.secondary }}>
-            תאריך הפקה: {issuedDate}
+            {t("billing.detail.issuedDate", { date: issuedDate })}
           </span>
         ) : null}
       </div>
@@ -3658,7 +3655,7 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         width: "100%",
       }}
       >
-        {loadingAction ? "מכין מסמך..." : "שתף"}
+        {loadingAction ? t("billing.detail.preparing") : t("billing.detail.share")}
       </button>
 
       {shareOpen ? (
@@ -3673,19 +3670,19 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
           }}
         >
           <ShareOptionButton onClick={() => void handleShare()} disabled={isBusy}>
-            שיתוף מהנייד
+            {t("billing.detail.shareMobile")}
           </ShareOptionButton>
           <ShareOptionButton onClick={handleWhatsAppDraft} disabled={isBusy}>
             WhatsApp
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleView()} disabled={isBusy}>
-            צפייה במסמך
+            {t("billing.detail.viewDocument")}
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleDownload()} disabled={isBusy}>
-            הורדה
+            {t("billing.detail.download")}
           </ShareOptionButton>
           <ShareOptionButton onClick={() => void handleCopyLink()} disabled={isBusy}>
-            העתק קישור
+            {t("billing.detail.copyLink")}
           </ShareOptionButton>
         </div>
       ) : null}
@@ -3739,6 +3736,7 @@ function toPaymentRequestView(raw: unknown): PaymentRequestView | null {
  * creates requests of its own.
  */
 function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
+  const { t, locale } = useI18n();
   type InvoiceCollectionState = {
     customerId: number | null;
     currency: string;
@@ -3764,13 +3762,13 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         const data = (await res.json()) as InvoiceCollectionState;
         if (!cancelled) setState(data);
       } catch {
-        if (!cancelled) setError("לא הצלחנו לטעון את מצב הגבייה.");
+        if (!cancelled) setError(t("billing.detail.collectionsLoadError"));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [doc.id]);
+  }, [doc.id, t]);
 
   const row = (label: string, value: string, strong = false) => (
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: strong ? TOKEN.ink.primary : TOKEN.ink.secondary, fontWeight: strong ? 700 : 400 }}>
@@ -3791,19 +3789,19 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         gap: 12,
       }}
     >
-      <span style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary, letterSpacing: "-0.01em" }}>גבייה</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary, letterSpacing: "-0.01em" }}>{t("billing.detail.collectionsTitle")}</span>
       {error ? <span style={{ fontSize: 13, color: TOKEN.semantic.urgent.ink }}>{error}</span> : null}
-      {!state && !error ? <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>טוען…</span> : null}
+      {!state && !error ? <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>{t("common.loading")}</span> : null}
       {state ? (
         <>
           <div style={{ display: "grid", gap: 6 }}>
-            {row("שולם", formatMoney(state.paid, state.currency))}
-            {Number(state.credited) > 0 ? row("זוכה", formatMoney(state.credited, state.currency)) : null}
-            {row("נותר", formatMoney(state.remaining, state.currency), true)}
+            {row(t("billing.detail.paid"), formatMoney(state.paid, state.currency, locale))}
+            {Number(state.credited) > 0 ? row(t("billing.detail.credited"), formatMoney(state.credited, state.currency, locale)) : null}
+            {row(t("billing.detail.remaining"), formatMoney(state.remaining, state.currency, locale), true)}
           </div>
           {state.latestRequest ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: TOKEN.ink.secondary }}>
-              <span>בקשת התשלום האחרונה:</span>
+              <span>{t("billing.detail.latestRequest")}</span>
               <PaymentStatusBadge status={state.latestRequest.status} />
             </div>
           ) : null}
@@ -3814,17 +3812,17 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
                   href={`/collection/new?customerId=${state.customerId}&invoiceId=${doc.id}`}
                   style={{ ...primaryActionStyle({ height: 44 }), textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                 >
-                  גבה {formatMoney(state.remaining, state.currency)}
+                  {t("billing.detail.collect", { amount: formatMoney(state.remaining, state.currency, locale) })}
                 </Link>
                 <Link href={`/collection/c/${state.customerId}`} style={{ fontSize: 13, color: TOKEN.ink.secondary, alignSelf: "center" }}>
-                  לתיק הלקוח
+                  {t("billing.detail.toCustomerFile")}
                 </Link>
               </div>
             ) : (
-              <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>כדי לגבות, שייכו את החשבונית ללקוח.</span>
+              <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>{t("billing.detail.collectNeedsCustomer")}</span>
             )
           ) : (
-            <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>החשבונית סגורה — אין יתרה לגבייה.</span>
+            <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>{t("billing.detail.invoiceClosed")}</span>
           )}
         </>
       ) : null}
@@ -3833,6 +3831,7 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
 }
 
 function PaymentStatusBadge({ status }: { status: PaymentRequestStatus }) {
+  const { t } = useI18n();
   const style = PAYMENT_STATUS_STYLE[status];
   return (
     <span
@@ -3847,7 +3846,7 @@ function PaymentStatusBadge({ status }: { status: PaymentRequestStatus }) {
         whiteSpace: "nowrap",
       }}
     >
-      {PAYMENT_REQUEST_STATUS_LABEL[status]}
+      {t(`billing.paymentRequestStatus.${status}`)}
     </span>
   );
 }

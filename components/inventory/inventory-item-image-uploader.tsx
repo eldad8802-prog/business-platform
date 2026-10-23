@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { primaryActionStyle } from "@/components/inventory/inventory-tokens";
 import { uploadInventoryItemImage } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type Props = {
   itemId: number;
@@ -21,6 +22,7 @@ export default function InventoryItemImageUploader({
   imageUrl,
   onUpdated,
 }: Props) {
+  const { t } = useI18n();
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -61,7 +63,7 @@ export default function InventoryItemImageUploader({
 
     if (!selected.type.startsWith("image/")) {
       setFile(null);
-      setError("אפשר להעלות קובץ תמונה בלבד");
+      setError(t("customers.inventoryKit.image.imagesOnly"));
       resetInputs();
       return;
     }
@@ -104,7 +106,7 @@ export default function InventoryItemImageUploader({
     if (loading) return;
 
     if (!file) {
-      setError("צריך לבחור או לצלם תמונה לפני העלאה");
+      setError(t("customers.inventoryKit.image.pickFirst"));
       setSuccessText(null);
       return;
     }
@@ -121,7 +123,7 @@ export default function InventoryItemImageUploader({
       const updatedImageUrl = getSafeImageUrl(updated?.imageUrl);
       setPreview(updatedImageUrl);
       setFile(null);
-      setSuccessText("התמונה עודכנה בהצלחה");
+      setSuccessText(t("customers.inventoryKit.image.updated"));
 
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
@@ -132,9 +134,9 @@ export default function InventoryItemImageUploader({
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : null;
       if (message === "UNAUTHORIZED") {
-        setError("אין הרשאה להעלות תמונה. צריך להתחבר מחדש.");
+        setError(t("customers.inventoryKit.image.unauthorizedUpload"));
       } else {
-        setError(message || "העלאת התמונה נכשלה");
+        setError(message || t("customers.inventoryKit.image.uploadFailed"));
       }
 
       setSuccessText(null);
@@ -160,7 +162,7 @@ export default function InventoryItemImageUploader({
           color: "var(--inv-text)",
         }}
       >
-        תמונת פריט
+        {t("customers.inventoryKit.image.title")}
       </div>
 
       <div
@@ -171,7 +173,7 @@ export default function InventoryItemImageUploader({
           lineHeight: 1.5,
         }}
       >
-        אפשר לבחור תמונה מהגלריה או לצלם פריט חדש.
+        {t("customers.inventoryKit.image.uploaderIntro")}
       </div>
 
       <div
@@ -192,7 +194,7 @@ export default function InventoryItemImageUploader({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={preview}
-            alt="תמונת פריט"
+            alt={t("customers.inventoryKit.image.title")}
             style={{
               width: "100%",
               height: "100%",
@@ -225,7 +227,7 @@ export default function InventoryItemImageUploader({
             >
               <BoxIcon />
             </div>
-            אין תמונה
+            {t("customers.inventoryKit.image.noImage")}
           </div>
         )}
       </div>
@@ -273,7 +275,7 @@ export default function InventoryItemImageUploader({
             fontWeight: 600,
           }}
         >
-          בחירה מהגלריה
+          {t("customers.inventoryKit.image.fromGallery")}
         </button>
 
         <button
@@ -292,7 +294,7 @@ export default function InventoryItemImageUploader({
             fontWeight: 600,
           }}
         >
-          צילום פריט
+          {t("customers.inventoryKit.image.takePhoto")}
         </button>
 
         {file && (
@@ -312,7 +314,7 @@ export default function InventoryItemImageUploader({
               fontWeight: 600,
             }}
           >
-            ביטול בחירה
+            {t("customers.inventoryKit.image.cancelPick")}
           </button>
         )}
 
@@ -327,7 +329,7 @@ export default function InventoryItemImageUploader({
             fontWeight: 600,
           }}
         >
-          {loading ? "מעלה..." : "העלאת תמונה"}
+          {loading ? t("customers.inventoryKit.image.uploading") : t("customers.inventoryKit.image.upload")}
         </button>
       </div>
 
@@ -340,7 +342,7 @@ export default function InventoryItemImageUploader({
             lineHeight: 1.5,
           }}
         >
-          קובץ נבחר: {file.name}
+          {t("customers.inventoryKit.image.fileChosen", { name: file.name })}
         </div>
       )}
 

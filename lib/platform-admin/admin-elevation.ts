@@ -75,6 +75,11 @@ export function clearAdminElevation(): void {
   held = null;
 }
 
+/** When the held elevation stops working (ms epoch), or null. For display only. */
+export function getAdminElevationExpiresAt(now: number = Date.now()): number | null {
+  return getAdminElevation(now) ? held!.expiresAt : null;
+}
+
 /* -------------------------------------------------------------------------- *
  * Step-up handler registry
  *
@@ -150,6 +155,57 @@ export async function verifyAdminMfaCode(
       : ADMIN_ELEVATION_MAX_SECONDS;
 
   return { ok: true, elevation: payload.elevation, expiresInSeconds };
+}
+
+/**
+ * Step up with a passkey (Face ID / fingerprint / device PIN): options → the
+ * browser ceremony → verify. Same result shape as a TOTP verification; a
+ * cancelled ceremony comes back as `{ ok: false, reason: "cancelled" }`.
+ */
+export async function verifyAdminWithPasskey(bearerToken: string): Promise<AdminMfaVerifyResult> {
+  const headers = {
+    Authorization: `Bearer ${bearerToken}`,
+    "Content-Type": "application/json",
+  };
+  const begin = await fetch("/api/platform-admin/passkeys/auth/options", {
+    method: "POST",
+    headers,
+    cache: "no-store",
+  });
+  type Begin = { options?: unknown; challengeToken?: string; code?: string };
+  const beginBody = (await begin.json().catch(() => null)) as Begin | null;
+  if (!begin.ok || !beginBody?.options || typeof beginBody.challengeToken !== "string") {
+    return { ok: false, status: begin.status, reason: beginBody?.code };
+  }
+
+  const { startAuthentication } = await import("@simplewebauthn/browser");
+  let response: unknown;
+  try {
+    response = await startAuthentication({
+      optionsJSON: beginBody.options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
+    });
+  } catch {
+    // The person closed the sheet, or the device has no matching passkey.
+    return { ok: false, status: 0, reason: "cancelled" };
+  }
+
+  const finish = await fetch("/api/platform-admin/passkeys/auth/verify", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ challengeToken: beginBody.challengeToken, response }),
+    cache: "no-store",
+  });
+  type Finish = { elevation?: string; expiresInSeconds?: number; code?: string };
+  const body = (await finish.json().catch(() => null)) as Finish | null;
+  if (!finish.ok || typeof body?.elevation !== "string") {
+    return { ok: false, status: finish.status, reason: body?.code };
+  }
+  return {
+    ok: true,
+    elevation: body.elevation,
+    expiresInSeconds:
+      typeof body.expiresInSeconds === "number" ? body.expiresInSeconds : ADMIN_ELEVATION_MAX_SECONDS,
+  };
 }
 
 /** Test seam — resets module state between cases. Not used by application code. */

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -13,17 +14,18 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "לא מחובר" }, { status: 401 });
+      return Response.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
     const params = await context.params;
     const documentId = Number(params.id);
 
     if (isNaN(documentId)) {
-      return Response.json({ error: "מזהה מסמך לא תקין" }, { status: 400 });
+      return Response.json({ error: t("api.documents.invalidId") }, { status: 400 });
     }
 
     const document = await runWithTenantContext(
@@ -38,7 +40,7 @@ export async function POST(
     );
 
     if (!document) {
-      return Response.json({ error: "המסמך לא נמצא" }, { status: 404 });
+      return Response.json({ error: t("api.documents.notFound") }, { status: 404 });
     }
 
     const body = (await req.json().catch(() => null)) as
@@ -55,7 +57,7 @@ export async function POST(
         };
 
     if (!body) {
-      return Response.json({ error: "בקשה לא תקינה" }, { status: 400 });
+      return Response.json({ error: t("api.common.invalidRequest") }, { status: 400 });
     }
 
     const merged = {
@@ -150,19 +152,19 @@ export async function POST(
 
       if (!Number.isFinite(amount) || amount <= 0) {
         return Response.json(
-          { error: "חסר סכום תקין לאישור כספי" },
+          { error: t("api.documents.approve.missingAmount") },
           { status: 400 }
         );
       }
       if (!vendorName) {
         return Response.json(
-          { error: "חסר שם ספק לאישור כספי" },
+          { error: t("api.documents.approve.missingVendor") },
           { status: 400 }
         );
       }
       if (!direction) {
         return Response.json(
-          { error: "חסר כיוון (הכנסה/הוצאה) לאישור כספי" },
+          { error: t("api.documents.approve.missingDirection") },
           { status: 400 }
         );
       }
@@ -208,8 +210,7 @@ export async function POST(
         if (!unchanged) {
           return Response.json(
             {
-              error:
-                "המסמך כבר אושר ונרשם כספית. שינוי הרישום יתאפשר רק דרך תיקון מבוקר.",
+              error: t("api.documents.approve.financialLocked"),
               code: "approved_financial_locked",
             },
             { status: 409 }
@@ -392,7 +393,7 @@ export async function POST(
     console.error("APPROVE ERROR FULL:", error);
 
     return Response.json(
-      { error: "שגיאה באישור המסמך. נסה שוב מאוחר יותר." },
+      { error: t("api.documents.approve.failed") },
       { status: 500 }
     );
   }

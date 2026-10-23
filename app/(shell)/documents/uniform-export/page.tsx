@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function isoToday(): string {
   const now = new Date();
@@ -22,6 +23,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export default function UniformExportPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [token, setToken] = useState<string | null>(null);
   const [from, setFrom] = useState(isoMonthStart());
   const [to, setTo] = useState(isoToday());
@@ -43,7 +45,7 @@ export default function UniformExportPage() {
     if (!token) return;
     if (from > to) {
       setStatus("error");
-      setError("תאריך ההתחלה מאוחר מתאריך הסיום");
+      setError(t("documents.uniform.errStartAfterEnd"));
       return;
     }
     try {
@@ -52,7 +54,7 @@ export default function UniformExportPage() {
       const url = `/api/reports/uniform?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) {
-        throw new Error(response.status === 400 ? "טווח תאריכים לא תקין" : "שגיאה בהפקת הקבצים");
+        throw new Error(response.status === 400 ? t("documents.uniform.errBadRange") : t("documents.uniform.errGenerate"));
       }
       const blob = await response.blob();
       const objectUrl = window.URL.createObjectURL(blob);
@@ -64,32 +66,32 @@ export default function UniformExportPage() {
       setStatus("success");
     } catch (err) {
       setStatus("error");
-      setError(errorMessage(err, "שגיאה"));
+      setError(errorMessage(err, t("documents.uniform.errGeneric")));
     }
   }
 
   const loading = status === "loading";
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <PageContainer intent="focused" className="dz-uniform" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton />
-          <h1 style={titleStyle}>הפקת מבנה אחיד</h1>
+          <h1 style={titleStyle}>{t("documents.uniform.title")}</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 
         <div className="dz-uniform-desk">
         <div>
         <section>
-          <div style={labelStyle}>מתאריך</div>
+          <div style={labelStyle}>{t("documents.uniform.from")}</div>
           <label style={fieldStyle}>
             <input
               type="date"
               value={from}
               max={to}
               onChange={(event) => setFrom(event.target.value)}
-              aria-label="מתאריך"
+              aria-label={t("documents.uniform.from")}
               className="dz-native-date"
               style={inputStyle}
             />
@@ -97,14 +99,14 @@ export default function UniformExportPage() {
         </section>
 
         <section style={{ marginTop: 14 }}>
-          <div style={labelStyle}>עד תאריך</div>
+          <div style={labelStyle}>{t("documents.uniform.to")}</div>
           <label style={fieldStyle}>
             <input
               type="date"
               value={to}
               min={from}
               onChange={(event) => setTo(event.target.value)}
-              aria-label="עד תאריך"
+              aria-label={t("documents.uniform.to")}
               className="dz-native-date"
               style={inputStyle}
             />
@@ -112,21 +114,21 @@ export default function UniformExportPage() {
         </section>
 
         {status === "success" ? (
-          <div style={successStyle}>הקבצים הופקו והורדו בהצלחה.</div>
+          <div style={successStyle}>{t("documents.uniform.success")}</div>
         ) : null}
         {status === "error" ? <div style={errorStyle}>{error}</div> : null}
         </div>
 
-        <aside className="dz-uniform-side" aria-label="תוכן הקובץ">
-          <h2>מה נכלל ב-ZIP</h2>
+        <aside className="dz-uniform-side" aria-label={t("documents.uniform.contentsAria")}>
+          <h2>{t("documents.uniform.contentsTitle")}</h2>
           <ul>
             <li>INI.TXT</li>
             <li>BKMVDATA</li>
-            <li>דוח 2.6</li>
-            <li>דוח 5.4</li>
+            <li>{t("documents.uniform.report26")}</li>
+            <li>{t("documents.uniform.report54")}</li>
           </ul>
           <p>
-            הקובץ יופק עבור המסמכים שהונפקו בטווח {from} עד {to}.
+            {t("documents.uniform.rangeNote", { from, to })}
           </p>
           <button
             type="button"
@@ -140,7 +142,7 @@ export default function UniformExportPage() {
               cursor: loading ? "not-allowed" : "pointer",
             }}
           >
-            {loading ? "מפיק קבצים..." : "הפקת קבצים (ZIP)"}
+            {loading ? t("documents.uniform.generating") : t("documents.uniform.generate")}
           </button>
         </aside>
         </div>
@@ -157,7 +159,7 @@ export default function UniformExportPage() {
             cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "מפיק קבצים..." : "הפקת קבצים (ZIP)"}
+          {loading ? t("documents.uniform.generating") : t("documents.uniform.generate")}
         </button>
       </div>
     </div>

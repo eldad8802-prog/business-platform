@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function ContentContextPageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useI18n();
 
   const goal = params.get("goal") || "";
   const goalDescription = params.get("goalDescription") || "";
@@ -46,22 +48,22 @@ function ContentContextPageInner() {
 
   return (
     <div style={baseStyles.page}>
-      <Header title="קהל יעד" />
+      <Header title={t("content.studioFlow.flow.audience")} />
       <ProgressBar progress={75} />
 
       <div style={baseStyles.container}>
-        <h1 style={{ marginBottom: 8 }}>למי התוכן מיועד?</h1>
+        <h1 style={{ marginBottom: 8 }}>{t("content.studioFlow.context.title")}</h1>
 
         <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
-          תאר את הקהל שאתה רוצה למשוך כדי שנוכל לדייק את הכיוון
+          {t("content.studioFlow.context.subtitle")}
         </p>
 
-        <p style={{ marginBottom: 8, fontWeight: 600 }}>תיאור הקהל</p>
+        <p style={{ marginBottom: 8, fontWeight: 600 }}>{t("content.studioFlow.context.audienceLabel")}</p>
 
         <textarea
           value={audienceDescription}
           onChange={(e) => setAudienceDescription(e.target.value)}
-          placeholder="לדוגמה: נשים בגילאי 25–40 שרוצות לשפר את עור הפנים לפני אירוע"
+          placeholder={t("content.studioFlow.context.audiencePlaceholder")}
           style={{
             width: "100%",
             minHeight: 120,
@@ -73,7 +75,7 @@ function ContentContextPageInner() {
           }}
         />
 
-        <p style={{ marginBottom: 8, fontWeight: 600 }}>טווח גילאים</p>
+        <p style={{ marginBottom: 8, fontWeight: 600 }}>{t("content.studioFlow.context.ageRange")}</p>
 
         {["18-25", "25-35", "35-50", "50+"].map((range) => (
           <div
@@ -95,7 +97,7 @@ function ContentContextPageInner() {
           onClick={handleContinue}
           disabled={!audienceDescription.trim() || !ageRange}
         >
-          המשך
+          {t("content.studioFlow.common.continue")}
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { AUTH_MESSAGES_HE, emailTokenProblem } from "@/lib/auth/auth-messages";
+import { authMessage, emailTokenProblem } from "@/lib/auth/auth-messages";
+import { getServerI18n } from "@/lib/i18n/server";
 import { consumePasswordReset, type ResetOutcome } from "@/lib/auth/email-tokens";
 import { clearRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
@@ -26,37 +27,38 @@ const defaultDeps: ResetDeps = { rateLimit: consumeRateLimit, consume: consumePa
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function handleReset(req: Request, deps: ResetDeps = defaultDeps): Promise<NextResponse> {
+  const { t } = await getServerI18n();
   try {
     const ip = getClientIp(req);
     const rl = await deps.rateLimit({ key: `auth:link:consume:${ip}`, limit: 20, windowMs: 15 * 60_000 });
     if (!rl.allowed) {
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.rateLimited, code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
+      return NextResponse.json({ error: authMessage("rateLimited", t), code: "RATE_LIMITED" }, { status: 429, headers: NO_STORE });
     }
     let body: unknown;
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: AUTH_MESSAGES_HE.invalidBody, code: "INVALID_BODY" }, { status: 400, headers: NO_STORE });
+      return NextResponse.json({ error: authMessage("invalidBody", t), code: "INVALID_BODY" }, { status: 400, headers: NO_STORE });
     }
     const { token, password } = (body ?? {}) as { token?: unknown; password?: unknown };
     const outcome = await deps.consume(token, password);
 
     if (outcome.status === "RESET") {
-      const res = NextResponse.json({ ok: true, message: AUTH_MESSAGES_HE.resetDone }, { headers: NO_STORE });
+      const res = NextResponse.json({ ok: true, message: authMessage("resetDone", t) }, { headers: NO_STORE });
       // Every session of the account was just revoked; this browser's cookie names one of them.
       clearRefreshCookie(res);
       return res;
     }
     if (outcome.status === "WEAK_PASSWORD") {
       return NextResponse.json(
-        { error: `הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים`, field: "password", code: "WEAK_PASSWORD" },
+        { error: t("api.auth.weakPassword", { min: MIN_PASSWORD_LENGTH }), field: "password", code: "WEAK_PASSWORD" },
         { status: 400, headers: NO_STORE }
       );
     }
-    return NextResponse.json(emailTokenProblem(outcome.status), { status: 400, headers: NO_STORE });
+    return NextResponse.json(emailTokenProblem(outcome.status, t), { status: 400, headers: NO_STORE });
   } catch (error) {
     console.error("[auth] reset_failed", { error: error instanceof Error ? error.name : "unknown" });
-    return NextResponse.json({ error: AUTH_MESSAGES_HE.serverError, code: "SERVER_ERROR" }, { status: 500, headers: NO_STORE });
+    return NextResponse.json({ error: authMessage("serverError", t), code: "SERVER_ERROR" }, { status: 500, headers: NO_STORE });
   }
 }
 

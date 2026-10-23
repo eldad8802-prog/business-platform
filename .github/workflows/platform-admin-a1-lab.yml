@@ -1,0 +1,192 @@
+# Admin Control Center A1 / migration 20261024090000_platform_admin_a1 — proof on PostgreSQL BEFORE it reaches
+# Production (ephemeral PG17).
+#
+# .apa1/lab.sh builds on the task reminders lab (.trp/lab.sh): Production's role topology, the owner's DEFAULT
+# PRIVILEGES (which hand a new table to the runtime wholesale — the migration must take them back), FORCE RLS on
+# Business and on every table the admin console reads, the ledger through 20261022090000, A1 the only pending one.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
+#      migration names only the relations it is meant to.
+#   1. Baseline (pending): the PREFLIGHT passes (11, 12 are INFO); the proof refuses.
+#   2. `prisma migrate deploy` applies it: proof 20/20 (21 INFO); the preflight then fails exactly 2, 7, 8.
+#   3. Faults: each injected defect is caught by the proof check meant for it.
+#   4. Battery AS THE REAL ROLES (.apa1/battery.ts): the admin login's identity, the column-scoped privilege
+#      matrix, refused secret reads and writes, cross-tenant reads only for app_admin, the runtime still seeing
+#      ZERO rows without a tenant context, the real admin services returning the seeded truth, and passkeys
+#      reachable by app_auth alone (read / add / change mutable columns; no removal).
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   6. The console definitions (pure) and the admin guards.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: platform admin A1 — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261024090000_platform_admin_a1/**"
+      - "ops/evidence/platform-admin-a1-*.sql"
+      - ".apa1/**"
+      - "lib/services/platform-admin/**"
+      - "lib/auth/admin-passkey*.ts"
+      - "lib/auth/admin-mfa*.ts"
+      - "lib/auth/admin-factor-change.test.ts"
+      - "lib/auth/platform-admin*.ts"
+      - "app/api/platform-admin/**"
+      - "prisma/schema.prisma"
+      - ".github/workflows/platform-admin-a1-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: platform admin A1 (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: apa1_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: apa1_ci_synthetic_super_pw
+      LAB_PASSWORD: apa1_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/platform-admin-a1-preflight.sql
+      EVIDENCE: ops/evidence/platform-admin-a1-production-evidence.sql
+      APA1: prisma/migrations/20261024090000_platform_admin_a1/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only its own relations
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$APA1" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
+          echo "$APA1 sha256 $sum (pinned)"
+          allowed='"Business"|"User"|"BusinessProfile"|"AuthSession"|"EmailConnection"|"Document"|"BillingDocument"|"Conversation"|"ContentRun"|"WhatsAppAttachmentImport"|"ProductUsageEvent"|"PlatformAuditEvent"|"PlatformAdminPasskey"|"PlatformAdminPasskey_id_seq"'
+          others=$(grep -oE '"[A-Z][A-Za-z_]*"' "$APA1" | sort -u | grep -vxE "$allowed" | grep -vE '^"PlatformAdminPasskey_' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          if grep -inE '\b(bypassrls|superuser|owner to|security definer)\b' "$APA1"; then echo "forbidden construct in the migration"; exit 1; fi
+          if grep -iE 'to app_admin' "$APA1" | grep -iE '\b(insert|update|delete|truncate)\b'; then echo "the migration hands app_admin a write"; exit 1; fi
+          echo "the migration names only the console read set and the passkey table; no write for app_admin"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .apa1/lab.sh apa1_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d apa1_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/pre.out)" = "12" || { echo "expected 12 rows"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline"
+
+      - name: 2. prisma migrate deploy applies it — proof 20/20; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .apa1/lab.sh apa1_post --with-apa1 | tee /tmp/post.log
+          grep -q 'Applying migration `20261024090000_platform_admin_a1`' /tmp/post.log
+          ev() { psql -X -U "$SUPER" -d apa1_post -v ON_ERROR_STOP=1 "$@"; }
+          ev -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
+          fails=$(ev -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 7 8 " || { echo "after the release: expected '2 7 8 ', got: $fails"; exit 1; }
+
+      - name: 3. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d apa1_post -c "$1"; }
+          failing() { psql -X -U "$SUPER" -d apa1_post -v ON_ERROR_STOP=1 -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          fault "admin reads User.password" "5 9 " 'GRANT SELECT ("password") ON "User" TO app_admin' 'REVOKE SELECT ("password") ON "User" FROM app_admin'
+          fault "admin loses a console column" "5 " 'REVOKE SELECT ("email") ON "User" FROM app_admin' 'GRANT SELECT ("email") ON "User" TO app_admin'
+          fault "admin reads Document whole" "6 9 " 'GRANT SELECT ON "Document" TO app_admin' \
+            'REVOKE SELECT ON "Document" FROM app_admin; GRANT SELECT ("id", "businessId", "status", "source", "createdAt") ON "Document" TO app_admin'
+          fault "admin may add audit rows" "8 " 'GRANT INSERT ON "PlatformAuditEvent" TO app_admin' 'REVOKE INSERT ON "PlatformAuditEvent" FROM app_admin'
+          fault "admin may change a column" "8 " 'GRANT UPDATE ("name") ON "Business" TO app_admin' 'REVOKE UPDATE ("name") ON "Business" FROM app_admin'
+          fault "admin loses the audit read" "7 " 'REVOKE SELECT ON "PlatformAuditEvent" FROM app_admin' 'GRANT SELECT ON "PlatformAuditEvent" TO app_admin'
+          fault "BusinessProfile admin policy missing" "10 " 'DROP POLICY p7adm_read ON "BusinessProfile"' 'CREATE POLICY p7adm_read ON "BusinessProfile" FOR SELECT TO app_admin USING (true)'
+          fault "admin policy for everyone" "10 " 'ALTER POLICY p7adm_read ON "BusinessProfile" TO PUBLIC' 'ALTER POLICY p7adm_read ON "BusinessProfile" TO app_admin'
+          fault "an existing admin policy missing" "11 " 'DROP POLICY p7adm_read ON "Document"' 'CREATE POLICY p7adm_read ON "Document" FOR SELECT TO app_admin USING (true)'
+          fault "FORCE RLS dropped on Document" "12 " 'ALTER TABLE "Document" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "Document" FORCE ROW LEVEL SECURITY'
+          fault "app_admin becomes a login" "4 " 'ALTER ROLE app_admin LOGIN' 'ALTER ROLE app_admin NOLOGIN'
+          fault "a passkey shape check removed" "14 " 'ALTER TABLE "PlatformAdminPasskey" DROP CONSTRAINT "PlatformAdminPasskey_label_shape"' \
+            'ALTER TABLE "PlatformAdminPasskey" ADD CONSTRAINT "PlatformAdminPasskey_label_shape" CHECK (char_length("label") BETWEEN 1 AND 60)'
+          fault "the runtime reads passkeys" "15 19 " 'GRANT SELECT ON "PlatformAdminPasskey" TO app_runtime' 'REVOKE SELECT ON "PlatformAdminPasskey" FROM app_runtime'
+          fault "app_auth may remove passkeys" "15 " 'GRANT DELETE ON "PlatformAdminPasskey" TO app_auth' 'REVOKE DELETE ON "PlatformAdminPasskey" FROM app_auth'
+          fault "app_auth may rewrite a public key" "16 " 'GRANT UPDATE ("publicKey") ON "PlatformAdminPasskey" TO app_auth' 'REVOKE UPDATE ("publicKey") ON "PlatformAdminPasskey" FROM app_auth'
+          fault "PUBLIC reads passkeys" "15 19 " 'GRANT SELECT ON "PlatformAdminPasskey" TO PUBLIC' 'REVOKE SELECT ON "PlatformAdminPasskey" FROM PUBLIC'
+          fault "the runtime may use the sequence" "17 " 'GRANT USAGE ON SEQUENCE "PlatformAdminPasskey_id_seq" TO app_runtime' 'REVOKE USAGE ON SEQUENCE "PlatformAdminPasskey_id_seq" FROM app_runtime'
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 4. Battery — the admin read plane, the real services and the passkey grants, as the real roles
+        env:
+          OWNER_URL: postgresql://lab_owner:apa1_ci_synthetic_role_pw@localhost:5432/apa1_post
+          ADMIN_URL: postgresql://app_admin_lab:apa1_ci_synthetic_role_pw@localhost:5432/apa1_post
+          RUNTIME_URL: postgresql://app_runtime_prod:apa1_ci_synthetic_role_pw@localhost:5432/apa1_post
+          AUTH_URL: postgresql://app_auth_lab:apa1_ci_synthetic_role_pw@localhost:5432/apa1_post
+        run: |
+          set -euo pipefail
+          node_modules/.bin/prisma generate >/dev/null
+          node_modules/.bin/tsx .apa1/battery.ts | tee /tmp/battery.out
+          grep -qE 'A1 battery: ([0-9]+)/\1 PASS' /tmp/battery.out || { echo "battery did not pass completely"; exit 1; }
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .apa1/lab.sh apa1_broken --broken-apa1
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d apa1_broken -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/broken.out
+          # Prisma records a failed migration as ONE unfinished ledger row (it is what blocks a re-deploy until
+          # `migrate resolve --rolled-back`), so preflight 2 and 3 must read exactly that row. Every STRUCTURAL
+          # check (4-10) must still PASS: no table, no policy and no grant of the failed migration survived.
+          if grep -E '^ +([4-9]|10) \| FAIL' /tmp/broken.out; then echo "a failed migration left something behind"; exit 1; fi
+          for n in 2 3; do
+            test "$(grep -E "^ +$n \| " /tmp/broken.out | awk -F'|' '{print $3}' | tr -d ' ')" = "1" || { echo "check $n: expected exactly the failed ledger row"; exit 1; }
+          done
+          test "$(grep -E '^ +12 \| INFO' /tmp/broken.out | awk -F'|' '{print $3}' | tr -d ' ')" = "0" || { echo "column grants survived the failure"; exit 1; }
+          echo "nothing of A1 remains after a failed apply"
+
+      - name: 6. Console definitions (pure) and the admin guards
+        run: |
+          set -euo pipefail
+          node_modules/.bin/tsx lib/services/platform-admin/platform-admin-a1.test.ts
+          node_modules/.bin/tsx lib/auth/admin-passkey.test.ts
+          node_modules/.bin/tsx lib/auth/admin-factor-change.test.ts
+          node_modules/.bin/tsx app/api/platform-admin/admin-a1-routes.test.ts
+          bash scripts/ci/admin-boundary-guard.sh .

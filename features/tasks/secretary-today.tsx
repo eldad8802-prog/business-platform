@@ -14,7 +14,9 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { AgendaRow } from "@/lib/services/tasks/agenda-core";
 import { errorText, sourceOp, taskAction } from "@/lib/tasks/tasks-client";
 import { useAgenda } from "@/lib/tasks/use-agenda";
@@ -25,13 +27,25 @@ import { addDays, longDate, todayKey } from "./task-days";
 import { DomainIcon, IconPlus } from "./task-icons";
 import s from "./tasks.module.css";
 
-const COUNT_WORDS = ["אף אחד", "אחד", "שניים", "שלושה", "ארבעה", "חמישה", "שישה", "שבעה", "שמונה", "תשעה", "עשרה"];
+const COUNT_WORDS: readonly MessageKey[] = [
+  "tasks.secretaryToday.countWords.zero",
+  "tasks.secretaryToday.countWords.one",
+  "tasks.secretaryToday.countWords.two",
+  "tasks.secretaryToday.countWords.three",
+  "tasks.secretaryToday.countWords.four",
+  "tasks.secretaryToday.countWords.five",
+  "tasks.secretaryToday.countWords.six",
+  "tasks.secretaryToday.countWords.seven",
+  "tasks.secretaryToday.countWords.eight",
+  "tasks.secretaryToday.countWords.nine",
+  "tasks.secretaryToday.countWords.ten",
+];
 
 function rowTitle(r: AgendaRow): string {
   return r.type === "TASK" ? r.task.title : r.type === "SOURCE" ? r.item.title : r.type === "REPAIR" ? r.repair.title : r.title;
 }
-function rowFact(r: AgendaRow): string | null {
-  return r.type === "SOURCE" ? r.item.fact : r.type === "QUEUE" ? r.fact : r.type === "TASK" ? (r.task.link?.label ? `קשור ל: ${r.task.link.label}` : null) : "מתעדכנת…";
+function rowFact(r: AgendaRow, t: Translator): string | null {
+  return r.type === "SOURCE" ? r.item.fact : r.type === "QUEUE" ? r.fact : r.type === "TASK" ? (r.task.link?.label ? t("tasks.common.relatedTo", { label: r.task.link.label }) : null) : t("tasks.secretaryToday.updating");
 }
 
 export function SecretaryToday({
@@ -42,6 +56,7 @@ export function SecretaryToday({
   onPaymentHandled: (obligationId: number) => Promise<void>;
   aside?: ReactNode;
 }) {
+  const { t } = useI18n();
   const router = useRouter();
   const { state, refresh } = useAgenda();
   const [creating, setCreating] = useState(false);
@@ -57,14 +72,20 @@ export function SecretaryToday({
   const n = agenda?.count ?? 0;
   const plus = agenda?.countPartial ? "+" : "";
   const title = !agenda
-    ? "רגע, אוספת את היום…"
+    ? t("tasks.secretaryToday.collecting")
     : agenda.emptyAllowed
-      ? "הכול תחת שליטה להיום."
+      ? t("tasks.secretaryToday.allUnderControl")
       : n === 0
-        ? "אין כרגע משהו לטיפול היום."
-        : `יש ${n}${plus} דברים לטיפול היום.${overdue ? ` ${overdue === 1 ? "אחד מהם" : `${COUNT_WORDS[overdue] ?? overdue} מהם`} באיחור.` : ""}`;
+        ? t("tasks.secretaryToday.nothingToday")
+        : !overdue
+          ? t("tasks.secretaryToday.count", { count: `${n}${plus}` })
+          : overdue === 1
+            ? t("tasks.secretaryToday.countOverdueOne", { count: `${n}${plus}` })
+            : t("tasks.secretaryToday.countOverdueMany", { count: `${n}${plus}`, overdue: COUNT_WORDS[overdue] ? t(COUNT_WORDS[overdue]) : overdue });
   const subtitle = agenda
-    ? `אותו סדר יום כמו ב"משימות": ${n}${plus} לטיפול${agenda.doneToday ? `, ${agenda.doneToday} בוצעו` : ""}.`
+    ? agenda.doneToday
+      ? t("tasks.secretaryToday.subtitleDone", { count: `${n}${plus}`, done: agenda.doneToday })
+      : t("tasks.secretaryToday.subtitle", { count: `${n}${plus}` })
     : "";
 
   async function run(fn: () => Promise<unknown>, done: string) {
@@ -76,7 +97,7 @@ export function SecretaryToday({
       await refresh();
       setNote(done);
     } catch (e) {
-      setNote(errorText(e));
+      setNote(errorText(e, t));
       await refresh();
     } finally {
       setBusy(false);
@@ -88,8 +109,8 @@ export function SecretaryToday({
       const v = { expectedVersion: r.task.version };
       return (
         <>
-          <button type="button" className={`${s.btn} ${s.pri}`} disabled={busy} onClick={() => void run(() => taskAction(r.task.id, "complete", v), "סומן כבוצע")}>סיימתי</button>
-          <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => taskAction(r.task.id, "snooze", { ...v, dueOn: addDays(todayKey(), 1) }), "נדחה למחר")}>דחה למחר</button>
+          <button type="button" className={`${s.btn} ${s.pri}`} disabled={busy} onClick={() => void run(() => taskAction(r.task.id, "complete", v), t("tasks.common.markedDone"))}>{t("tasks.common.finished")}</button>
+          <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => taskAction(r.task.id, "snooze", { ...v, dueOn: addDays(todayKey(), 1) }), t("tasks.common.snoozedTomorrow"))}>{t("tasks.common.snoozeTomorrow")}</button>
         </>
       );
     }
@@ -101,15 +122,15 @@ export function SecretaryToday({
         return (
           <>
             <Link href={it.action.href} prefetch={false} className={`${s.btn} ${s.pri}`}>{it.action.label}</Link>
-            <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => onPaymentHandled(id), "סומן כטופל")}>טופל</button>
-            <button type="button" className={s.btn} onClick={() => router.push(`/secretary?screen=remind&id=${id}`)}>דחה תזכורת</button>
+            <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => onPaymentHandled(id), t("tasks.common.markedHandled"))}>{t("tasks.common.handled")}</button>
+            <button type="button" className={s.btn} onClick={() => router.push(`/secretary?screen=remind&id=${id}`)}>{t("tasks.common.snoozeReminder")}</button>
           </>
         );
       }
       return (
         <>
           <Link href={it.action.href} prefetch={false} className={`${s.btn} ${s.pri}`}>{it.action.label}</Link>
-          <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => sourceOp("acknowledge", ref), "טופל להיום")}>טופל להיום</button>
+          <button type="button" className={s.btn} disabled={busy} onClick={() => void run(() => sourceOp("acknowledge", ref), t("tasks.common.handledToday"))}>{t("tasks.common.handledToday")}</button>
         </>
       );
     }
@@ -119,16 +140,16 @@ export function SecretaryToday({
 
   return (
     <SecretaryScreen>
-      <SecretaryHeader status={`המזכירה · ${longDate(agenda?.dayKey ?? todayKey())}`} tone={n === 0 ? "done" : overdue ? "critical" : "busy"} />
+      <SecretaryHeader status={t("tasks.secretaryToday.status", { date: longDate(agenda?.dayKey ?? todayKey(), t) })} tone={n === 0 ? "done" : overdue ? "critical" : "busy"} />
       <div className={s.secGrid}>
         <div className={s.secMain}>
           <HeroText title={title} subtitle={subtitle} />
 
           {focus ? (
             <section className={s.focus} aria-labelledby="sec-focus">
-              <span className={s.focusK}>קודם כול</span>
+              <span className={s.focusK}>{t("tasks.secretaryToday.first")}</span>
               <h2 id="sec-focus">{rowTitle(focus)}</h2>
-              {rowFact(focus) ? <p className={s.focusFact}>{rowFact(focus)}</p> : null}
+              {rowFact(focus, t) ? <p className={s.focusFact}>{rowFact(focus, t)}</p> : null}
               <div className={s.actions}>{focusActions(focus)}</div>
             </section>
           ) : null}
@@ -136,7 +157,7 @@ export function SecretaryToday({
           {rest.length ? (
             <section className={s.bucket} aria-labelledby="sec-rest">
               <h2 id="sec-rest" className={s.bucketHead}>
-                ובהמשך היום <span className={s.n}>{counted.length - 1}</span>
+                {t("tasks.secretaryToday.laterToday")} <span className={s.n}>{counted.length - 1}</span>
               </h2>
               <div className={s.rows} role="list">
                 {rest.map((r) => (
@@ -144,7 +165,7 @@ export function SecretaryToday({
                     {r.type === "SOURCE" ? <DomainIcon kind={r.item.sourceKind} /> : r.type === "QUEUE" ? <DomainIcon kind={r.sourceKind} /> : <span className={s.chk} aria-hidden />}
                     <span className={s.rbody}>
                       <span className={s.rtitle}>{rowTitle(r)}</span>
-                      {rowFact(r) ? <span className={s.rfact}>{rowFact(r)}</span> : null}
+                      {rowFact(r, t) ? <span className={s.rfact}>{rowFact(r, t)}</span> : null}
                     </span>
                   </Link>
                 ))}
@@ -152,13 +173,13 @@ export function SecretaryToday({
             </section>
           ) : null}
 
-          {state.status === "error" ? <p className={s.error} role="alert">לא הצלחתי לטעון את סדר היום. נסה שוב עוד רגע.</p> : null}
+          {state.status === "error" ? <p className={s.error} role="alert">{t("tasks.secretaryToday.loadFailed")}</p> : null}
           {note ? <p className={s.hint} aria-live="polite">{note}</p> : null}
 
           <div className={s.linkRow}>
-            <Link href="/tasks" prefetch={false} className={`${s.btn} ${s.ghost}`}>כל המשימות ←</Link>
+            <Link href="/tasks" prefetch={false} className={`${s.btn} ${s.ghost}`}>{t("tasks.secretaryToday.allTasks")}</Link>
             <button type="button" className={`${s.btn} ${s.soft}`} onClick={() => setCreating(true)}>
-              <IconPlus /> בקשה חדשה
+              <IconPlus /> {t("tasks.secretaryToday.newRequest")}
             </button>
           </div>
         </div>
@@ -166,12 +187,12 @@ export function SecretaryToday({
         <aside className={s.secAside}>
           {aside}
           <section className={s.card} aria-labelledby="sec-capture">
-            <h2 id="sec-capture">מה למסור לי?</h2>
+            <h2 id="sec-capture">{t("tasks.secretaryToday.whatToHandOver")}</h2>
             <div className={s.chips}>
-              <button type="button" className={`${s.chip} ${s.chipOn}`} onClick={() => setCreating(true)}>משימה</button>
-              <Link href="/secretary?screen=capture" prefetch={false} className={s.chip} style={{ textDecoration: "none" }}>התחייבות לתשלום</Link>
+              <button type="button" className={`${s.chip} ${s.chipOn}`} onClick={() => setCreating(true)}>{t("tasks.secretaryToday.task")}</button>
+              <Link href="/secretary?screen=capture" prefetch={false} className={s.chip} style={{ textDecoration: "none" }}>{t("tasks.secretaryToday.commitment")}</Link>
             </div>
-            <p className={s.hint}>&quot;משימה&quot; פותחת את אותו טופס כמו במרכז המשימות.</p>
+            <p className={s.hint}>{t("tasks.secretaryToday.taskHint")}</p>
           </section>
         </aside>
       </div>
@@ -185,7 +206,7 @@ export function SecretaryToday({
               onDone={async () => {
                 setCreating(false);
                 await refresh();
-                setNote("המשימה נשמרה");
+                setNote(t("tasks.common.taskSaved"));
               }}
               onCancel={() => setCreating(false)}
             />

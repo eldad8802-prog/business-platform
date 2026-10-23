@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { InventoryItemRow } from "@/components/inventory/inventory-item-row";
 import { getStockTone } from "@/components/inventory/inventory-design";
 import type { InventoryItemDTO } from "@/lib/api/inventory";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 type StockFilter = "all" | "critical" | "low" | "ok";
 type EconomicsFilter = "all" | "missing-cost" | "missing-price";
@@ -79,6 +81,7 @@ export function InventoryItemsListView({
   loading: boolean;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [economicsFilter, setEconomicsFilter] =
@@ -139,8 +142,8 @@ export function InventoryItemsListView({
         <div className="inv-items-list__title-block">
           <p className="inv-items-list__counts">
             {loading
-              ? "טוען…"
-              : `${items.length} פריטים · ${toneCounts.critical} קריטי · ${toneCounts.low} נמוך · ${toneCounts.ok} תקין`}
+              ? t("customers.inventoryKit.itemsList.loading")
+              : t("customers.inventoryKit.itemsList.counts", { total: items.length, critical: toneCounts.critical, low: toneCounts.low, ok: toneCounts.ok })}
           </p>
         </div>
         <button
@@ -148,7 +151,7 @@ export function InventoryItemsListView({
           className="inv-items-list__add-btn"
           onClick={() => router.push("/inventory/items/create")}
         >
-          הוסף פריט
+          {t("customers.inventoryKit.itemsList.addItem")}
         </button>
       </header>
 
@@ -159,23 +162,23 @@ export function InventoryItemsListView({
         <input
           type="search"
           className="inv-items-list__search"
-          placeholder="חיפוש לפי שם, ברקוד או מק״ט"
+          placeholder={t("customers.inventoryKit.itemsList.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          aria-label="חיפוש פריטים"
+          aria-label={t("customers.inventoryKit.itemsList.searchAria")}
         />
       </div>
 
       <div className="inv-items-list__filters">
         <div className="inv-items-list__filter-row">
-          <span className="inv-items-list__filter-label">מלאי</span>
+          <span className="inv-items-list__filter-label">{t("customers.inventoryKit.itemsList.stockLabel")}</span>
           {(
             [
-              ["all", "הכל"],
-              ["critical", "קריטי"],
-              ["low", "נמוך"],
-              ["ok", "תקין"],
-            ] as const
+              ["all", "customers.inventoryKit.itemsList.all"],
+              ["critical", "customers.inventoryKit.itemsList.critical"],
+              ["low", "customers.inventoryKit.itemsList.low"],
+              ["ok", "customers.inventoryKit.itemsList.ok"],
+            ] as const satisfies ReadonlyArray<readonly [string, MessageKey]>
           ).map(([id, label]) => (
             <button
               key={id}
@@ -184,19 +187,19 @@ export function InventoryItemsListView({
               data-active={stockFilter === id}
               onClick={() => setStockFilter(id)}
             >
-              {label}
+              {t(label)}
             </button>
           ))}
         </div>
 
         <div className="inv-items-list__filter-row">
-          <span className="inv-items-list__filter-label">נתונים</span>
+          <span className="inv-items-list__filter-label">{t("customers.inventoryKit.itemsList.dataLabel")}</span>
           {(
             [
-              ["all", "הכל"],
-              ["missing-cost", "ללא עלות"],
-              ["missing-price", "ללא מחיר"],
-            ] as const
+              ["all", "customers.inventoryKit.itemsList.all"],
+              ["missing-cost", "customers.inventoryKit.itemsList.missingCost"],
+              ["missing-price", "customers.inventoryKit.itemsList.missingPrice"],
+            ] as const satisfies ReadonlyArray<readonly [string, MessageKey]>
           ).map(([id, label]) => (
             <button
               key={id}
@@ -205,21 +208,21 @@ export function InventoryItemsListView({
               data-active={economicsFilter === id}
               onClick={() => setEconomicsFilter(id)}
             >
-              {label}
+              {t(label)}
             </button>
           ))}
         </div>
 
         {categories.length > 0 ? (
           <div className="inv-items-list__filter-row">
-            <span className="inv-items-list__filter-label">קטגוריה</span>
+            <span className="inv-items-list__filter-label">{t("customers.inventoryKit.itemsList.categoryLabel")}</span>
             <button
               type="button"
               className="inv-items-list__chip"
               data-active={categoryId === "all"}
               onClick={() => setCategoryId("all")}
             >
-              הכל
+              {t("customers.inventoryKit.itemsList.all")}
             </button>
             {categories.map((cat) => (
               <button
@@ -239,12 +242,12 @@ export function InventoryItemsListView({
       {!loading ? (
         <p className="inv-items-list__results">
           {hasActiveFilters
-            ? `מציג ${filtered.length} מתוך ${items.length}`
-            : `${filtered.length} פריטים`}
+            ? t("customers.inventoryKit.itemsList.showingOf", { shown: filtered.length, total: items.length })
+            : t(filtered.length === 1 ? "customers.inventoryKit.itemsList.itemsOne" : "customers.inventoryKit.itemsList.itemsMany", { count: filtered.length })}
         </p>
       ) : null}
 
-      <section className="inv-items-list__panel" aria-label="רשימת פריטים">
+      <section className="inv-items-list__panel" aria-label={t("customers.inventoryKit.itemsList.listAria")}>
         {loading ? (
           <ul className="inv-items-list__list" aria-busy="true">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -258,13 +261,13 @@ export function InventoryItemsListView({
           <div className="inv-items-list__empty">
             <p className="inv-items-list__empty-title">
               {items.length === 0
-                ? "אין פריטים במלאי"
-                : "אין פריטים התואמים לסינון"}
+                ? t("customers.inventoryKit.itemsList.emptyTitle")
+                : t("customers.inventoryKit.itemsList.noMatchTitle")}
             </p>
             <p className="inv-items-list__empty-hint">
               {items.length === 0
-                ? "הוסיפו פריט ראשון כדי להתחיל לעקוב אחרי המלאי."
-                : "נסו לשנות חיפוש או מסננים."}
+                ? t("customers.inventoryKit.itemsList.emptyHint")
+                : t("customers.inventoryKit.itemsList.noMatchHint")}
             </p>
             {items.length === 0 ? (
               <button
@@ -272,7 +275,7 @@ export function InventoryItemsListView({
                 className="inv-items-list__empty-btn"
                 onClick={() => router.push("/inventory/items/create")}
               >
-                הוספת פריט ראשון
+                {t("customers.inventoryKit.itemsList.addFirst")}
               </button>
             ) : null}
           </div>

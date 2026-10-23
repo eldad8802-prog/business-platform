@@ -14,6 +14,7 @@ import ReviewWorkspaceLayout from "./ReviewWorkspaceLayout";
 import { orangePill } from "./review-ui";
 import { TOKEN } from "@/lib/design/documents-theme";
 import styles from "./review-adaptive.module.css";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export type ReviewDecisionPanelProps = {
   reviewMode: "financial" | "document";
@@ -66,6 +67,7 @@ export default function ReviewDecisionPanel({
   fieldList,
   actions,
 }: ReviewDecisionPanelProps) {
+  const { t } = useI18n();
   return (
     <section className={styles.decisionCard} style={cardVars}>
       <ReviewWorkspaceLayout
@@ -82,7 +84,9 @@ export default function ReviewDecisionPanel({
               }}
             >
               <div style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold }}>
-                {reviewMode === "financial" ? "מסמך פיננסי" : "מסמך מידע"}
+                {reviewMode === "financial"
+                  ? t("documents.review.decision.financialDocument")
+                  : t("documents.review.decision.infoDocument")}
               </div>
               <div
                 style={{
@@ -91,7 +95,9 @@ export default function ReviewDecisionPanel({
                   color: trustLevel === "high" ? TOKEN.semantic.success.ink : TOKEN.semantic.attention.ink,
                 }}
               >
-                {trustLevel === "high" ? "בטוח לאישור" : "דורש בדיקה"}
+                {trustLevel === "high"
+                  ? t("documents.review.decision.safeToApprove")
+                  : t("documents.review.decision.needsReview")}
               </div>
             </div>
             <ReviewImpactBox approvalImpact={approvalImpact} />

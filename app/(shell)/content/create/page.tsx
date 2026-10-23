@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type ContentFlowData = {
   goal: string;
@@ -45,10 +47,12 @@ type PlanResult = {
 
 export default function Page() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [flowData, setFlowData] = useState<ContentFlowData | null>(null);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [loading, setLoading] = useState(true);
+  // Holds an error code; the message is resolved at render.
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -128,7 +132,7 @@ export default function Page() {
         }
       } catch {
         if (!cancelled) {
-          setError("משהו השתבש בבניית התוכן");
+          setError("build_failed");
         }
       } finally {
         if (!cancelled) {
@@ -151,13 +155,13 @@ export default function Page() {
   if (loading) {
     return (
       <div style={baseStyles.page}>
-        <Header title="בניית תוכן" />
+        <Header title={t("content.studioFlow.create.headerBuilding")} />
         <ProgressBar progress={95} />
 
         <div style={loadingWrap}>
-          <h1>בונים עבורך את התוכן...</h1>
+          <h1>{t("content.studioFlow.create.loadingTitle")}</h1>
           <p style={{ color: "var(--dz-text-secondary)" }}>
-            המערכת מנתחת את הבחירות שלך ומכינה כיוון מדויק
+            {t("content.studioFlow.create.loadingText")}
           </p>
         </div>
       </div>
@@ -167,11 +171,11 @@ export default function Page() {
   if (error || !plan || !flowData) {
     return (
       <div style={baseStyles.page}>
-        <Header title="בניית תוכן" />
+        <Header title={t("content.studioFlow.create.headerBuilding")} />
         <ProgressBar progress={95} />
 
         <div style={baseStyles.container}>
-          <div style={errorCard}>{error || "שגיאה בטעינת התוכן"}</div>
+          <div style={errorCard}>{error ? t("content.studioFlow.create.buildFailed") : t("content.studioFlow.create.loadFailed")}</div>
         </div>
       </div>
     );
@@ -179,27 +183,27 @@ export default function Page() {
 
   return (
     <div style={baseStyles.page}>
-      <Header title="התוכן שלך מוכן" />
+      <Header title={t("content.studioFlow.create.headerReady")} />
       <ProgressBar progress={95} />
 
       <div style={baseStyles.container}>
         <div style={card}>
-          <h2 style={h2}>סוג תוכן</h2>
-          <div style={value}>{mapFormat(flowData.selectedFormat)}</div>
+          <h2 style={h2}>{t("content.studioFlow.create.format")}</h2>
+          <div style={value}>{mapFormat(t, flowData.selectedFormat)}</div>
         </div>
 
         <div style={card}>
-          <h2 style={h2}>סוג תוכן מוביל</h2>
+          <h2 style={h2}>{t("content.studioFlow.create.videoType")}</h2>
           <div style={value}>{plan.videoType?.label}</div>
         </div>
 
         <div style={card}>
-          <h2 style={h2}>תסריט</h2>
+          <h2 style={h2}>{t("content.studioFlow.create.script")}</h2>
           <pre style={script}>{plan.script}</pre>
         </div>
 
         <div style={card}>
-          <h2 style={h2}>איך לבצע</h2>
+          <h2 style={h2}>{t("content.studioFlow.create.instructions")}</h2>
           {plan.instructions.map((item, idx) => (
             <div key={idx} style={instruction}>
               • {item}
@@ -208,15 +212,15 @@ export default function Page() {
         </div>
 
         <div style={card}>
-          <h2 style={h2}>איך לחזק את התוכן</h2>
+          <h2 style={h2}>{t("content.studioFlow.create.packaging")}</h2>
 
           <div style={section}>
-            <div style={label}>פתיחה</div>
+            <div style={label}>{t("content.studioFlow.create.hook")}</div>
             <div style={value}>{plan.packaging.hookText}</div>
           </div>
 
           <div style={section}>
-            <div style={label}>טקסטים</div>
+            <div style={label}>{t("content.studioFlow.create.captions")}</div>
             {plan.packaging.captionLines.map((line, idx) => (
               <div key={idx} style={caption}>
                 {line}
@@ -225,18 +229,18 @@ export default function Page() {
           </div>
 
           <div style={section}>
-            <div style={label}>טקסט מוביל</div>
+            <div style={label}>{t("content.studioFlow.create.thumbnail")}</div>
             <div style={value}>{plan.packaging.thumbnailText}</div>
           </div>
 
           <div style={section}>
-            <div style={label}>אווירה</div>
+            <div style={label}>{t("content.studioFlow.create.music")}</div>
             <div style={value}>{plan.packaging.musicType}</div>
           </div>
         </div>
 
         <div style={card}>
-          <h2 style={h2}>מה צריך להכין</h2>
+          <h2 style={h2}>{t("content.studioFlow.create.assets")}</h2>
 
           {plan.assetsPlan.requiredAssets.map((item, idx) => (
             <div key={idx} style={instruction}>
@@ -246,7 +250,7 @@ export default function Page() {
 
           {plan.assetsPlan.optionalAssets.length > 0 && (
             <>
-              <div style={subLabel}>אופציונלי</div>
+              <div style={subLabel}>{t("content.studioFlow.create.optional")}</div>
               {plan.assetsPlan.optionalAssets.map((item, idx) => (
                 <div key={idx} style={instruction}>
                   • {item}
@@ -259,18 +263,18 @@ export default function Page() {
 
       <div style={baseStyles.footer}>
         <button style={baseStyles.cta} onClick={handleContinue}>
-          המשך להכנת התוכן
+          {t("content.studioFlow.create.cta")}
         </button>
       </div>
     </div>
   );
 }
 
-function mapFormat(value: string) {
-  if (value === "reel") return "רילס";
-  if (value === "video") return "וידאו";
-  if (value === "image") return "תמונה";
-  return "פוסט";
+function mapFormat(t: Translator, value: string) {
+  if (value === "reel") return t("content.studioFlow.options.format.reel");
+  if (value === "video") return t("content.studioFlow.options.format.video");
+  if (value === "image") return t("content.studioFlow.options.format.image");
+  return t("content.studioFlow.options.format.post");
 }
 
 const loadingWrap = {

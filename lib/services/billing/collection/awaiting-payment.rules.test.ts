@@ -220,6 +220,30 @@ function run() {
   ok("mixed batch: total is 9,500", mixed.totalOutstanding.equals(d("9500")));
   ok("mixed batch: one orphan counted", mixed.unassignedCount === 1);
   ok("mixed batch: largest customer first", mixed.customers[0].customerName === "ב");
+  ok("ILS-only: headline currency is ILS", mixed.currency === "ILS");
+  ok("ILS-only: one per-currency total", mixed.totalsByCurrency.length === 1 && !mixed.isMixedCurrency);
+
+  // --- multi-currency: never add ILS to USD ---
+  const multi = build([
+    row({ id: 1, customerId: 1, customerName: "א", totalAmount: d("1000"), currency: "ILS" }),
+    row({ id: 2, customerId: 1, customerName: "א", totalAmount: d("300"), currency: "USD" }),
+    row({ id: 3, customerId: 2, customerName: "ב", totalAmount: d("50"), currency: "USD" }),
+  ]);
+  ok("multi: a customer owing in two currencies gets one row per currency", multi.customers.length === 3);
+  ok("multi: …but is counted once", multi.customerCount === 2);
+  ok(
+    "multi: every row is single-currency",
+    multi.customers.every((c) => c.invoices.every((i) => i.currency === c.currency)),
+  );
+  ok("multi: headline is ILS only (1,000, not 1,350)", multi.currency === "ILS" && multi.totalOutstanding.equals(d("1000")));
+  ok(
+    "multi: USD kept separately (350)",
+    multi.totalsByCurrency.map((t) => `${t.currency}:${t.totalOutstanding.toFixed(2)}`).join(",") === "ILS:1000.00,USD:350.00",
+  );
+  ok("multi: flagged mixed", multi.isMixedCurrency);
+
+  const usdOnly = build([row({ id: 1, totalAmount: d("75"), currency: "USD" })]);
+  ok("USD-only: headline follows the only currency", usdOnly.currency === "USD" && usdOnly.totalOutstanding.equals(d("75")));
 
   console.log(
     failed === 0

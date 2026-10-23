@@ -5,6 +5,8 @@ import { useMemo, useRef, useState } from "react";
 
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { intlTag } from "@/lib/i18n/config";
 import {
   ACTION_BUTTON,
   ACTION_HELP,
@@ -241,10 +243,6 @@ function authHeader(): Record<string, string> | null {
   return token?.trim() ? { Authorization: `Bearer ${token.trim()}` } : null;
 }
 
-function count(value: number): string {
-  return value.toLocaleString("he-IL");
-}
-
 /** Owner-facing text for one issue, falling back to the server's own reason. */
 function issueText(issue: Issue): string {
   return (
@@ -264,6 +262,8 @@ function filenameFromDisposition(header: string | null, fallback: string) {
 /* ------------------------------------------------------------ the screen -- */
 
 export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) {
+  const { t, locale } = useI18n();
+  const count = (value: number): string => value.toLocaleString(intlTag(locale));
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
@@ -309,7 +309,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
   async function downloadTemplate() {
     const auth = authHeader();
     if (!auth) {
-      setFailure({ code: null, message: "צריך להתחבר מחדש כדי להמשיך." });
+      setFailure({ code: null, message: t("account.settings.historical.import.signInAgain") });
       return;
     }
     setBusy("template");
@@ -324,8 +324,8 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
           code: null,
           message:
             response.status === 401
-              ? "אין הרשאה. התחברו מחדש ונסו שוב."
-              : "הורדת התבנית נכשלה. נסו שוב מאוחר יותר.",
+              ? t("account.settings.importExport.common.unauthorized")
+              : t("account.settings.historical.import.templateFailed"),
         });
         return;
       }
@@ -342,9 +342,9 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setNotice(`התבנית ירדה: ${filename}`);
+      setNotice(t("account.settings.importExport.templates.downloaded", { filename }));
     } catch {
-      setFailure({ code: null, message: "שגיאת רשת — בדקו את החיבור ונסו שוב." });
+      setFailure({ code: null, message: t("account.settings.importExport.common.network") });
     } finally {
       setBusy(null);
     }
@@ -373,7 +373,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
 
     const auth = authHeader();
     if (!auth) {
-      setFailure({ code: null, message: "צריך להתחבר מחדש כדי להמשיך." });
+      setFailure({ code: null, message: t("account.settings.historical.import.signInAgain") });
       return;
     }
 
@@ -430,7 +430,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       }
       setMapping(seeded);
     } catch {
-      setFailure({ code: null, message: "שגיאת רשת — בדקו את החיבור ונסו שוב." });
+      setFailure({ code: null, message: t("account.settings.importExport.common.network") });
     } finally {
       setBusy(null);
     }
@@ -449,7 +449,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
     if (!file || !analysis) return;
     const auth = authHeader();
     if (!auth) {
-      setFailure({ code: null, message: "צריך להתחבר מחדש כדי להמשיך." });
+      setFailure({ code: null, message: t("account.settings.historical.import.signInAgain") });
       return null;
     }
 
@@ -486,7 +486,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       setResult(null);
       return data as Preview;
     } catch {
-      setFailure({ code: null, message: "שגיאת רשת — בדקו את החיבור ונסו שוב." });
+      setFailure({ code: null, message: t("account.settings.importExport.common.network") });
       return null;
     } finally {
       setBusy(null);
@@ -505,7 +505,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
     if (!file || !preview) return;
     const auth = authHeader();
     if (!auth) {
-      setFailure({ code: null, message: "צריך להתחבר מחדש כדי להמשיך." });
+      setFailure({ code: null, message: t("account.settings.historical.import.signInAgain") });
       return;
     }
 
@@ -583,7 +583,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       setFailure({
         code: null,
         message:
-          "החיבור נקטע. ייתכן שהקליטה הושלמה — הריצו את אותו קובץ שוב, ודוביז תשלים רק את מה שחסר.",
+          t("account.settings.historical.import.interrupted"),
       });
     } finally {
       setBusy(null);
@@ -658,28 +658,27 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {/* What this is, before anything else. */}
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-          מסמכים שהפקתם במערכת אחרת, לפני דוביז.
+          {t("account.settings.historical.import.lead")}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
           {EXTERNAL_ORIGIN_EXPLANATION}
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-          שום דבר לא נשמר עד שתאשרו. תמיד תראו קודם מה ייכנס, מה כבר קיים ומה
-          דורש החלטה שלכם.
+          {t("account.settings.historical.import.promise")}
         </p>
         <Link
           href={recordsHref}
           className="mt-3 inline-flex min-h-[44px] items-center rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
         >
-          למסמכים ההיסטוריים שכבר נקלטו
+          {t("account.settings.historical.import.toRecords")}
         </Link>
       </SettingsSection>
 
       {/* 1 — the template */}
       <div className="mt-4">
         <SettingsSection
-          title="התבנית"
-          description="גיליון למילוי וגיליון הוראות, עם כל העמודות שדוביז יודעת לקרוא."
+          title={t("account.settings.historical.import.templateTitle")}
+          description={t("account.settings.historical.import.templateDescription")}
         >
           <button
             type="button"
@@ -687,11 +686,10 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
             disabled={busy !== null}
             className="min-h-[44px] w-full rounded-2xl border border-[var(--dz-border-subtle)] px-4 text-sm font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy === "template" ? "מכין את התבנית…" : "הורדת התבנית"}
+            {busy === "template" ? t("account.settings.historical.import.templatePreparing") : t("account.settings.historical.import.templateDownload")}
           </button>
           <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
-            אפשר גם להעלות קובץ שיצא מהמערכת הקודמת כמו שהוא — נתאים את העמודות
-            יחד בשלב הבא.
+            {t("account.settings.historical.import.templateNote")}
           </p>
         </SettingsSection>
       </div>
@@ -699,8 +697,8 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {/* 2 — the file */}
       <div className="mt-4">
         <SettingsSection
-          title="העלו את הקובץ"
-          description="קובץ אקסל או קובץ טבלה, עד 10MB ועד 10,000 שורות."
+          title={t("account.settings.historical.import.fileTitle")}
+          description={t("account.settings.historical.import.fileDescription")}
         >
           <input
             ref={fileInput}
@@ -723,17 +721,17 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
             disabled={busy !== null}
             className="w-full break-words rounded-2xl border border-dashed border-[var(--dz-border-subtle)] px-4 py-6 text-sm font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:opacity-60"
           >
-            {file ? file.name : "בחרו קובץ"}
+            {file ? file.name : t("account.settings.historical.import.chooseFile")}
           </button>
 
           {busy === "analyzing" ? (
-            <p className="mt-3 text-xs text-[var(--dz-text-muted)]">קורא את הקובץ…</p>
+            <p className="mt-3 text-xs text-[var(--dz-text-muted)]">{t("account.settings.historical.import.reading")}</p>
           ) : null}
 
           {sheetChoices.length > 1 ? (
             <div className="mt-4">
               <p className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                בקובץ יש כמה גיליונות. איזה מהם לקלוט?
+                {t("account.settings.historical.import.whichSheet")}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {sheetChoices.map((name) => (
@@ -764,24 +762,23 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {analysis ? (
         <div className="mt-4">
           <SettingsSection
-            title="איך לקרוא תאריכים"
+            title={t("account.settings.historical.import.dates.title")}
             description={
               dateChoiceRequired
-                ? "בקובץ יש תאריכים שאפשר לקרוא בשתי דרכים. בלי בחירה שלכם לא ננחש."
-                : "אפשר לקבוע במפורש איך לקרוא תאריכים בקובץ הזה."
+                ? t("account.settings.historical.import.dates.required")
+                : t("account.settings.historical.import.dates.optional")
             }
           >
             {dateChoiceRequired ? (
               <p className="mb-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3 text-xs leading-5 text-[var(--dz-text-primary)]">
-                לדוגמה, 03/04/2025 יכול להיות ה־3 באפריל או ה־4 במרץ. הבחירה
-                קובעת לאיזה חודש המסמך שייך, ולכן אנחנו שואלים במקום להניח.
+                {t("account.settings.historical.import.dates.example")}
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  ["DMY", "יום/חודש/שנה", "03/04/2025 הוא ה־3 באפריל"],
-                  ["MDY", "חודש/יום/שנה", "03/04/2025 הוא ה־4 במרץ"],
+                  ["DMY", t("account.settings.historical.import.dates.dmy"), t("account.settings.historical.import.dates.dmyExample")],
+                  ["MDY", t("account.settings.historical.import.dates.mdy"), t("account.settings.historical.import.dates.mdyExample")],
                 ] as const
               ).map(([value, label, example]) => (
                 <button
@@ -792,7 +789,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                     setDateFormat(value);
                     void runAnalyze({ dateFormat: value });
                   }}
-                  className={`min-h-[44px] flex-1 rounded-2xl border px-4 py-2 text-right text-xs font-semibold transition disabled:opacity-60 ${
+                  className={`min-h-[44px] flex-1 rounded-2xl border px-4 py-2 text-start text-xs font-semibold transition disabled:opacity-60 ${
                     dateFormat === value
                       ? "border-[var(--dz-brand)] text-[var(--dz-brand)]"
                       : "border-[var(--dz-border-subtle)] text-[var(--dz-text-primary)] hover:bg-[var(--dz-surface-muted)]"
@@ -815,7 +812,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                 }}
                 className="mt-3 min-h-[44px] rounded-full border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-muted)] transition hover:bg-[var(--dz-surface-muted)]"
               >
-                לבטל את הבחירה
+                {t("account.settings.historical.import.dates.clear")}
               </button>
             ) : null}
           </SettingsSection>
@@ -826,8 +823,8 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {analysis ? (
         <div className="mt-4">
           <SettingsSection
-            title="התאמת עמודות"
-            description={`נמצאו ${count(analysis.file.rowCount)} שורות בקובץ. בדקו שכל עמודה הובנה נכון.`}
+            title={t("account.settings.historical.import.columns.title")}
+            description={t(analysis.file.rowCount === 1 ? "account.settings.historical.import.columns.descriptionOne" : "account.settings.historical.import.columns.description", { count: count(analysis.file.rowCount) })}
           >
             {blockers.length > 0 ? (
               <ul className="mb-3 flex flex-col gap-2">
@@ -853,15 +850,15 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                 type="button"
                 onClick={() => setColumnsOpen((v) => !v)}
                 aria-expanded={columnsOpen}
-                className="mb-3 flex min-h-[44px] w-full items-center justify-between gap-2 rounded-2xl bg-[var(--dz-background)] px-4 text-right text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
+                className="mb-3 flex min-h-[44px] w-full items-center justify-between gap-2 rounded-2xl bg-[var(--dz-background)] px-4 text-start text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
               >
                 <span>
                   {mappedCount === analysis.file.headers.length
-                    ? `כל ${count(analysis.file.headers.length)} העמודות בקובץ זוהו`
-                    : `${count(mappedCount)} מתוך ${count(analysis.file.headers.length)} העמודות בקובץ זוהו`}
+                    ? t("account.settings.historical.import.columns.allRecognized", { count: count(analysis.file.headers.length) })
+                    : t("account.settings.historical.import.columns.someRecognized", { mapped: count(mappedCount), total: count(analysis.file.headers.length) })}
                 </span>
                 <span className="shrink-0 text-[var(--dz-text-muted)]">
-                  {columnsOpen ? "סגרו" : "בדקו"}
+                  {columnsOpen ? t("account.settings.historical.import.columns.close") : t("account.settings.historical.import.columns.open")}
                 </span>
               </button>
             ) : null}
@@ -878,7 +875,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                   <li key={`${header}-${index}`} className="py-3">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="min-w-0 break-words text-sm font-bold text-[var(--dz-text-primary)]">
-                        {header || "(עמודה ללא שם)"}
+                        {header || t("account.settings.historical.import.columns.unnamed")}
                       </span>
                       <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
                         {MAPPING_STATUS_LABEL[entry?.status ?? "UNMAPPED"]}
@@ -898,11 +895,11 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                       }}
                       className="mt-2 min-h-[44px] w-full rounded-xl border border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-3 text-sm text-[var(--dz-text-primary)]"
                     >
-                      <option value={DONT_IMPORT}>אל תקלטו עמודה זו</option>
+                      <option value={DONT_IMPORT}>{t("account.settings.historical.import.columns.dontImport")}</option>
                       {fields.map((f) => (
                         <option key={f.field} value={f.field}>
                           {f.field}
-                          {f.requirement === "required" ? " (חובה)" : ""}
+                          {f.requirement === "required" ? t("account.settings.historical.import.columns.requiredSuffix") : ""}
                         </option>
                       ))}
                     </select>
@@ -917,11 +914,11 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {/* 5 — what is in the file */}
       {analysis && !analysis.summary.stoppedAtMapping ? (
         <div className="mt-4">
-          <SettingsSection title="מה מצאנו בקובץ">
+          <SettingsSection title={t("account.settings.historical.import.found.title")}>
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(
                 [
-                  ["סה״כ שורות", analysis.summary.totalRows],
+                  [t("account.settings.historical.import.found.totalRows"), analysis.summary.totalRows],
                   [ROW_STATE_LABEL.READY, analysis.summary.ready],
                   [ROW_STATE_LABEL.WARNING, analysis.summary.warning],
                   [ROW_STATE_LABEL.ERROR, analysis.summary.error],
@@ -937,27 +934,25 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
             </dl>
 
             <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-              שורה עם התראה עדיין ניתנת לקליטה. שורה שסומנה
-              {` "${ROW_STATE_LABEL.ERROR}" `}
-              לא תיקלט עד שהקובץ יתוקן.
+              {t("account.settings.historical.import.found.warningNote", { label: ROW_STATE_LABEL.ERROR })}
             </p>
 
             <div className="mt-4 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-[var(--dz-text-primary)]">
-                {issuesOnly ? "מוצגות שורות שדורשות תשומת לב" : "מוצגות כל השורות"}
+                {issuesOnly ? t("account.settings.historical.import.found.showingIssues") : t("account.settings.historical.import.found.showingAll")}
               </span>
               <button
                 type="button"
                 onClick={() => setIssuesOnly((v) => !v)}
                 className="min-h-[44px] shrink-0 rounded-full border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
               >
-                {issuesOnly ? "הצג הכול" : "רק מה שדורש תשומת לב"}
+                {issuesOnly ? t("account.settings.historical.import.found.showAll") : t("account.settings.historical.import.found.onlyIssues")}
               </button>
             </div>
 
             {analysisRows.length === 0 ? (
               <p className="mt-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3 text-xs leading-5 text-[var(--dz-text-primary)]">
-                אין שורות שדורשות תשומת לב.
+                {t("account.settings.historical.import.found.noIssues")}
               </p>
             ) : (
               <ul className="mt-2 flex flex-col divide-y divide-[var(--dz-border-subtle)]">
@@ -969,7 +964,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
 
             {analysisRowsTruncated ? (
               <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
-                מוצגות השורות הראשונות. המספרים למעלה מתייחסים לכל הקובץ.
+                {t("account.settings.historical.import.found.truncated")}
               </p>
             ) : null}
 
@@ -979,7 +974,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
               disabled={busy !== null || blockers.length > 0}
               className="mt-4 min-h-[44px] w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy === "previewing" ? "מכין תצוגה מקדימה…" : "המשיכו לתצוגה מקדימה"}
+              {busy === "previewing" ? t("account.settings.historical.import.found.previewing") : t("account.settings.historical.import.found.toPreview")}
             </button>
           </SettingsSection>
         </div>
@@ -989,16 +984,16 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {preview && !result ? (
         <div className="mt-4">
           <SettingsSection
-            title="מה ייכנס להיסטוריה"
-            description="דוביז בחרה ברירת מחדל לכל שורה. איפה שצריך החלטה — היא שלכם."
+            title={t("account.settings.historical.import.decide.title")}
+            description={t("account.settings.historical.import.decide.description")}
           >
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(
                 [
-                  ["ייקלטו", willCreate],
-                  ["ידולגו", willSkip],
-                  ["ממתין להחלטה", awaiting.length],
-                  ["לא ניתן לקלוט", preview.summary.blocked],
+                  [t("account.settings.historical.import.decide.willCreate"), willCreate],
+                  [t("account.settings.historical.import.decide.willSkip"), willSkip],
+                  [t("account.settings.historical.import.decide.awaiting"), awaiting.length],
+                  [t("account.settings.historical.import.decide.blocked"), preview.summary.blocked],
                 ] as const
               ).map(([label, value]) => (
                 <div key={label} className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
@@ -1016,20 +1011,17 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
               <ul className="mt-3 flex flex-col gap-1 text-xs leading-5 text-[var(--dz-text-muted)]">
                 {preview.summary.exactDatabaseDuplicates > 0 ? (
                   <li>
-                    {count(preview.summary.exactDatabaseDuplicates)} שורות כבר קיימות
-                    בהיסטוריה שלכם, וידולגו.
+                    {t("account.settings.historical.import.decide.exactDuplicates", { count: count(preview.summary.exactDatabaseDuplicates) })}
                   </li>
                 ) : null}
                 {preview.summary.strongDuplicateCandidates > 0 ? (
                   <li>
-                    {count(preview.summary.strongDuplicateCandidates)} שורות נושאות
-                    מספר שכבר קיים אבל עם פרטים שונים, וממתינות להחלטה שלכם.
+                    {t("account.settings.historical.import.decide.strongDuplicates", { count: count(preview.summary.strongDuplicateCandidates) })}
                   </li>
                 ) : null}
                 {preview.summary.inFileCollisions > 0 ? (
                   <li>
-                    {count(preview.summary.inFileCollisions)} שורות מתנגשות עם שורה
-                    אחרת באותו קובץ.
+                    {t("account.settings.historical.import.decide.inFileCollisions", { count: count(preview.summary.inFileCollisions) })}
                   </li>
                 ) : null}
               </ul>
@@ -1051,7 +1043,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                       ) : null}
                       {row.duplicate.database.differingFields.length > 0 ? (
                         <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                          שונה ב:{" "}
+                          {t("account.settings.historical.import.decide.differsIn")}{" "}
                           {row.duplicate.database.differingFields
                             .map(
                               (f) =>
@@ -1064,7 +1056,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                         <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
                           {IN_FILE_DUPLICATE_TEXT[row.duplicate.inFile.state]}
                           {row.duplicate.inFile.firstOccurrenceRow !== null
-                            ? ` — שורה ${row.sourceRowNumber} מתנגשת עם שורה ${row.duplicate.inFile.firstOccurrenceRow}, והראשונה קודמת`
+                            ? t("account.settings.historical.import.decide.collidesWith", { row: row.sourceRowNumber, first: row.duplicate.inFile.firstOccurrenceRow })
                             : ""}
                         </p>
                       ) : null}
@@ -1093,7 +1085,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                       {/* The choices the SERVER permits. Nothing else exists. */}
                       {row.blocked ? (
                         <p className="mt-2 text-xs font-semibold text-[var(--dz-text-muted)]">
-                          השורה תדולג. אי אפשר לקלוט אותה עד שהקובץ יתוקן.
+                          {t("account.settings.historical.import.decide.blockedRow")}
                         </p>
                       ) : (
                         <>
@@ -1136,8 +1128,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
 
             {preview.rowsTruncated || awaitingOffscreen > 0 ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                מוצגות השורות הראשונות שדורשות תשומת לב. המספרים למעלה מתייחסים
-                לכל הקובץ.
+                {t("account.settings.historical.import.decide.truncated")}
               </p>
             ) : null}
 
@@ -1165,8 +1156,8 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                 className="mt-4 min-h-[44px] w-full rounded-2xl border border-[var(--dz-brand)] px-4 text-sm font-bold text-[var(--dz-brand)] transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === "previewing"
-                  ? "מעדכן תצוגה מקדימה…"
-                  : "עדכנו את התצוגה המקדימה לפי הבחירות"}
+                  ? t("account.settings.historical.import.decide.updating")
+                  : t("account.settings.historical.import.decide.update")}
               </button>
             ) : null}
 
@@ -1182,14 +1173,13 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
               className="mt-3 min-h-[44px] w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "importing"
-                ? "קולט…"
+                ? t("account.settings.historical.import.decide.importing")
                 : willCreate === 0
-                  ? "אין שורות לקליטה"
-                  : `אשרו וקלטו ${count(willCreate)} מסמכים היסטוריים`}
+                  ? t("account.settings.historical.import.decide.noRows")
+                  : t(willCreate === 1 ? "account.settings.historical.import.decide.confirmOne" : "account.settings.historical.import.decide.confirm", { count: count(willCreate) })}
             </button>
             <p className="mt-2 text-center text-[11px] leading-4 text-[var(--dz-text-muted)]">
-              הקליטה שומרת את המסמכים כהיסטוריה בלבד. לא יופק מסמך חדש, לא יוקצה
-              מספר ולא ידווח דבר.
+              {t("account.settings.historical.import.decide.historyOnly")}
             </p>
           </SettingsSection>
         </div>
@@ -1198,13 +1188,13 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       {/* 7 — what actually happened */}
       {result ? (
         <div className="mt-4">
-          <SettingsSection title="הקליטה הסתיימה">
+          <SettingsSection title={t("account.settings.historical.import.done.title")}>
             <dl className="grid grid-cols-3 gap-2">
               {(
                 [
-                  ["נשמרו", result.totals.created],
-                  ["דולגו", result.totals.skipped],
-                  ["נכשלו", result.totals.failed],
+                  [t("account.settings.historical.import.done.created"), result.totals.created],
+                  [t("account.settings.historical.import.done.skipped"), result.totals.skipped],
+                  [t("account.settings.historical.import.done.failed"), result.totals.failed],
                 ] as const
               ).map(([label, value]) => (
                 <div key={label} className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
@@ -1218,22 +1208,19 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
 
             {result.replayed ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                הקובץ הזה כבר נקלט קודם עם אותן בחירות, ולכן שום דבר לא נשמר
-                פעם שנייה. אלה התוצאות מאותה קליטה.
+                {t("account.settings.historical.import.done.replayed")}
               </p>
             ) : null}
 
             {result.totals.alreadyExecuted > 0 && !result.replayed ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
-                {count(result.totals.alreadyExecuted)} שורות כבר היו שמורות
-                מהרצה קודמת של אותו קובץ, ולא נשמרו שוב.
+                {t("account.settings.historical.import.done.alreadyExecuted", { count: count(result.totals.alreadyExecuted) })}
               </p>
             ) : null}
 
             {result.status === "PARTIAL" ? (
               <p className="mt-3 text-xs leading-5 text-[var(--dz-text-primary)]">
-                חלק מהשורות לא הספיקו לרוץ. הריצו את אותו קובץ שוב כדי להשלים
-                אותן — מה שכבר נשמר לא יישמר פעם שנייה.
+                {t("account.settings.historical.import.done.partial")}
               </p>
             ) : null}
 
@@ -1250,9 +1237,9 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                   .map((r) => (
                     <li key={r.sourceRowNumber} className="py-2">
                       <span className="text-xs font-bold text-[var(--dz-text-primary)]">
-                        שורה {r.sourceRowNumber}
+                        {t("account.settings.historical.import.row", { number: r.sourceRowNumber })}
                       </span>
-                      <span className="mr-2 text-xs text-[var(--dz-text-muted)]">
+                      <span className="ms-2 text-xs text-[var(--dz-text-muted)]">
                         {ROW_RESULT_TEXT[r.result]}
                       </span>
                     </li>
@@ -1264,7 +1251,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
               href={recordsHref}
               className="mt-4 flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--dz-action-primary)] px-4 text-sm font-bold text-[var(--dz-action-primary-text)] transition"
             >
-              לצפייה במסמכים ההיסטוריים
+              {t("account.settings.historical.import.done.toRecords")}
             </Link>
           </SettingsSection>
         </div>
@@ -1296,7 +1283,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                 }}
                 className="mt-2 min-h-[44px] rounded-full border border-[var(--dz-border-subtle)] px-4 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)] disabled:opacity-60"
               >
-                בדקו את הקובץ מחדש
+                {t("account.settings.historical.import.recheck")}
               </button>
             ) : null}
           </div>
@@ -1323,6 +1310,7 @@ function RowHeading({
   headers: HistoricalHeaderMap;
   badge: string;
 }) {
+  const { t } = useI18n();
   const type = valueOf(row, headers.documentTypeCode);
   const number = valueOf(row, headers.originalDocumentNumber);
   const date = valueOf(row, headers.originalIssueDate);
@@ -1332,8 +1320,9 @@ function RowHeading({
     <>
       <div className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 break-words text-sm font-bold text-[var(--dz-text-primary)]">
-          שורה {row.sourceRowNumber}
-          {type ? ` · ${documentTypeLabel(type)}` : ""}
+          {type
+            ? t("account.settings.historical.import.rowWithType", { number: row.sourceRowNumber, type: documentTypeLabel(type) })
+            : t("account.settings.historical.import.row", { number: row.sourceRowNumber })}
         </span>
         <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
           {badge}
@@ -1355,6 +1344,7 @@ function RowCard({
   row: AnalyzedRow;
   headers: HistoricalHeaderMap;
 }) {
+  const { t } = useI18n();
   return (
     <li className="py-3">
       <RowHeading row={row} headers={headers} badge={ROW_STATE_LABEL[row.state]} />
@@ -1364,7 +1354,7 @@ function RowCard({
           key={`e${i}`}
           className="mt-1 break-words text-xs leading-5 text-[var(--dz-danger,#b3261e)]"
         >
-          {issue.field}: {issueText(issue)}
+          {t("account.settings.historical.import.issue", { field: issue.field, text: issueText(issue) })}
         </p>
       ))}
       {row.warnings.map((issue, i) => (
@@ -1372,7 +1362,7 @@ function RowCard({
           key={`w${i}`}
           className="mt-1 break-words text-xs leading-5 text-[var(--dz-text-muted)]"
         >
-          {issue.field}: {issueText(issue)}
+          {t("account.settings.historical.import.issue", { field: issue.field, text: issueText(issue) })}
         </p>
       ))}
       {/* A resolved credit raises neither an error nor a warning, so without
@@ -1384,7 +1374,7 @@ function RowCard({
           {REVERSAL_TEXT[row.reversal.state]}
           {row.reversal.state === "RESOLVED_IN_FILE" &&
           row.reversal.targetSourceRow !== null
-            ? ` (שורה ${row.reversal.targetSourceRow})`
+            ? t("account.settings.historical.import.targetRow", { number: row.reversal.targetSourceRow })
             : ""}
         </p>
       ) : null}

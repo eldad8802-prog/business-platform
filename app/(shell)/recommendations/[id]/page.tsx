@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconSparkle } from "@/components/navigation/nav-icons";
+import type { MessageKey } from "@/lib/i18n/translate";
 import BackButton from "@/components/ui/back-button";
 import { PageContainer } from "@/components/ui/page-container";
 import { RecommendationIcon, StageBadge } from "@/features/recommendations/recommendation-parts";
@@ -27,18 +29,19 @@ import styles from "@/features/recommendations/recommendations.module.css";
  */
 type Panel = null | "MODIFY" | "NOT_NOW" | "REJECT";
 
-const ERRORS: Record<string, string> = {
-  VERSION_MISMATCH: "ההמלצה התעדכנה בינתיים. טענו את הגרסה העדכנית — בדוק אותה ונסה שוב.",
-  NOT_ACTIVE: "ההמלצה כבר לא פעילה, ולכן אי אפשר להחליט עליה.",
-  NOT_FOUND: "ההמלצה לא נמצאה.",
-  FEATURE_DISABLED: "המלצות Dubiz לא פעילות כרגע בעסק שלך.",
-  FAILED: "לא הצלחנו לשמור את ההחלטה. נסה שוב.",
+const ERRORS: Record<string, MessageKey> = {
+  VERSION_MISMATCH: "home.recommendations.errors.VERSION_MISMATCH",
+  NOT_ACTIVE: "home.recommendations.errors.NOT_ACTIVE",
+  NOT_FOUND: "home.recommendations.errors.NOT_FOUND",
+  FEATURE_DISABLED: "home.recommendations.errors.FEATURE_DISABLED",
+  FAILED: "home.recommendations.errors.FAILED",
 };
 
 export default function RecommendationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const recommendationId = Number(id);
   const router = useRouter();
+  const { t } = useI18n();
 
   const [data, setData] = useState<RecommendationPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -58,10 +61,10 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
     let cancelled = false;
     loadRecommendation(recommendationId).then(
       (p) => { if (!cancelled) { setData(p); setLoadError(null); } },
-      (e: Error) => { if (!cancelled) setLoadError(e.message === "NOT_FOUND" ? "ההמלצה לא נמצאה." : "לא הצלחנו לטעון את ההמלצה."); },
+      (e: Error) => { if (!cancelled) setLoadError(e.message === "NOT_FOUND" ? t("home.recommendations.notFound") : t("home.recommendations.loadOneFailed")); },
     );
     return () => { cancelled = true; };
-  }, [recommendationId, reloadToken]);
+  }, [recommendationId, reloadToken, t]);
 
   const keyFor = useCallback((kind: DecisionKind, version: number) => {
     const existing = keys[kind];
@@ -72,11 +75,11 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
   }, [keys, recommendationId]);
 
   if (!Number.isInteger(recommendationId) || recommendationId <= 0) {
-    return <Shell><p className={`${styles.message} ${styles.messageError}`}>קישור לא תקין.</p></Shell>;
+    return <Shell><p className={`${styles.message} ${styles.messageError}`}>{t("home.recommendations.badLink")}</p></Shell>;
   }
   if (loadError) return <Shell><p className={`${styles.message} ${styles.messageError}`} role="alert">{loadError}</p></Shell>;
-  if (data === null) return <Shell><p className={styles.lead} aria-live="polite">טוען…</p></Shell>;
-  if (!data.enabled) return <Shell><div className={styles.empty}>המלצות Dubiz עדיין לא פעילות בעסק שלך.</div></Shell>;
+  if (data === null) return <Shell><p className={styles.lead} aria-live="polite">{t("home.recommendations.loading")}</p></Shell>;
+  if (!data.enabled) return <Shell><div className={styles.empty}>{t("home.recommendations.disabled")}</div></Shell>;
 
   const v = data.item;
   const accept = v.options.find((o) => o.decision === "ACCEPT");
@@ -90,7 +93,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
     const result = await decide(recommendationId, { decision: kind, recommendationVersion: v.version, ...input }, keyFor(kind, v.version));
     setBusy(false);
     if (!result.ok) {
-      setError(ERRORS[result.code] ?? ERRORS.FAILED);
+      setError(t(ERRORS[result.code] ?? ERRORS.FAILED));
       if (result.code === "VERSION_MISMATCH" || result.code === "NOT_ACTIVE") setReloadToken((n) => n + 1);
       return;
     }
@@ -101,7 +104,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
       router.push(next);
       return;
     }
-    setSaved("ההחלטה נשמרה.");
+    setSaved(t("home.recommendations.saved"));
     setReloadToken((n) => n + 1);
   }
 
@@ -114,7 +117,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
         <div className={styles.heroText}>
           <span className={styles.eyebrow}>
             <IconSparkle size={14} strokeWidth={2} />
-            Dubiz ממליץ
+            {t("home.recommendations.eyebrow")}
           </span>
           <h1 id="rec-what" className={styles.what}>{v.what}</h1>
           <p className={styles.summary}>{v.summary}</p>
@@ -124,30 +127,30 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
 
       <div className={styles.twoCol}>
         <section className={styles.card} aria-labelledby="rec-why">
-          <h2 id="rec-why" className={styles.sectionTitle}>למה Dubiz ממליץ על זה</h2>
+          <h2 id="rec-why" className={styles.sectionTitle}>{t("home.recommendations.why")}</h2>
           <ul className={styles.bullets}>
             {v.why.map((line) => <li key={line}>{line}</li>)}
           </ul>
         </section>
         <section className={styles.card} aria-labelledby="rec-evidence">
-          <h2 id="rec-evidence" className={styles.sectionTitle}>על מה זה מבוסס</h2>
+          <h2 id="rec-evidence" className={styles.sectionTitle}>{t("home.recommendations.evidence")}</h2>
           <ul className={styles.facts}>
             {v.evidence.lines.map((line) => <li key={line}>{line}</li>)}
           </ul>
           <p className={styles.note}>{v.evidence.capturedNote}</p>
-          {!v.evidence.intact ? <p className={styles.warn}>לא ניתן לאמת שהנתונים השמורים לא השתנו.</p> : null}
+          {!v.evidence.intact ? <p className={styles.warn}>{t("home.recommendations.notIntact")}</p> : null}
         </section>
       </div>
 
       {v.after.length > 0 ? (
         <section className={styles.card} aria-labelledby="rec-after">
-          <h2 id="rec-after" className={styles.sectionTitle}>מה קרה מאז</h2>
+          <h2 id="rec-after" className={styles.sectionTitle}>{t("home.recommendations.after")}</h2>
           <ul className={styles.bullets}>
             {v.after.map((line) => <li key={line}>{line}</li>)}
           </ul>
           {v.handoff && v.stage === "in_progress" ? (
             <div className={styles.actions} style={{ marginTop: 14 }}>
-              <Link href={v.handoff} className={`${styles.button} ${styles.primary}`}>להמשך הטיפול</Link>
+              <Link href={v.handoff} className={`${styles.button} ${styles.primary}`}>{t("home.recommendations.continue")}</Link>
             </div>
           ) : null}
         </section>
@@ -159,14 +162,14 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
       {v.decidable && v.decision && !changing ? (
         <div className={styles.actions}>
           <button type="button" className={`${styles.button} ${styles.quiet}`} onClick={() => setChanging(true)}>
-            לשנות את ההחלטה
+            {t("home.recommendations.change")}
           </button>
         </div>
       ) : null}
 
       {showOptions ? (
         <section className={styles.card} aria-labelledby="rec-do">
-          <h2 id="rec-do" className={styles.sectionTitle}>מה אפשר לעשות</h2>
+          <h2 id="rec-do" className={styles.sectionTitle}>{t("home.recommendations.whatCanIDo")}</h2>
           <div className={styles.actions}>
             {accept ? (
               <button type="button" className={`${styles.button} ${styles.primary}`} disabled={busy}
@@ -177,22 +180,22 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
             {canModify ? (
               <button type="button" className={styles.button} disabled={busy} aria-expanded={panel === "MODIFY"}
                 onClick={() => setPanel(panel === "MODIFY" ? null : "MODIFY")}>
-                רק חלק מהם
+                {t("home.recommendations.partial")}
               </button>
             ) : null}
             <button type="button" className={styles.button} disabled={busy} aria-expanded={panel === "NOT_NOW"}
               onClick={() => setPanel(panel === "NOT_NOW" ? null : "NOT_NOW")}>
-              לא עכשיו
+              {t("home.recommendations.notNow")}
             </button>
             <button type="button" className={styles.button} disabled={busy} aria-expanded={panel === "REJECT"}
               onClick={() => setPanel(panel === "REJECT" ? null : "REJECT")}>
-              לא רלוונטי
+              {t("home.recommendations.reject")}
             </button>
           </div>
 
           {panel === "MODIFY" ? (
             <div className={styles.panel}>
-              <p className={styles.panelTitle}>באילו מסמכים תטפל עכשיו?</p>
+              <p className={styles.panelTitle}>{t("home.recommendations.whichDocs")}</p>
               <ul className={styles.checks}>
                 {v.selectable.map((s) => (
                   <li key={s.id}>
@@ -208,7 +211,9 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
                 <button type="button" className={`${styles.button} ${styles.primary}`}
                   disabled={busy || selected.length === 0 || selected.length >= v.selectable.length}
                   onClick={() => submit("MODIFY", { targets: selected }, modifyHref)}>
-                  לבדיקת {selected.length > 0 ? selected.length : ""} המסמכים שנבחרו
+                  {selected.length > 0
+                    ? t("home.recommendations.reviewSelected", { count: selected.length })
+                    : t("home.recommendations.reviewSelectedNone")}
                 </button>
               </div>
             </div>
@@ -216,8 +221,8 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
 
           {panel === "NOT_NOW" ? (
             <div className={styles.panel}>
-              <p className={styles.panelTitle}>מתי לחזור לזה?</p>
-              <div className={styles.chips} role="group" aria-label="מתי לחזור לזה">
+              <p className={styles.panelTitle}>{t("home.recommendations.whenBack")}</p>
+              <div className={styles.chips} role="group" aria-label={t("home.recommendations.whenBack")}>
                 {data.notNow.map((c) => (
                   <button key={c.days} type="button" className={styles.chip} aria-pressed={deferDays === c.days} onClick={() => setDeferDays(c.days)}>
                     {c.label}
@@ -227,7 +232,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
               <div className={styles.actions}>
                 <button type="button" className={`${styles.button} ${styles.primary}`} disabled={busy || deferDays == null}
                   onClick={() => submit("NOT_NOW", { deferDays: deferDays ?? undefined }, null)}>
-                  לשמור
+                  {t("home.recommendations.save")}
                 </button>
               </div>
             </div>
@@ -235,8 +240,8 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
 
           {panel === "REJECT" ? (
             <div className={styles.panel}>
-              <p className={styles.panelTitle}>למה זה לא מתאים? (לא חובה)</p>
-              <div className={styles.chips} role="group" aria-label="סיבה">
+              <p className={styles.panelTitle}>{t("home.recommendations.whyNot")}</p>
+              <div className={styles.chips} role="group" aria-label={t("home.recommendations.reasonAria")}>
                 {data.reasons.map((r) => (
                   <button key={r.code} type="button" className={styles.chip} aria-pressed={reason === r.code}
                     onClick={() => setReason(reason === r.code ? null : r.code)}>
@@ -247,7 +252,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
               <div className={styles.actions}>
                 <button type="button" className={`${styles.button} ${styles.primary}`} disabled={busy}
                   onClick={() => submit("REJECT", { reasonCode: reason }, null)}>
-                  לשמור
+                  {t("home.recommendations.save")}
                 </button>
               </div>
             </div>
@@ -256,7 +261,7 @@ export default function RecommendationPage({ params }: { params: Promise<{ id: s
       ) : null}
 
       <p className={styles.footnote}>
-        Dubiz לא מבצע פעולות בשמך. תשלום או בדיקת מסמך נרשמים רק כשאתה עושה אותם במסך המתאים, ו־Dubiz רואה אותם משם.
+        {t("home.recommendations.footnote")}
       </p>
     </Shell>
   );

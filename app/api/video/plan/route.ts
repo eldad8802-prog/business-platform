@@ -1,4 +1,5 @@
 import { buildVideoPlan } from "@/lib/services/video-plan.service";
+import { getServerI18n } from "@/lib/i18n/server";
 import {
   runContentDecisionEngine,
   type DecisionInput,
@@ -67,6 +68,7 @@ function validateBody(body: VideoPlanRequestBody) {
 }
 
 export async function POST(req: Request) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -92,8 +94,7 @@ export async function POST(req: Request) {
         {
           success: false,
           error: "brief_required",
-          message:
-            "חסר בריף יעד מפורט. חזרו לשלב ההגדרה והשלימו «מה מקדמים» ו«מה עוצר לקוחות» לפני יצירת סרטון.",
+          message: t("api.content.videoPlanBriefRequired"),
         },
         { status: 400 }
       );

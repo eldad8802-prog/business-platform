@@ -19,7 +19,9 @@ import { WarmPill, WarmTile, warmStyles } from "@/components/ui/warm-surface/war
 import { ChevronGlyph } from "@/components/ui/warm-surface/glyphs";
 import { buildLandingKnowledge, type ChapterKey } from "@/lib/services/identity/landing-knowledge";
 
-import { CHAPTER_COPY, CHAPTER_STATE_LABELS, NEED_LABELS } from "../identity-labels";
+import { useI18n } from "@/components/i18n/I18nProvider";
+
+import { useIdentityLabels } from "../identity-labels";
 import { ChapterAction, ChapterAudience, ChapterWho, ChapterWhy } from "./chapters";
 import { useIdentityContext } from "./identity-api";
 import { LearnedCard, PreviewCard, UnderstandingCard } from "./panels";
@@ -29,6 +31,8 @@ const CHAPTER_BODY = { who: ChapterWho, audience: ChapterAudience, why: ChapterW
 const STATE_TONE = { COMPLETE: "mint", IN_PROGRESS: "sand", MISSING: "neutral" } as const;
 
 export function IdentityScreen() {
+  const { t } = useI18n();
+  const { CHAPTER_COPY, CHAPTER_STATE_LABELS, NEED_LABELS } = useIdentityLabels();
   const { load, busy, error, clearError, actions } = useIdentityContext();
   const knowledge = useMemo(() => (load.state === "ready" ? buildLandingKnowledge(load.ctx) : null), [load]);
   const [open, setOpen] = useState<ChapterKey | null>(null);
@@ -43,41 +47,43 @@ export function IdentityScreen() {
   };
 
   return (
-    <div className={`${warmStyles.surface} ${s.page}`} dir="rtl">
+    <div className={`${warmStyles.surface} ${s.page}`}>
       <div className={s.topBar}>
         <BackButton />
       </div>
       <header className={s.heading}>
-        <h1 className={s.title}>הנוכחות הדיגיטלית של העסק</h1>
-        <p className={s.subtitle}>המידע ש-Dubiz לומד על העסק שלך — ממנו ייבנה בהמשך דף הנחיתה של העסק.</p>
+        <h1 className={s.title}>{t("content.identity.screen.title")}</h1>
+        <p className={s.subtitle}>{t("content.identity.screen.subtitle")}</p>
       </header>
 
       {error ? (
         <div className={s.errorBanner} role="alert">
           {error}
           <button type="button" className={s.linkButton} onClick={clearError}>
-            סגירה
+            {t("content.identity.screen.close")}
           </button>
         </div>
       ) : null}
 
-      {load.state === "loading" ? <p className={s.loading} role="status">טוען את מה ש-Dubiz יודע על העסק…</p> : null}
-      {load.state === "error" ? <p className={s.errorBanner} role="alert">לא הצלחנו לטעון את המידע. נסו לרענן.</p> : null}
+      {load.state === "loading" ? <p className={s.loading} role="status">{t("content.identity.screen.loading")}</p> : null}
+      {load.state === "error" ? <p className={s.errorBanner} role="alert">{t("content.identity.screen.loadError")}</p> : null}
 
       {load.state === "ready" && knowledge ? (
         <div className={s.layout}>
           {/* ── orientation: the destination, and how far the knowledge has come ── */}
           <section className={`${s.orient} ${s.area_orient}`} aria-labelledby="identity-orient">
-            <p className={s.orientEyebrow}>דף הנחיתה העתידי שלך</p>
+            <p className={s.orientEyebrow}>{t("content.identity.screen.orientEyebrow")}</p>
             <h2 id="identity-orient" className={s.orientTitle}>
-              Dubiz לומד את העסק שלך כדי לבנות לו דף נחיתה מותאם
+              {t("content.identity.screen.orientTitle")}
             </h2>
             <p className={s.orientText}>
-              הידע מגיע משני מקורות: מה שאתה מספר ומאשר, ומה ש-Dubiz רואה בפעילות האמיתית בעסק. ככל שהידע מלא ומאומת יותר, כך הדף שיוכן יתאים יותר. שום דבר לא מוצג ללקוחות בלי אישורך.
+              {t("content.identity.screen.orientText")}
             </p>
             <div className={s.readiness}>
               <p className={s.readinessTitle}>
-                היכרות עם העסק · <strong>{knowledge.completeChapters} מתוך {knowledge.totalChapters}</strong> פרקים הושלמו
+                {t("content.identity.screen.readinessPrefix")}
+                <strong>{t("content.identity.screen.readinessCount", { done: knowledge.completeChapters, total: knowledge.totalChapters })}</strong>
+                {t("content.identity.screen.readinessSuffix")}
               </p>
               <ol className={s.readinessSteps}>
                 {knowledge.chapters.map((c) => (
@@ -118,12 +124,12 @@ export function IdentityScreen() {
                   >
                     <WarmTile tone={copy.tone} icon={copy.icon} />
                     <span className={s.chapterHeadText}>
-                      <span className={s.chapterStep}>פרק {index + 1} מתוך {knowledge.totalChapters}</span>
+                      <span className={s.chapterStep}>{t("content.identity.screen.chapterStep", { n: index + 1, total: knowledge.totalChapters })}</span>
                       <span id={`chapter-${c.key}`} className={s.chapterTitle}>
                         {copy.title}
                       </span>
                       <span className={s.chapterPurpose}>{copy.purpose}</span>
-                      {c.needs.length ? <span className={s.chapterNeeds}>חסר: {c.needs.map((n) => NEED_LABELS[n] ?? n).join(" · ")}</span> : null}
+                      {c.needs.length ? <span className={s.chapterNeeds}>{t("content.identity.screen.chapterNeeds", { items: c.needs.map((n) => NEED_LABELS[n] ?? n).join(" · ") })}</span> : null}
                     </span>
                     <WarmPill tone={STATE_TONE[c.state]}>{CHAPTER_STATE_LABELS[c.state]}</WarmPill>
                     <ChevronGlyph className={isOpen ? s.chevronOpen : s.chevron} />
@@ -133,7 +139,7 @@ export function IdentityScreen() {
                       <Body ctx={load.ctx} actions={actions} busy={busy} />
                       {next ? (
                         <button type="button" className={s.nextButton} onClick={() => openChapter(next.key)}>
-                          לפרק הבא: {CHAPTER_COPY[next.key].title}
+                          {t("content.identity.screen.nextChapter", { title: CHAPTER_COPY[next.key].title })}
                         </button>
                       ) : null}
                     </div>

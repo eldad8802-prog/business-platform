@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getServerI18n } from "@/lib/i18n/server";
 import { ReactNode } from "react";
 import { layout } from "./ui";
 
@@ -7,7 +8,11 @@ import { layout } from "./ui";
 // --font-heebo app-wide), so the Documents feature simply inherits it — no
 // scoped font loader here. The `layout` style re-asserts the Heebo stack and
 // the font-synthesis guard.
-export const metadata: Metadata = { title: "מסמכים" };
+// Tab title in the interface language (Hebrew source "מסמכים": lib/i18n/messages/he.ts → meta.titles.documents).
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n();
+  return { title: t("meta.titles.documents") };
+}
 
 export default function DocumentsLayout({
   children,

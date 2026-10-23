@@ -2,6 +2,9 @@
 
 import { useId, useMemo } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
+
 export type AssetInputType = "image" | "video" | "voice";
 
 export type AssetPlanItem = {
@@ -38,16 +41,29 @@ function getAcceptByType(type: AssetInputType) {
   }
 }
 
-function getTypeLabel(type: AssetInputType) {
+function getTypeLabel(t: Translator, type: AssetInputType) {
   switch (type) {
     case "image":
-      return "תמונה";
+      return t("content.studioFlow.assetItem.types.image");
     case "video":
-      return "וידאו";
+      return t("content.studioFlow.assetItem.types.video");
     case "voice":
-      return "אודיו";
+      return t("content.studioFlow.assetItem.types.voice");
     default:
-      return "קובץ";
+      return t("content.studioFlow.assetItem.types.file");
+  }
+}
+
+function getUploadLabel(t: Translator, type: AssetInputType) {
+  switch (type) {
+    case "image":
+      return t("content.studioFlow.assetItem.upload.image");
+    case "video":
+      return t("content.studioFlow.assetItem.upload.video");
+    case "voice":
+      return t("content.studioFlow.assetItem.upload.voice");
+    default:
+      return t("content.studioFlow.assetItem.upload.file");
   }
 }
 
@@ -57,6 +73,7 @@ export default function AssetUploadItem({
   onUpload,
 }: AssetUploadItemProps) {
   const inputId = useId();
+  const { t } = useI18n();
 
   const preview = useMemo(() => {
     if (!uploaded) {
@@ -100,11 +117,11 @@ export default function AssetUploadItem({
               : "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]"
           }`}
         >
-          {asset.required ? "חובה" : "אופציונלי"}
+          {asset.required ? t("content.studioFlow.assetItem.required") : t("content.studioFlow.assetItem.optional")}
         </span>
 
         <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-medium text-[var(--dz-text-secondary)]">
-          {getTypeLabel(asset.type)}
+          {getTypeLabel(t, asset.type)}
         </span>
       </div>
 
@@ -120,7 +137,7 @@ export default function AssetUploadItem({
             {preview}
 
             <div className="rounded-2xl bg-[var(--dz-surface-muted)] p-3">
-              <div className="text-xs text-[var(--dz-text-muted)]">הקובץ שנבחר</div>
+              <div className="text-xs text-[var(--dz-text-muted)]">{t("content.studioFlow.assetItem.selectedFile")}</div>
               <div className="mt-1 break-all text-sm font-medium text-[var(--dz-text-primary)]">
                 {uploaded.fileName}
               </div>
@@ -130,7 +147,7 @@ export default function AssetUploadItem({
               htmlFor={inputId}
               className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] px-4 py-3 text-sm font-medium text-[var(--dz-text-primary)] transition active:scale-[0.99]"
             >
-              החלף קובץ
+              {t("content.studioFlow.assetItem.replace")}
             </label>
           </div>
         ) : (
@@ -138,7 +155,7 @@ export default function AssetUploadItem({
             htmlFor={inputId}
             className="flex min-h-[56px] w-full cursor-pointer items-center justify-center rounded-2xl border border-dashed border-[var(--dz-border-strong)] bg-[var(--dz-surface-muted)] px-4 py-4 text-sm font-medium text-[var(--dz-text-secondary)] transition active:scale-[0.99]"
           >
-            העלה {getTypeLabel(asset.type)}
+            {getUploadLabel(t, asset.type)}
           </label>
         )}
 

@@ -6,7 +6,7 @@ import BackButton from "@/components/ui/back-button";
 
 export default function DocumentsReviewSkeleton() {
   return (
-    <div dir="rtl" style={basePageStyle()}>
+    <div style={basePageStyle()}>
       <main style={mainStyle()}>
         {/* The screen is reachable while it loads: back works from the first
             paint (a slow document fetch must never strand the user). */}

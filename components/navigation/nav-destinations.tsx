@@ -14,6 +14,7 @@ import {
   IconUsers,
   type IconComponent,
 } from "./nav-icons";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * Single source of truth for the app's primary navigation.
@@ -34,7 +35,9 @@ export type NavGroupKey = "main" | "money" | "customers" | "business" | "footer"
 
 export type NavDestination = {
   key: string;
+  /** Hebrew label (the source text); surfaces render `labelKey` through the translator. */
   label: string;
+  labelKey: MessageKey;
   href: string;
   icon: IconComponent;
   group: NavGroupKey;
@@ -47,14 +50,15 @@ export type NavDestination = {
 export type NavGroup = {
   key: Exclude<NavGroupKey, "main" | "footer">;
   label: string;
+  labelKey: MessageKey;
   /** The group's square colour dot — the same family colours the Home tiles use. */
   dot: string;
 };
 
 export const NAV_GROUPS: NavGroup[] = [
-  { key: "money", label: "כסף", dot: "#246966" },
-  { key: "customers", label: "לקוחות ומכירות", dot: "#5B4FA8" },
-  { key: "business", label: "ניהול העסק", dot: "#A0601F" },
+  { key: "money", label: "כסף", labelKey: "nav.groups.money", dot: "#246966" },
+  { key: "customers", label: "לקוחות ומכירות", labelKey: "nav.groups.customers", dot: "#5B4FA8" },
+  { key: "business", label: "ניהול העסק", labelKey: "nav.groups.business", dot: "#A0601F" },
 ];
 
 /** The only search the product has: financial records by vendor / category. */
@@ -73,23 +77,23 @@ export function isNavActive(pathname: string, href: string): boolean {
 }
 
 export const NAV_DESTINATIONS: NavDestination[] = [
-  { key: "home", label: "בית", href: "/app", icon: IconHome, group: "main", primary: true },
-  { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, group: "main", primary: true },
-  { key: "docs", label: "מסמכים", href: "/documents", icon: IconFile, group: "main", primary: true },
+  { key: "home", label: "בית", labelKey: "nav.home", href: "/app", icon: IconHome, group: "main", primary: true },
+  { key: "chats", label: "שיחות", labelKey: "nav.chats", href: "/inbox", icon: IconChat, group: "main", primary: true },
+  { key: "docs", label: "מסמכים", labelKey: "nav.docs", href: "/documents", icon: IconFile, group: "main", primary: true },
   // Notifications take the fourth tab, because "what happened that mattered"
   // is something the owner comes back for many times a day.
-  { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, group: "main", primary: true },
-  { key: "payments", label: "גבייה", href: "/collection", icon: IconCash, group: "money" },
-  { key: "billing", label: "חשבוניות", href: "/billing", icon: IconReceipt, group: "money" },
-  { key: "customers", label: "לקוחות", href: "/customers", icon: IconUsers, group: "customers" },
-  { key: "leads", label: "לידים", href: "/leads", icon: IconLeads, group: "customers" },
+  { key: "notifications", label: "התראות", labelKey: "nav.notifications", href: "/notifications", icon: IconBell, group: "main", primary: true },
+  { key: "payments", label: "גבייה", labelKey: "nav.payments", href: "/collection", icon: IconCash, group: "money" },
+  { key: "billing", label: "חשבוניות", labelKey: "nav.billing", href: "/billing", icon: IconReceipt, group: "money" },
+  { key: "customers", label: "לקוחות", labelKey: "nav.customers", href: "/customers", icon: IconUsers, group: "customers" },
+  { key: "leads", label: "לידים", labelKey: "nav.leads", href: "/leads", icon: IconLeads, group: "customers" },
   // ניהול העסק (Daily Tasks B, owner-approved): the task centre, the secretary and the commitments sit together —
   // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
-  { key: "tasks", label: "משימות", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
-  { key: "secretary", label: "המזכירה שלי", href: "/secretary", icon: IconSecretary, group: "business" },
-  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconCalendar, group: "business" },
-  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconBox, group: "business" },
-  { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings, group: "footer" },
+  { key: "tasks", label: "משימות", labelKey: "nav.tasks", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
+  { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
+  { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
+  { key: "inventory", label: "מלאי", labelKey: "nav.inventory", href: "/inventory", icon: IconBox, group: "business" },
+  { key: "settings", label: "הגדרות", labelKey: "nav.settings", href: "/settings", icon: IconSettings, group: "footer" },
 ];
 
 /** Primary destinations only — the mobile bottom-bar tabs and the tablet rail. */

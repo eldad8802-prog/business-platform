@@ -2,6 +2,7 @@ import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHead
 import { InboundEmailCard } from "@/components/settings/InboundEmailCard";
 import { isInboundEmailEnabled } from "@/lib/inbound-email/inbound-email-flag";
 import { notFound } from "next/navigation";
+import { getServerI18n } from "@/lib/i18n/server";
 
 /**
  * Settings → ייבוא מסמכים במייל.
@@ -12,12 +13,13 @@ import { notFound } from "next/navigation";
  * hid its navigation link would still be a live management surface for an
  * unfinished feature.
  */
-export default function SettingsInboundEmailPage() {
+export default async function SettingsInboundEmailPage() {
   if (!isInboundEmailEnabled()) notFound();
+  const { t } = await getServerI18n();
 
   return (
     <>
-      <SettingsSubPageHeader title="ייבוא מסמכים במייל" />
+      <SettingsSubPageHeader title={t("account.settings.connections.inboundEmail.pageTitle")} />
       <div className="mb-4">
         <InboundEmailCard />
       </div>

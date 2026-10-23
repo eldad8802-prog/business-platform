@@ -15,14 +15,16 @@
 
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { getServerI18n } from "@/lib/i18n/server";
 import { IMPORT_EXPORT_ACTIONS } from "./import-export-actions";
 import { ImportExportPendingRow } from "./ImportExportPendingRow";
 
-export function ImportExportHub() {
+export async function ImportExportHub() {
+  const { t } = await getServerI18n();
   return (
     <SettingsSection>
       <nav
-        aria-label="ייבוא וייצוא"
+        aria-label={t("account.settings.importExport.category.title")}
         className="flex flex-col divide-y divide-[var(--dz-border-subtle)]"
       >
         {IMPORT_EXPORT_ACTIONS.map((action) =>
@@ -31,15 +33,16 @@ export function ImportExportHub() {
               key={action.key}
               href={action.href}
               icon={action.icon}
-              title={action.title}
-              description={action.description}
+              title={t(action.titleKey)}
+              description={t(action.descriptionKey)}
             />
           ) : (
             <ImportExportPendingRow
               key={action.key}
               icon={action.icon}
-              title={action.title}
-              description={action.description}
+              title={t(action.titleKey)}
+              description={t(action.descriptionKey)}
+              status={t("account.settings.importExport.soon")}
             />
           )
         )}

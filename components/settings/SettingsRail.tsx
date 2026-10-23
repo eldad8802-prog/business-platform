@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SETTINGS_CATEGORIES, SETTINGS_GROUP_ORDER, SETTINGS_GROUP_TITLES } from "./settings-categories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { SETTINGS_CATEGORIES, SETTINGS_GROUP_ORDER, SETTINGS_GROUP_TITLE_KEYS } from "./settings-categories";
 import styles from "../../app/settings/settings-desk.module.css";
 
 /**
@@ -13,20 +14,21 @@ import styles from "../../app/settings/settings-desk.module.css";
 
 export function SettingsRail() {
   const path = usePathname() || "";
+  const { t } = useI18n();
   const hubOn = path === "/settings";
   return (
-    <nav aria-label="אזורי ההגדרות" className={styles.rail}>
+    <nav aria-label={t("account.settings.rail.ariaLabel")} className={styles.rail}>
       <Link
         href="/settings"
         className={hubOn ? styles.railOn : styles.railLink}
         aria-current={hubOn ? "page" : undefined}
       >
         <span className={styles.railIcon} aria-hidden>⚙️</span>
-        <span>סקירה</span>
+        <span>{t("account.settings.rail.overview")}</span>
       </Link>
       {SETTINGS_GROUP_ORDER.map((group) => (
         <div key={group} className={styles.railGroup}>
-          <p className={styles.railHeading}>{SETTINGS_GROUP_TITLES[group]}</p>
+          <p className={styles.railHeading}>{t(SETTINGS_GROUP_TITLE_KEYS[group])}</p>
           {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
             const on = path === item.href || path.startsWith(`${item.href}/`);
             return (
@@ -37,7 +39,7 @@ export function SettingsRail() {
                 aria-current={on ? "page" : undefined}
               >
                 <span className={styles.railIcon} aria-hidden>{item.icon}</span>
-                <span>{item.title}</span>
+                <span>{t(item.titleKey)}</span>
               </Link>
             );
           })}

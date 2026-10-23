@@ -2,8 +2,9 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import {
-  CONFIDENCE_LABEL,
+  confidenceLabel,
   attachEvidence,
   fetchSuggestions,
   formatDate,
@@ -31,6 +32,7 @@ export default function MatchDocumentPage({
 }) {
   const { documentId } = use(params);
   const docId = Number(documentId);
+  const { t, locale } = useI18n();
 
   const [data, setData] = useState<SuggestionApi | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,12 +51,12 @@ export default function MatchDocumentPage({
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "טעינה נכשלה");
+        setError(e instanceof Error ? e.message : t("money.payables.list.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [docId, reloadToken]);
+  }, [docId, reloadToken, t]);
 
   async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
@@ -65,7 +67,7 @@ export default function MatchDocumentPage({
       setNotice(success);
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "הפעולה נכשלה");
+      setError(e instanceof Error ? e.message : t("money.common.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -73,7 +75,7 @@ export default function MatchDocumentPage({
 
   if (error && !data) {
     return (
-      <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+      <div className={styles.page} style={PAYABLES_THEME}>
         <div className={styles.backRow}>
           <BackButton />
         </div>
@@ -83,24 +85,24 @@ export default function MatchDocumentPage({
   }
   if (!data) {
     return (
-      <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+      <div className={styles.page} style={PAYABLES_THEME}>
         <div className={styles.backRow}>
           <BackButton />
         </div>
-        <div className={styles.empty}>טוען…</div>
+        <div className={styles.empty}>{t("money.common.loading")}</div>
       </div>
     );
   }
 
   return (
-    <div className={styles.page} style={PAYABLES_THEME} dir="rtl">
+    <div className={styles.page} style={PAYABLES_THEME}>
       <div className={styles.backRow}>
         <BackButton />
       </div>
 
       <header className={styles.header}>
         <div style={{ minWidth: 0 }}>
-          <h1 className={styles.title}>שיוך מסמך</h1>
+          <h1 className={styles.title}>{t("money.payables.match.title")}</h1>
           <p className={styles.payee}>{data.document.vendorName}</p>
         </div>
       </header>
@@ -109,12 +111,12 @@ export default function MatchDocumentPage({
       <section>
       <div className={styles.figures}>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>סכום במסמך</span>
-          <span className={styles.figureValue}>{formatMoney(data.document.amount)}</span>
+          <span className={styles.figureLabel}>{t("money.payables.match.documentAmount")}</span>
+          <span className={styles.figureValue}>{formatMoney(data.document.amount, undefined, locale)}</span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>תאריך</span>
-          <span className={styles.figureValue}>{formatDate(data.document.date)}</span>
+          <span className={styles.figureLabel}>{t("money.payables.match.date")}</span>
+          <span className={styles.figureValue}>{formatDate(data.document.date, locale)}</span>
         </span>
       </div>
 
@@ -123,8 +125,7 @@ export default function MatchDocumentPage({
 
       {data.attachedTo && (
         <div className={styles.notice}>
-          המסמך כבר משויך כראיה לתשלום #{data.attachedTo.paymentId}. הוא אינו נספר
-          כתשלום נוסף.
+          {t("money.payables.match.alreadyAttached", { paymentId: data.attachedTo.paymentId })}
           <div className={styles.formActions}>
             <button
               type="button"
@@ -133,11 +134,11 @@ export default function MatchDocumentPage({
               onClick={() =>
                 run(
                   () => revokeEvidence(data.attachedTo!.evidenceId, "שויך בטעות"),
-                  "השיוך בוטל. המסמך פנוי לשיוך מחדש, והביטול תועד.",
+                  t("money.payables.match.revoked"),
                 )
               }
             >
-              בטל שיוך
+              {t("money.payables.match.revoke")}
             </button>
           </div>
         </div>
@@ -146,15 +147,13 @@ export default function MatchDocumentPage({
       {/* Ambiguity is stated, never resolved by picking the first row. */}
       {data.ambiguous && (
         <div className={styles.notice}>
-          יש כמה אפשרויות שנראות זהות מבחינת הנתונים הקיימים. המערכת אינה יכולה
-          להכריע ביניהן — הבחירה שלך.
+          {t("money.payables.match.ambiguous")}
         </div>
       )}
 
       {data.candidates.length === 0 && !data.attachedTo && (
         <div className={styles.empty}>
-          לא נמצאה התאמה. סכום זהה לבדו אינו מספיק כדי להציע שיוך — נדרשת גם
-          התאמה בשם הספק או בתאריך.
+          {t("money.payables.match.none")}
         </div>
       )}
       </section>
@@ -173,7 +172,7 @@ export default function MatchDocumentPage({
             onAttach={(paymentId) =>
               run(
                 () => attachEvidence(docId, paymentId),
-                "המסמך שויך כראיה. לא נוצר תשלום נוסף ולא השתנה שום סכום.",
+                t("money.payables.match.attached"),
               )
             }
             onRecord={(commitmentId, installmentId) =>
@@ -183,13 +182,13 @@ export default function MatchDocumentPage({
                     commitmentId,
                     installmentIds: installmentId ? [installmentId] : null,
                   }),
-                "נרשם תשלום חדש מתוך המסמך, והמסמך צורף אליו כראיה.",
+                t("money.payables.match.recorded"),
               )
             }
             onReject={(target) =>
               run(
                 () => rejectMatch(docId, target),
-                "ההצעה נדחתה ולא תוצע שוב.",
+                t("money.payables.match.rejected"),
               )
             }
           />
@@ -218,6 +217,7 @@ function CandidateRow({
     paymentId?: number | null;
   }) => void;
 }) {
+  const i18n = useI18n();
   const t = candidate.target;
   const isPayment = t.kind === "PAYMENT";
 
@@ -229,7 +229,7 @@ function CandidateRow({
           <span
             className={`${styles.badge} ${CONFIDENCE_CLASS[candidate.confidence] ?? styles.badgeQuiet}`}
           >
-            {CONFIDENCE_LABEL[candidate.confidence]}
+            {confidenceLabel(i18n.t, candidate.confidence)}
           </span>
         </span>
       </div>
@@ -238,15 +238,15 @@ function CandidateRow({
 
       <div className={styles.figures}>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>{isPayment ? "תשלום שנרשם" : "נותר לתשלום"}</span>
+          <span className={styles.figureLabel}>{isPayment ? i18n.t("money.payables.match.recordedPayment") : i18n.t("money.payables.match.remainingDue")}</span>
           <span className={styles.figureValue}>
-            {minorToDisplay(isPayment ? t.amountMinor : t.remainingMinor)}
+            {minorToDisplay(isPayment ? t.amountMinor : t.remainingMinor, undefined, i18n.locale)}
           </span>
         </span>
         <span className={styles.figure}>
-          <span className={styles.figureLabel}>{isPayment ? "שולם בתאריך" : "מועד פירעון"}</span>
+          <span className={styles.figureLabel}>{isPayment ? i18n.t("money.payables.match.paidOn") : i18n.t("money.payables.match.dueDate")}</span>
           <span className={styles.figureValueMuted}>
-            {formatDate(isPayment ? t.paidAt : t.dueAt)}
+            {formatDate(isPayment ? t.paidAt : t.dueAt, i18n.locale)}
           </span>
         </span>
       </div>
@@ -267,7 +267,7 @@ function CandidateRow({
             )
           }
         >
-          לא זה
+          {i18n.t("money.payables.match.notThis")}
         </button>
         {isPayment ? (
           <button
@@ -276,7 +276,7 @@ function CandidateRow({
             disabled={busy}
             onClick={() => onAttach(t.paymentId)}
           >
-            זו הקבלה לתשלום הזה
+            {i18n.t("money.payables.match.thisIsReceipt")}
           </button>
         ) : (
           <button
@@ -285,14 +285,14 @@ function CandidateRow({
             disabled={busy}
             onClick={() => onRecord(t.commitmentId, t.installmentId)}
           >
-            זהו תשלום שביצעתי — רשום אותו
+            {i18n.t("money.payables.match.recordIt")}
           </button>
         )}
       </div>
 
       {isPayment && (
         <span className={styles.nextLine}>
-          שיוך כראיה לא ישנה אף סכום — התשלום כבר רשום.
+          {i18n.t("money.payables.match.evidenceNote")}
         </span>
       )}
     </div>

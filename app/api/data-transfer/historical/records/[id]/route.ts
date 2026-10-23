@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getHistoricalRecord } from "@/lib/data-transfer/historical/historical-records";
@@ -30,6 +31,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * relationships the record already participates in.
  */
 export async function GET(req: Request, ctx: Ctx) {
+  const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 
@@ -38,7 +40,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
   const notFound = () =>
     NextResponse.json(
-      { error: "המסמך לא נמצא", code: "NOT_FOUND" },
+      { error: t("api.documents.notFound"), code: "NOT_FOUND" },
       { status: 404, headers: NO_STORE }
     );
 
@@ -58,7 +60,7 @@ export async function GET(req: Request, ctx: Ctx) {
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return NextResponse.json(
-      { error: "טעינת המסמך נכשלה. נסו שוב מאוחר יותר.", code: "RECORD_FAILED" },
+      { error: t("api.dataTransfer.historical.recordFailed"), code: "RECORD_FAILED" },
       { status: 500, headers: NO_STORE }
     );
   }

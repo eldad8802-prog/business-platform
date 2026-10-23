@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+
 type Guidance = {
   why: string;
   tip: string;
@@ -8,6 +10,7 @@ type Guidance = {
 };
 
 export default function GuidanceCard({ guidance }: { guidance: Guidance }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -26,27 +29,27 @@ export default function GuidanceCard({ guidance }: { guidance: Guidance }) {
           color: "var(--dz-text-primary)",
         }}
       >
-        קופון שיכול להתאים לעסק שלך
+        {t("billing.couponIssue.guidanceTitle")}
       </div>
 
       <div style={{ display: "grid", gap: 10, fontSize: 14, lineHeight: 1.6 }}>
         <div>
-          <strong>למה זה יכול לעבוד אצלך</strong>
+          <strong>{t("billing.couponIssue.guidanceWhy")}</strong>
           <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.why}</div>
         </div>
 
         <div>
-          <strong>טיפ חכם</strong>
+          <strong>{t("billing.couponIssue.guidanceTip")}</strong>
           <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.tip}</div>
         </div>
 
         <div>
-          <strong>דוגמה</strong>
+          <strong>{t("billing.couponIssue.guidanceExample")}</strong>
           <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.example}</div>
         </div>
 
         <div>
-          <strong>ממה להיזהר</strong>
+          <strong>{t("billing.couponIssue.guidanceCaution")}</strong>
           <div style={{ color: "var(--dz-danger)" }}>{guidance.caution}</div>
         </div>
       </div>

@@ -2,32 +2,29 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 
 /**
- * A quiet line at the top of the app for an owner whose address is not verified yet, with "send the
- * link again". Rendered only when verification is ON (the shell layout decides on the server), and
- * only after the owner's own status says "not verified". Never blocks anything; can be hidden for the
- * rest of the browser session.
+ * A line at the top of the app for an owner whose account was opened with email verification and whose
+ * address is not verified yet, with "send the link again". Shown only when verification is ON and the
+ * owner's own status says required + not verified — an account that existed before verification never
+ * sees it. Never blocks anything; it stays until the address is verified.
  */
-const HIDDEN_KEY = "dz:verify-banner-hidden";
-
 type State = { kind: "hidden" } | { kind: "show"; note: string | null; sending: boolean };
 
 export function EmailVerificationBanner() {
+  const { t } = useI18n();
   const [state, setState] = useState<State>({ kind: "hidden" });
 
   useEffect(() => {
     let alive = true;
-    try {
-      if (window.sessionStorage.getItem(HIDDEN_KEY) === "1") return;
-    } catch {
-      /* storage unavailable: show it */
-    }
     fetch("/api/auth/email/status", { headers: buildClientAuthHeaders() })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (alive && d?.verificationEnabled === true && d?.verified === false) setState({ kind: "show", note: null, sending: false });
+        if (alive && d?.verificationEnabled === true && d?.required === true && d?.verified === false) {
+          setState({ kind: "show", note: null, sending: false });
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -42,31 +39,21 @@ export function EmailVerificationBanner() {
     try {
       const res = await fetch("/api/auth/email/resend", { method: "POST", headers: buildClientAuthHeaders() });
       const d = await res.json().catch(() => ({}));
-      if (res.ok && d?.alreadyVerified) {
+      if (res.ok && (d?.alreadyVerified || d?.notRequired)) {
         setState({ kind: "hidden" });
         return;
       }
-      setState({ kind: "show", sending: false, note: d?.message ?? d?.error ?? "משהו השתבש. כדאי לנסות שוב." });
+      setState({ kind: "show", sending: false, note: d?.message ?? d?.error ?? t("account.auth.banner.error") });
     } catch {
-      setState({ kind: "show", sending: false, note: "אין חיבור כרגע. כדאי לנסות שוב." });
+      setState({ kind: "show", sending: false, note: t("account.auth.banner.offline") });
     }
-  }
-
-  function hide() {
-    try {
-      window.sessionStorage.setItem(HIDDEN_KEY, "1");
-    } catch {
-      /* fine: hidden for this view only */
-    }
-    setState({ kind: "hidden" });
   }
 
   return (
     <div
       role="region"
-      aria-label="אימות כתובת האימייל"
+      aria-label={t("account.auth.banner.regionLabel")}
       data-testid="verify-banner"
-      dir="rtl"
       style={{
         display: "flex",
         flexWrap: "wrap",
@@ -81,7 +68,7 @@ export function EmailVerificationBanner() {
       }}
     >
       <span style={{ flex: "1 1 220px", minWidth: 0 }}>
-        {state.note ?? "כדי לאבטח את החשבון, כדאי לאמת את כתובת האימייל — שלחנו אליה קישור."}
+        {state.note ?? t("account.auth.banner.message")}
       </span>
       <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
         <button
@@ -100,15 +87,7 @@ export function EmailVerificationBanner() {
             cursor: state.sending ? "default" : "pointer",
           }}
         >
-          {state.sending ? "שולחים…" : "שליחה חוזרת"}
-        </button>
-        <button
-          type="button"
-          onClick={hide}
-          aria-label="הסתרת ההודעה"
-          style={{ minHeight: 36, minWidth: 36, borderRadius: 10, border: 0, background: "transparent", color: "var(--dz-text-secondary)", fontSize: 18, cursor: "pointer" }}
-        >
-          ×
+          {state.sending ? t("account.auth.common.sending") : t("account.auth.banner.resend")}
         </button>
       </span>
     </div>

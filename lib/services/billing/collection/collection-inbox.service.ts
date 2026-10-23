@@ -103,10 +103,10 @@ export type CollectionInbox = {
   /** How the business signs a message to its customer. */
   businessName: string;
   summary: {
-    toCollect: { amount: string; count: number; currency: string | null };
-    waiting: { amount: string; count: number };
+    toCollect: { amount: string; count: number; currency: string | null; isMixedCurrency: boolean };
+    waiting: { amount: string; count: number; currency: string | null; isMixedCurrency: boolean };
     attention: { count: number };
-    paidRecent: { amount: string; count: number };
+    paidRecent: { amount: string; count: number; currency: string | null; isMixedCurrency: boolean };
   };
   toCollect: InboxDebtCustomer[];
   waiting: InboxRequestItem[];
@@ -377,8 +377,17 @@ export async function loadCollectionInbox(
     openRequestCount: c.customerId !== null ? (openByCustomer.get(c.customerId) ?? 0) : 0,
   }));
 
-  const sum = (xs: { amount: string }[]) =>
-    xs.reduce((a, x) => a.plus(x.amount), new Prisma.Decimal(0)).toFixed(2);
+  // Headline sum in ONE currency (ILS when present, else the first by code); rows in other
+  // currencies are never added into it — isMixedCurrency tells the screen they exist.
+  const sum = (xs: { amount: string; currency: string }[]) => {
+    const codes = [...new Set(xs.map((x) => x.currency))].sort();
+    const currency = codes.length === 0 ? null : codes.includes("ILS") ? "ILS" : codes[0];
+    const amount = xs
+      .filter((x) => x.currency === currency)
+      .reduce((a, x) => a.plus(x.amount), new Prisma.Decimal(0))
+      .toFixed(2);
+    return { amount, currency, isMixedCurrency: codes.length > 1 };
+  };
 
   return {
     businessName: data.businessName,
@@ -386,11 +395,13 @@ export async function loadCollectionInbox(
       toCollect: {
         amount: debts.totalOutstanding.toFixed(2),
         count: debts.customerCount,
-        currency: debts.customers[0]?.currency ?? null,
+        // The headline is single-currency by construction (never ILS + USD added together).
+        currency: debts.customers.length > 0 ? debts.currency : null,
+        isMixedCurrency: debts.isMixedCurrency,
       },
-      waiting: { amount: sum(waiting), count: waiting.length },
+      waiting: { ...sum(waiting), count: waiting.length },
       attention: { count: attention.length },
-      paidRecent: { amount: sum(paid), count: paid.length },
+      paidRecent: { ...sum(paid), count: paid.length },
     },
     toCollect,
     waiting,

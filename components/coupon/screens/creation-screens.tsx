@@ -34,9 +34,13 @@ import {
   type BenefitType,
   type Direction,
   GOALS,
-  GOAL_ECHO,
-  DIRECTION_LABEL,
   DIRECTIONS_6,
+  goalLabel,
+  goalEcho,
+  directionLabel,
+  directionWhy,
+  benefitTypeLabel,
+  validityPresetLabel,
   directionDefault,
   orderedTypesFor,
   benefitSentence,
@@ -53,6 +57,7 @@ import {
 import { validateBenefit, type FieldError } from "@/lib/revenue/coupon-benefit";
 import { maxValidUntilDate, validateTerms } from "@/lib/revenue/coupon-terms";
 import { fetchMyBusiness, type PublishOutcome, type PublishedCoupon } from "@/lib/coupon/api";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const W = TOKEN.warm;
 
@@ -104,14 +109,15 @@ const COMPOSER_CSS = `
 `;
 
 function DraftSummary({ draft, step, identityStatus }: { draft: CouponDraft; step: Step; identityStatus: "loading" | "ready" | "error" }) {
-  const goal = GOALS.find((item) => item.key === draft.goal)?.label ?? "עדיין לא נבחרה";
-  const direction = draft.direction ? DIRECTION_LABEL[draft.direction] : "עדיין לא נבחרה";
-  const until = step === "terms" ? draft.validUntilDate : "נקבע בשלב התנאים";
+  const { t } = useI18n();
+  const goal = draft.goal && GOALS.some((item) => item.key === draft.goal) ? goalLabel(t, draft.goal) : t("content.commerce.coupon.creation.summary.notChosen");
+  const direction = draft.direction ? directionLabel(t, draft.direction) : t("content.commerce.coupon.creation.summary.notChosen");
+  const until = step === "terms" ? draft.validUntilDate : t("content.commerce.coupon.creation.summary.setInTerms");
   return (
-    <aside className="offer-summary" aria-label="הקופון שנבנה">
+    <aside className="offer-summary" aria-label={t("content.commerce.coupon.creation.summary.ariaLabel")}>
       {draft.direction ? (
         <LiveCouponDisplay
-          label="כך הלקוח יראה · מתעדכן חי"
+          label={t("content.commerce.coupon.creation.summary.liveLabel")}
           stripText={draft.business?.name ?? ""}
           stripLoading={identityStatus === "loading"}
           sentence={benefitSentence(draft)}
@@ -119,18 +125,18 @@ function DraftSummary({ draft, step, identityStatus }: { draft: CouponDraft; ste
         />
       ) : (
         <div className="offer-summary-empty">
-          הקופון יופיע כאן, בדיוק כפי שהלקוח יראה אותו, מהרגע שתבחר דרך.
+          {t("content.commerce.coupon.creation.summary.empty")}
         </div>
       )}
       <dl>
-        <dt>המטרה</dt>
+        <dt>{t("content.commerce.coupon.creation.summary.goal")}</dt>
         <dd>{goal}</dd>
-        <dt>הדרך</dt>
+        <dt>{t("content.commerce.coupon.creation.summary.direction")}</dt>
         <dd>{direction}</dd>
-        <dt>בתוקף עד</dt>
+        <dt>{t("content.commerce.coupon.creation.summary.validUntil")}</dt>
         <dd>{until}</dd>
       </dl>
-      <p className="offer-summary-note">שום דבר לא יוצא ללקוחות עד שהקופון מתפרסם בשלב האחרון.</p>
+      <p className="offer-summary-note">{t("content.commerce.coupon.creation.summary.note")}</p>
     </aside>
   );
 }
@@ -188,6 +194,7 @@ export function CouponCreationFlow({
   /** History mode: guard for leaving the flow from its first step. */
   onBeforeLeaveFlow?: (proceed: () => void) => void;
 }) {
+  const { t } = useI18n();
   const [localStep, setLocalStep] = useState<Step>(startAtBeat ? "intro" : "goal");
   const [draft, setDraft] = useState<CouponDraft>(initialDraft);
   const patch = (p: Partial<CouponDraft>) => {
@@ -298,7 +305,7 @@ export function CouponCreationFlow({
 
   const header = (back: Step | null, close = false) => (
     <ScreenHeader
-      title={close ? undefined : "קופון חדש"}
+      title={close ? undefined : t("content.commerce.coupon.creation.title")}
       action={
         close ? (
           // Close on the success step: the coupon IS published — tell the host,
@@ -323,13 +330,13 @@ export function CouponCreationFlow({
       <PhoneFrame>
         {header(null, false)}
         <ScreenBody>
-          <FlowIntro eye="בוא נחשוב על זה יחד" q="מה תרצה שהקופון יעזור לך לעשות?" />
+          <FlowIntro eye={t("content.commerce.coupon.creation.goal.eye")} q={t("content.commerce.coupon.creation.goal.question")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {GOALS.map((g) => (
               <ChoiceCard
                 key={g.key}
                 icon={<StrokeIcon>{GOAL_ICON[g.key]}</StrokeIcon>}
-                title={g.label}
+                title={goalLabel(t, g.key)}
                 selected={draft.goal === g.key}
                 onClick={() => { patch({ goal: g.key }); setStep("direction"); }}
               />
@@ -347,7 +354,7 @@ export function CouponCreationFlow({
       setStep("builder");
     };
     const card = (d: { key: Direction; label: string; why: string }) => (
-      <ChoiceCard key={d.key} title={d.label} why={d.why} selected={draft.direction === d.key} onClick={() => pick(d.key)} />
+      <ChoiceCard key={d.key} title={directionLabel(t, d.key)} why={directionWhy(t, d.key)} selected={draft.direction === d.key} onClick={() => pick(d.key)} />
     );
     const mains = DIRECTIONS_6.filter((d) => !d.extra);
     const extras = DIRECTIONS_6.filter((d) => d.extra);
@@ -356,14 +363,14 @@ export function CouponCreationFlow({
       <PhoneFrame>
         {header("goal")}
         <ScreenBody>
-          <FlowIntro eye={GOAL_ECHO[draft.goal || "new"]} q="איזו הטבה בדרך כלל עוזרת לזה?" />
+          <FlowIntro eye={goalEcho(t, draft.goal || "new")} q={t("content.commerce.coupon.creation.direction.question")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {mains.map(card)}
             {dirShowAll ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 2px" }}>
                   <div style={{ flex: 1, height: 1, background: W.line }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: W.muted2 }}>עוד דרכים</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: W.muted2 }}>{t("content.commerce.coupon.creation.direction.moreWays")}</span>
                   <div style={{ flex: 1, height: 1, background: W.line }} />
                 </div>
                 {extras.map(card)}
@@ -373,7 +380,7 @@ export function CouponCreationFlow({
           {!dirShowAll ? (
             <button type="button" onClick={() => setDirShowAll(true)} aria-expanded={false}
               style={{ marginTop: 14, width: "100%", textAlign: "center", fontSize: 13, fontWeight: 500, color: W.muted, cursor: "pointer", background: "none", border: "none", padding: 8, fontFamily: "inherit" }}>
-              הראה עוד דרכים ›
+              {t("content.commerce.coupon.creation.direction.showMore")}
             </button>
           ) : null}
         </ScreenBody>
@@ -428,6 +435,7 @@ export function CouponCreationFlow({
 /* The inspiration → creation bridge. Not a form — one calm story moment. */
 
 function TransitionBeat({ onStart, onExit }: { onStart: () => void; onExit?: () => void }) {
+  const { t } = useI18n();
   return (
     <PhoneFrame>
       <ScreenHeader action={<CloseButton onClick={onExit} />} />
@@ -436,13 +444,13 @@ function TransitionBeat({ onStart, onExit }: { onStart: () => void; onExit?: () 
         <div style={{ width: 64, height: 64, borderRadius: 20, background: COUPON.thema.teal, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", boxShadow: W.glow }}>
           <StrokeIcon size={30} color="var(--dz-text-on-brand)" width={1.9}><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z" /></StrokeIcon>
         </div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: W.muted2, marginBottom: 10 }}>ראית מה עסקים אחרים מציעים</div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: W.muted2, marginBottom: 10 }}>{t("content.commerce.coupon.creation.beat.eyebrow")}</div>
         <div style={{ fontSize: 24, fontWeight: 600, lineHeight: 1.35, letterSpacing: "-0.4px" }}>
-          עכשיו תורך ליצור הטבה<br />שהלקוחות שלך יראו
+          {t("content.commerce.coupon.creation.beat.titleLine1")}<br />{t("content.commerce.coupon.creation.beat.titleLine2")}
         </div>
-        <div style={{ fontSize: 14.5, color: W.muted, marginTop: 12, lineHeight: 1.55 }}>נבנה אותה יחד, צעד־צעד. אתה מחליט — אני עוזר.</div>
+        <div style={{ fontSize: 14.5, color: W.muted, marginTop: 12, lineHeight: 1.55 }}>{t("content.commerce.coupon.creation.beat.sub")}</div>
         <Spring />
-        <PrimaryButton onClick={onStart}>בוא נתחיל</PrimaryButton>
+        <PrimaryButton onClick={onStart}>{t("content.commerce.coupon.creation.beat.start")}</PrimaryButton>
       </ScreenBody>
     </PhoneFrame>
   );
@@ -480,14 +488,15 @@ function FieldNote({ id, message }: { id: string; message?: string }) {
 }
 
 function ErrorBanner({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying?: boolean }) {
+  const { t } = useI18n();
   return (
     <div role="alert" style={{ margin: "0 0 18px", padding: 14, borderRadius: W.radius.control, background: "rgba(155, 70, 52,0.06)", border: "1px solid rgba(155, 70, 52,0.28)" }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--dz-danger)" }}>הקופון לא פורסם</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--dz-danger)" }}>{t("content.commerce.coupon.creation.error.notPublished")}</div>
       <div style={{ fontSize: 13, color: W.ink, marginTop: 5, lineHeight: 1.5 }}>{message}</div>
       {onRetry ? (
         <button type="button" onClick={retrying ? undefined : onRetry} disabled={retrying}
           style={{ marginTop: 11, height: 38, padding: "0 16px", borderRadius: W.radius.control, border: `1px solid ${W.line}`, background: W.surface, fontSize: 13.5, fontWeight: 600, color: W.ink, fontFamily: "inherit", cursor: retrying ? "default" : "pointer" }}>
-          {retrying ? "מנסה שוב…" : "נסה שוב"}
+          {retrying ? t("content.commerce.coupon.creation.error.retrying") : t("content.commerce.coupon.creation.error.retry")}
         </button>
       ) : null}
     </div>
@@ -507,18 +516,19 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
   const titleId = `${uid}-title`;
   const descId = `${uid}-desc`;
 
-  const t = draft.benefitType;
-  const isNumber = t === "pct" || t === "amt" || t === "price";
-  const isMoney = t === "amt" || t === "price";
-  const unit = t === "pct" ? "%" : "₪";
+  const { t } = useI18n();
+  const type = draft.benefitType;
+  const isNumber = type === "pct" || type === "amt" || type === "price";
+  const isMoney = type === "amt" || type === "price";
+  const unit = type === "pct" ? "%" : "₪";
   const revealLabel =
-    t === "pct" ? "כמה אחוז?" : t === "amt" || t === "price" ? "כמה ₪?" :
-    t === "giftProduct" ? "מה מקבלים במתנה?" : t === "giftService" ? "איזה שירות במתנה?" :
-    t === "more" ? "איזו תמורה?" : "מה ההטבה?";
+    type === "pct" ? t("content.commerce.coupon.creation.builder.askPct") : type === "amt" || type === "price" ? t("content.commerce.coupon.creation.builder.askAmount") :
+    type === "giftProduct" ? t("content.commerce.coupon.creation.builder.askGiftProduct") : type === "giftService" ? t("content.commerce.coupon.creation.builder.askGiftService") :
+    type === "more" ? t("content.commerce.coupon.creation.builder.askMore") : t("content.commerce.coupon.creation.builder.askOther");
 
   // Same module the API validates with, so the button can never enable a draft
   // the server would reject (COUPON-07).
-  const errors = validateBenefit({ benefitType: t, value: draft.value, scope: draft.scope });
+  const errors = validateBenefit({ benefitType: type, value: draft.value, scope: draft.scope });
   const shown = touched ? errors : serverErrors;
   const valueError = messageFor(shown, "value");
   const scopeError = messageFor(shown, "scope");
@@ -553,7 +563,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
       <ScreenBody>
         <div className="offer-inline-preview">
           <LiveCouponDisplay
-            label="כך הלקוח יראה · מתעדכן חי"
+            label={t("content.commerce.coupon.creation.summary.liveLabel")}
             stripText={draft.business?.name ?? ""}
             stripLoading={identityStatus === "loading"}
             sentence={benefitSentence(draft)}
@@ -571,27 +581,27 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
         {identityStatus === "error" ? (
           <div role="status" style={{ margin: "-14px 0 22px", padding: 12, borderRadius: W.radius.control, background: W.surface2, border: `1px solid ${W.line}` }}>
             <div style={{ fontSize: 12.5, color: W.ink, lineHeight: 1.55 }}>
-              לא הצלחנו לטעון את פרטי העסק לתצוגה המקדימה. אפשר להמשיך — הפרטים יופיעו ללקוח מהפרופיל של העסק.
+              {t("content.commerce.coupon.creation.builder.identityError")}
             </div>
             <button type="button" onClick={onRetryIdentity}
               style={{ marginTop: 8, height: 34, padding: "0 14px", borderRadius: W.radius.control, border: `1px solid ${W.line}`, background: W.surface, fontSize: 13, fontWeight: 600, color: W.tealDeep, fontFamily: "inherit", cursor: "pointer" }}>
-              נסה שוב
+              {t("content.commerce.coupon.creation.error.retry")}
             </button>
           </div>
         ) : null}
 
         <div style={{ marginBottom: 22 }}>
-          <SectionHead hint={draft.direction ? `התחלנו מ${DIRECTION_LABEL[draft.direction]} — אפשר לבחור אחרת` : undefined}>
-            מה הלקוח מקבל?
+          <SectionHead hint={draft.direction ? t("content.commerce.coupon.creation.builder.startedFrom", { direction: directionLabel(t, draft.direction) }) : undefined}>
+            {t("content.commerce.coupon.creation.builder.whatCustomerGets")}
           </SectionHead>
-          <div role="group" aria-label="סוג ההטבה" style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+          <div role="group" aria-label={t("content.commerce.coupon.creation.builder.benefitTypeAria")} style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
             {orderedTypesFor(draft.direction).map((bt) => (
-              <BuilderChip key={bt.key} selected={t === bt.key} onClick={() => pickType(bt.key)}>{bt.label}</BuilderChip>
+              <BuilderChip key={bt.key} selected={type === bt.key} onClick={() => pickType(bt.key)}>{benefitTypeLabel(t, bt.key)}</BuilderChip>
             ))}
           </div>
           <div style={{ marginTop: 12, padding: 14, background: W.surface2, borderRadius: W.radius.control, border: `1px solid ${W.line}` }}>
-            <label htmlFor={t === "more" ? undefined : valueId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>{revealLabel}</label>
-            {t === "more" ? (
+            <label htmlFor={type === "more" ? undefined : valueId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>{revealLabel}</label>
+            {type === "more" ? (
               <div role="group" aria-label={revealLabel} style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
                 {MORE_OPTS.map((o) => <BuilderChip key={o} selected={draft.value === o} onClick={() => patch({ value: o })}>{o}</BuilderChip>)}
               </div>
@@ -606,7 +616,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
                 <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 600, color: W.muted }}>{unit}</span>
               </div>
             ) : (
-              <input id={valueId} value={draft.value} onChange={(e) => patch({ value: e.target.value })} placeholder="הקלד כאן"
+              <input id={valueId} value={draft.value} onChange={(e) => patch({ value: e.target.value })} placeholder={t("content.commerce.coupon.creation.builder.typeHere")}
                 aria-invalid={valueError ? true : undefined}
                 aria-describedby={valueError ? `${valueId}-err` : undefined}
                 onBlur={() => setTouched(true)}
@@ -624,16 +634,17 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
           instead — free text is fully representable in the stored sentence.
         */}
         <div style={{ marginBottom: 22 }}>
-          <SectionHead hint="אפשר על כל העסק, או על מוצר/שירות מסוים שתנקוב בשמו">על מה זה חל?</SectionHead>
-          <div role="group" aria-label="היקף ההטבה" style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
-            <BuilderChip selected={wholeBusiness} onClick={() => patch({ scope: SCOPE_WHOLE_BUSINESS })}>{SCOPE_WHOLE_BUSINESS}</BuilderChip>
-            <BuilderChip selected={!wholeBusiness} onClick={() => patch({ scope: wholeBusiness ? "" : draft.scope })}>מוצר או שירות מסוים</BuilderChip>
+          <SectionHead hint={t("content.commerce.coupon.creation.builder.scopeHint")}>{t("content.commerce.coupon.creation.builder.scopeHead")}</SectionHead>
+          <div role="group" aria-label={t("content.commerce.coupon.creation.builder.scopeAria")} style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+            {/* The chip LABEL is chrome; the stored value stays SCOPE_WHOLE_BUSINESS ("כל העסק"). */}
+            <BuilderChip selected={wholeBusiness} onClick={() => patch({ scope: SCOPE_WHOLE_BUSINESS })}>{t("content.commerce.coupon.creation.builder.scopeWhole")}</BuilderChip>
+            <BuilderChip selected={!wholeBusiness} onClick={() => patch({ scope: wholeBusiness ? "" : draft.scope })}>{t("content.commerce.coupon.creation.builder.scopeSpecific")}</BuilderChip>
           </div>
           {!wholeBusiness ? (
             <div style={{ marginTop: 12 }}>
-              <label htmlFor={scopeId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>על מה בדיוק?</label>
+              <label htmlFor={scopeId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>{t("content.commerce.coupon.creation.builder.scopeWhat")}</label>
               <input id={scopeId} value={draft.scope} onChange={(e) => patch({ scope: e.target.value })}
-                placeholder="למשל: קפה הפוך, טיפול פנים"
+                placeholder={t("content.commerce.coupon.creation.builder.scopePlaceholder")}
                 aria-invalid={scopeError ? true : undefined}
                 aria-describedby={scopeError ? `${scopeId}-err` : undefined}
                 onBlur={() => setTouched(true)}
@@ -645,8 +656,8 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
 
         <div style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 2px 8px" }}>
-            <label htmlFor={titleId} style={{ fontSize: 13, fontWeight: 600 }}>איך זה ייקרא ללקוח</label>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: W.tealDeep, background: "rgba(36,105,102,0.08)", borderRadius: W.radius.pill, padding: "2px 9px" }}>נכתב אוטומטית · ניתן לשינוי</span>
+            <label htmlFor={titleId} style={{ fontSize: 13, fontWeight: 600 }}>{t("content.commerce.coupon.creation.builder.titleLabel")}</label>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: W.tealDeep, background: "rgba(36,105,102,0.08)", borderRadius: W.radius.pill, padding: "2px 9px" }}>{t("content.commerce.coupon.creation.builder.titleAuto")}</span>
           </div>
           {/*
             Auto-copy follows the draft until the owner types; after that the
@@ -657,17 +668,17 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
           <input id={titleId} value={titleInputValue(draft)} onChange={(e) => patch({ titleEdited: true, title: e.target.value })}
             style={{ width: "100%", minHeight: 52, background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 15, fontWeight: 500, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
           {showDesc ? (
-            <textarea id={descId} aria-label="תיאור קצר" value={draft.description} onChange={(e) => patch({ description: e.target.value })} placeholder="תיאור קצר (לא חובה)" rows={3} maxLength={200}
+            <textarea id={descId} aria-label={t("content.commerce.coupon.creation.builder.descAria")} value={draft.description} onChange={(e) => patch({ description: e.target.value })} placeholder={t("content.commerce.coupon.creation.builder.descPlaceholder")} rows={3} maxLength={200}
               style={{ width: "100%", marginTop: 10, background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 14, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
           ) : (
             <button type="button" onClick={() => setShowDesc(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 11, fontSize: 13, fontWeight: 600, color: W.muted, cursor: "pointer", background: "none", border: "none", padding: 0, fontFamily: "inherit" }}>
               <StrokeIcon size={14} color={W.muted} width={2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
-              הוסף תיאור קצר <span style={{ color: W.muted2, fontWeight: 400 }}>· אפשרות מתקדמת</span>
+              {t("content.commerce.coupon.creation.builder.addDesc")} <span style={{ color: W.muted2, fontWeight: 400 }}>{t("content.commerce.coupon.creation.builder.advanced")}</span>
             </button>
           )}
         </div>
 
-        <PrimaryButton onClick={submit} disabled={touched && errors.length > 0} style={{ marginTop: 2 }}>המשך</PrimaryButton>
+        <PrimaryButton onClick={submit} disabled={touched && errors.length > 0} style={{ marginTop: 2 }}>{t("content.commerce.coupon.creation.builder.next")}</PrimaryButton>
       </ScreenBody>
     </PhoneFrame>
   );
@@ -677,6 +688,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
 /* The light "next moment" — validity + conditions only. Smart defaults. */
 
 function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilder }: { draft: CouponDraft; patch: (p: Partial<CouponDraft>) => void; header: ReactNode; onCreate: () => void; busy?: boolean; error?: string | null; onBackToBuilder?: () => void }) {
+  const { t } = useI18n();
   const uid = useId();
   const dateId = `${uid}-until`;
   const minId = `${uid}-min`;
@@ -691,7 +703,7 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
   });
   const dateInvalid = !draft.validUntilDate || draft.validUntilDate < today;
   const minError = touched ? termErrors.find((e) => e.field === "minPurchase")?.message : undefined;
-  const dateError = touched && dateInvalid ? "תאריך הסיום חייב להיות בעתיד" : undefined;
+  const dateError = touched && dateInvalid ? t("content.commerce.coupon.creation.terms.dateInPast") : undefined;
   const blocked = dateInvalid || termErrors.length > 0;
 
   const submit = () => {
@@ -703,7 +715,7 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
     <PhoneFrame>
       {header}
       <ScreenBody>
-        <FlowIntro eye="כמעט מוכן" q="עוד שני דברים קטנים — מתי, ולמי?" />
+        <FlowIntro eye={t("content.commerce.coupon.creation.terms.eye")} q={t("content.commerce.coupon.creation.terms.question")} />
 
         {error ? <ErrorBanner message={error} onRetry={submit} retrying={busy} /> : null}
 
@@ -715,11 +727,11 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
           coupon is live immediately.
         */}
         <div style={{ marginBottom: 26 }}>
-          <SectionHead htmlFor={dateId} hint="הקופון מתחיל לפעול מרגע הפרסום">עד מתי ההטבה תקפה?</SectionHead>
-          <div role="group" aria-label="קיצורי דרך לתאריך סיום" style={{ display: "flex", flexWrap: "wrap", gap: 9, marginBottom: 12 }}>
+          <SectionHead htmlFor={dateId} hint={t("content.commerce.coupon.creation.terms.validityHint")}>{t("content.commerce.coupon.creation.terms.validityHead")}</SectionHead>
+          <div role="group" aria-label={t("content.commerce.coupon.creation.terms.presetsAria")} style={{ display: "flex", flexWrap: "wrap", gap: 9, marginBottom: 12 }}>
             {VALIDITY_PRESETS.map((p) => (
               <BuilderChip key={p.label} selected={draft.validUntilDate === dateInDays(p.days)} onClick={() => patch({ validUntilDate: dateInDays(p.days) })}>
-                {p.label}
+                {validityPresetLabel(t, p)}
               </BuilderChip>
             ))}
           </div>
@@ -740,14 +752,14 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
           amount it was previously shipping without.
         */}
         <div style={{ marginBottom: 26 }}>
-          <SectionHead hint="רק מה שתוכל באמת לעמוד מאחוריו בקופה">תנאים</SectionHead>
-          <div role="group" aria-label="תנאי הקופון" style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
-            <BuilderChip selected={draft.minPurchaseEnabled} onClick={() => patch({ minPurchaseEnabled: !draft.minPurchaseEnabled })}>מינימום רכישה</BuilderChip>
-            <BuilderChip selected={draft.newCustomersOnly} onClick={() => patch({ newCustomersOnly: !draft.newCustomersOnly })}>לקוחות חדשים</BuilderChip>
+          <SectionHead hint={t("content.commerce.coupon.creation.terms.termsHint")}>{t("content.commerce.coupon.creation.terms.termsHead")}</SectionHead>
+          <div role="group" aria-label={t("content.commerce.coupon.creation.terms.termsAria")} style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+            <BuilderChip selected={draft.minPurchaseEnabled} onClick={() => patch({ minPurchaseEnabled: !draft.minPurchaseEnabled })}>{t("content.commerce.coupon.creation.terms.minPurchase")}</BuilderChip>
+            <BuilderChip selected={draft.newCustomersOnly} onClick={() => patch({ newCustomersOnly: !draft.newCustomersOnly })}>{t("content.commerce.coupon.creation.terms.newCustomers")}</BuilderChip>
           </div>
           {draft.minPurchaseEnabled ? (
             <div style={{ marginTop: 12 }}>
-              <label htmlFor={minId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>מעל איזה סכום?</label>
+              <label htmlFor={minId} style={{ display: "block", fontSize: 12, fontWeight: 600, color: W.muted, marginBottom: 9 }}>{t("content.commerce.coupon.creation.terms.minAmount")}</label>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <input id={minId} inputMode="decimal" value={draft.minPurchase}
                   aria-invalid={minError ? true : undefined}
@@ -764,10 +776,10 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
 
         <Spring />
         {error && onBackToBuilder ? (
-          <SecondaryButton onClick={onBackToBuilder} style={{ marginBottom: 10 }}>חזור וערוך את ההטבה</SecondaryButton>
+          <SecondaryButton onClick={onBackToBuilder} style={{ marginBottom: 10 }}>{t("content.commerce.coupon.creation.terms.backToBuilder")}</SecondaryButton>
         ) : null}
         <PrimaryButton onClick={busy ? undefined : submit} disabled={busy || (touched && blocked)}>
-          {busy ? "יוצר…" : error ? "נסה לפרסם שוב" : "צור את הקופון"}
+          {busy ? t("content.commerce.coupon.creation.terms.creating") : error ? t("content.commerce.coupon.creation.terms.retryPublish") : t("content.commerce.coupon.creation.terms.create")}
         </PrimaryButton>
       </ScreenBody>
     </PhoneFrame>
@@ -782,6 +794,7 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
  * one the server actually stored (COUPON-01/11).
  */
 function PublishedStep({ draft, published, header, onDone }: { draft: CouponDraft; published: PublishedCoupon | null; header: ReactNode; onDone?: () => void }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const link = published && typeof window !== "undefined"
@@ -802,7 +815,7 @@ function PublishedStep({ draft, published, header, onDone }: { draft: CouponDraf
       // Clipboard denied (insecure context / permission). Say so rather than
       // showing "הועתק" over a clipboard that never received anything.
       setCopied(false);
-      window.prompt("העתק את הקישור:", link);
+      window.prompt(t("content.commerce.coupon.creation.published.copyPrompt"), link);
     }
   };
 
@@ -820,12 +833,13 @@ function PublishedStep({ draft, published, header, onDone }: { draft: CouponDraf
           <div style={{ width: 50, height: 50, borderRadius: "50%", background: "rgba(36,105,102,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
             <StrokeIcon size={25} color={W.tealDeep} width={2.4}><path d="M5 13l4 4L19 7" /></StrokeIcon>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.2px" }}>הקופון שלך פורסם 🎉</div>
-          <div style={{ fontSize: 13.5, color: W.muted, marginTop: 6 }}>כך הלקוחות שלך רואים אותו:</div>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.2px" }}>{t("content.commerce.coupon.creation.published.title")}</div>
+          <div style={{ fontSize: 13.5, color: W.muted, marginTop: 6 }}>{t("content.commerce.coupon.creation.published.sub")}</div>
         </div>
 
-        {/* the SINGLE public-coupon entity, previewed */}
-        <div style={{ border: `1px solid ${W.line}`, borderRadius: 16, overflow: "hidden", boxShadow: W.shadow }}>
+        {/* the SINGLE public-coupon entity, previewed — exactly as the customer
+            sees it (Hebrew, RTL), whatever the owner's interface language. */}
+        <div dir="rtl" style={{ border: `1px solid ${W.line}`, borderRadius: 16, overflow: "hidden", boxShadow: W.shadow }}>
           <PublicCouponContent view={view} interactive={false} />
           <div style={{ padding: "0 16px 16px", background: W.canvas }}>
             <div aria-hidden="true" style={{ height: 46, borderRadius: 14, background: W.grad, color: "var(--dz-text-on-brand)", fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
@@ -836,14 +850,14 @@ function PublishedStep({ draft, published, header, onDone }: { draft: CouponDraf
         <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${W.line}`, display: "flex", flexDirection: "column", gap: 10 }}>
           {link ? (
             <>
-              <WaButton onClick={share}>שתף את הקופון</WaButton>
-              <SecondaryButton onClick={copy}>{copied ? "הקישור הועתק ✓" : "העתק קישור"}</SecondaryButton>
+              <WaButton onClick={share}>{t("content.commerce.coupon.creation.published.share")}</WaButton>
+              <SecondaryButton onClick={copy}>{copied ? t("content.commerce.coupon.creation.published.copied") : t("content.commerce.coupon.creation.published.copyLink")}</SecondaryButton>
               <div aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
-                {copied ? "הקישור הועתק" : ""}
+                {copied ? t("content.commerce.coupon.creation.published.copiedLive") : ""}
               </div>
             </>
           ) : null}
-          <GhostLink onClick={onDone}>לקופונים שלי ›</GhostLink>
+          <GhostLink onClick={onDone}>{t("content.commerce.coupon.creation.published.toMine")}</GhostLink>
         </div>
       </ScreenBody>
     </PhoneFrame>

@@ -1,4 +1,6 @@
 import type { ConversationStage, ConversationStatus } from "@prisma/client";
+import type { Translator } from "@/lib/i18n/translate";
+import { INBOX_VIEW_HE_T } from "./inbox-view-i18n";
 import type { ConversationOutcome } from "./conversation-outcome";
 import type {
   InboxBotFlowStatus,
@@ -42,22 +44,23 @@ export type DeriveBusinessSituationInput = {
   conversationOutcome: ConversationOutcome;
 };
 
-function waitingText(minutes: number | null): string {
+function waitingText(minutes: number | null, t: Translator): string {
   if (minutes === null || minutes <= 0) return "";
-  if (minutes < 60) return ` ${minutes} דק׳`;
-  return ` ${Math.floor(minutes / 60)} שע׳`;
+  if (minutes < 60) return ` ${t("insights.inbox.situation.waitMinutes", { n: minutes })}`;
+  return ` ${t("insights.inbox.situation.waitHours", { n: Math.floor(minutes / 60) })}`;
 }
 
 export function deriveBusinessSituation(
-  input: DeriveBusinessSituationInput
+  input: DeriveBusinessSituationInput,
+  t: Translator = INBOX_VIEW_HE_T
 ): InboxBusinessSituation {
   if (input.status !== "OPEN" || input.conversationOutcome.kind === "CLOSED") {
     return {
       kind: "CLOSED",
-      label: "השיחה טופלה",
-      shortLabel: "טופל",
-      explanation: "אין פעולה פתוחה כרגע. ההיסטוריה נשמרת להמשך.",
-      primaryActionLabel: "פתח היסטוריה",
+      label: t("insights.inbox.situation.closed.label"),
+      shortLabel: t("insights.inbox.situation.closed.short"),
+      explanation: t("insights.inbox.situation.closed.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.closed.action"),
       waitingOn: "none",
       reason: "business_situation.v1.closed",
     };
@@ -66,10 +69,12 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "NEEDS_OWNER_ACTION") {
     return {
       kind: "CUSTOMER_WAITING",
-      label: "לקוח מחכה לך",
-      shortLabel: "מחכה לך",
-      explanation: `הלקוח מחכה למענה${waitingText(input.waitingMinutes)}. כדאי לטפל בזה קודם.`,
-      primaryActionLabel: input.hasPendingSuggestion ? "בדוק ושלח טיוטה" : "ענה ללקוח עכשיו",
+      label: t("insights.inbox.situation.customerWaiting.label"),
+      shortLabel: t("insights.inbox.situation.customerWaiting.short"),
+      explanation: t("insights.inbox.situation.customerWaiting.explanation", { wait: waitingText(input.waitingMinutes, t) }),
+      primaryActionLabel: input.hasPendingSuggestion
+        ? t("insights.inbox.situation.customerWaiting.actionDraft")
+        : t("insights.inbox.situation.customerWaiting.actionReply"),
       waitingOn: "business",
       reason: "business_situation.v1.customer_waiting_owner_action",
     };
@@ -79,20 +84,20 @@ export function deriveBusinessSituation(
     if (input.conversationOutcome.reason === "outcome.v1.human_takeover") {
       return {
         kind: "BOT_HANDOFF",
-        label: "אתה מטפל בשיחה",
-        shortLabel: "אתה מטפל",
-        explanation: "לקחת את השיחה לידיים. לא יופיעו עוד טיוטות פתיחה כאן.",
-        primaryActionLabel: "המשך בשיחה",
+        label: t("insights.inbox.situation.humanTakeover.label"),
+        shortLabel: t("insights.inbox.situation.humanTakeover.short"),
+        explanation: t("insights.inbox.situation.humanTakeover.explanation"),
+        primaryActionLabel: t("insights.inbox.situation.humanTakeover.action"),
         waitingOn: "business",
         reason: "business_situation.v1.human_takeover",
       };
     }
     return {
       kind: "BOT_HANDOFF",
-      label: "הועבר אליך",
-      shortLabel: "הועבר אליך",
-      explanation: "סדרת הטיוטות הסתיימה — אתה ממשיך מהאינבוקס.",
-      primaryActionLabel: "המשך בשיחה",
+      label: t("insights.inbox.situation.botHandoff.label"),
+      shortLabel: t("insights.inbox.situation.botHandoff.short"),
+      explanation: t("insights.inbox.situation.botHandoff.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.botHandoff.action"),
       waitingOn: "business",
       reason: "business_situation.v1.bot_handoff",
     };
@@ -101,10 +106,10 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "DRAFT_READY_TO_SEND") {
     return {
       kind: "DRAFT_READY",
-      label: "אפשר לסגור מהר",
-      shortLabel: "טיוטה מוכנה",
-      explanation: "יש בסיס מוכן למענה. עריכה קצרה ושליחה יכולות לסגור את הפנייה.",
-      primaryActionLabel: "בדוק ושלח",
+      label: t("insights.inbox.situation.draftReady.label"),
+      shortLabel: t("insights.inbox.situation.draftReady.short"),
+      explanation: t("insights.inbox.situation.draftReady.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.draftReady.action"),
       waitingOn: "business",
       reason: "business_situation.v1.draft_ready",
     };
@@ -113,10 +118,10 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "BOT_COLLECTING") {
     return {
       kind: "BOT_COLLECTING",
-      label: "טיוטה מוכנה",
-      shortLabel: "טיוטה",
-      explanation: "יש טיוטת פתיחה באינבוקס — אתה בודק ושולח ללקוח.",
-      primaryActionLabel: "בדוק ושלח",
+      label: t("insights.inbox.situation.botCollecting.label"),
+      shortLabel: t("insights.inbox.situation.botCollecting.short"),
+      explanation: t("insights.inbox.situation.botCollecting.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.botCollecting.action"),
       waitingOn: "business",
       reason: "business_situation.v1.bot_collecting",
     };
@@ -125,10 +130,10 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "QUOTE_IN_FLIGHT") {
     return {
       kind: "QUOTE_WAITING",
-      label: "הצעה ממתינה",
-      shortLabel: "הצעה נשלחה",
-      explanation: "העסק כבר נתן מחיר או הצעה. עכשיו חשוב לוודא שהלקוח לא נעלם.",
-      primaryActionLabel: "שלח מעקב להצעה",
+      label: t("insights.inbox.situation.quoteWaiting.label"),
+      shortLabel: t("insights.inbox.situation.quoteWaiting.short"),
+      explanation: t("insights.inbox.situation.quoteWaiting.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.quoteWaiting.action"),
       waitingOn: "customer",
       reason: "business_situation.v1.quote_waiting",
     };
@@ -137,10 +142,10 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "FOLLOW_UP_OR_REENGAGE") {
     return {
       kind: "FOLLOW_UP_DUE",
-      label: "לא לתת לזה להישכח",
-      shortLabel: "מעקב",
-      explanation: "השיחה שקטה יותר מדי זמן. תזכורת קצרה יכולה להחזיר את הלקוח.",
-      primaryActionLabel: "שלח מעקב קצר",
+      label: t("insights.inbox.situation.followUpDue.label"),
+      shortLabel: t("insights.inbox.situation.followUpDue.short"),
+      explanation: t("insights.inbox.situation.followUpDue.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.followUpDue.action"),
       waitingOn: "business",
       reason: "business_situation.v1.follow_up_due",
     };
@@ -149,10 +154,10 @@ export function deriveBusinessSituation(
   if (input.conversationOutcome.kind === "WAITING_ON_CUSTOMER") {
     return {
       kind: "WAITING_ON_CUSTOMER",
-      label: "מחכים ללקוח",
-      shortLabel: "מחכים ללקוח",
-      explanation: "העסק כבר ענה. אין פעולה דחופה עד שהלקוח יחזור.",
-      primaryActionLabel: "השאר במעקב",
+      label: t("insights.inbox.situation.waitingOnCustomer.label"),
+      shortLabel: t("insights.inbox.situation.waitingOnCustomer.short"),
+      explanation: t("insights.inbox.situation.waitingOnCustomer.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.waitingOnCustomer.action"),
       waitingOn: "customer",
       reason: "business_situation.v1.waiting_on_customer",
     };
@@ -161,10 +166,10 @@ export function deriveBusinessSituation(
   if (input.temperatureBucket === "hot" || input.primarySignal === "hot_negotiation") {
     return {
       kind: "HOT_OPPORTUNITY",
-      label: "סיכוי טוב לעסקה",
-      shortLabel: "סיכוי טוב",
-      explanation: "זו שיחה עם כוונה גבוהה. כדאי לתת מענה ברור ומהיר.",
-      primaryActionLabel: "קדם לסגירה",
+      label: t("insights.inbox.situation.hotOpportunity.label"),
+      shortLabel: t("insights.inbox.situation.hotOpportunity.short"),
+      explanation: t("insights.inbox.situation.hotOpportunity.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.hotOpportunity.action"),
       waitingOn: "business",
       reason: "business_situation.v1.hot_opportunity",
     };
@@ -173,10 +178,10 @@ export function deriveBusinessSituation(
   if (input.currentStage === "NEW" || input.currentStage === null) {
     return {
       kind: "NEW_LEAD",
-      label: "פנייה חדשה",
-      shortLabel: "חדש",
-      explanation: "לקוח חדש נכנס לתהליך. כדאי להבין מה הוא צריך ולהוביל לצעד הבא.",
-      primaryActionLabel: "ברר צורך",
+      label: t("insights.inbox.situation.newLead.label"),
+      shortLabel: t("insights.inbox.situation.newLead.short"),
+      explanation: t("insights.inbox.situation.newLead.explanation"),
+      primaryActionLabel: t("insights.inbox.situation.newLead.action"),
       waitingOn: "business",
       reason: "business_situation.v1.new_lead",
     };
@@ -184,10 +189,10 @@ export function deriveBusinessSituation(
 
   return {
     kind: "ACTIVE",
-    label: "שיחה פעילה",
-    shortLabel: "פעיל",
-    explanation: "אין פעולה דחופה כרגע, אבל השיחה עדיין פתוחה למעקב.",
-    primaryActionLabel: input.nextBestAction.label || "המשך מעקב",
+    label: t("insights.inbox.situation.active.label"),
+    shortLabel: t("insights.inbox.situation.active.short"),
+    explanation: t("insights.inbox.situation.active.explanation"),
+    primaryActionLabel: input.nextBestAction.label || t("insights.inbox.situation.active.action"),
     waitingOn: "none",
     reason: "business_situation.v1.active",
   };

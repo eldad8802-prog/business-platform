@@ -1,4 +1,5 @@
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /** Sidebar slice: 8 OPEN buckets + `closed` (status), ordered by importance in UI. */
 export type InboxWorkCategoryId =
@@ -98,20 +99,25 @@ export function countOpenItemsByWorkCategory(
 
 export type InboxSidebarSelection = InboxWorkCategoryId | typeof INBOX_SIDEBAR_LEGACY_OPEN;
 
-/** Sidebar display order (importance), excluding legacy key. */
+/**
+ * Sidebar display order (importance), excluding legacy key.
+ * `label` is the Hebrew name (verbatim); `labelKey` is its dictionary key (`inbox.workCategories.*`),
+ * for surfaces that speak the interface language.
+ */
 export const INBOX_SIDEBAR_CATEGORY_OPTIONS: readonly {
   id: InboxWorkCategoryId;
   label: string;
+  labelKey: MessageKey;
 }[] = [
-  { id: "needs_action", label: "דורש פעולה" },
-  { id: "drafts_ready", label: "טיוטות מוכנות" },
-  { id: "handoff", label: "עבר לנציג" },
-  { id: "bot_in_progress", label: "בוט בתהליך" },
-  { id: "hot_leads", label: "לידים חמים" },
-  { id: "follow_up", label: "מעקב" },
-  { id: "completed", label: "הושלמו" },
-  { id: "active", label: "פעילות / ללא דחיפות" },
-  { id: "closed", label: "סגורות" },
+  { id: "needs_action", label: "דורש פעולה", labelKey: "inbox.workCategories.needs_action" },
+  { id: "drafts_ready", label: "טיוטות מוכנות", labelKey: "inbox.workCategories.drafts_ready" },
+  { id: "handoff", label: "עבר לנציג", labelKey: "inbox.workCategories.handoff" },
+  { id: "bot_in_progress", label: "בוט בתהליך", labelKey: "inbox.workCategories.bot_in_progress" },
+  { id: "hot_leads", label: "לידים חמים", labelKey: "inbox.workCategories.hot_leads" },
+  { id: "follow_up", label: "מעקב", labelKey: "inbox.workCategories.follow_up" },
+  { id: "completed", label: "הושלמו", labelKey: "inbox.workCategories.completed" },
+  { id: "active", label: "פעילות / ללא דחיפות", labelKey: "inbox.workCategories.active" },
+  { id: "closed", label: "סגורות", labelKey: "inbox.workCategories.closed" },
 ] as const;
 
 const FOLLOW_UP_SIGNALS: ReadonlySet<InboxItemViewModel["primarySignal"]> = new Set([

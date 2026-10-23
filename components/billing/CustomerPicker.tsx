@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export type BillingCustomerRow = {
   id: number;
@@ -33,6 +34,7 @@ export function CustomerPicker({
   onPickSuccess,
   disabled,
 }: Props) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<BillingCustomerRow[]>([]);
@@ -124,7 +126,7 @@ export function CustomerPicker({
         }),
       });
       if (!res.ok) {
-        let msg = "לא ניתן ליצור לקוח";
+        let msg = t("billing.customerPicker.createFailed");
         try {
           const j = await res.json();
           if (j?.error) msg = j.error;
@@ -156,7 +158,7 @@ export function CustomerPicker({
     <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.secondary }}>
-          למי המסמך מיועד? <span style={{ color: TOKEN.semantic.urgent.ink }}>*</span>
+          {t("billing.customerPicker.label")} <span style={{ color: TOKEN.semantic.urgent.ink }}>*</span>
         </span>
         <div style={{ position: "relative" }}>
           <input
@@ -172,7 +174,7 @@ export function CustomerPicker({
               setOpen(true);
               void fetchList(displayName.slice(0, 40));
             }}
-            placeholder="שם לקוח או חיפוש לקוח קיים"
+            placeholder={t("billing.customerPicker.searchPlaceholder")}
             maxLength={200}
             dir="auto"
             autoComplete="off"
@@ -192,8 +194,8 @@ export function CustomerPicker({
               style={{
                 position: "absolute",
                 top: "100%",
-                left: 0,
-                right: 0,
+                insetInlineStart: 0,
+                insetInlineEnd: 0,
                 zIndex: 50,
                 marginTop: 4,
                 maxHeight: 240,
@@ -206,11 +208,11 @@ export function CustomerPicker({
             >
               {loading ? (
                 <div style={{ padding: 12, fontSize: 13, color: TOKEN.ink.muted }}>
-                  טוען…
+                  {t("common.loading")}
                 </div>
               ) : results.length === 0 ? (
                 <div style={{ padding: 12, fontSize: 13, color: TOKEN.ink.muted }}>
-                  לא נמצאו לקוחות. השתמש בשם חופשי או צור לקוח חדש.
+                  {t("billing.customerPicker.noResults")}
                 </div>
               ) : (
                 results.map((row) => (
@@ -222,7 +224,7 @@ export function CustomerPicker({
                     onClick={() => void handlePick(row)}
                     style={{
                       width: "100%",
-                      textAlign: "right",
+                      textAlign: "start",
                       padding: "10px 12px",
                       border: "none",
                       borderBottom: `1px solid ${TOKEN.surface.inset}`,
@@ -250,11 +252,11 @@ export function CustomerPicker({
 
       {linkedCustomerId ? (
         <div style={{ fontSize: 12, color: TOKEN.semantic.success.ink, fontWeight: 600 }}>
-          נשמר כלקוח קיים (#{linkedCustomerId})
+          {t("billing.customerPicker.linked", { id: linkedCustomerId })}
         </div>
       ) : (
         <div style={{ fontSize: 12, color: TOKEN.ink.muted }}>
-          אפשר לבחור לקוח קיים או לכתוב שם חדש כפי שיופיע במסמך.
+          {t("billing.customerPicker.hint")}
         </div>
       )}
 
@@ -270,7 +272,7 @@ export function CustomerPicker({
           fontWeight: 600,
         }}
       >
-        + הוסף לקוח חדש
+        {t("billing.customerPicker.addNew")}
       </button>
 
       {quickOpen ? (
@@ -286,7 +288,7 @@ export function CustomerPicker({
         >
           <input
             type="text"
-            placeholder="שם לקוח *"
+            placeholder={t("billing.customerPicker.quickNamePlaceholder")}
             value={quickName}
             onChange={(e) => setQuickName(e.target.value)}
             disabled={quickBusy}
@@ -299,7 +301,7 @@ export function CustomerPicker({
           />
           <input
             type="tel"
-            placeholder="טלפון (אופציונלי)"
+            placeholder={t("billing.customerPicker.quickPhonePlaceholder")}
             value={quickPhone}
             onChange={(e) => setQuickPhone(e.target.value)}
             disabled={quickBusy}
@@ -324,7 +326,7 @@ export function CustomerPicker({
               fontWeight: 600,
             }}
           >
-            {quickBusy ? "יוצר…" : "צור ובחר"}
+            {quickBusy ? t("billing.customerPicker.creating") : t("billing.customerPicker.createAndPick")}
           </button>
         </div>
       ) : null}

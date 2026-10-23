@@ -11,6 +11,8 @@
  * Pure dependency injection — no database, no network.
  */
 
+import { inspect } from "node:util";
+
 import {
   handleRegister,
   type RegisterDeps,
@@ -89,7 +91,8 @@ function makeDeps(
         businessName: input.businessName,
         tokenVersion: 0,
         session: FAKE_SESSION,
-        welcomeEmailId: 501,
+        // As createAccount records them: a verification link replaces the signup WELCOME.
+        welcomeEmailId: input.sendVerification ? null : 501,
         verificationEmailId: input.sendVerification ? 502 : null,
       };
     },
@@ -296,6 +299,42 @@ async function main() {
     ok("open -> password not trimmed before hashing", hashed === "  spaced secret  ");
   }
 
+  // L3: an unexpected failure is logged by class and code only — never the error object, which for
+  // a Prisma request error embeds the invocation (address, password hash) and can carry the DSN.
+  {
+    class PrismaClientKnownRequestError extends Error {
+      code = "P1001";
+      meta = { target: ["email"] };
+      constructor() {
+        super("Invalid `prisma.user.create()` invocation: { email: \"new-owner@example.test\", password: \"hashed\" } postgresql://app:s3cr3t@db.example.test/main");
+        this.name = "PrismaClientKnownRequestError";
+      }
+    }
+    const { deps } = makeDeps(true, {
+      createAccount: async () => {
+        throw new PrismaClientKnownRequestError();
+      },
+    });
+    const lines: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => {
+      // Formatted as the console itself prints them (message, stack, own properties).
+      lines.push(args.map((a) => (typeof a === "string" ? a : inspect(a, { depth: 5 }))).join(" "));
+    };
+    let res: Response;
+    try {
+      res = await handleRegister(req(), deps);
+    } finally {
+      console.error = realError;
+    }
+    const logged = lines.join("\n");
+    ok("L3: unexpected failure -> 500", res.status === 500);
+    ok("L3: the failure is still logged with class + code (diagnosable)", /REGISTER_ERROR/.test(logged) && /PrismaClientKnownRequestError/.test(logged) && /P1001/.test(logged));
+    ok("L3: the log carries no address", !logged.includes("new-owner@example.test"));
+    ok("L3: the log carries no password hash or invocation", !/hashed|invocation/.test(logged));
+    ok("L3: the log carries no connection string", !/postgresql:|s3cr3t/.test(logged));
+  }
+
   // Duplicate is now decided by the DB unique index, not a racy pre-check, and
   // it is a 409 that names the field rather than a bare 400.
   {
@@ -492,8 +531,8 @@ async function main() {
   {
     const { deps, calls } = makeDeps(true, { isVerificationEnabled: () => true });
     const res = await handleRegister(req(), deps);
-    ok("verify -> ON: the verification email AND the WELCOME are scheduled after the response",
-      res.status === 200 && calls.scheduled.includes(502) && calls.scheduled.includes(501), JSON.stringify(calls.scheduled));
+    ok("verify -> ON: ONLY the verification email is scheduled after the response (the WELCOME follows the verification)",
+      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502]), JSON.stringify(calls.scheduled));
   }
   // ── honeypot ──
   {

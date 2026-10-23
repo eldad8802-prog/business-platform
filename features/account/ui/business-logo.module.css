@@ -35,7 +35,7 @@
 .camera {
   position: absolute;
   bottom: 4px;
-  left: -2px;
+  inset-inline-end: -2px;
   width: 36px;
   height: 36px;
   box-sizing: border-box;
@@ -92,7 +92,7 @@
 .error {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
+  inset-inline-end: 0;
   width: max-content;
   max-width: 220px;
   margin: 0;

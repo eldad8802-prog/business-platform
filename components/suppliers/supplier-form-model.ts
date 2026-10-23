@@ -11,6 +11,8 @@
  */
 
 import type { Supplier, UpdateSupplierInput } from "@/lib/api/suppliers";
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
 import {
   isPlausibleEmail,
   isPlausiblePhone,
@@ -19,6 +21,9 @@ import {
   type SupplierPaymentMethod,
   type SupplierTaxIdType,
 } from "@/lib/services/inventory/supplier-profile";
+
+/** Hebrew translator — the default when a caller passes none (same output as before i18n). */
+const heT: Translator = createTranslator(he);
 
 export type SupplierFormState = {
   name: string;
@@ -98,26 +103,29 @@ export function supplierToFormState(supplier: Supplier): SupplierFormState {
  * Client-side validation. Deliberately the SAME rules the service enforces, so
  * the owner is told about a bad value before a round trip — never instead of
  * one. The server stays the authority; this only saves a failed save.
+ *
+ * `t` selects the interface language of the message; omitted → Hebrew.
  */
 export function validateSupplierForm(
-  form: SupplierFormState
+  form: SupplierFormState,
+  t: Translator = heT
 ): string | null {
-  if (!form.name.trim()) return "יש להזין שם ספק";
+  if (!form.name.trim()) return t("customers.suppliers.validation.nameRequired");
 
   if (form.taxId.trim() && !isPlausibleSupplierTaxId(form.taxId)) {
-    return "מספר העוסק / ח.פ. אינו תקין — נדרשות 8 או 9 ספרות";
+    return t("customers.suppliers.validation.taxIdInvalid");
   }
   if (form.email.trim() && !isPlausibleEmail(form.email)) {
-    return "כתובת האימייל אינה תקינה";
+    return t("customers.suppliers.validation.emailInvalid");
   }
   if (form.contactEmail.trim() && !isPlausibleEmail(form.contactEmail)) {
-    return "אימייל איש הקשר אינו תקין";
+    return t("customers.suppliers.validation.contactEmailInvalid");
   }
   if (form.phone.trim() && !isPlausiblePhone(form.phone)) {
-    return "מספר הטלפון אינו תקין";
+    return t("customers.suppliers.validation.phoneInvalid");
   }
   if (form.contactPhone.trim() && !isPlausiblePhone(form.contactPhone)) {
-    return "טלפון איש הקשר אינו תקין";
+    return t("customers.suppliers.validation.contactPhoneInvalid");
   }
 
   const terms = form.paymentTermsDays.trim();
@@ -128,7 +136,9 @@ export function validateSupplierForm(
       parsed < 0 ||
       parsed > SUPPLIER_PAYMENT_TERMS_MAX_DAYS
     ) {
-      return `תנאי התשלום חייבים להיות מספר ימים שלם בין 0 ל-${SUPPLIER_PAYMENT_TERMS_MAX_DAYS}`;
+      return t("customers.suppliers.validation.paymentTermsRange", {
+        max: SUPPLIER_PAYMENT_TERMS_MAX_DAYS,
+      });
     }
   }
 
@@ -136,7 +146,7 @@ export function validateSupplierForm(
   if (lead) {
     const parsed = Number(lead);
     if (!Number.isInteger(parsed) || parsed < 0) {
-      return "זמן אספקה חייב להיות מספר שלם ואי-שלילי";
+      return t("customers.suppliers.validation.leadTimeInvalid");
     }
   }
 
@@ -202,22 +212,26 @@ export type SupplierCompleteness = {
 };
 
 export function supplierCompleteness(
-  supplier: Supplier
+  supplier: Supplier,
+  t: Translator = heT
 ): SupplierCompleteness {
-  const areas: Array<{ label: string; present: boolean }> = [
+  const areas: Array<{ label: MessageKey; present: boolean }> = [
     {
-      label: "מספר עוסק / ח.פ.",
+      label: "customers.suppliers.completeness.taxId",
       present: Boolean(supplier.taxId && supplier.taxIdType),
     },
     {
-      label: "דרך יצירת קשר",
+      label: "customers.suppliers.completeness.contactMethod",
       present: Boolean(supplier.phone || supplier.email || supplier.contactPhone),
     },
-    { label: "איש קשר", present: Boolean(supplier.contactName) },
-    { label: "כתובת", present: Boolean(supplier.addressCity) },
-    { label: "תנאי תשלום", present: supplier.paymentTermsDays != null },
+    { label: "customers.suppliers.completeness.contact", present: Boolean(supplier.contactName) },
+    { label: "customers.suppliers.completeness.address", present: Boolean(supplier.addressCity) },
     {
-      label: "צורת תשלום",
+      label: "customers.suppliers.completeness.paymentTerms",
+      present: supplier.paymentTermsDays != null,
+    },
+    {
+      label: "customers.suppliers.completeness.paymentMethod",
       present: Boolean(supplier.preferredPaymentMethod),
     },
   ];
@@ -225,6 +239,73 @@ export function supplierCompleteness(
   return {
     filled: areas.filter((a) => a.present).length,
     total: areas.length,
-    missing: areas.filter((a) => !a.present).map((a) => a.label),
+    missing: areas.filter((a) => !a.present).map((a) => t(a.label)),
   };
+}
+
+/*
+ * Translated twins of the supplier-profile vocabulary (lib/services/inventory/
+ * supplier-profile.ts). The service module keeps its Hebrew constants for the
+ * server / export paths; the supplier UI reads its labels through these so the
+ * same enum values render in the interface language. Hebrew output is identical.
+ */
+
+const TAX_ID_TYPE_KEY: Record<SupplierTaxIdType, MessageKey> = {
+  AUTHORIZED_DEALER: "customers.suppliers.profile.taxIdType.AUTHORIZED_DEALER",
+  EXEMPT_DEALER: "customers.suppliers.profile.taxIdType.EXEMPT_DEALER",
+  LTD_COMPANY: "customers.suppliers.profile.taxIdType.LTD_COMPANY",
+  PRIVATE_ID: "customers.suppliers.profile.taxIdType.PRIVATE_ID",
+  OTHER: "customers.suppliers.profile.taxIdType.OTHER",
+};
+
+const TAX_ID_LABEL_KEY: Record<SupplierTaxIdType, MessageKey> = {
+  AUTHORIZED_DEALER: "customers.suppliers.profile.taxIdLabel.AUTHORIZED_DEALER",
+  EXEMPT_DEALER: "customers.suppliers.profile.taxIdLabel.EXEMPT_DEALER",
+  LTD_COMPANY: "customers.suppliers.profile.taxIdLabel.LTD_COMPANY",
+  PRIVATE_ID: "customers.suppliers.profile.taxIdLabel.PRIVATE_ID",
+  OTHER: "customers.suppliers.profile.taxIdLabel.OTHER",
+};
+
+const PAYMENT_METHOD_KEY: Record<SupplierPaymentMethod, MessageKey> = {
+  BANK_TRANSFER: "customers.suppliers.profile.paymentMethod.BANK_TRANSFER",
+  CREDIT_CARD: "customers.suppliers.profile.paymentMethod.CREDIT_CARD",
+  CHECK: "customers.suppliers.profile.paymentMethod.CHECK",
+  CASH: "customers.suppliers.profile.paymentMethod.CASH",
+  BIT: "customers.suppliers.profile.paymentMethod.BIT",
+  PAYBOX: "customers.suppliers.profile.paymentMethod.PAYBOX",
+  OTHER: "customers.suppliers.profile.paymentMethod.OTHER",
+};
+
+/** Entity-type label (mirrors SUPPLIER_TAX_ID_TYPE_LABELS); unknown values fall back to the raw value. */
+export function supplierTaxIdTypeLabelT(t: Translator, type: SupplierTaxIdType): string {
+  const key = TAX_ID_TYPE_KEY[type];
+  return key ? t(key) : type;
+}
+
+/** The identifier field's label for an entity type (mirrors supplierTaxIdLabel). */
+export function supplierTaxIdLabelT(
+  t: Translator,
+  type: SupplierTaxIdType | null | undefined
+): string {
+  const key = type ? TAX_ID_LABEL_KEY[type] : undefined;
+  return t(key ?? "customers.suppliers.profile.taxIdLabel.generic");
+}
+
+/** Payment-method label (mirrors SUPPLIER_PAYMENT_METHOD_LABELS); unknown values fall back to the raw value. */
+export function supplierPaymentMethodLabelT(t: Translator, method: SupplierPaymentMethod): string {
+  const key = PAYMENT_METHOD_KEY[method];
+  return key ? t(key) : method;
+}
+
+/**
+ * Stored terms → display text; mirrors `formatSupplierPaymentTerms`, whose
+ * presets are exactly the immediate label and "net + N". Unset/invalid → null.
+ */
+export function formatSupplierPaymentTermsT(
+  t: Translator,
+  days: number | null | undefined
+): string | null {
+  if (days == null || !Number.isInteger(days) || days < 0) return null;
+  if (days === 0) return t("customers.suppliers.profile.paymentTermsImmediate");
+  return t("customers.suppliers.profile.paymentTermsNet", { days });
 }

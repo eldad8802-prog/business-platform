@@ -134,7 +134,7 @@ async function main() {
   const at = screen.indexOf("/refund`, {");
   const refundBlock = at >= 0 ? screen.slice(at, at + 600) : "";
   ok("the refund POST is present on the thread screen", at >= 0);
-  ok("the refund answer goes through refundOutcomeNotice", /refundOutcomeNotice\(r\.outcome\)/.test(refundBlock));
+  ok("the refund answer goes through refundOutcomeNotice", /refundOutcomeNotice\(r\.outcome(, tr?)?\)/.test(refundBlock));
   ok(
     "the refund answer is not compared to a literal on the screen",
     !/r\.outcome\s*===/.test(refundBlock)

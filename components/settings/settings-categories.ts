@@ -1,3 +1,6 @@
+import { he } from "@/lib/i18n/messages/he";
+import { createTranslator, type MessageKey } from "@/lib/i18n/translate";
+
 import { IMPORT_EXPORT_SETTINGS_CATEGORY } from "./import-export/import-export-release";
 
 /**
@@ -10,12 +13,21 @@ export type SettingsGroupKey = "account" | "preferences" | "security" | "connect
 export type SettingsCategory = {
   key: string;
   href: string;
+  /** The Hebrew title / description (tests and server copy quote them); screens render the keys. */
   title: string;
   description: string;
+  titleKey: MessageKey;
+  descriptionKey: MessageKey;
   /** The existing colourful Dubiz icon for this area. Keep it — owner decision. */
   icon: string;
   group: SettingsGroupKey;
 };
+
+/** Hebrew text comes from the dictionary, so a category's `title` and its `titleKey` can never disagree. */
+const heT = createTranslator(he);
+function category(c: Omit<SettingsCategory, "title" | "description">): SettingsCategory {
+  return { ...c, title: heT(c.titleKey), description: heT(c.descriptionKey) };
+}
 
 // Only active categories appear here. A category is listed only when it
 // shows real information, allows a real action, or links to an owner screen
@@ -25,69 +37,78 @@ export type SettingsCategory = {
 // devices and sign-in (there is no password change or 2FA for owners), privacy
 // is export and deletion (there is no retention control).
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  {
+  category({
     key: "business",
     href: "/settings/business",
-    title: "פרטי העסק",
-    description: "שם, תחום ופרטי התקשרות",
+    titleKey: "account.settings.categories.business.title",
+    descriptionKey: "account.settings.categories.business.description",
     icon: "🏢",
     group: "account",
-  },
-  {
+  }),
+  category({
     key: "team",
     href: "/settings/team",
-    title: "החשבון שלי",
-    description: "הפרטים שלך, העסק המחובר והתנתקות",
+    titleKey: "account.settings.categories.team.title",
+    descriptionKey: "account.settings.categories.team.description",
     icon: "👤",
     group: "account",
-  },
+  }),
   // Listed as of I-3, when Export became a real capability. The definition
   // lives in `import-export/import-export-release.ts` (which imports only the
   // TYPE from here, so there is no runtime cycle); listing it in THIS array is
   // the single reviewable act of releasing the feature, and the foundation
   // verifier fails the build if this row and the release flag ever disagree.
   IMPORT_EXPORT_SETTINGS_CATEGORY,
-  {
+  category({
     key: "workspace",
     href: "/settings/workspace",
-    title: "שפה ואזור",
-    description: "שפה, מטבע ואזור זמן",
+    titleKey: "settingsLocale.categoryTitle",
+    // Not settingsLocale.categoryDescription: that text differs ("שפת המערכת"), and this row's Hebrew must not change.
+    descriptionKey: "account.settings.categories.workspace.description",
     icon: "🌍",
     group: "preferences",
-  },
+  }),
   // Listed now that it shows real information and allows a real action: the
   // devices signed in to this account, and ending any one of them.
-  {
+  category({
     key: "security",
     href: "/settings/security",
-    title: "אבטחת חשבון",
-    description: "המכשירים המחוברים והכניסה לחשבון",
+    titleKey: "account.settings.categories.security.title",
+    descriptionKey: "account.settings.categories.security.description",
     icon: "🛡️",
     group: "security",
-  },
-  {
+  }),
+  category({
     key: "account-privacy",
     href: "/settings/account",
-    title: "פרטיות",
-    description: "ייצוא המידע ומחיקת החשבון",
+    titleKey: "account.settings.categories.accountPrivacy.title",
+    descriptionKey: "account.settings.categories.accountPrivacy.description",
     icon: "🔒",
     group: "security",
-  },
-  {
+  }),
+  category({
     key: "connections",
     href: "/settings/connections",
-    title: "חיבורים",
-    description: "WhatsApp, Gmail, סליקה, רשות המסים ולידים",
+    titleKey: "account.settings.categories.connections.title",
+    descriptionKey: "account.settings.categories.connections.description",
     icon: "🔌",
     group: "connections",
-  },
+  }),
 ];
 
+export const SETTINGS_GROUP_TITLE_KEYS: Record<SettingsGroupKey, MessageKey> = {
+  account: "account.settings.groups.account",
+  preferences: "account.settings.groups.preferences",
+  security: "account.settings.groups.security",
+  connections: "account.settings.groups.connections",
+};
+
+/** Hebrew group titles (from the dictionary). */
 export const SETTINGS_GROUP_TITLES: Record<SettingsGroupKey, string> = {
-  account: "החשבון והעסק",
-  preferences: "העדפות ואפליקציה",
-  security: "אבטחה ופרטיות",
-  connections: "חיבורים ואינטגרציות",
+  account: heT(SETTINGS_GROUP_TITLE_KEYS.account),
+  preferences: heT(SETTINGS_GROUP_TITLE_KEYS.preferences),
+  security: heT(SETTINGS_GROUP_TITLE_KEYS.security),
+  connections: heT(SETTINGS_GROUP_TITLE_KEYS.connections),
 };
 
 export const SETTINGS_GROUP_ORDER: SettingsGroupKey[] = ["account", "preferences", "security", "connections"];

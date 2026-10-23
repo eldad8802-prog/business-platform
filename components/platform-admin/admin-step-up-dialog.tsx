@@ -6,8 +6,13 @@
  * Mounted once per privileged surface. It registers the handler that
  * `lib/platform-admin/fetch-platform-admin.ts` calls when the server answers a
  * privileged request with 403 + `ADMIN_MFA_REQUIRED`, shows a focused prompt,
- * exchanges the six-digit code for a bounded elevation, and lets the original
- * request retry exactly once.
+ * exchanges a factor for a bounded elevation, and lets the original request
+ * retry exactly once.
+ *
+ * Factors offered (A1): a passkey (Face ID / fingerprint / device PIN) when
+ * this admin has one and passkeys are on here; the six-digit authenticator
+ * code; a single-use recovery code. With no factor at all, the prompt sends the
+ * admin to the security screen to set one up — never to "contact support".
  *
  * The code lives in React state for the moment it takes to submit it and is
  * cleared immediately afterwards. It is never logged, never persisted, and
@@ -19,21 +24,28 @@
  * resolves every waiter.
  */
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   registerAdminStepUpHandler,
   setAdminElevation,
   verifyAdminMfaCode,
+  verifyAdminWithPasskey,
 } from "@/lib/platform-admin/admin-elevation";
-import { PA } from "./platform-admin-styles";
+import { fetchPlatformAdminSession } from "@/lib/platform-admin/fetch-platform-admin";
+import { ConsoleIcon } from "./console/console-icons";
+import styles from "./console/admin-console.module.css";
 
 type Waiter = (elevation: string | null) => void;
+
+type Factors = { enrolled: boolean; passkeys: boolean } | null;
 
 export function AdminStepUpDialog() {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [factors, setFactors] = useState<Factors>(null);
   const waiters = useRef<Waiter[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -44,6 +56,7 @@ export function AdminStepUpDialog() {
     setCode("");
     setError(null);
     setBusy(false);
+    setFactors(null);
     for (const resolve of pending) resolve(elevation);
   }, []);
 
@@ -57,9 +70,27 @@ export function AdminStepUpDialog() {
     );
   }, []);
 
+  // Which factors to offer — read from the identity-only session probe.
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (!open) return;
+    let cancelled = false;
+    fetchPlatformAdminSession().then(
+      (s) =>
+        !cancelled &&
+        setFactors({
+          enrolled: s.mfa.enrolled,
+          passkeys: s.mfa.passkeys.available && s.mfa.passkeys.count > 0,
+        }),
+      () => !cancelled && setFactors({ enrolled: true, passkeys: false })
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
+
+  useEffect(() => {
+    if (open && factors?.enrolled) inputRef.current?.focus();
+  }, [open, factors]);
 
   // Resolve any outstanding waiter if this component unmounts mid-challenge,
   // so a privileged request can never hang forever on a promise nobody owns.
@@ -71,6 +102,10 @@ export function AdminStepUpDialog() {
     };
   }, []);
 
+  function bearer(): string | null {
+    return typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+  }
+
   async function submit() {
     // Six digits for TOTP, or a longer recovery code. Anything shorter is a
     // typo, and sending it would burn one of the server's rate-limited attempts.
@@ -80,16 +115,15 @@ export function AdminStepUpDialog() {
       return;
     }
 
-    const bearer =
-      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
-    if (!bearer) {
+    const token = bearer();
+    if (!token) {
       settle(null);
       return;
     }
 
     setBusy(true);
     setError(null);
-    const result = await verifyAdminMfaCode(submitted, bearer);
+    const result = await verifyAdminMfaCode(submitted, token);
     // The submitted code has served its purpose — drop it before anything else.
     setCode("");
 
@@ -105,8 +139,7 @@ export function AdminStepUpDialog() {
       return;
     }
     if (result.reason === "not_enrolled" || result.reason === "no_record") {
-      // Never send the admin into re-enrollment from a failed verification.
-      setError("לא נמצא אמצעי אימות פעיל לחשבון הזה. פנה למנהל המערכת.");
+      setError("לא הוגדרה אפליקציית אימות לחשבון הזה. אפשר להגדיר אותה במסך האבטחה.");
       return;
     }
     if (result.reason === "replayed_code") {
@@ -116,112 +149,129 @@ export function AdminStepUpDialog() {
     setError("הקוד שגוי או פג תוקפו. נסה שוב עם קוד עדכני.");
   }
 
+  async function stepUpWithPasskey() {
+    const token = bearer();
+    if (!token) {
+      settle(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const result = await verifyAdminWithPasskey(token);
+    if (result.ok) {
+      setAdminElevation(result.elevation, result.expiresInSeconds);
+      settle(result.elevation);
+      return;
+    }
+    setBusy(false);
+    if (result.reason === "cancelled") {
+      setError("האימות בוטל. אפשר לנסות שוב או להזין קוד.");
+    } else if (result.status === 429) {
+      setError("יותר מדי ניסיונות. המתן מעט ונסה שוב.");
+    } else {
+      setError("האימות עם מפתח הגישה נכשל. אפשר להזין קוד במקום.");
+    }
+  }
+
   if (!open) return null;
 
+  const noFactor = factors !== null && !factors.enrolled && !factors.passkeys;
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="admin-step-up-title"
-      style={{
-        position: "fixed",
-        inset: 0,
-        display: "grid",
-        placeItems: "center",
-        background: "rgba(0,0,0,0.45)",
-        zIndex: 1000,
-        padding: 16,
-      }}
-    >
+    <div className={styles.backdrop}>
       <div
-        style={{
-          width: "min(420px, 100%)",
-          background: PA.cardBg,
-          color: PA.ink,
-          border: `1px solid ${PA.border}`,
-          borderRadius: PA.radius,
-          padding: 20,
-          display: "grid",
-          gap: 12,
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-step-up-title"
+        aria-describedby="admin-step-up-desc"
+        dir="rtl"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !busy) settle(null);
         }}
       >
-        <h2 id="admin-step-up-title" style={{ margin: 0, fontSize: 18 }}>
-          נדרש אימות דו-שלבי
-        </h2>
-        <p style={{ margin: 0, fontSize: 14, color: PA.inkSecondary }}>
-          הפעולה הזו מוגנת. הזן את הקוד בן 6 הספרות שמוצג באפליקציית האימות שלך.
+        <h2 id="admin-step-up-title">נדרש אימות נוסף</h2>
+        <p id="admin-step-up-desc">
+          {noFactor
+            ? "אזור הניהול מוגן באימות דו-שלבי, ועדיין לא הוגדר אמצעי אימות לחשבון הזה."
+            : "הנתונים כאן מוגנים. אמת שאתה זה אתה כדי להמשיך. הגישה תישאר פתוחה ל־15 דקות במכשיר הזה."}
         </p>
 
-        <input
-          ref={inputRef}
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !busy) void submit();
-            if (e.key === "Escape" && !busy) settle(null);
-          }}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={12}
-          disabled={busy}
-          aria-label="קוד אימות"
-          aria-invalid={error ? true : undefined}
-          style={{
-            fontSize: 20,
-            letterSpacing: 4,
-            textAlign: "center",
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: `1px solid ${PA.border}`,
-            background: PA.pageBg,
-            color: PA.ink,
-            direction: "ltr",
-          }}
-        />
+        {factors === null ? (
+          <div className={styles.skeleton} style={{ height: 50 }} aria-hidden="true" />
+        ) : noFactor ? (
+          <div className={styles.actions}>
+            <Link href="/admin/security" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => settle(null)}>
+              להגדרת אימות דו-שלבי
+            </Link>
+            <button type="button" className={styles.btn} onClick={() => settle(null)}>
+              ביטול
+            </button>
+          </div>
+        ) : (
+          <>
+            {factors.passkeys ? (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnPrimary} ${styles.btnBlock}`}
+                  onClick={() => void stepUpWithPasskey()}
+                  disabled={busy}
+                >
+                  <ConsoleIcon name="face" size={22} />
+                  {busy ? "ממתין למכשיר…" : "אימות עם Face ID / מפתח גישה"}
+                </button>
+                {factors.enrolled ? <div className={styles.divider}>או קוד מאפליקציית האימות</div> : null}
+              </>
+            ) : null}
 
-        {error ? (
-          <p role="alert" style={{ margin: 0, fontSize: 13, color: PA.urgent.ink }}>
-            {error}
-          </p>
-        ) : null}
+            {factors.enrolled ? (
+              <label className={styles.field} htmlFor="admin-step-up-code">
+                קוד אימות או קוד שחזור
+                <input
+                  id="admin-step-up-code"
+                  ref={inputRef}
+                  className={styles.codeInput}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !busy) void submit();
+                  }}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={12}
+                  disabled={busy}
+                  aria-invalid={error ? true : undefined}
+                />
+              </label>
+            ) : null}
 
-        <p style={{ margin: 0, fontSize: 12, color: PA.inkMuted }}>
-          אין גישה לאפליקציה? אפשר להזין כאן קוד שחזור חד-פעמי.
-        </p>
+            {error ? (
+              <p role="alert" className={styles.error}>
+                {error}
+              </p>
+            ) : null}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-start" }}>
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={busy || code.trim().length === 0}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 8,
-              border: `1px solid ${PA.info.border}`,
-              background: PA.info.bg,
-              color: PA.info.ink,
-              cursor: busy ? "default" : "pointer",
-              opacity: busy || code.trim().length === 0 ? 0.6 : 1,
-            }}
-          >
-            {busy ? "מאמת…" : "אשר"}
-          </button>
-          <button
-            type="button"
-            onClick={() => settle(null)}
-            disabled={busy}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 8,
-              border: `1px solid ${PA.border}`,
-              background: "transparent",
-              color: PA.ink,
-              cursor: busy ? "default" : "pointer",
-            }}
-          >
-            ביטול
-          </button>
-        </div>
+            <div className={styles.actions}>
+              {factors.enrolled ? (
+                <button
+                  type="button"
+                  className={`${styles.btn} ${factors.passkeys ? "" : styles.btnPrimary}`}
+                  onClick={() => void submit()}
+                  disabled={busy || code.trim().length === 0}
+                >
+                  {busy ? "מאמת…" : "אישור"}
+                </button>
+              ) : null}
+              <button type="button" className={styles.btn} onClick={() => settle(null)} disabled={busy}>
+                ביטול
+              </button>
+            </div>
+            {factors.enrolled ? (
+              <p className={styles.note}>אין גישה לאפליקציה? אפשר להזין כאן קוד שחזור חד-פעמי.</p>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

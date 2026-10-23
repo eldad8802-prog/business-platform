@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
 import { BUILDER_SHELL_MAX_WIDTH } from "../../../bot-settings/_components/bot-builder-area-ui";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
 
 type ActivationApplied = {
   welcomeMessage?: boolean;
@@ -44,9 +46,10 @@ function readActivationResult(): ActivationResult | null {
 }
 
 export default function BotSetupSuccessPage() {
+  const { t } = useI18n();
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   const [ready, setReady] = useState(false);
-  const [displayName, setDisplayName] = useState("הבוט של העסק");
+  const [displayName, setDisplayName] = useState(() => t("content.bot.common.defaultBotName"));
 
   const loadIdentity = useCallback(async () => {
     try {
@@ -56,11 +59,11 @@ export default function BotSetupSuccessPage() {
       });
       if (!res.ok) return;
       const data = (await res.json()) as BotResponse;
-      setDisplayName(data.identity?.displayName || "הבוט של העסק");
+      setDisplayName(data.identity?.displayName || t("content.bot.common.defaultBotName"));
     } catch {
-      setDisplayName("הבוט של העסק");
+      setDisplayName(t("content.bot.common.defaultBotName"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,10 +80,10 @@ export default function BotSetupSuccessPage() {
 
   const applied = activation?.applied;
   const hasFreshActivation = ready && activation?.activated === true && applied != null;
-  const rows = applied ? buildSummaryRows(applied) : [];
+  const rows = applied ? buildSummaryRows(applied, t) : [];
 
   return (
-    <div dir="rtl" style={pageStyle}>
+    <div style={pageStyle}>
       <main style={shellStyle}>
         <div style={bodyStyle}>
           {hasFreshActivation ? (
@@ -89,13 +92,13 @@ export default function BotSetupSuccessPage() {
                 <div style={checkStyle}>
                   <CheckIcon size={42} stroke={TOKEN.semantic.success.accent} />
                 </div>
-                <h1 style={titleStyle}>הבוט שלך מוכן!</h1>
+                <h1 style={titleStyle}>{t("content.bot.success.title")}</h1>
                 <p style={subtitleStyle}>
-                  <strong style={botNameStyle}>{displayName}</strong> מוגדר ומחובר. מעכשיו, כשהלקוח כותב בוואטסאפ - הבוט מכין לך טיוטה לפי מה שהגדרת.
+                  <strong style={botNameStyle}>{displayName}</strong> {t("content.bot.success.subtitleAfterName")}
                 </p>
               </section>
 
-              <section aria-label="מה הופעל" style={summaryCardStyle}>
+              <section aria-label={t("content.bot.success.summaryAria")} style={summaryCardStyle}>
                 {rows.map((row) => (
                   <SummaryRow key={row.key} title={row.title} sub={row.sub} value={row.value} tone={row.tone} />
                 ))}
@@ -110,8 +113,8 @@ export default function BotSetupSuccessPage() {
         </div>
 
         <div style={actionsStyle}>
-          <Link href="/business/bot" style={primaryButtonStyle}>לעמוד הבוט שלי</Link>
-          <Link href="/business/bot?preview=1" style={secondaryButtonStyle}>צפה בתצוגה מקדימה</Link>
+          <Link href="/business/bot" style={primaryButtonStyle}>{t("content.bot.success.toBotPage")}</Link>
+          <Link href="/business/bot?preview=1" style={secondaryButtonStyle}>{t("content.bot.success.preview")}</Link>
           <div style={homeIndicatorStyle} />
         </div>
       </main>
@@ -119,22 +122,22 @@ export default function BotSetupSuccessPage() {
   );
 }
 
-function buildSummaryRows(applied: ActivationApplied) {
+function buildSummaryRows(applied: ActivationApplied, t: Translator) {
   const rows: Array<{ key: string; title: string; sub: string; value: string; tone: "done" | "muted" }> = [];
   if (applied.welcomeMessage === true) {
-    rows.push({ key: "welcome", title: "הודעת פתיחה", sub: "איך הבוט מקבל לקוחות", value: "הוגדר", tone: "done" });
+    rows.push({ key: "welcome", title: t("content.bot.success.rows.welcomeTitle"), sub: t("content.bot.success.rows.welcomeSub"), value: t("content.bot.success.configured"), tone: "done" });
   }
   const count = Number.isFinite(applied.questions) ? Math.max(0, Math.trunc(applied.questions || 0)) : 0;
   if (count > 0) {
-    rows.push({ key: "questions", title: "שאלות לשיחה", sub: "מה הבוט שואל", value: `${count} שאלות`, tone: "done" });
+    rows.push({ key: "questions", title: t("content.bot.success.rows.questionsTitle"), sub: t("content.bot.success.rows.questionsSub"), value: t("content.bot.success.rows.questionsValue", { count }), tone: "done" });
   }
   if (applied.finalAction === true) {
-    rows.push({ key: "final", title: "פעולת סיום", sub: "מה קורה בסוף השיחה", value: "הוגדר", tone: "done" });
+    rows.push({ key: "final", title: t("content.bot.success.rows.finalTitle"), sub: t("content.bot.success.rows.finalSub"), value: t("content.bot.success.configured"), tone: "done" });
   }
   if (applied.handoffRules === true) {
-    rows.push({ key: "handoff", title: "מתי מעביר אליך", sub: "הגבולות שמגנים עליך", value: "הוגדר", tone: "done" });
+    rows.push({ key: "handoff", title: t("content.bot.success.rows.handoffTitle"), sub: t("content.bot.success.rows.handoffSub"), value: t("content.bot.success.configured"), tone: "done" });
   } else {
-    rows.push({ key: "handoff-existing", title: "מתי מעביר אליך", sub: "לא הועתק בהפעלה הזו", value: "נשאר כמו שהיה", tone: "muted" });
+    rows.push({ key: "handoff-existing", title: t("content.bot.success.rows.handoffTitle"), sub: t("content.bot.success.rows.handoffExistingSub"), value: t("content.bot.success.rows.handoffExistingValue"), tone: "muted" });
   }
   return rows;
 }
@@ -156,12 +159,13 @@ function SummaryRow({ title, sub, value, tone }: { title: string; sub: string; v
 }
 
 function HowItWorks() {
+  const { t } = useI18n();
   return (
     <section style={howStyle}>
-      <div style={howTitleStyle}><ChatIcon />איך זה עובד מעכשיו</div>
-      <Step number="1">לקוח כותב לעסק שלך בוואטסאפ.</Step>
-      <Step number="2">הבוט מנהל את השיחה ואוסף את הפרטים לפי מה שהגדרת.</Step>
-      <Step number="3">הבוט מכין לך טיוטת תשובה מוכנה - אתה שולח בלחיצה.</Step>
+      <div style={howTitleStyle}><ChatIcon />{t("content.bot.success.howTitle")}</div>
+      <Step number="1">{t("content.bot.success.step1")}</Step>
+      <Step number="2">{t("content.bot.success.step2")}</Step>
+      <Step number="3">{t("content.bot.success.step3")}</Step>
     </section>
   );
 }
@@ -176,23 +180,25 @@ function Step({ number, children }: { number: string; children: ReactNode }) {
 }
 
 function GuardNote() {
+  const { t } = useI18n();
   return (
     <div style={noteStyle}>
       <ShieldIcon />
-      <span>הבוט תמיד מכין טיוטה ואתה שולח - שום הודעה לא נשלחת בלי אישורך. אפשר לשנות כל הגדרה מתי שתרצה.</span>
+      <span>{t("content.bot.success.guard")}</span>
     </div>
   );
 }
 
 function EmptyState({ displayName }: { displayName: string }) {
+  const { t } = useI18n();
   return (
     <section style={{ ...heroStyle, paddingTop: 70 }}>
       <div style={{ ...checkStyle, background: TOKEN.surface.inset }}>
         <DashIcon size={32} />
       </div>
-      <h1 style={titleStyle}>לא נמצאה הפעלה אחרונה</h1>
+      <h1 style={titleStyle}>{t("content.bot.success.emptyTitle")}</h1>
       <p style={subtitleStyle}>
-        {displayName} כבר זמין לניהול בעמוד הבוט שלי. מסך ההצלחה מוצג רק מיד אחרי הפעלה חדשה.
+        {displayName} {t("content.bot.success.emptyBodyAfterName")}
       </p>
     </section>
   );

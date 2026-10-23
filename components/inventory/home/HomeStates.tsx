@@ -1,4 +1,5 @@
 import { IconAlertTriangle, IconBoxStack, IconPlus, IconRetry } from "@/components/inventory/home/home-icons";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Empty-state body (business with zero products). Rendered BELOW the hero +
@@ -6,14 +7,15 @@ import { IconAlertTriangle, IconBoxStack, IconPlus, IconRetry } from "@/componen
  * error state — this means "nothing added yet", never "load failed".
  */
 export function HomeEmpty({ onCreate }: { onCreate: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="inv-hm-state">
       <span className="ei" aria-hidden><IconBoxStack /></span>
-      <h3>אין עדיין מוצרים במלאי</h3>
-      <p>הוסיפו את המוצר הראשון וניצור מעקב מלאי, התראות וספירות.</p>
+      <h3>{t("customers.inventoryKit.home.emptyTitle")}</h3>
+      <p>{t("customers.inventoryKit.home.emptyBody")}</p>
       <button type="button" className="cta" onClick={onCreate}>
         <IconPlus />
-        הוספת מוצר ראשון
+        {t("customers.inventoryKit.home.addFirst")}
       </button>
     </div>
   );
@@ -26,14 +28,15 @@ export function HomeEmpty({ onCreate }: { onCreate: () => void }) {
  * and impersonated a brand-new business.
  */
 export function HomeError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="inv-hm-state err">
       <span className="ei" aria-hidden><IconAlertTriangle /></span>
-      <h3>לא הצלחנו לטעון את המלאי</h3>
-      <p>ייתכן שיש בעיית רשת. המוצרים שלך שמורים ולא נמחקו.</p>
+      <h3>{t("customers.inventoryKit.home.errorTitle")}</h3>
+      <p>{t("customers.inventoryKit.home.errorBody")}</p>
       <button type="button" className="retry" onClick={onRetry}>
         <IconRetry />
-        נסה שוב
+        {t("customers.inventoryKit.common.retry")}
       </button>
     </div>
   );

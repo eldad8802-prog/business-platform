@@ -1,8 +1,9 @@
 "use client";
 
-import { CHANNEL_LABELS } from "@/components/business/identity/identity-labels";
+import { useIdentityLabels } from "@/components/business/identity/identity-labels";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { CompositionResult } from "@/lib/services/landing/composer/landing-composer";
-import { BLUEPRINT_MISSING_LABELS, COMPOSITION_STATUS_LABELS, SECTION_LABELS } from "./landing-labels";
+import { useLandingLabels } from "./landing-labels";
 import styles from "./landing-strategy.module.css";
 
 /**
@@ -11,33 +12,36 @@ import styles from "./landing-strategy.module.css";
  * non-functional chip naming the channel the strategy decided.
  */
 export function BlueprintPreview({ result }: { result: CompositionResult }) {
+  const { t } = useI18n();
+  const { CHANNEL_LABELS } = useIdentityLabels();
+  const { BLUEPRINT_MISSING_LABELS, COMPOSITION_STATUS_LABELS, SECTION_LABELS } = useLandingLabels();
   const bp = result.blueprint;
   if (!bp) {
     return (
-      <section className={styles.blueprint} aria-label="טיוטת דף">
+      <section className={styles.blueprint} aria-label={t("content.identity.blueprint.aria")}>
         <p className={styles.alert}>{COMPOSITION_STATUS_LABELS[result.compositionStatus] ?? result.compositionStatus}</p>
-        {result.violations.length > 0 && <p className={styles.muted}>נמצאו {new Set(result.violations.map((v) => v.code)).size} בעיות בבדיקה האוטומטית, ולכן הטיוטה לא הוצגה.</p>}
+        {result.violations.length > 0 && <p className={styles.muted}>{t("content.identity.blueprint.violations", { count: new Set(result.violations.map((v) => v.code)).size })}</p>}
       </section>
     );
   }
   const action = bp.primaryAction;
   return (
-    <section className={styles.blueprint} aria-label="טיוטת דף">
+    <section className={styles.blueprint} aria-label={t("content.identity.blueprint.aria")}>
       <div className={styles.bpStatus}>
-        <span className={styles.ok}>הטיוטה עברה את כל הבדיקות</span>
-        <span className={bp.readiness.publishReady ? styles.ok : styles.warnText}>{bp.readiness.publishReady ? "יש את כל מה שצריך לפרסום" : "עדיין לא מוכנה לפרסום"}</span>
+        <span className={styles.ok}>{t("content.identity.blueprint.passed")}</span>
+        <span className={bp.readiness.publishReady ? styles.ok : styles.warnText}>{bp.readiness.publishReady ? t("content.identity.blueprint.publishReady") : t("content.identity.blueprint.notReady")}</span>
       </div>
 
       <div className={styles.bpHero}>
-        <p className={styles.bpEyebrow}>פתיחה</p>
+        <p className={styles.bpEyebrow}>{t("content.identity.blueprint.hero")}</p>
         <h3 className={styles.bpHeadline}>{bp.hero.headline}</h3>
         <p className={styles.why}>{bp.hero.subheadline}</p>
         {action ? (
           <span className={styles.bpAction}>{action.label} · {CHANNEL_LABELS[action.channel] ?? action.channel}</span>
         ) : (
-          <span className={styles.muted}>בלי כפתור פעולה — אין עדיין דרך פנייה מאושרת</span>
+          <span className={styles.muted}>{t("content.identity.blueprint.noAction")}</span>
         )}
-        {bp.hero.missingAsset && <p className={styles.muted}>חסרה תמונה ראשית מאושרת</p>}
+        {bp.hero.missingAsset && <p className={styles.muted}>{t("content.identity.blueprint.noHeroImage")}</p>}
       </div>
 
       <ol className={styles.bpSections}>
@@ -65,11 +69,11 @@ export function BlueprintPreview({ result }: { result: CompositionResult }) {
 
       {bp.readiness.missingForPublication.length > 0 && (
         <div className={styles.missing}>
-          <strong>חסר כדי לפרסם</strong>
+          <strong>{t("content.identity.blueprint.missingToPublish")}</strong>
           <ul>{bp.readiness.missingForPublication.map((m) => <li key={m}>{BLUEPRINT_MISSING_LABELS[m] ?? BLUEPRINT_MISSING_LABELS[m.replace(/^ASSET:/, "")] ?? m}</li>)}</ul>
         </div>
       )}
-      <p className={styles.muted}>טיוטה בלבד — לא נשמרה ולא פורסמה. הטקסט נכתב אוטומטית, והעובדות, המחירים, טענות האמון ודרך הפנייה נלקחו רק ממה שאישרת.</p>
+      <p className={styles.muted}>{t("content.identity.blueprint.footnote")}</p>
     </section>
   );
 }

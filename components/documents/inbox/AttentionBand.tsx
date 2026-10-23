@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 const BAND: CSSProperties = {
   borderRadius: TOKEN.radius.card,
@@ -19,13 +20,13 @@ export default function AttentionBand({
 }: {
   pendingCount: number;
 }) {
+  const { t } = useI18n();
   if (pendingCount <= 0) return null;
 
   return (
-    <div dir="rtl" style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12 }}>
       <div style={BAND}>
-        יש {pendingCount} מסמכים הממתינים לבדיקה בחודש הנבחר. מומלץ לעבור עליהם
-        בטאב &quot;ממתינים&quot;.
+        {t("documents.inbox.attentionBand", { count: pendingCount })}
       </div>
     </div>
   );

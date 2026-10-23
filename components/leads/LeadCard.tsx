@@ -13,11 +13,7 @@ import {
 } from "@/lib/api/leads";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
-import {
-  LEAD_STATUSES,
-  leadFollowUpLabel,
-  type LeadStatusValue,
-} from "@/lib/services/crm/lead-core";
+import { LEAD_STATUSES, type LeadStatusValue } from "@/lib/services/crm/lead-core";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
 import { LeadLifecycleSection } from "@/components/leads/LeadLifecycleSection";
@@ -25,11 +21,15 @@ import {
   followUpTone,
   formatDate,
   formatDateTime,
+  formatWait,
   isClosed,
+  leadFollowUpText,
   leadSourceLabel,
   leadStatusLabel,
   leadStatusTone,
 } from "@/components/leads/lead-display";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 /**
  * Lead workspace — the SAME representation shown full-page on mobile and inside
@@ -52,10 +52,10 @@ type State =
   | { status: "error"; message: string };
 
 /** Follow-up presets, in days. Two taps to schedule; the picker is the fallback. */
-const FOLLOWUP_PRESETS: ReadonlyArray<{ days: number; label: string }> = [
-  { days: 1, label: "מחר" },
-  { days: 3, label: "בעוד 3 ימים" },
-  { days: 7, label: "בשבוע הבא" },
+const FOLLOWUP_PRESETS: ReadonlyArray<{ days: number; label: MessageKey }> = [
+  { days: 1, label: "customers.leads.followUpSection.presets.tomorrow" },
+  { days: 3, label: "customers.leads.followUpSection.presets.inThreeDays" },
+  { days: 7, label: "customers.leads.followUpSection.presets.nextWeek" },
 ];
 
 /** 09:00 Israel time, `days` from now — a follow-up is a morning task. */
@@ -74,6 +74,7 @@ function localInputToIso(value: string): string | null {
 }
 
 export function LeadCard() {
+  const { t } = useI18n();
   const params = useParams<{ id: string }>();
   const id = Number(params?.id);
 
@@ -94,12 +95,12 @@ export function LeadCard() {
         redirectToLogin();
         return { status: "loading" };
       }
-      const message = err instanceof Error ? err.message : "לא הצלחנו לטעון את הליד";
+      const message = err instanceof Error ? err.message : t("customers.leads.card.loadError");
       return message.includes("not found") || message.includes("לא נמצא")
         ? { status: "notFound" }
         : { status: "error", message };
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,18 +153,18 @@ export function LeadCard() {
         </div>
       ) : state.status === "notFound" ? (
         <div className="crm-panel">
-          <p className="crm-panel__title">הליד לא נמצא</p>
-          <p className="crm-panel__body">ייתכן שהליד נמחק או שאין לך גישה אליו.</p>
+          <p className="crm-panel__title">{t("customers.leads.card.notFoundTitle")}</p>
+          <p className="crm-panel__body">{t("customers.leads.card.notFoundBody")}</p>
           <Link className="crm-btn crm-btn--ghost" href="/leads">
-            לרשימת הלידים
+            {t("customers.leads.card.backToList")}
           </Link>
         </div>
       ) : state.status === "error" ? (
         <div className="crm-panel crm-panel--error">
-          <p className="crm-panel__title">משהו השתבש</p>
+          <p className="crm-panel__title">{t("customers.leads.common.errorTitle")}</p>
           <p className="crm-panel__body">{state.message}</p>
           <button type="button" className="crm-btn crm-btn--ghost" onClick={retry}>
-            נסו שוב
+            {t("customers.leads.common.retry")}
           </button>
         </div>
       ) : (
@@ -175,17 +176,17 @@ export function LeadCard() {
             void mutate(
               // M5 — the version this screen shows: a newer change elsewhere is refused, not overwritten.
               () => updateLeadStatus(id, status, lostReason, state.card.lead.lifecycleVersion),
-              "לא הצלחנו לעדכן את הסטטוס"
+              t("customers.leads.card.statusError")
             )
           }
           onFollowUp={(iso, note) =>
             void mutate(
               () => setLeadFollowUp(id, iso, note),
-              "לא הצלחנו לקבוע מעקב"
+              t("customers.leads.card.followUpSetError")
             )
           }
           onFollowUpDone={() =>
-            void mutate(() => clearLeadFollowUp(id), "לא הצלחנו לסגור את המעקב")
+            void mutate(() => clearLeadFollowUp(id), t("customers.leads.card.followUpClearError"))
           }
           onMutate={(fn, fallback) => void mutate(fn, fallback)}
         />
@@ -211,25 +212,26 @@ function LeadCardBody({
   onFollowUpDone: () => void;
   onMutate: (fn: () => Promise<LeadCardDTO>, fallback: string) => void;
 }) {
+  const { t, locale } = useI18n();
   const { lead, customer, followUp, conversations, needsAttention, intelligence } = card;
   const closed = isClosed(lead.status);
   const tone = leadStatusTone(lead.status);
 
   const identityFields: Array<{ label: string; value: string }> = [];
   if (lead.phone) {
-    identityFields.push({ label: "טלפון", value: formatPhoneForDisplay(lead.phone) });
+    identityFields.push({ label: t("customers.leads.card.fields.phone"), value: formatPhoneForDisplay(lead.phone) });
   }
-  if (lead.email) identityFields.push({ label: "אימייל", value: lead.email });
-  const sourceLabel = leadSourceLabel(lead.sourceChannel);
-  if (sourceLabel) identityFields.push({ label: "מקור", value: sourceLabel });
-  const created = formatDate(lead.createdAt);
-  if (created) identityFields.push({ label: "נכנס", value: created });
+  if (lead.email) identityFields.push({ label: t("customers.leads.card.fields.email"), value: lead.email });
+  const sourceLabel = leadSourceLabel(lead.sourceChannel, t);
+  if (sourceLabel) identityFields.push({ label: t("customers.leads.card.fields.source"), value: sourceLabel });
+  const created = formatDate(lead.createdAt, locale);
+  if (created) identityFields.push({ label: t("customers.leads.card.fields.created"), value: created });
   if (closed && lead.closedAt) {
-    const closedAt = formatDate(lead.closedAt);
-    if (closedAt) identityFields.push({ label: "נסגר", value: closedAt });
+    const closedAt = formatDate(lead.closedAt, locale);
+    if (closedAt) identityFields.push({ label: t("customers.leads.card.fields.closed"), value: closedAt });
   }
   if (lead.lostReason) {
-    identityFields.push({ label: "סיבה", value: lead.lostReason });
+    identityFields.push({ label: t("customers.leads.card.fields.reason"), value: lead.lostReason });
   }
 
   return (
@@ -237,7 +239,7 @@ function LeadCardBody({
       <div className="crm-id">
         <div className="crm-id__head">
           <h1 className="crm-id__name">
-            <bdi>{lead.name ?? "ליד ללא שם"}</bdi>
+            <bdi>{lead.name ?? t("customers.leads.common.unnamed")}</bdi>
           </h1>
           <span
             className="crm-badge"
@@ -248,7 +250,7 @@ function LeadCardBody({
               flexShrink: 0,
             }}
           >
-            {leadStatusLabel(lead.status)}
+            {leadStatusLabel(lead.status, t)}
           </span>
         </div>
 
@@ -274,7 +276,7 @@ function LeadCardBody({
               href={`/customers/${customer.id}`}
               style={{ textDecoration: "none" }}
             >
-              כרטיס הלקוח: {customer.name} ‹
+              {t("customers.leads.card.customerLink", { name: customer.name })}
             </Link>
           </div>
         ) : null}
@@ -298,10 +300,10 @@ function LeadCardBody({
             target="_blank"
             rel="noopener noreferrer"
           >
-            וואטסאפ
+            {t("customers.leads.card.whatsapp")}
           </a>
           <a className="crm-btn crm-btn--ghost" href={`tel:+${lead.phone.replace(/\D/g, "")}`}>
-            חיוג
+            {t("customers.leads.card.dial")}
           </a>
         </div>
       ) : null}
@@ -309,7 +311,7 @@ function LeadCardBody({
       {lead.intentSnapshot ? (
         <div className="crm-section">
           <div className="crm-section__head">
-            <h2 className="crm-section__title">מה הוא צריך</h2>
+            <h2 className="crm-section__title">{t("customers.leads.card.intentTitle")}</h2>
           </div>
           {/* `overflowWrap: anywhere` so a pasted URL or an unbroken string
               cannot push the 390px layout sideways. */}
@@ -340,11 +342,11 @@ function LeadCardBody({
 
       <div className="crm-section">
         <div className="crm-section__head">
-          <h2 className="crm-section__title">שיחות</h2>
+          <h2 className="crm-section__title">{t("customers.leads.card.conversationsTitle")}</h2>
           <span className="crm-section__count">{conversations.total}</span>
         </div>
         {conversations.items.length === 0 ? (
-          <p className="crm-note-empty">אין עדיין שיחות מקושרות לליד הזה.</p>
+          <p className="crm-note-empty">{t("customers.leads.card.noConversations")}</p>
         ) : (
           <div className="crm-list">
             {conversations.items.map((c) => (
@@ -352,7 +354,7 @@ function LeadCardBody({
                 <div className="crm-item__main">
                   <div className="crm-item__title">{c.channel}</div>
                   <div className="crm-item__meta">
-                    {formatDateTime(c.lastMessageAt ?? c.startedAt) ?? ""}
+                    {formatDateTime(c.lastMessageAt ?? c.startedAt, locale) ?? ""}
                   </div>
                 </div>
               </div>
@@ -390,6 +392,7 @@ function NowSection({
   intelligence: LeadCardDTO["intelligence"];
   status: LeadStatusValue;
 }) {
+  const { t } = useI18n();
   if (!intelligence) return null;
 
   const lines: string[] = [];
@@ -397,19 +400,22 @@ function NowSection({
   if (intelligence.waitingMinutes != null && intelligence.unansweredInboundCount > 0) {
     lines.push(
       intelligence.unansweredInboundCount > 1
-        ? `${intelligence.unansweredInboundCount} הודעות ללא מענה · ממתין ${formatWaitLabel(intelligence.waitingMinutes)}`
-        : `ממתין לתשובה ${formatWaitLabel(intelligence.waitingMinutes)}`
+        ? t("customers.leads.now.unansweredWaiting", {
+            count: intelligence.unansweredInboundCount,
+            wait: formatWait(intelligence.waitingMinutes, t),
+          })
+        : t("customers.leads.now.waitingReply", { wait: formatWait(intelligence.waitingMinutes, t) })
     );
   } else if (intelligence.signalLabel) {
     lines.push(intelligence.signalLabel);
   }
 
   if (intelligence.businessSituation?.label) {
-    lines.push(`השיחה נראית: ${intelligence.businessSituation.label}`);
+    lines.push(t("customers.leads.now.situation", { label: intelligence.businessSituation.label }));
   }
 
   if (intelligence.conversationCount > 1) {
-    lines.push(`מתוך ${intelligence.conversationCount} שיחות עם הליד הזה`);
+    lines.push(t("customers.leads.now.conversationCount", { count: intelligence.conversationCount }));
   }
 
   if (lines.length === 0 && !intelligence.nextBestAction) return null;
@@ -417,10 +423,10 @@ function NowSection({
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">מה קורה עכשיו</h2>
+        <h2 className="crm-section__title">{t("customers.leads.now.title")}</h2>
         {intelligence.temperatureBucket === "hot" ? (
-          <span className="crm-section__count" aria-label="שיחה חמה">
-            🔥 חם
+          <span className="crm-section__count" aria-label={t("customers.leads.now.hotAria")}>
+            {t("customers.leads.now.hot")}
           </span>
         ) : null}
       </div>
@@ -436,23 +442,16 @@ function NowSection({
           className="crm-note__body"
           style={{ marginTop: 8, fontWeight: 600, color: "var(--crm-ink)" }}
         >
-          {`מומלץ: ${intelligence.nextBestAction.label}`}
+          {t("customers.leads.now.recommended", { label: intelligence.nextBestAction.label })}
         </p>
       ) : null}
 
       {/* The line that keeps the boundary visible to the owner. */}
       <p className="crm-note-empty" style={{ marginTop: 8 }}>
-        {`סטטוס הליד נשאר שלך: ${leadStatusLabel(status)}`}
+        {t("customers.leads.now.statusYours", { status: leadStatusLabel(status, t) })}
       </p>
     </div>
   );
-}
-
-function formatWaitLabel(minutes: number): string {
-  if (minutes < 60) return `${minutes} דק׳`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} שע׳`;
-  return `${Math.floor(hours / 24)} ימים`;
 }
 
 function FollowUpSection({
@@ -472,17 +471,18 @@ function FollowUpSection({
   onFollowUp: (iso: string, note: string | null) => void;
   onFollowUpDone: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [customOpen, setCustomOpen] = useState(false);
   const [customValue, setCustomValue] = useState("");
   const [note, setNote] = useState("");
 
   const tone = followUpTone(followUp);
-  const label = leadFollowUpLabel(followUp);
+  const label = leadFollowUpText(followUp, t);
 
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">מעקב</h2>
+        <h2 className="crm-section__title">{t("customers.leads.followUpSection.title")}</h2>
         {tone && label ? (
           <span
             className="crm-badge"
@@ -498,17 +498,17 @@ function FollowUpSection({
       </div>
 
       {closed ? (
-        <p className="crm-note-empty">הליד סגור — אין צורך במעקב.</p>
+        <p className="crm-note-empty">{t("customers.leads.followUpSection.closed")}</p>
       ) : (
         <>
           {followUp.kind === "none" ? (
             <p className="crm-note-empty" style={{ marginBottom: 10 }}>
-              עוד לא נקבע מעקב. קבעו מתי לחזור אליו כדי שלא יישכח.
+              {t("customers.leads.followUpSection.none")}
             </p>
           ) : (
             <p className="crm-note-empty" style={{ marginBottom: 10 }}>
-              {needsAttention ? "צריך לחזור אליו: " : "מעקב ל־"}
-              {formatDateTime(lead.nextFollowUpAt) ?? ""}
+              {needsAttention ? t("customers.leads.followUpSection.needsReturn") : t("customers.leads.followUpSection.scheduledFor")}
+              {formatDateTime(lead.nextFollowUpAt, locale) ?? ""}
               {lead.followUpNote ? ` — ${lead.followUpNote}` : ""}
             </p>
           )}
@@ -522,7 +522,7 @@ function FollowUpSection({
                 disabled={busy}
                 onClick={() => onFollowUp(presetIso(p.days), note.trim() || null)}
               >
-                {p.label}
+                {t(p.label)}
               </button>
             ))}
             <button
@@ -531,7 +531,7 @@ function FollowUpSection({
               disabled={busy}
               onClick={() => setCustomOpen((v) => !v)}
             >
-              תאריך אחר
+              {t("customers.leads.followUpSection.otherDate")}
             </button>
             {followUp.kind !== "none" ? (
               <button
@@ -540,7 +540,7 @@ function FollowUpSection({
                 disabled={busy}
                 onClick={onFollowUpDone}
               >
-                {busy ? "מעדכן…" : "טופל"}
+                {busy ? t("customers.leads.common.updating") : t("customers.leads.common.done")}
               </button>
             ) : null}
           </div>
@@ -549,7 +549,7 @@ function FollowUpSection({
             <div style={{ marginTop: 12 }}>
               <div className="crm-field">
                 <label className="crm-field__label" htmlFor="lead-followup-at">
-                  מתי לחזור
+                  {t("customers.leads.followUpSection.whenLabel")}
                 </label>
                 <input
                   id="lead-followup-at"
@@ -561,14 +561,14 @@ function FollowUpSection({
               </div>
               <div className="crm-field">
                 <label className="crm-field__label" htmlFor="lead-followup-note">
-                  על מה
+                  {t("customers.leads.followUpSection.aboutLabel")}
                 </label>
                 <input
                   id="lead-followup-note"
                   className="crm-input"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="לא חובה"
+                  placeholder={t("customers.leads.followUpSection.optional")}
                 />
               </div>
               <button
@@ -583,7 +583,7 @@ function FollowUpSection({
                   }
                 }}
               >
-                קבע מעקב
+                {t("customers.leads.followUpSection.set")}
               </button>
             </div>
           ) : null}
@@ -602,13 +602,14 @@ function StatusSection({
   busy: boolean;
   onStatus: (next: LeadStatusValue, lostReason?: string | null) => void;
 }) {
+  const { t } = useI18n();
   const [lostOpen, setLostOpen] = useState(false);
   const [reason, setReason] = useState("");
 
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">סטטוס</h2>
+        <h2 className="crm-section__title">{t("customers.leads.statusSection.title")}</h2>
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -631,7 +632,7 @@ function StatusSection({
                     : {}),
                 }}
               >
-                {leadStatusLabel(s)}
+                {leadStatusLabel(s, t)}
               </button>
             );
           }
@@ -651,7 +652,7 @@ function StatusSection({
                   : {}),
               }}
             >
-              {leadStatusLabel(s)}
+              {leadStatusLabel(s, t)}
             </button>
           );
         })}
@@ -661,14 +662,14 @@ function StatusSection({
         <div style={{ marginTop: 12 }}>
           <div className="crm-field">
             <label className="crm-field__label" htmlFor="lead-lost-reason">
-              למה לא נסגר
+              {t("customers.leads.statusSection.lostReasonLabel")}
             </label>
             <input
               id="lead-lost-reason"
               className="crm-input"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="מחיר, תזמון, בחר מתחרה…"
+              placeholder={t("customers.leads.statusSection.lostReasonPlaceholder")}
             />
           </div>
           <button
@@ -680,7 +681,7 @@ function StatusSection({
               setLostOpen(false);
             }}
           >
-            {busy ? "מעדכן…" : "סמן כלא נסגר"}
+            {busy ? t("customers.leads.common.updating") : t("customers.leads.statusSection.markLost")}
           </button>
         </div>
       ) : null}

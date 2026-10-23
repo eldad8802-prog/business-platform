@@ -445,6 +445,8 @@ export const INFRASTRUCTURE = {
     "AuthEmailToken"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "api/transactional-email",
+    // Interface-language preference (dz_locale cookie): presentation configuration, not business evidence.
+    "api/preferences",
     "page/settings", "page/login", "page/register", "page/forgot-password", "page/reset-password", "page/verify-email", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */
