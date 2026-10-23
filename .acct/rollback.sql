@@ -1,4 +1,4 @@
--- Reversal of 20261023090000_accountant_month_close. OWNER-RUN ONLY, never automatic.
+-- Reversal of 20261027090000_accountant_month_close. OWNER-RUN ONLY, never automatic.
 --
 -- Safe only while no code reads or writes the new objects (the application PR not deployed, or reverted
 -- first). It REFUSES while any of the five tables holds a row, or while any business has the
@@ -31,5 +31,5 @@ DROP FUNCTION public.accountant_event_append_only_guard();
 DROP FUNCTION public.accountant_event_truncate_guard();
 DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'accountant_month_close';
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'accountant_month_close';
-DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261023090000_accountant_month_close';
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261027090000_accountant_month_close';
 COMMIT;

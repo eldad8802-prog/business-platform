@@ -1,5 +1,5 @@
 /**
- * Monthly accountant workflow — what migration 20261023090000_accountant_month_close does, measured with the
+ * Monthly accountant workflow — what migration 20261027090000_accountant_month_close does, measured with the
  * real role topology on a Production-shaped database:
  *   owner   (lab_owner: the migration role — owner of every table and function, BYPASSRLS like Production's),
  *   runtime (app_runtime_prod: NOSUPERUSER NOBYPASSRLS, member of app_runtime — the tenant plane).

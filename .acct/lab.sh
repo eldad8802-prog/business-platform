@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Monthly accountant workflow / migration 20261023090000_accountant_month_close — Production-topology lab.
+# Monthly accountant workflow / migration 20261027090000_accountant_month_close — Production-topology lab.
 #
 #   .acct/lab.sh <db-name> [--with-acct | --broken-acct]
 #
-# Builds on the Daily Tasks lab (.dt/lab.sh <db> --with-dt): non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN
-# app_runtime + LOGIN app_runtime_prod, NOLOGIN app_auth, the owner's DEFAULT PRIVILEGES, Business under B4's
-# FORCE RLS; ledger through M6 + P3-E + TE + AET + DT. schema.prisma models the accountant tables, so the
-# `db push` inside the base lab built them without the migration's policies, triggers, functions and grants:
-# they are removed here so the migration builds them the way Production will have them.
-#   --with-acct:   `prisma migrate deploy` — the release-migrate mechanism — applies it;
+# Builds on the task reminders lab (.trp/lab.sh <db> --with-trp, itself on the Daily Tasks lab): non-superuser
+# CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, NOLOGIN app_auth, the owner's DEFAULT
+# PRIVILEGES, Business under B4's FORCE RLS, Daily Tasks + task reminders applied by `prisma migrate deploy`.
+# The ledger is then completed with EVERY other migration on this checkout (real sha256), as Production's ledger
+# is — including 20261024090000_platform_admin_a1, applied in Production on 2026-10-22 and sorting BEFORE this
+# migration (the reason it was re-timed from 20261023090000). Pending: only this migration.
+# schema.prisma may model the accountant tables (the application PR), so the `db push` inside the base lab may
+# have built them without the migration's policies, triggers, functions and grants: they are removed here so the
+# migration builds them the way Production will have them.
+#   --with-acct:   `prisma migrate deploy` — the release-migrate mechanism — over ALL migration directories of
+#                  this checkout, which therefore applies exactly this one;
 #   --broken-acct: the same with it failing on its last statement (atomicity).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-M6="20261009090000_m6_acquisition_connections"
-P3E="20261013090000_p3e_landing_persistence"
-TE="20261015090000_transactional_email_foundation"
-AET="20261017090000_auth_email_tokens"
-DT="20261018090000_daily_tasks_foundation"
-ACCT="20261023090000_accountant_month_close"
-bash "$ROOT/.dt/lab.sh" "$DB" --with-dt >/dev/null
+ACCT="20261027090000_accountant_month_close"
+bash "$ROOT/.trp/lab.sh" "$DB" --with-trp >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
@@ -31,20 +31,27 @@ DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'accountant_month_close
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'accountant_month_close';
 SQL
 
+# Production's ledger: every migration of this checkout except this one is recorded and finished.
+LEDGER="$(mktemp)"
+for d in "$ROOT"/prisma/migrations/*/; do
+  name="$(basename "$d")"
+  [ "$name" = "$ACCT" ] && continue
+  sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
+  echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
+        SELECT gen_random_uuid()::text, '$sum', now(), '$name', 1
+        WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '$name');" >> "$LEDGER"
+done
+psql_owner -f "$LEDGER"; rm -f "$LEDGER"
+
 case "$MODE" in
   --with-acct|--broken-acct) ;;
-  *) echo "LAB READY: $DB (through DT; accountant workflow pending)"; exit 0 ;;
+  *) echo "LAB READY: $DB (ledger = every migration on this checkout; accountant workflow pending)"; exit 0 ;;
 esac
 
 TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
 cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
 cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
-for d in "$ROOT"/prisma/migrations/*/; do
-  name="$(basename "$d")"
-  if [[ ! "$name" > "$M6" || "$name" == "$P3E" || "$name" == "$TE" || "$name" == "$AET" || "$name" == "$DT" || "$name" == "$ACCT" ]]; then
-    cp -r "$d" "$TMP/prisma/migrations/$name"
-  fi
-done
+for d in "$ROOT"/prisma/migrations/*/; do cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
 if [ "$MODE" = "--broken-acct" ]; then
   printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$ACCT/migration.sql"
 fi
@@ -52,7 +59,7 @@ set +e
 ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
 rc=$?
 set -e
-grep -E "Applying migration|have been successfully applied|Error|error" "$TMP/deploy.log" | head -8
+grep -E "migrations found|Applying migration|have been successfully applied|No pending|Error|error" "$TMP/deploy.log" | head -8
 rm -rf "$TMP"
 if [ "$MODE" = "--broken-acct" ]; then
   [ $rc -ne 0 ] || { echo "broken migration did NOT fail"; exit 1; }

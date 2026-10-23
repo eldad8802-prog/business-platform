@@ -1,12 +1,17 @@
-# Monthly accountant workflow / migration 20261023090000_accountant_month_close — proof on PostgreSQL BEFORE it
+# Monthly accountant workflow / migration 20261027090000_accountant_month_close — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17). Migration-first: this PR ships the migration and its proof only.
 #
-# .acct/lab.sh builds Production's topology on top of the Daily Tasks lab: non-superuser CREATEROLE/BYPASSRLS owner,
-# NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's DEFAULT PRIVILEGES, Business under B4's FORCE RLS.
+# .acct/lab.sh builds Production's topology on top of the task reminders lab: non-superuser CREATEROLE/BYPASSRLS
+# owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's DEFAULT PRIVILEGES, Business under B4's FORCE RLS,
+# and the ledger completed with EVERY other migration on this checkout, as Production's is — so the baseline holds
+# 20261024090000_platform_admin_a1 (applied in Production 2026-10-22). The migration was re-timed from 20261023090000
+# to 20261027090000 so it sorts after every applied migration and after the pending 20261025 / 20261026 ones
+# (docs/payments/MIGRATION-ORDER.md). Its content, and so its sha256, is unchanged.
 #
 #   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
 #      migration names only its own objects and the tables it builds on, and no other migration names its objects.
-#   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses (no tables).
+#   1. Baseline (pending): PREFLIGHT passes whole on that ledger; the proof refuses (no tables); a finished
+#      migration sorting after this one makes check 3 FAIL (the ordering check is live).
 #   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 19/19 on the empty database; the
 #      preflight then fails exactly its "not there yet" checks (4-8).
 #   3. Role battery (.acct/battery.ts) as the real roles: catalog, four-sided isolation per table, cross-business
@@ -23,9 +28,11 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261023090000_accountant_month_close/**"
+      - "prisma/migrations/20261027090000_accountant_month_close/**"
       - "ops/evidence/accountant-month-close-*.sql"
       - ".acct/**"
+      - ".trp/**"
+      - ".dt/**"
       - ".github/workflows/accountant-month-close-lab.yml"
   workflow_dispatch:
 
@@ -61,7 +68,7 @@ jobs:
       LAB_PASSWORD: acct_ci_synthetic_role_pw
       PREFLIGHT: ops/evidence/accountant-month-close-preflight.sql
       EVIDENCE: ops/evidence/accountant-month-close-production-evidence.sql
-      ACCT: prisma/migrations/20261023090000_accountant_month_close/migration.sql
+      ACCT: prisma/migrations/20261027090000_accountant_month_close/migration.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -89,7 +96,7 @@ jobs:
           test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
-            [[ "$n" != "20261023090000_accountant_month_close" ]] || continue
+            [[ "$n" != "20261027090000_accountant_month_close" ]] || continue
             if grep -nE 'Accountant(Period|Package|Recipient|Delivery|WorkflowEvent)|accountant_(link|delivery|erase|user|package|event)|accountant_month_close' "$d/migration.sql"; then echo "$n names an accountant object"; exit 1; fi
           done
           echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
@@ -104,12 +111,24 @@ jobs:
           test -z "$fails" || { echo "baseline: expected no preflight failure, got: $fails"; exit 1; }
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           echo "the proof refuses on the baseline (the tables do not exist yet)"
+          # Ordering — the reason for the re-time. The applied platform_admin_a1 (20261024) is finished in the
+          # baseline ledger and sorts BEFORE this migration, and check 3 passed above. Prove check 3 is live: a
+          # finished migration sorting after this one makes it FAIL with observed 1; the ledger is then restored.
+          a1=$(lab -At -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261024090000_platform_admin_a1' AND finished_at IS NOT NULL")
+          test "$a1" = "1" || { echo "the baseline ledger lacks the applied platform_admin_a1"; exit 1; }
+          later=$(ls prisma/migrations | awk '$0 > "20261027090000_accountant_month_close" && $0 != "migration_lock.toml"' | wc -l)
+          test "$later" = "0" || { echo "a migration directory sorts after the accountant migration"; exit 1; }
+          lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES ('lab-later', 'x', now(), '20261099000000_lab_later', 1)"
+          c3=$(lab -f "$PREFLIGHT" | grep -E '^ +3 \|' | tr -d ' ')
+          lab -q -c "DELETE FROM \"_prisma_migrations\" WHERE id = 'lab-later'"
+          test "$c3" = "3|FAIL|1" || { echo "check 3 did not refuse a later finished migration: $c3"; exit 1; }
+          echo "check 3 refuses a later finished migration (3|FAIL|1) and passes with platform_admin_a1 finished before it"
 
       - name: 2. prisma migrate deploy applies it — proof 19/19; preflight fails exactly its "not there yet" checks
         run: |
           set -euo pipefail
           bash .acct/lab.sh acct_post --with-acct | tee /tmp/post.log
-          grep -q 'Applying migration `20261023090000_accountant_month_close`' /tmp/post.log
+          grep -q 'Applying migration `20261027090000_accountant_month_close`' /tmp/post.log
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d acct_post -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$EVIDENCE" | tee /tmp/ev.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi

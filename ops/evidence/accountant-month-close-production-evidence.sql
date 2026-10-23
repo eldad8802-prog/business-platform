@@ -2,7 +2,7 @@
 -- accountant-month-close-production-evidence.sql
 --
 -- Read-only Production EVIDENCE after migration
---   20261023090000_accountant_month_close
+--   20261027090000_accountant_month_close
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, its sha256 is the reviewed one, nothing is unfinished or rolled back;
@@ -128,13 +128,13 @@ fn_grants AS (SELECT f.proname, x.grantee FROM fns f CROSS JOIN LATERAL aclexplo
               WHERE x.privilege_type = 'EXECUTE' AND x.grantee <> f.proowner),
 mig_owner AS (SELECT relowner FROM rel WHERE nm = 'AccountantPeriod'),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261023090000_accountant_month_close'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261027090000_accountant_month_close'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261023090000_accountant_month_close'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261027090000_accountant_month_close'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 3, (SELECT checksum FROM "_prisma_migrations" WHERE migration_name = '20261023090000_accountant_month_close') = 'dffae663489f3625f99d58be9c225e7f13f2f5bf5562e03929de8f990582a41a', 1
+  UNION ALL SELECT 3, (SELECT checksum FROM "_prisma_migrations" WHERE migration_name = '20261027090000_accountant_month_close') = 'dffae663489f3625f99d58be9c225e7f13f2f5bf5562e03929de8f990582a41a', 1
   UNION ALL SELECT 4, (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM tables) AND relrowsecurity AND relforcerowsecurity) = 5,
                       (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM tables) AND relrowsecurity AND relforcerowsecurity)
   UNION ALL SELECT 5, (SELECT count(*) FROM pols) = 15
