@@ -1,16 +1,16 @@
 import type { Messages } from "./types";
-import { apiEn } from "./areas/api";
-import { insightsEn } from "./areas/insights";
-import { systemEn } from "./areas/system";
-import { homeEn } from "./areas/home";
-import { inboxEn } from "./areas/inbox";
-import { documentsEn } from "./areas/documents";
-import { billingEn } from "./areas/billing";
-import { moneyEn } from "./areas/money";
-import { customersEn } from "./areas/customers";
-import { tasksEn } from "./areas/tasks";
-import { accountEn } from "./areas/account";
-import { contentEn } from "./areas/content";
+import { apiEn } from "./areas/api.en";
+import { insightsEn } from "./areas/insights.en";
+import { systemEn } from "./areas/system.en";
+import { homeEn } from "./areas/home.en";
+import { inboxEn } from "./areas/inbox.en";
+import { documentsEn } from "./areas/documents.en";
+import { billingEn } from "./areas/billing.en";
+import { moneyEn } from "./areas/money.en";
+import { customersEn } from "./areas/customers.en";
+import { tasksEn } from "./areas/tasks.en";
+import { accountEn } from "./areas/account.en";
+import { contentEn } from "./areas/content.en";
 
 /** English. Must provide every key of the Hebrew source dictionary (the type enforces it). */
 export const en: Messages = {

@@ -1,5 +1,5 @@
 /**
- * i18n area: content. Hebrew (source) + English for this product area only — each area owns its own
+ * i18n area: content. Hebrew (source; English in ./content.en.ts) for this product area only — each area owns its own
  * file so areas can be translated independently. Registered in ../he.ts and ../en.ts.
  *
  * Interface chrome only. Generated marketing content (posts, landing pages, coupons, scripts), LLM
@@ -13,13 +13,12 @@
  *   commerce   — offers, coupons, coupon design, promotions
  *   pricing    — pricing, opportunities, tools
  */
-import type { Widen } from "../types";
-import { botEn, botHe } from "./content/bot";
-import { commerceEn, commerceHe } from "./content/commerce";
-import { identityEn, identityHe } from "./content/identity";
-import { pricingEn, pricingHe } from "./content/pricing";
-import { studioEn, studioHe } from "./content/studio";
-import { studioFlowEn, studioFlowHe } from "./content/studioFlow";
+import { botHe } from "./content/bot";
+import { commerceHe } from "./content/commerce";
+import { identityHe } from "./content/identity";
+import { pricingHe } from "./content/pricing";
+import { studioHe } from "./content/studio";
+import { studioFlowHe } from "./content/studioFlow";
 
 export const contentHe = {
   identity: identityHe,
@@ -29,12 +28,3 @@ export const contentHe = {
   commerce: commerceHe,
   pricing: pricingHe,
 } as const;
-
-export const contentEn: Widen<typeof contentHe> = {
-  identity: identityEn,
-  bot: botEn,
-  studio: studioEn,
-  studioFlow: studioFlowEn,
-  commerce: commerceEn,
-  pricing: pricingEn,
-};
