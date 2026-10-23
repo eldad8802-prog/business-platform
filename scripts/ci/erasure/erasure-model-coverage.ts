@@ -546,6 +546,7 @@ const INTERNAL: Record<string, ModelCoverage> = {
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),
   DerivationPolicy: internal("policy definitions in the inert derivation substrate"),
   DerivationPolicyVersion: internal("versions of the same"),
+  FxRate: internal("global reference exchange rates (Bank of Israel representative rates); facts about the world, no businessId, no personal data; append-only for every role"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

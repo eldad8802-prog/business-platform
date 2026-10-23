@@ -1,0 +1,23 @@
+{
+  "note": "feat/fx-boi-rates: Bank of Israel representative rates — parser, client, append-only writer (fx_rate_writer), status and a cron route that is NOT scheduled; consumes migration 20261025090000.",
+  "tests": {
+    "lib/fx/boi-parser.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the SDMX CSV parser fails closed on every documented rule (header set, OF00, BASE/COUNTER, FREQ, exact decimal, UNIT_MULT division, civil date <= today Asia/Jerusalem, window, duplicates) over recorded-style fixtures; run on pull_request by fx-boi-rates-lab.yml"
+    },
+    "lib/fx/boi-client.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (loopback server only): timeout, one request (no retry), redirects never followed, size cap declared + streamed, Content-Type, UTF-8, origin allowlist (BoI or loopback); run on pull_request by fx-boi-rates-lab.yml"
+    },
+    "lib/fx/fx-rate-writer-plan.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: what the writer appends — idempotent skip against the newest row of a date, a revision is a new row, >5% jump vs the previous business day and no-baseline are UNVERIFIED with alerts; freshness status vs 2 business days; run on pull_request by fx-boi-rates-lab.yml"
+    },
+    "lib/fx/fx-rates-route-auth.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "fx-boi-rates-lab.yml",
+      "reason": "pure (network blocked, no DB): the cron route refuses without CRON_SECRET (503), with a wrong/missing bearer (401), unless FX_RATES_FETCH_ENABLED is exactly 'true' (404), and without a writer credential distinct from the app's connection (503) — no fetch in any refusal; statically: not scheduled in vercel.json or any workflow, only lib/fx/fx-rate-writer.ts reaches the writer client, nothing converts money"
+    }
+  }
+}

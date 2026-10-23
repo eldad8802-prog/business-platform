@@ -1,0 +1,166 @@
+# Bank of Israel representative rates — the application slice that consumes migration 20261025090000
+# (PR #756): parser, client, append-only writer, status, and a cron route that is NOT scheduled.
+#
+# job checks (no database)
+#   tsc; the repository guards this slice touches (CI-1 centralization, AST security incl. self-test, privileged
+#   write, admin boundary, tenant-scoped access, tenant-table RLS, migration-first against the PR base, workflow
+#   policy, security test coverage); the pure tests (parser fixtures, client on loopback, writer plan + status,
+#   route authority) and the existing tests this slice extends (cron authority scope, feature coverage, erasure).
+# job lab (ephemeral PG17, Production's role topology via .fx/lab.sh)
+#   1. drift: the FxRate model in schema.prisma = the migrated table (prisma migrate diff sees nothing for it;
+#      a planted model change is seen);
+#   2. a LOGIN member of fx_rate_writer is created (lab only), and .fxboi/lab.mts drives the real fetcher against
+#      a loopback mock of the BoI endpoint serving .fxboi/fixtures: insert, idempotent re-run, revision → new row,
+#      >5% jump → UNVERIFIED + alert, malformed / non-200 / redirect / wrong type / timeout → nothing written,
+#      writer not configured → refused before any request, overlapping runs serialise, runtime cannot append,
+#      writer cannot read / change / remove, the route refuses without the secret or the enable flag.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO external network in the lab (the mock is 127.0.0.1).
+
+name: fx boi rates — fetcher lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main, db/currency-fx-migration]
+    paths:
+      - "lib/fx/**"
+      - "app/api/cron/**"
+      - "lib/prisma-fx-writer.ts"
+      - "prisma/schema.prisma"
+      - ".fxboi/**"
+      - ".github/workflows/fx-boi-rates-lab.yml"
+      - "scripts/ci/ast-security-guard.mjs"
+      - "scripts/ci/prisma-centralization-guard.sh"
+      - "scripts/ci/tenant-context-guard.sh"
+      - "docs/i18n-multicurrency/FX-*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PGHOST: localhost
+  PGPORT: "5432"
+  SUPER: lab_super
+  PGPASSWORD: fxb_ci_synthetic_super_pw
+  LAB_PASSWORD: fxb_ci_synthetic_role_pw
+  AUTH_TOKEN_SECRET: fxb_ci_auth_secret_synthetic_at_least_32_chars
+
+jobs:
+  checks:
+    name: fx boi — types, guards, pure tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+
+      - name: Types
+        run: npx tsc --noEmit -p .
+
+      - name: Guards
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/prisma-centralization-guard.sh .
+          node scripts/ci/ast-security-guard.mjs
+          node scripts/ci/ast-security-guard.mjs --self-test
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/tenant-context-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          node scripts/ci/tenant-scoped-access-guard.mjs
+          node scripts/ci/tenant-table-rls-guard.mjs
+          node scripts/ci/workflow-policy-guard.mjs
+          node scripts/ci/security-test-coverage.mjs
+          if [ -n "${BASE_SHA:-}" ]; then node scripts/ci/migration-first-guard.mjs; else echo "migration-first: not a pull request"; fi
+
+      - name: Pure tests (no database, no external network)
+        run: |
+          set -euo pipefail
+          for k in DATABASE_URL DIRECT_URL; do unset $k || true; done
+          npx tsx lib/fx/boi-parser.test.ts
+          npx tsx lib/fx/boi-client.test.ts
+          npx tsx lib/fx/fx-rate-writer-plan.test.ts
+          npx tsx lib/fx/fx-rates-route-auth.test.ts
+          npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
+          npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+          npx tsx lib/money/money.verify.test.ts
+          npm run verify:erasure-contract -- --baseline-check
+
+  lab:
+    name: fx boi — writer against the migrated PG17 + mock BoI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: fxb_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Build the databases — un-migrated (fxb_pre) and migrated by prisma migrate deploy (fxb_post)
+        run: |
+          set -euo pipefail
+          bash .fx/lab.sh build fxb_pre
+          bash .fx/lab.sh build fxb_post
+          bash .fx/lab.sh apply fxb_post | tee /tmp/fxb-apply.log
+          grep -q 'Applying migration `20261025090000_currency_settings_fx_rates`' /tmp/fxb-apply.log
+          test "$(grep -c 'Applying migration' /tmp/fxb-apply.log)" = "1" || { echo "more than one migration applied"; exit 1; }
+
+      - name: 1. Drift — the FxRate model equals the migrated table
+        run: |
+          set -euo pipefail
+          PRE="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/fxb_pre"
+          POST="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/fxb_post"
+          export DATABASE_URL="$POST" DIRECT_URL="$POST"
+          npx prisma validate
+          npx prisma migrate diff --from-url "$POST" --to-schema-datamodel prisma/schema.prisma --script > /tmp/fxb-post.sql
+          if grep -n 'FxRate' /tmp/fxb-post.sql; then echo "schema.prisma FxRate drifts from the migration"; exit 1; fi
+          echo "migrated database → schema.prisma: $(wc -l < /tmp/fxb-post.sql) diff lines (pre-existing drift), none about FxRate"
+          npx prisma migrate diff --from-url "$PRE" --to-schema-datamodel prisma/schema.prisma --script > /tmp/fxb-pre.sql
+          grep -q 'CREATE TABLE "FxRate"' /tmp/fxb-pre.sql || { echo "the diff cannot see the table at all (vacuous)"; exit 1; }
+          echo "control: on the un-migrated database the same diff creates FxRate"
+          sed 's/rate         Decimal  @db.Decimal(20, 10)/rate         Decimal  @db.Decimal(20, 8)/' prisma/schema.prisma > /tmp/fxb-mutated.prisma
+          ! cmp -s prisma/schema.prisma /tmp/fxb-mutated.prisma || { echo "mutation not applied"; exit 1; }
+          npx prisma migrate diff --from-url "$POST" --to-schema-datamodel /tmp/fxb-mutated.prisma --script > /tmp/fxb-mut.sql
+          grep -q '"FxRate"' /tmp/fxb-mut.sql || { echo "a planted model change was NOT seen"; exit 1; }
+          echo "control: a planted precision change (20,8) is seen as drift"
+
+      - name: 2. Writer lab — real roles, mock BoI on 127.0.0.1
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d fxb_post -c "CREATE ROLE fx_rate_writer_lab LOGIN NOSUPERUSER NOBYPASSRLS INHERIT PASSWORD '$LAB_PASSWORD' IN ROLE fx_rate_writer"
+          psql -X -At -U "$SUPER" -d fxb_post -c "SELECT rolname, rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('fx_rate_writer', 'fx_rate_writer_lab', 'app_runtime', 'app_runtime_prod') ORDER BY 1"
+          export LAB_DB=fxb_post
+          export DATABASE_URL="postgresql://app_runtime_prod:${LAB_PASSWORD}@localhost:5432/fxb_post"
+          export FX_RATE_WRITER_DATABASE_URL="postgresql://fx_rate_writer_lab:${LAB_PASSWORD}@localhost:5432/fxb_post"
+          npx tsx .fxboi/lab.mts | tee /tmp/fxb-lab.out
+          grep -qE '^FX-BOI LAB: [0-9]+ checks passed$' /tmp/fxb-lab.out

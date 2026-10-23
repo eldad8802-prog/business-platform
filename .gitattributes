@@ -1,2 +1,4 @@
 docs/detection-grammar-part-b-governance-corpus-v1.md text eol=lf
 docs/detection-grammar-part-b-governance-corpus-v1.MANIFEST.md text eol=lf
+# FX-BOI recorded-style Bank of Israel CSV fixtures: bytes are part of the test (one file is CRLF on purpose)
+.fxboi/fixtures/*.csv -text

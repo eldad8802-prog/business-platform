@@ -22,6 +22,11 @@
 #                             hold — that separation is what lets app_runtime
 #                             lose the access. Its import surface is enforced
 #                             by admin-boundary-guard CI-2a/2b/2c.
+#   - lib/prisma-fx-writer.ts the SANCTIONED exchange-rate writer client (FX-BOI):
+#                             a LOGIN member of fx_rate_writer, INSERT-only on the
+#                             global "FxRate" table; its import surface (lib/fx/
+#                             fx-rate-writer.ts only) is enforced by ast-security-guard
+#                             AST-4.
 #   - *.test.ts / *.deps.ts   test / dependency-injection seam files
 #   - **/__mocks__/**         test mocks
 #
@@ -40,6 +45,7 @@ matches="$(
     | grep -vE "(^|/)lib/prisma-admin\.ts:" \
     | grep -vE "(^|/)lib/prisma-control-plane\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
+    | grep -vE "(^|/)lib/prisma-fx-writer\.ts:" \
     | grep -vE "\.test\.ts:|\.deps\.ts:|/__mocks__/" \
     || true
 )"
