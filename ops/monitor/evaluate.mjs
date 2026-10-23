@@ -11,7 +11,10 @@
  *   target = 5XX if any sample is 5xx; MEASURED if a majority is OK (median TTFB of the OK samples);
  *            UNREACHABLE if a majority is ERROR; otherwise INCONCLUSIVE (checkpoint challenge — never an outage).
  * Latency compares OFFSETS, not absolute times (the runner is not where the baseline was measured):
- *   excess = (median - reference median) - baseline offset;  breach = excess > thresholdMs.
+ *   excess = (median - reference median) - baseline offset, and the same with the lower quartile (p25);
+ *   breach = BOTH excesses > thresholdMs. Runner data (2026-10-23) shows bimodal network jitter on every
+ *   target AND on the reference (~170 vs ~450 ms; reference ~80 vs ~300 ms), which makes a 5-sample median
+ *   a coin flip. A real regression shifts every sample, so it moves p25 too; jitter does not.
  * Run BREACHING = >= minBreachingTargets breaches, or any 5XX, or any UNREACHABLE target.
  * ALERT (exit 1) only when this run AND the previous scheduled run (state no older than
  * maxPrevStateAgeMinutes) are both BREACHING — a single cold-start spike never alerts.
@@ -47,6 +50,7 @@ const median = (xs) => {
   const m = a.length >> 1;
   return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
 };
+const p25 = (xs) => [...xs].sort((x, y) => x - y)[Math.floor((xs.length - 1) / 4)];
 const mode = (xs) => {
   const c = new Map();
   for (const x of xs) c.set(x, (c.get(x) ?? 0) + 1);
@@ -74,6 +78,7 @@ export function summarizeTarget(rows) {
     fivexx: count("5XX"),
     codes: mode(samples.map((s) => s.code)),
     medianMs: ok.length ? median(ok.map((s) => s.ttfb_ms)) : null,
+    p25Ms: ok.length ? p25(ok.map((s) => s.ttfb_ms)) : null,
     cache: mode(samples.map((s) => s.cache).filter((x) => x && x !== "-")) || "-",
     regions: mode(samples.map((s) => s.regions).filter((x) => x && x !== "-")) || "-",
     lang: mode(samples.map((s) => s.lang).filter((x) => x && x !== "-")) || "-",
@@ -94,10 +99,11 @@ export function evaluate({ rows, baseline, prev, now = new Date(), force = false
     if (x.status === "MEASURED" && !latencyInconclusive) {
       x.offsetMs = x.medianMs - refT.medianMs;
       x.excessMs = x.offsetMs - x.baselineOffsetMs;
-      x.breach = x.excessMs > threshold;
+      x.p25ExcessMs = x.p25Ms - refT.p25Ms - x.baselineOffsetMs;
+      x.breach = x.excessMs > threshold && x.p25ExcessMs > threshold;
       if (x.breach) breaches++;
     } else {
-      x.offsetMs = x.excessMs = null;
+      x.offsetMs = x.excessMs = x.p25ExcessMs = null;
       x.breach = false;
     }
   }
@@ -139,17 +145,17 @@ export function renderSummary(v, baseline) {
   const L = [];
   L.push(`## Production uptime monitor — ${verdict}${v.force ? " (FORCED self-test)" : ""}`);
   L.push("");
-  L.push(`Base \`${baseline.base}\` · reference \`${baseline.reference}\` · threshold ${v.force ? "FORCED" : `${v.threshold} ms`} · breach needs ≥${baseline.minBreachingTargets} targets, or any 5xx / unreachable`);
+  L.push(`Base \`${baseline.base}\` · reference \`${baseline.reference}\` · threshold ${v.force ? "FORCED" : `${v.threshold} ms`} (median AND p25 excess) · breach needs ≥${baseline.minBreachingTargets} targets, or any 5xx / unreachable`);
   if (v.reasons.length) L.push(`\n**Breaching because:** ${v.reasons.join("; ")}`);
   L.push(`\n**Previous scheduled run:** ${v.prevNote}`);
   if (v.latencyInconclusive) L.push(`\n**Latency INCONCLUSIVE:** the reference was not measured (${v.targets[baseline.reference].status}); offsets not computed.`);
   if (v.inconclusive.length) L.push(`\n**INCONCLUSIVE (Vercel checkpoint challenge / mixed results — not an outage):** ${v.inconclusive.join(", ")}`);
   L.push("");
-  L.push("| target | status | ok/n | challenged | codes | median TTFB ms | offset vs ref ms | baseline offset ms | excess ms | breach | x-vercel-cache | region path | html lang |");
-  L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+  L.push("| target | status | ok/n | challenged | codes | median TTFB ms | offset vs ref ms | baseline offset ms | excess ms | p25 excess ms | breach | x-vercel-cache | region path | html lang |");
+  L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
   for (const [t, x] of Object.entries(v.targets)) {
     const isRef = t === baseline.reference;
-    L.push(`| \`${t}\`${isRef ? " (ref)" : ""} | ${x.status} | ${x.ok}/${x.n} | ${x.challenged} | ${x.codes} | ${x.medianMs ?? "—"} | ${isRef ? "0" : fmt(x.offsetMs)} | ${isRef ? "—" : x.baselineOffsetMs} | ${isRef ? "—" : fmt(x.excessMs)} | ${isRef ? "—" : x.breach ? "**YES**" : "no"} | ${x.cache} | ${x.regions} | ${x.lang} |`);
+    L.push(`| \`${t}\`${isRef ? " (ref)" : ""} | ${x.status} | ${x.ok}/${x.n} | ${x.challenged} | ${x.codes} | ${x.medianMs ?? "—"} | ${isRef ? "0" : fmt(x.offsetMs)} | ${isRef ? "—" : x.baselineOffsetMs} | ${isRef ? "—" : fmt(x.excessMs)} | ${isRef ? `p25 ${x.p25Ms ?? "—"}` : fmt(x.p25ExcessMs)} | ${isRef ? "—" : x.breach ? "**YES**" : "no"} | ${x.cache} | ${x.regions} | ${x.lang} |`);
   }
   const pages = Object.keys(baseline.targets).map((t) => v.targets[t]).filter((x) => x.lang !== "-");
   const he = pages.filter((x) => x.lang === "he").length;
@@ -186,7 +192,7 @@ function main(argv) {
   if (out) {
     const state = { schema: 1, at: v.at, runId: arg(argv, "--run-id") ?? null, force, breaching: v.breaching, alert: v.alert, breaches: v.breaches,
       fivexx: v.fivexx, unreachable: v.unreachable, inconclusive: v.inconclusive, latencyInconclusive: v.latencyInconclusive,
-      targets: Object.fromEntries(Object.entries(v.targets).map(([t, x]) => [t, { status: x.status, medianMs: x.medianMs, excessMs: x.excessMs ?? null, cache: x.cache, regions: x.regions }])) };
+      targets: Object.fromEntries(Object.entries(v.targets).map(([t, x]) => [t, { status: x.status, medianMs: x.medianMs, excessMs: x.excessMs ?? null, p25ExcessMs: x.p25ExcessMs ?? null, cache: x.cache, regions: x.regions }])) };
     fs.writeFileSync(out, JSON.stringify(state, null, 2) + "\n");
   }
   if (v.inconclusive.length || v.latencyInconclusive) console.log(`::warning::monitor INCONCLUSIVE for ${v.inconclusive.join(", ") || "latency"} (Vercel checkpoint challenge or mixed results — not treated as an outage)`);
@@ -224,6 +230,9 @@ function selfTest() {
     ["checkpoint challenge (403 + mitigated) on every target: INCONCLUSIVE, never breaching", () => { const v = ev(make(healthy, (t, r) => row(t, r, 403, 50, { mitigated: "challenge" })), recent); return !v.breaching && !v.alert && v.inconclusive.length === all.length && v.latencyInconclusive; }],
     ["plain 403 (no mitigated header) is NOT a challenge: UNREACHABLE", () => ev(make(healthy, (t, r) => (t === "/about" ? row(t, r, 403, 50) : null))).unreachable.includes("/about")],
     ["challenged reference: latency inconclusive, slow pages do not breach", () => { const v = ev(make(slow(5), (t, r) => (t === baseline.reference ? row(t, r, 403, 50, { mitigated: "challenge" }) : null)), recent); return v.latencyInconclusive && !v.breaching; }],
+    ["bimodal jitter (2 of 5 samples +300 ms on every page AND on the reference) never breaches", () => { const v = ev(make((t) => healthy(t), (t, r) => (r <= 2 ? row(t, r, 200, healthy(t) + 300) : null)), recent); return !v.breaching && v.breaches === 0; }],
+    ["jitter that slows 3 of 5 page samples while the reference is fast: median breaches but p25 does not -> no breach", () => { const v = ev(make(healthy, (t, r) => (t !== baseline.reference && r <= 3 ? row(t, r, 200, healthy(t) + 300) : null)), recent); return !v.breaching && Object.keys(baseline.targets).every((t) => v.targets[t].excessMs > 250 && v.targets[t].p25ExcessMs < 250); }],
+    ["a real regression (4 of 5 page samples +300 ms) on 3 pages breaches", () => ev(make(healthy, (t, r) => (["/about", "/app", "/collection"].includes(t) && r <= 4 ? row(t, r, 200, healthy(t) + 300) : null)), recent).alert],
     ["--force-breach on a healthy run: ALERT (proves the failure path)", () => ev(make(healthy), null, true).alert],
     ["--force-breach alerts even when the checkpoint challenged everything", () => ev(make(healthy, (t, r) => row(t, r, 403, 50, { mitigated: "challenge" })), null, true).alert],
   ];

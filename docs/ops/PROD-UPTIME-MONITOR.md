@@ -15,7 +15,11 @@ runner requests public, unauthenticated pages of `https://promaxgroup.co.il`: `/
 - **Offsets, not absolute times.** The runner (US) is not where the baseline was measured (Israel), so each
   page is compared as `excess = (page median − reference median) − baseline offset`.
   Baseline offsets (2026-10-23, Israel, flag OFF): `/about` 0, `/app` 0, `/collection` 0, `/login` +118, `/home` +133 ms.
-- A target **breaches** when `excess > 250 ms`. A run is **BREACHING** if ≥3 targets breach, or any 5xx, or any
+- A target **breaches** when `excess > 250 ms` for BOTH its median and its lower quartile (p25, each against the
+  reference's same statistic), i.e. at least 4 of 5 samples are slow. Why: from the runners, every page AND the
+  reference show bimodal network jitter (~170 vs ~450 ms; reference ~80 vs ~300 ms, observed 2026-10-23), which
+  makes a 5-sample median a coin flip (one run had 3 median-only "breaches" from jitter). A real regression shifts
+  every sample, so it moves p25 too. A run is **BREACHING** if ≥3 targets breach, or any 5xx, or any
   target is unreachable (timeouts / non-2xx-3xx on a majority of samples).
 - A `403` with `x-vercel-mitigated: challenge` is the checkpoint challenging the runner: **INCONCLUSIVE**, never an
   outage. It is reported (warning + summary) and breaks no chain.
