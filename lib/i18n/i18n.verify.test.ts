@@ -114,6 +114,20 @@ ok("getMessages('en') is the en module the English chunk imports", getMessages("
     !/from\s+["'][^"']*messages\/(en|index)["']/.test(provider) && !/from\s+["']@\/lib\/i18n\/messages["']/.test(provider)
   );
   ok("English is loaded through next/dynamic", /dynamic\(\s*\(\)\s*=>\s*import\(["']\.\/EnglishI18nProvider["']\)\s*\)/.test(provider));
+  // The Hebrew dictionary's module graph (bundled for EVERY user) holds no English: each area keeps its
+  // English half in a sibling `*.en.ts`, reached only from en.ts. A shared module would put English
+  // into the Hebrew bundle as soon as the English chunk uses it (unused-export removal then keeps it).
+  const seen = new Set<string>();
+  const stack = [path.join(process.cwd(), "lib/i18n/messages/he.ts")];
+  while (stack.length) {
+    const file = stack.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const code = readFileSync(file, "utf8");
+    ok(`Hebrew dictionary graph has no English module (${path.basename(file)})`, !file.endsWith(".en.ts") && !/:\s*Widen</.test(code));
+    for (const m of code.matchAll(/^import\s+(?!type\b)[^'"]*?from\s+["'](\.[^"']+)["']/gm)) stack.push(path.resolve(path.dirname(file), m[1]) + ".ts");
+  }
+  ok("Hebrew dictionary graph walked (he.ts + every area)", seen.size >= 19);
 }
 
 console.log(`i18n.verify: ${checks} checks passed`);

@@ -184,7 +184,7 @@ async function bytesPhase(s: Seed) {
     for (const [k, base, cookie] of variants) {
       const res = await fetch(base + r.path, { headers: { "accept-language": "he-IL", "accept-encoding": "identity", ...(cookie ? { cookie } : {}) }, redirect: "manual" });
       const buf = Buffer.from(await res.arrayBuffer());
-      const rsc = await fetch(base + r.path, { headers: { RSC: "1", "accept-language": "he-IL", "accept-encoding": "identity", ...(cookie ? { cookie } : {}) }, redirect: "manual" });
+      const rsc = await fetch(base + r.path, { headers: { RSC: "1", "accept-language": "he-IL", "accept-encoding": "identity", ...(cookie ? { cookie } : {}) }, redirect: "follow" });
       const rbuf = Buffer.from(await rsc.arrayBuffer());
       row[k] = {
         status: res.status, raw: buf.byteLength,
@@ -217,16 +217,17 @@ async function trackedLoad(page: Page, url: string): Promise<Net[]> {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   const byId = new Map<string, Net>();
+  const servedFromCache = new Set<string>(); // fires BEFORE responseReceived for memory-cache hits
+  cdp.on("Network.requestServedFromCache", (e: any) => { servedFromCache.add(e.requestId); const x = byId.get(e.requestId); if (x) x.fromCache = true; });
   cdp.on("Network.responseReceived", (e: any) => {
     if (!/\/_next\/static\/.*\.js(\?|$)/.test(e.response.url)) return;
-    byId.set(e.requestId, { url: e.response.url.replace(/\?.*$/, ""), status: e.response.status, fromCache: !!(e.response.fromDiskCache || e.response.fromMemoryCache || e.response.fromPrefetchCache), cacheControl: e.response.headers["cache-control"] ?? e.response.headers["Cache-Control"] ?? "", bytes: 0 });
+    byId.set(e.requestId, { url: e.response.url.replace(/\?.*$/, ""), status: e.response.status, fromCache: servedFromCache.has(e.requestId) || !!(e.response.fromDiskCache || e.response.fromMemoryCache || e.response.fromPrefetchCache), cacheControl: e.response.headers["cache-control"] ?? e.response.headers["Cache-Control"] ?? "", bytes: 0 });
   });
-  cdp.on("Network.requestServedFromCache", (e: any) => { const x = byId.get(e.requestId); if (x) x.fromCache = true; });
   cdp.on("Network.loadingFinished", (e: any) => { const x = byId.get(e.requestId); if (x) x.bytes = e.encodedDataLength; });
   await page.goto(url, { waitUntil: "load", timeout: 60_000 });
   await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
   await cdp.detach().catch(() => undefined);
-  return [...byId.values()];
+  return [...byId.values()].map((n) => ({ ...n, fromCache: n.fromCache || n.bytes === 0 }));
 }
 
 async function chunkPhase(s: Seed) {
@@ -237,6 +238,10 @@ async function chunkPhase(s: Seed) {
   const ctxA = await newCtx(browser, B.branchOn, 1440, s.a.token, "en");
   const page = await ctxA.newPage();
   const first = await trackedLoad(page, B.branchOn + "/app");
+  // The Hebrew page's JS set (same route, same build): the dictionary chunk(s) are the English-only files.
+  const heCtx = await newCtx(browser, B.branchOn, 1440, s.a.token, "he");
+  const heSet = new Set((await trackedLoad(await heCtx.newPage(), B.branchOn + "/app")).map((n) => n.url));
+  await heCtx.close();
   const covered = new Set<string>();
   const chunks: string[] = [];
   const bufs = new Map<string, Buffer>();
@@ -244,11 +249,11 @@ async function chunkPhase(s: Seed) {
     const buf = Buffer.from(await (await fetch(n.url)).arrayBuffer());
     const body = buf.toString("utf8");
     const hits = SENT.filter((x) => body.includes(x));
-    if (hits.length >= 3) { chunks.push(n.url); bufs.set(n.url, buf); hits.forEach((h) => covered.add(h)); }
+    if (hits.length >= 3 && !heSet.has(n.url)) { chunks.push(n.url); bufs.set(n.url, buf); hits.forEach((h) => covered.add(h)); }
   }
   out.firstLoad = first;
   out.coverage = `${covered.size}/${SENT.length}`;
-  ok("chunk — the English page's /_next/static JS carries the whole dictionary (≥ 90% of sentinels)", covered.size >= Math.floor(SENT.length * 0.9), out.coverage);
+  ok("chunk — the English-only /_next/static JS (not loaded by the Hebrew page) carries the whole dictionary (≥ 90% of sentinels)", covered.size >= Math.floor(SENT.length * 0.9), out.coverage);
   ok("chunk — the dictionary is in 1-3 dedicated chunk files", chunks.length >= 1 && chunks.length <= 3, JSON.stringify(chunks));
   const paths = chunks.map((u) => pathOf(u));
   out.chunks = [];
@@ -258,7 +263,7 @@ async function chunkPhase(s: Seed) {
     const buf = bufs.get(u)!;
     const p = pathOf(u);
     out.chunks.push({ path: p, cacheControl: cc, raw: buf.byteLength, br5: brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).byteLength, br11: brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 11 } }).byteLength, gzip: gzipSync(buf, { level: 6 }).byteLength });
-    ok(`chunk ${p} — served under /_next/static/ with a content hash in its name`, /^\/_next\/static\/.+[0-9a-f~_-]{8,}.*\.js$/i.test(p), p);
+    ok(`chunk ${p} — served under /_next/static/ with a content hash in its name`, /^\/_next\/static\/chunks\/(.*\/)?[^/]*[0-9a-z]{8,}[^/]*\.js$/i.test(p), p);
     ok(`chunk ${p} — Cache-Control public, max-age=31536000, immutable`, /public/.test(cc) && /max-age=31536000/.test(cc) && /immutable/.test(cc), cc);
   }
   console.log("chunks:", JSON.stringify(out.chunks));
@@ -313,6 +318,27 @@ async function chunkPhase(s: Seed) {
       ok(`hebrew — ${name} ${route}: the HTML does not reference the English chunk(s)`, paths.every((p) => !html.includes(p)));
       await ctx.close();
     }
+  }
+  // Client JS weight per page (first visit, empty cache), MAIN vs BRANCH, he / en: what each user downloads.
+  out.jsWeight = [];
+  for (const route of ["/login", "/app", "/collection"]) {
+    for (const [name, base, cookie] of [["mainHe", B.mainOn, "he"], ["branchHe", B.branchOn, "he"], ["mainEn", B.mainOn, "en"], ["branchEn", B.branchOn, "en"]] as const) {
+      const ctx = await newCtx(browser, base, 1440, s.a.token, cookie);
+      const nets = await trackedLoad(await ctx.newPage(), base + route);
+      await ctx.close();
+      let raw = 0, br5 = 0, maxSent = 0;
+      for (const n of nets) {
+        const buf = Buffer.from(await (await fetch(n.url)).arrayBuffer());
+        raw += buf.byteLength;
+        br5 += brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).byteLength;
+        maxSent = Math.max(maxSent, sentinelHits(buf.toString("utf8")));
+      }
+      out.jsWeight.push({ route, variant: name, files: nets.length, raw, br5, maxSentinelsInOneFile: maxSent });
+    }
+    const w = (v: string) => out.jsWeight.find((x: any) => x.route === route && x.variant === v);
+    console.log(`JS ${route}: he ${kb(w("mainHe").br5)}→${kb(w("branchHe").br5)} KB br, en ${kb(w("mainEn").br5)}→${kb(w("branchEn").br5)} KB br; English strings in Hebrew JS: main ${w("mainHe").maxSentinelsInOneFile} branch ${w("branchHe").maxSentinelsInOneFile}`);
+    ok(`hebrew JS ${route} — BRANCH Hebrew client JS no larger than MAIN (+2 KB br for the loader)`, w("branchHe").br5 <= w("mainHe").br5 + 2048, `${w("mainHe").br5} → ${w("branchHe").br5}`);
+    ok(`hebrew JS ${route} — BRANCH Hebrew client JS carries no English dictionary strings`, w("branchHe").maxSentinelsInOneFile < 3, String(w("branchHe").maxSentinelsInOneFile));
   }
   await browser.close();
   report.chunk = out;
@@ -383,6 +409,11 @@ function markdown(): string {
     L.push("");
   }
   if (report.chunk) L.push("## Chunk", "", "```json", JSON.stringify({ coverage: report.chunk.coverage, chunks: report.chunk.chunks, preloadedInHtml: report.chunk.preloadedInHtml, second: report.chunk.second, reload: report.chunk.reload }, null, 1), "```", "");
+  if (report.chunk?.jsWeight) {
+    L.push("## Client JS per page (first visit, empty cache)", "", "| route | variant | files | raw KB | br q5 KB | max English sentinels in one file |", "|---|---|---|---|---|---|");
+    for (const w of report.chunk.jsWeight) L.push(`| ${w.route} | ${w.variant} | ${w.files} | ${kb(w.raw)} | ${kb(w.br5)} | ${w.maxSentinelsInOneFile} |`);
+    L.push("");
+  }
   if (report.timings) {
     L.push("## Timings (p50 ms, MAIN → BRANCH, flag ON)", "", "| profile | width | locale | TTFB | FCP | LCP | DCL | load | doc transfer B |", "|---|---|---|---|---|---|---|---|---|");
     for (const a of report.timings.agg) L.push(`| ${a.profile} | ${a.width} | ${a.locale} | ${a.main.ttfb} → ${a.branch.ttfb} | ${a.main.fcp} → ${a.branch.fcp} | ${a.main.lcp} → ${a.branch.lcp} | ${a.main.dcl} → ${a.branch.dcl} | ${a.main.load} → ${a.branch.load} | ${a.main.transfer} → ${a.branch.transfer} |`);
