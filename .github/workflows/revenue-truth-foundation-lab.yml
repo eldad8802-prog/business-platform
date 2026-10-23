@@ -139,5 +139,6 @@ jobs:
           left=$(lab rev_empty -c "SELECT (SELECT count(*) FROM pg_class WHERE relname ~ '^Revenue') + (SELECT count(*) FROM pg_type WHERE typname ~ '^Revenue') + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'revenue\_%')")
           test "$left" = "0" || { echo "rollback left $left object(s)"; exit 1; }
           diff -u /tmp/empty-before.txt /tmp/empty-after.txt || { echo "rollback did not restore the catalog"; exit 1; }
-          bash .rev/lab.sh rev_empty --apply | grep -q 'Applying migration `20261028090000_revenue_truth_foundation`'
+          bash .rev/lab.sh rev_empty --apply > /tmp/reapply.log
+          grep -q 'Applying migration `20261028090000_revenue_truth_foundation`' /tmp/reapply.log
           echo "rollback whole; catalog restored; re-apply succeeds"
