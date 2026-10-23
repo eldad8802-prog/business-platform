@@ -6,7 +6,9 @@
  *
  *   M1  mixed currencies: a customer owing ILS + USD is two rows; the headline never adds them
  *   M2  partial payment in ILS reduces only the ILS balance
- *   M3  a USD payment for a USD invoice settles in USD; the ILS balance is untouched
+ *   M3  a USD payment for a USD invoice is RECORDED (PAID) but its receipt is HELD
+ *       (FOREIGN_CURRENCY_DOCUMENT_HELD — no automatic foreign-currency tax document until the
+ *       accounting rules are approved); nothing is allocated, the ILS balance is untouched
  *   M4  a payment in the WRONG currency is never allocated to the invoice (no silent conversion)
  *   M5  "paid recently" headline is single-currency and flags the mix
  *   M6  customer thread: per-currency balances, ILS headline
@@ -130,14 +132,16 @@ async function main() {
   const m2 = (await inbox(a)).body;
   ok("M2 — ILS balance 600, USD untouched 300", toCollectOf(m2) === "ILS:600.00,USD:300.00", toCollectOf(m2));
 
-  console.log("\n== M3 — USD payment for the USD invoice ==");
+  console.log("\n== M3 — USD payment for the USD invoice: money recorded, receipt held ==");
   const r3 = await request(a, "300.00", "USD", usdInv.id);
   const p3 = await paid(a, r3.id, "300.00", "USD");
-  ok("M3 — settled in USD", p3.error === null, String(p3.error));
+  ok("M3 — no error; settlement paused FOREIGN_CURRENCY_DOCUMENT_HELD", p3.error === null && p3.settled?.outcome === "REQUIRES_ATTENTION" && p3.settled?.reason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify({ err: p3.error, settled: p3.settled }));
+  ok("M3 — the USD money row stays PAID", (await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: p3.tx.id } })).status === "PAID");
+  ok("M3 — no receipt issued for the USD payment", (await prisma.billingDocument.count({ where: { sourcePaymentTransactionId: p3.tx.id } })) === 0);
   const alloc = await prisma.billingPaymentAllocation.findMany({ where: { invoiceDocumentId: usdInv.id } });
-  ok("M3 — allocation recorded in USD for 300.00", alloc.length === 1 && alloc[0].currency === "USD" && alloc[0].allocatedAmount.toFixed(2) === "300.00", JSON.stringify(alloc));
+  ok("M3 — nothing allocated to the USD invoice (no automatic USD receipt)", alloc.length === 0, JSON.stringify(alloc));
   const m3 = (await inbox(a)).body;
-  ok("M3 — only the ILS balance remains", toCollectOf(m3) === "ILS:600.00", toCollectOf(m3));
+  ok("M3 — ILS balance 600, USD 300 still open (receipt held), never added together", toCollectOf(m3) === "ILS:600.00,USD:300.00", toCollectOf(m3));
 
   console.log("\n== M4 — wrong-currency payment is never allocated ==");
   const usd2 = await invoice(a, "100.00", "USD");
@@ -146,7 +150,7 @@ async function main() {
   const alloc4 = await prisma.billingPaymentAllocation.findMany({ where: { invoiceDocumentId: usd2.id } });
   ok("M4 — nothing allocated to the USD invoice from an ILS payment", alloc4.length === 0, JSON.stringify({ alloc4, err: p4.error, settled: p4.settled }));
   const m4 = (await inbox(a)).body;
-  ok("M4 — USD 100 still owed", toCollectOf(m4).includes("USD:100.00"), toCollectOf(m4));
+  ok("M4 — USD 100 still owed (USD row = 300 held + 100)", toCollectOf(m4) === "ILS:600.00,USD:400.00", toCollectOf(m4));
 
   console.log("\n== M5 — paid recently headline ==");
   const m5 = m4.summary.paidRecent;
@@ -159,7 +163,7 @@ async function main() {
   ok("M6 — 200", th.status === 200, JSON.stringify(th.body).slice(0, 200));
   const totals = th.body.totals;
   ok("M6 — ILS headline 600", totals.currency === "ILS" && totals.outstanding === "600.00", JSON.stringify(totals));
-  ok("M6 — per-currency balances", JSON.stringify(totals.outstandingByCurrency) === JSON.stringify([{ currency: "ILS", outstanding: "600.00" }, { currency: "USD", outstanding: "100.00" }]), JSON.stringify(totals.outstandingByCurrency));
+  ok("M6 — per-currency balances", JSON.stringify(totals.outstandingByCurrency) === JSON.stringify([{ currency: "ILS", outstanding: "600.00" }, { currency: "USD", outstanding: "400.00" }]), JSON.stringify(totals.outstandingByCurrency));
   ok("M6 — flagged mixed", totals.isMixedCurrency === true);
 
   console.log("\n== K1 — isolation + ILS-only business unchanged ==");

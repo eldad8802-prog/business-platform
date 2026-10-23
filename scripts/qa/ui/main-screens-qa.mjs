@@ -75,6 +75,7 @@ const VIEWPORTS = [
 
 const PAGES = [
   { slug: "secretary", path: "/secretary", scenarios: ["prod", "empty", "calm", "loading", "error", "legacy"], group: "secretary" },
+  { slug: "secretary-today-shared", path: "/secretary?today=1", scenarios: ["todayShared"], group: "secretary" },
   { slug: "payables", path: "/payables", scenarios: ["prod", "empty", "calm", "loading", "error", "summaryFail"], group: "payables" },
   // Inner screens: text must equal main's, screen by screen.
   ...[
@@ -237,14 +238,15 @@ async function secretaryChecks(page, vp, scenario, run) {
     // Every amount on a row is a fixture field: ledger.remaining 15 / 3500 / 30, watching 50.
     c.amounts = ["₪15", "₪3,500", "₪30", "₪50"].every((a) => t.includes(a));
     c.hrefs = await page.evaluate(() => {
-      const href = (txt) => [...document.querySelectorAll("main a")].find((a) => a.innerText.trim() === txt)?.getAttribute("href") ?? null;
-      return { today: href("היום שלי"), all: href("כל ההתחייבויות"), add: href("הוספה למעקב") };
+      // Version B hub (23.10.2026): "הוסף התחייבות" in the header; "היום שלי" and the full list under history.
+      const href = (txt) => [...document.querySelectorAll("main a")].find((a) => a.innerText.trim().startsWith(txt))?.getAttribute("href") ?? null;
+      return { today: href("היום שלי"), all: href("כל ההתחייבויות"), add: href("הוסף התחייבות") };
     });
     c.hrefsOk = c.hrefs.today === "/secretary?today=1" && c.hrefs.all === "/secretary?screen=all" && c.hrefs.add === "/secretary?screen=bank";
     c.paidQuestion = await checkPaidQuestion(page, vp);
     if (vp.name === "1440" || vp.name === "390") c.menu = await checkMenu(page, vp);
     if (vp.name === "1440") c.keyboard = await checkKeyboard(page);
-    c.allNav = await checkNav(page, "כל ההתחייבויות", /\/secretary\?screen=all$/, vp);
+    c.allNav = await checkNav(page, /^כל ההתחייבויות/,/\/secretary\?screen=all$/, vp);
     c.ok = c.headline && c.no3615 && c.noReminderPromise && c.amounts && c.hrefsOk && c.paidQuestion.ok && (!c.menu || c.menu.ok) && (!c.keyboard || c.keyboard.ok) && c.allNav.ok;
   } else if (scenario === "empty") {
     c.ok = t.includes("שלום, אני המזכירה שלך.");
@@ -267,6 +269,10 @@ async function secretaryChecks(page, vp, scenario, run) {
     await page.screenshot({ path: path.join(OUT, `secretary-legacy-${vp.name}-action-error.png`), fullPage: false });
   } else if (scenario === "loading") {
     c.ok = run.loadingSeen;
+  } else if (scenario === "todayShared") {
+    // The shared agenda rendered, its aside keeps the "hand over" card, and no leads card is in it.
+    c.agenda = (await page.locator("#sec-capture").count()) > 0;
+    c.ok = c.agenda;
   }
   return c;
 }
@@ -355,7 +361,7 @@ async function checkNav(page, linkText, expect, vp) {
   const out = { ok: false };
   try {
     const start = page.url();
-    await page.locator("main").getByRole("link", { name: linkText, exact: true }).first().click();
+    await page.locator("main").getByRole("link", typeof linkText === "string" ? { name: linkText, exact: true } : { name: linkText }).first().click();
     await page.waitForURL(expect, { timeout: 15_000 });
     out.landed = page.url().replace(BASE, "");
     await settle(page);
@@ -531,6 +537,8 @@ async function capture(p, scenario, vp) {
       results.innerTexts[`${p.slug}@${vp.name}`] = norm(text).replace(/[ \t]+/g, " ").trim();
     } else if (p.group === "secretary") {
       run.checks = await secretaryChecks(page, vp, scenario, run);
+      // Owner decision 22.10.2026: the Secretary shows no leads (they live on the home screen).
+      run.leadsRequests = apiLog.filter((l) => l.includes("/api/leads/")).length;
     } else if (p.group === "payables") {
       run.checks = await payablesChecks(page, vp, scenario, run, apiLog);
     }
@@ -586,12 +594,15 @@ const ce = runs.filter((r) => r.pageErrors.length || r.consoleErrors.some((m) =>
 add(7, "No console/page errors (404/500 resource lines from the mocked failures excluded)", ce.length === 0, ce.map((r) => `${r.page}-${r.scenario}-${r.viewport}: ${[...r.pageErrors, ...r.consoleErrors].slice(0, 3).join(" || ").slice(0, 300)}`));
 const known = runs.filter((r) => r.consoleErrors.some((m) => KNOWN_PREEXISTING.test(m)));
 add("7b", "Info: pre-existing dev warning on back from /payables/cheques (same on main)", null, known.map((r) => `${r.page}-${r.scenario}-${r.viewport}`));
-// /tasks syncs its agenda on open (its own existing behaviour); the harness answers 404 — nothing reaches a server.
-const expectedWrite = (n) => n.devTooling || n.scenario === "legacy" || (n.page === "tasks" && n.path === "/api/tasks/sync");
+// /tasks and the shared "היום שלי" agenda sync on open (their own existing behaviour); the harness answers 404 — nothing reaches a server.
+const expectedWrite = (n) => n.devTooling || n.scenario === "legacy" || ((n.page === "tasks" || n.page === "secretary-today-shared") && n.path === "/api/tasks/sync");
 const writes = nonGet.filter((n) => !expectedWrite(n));
 add(8, "Zero writes from the main screens (legacy action-error + /tasks own sync listed, intercepted)", writes.length === 0, [...new Set(nonGet.map((n) => `${n.method} ${n.path} (${n.page ?? "-"}/${n.scenario})${n.devTooling ? " [dev tooling]" : expectedWrite(n) ? " [expected, intercepted]" : ""}`))]);
 const mc = runs.filter((r) => r.mainCount > 1);
 add(9, "One <main> per page", mc.length === 0, mc.map((r) => `${r.page}-${r.scenario}-${r.viewport}: ${r.mainCount}`));
+const secRuns = runs.filter((r) => r.page === "secretary" || r.page === "secretary-today-shared");
+const leaky = secRuns.filter((r) => r.leadsRequests > 0);
+add(10, "The Secretary never loads leads (main screen + היום שלי with daily_tasks on)", secRuns.length > 0 && leaky.length === 0, leaky.map((r) => `${r.page}-${r.scenario}-${r.viewport}: ${r.leadsRequests} /api/leads requests`));
 
 results.finishedAt = new Date().toISOString();
 results.durationSec = Math.round((Date.now() - t0) / 1000);

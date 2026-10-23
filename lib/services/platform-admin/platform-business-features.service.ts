@@ -25,6 +25,7 @@
  * every business as "no override" — the fail-silent admin display this wave exists
  * to eliminate. The context here is always explicit and always the named target.
  */
+import { isFeatureAccessMutationsEnabled } from "@/lib/services/feature-access/feature-access-mutations";
 import { runTenantJob } from "@/lib/tenant/job";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NotFoundError } from "@/lib/errors";
@@ -164,6 +165,7 @@ export async function getPlatformAdminBusinessFeatures(
 
   return {
     generatedAt: new Date().toISOString(),
+    mutationsEnabled: isFeatureAccessMutationsEnabled(),
     business: {
       id: business.id,
       name: business.name,

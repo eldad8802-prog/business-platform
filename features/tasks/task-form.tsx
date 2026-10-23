@@ -239,7 +239,7 @@ export function TaskForm({
       {AMOUNT_HINT.test(title) ? (
         <p className={s.hint}>
           {t("tasks.form.amountHint")}{" "}
-          <Link href="/payables?new=1" prefetch={false}>{t("tasks.form.amountHintLink")}</Link>.
+          <Link href="/secretary?screen=bank" prefetch={false}>{t("tasks.form.amountHintLink")}</Link>.
         </p>
       ) : null}
       {error ? <p className={s.error} role="alert">{error}</p> : null}

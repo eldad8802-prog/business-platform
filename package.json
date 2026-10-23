@@ -99,6 +99,10 @@
     "smoke:leads": "node scripts/qa/leads-w1-prod-smoke.mjs",
     "verify:admin-mfa": "npx tsx lib/auth/platform-admin-mfa.test.ts",
     "verify:admin-step-up": "npx tsx lib/platform-admin/admin-step-up.test.ts",
+    "verify:admin-passkeys": "npx tsx lib/auth/admin-passkey.test.ts",
+    "verify:admin-factor-change": "npx tsx lib/auth/admin-factor-change.test.ts",
+    "verify:admin-a1": "npx tsx lib/services/platform-admin/platform-admin-a1.test.ts",
+    "verify:admin-a1-routes": "npx tsx app/api/platform-admin/admin-a1-routes.test.ts",
     "verify:auth-token-ttl": "npx tsx lib/auth-token.test.ts",
     "verify:cardcom-webhook-hardening": "npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts",
     "verify:payment-webhook-quarantine": "npx tsx lib/services/payments/payment-webhook-quarantine.test.ts",
@@ -120,6 +124,8 @@
     "postinstall": "prisma generate",
     "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
     "verify:secretary-home": "npx tsx \"app/(shell)/secretary/secretary-home-model.verify.test.ts\"",
+    "verify:secretary-create-flow": "npx tsx \"app/(shell)/secretary/secretary-create-flow.verify.test.ts\"",
+    "verify:secretary-hub": "npx tsx \"app/(shell)/secretary/secretary-hub.verify.test.ts\"",
     "verify:home-routes": "npx tsx lib/navigation/home-routes.test.ts",
     "verify:home-model": "npx tsx features/home/lib/home-model.test.ts",
     "qa:home-2b": "node scripts/qa/ui/home-2b-states.mjs",
@@ -230,6 +236,8 @@
     "@signpdf/placeholder-pdf-lib": "^3.3.0",
     "@signpdf/signer-p12": "^3.3.0",
     "@signpdf/signpdf": "^3.3.0",
+    "@simplewebauthn/browser": "13.3.0",
+    "@simplewebauthn/server": "13.3.3",
     "@upstash/qstash": "2.12.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
@@ -270,5 +278,19 @@
     "ts-node": "^10.9.2",
     "tsx": "4.23.15",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@peculiar/asn1-android": "2.10.0",
+    "@peculiar/asn1-cms": "2.10.0",
+    "@peculiar/asn1-csr": "2.10.0",
+    "@peculiar/asn1-ecc": "2.10.0",
+    "@peculiar/asn1-pfx": "2.10.0",
+    "@peculiar/asn1-pkcs8": "2.10.0",
+    "@peculiar/asn1-pkcs9": "2.10.0",
+    "@peculiar/asn1-rsa": "2.10.0",
+    "@peculiar/asn1-schema": "2.10.0",
+    "@peculiar/asn1-x509": "2.10.0",
+    "@peculiar/asn1-x509-attr": "2.10.0",
+    "asn1js": "3.0.10"
   }
 }

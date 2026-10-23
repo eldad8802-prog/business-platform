@@ -75,6 +75,7 @@ jobs:
           npm run verify:allocation-authority
           npx tsx lib/services/billing/billing-issuable-shape.test.ts
           npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
+          npx tsx lib/services/billing/settlement/foreign-currency-document-hold.test.ts
 
       - name: Push schema (lab)
         run: npx prisma db push --skip-generate
