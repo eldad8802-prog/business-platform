@@ -44,9 +44,11 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    env:
-      STATE_DIR: ${{ runner.temp }}/prod-monitor
     steps:
+      # (the `runner` context is not available in job-level env, so the path is set here)
+      - name: State directory
+        run: echo "STATE_DIR=$RUNNER_TEMP/prod-monitor" >> "$GITHUB_ENV"
+
       - name: Checkout (read-only, no persisted git credentials)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
