@@ -68,6 +68,16 @@ by the SECURITY DEFINER retention functions. Cross-business references are refus
 `(businessId, x)` keys and, for users, by a trigger. Proven by `.dt/battery.ts` (lab) and
 `ops/evidence/daily-tasks-foundation-production-evidence.sql` (Production, after the release).
 
+**Revenue truth (20261028090000_revenue_truth_foundation; prepared, NOT applied).** Eight new class-A tables:
+`RevenueSale`, `RevenueReceipt`, `RevenueDailyClose`, `RevenueDailyCloseTender`, `RevenueDailyCloseVat`,
+`RevenueSettlement`, `RevenueLink`, `RevenueDecision`. Each carries ENABLE + FORCE RLS and exactly two per-command
+policies (SELECT, INSERT) on `app.current_business_id`; `app_runtime` holds SELECT / INSERT and sequence
+USAGE / SELECT only (every default-privilege grant is revoked by name first). An append-only trigger refuses
+UPDATE / DELETE / TRUNCATE for every role, the owner included; rows leave only by cascade. Cross-business
+references are refused by composite `(businessId, x)` keys between the new tables and to `Document` /
+`AcquisitionConnection`, and by the `RevenueLink_guard` trigger for `ExternalTransaction` / `BillingDocument`. No
+existing table is altered. Proven by `.rev/battery.ts` (lab, `revenue-truth-foundation-lab.yml`).
+
 ### C: repaired by `20260929090000_tenant_rls_closure`
 
 | Table | Tenant key | Policies (per command) | Runtime grant | Before |
