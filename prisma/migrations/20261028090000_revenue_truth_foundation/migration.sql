@@ -16,7 +16,7 @@
 --   "RevenueLink" connects layers (sale = Dubiz document, tender → settlement, settlement → deposit, cash →
 --   deposit) as a PROPOSAL; "RevenueDecision" is the append-only journal of the owner's / system's
 --   confirm / reject / revoke on a link, or on a Z report read from a photo. Revenue is recognised at the sale
---   layer only, from one authoritative source per register day (lib/revenue, application PR); a settlement or
+--   layer only, from one authoritative source per register day (lib/revenue-truth, application PR); a settlement or
 --   a deposit can only CLOSE what a sale already opened.
 --
 -- WHAT IT DOES NOT DO
