@@ -400,3 +400,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
   }
 }
+
+/* Version B (23.10.2026): the main-screen title on the Secretary / Tasks scale. Inner screens keep theirs. */
+.mainTitle { font-size: 24px; font-weight: 700; line-height: 1.2; }
+@media (min-width: 1200px) { .mainTitle { font-size: 27px; } }

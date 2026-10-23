@@ -83,14 +83,17 @@ const perPeriod = (tr: Translator, r: string) =>
  * period); an unconfirmed backbone or foreign currency stays silent in the gate.
  * Nothing here interprets, recommends or decides.
  */
-/** `embedded`: no top margin, for a side column that sets its own gaps. Content is unchanged. */
-export function BusinessCostCard({ embedded = false }: { embedded?: boolean } = {}) {
+/**
+ * `embedded`: no top margin, for a side column that sets its own gaps. `breakdownOpen`: start with the
+ * breakdown shown (the Secretary's day-cost drawer). Content is unchanged either way.
+ */
+export function BusinessCostCard({ embedded = false, breakdownOpen = false }: { embedded?: boolean; breakdownOpen?: boolean } = {}) {
   const { t: tr, locale } = useI18n();
   const ils = (decimal: string) => formatIls(decimal, locale);
   const [summary, setSummary] = useState<BusinessCostSummaryApi | null>(null);
   const [learned, setLearned] = useState<LearnedCostInsightApi[]>([]);
   const [showAll, setShowAll] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(breakdownOpen);
   const [affirming, setAffirming] = useState<"idle" | "saving" | "failed">("idle");
 
   const loadSummary = (signal?: AbortSignal) =>
