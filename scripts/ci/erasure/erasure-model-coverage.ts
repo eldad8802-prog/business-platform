@@ -352,6 +352,51 @@ const operational = (reason: string): ModelCoverage => ({
 
 const OPERATIONAL: Record<string, ModelCoverage> = {
   Usage: operational("per-week feature counters"),
+  // Revenue truth (milestone A, migration 20261028090000): append-only revenue evidence. Every text column is a
+  // CHECK-limited token — source scopes, external / register ids, ISO currency, acquirer / card-brand codes,
+  // validation codes, a SHA-256 of the source record — so no name, description or card number can be stored by
+  // construction. The single writer is lib/revenue-truth/store.ts (no product caller in milestone A).
+  // Retention vs. erasure of these fiscal records (7 years) is an open owner decision (docs/revenue-truth-milestone-a.md).
+  RevenueSale: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "a sale / refund / void as amounts, a business day and CHECK-limited id tokens; no customer, no text",
+    evidence: { textualSurface: ["sourceScope", "externalId", "registerKey", "currency", "sourcePayloadHash", "ingestRef"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueReceipt: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "money taken at the till: method, amount, day and CHECK-limited tokens (acquirer / card-brand codes, never a card number)",
+    evidence: { textualSurface: ["sourceScope", "externalId", "registerKey", "currency", "cardBrand", "acquirer", "sourcePayloadHash", "ingestRef"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueDailyClose: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "a Z report's totals, counters and validation codes; CHECK-limited tokens only",
+    evidence: { textualSurface: ["sourceScope", "salesScope", "registerKey", "externalId", "currency", "validationCodes", "sourcePayloadHash", "ingestRef"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueDailyCloseTender: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "a Z report's takings by payment method; the label is a CHECK-limited code",
+    evidence: { textualSurface: ["label"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueDailyCloseVat: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "a Z report's VAT by category and rate; numbers only",
+    evidence: { textualSurface: [], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueSettlement: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "an acquirer / provider credit: gross, fee, net, installment, value date and CHECK-limited tokens",
+    evidence: { textualSurface: ["sourceScope", "externalId", "acquirer", "currency", "validationCodes", "sourcePayloadHash", "ingestRef"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueLink: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "a proposed connection between two revenue objects: their ids, an amount and closed vocabularies",
+    evidence: { textualSurface: ["currency"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
+  RevenueDecision: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "append-only confirm / reject / revoke: the actor ROLE (never a user id), a reason code and an idempotency key",
+    evidence: { textualSurface: ["reasonCode", "idempotencyKey"], writeSites: ["lib/revenue-truth/store.ts"] },
+  },
   // Daily Tasks (milestone A): per-cycle display state over the business's own items. Keys are CHECK-limited
   // tokens ([A-Za-z0-9:_.-]) naming the business's entities by id; day keys, times and versions; no text.
   TaskSourceState: operational("per-cycle display state (acknowledged / snoozed / dismissed / pinned) over the business's own items: CHECK-limited id tokens, day keys and times, no text"),
