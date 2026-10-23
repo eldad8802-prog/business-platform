@@ -17,6 +17,8 @@ import {
   issueAdminElevation,
 } from "@/lib/auth/platform-admin-elevation";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { PLATFORM_AUDIT_ACTIONS } from "@/lib/services/platform-admin/constants";
+import { logPlatformAuditEvent } from "@/lib/services/platform-admin/platform-audit.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,11 +52,30 @@ export async function POST(req: Request) {
       // One generic refusal for every failure mode: a caller must not be able
       // to distinguish "wrong code" from "already used" from "not enrolled".
       const status = result.reason === "not_enrolled" || result.reason === "no_record" ? 409 : 401;
+      await logPlatformAuditEvent({
+        actorUserId: gate.id,
+        action: PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED,
+        targetType: "USER",
+        targetId: String(gate.id),
+        metadata: { method: "totp", reason: result.reason },
+        req,
+      });
       return NextResponse.json(
         { error: "Verification failed", code: result.reason },
         { status }
       );
     }
+
+    // A recovery code is single-use and signals a lost or unavailable phone:
+    // the trail must show which factor opened the session.
+    await logPlatformAuditEvent({
+      actorUserId: gate.id,
+      action: PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED,
+      targetType: "USER",
+      targetId: String(gate.id),
+      metadata: { method: result.via },
+      req,
+    });
 
     return NextResponse.json(
       {

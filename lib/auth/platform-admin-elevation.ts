@@ -57,7 +57,7 @@ type ElevationPayload = {
 };
 
 export type ElevationVerifyResult =
-  | { ok: true; userId: number; expiresAt: number }
+  | { ok: true; userId: number; issuedAt: number; expiresAt: number }
   | {
       ok: false;
       reason:
@@ -171,7 +171,7 @@ export function verifyAdminElevation(
     return { ok: false, reason: "user_mismatch" };
   }
 
-  return { ok: true, userId: payload.sub, expiresAt: payload.exp };
+  return { ok: true, userId: payload.sub, issuedAt: payload.iat, expiresAt: payload.exp };
 }
 
 /** Read the elevation from a request without assuming a framework type. */

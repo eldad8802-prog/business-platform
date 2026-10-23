@@ -97,6 +97,7 @@ on:
           - 'ops/evidence/accountant-month-close-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
+          - 'ops/evidence/platform-admin-a1-member-classification.sql'
           - 'ops/evidence/currency-fx-preflight.sql'
           - 'ops/evidence/currency-fx-production-evidence.sql'
 

@@ -1,0 +1,37 @@
+name: payables list
+
+# The /payables main list screen: grouping (המועד עבר / מועדים קרובים /
+# מתוכנן / שולם / נסגר), quick-filter chips and search over the rows the server
+# already returned. Pure — no database, no network, no clock. Includes the
+# parity check that "המועד עבר" is exactly the set the cost engine calls
+# overdue for the same ledger, by the same Israel-calendar-day rule.
+
+on:
+  pull_request:
+    paths:
+      - "app/(shell)/payables/page.tsx"
+      - "app/(shell)/payables/payables-list-model.ts"
+      - "app/(shell)/payables/payables-list-model.verify.test.ts"
+      - "app/(shell)/payables/payables-summary.tsx"
+      - "lib/payables/payables-client.ts"
+      - "lib/utils/jerusalem-day.ts"
+      - "lib/services/business-cost/**"
+      - ".github/workflows/payables-list-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  payables-list:
+    name: Payables list (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify:payables-list

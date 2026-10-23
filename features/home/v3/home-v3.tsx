@@ -117,7 +117,7 @@ export function HomeV3({
       data.dayIncome.state === "ready"
         ? data.cost.state === "loading"
           ? LOADING
-          : ready(buildDaySeries({ hours: data.dayIncome.value.hours, incomeTotal: data.dayIncome.value.total, expenseToday: costToday, now }))
+          : ready(buildDaySeries({ hours: data.dayIncome.value.hours, incomeTotal: data.dayIncome.value.total, expenseToday: costToday, now, incomeOtherCurrencies: data.dayIncome.value.otherCurrencies }))
         : data.dayIncome;
 
     const waitingState = allSettled(data.briefing, data.status, data.collection);

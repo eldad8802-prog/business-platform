@@ -54,7 +54,8 @@ const QUICK_ACTIONS: {
   { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
   { label: "ליד חדש", href: "/leads?new=1", icon: "lead" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
-  { label: "התחייבות חדשה", href: "/payables?new=1", icon: "secretary" },
+  // P3 creation flow (owner decision 23.10.2026): a new commitment starts at "נגדיר את ההתחייבויות".
+  { label: "התחייבות חדשה", href: "/secretary?screen=bank", icon: "secretary" },
   { label: "מוצר חדש", href: "/inventory/items/create", icon: "inventory" },
   { label: "יצירת תוכן", href: "/content/create", icon: "content", comingSoon: true },
 ];

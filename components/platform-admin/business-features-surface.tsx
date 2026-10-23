@@ -10,7 +10,6 @@ import {
   fetchPlatformAdminBusinessFeatures,
 } from "@/lib/platform-admin/fetch-platform-admin";
 import { PA } from "./platform-admin-styles";
-import { PlatformAdminNav } from "./platform-admin-nav";
 import { PlatformAdminSkeleton } from "./platform-admin-skeleton";
 import { PlatformAdminInlineError } from "./platform-admin-inline-error";
 import { PlatformAdminEmptyState } from "./platform-admin-empty-state";
@@ -100,27 +99,22 @@ export function BusinessFeaturesSurface({
 
   if (loading && !data) {
     return (
-      <main
+      <div
         style={{
-          maxWidth: PA.maxWidth,
-          margin: "0 auto",
-          padding: "24px 20px 48px",
+          width: "100%",
         }}
       >
         <PlatformAdminSkeleton />
-      </main>
+      </div>
     );
   }
 
   return (
-    <main
+    <div
       style={{
-        maxWidth: PA.maxWidth,
-        margin: "0 auto",
-        padding: "24px 20px 48px",
+        width: "100%",
       }}
     >
-      <PlatformAdminNav />
 
       <header
         style={{
@@ -334,7 +328,17 @@ export function BusinessFeaturesSurface({
                         <span>{feature.mutableLabel}</span>
                       </div>
 
-                      {feature.mutable ? (
+                      {feature.mutable && !data.mutationsEnabled ? (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            fontSize: 11,
+                            color: PA.inkMeta,
+                          }}
+                        >
+                          שינויי גישה כבויים בסביבה הזו
+                        </div>
+                      ) : feature.mutable ? (
                         editingFeatureKey === feature.featureKey ? (
                           <BusinessFeatureEditPanel
                             businessId={businessId}
@@ -386,6 +390,6 @@ export function BusinessFeaturesSurface({
           </p>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

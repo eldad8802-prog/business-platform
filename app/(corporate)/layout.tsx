@@ -4,6 +4,8 @@ import { CorporateHeader } from "@/components/corporate/CorporateHeader";
 import { CorporateFooter } from "@/components/corporate/CorporateFooter";
 import { marketingVars } from "@/components/corporate/marketing-tokens";
 import { SkipLink } from "@/components/ui/accessibility";
+import { DEFAULT_LOCALE } from "@/lib/i18n/config";
+import { getRequestLocale } from "@/lib/i18n/server";
 
 /**
  * Nested layout for the Dubiz Corporate / Marketing area.
@@ -22,13 +24,20 @@ export const metadata: Metadata = {
     "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. מופעל על ידי PRO MAX GROUP.",
 };
 
-export default function CorporateLayout({
+export default async function CorporateLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  // The marketing site is Hebrew-only. When an owner's browser carries another interface language
+  // (dz_locale cookie, i18n flag on), the root <html> turns LTR — so the public content is pinned back
+  // to Hebrew / RTL here, as the platform-admin layout does. In Hebrew (and always while the flag is
+  // off — getRequestLocale() then never reads a cookie) no attribute is added: the output is unchanged.
+  const locale = await getRequestLocale();
+  const pin = locale === DEFAULT_LOCALE ? {} : ({ lang: "he", dir: "rtl" } as const);
   return (
     <div
+      {...pin}
       style={marketingVars}
       className="flex min-h-screen flex-col bg-[var(--mkt-page)] text-[var(--mkt-ink)]"
     >

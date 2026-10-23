@@ -91,6 +91,7 @@ export const he = {
     approximatePrefix: "≈",
     convertedNote: "סכום מומר לתצוגה בלבד, לפי שער {rateDate}",
     mixedCurrencies: "כולל סכומים בכמה מטבעות",
+    otherCurrenciesExcluded: "לא כולל סכומים במטבעות אחרים: {amounts}",
     rateMissing: "אין שער חליפין מאומת להמרה",
   },
   settingsLocale: {

@@ -341,6 +341,17 @@ export interface ListPaymentAuditEventsOptions {
  * interface only — never on Prisma directly — which keeps the create/webhook
  * logic unit-testable without a database.
  */
+/**
+ * "Collected" over a window, never adding currencies together: `amount` is the ILS rows only (the
+ * same value as before for an all-ILS business), `count` is every PAID request, and `byCurrency`
+ * carries each currency on its own line (ILS first, only currencies that occurred).
+ */
+export interface PaidBetweenSum {
+  amount: string;
+  count: number;
+  byCurrency: { currency: string; amount: string; count: number }[];
+}
+
 export interface PaymentStore {
   findActiveConnection(
     businessId: number,
@@ -523,7 +534,7 @@ export interface PaymentStore {
     businessId: number,
     from: Date,
     to: Date
-  ): Promise<{ amount: string; count: number }>;
+  ): Promise<PaidBetweenSum>;
 
   createTransaction(
     row: CreateTransactionRow

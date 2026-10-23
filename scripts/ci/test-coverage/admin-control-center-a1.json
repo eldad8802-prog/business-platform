@@ -1,0 +1,25 @@
+{
+  "note": "Admin Control Center A1 (platform-admin read plane, console, passkey step-up). The DB half (column grants, cross-tenant reads as app_admin, passkey grants) is proven as the real roles by .apa1/battery.ts in .github/workflows/platform-admin-a1-lab.yml.",
+  "tests": {
+    "lib/auth/admin-passkey.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) adversarial matrix for the passkey ceremony envelope (user/kind binding, expiry, tamper, purpose isolation vs the MFA elevation) and the availability decision (flag, auth plane, https RP id)"
+    },
+    "app/api/platform-admin/admin-a1-routes.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): every A1 admin route refuses an anonymous caller with 401, and the feature-access PATCH no longer discloses its mutation switch before authentication"
+    },
+    "lib/services/platform-admin/platform-admin-a1.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure product definitions of the console figures (list filters, Jerusalem day/week/month incl. DST, active-business rule, action-log wording); run by platform-admin-a1-lab.yml",
+      "notSecurityBecause": "it asserts how figures are DEFINED and worded, not who may read them: the authorization and tenant boundary of these same services are proven by admin-a1-routes.test.ts (401 before any read) and by the role battery .apa1/battery.ts (column grants, no writes, cross-tenant reads only as app_admin)"
+    },
+    "lib/auth/admin-factor-change.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): changing an admin factor needs a step-up from the last 5 minutes (older-but-valid, missing and foreign elevations refused with ADMIN_MFA_REQUIRED), and the authenticator-replacement envelope is bound to the admin, to the seed it replaces and to 10 minutes (tamper / purpose isolation)"
+    }
+  }
+}

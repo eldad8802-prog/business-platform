@@ -1,12 +1,8 @@
 "use client";
 
-import { AuditViewerSurface } from "@/components/platform-admin/audit-viewer-surface";
-import { PlatformAdminGate } from "@/components/platform-admin/platform-admin-gate";
+import { AdminConsole } from "@/components/platform-admin/console/admin-console";
+import { AuditSurface } from "@/components/platform-admin/console/audit-surface";
 
 export default function PlatformAdminAuditPage() {
-  return (
-    <PlatformAdminGate>
-      {(session) => <AuditViewerSurface session={session} />}
-    </PlatformAdminGate>
-  );
+  return <AdminConsole title="יומן פעולות">{() => <AuditSurface />}</AdminConsole>;
 }

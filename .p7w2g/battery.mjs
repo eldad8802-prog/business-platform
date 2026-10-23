@@ -166,6 +166,11 @@ async function main() {
     await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON "Customer" TO ${RT_ROLE}`);
     await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "Customer_id_seq" TO ${RT_ROLE}`);
     await owner.$executeRawUnsafe(`GRANT SELECT ON "Conversation", "BillingDocument" TO ${RT_ROLE}`);
+    // Production parity (20261003090000): the runtime holds the reviewed SELECT+INSERT on the admin audit
+    // trail (UPDATE/DELETE revoked). Since Admin Control Center A1 the admin route appends through it, because
+    // the admin read plane is SELECT-only.
+    await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON "PlatformAuditEvent" TO ${RT_ROLE}`);
+    await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "PlatformAuditEvent_id_seq" TO ${RT_ROLE}`);
     // Pilot-equivalent tenant policies + FORCE on the two starter tables + Customer.
     for (const t of ["Conversation", "BillingDocument", "Customer"]) {
       await owner.$executeRawUnsafe(`ALTER TABLE "${t}" ENABLE ROW LEVEL SECURITY`);
@@ -371,7 +376,7 @@ async function main() {
   ok("allowlisted PLATFORM_ADMIN -> 200", res.status === 200, `status=${res.status}`);
   ok("audit list is admin-visible, not silent-zero", (body?.pagination?.total ?? 0) >= 3, `total=${body?.pagination?.total}`);
   const appended = await owner.platformAuditEvent.count({ where: { actorUserId: adminUser.id, action: "PLATFORM_ADMIN_AUDIT_VIEWED" } });
-  ok("route appended AUDIT_VIEWED via admin role", appended >= 1, `found ${appended}`);
+  ok("route appended AUDIT_VIEWED (via the runtime reviewed INSERT; admin plane is SELECT-only since A1)", appended >= 1, `found ${appended}`);
 
   res = await call(signAuthToken(otherAdmin.id));
   ok("PLATFORM_ADMIN not in allowlist -> 403", res.status === 403, `status=${res.status}`);

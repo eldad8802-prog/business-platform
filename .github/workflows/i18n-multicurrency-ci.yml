@@ -6,6 +6,9 @@
 #   3. battery         multi-currency collection + tenant isolation through the real routes (flag OFF)
 #   4. e2e             two builds (flag ON / OFF — the flag takes effect per build), signed-in owner in Chromium at
 #                      phone / tablet / desktop × he / en; screenshots uploaded as an artifact
+#   6. activation     (job 2) EVERY page route on two builds of the same commit running side by side:
+#      readiness      route matrix he/en × 3 widths, Hebrew parity flag ON (no cookie / he / English browser)
+#                     = flag OFF, isolation, public / customer-facing pages, emails, static-vs-dynamic table
 #   (the C-2 migration itself — prisma/migrations/20261025090000_currency_settings_fx_rates — is proven by
 #    .github/workflows/currency-fx-migration-lab.yml in Production's role topology; the earlier proposal-only
 #    proof that lived here was retired with docs/i18n-multicurrency/proposed-migration.sql)
@@ -81,6 +84,7 @@ jobs:
           npx tsx lib/navigation/app-title-metadata.test.ts
           npx tsx lib/knowledge/coverage/feature-coverage.test.ts
           npx tsx components/navigation/nav-destinations.test.tsx
+          npx tsx .i18n/readiness-lib.test.ts
 
       - name: Push schema (lab)
         run: npx prisma db push --skip-generate
@@ -143,4 +147,89 @@ jobs:
         with:
           name: i18n-e2e-screenshots
           path: ${{ runner.temp }}/i18n-shots
+          if-no-files-found: ignore
+
+  activation-readiness:
+    name: English activation readiness — every route (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fx_owner
+          POSTGRES_PASSWORD: fx_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_fx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fx_owner -d dubiz_fx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      DIRECT_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      TEST_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
+      CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Report directory
+        run: echo "READINESS_OUT=$RUNNER_TEMP/readiness" >> "$GITHUB_ENV"
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      # Two builds of the SAME commit, both before the Chromium install (see job 1). The flag-OFF build
+      # lives in a second worktree so both servers can run side by side for the parity comparison.
+      - name: Build (flag ON)
+        shell: bash
+        env:
+          DUBIZ_I18N_ENABLED: "true"
+        run: |
+          mkdir -p "$READINESS_OUT"
+          npm run build 2>&1 | tee "$READINESS_OUT/build-on.log"
+
+      - name: Build (flag OFF = Production today) in a second worktree of the same commit
+        shell: bash
+        run: |
+          git worktree add --detach ../off HEAD
+          cd ../off
+          npm ci --no-audit --no-fund >/dev/null
+          npm run build 2>&1 | tee "$READINESS_OUT/build-off.log"
+
+      - name: 6a · Static vs dynamic — route table flag OFF vs ON
+        run: npx tsx .i18n/route-table.mts "$READINESS_OUT/build-off.log" "$READINESS_OUT/build-on.log" "$READINESS_OUT/route-table.json"
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 6b · Readiness — route matrix, Hebrew parity, isolation, public pages, emails
+        shell: bash
+        env:
+          READINESS_WORKERS: "4"
+        run: |
+          (DUBIZ_I18N_ENABLED=true npx next start -p 3611 > "$READINESS_OUT/server-on.log" 2>&1 &)
+          (cd ../off && npx next start -p 3612 > "$READINESS_OUT/server-off.log" 2>&1 &)
+          for p in 3611 3612; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          npx tsx .i18n/activation-readiness.mts
+
+      - name: Upload readiness report + screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: i18n-activation-readiness
+          path: ${{ runner.temp }}/readiness
           if-no-files-found: ignore

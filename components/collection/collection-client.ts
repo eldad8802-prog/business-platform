@@ -120,6 +120,12 @@ export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAM
     title: moneyHe.collection.attention.REFUND_ACCOUNTING_DECISION_REQUIRED,
     action: "REVIEW",
   },
+  // The money is recorded; a receipt in a foreign currency waits for the
+  // accounting rules. Retrying cannot change the currency, so no retry lead.
+  FOREIGN_CURRENCY_DOCUMENT_HELD: {
+    title: moneyHe.collection.attention.FOREIGN_CURRENCY_DOCUMENT_HELD,
+    action: "REVIEW",
+  },
 };
 
 /** With a translator the title is localized; without one it is the Hebrew text (unchanged behaviour). */

@@ -67,7 +67,7 @@ export function PlatformUsageInsightsSection({
             color: PA.ink,
           }}
         >
-          Usage Insights
+          שימוש בפיצ׳רים
         </h2>
         <p style={{ margin: 0, fontSize: 12, color: PA.inkMeta }}>
           חלון {usage?.windowDays ?? 7} ימים · נתונים מהשרת בלבד
@@ -94,7 +94,7 @@ export function PlatformUsageInsightsSection({
                 color: PA.inkSecondary,
               }}
             >
-              Login Activity
+              התחברויות
             </h3>
             <PlatformUsageLoginSummary usage={usage} />
           </div>
@@ -108,7 +108,7 @@ export function PlatformUsageInsightsSection({
                 color: PA.inkSecondary,
               }}
             >
-              Top Features
+              פיצ׳רים בשימוש
             </h3>
             <PlatformUsageFeatureTable featureRates={usage.featureRates} />
           </div>
@@ -122,7 +122,7 @@ export function PlatformUsageInsightsSection({
                 color: PA.inkSecondary,
               }}
             >
-              Friction Signals
+              נקודות חיכוך
             </h3>
             <PlatformUsageFrictionList items={usage.frictionCandidates} />
           </div>
