@@ -112,11 +112,11 @@ for (const vp of VIEWPORTS) {
     await back.click().catch(() => {});
     await p.waitForURL(/\/payables$/, { timeout: 15000 }).catch(() => {});
     check(vp.n, "back returns to the exact entry (/payables)", /\/payables$/.test(route(p)), route(p));
-    // Secretary header "הוספה למעקב"
+    // Secretary header "הוסף התחייבות" (version B; it was "הוספה למעקב" before the hub)
     await p.goto(`${BASE}/secretary`); await settle(p);
-    await p.getByRole("link", { name: /הוספה למעקב/ }).first().click().catch(() => {});
+    await p.getByRole("link", { name: /^הוסף התחייבות|הוספה למעקב/ }).first().click().catch(() => {});
     await p.waitForURL(P3_START, { timeout: 15000 }).catch(() => {});
-    check(vp.n, "Secretary 'הוספה למעקב' opens P3", P3_START.test(route(p)), route(p));
+    check(vp.n, "Secretary header add-commitment opens P3", P3_START.test(route(p)), route(p));
     // Home shortcut (desktop Home shows the shortcut row)
     if (vp.w >= 1200) {
       await p.goto(`${BASE}/app`); await settle(p);

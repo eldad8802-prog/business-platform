@@ -23,6 +23,8 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { formatIls } from "@/components/business-cost/BusinessCostCard";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import { taskAction } from "@/lib/tasks/tasks-client";
 import { formatMoney } from "@/lib/ui/money";
@@ -80,11 +82,14 @@ export function SecretaryHome({ view, briefing, actions, now = new Date() }: { v
   const data = useHubData(briefing.generatedAt);
   const [costOpen, setCostOpen] = useState(false);
   const tasksOn = data.tasks !== "off" && data.tasks !== "loading";
-  const cards = hubCards({ briefing, tasks: data.tasks, summary: data.summary, formatMoney });
+  const { locale } = useI18n();
+  // The day cost reads exactly as in the cost card and its drawer.
+  const cards = hubCards({ briefing, tasks: data.tasks, summary: data.summary, formatMoney: (decimal) => formatIls(decimal, locale) });
   const taskList = Array.isArray(data.tasks) ? data.tasks : [];
   const dueNow = view.needs.filter((g) => g.key === "OVERDUE" || g.key === "DUE_TODAY");
   const dueSoon = view.needs.filter((g) => g.key === "DUE_SOON");
   const tasksToday = todayTasks(taskList);
+  const laterTasks = taskList.filter((t) => !tasksToday.includes(t));
   const obligations = typeof data.obligations === "object" ? data.obligations : null;
   const summary = typeof data.summary === "object" ? data.summary : null;
   const events = calendarEvents({ obligations: obligations?.list ?? [], tasks: taskList, summary });
@@ -139,10 +144,13 @@ export function SecretaryHome({ view, briefing, actions, now = new Date() }: { v
                 </div>
               ) : data.tasks === "unavailable" ? (
                 <div className={s.calm}><p>לא הצלחתי לטעון את המשימות. אפשר לפתוח אותן במסך המשימות.</p></div>
-              ) : taskList.length === 0 ? (
-                <div className={s.calm}><p>אין משימות פתוחות לשבוע הקרוב.</p></div>
+              ) : laterTasks.length === 0 ? (
+                <div className={s.calm}>
+                  <p>{tasksToday.length > 0 ? "המשימות הפתוחות מופיעות למעלה, ב״מה מחכה לך היום״." : "אין משימות פתוחות לשבוע הקרוב."}</p>
+                </div>
               ) : (
-                <TaskGroup tasks={taskList.slice(0, TASKS_SHOWN)} onDone={data.reloadTasks} more={taskList.length - TASKS_SHOWN} />
+                // Today's and overdue tasks are already above; this list holds the rest (this week, no date).
+                <TaskGroup tasks={laterTasks.slice(0, TASKS_SHOWN)} onDone={data.reloadTasks} more={laterTasks.length - TASKS_SHOWN} />
               )}
             </section>
           ) : null}

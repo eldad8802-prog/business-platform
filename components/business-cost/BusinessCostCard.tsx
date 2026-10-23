@@ -20,9 +20,10 @@ const DS = TOKEN.dsv1;
 /**
  * The Secretary's own style: "3,050 ₪", agorot only when there are any. The engine reports in the
  * business's base currency (ILS; non-base rows are excluded upstream), so the symbol is not a default
- * guess. Other interface languages use the shared formatter, same currency, same digits.
+ * guess. Other interface languages use the shared formatter, same currency, same digits. Exported for the
+ * Secretary hub's day-cost card, so the card and this breakdown show the figure the same way.
  */
-const formatIls = (decimal: string, locale: Locale) => {
+export const formatIls = (decimal: string, locale: Locale) => {
   const n = Number(decimal);
   const frac = Number.isInteger(n) ? 0 : 2;
   if (locale !== "he") return formatAmount(n, "ILS", { locale }, { fixedFraction: frac > 0 });
