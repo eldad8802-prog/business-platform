@@ -7194,3 +7194,300 @@ model PushSubscription {
 
   @@unique([businessId, endpoint])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Revenue truth (milestone A) — migration 20261028090000_revenue_truth_foundation.
+// docs/revenue-truth-milestone-a.md. Four layers of evidence for one sale: sale (RevenueSale, RevenueDailyClose
+// + lines) → receipt (RevenueReceipt) → settlement (RevenueSettlement) → deposit (EXISTING ExternalTransaction).
+// Revenue is recognised at the sale layer only (lib/revenue-truth/read-model.ts). Every table is append-only for
+// every role (trigger); amounts are integer minor units; every text column is a CHECK-limited token.
+// DB-only by design (no Prisma relation, so no back-relation on an existing model): every foreign key to
+// "Business", the optional composite tenant keys ("…_tenant_fkey") and the plain keys to ExternalTransaction /
+// BillingDocument ("…_ref_fkey", same-business enforced by the RevenueLink_guard trigger).
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum RevenueSourceKind {
+  POS
+  ACCOUNTING_APP
+  ACQUIRER
+  PAYMENT_PROVIDER
+  OWNER
+}
+
+enum RevenueCapture {
+  API_PUSH
+  API_PULL
+  FILE_STRUCTURED
+  FILE_EXTRACTED
+  MANUAL
+}
+
+enum RevenueSaleKind {
+  SALE
+  REFUND
+  VOID
+}
+
+enum RevenueTenderMethod {
+  CASH
+  CARD
+  CHEQUE
+  BANK_TRANSFER
+  DIGITAL_WALLET
+  VOUCHER
+  OTHER
+}
+
+enum RevenueReceiptDirection {
+  IN
+  OUT
+}
+
+enum RevenueVatCategory {
+  STANDARD
+  ZERO_RATED
+  EXEMPT
+}
+
+enum RevenueValidation {
+  PASSED
+  WARNINGS
+  FAILED
+}
+
+enum RevenueLinkKind {
+  SALE_SAME_AS_DOCUMENT
+  TENDER_SETTLED_BY
+  SETTLEMENT_DEPOSITED_AS
+  CASH_DEPOSITED_AS
+}
+
+enum RevenueLinkBasis {
+  SOURCE_REFERENCE
+  RULE_EXACT
+  RULE_TOLERANCE
+  OWNER_MANUAL
+}
+
+enum RevenueActor {
+  OWNER_USER
+  SYSTEM
+}
+
+enum RevenueDecisionKind {
+  CONFIRMED
+  REJECTED
+  REVOKED
+}
+
+/// Layer 1: a sale, refund or void as its source reported it. A refund / void is a new row naming its original.
+model RevenueSale {
+  id                Int               @id @default(autoincrement())
+  businessId        Int
+  sourceKind        RevenueSourceKind
+  capture           RevenueCapture
+  /// The source instance (a connection, an upload channel); with externalId, the idempotency key.
+  sourceScope       String
+  connectionId      Int?
+  externalId        String
+  kind              RevenueSaleKind
+  originalSaleId    Int?
+  occurredAt        DateTime
+  /// The Israel business day the sale belongs to.
+  businessDay       DateTime          @db.Date
+  registerKey       String?
+  currency          String
+  /// VAT-inclusive, before discount.
+  grossMinor        BigInt
+  discountMinor     BigInt            @default(0)
+  /// = grossMinor − discountMinor (CHECK): what the customer paid, VAT included.
+  totalMinor        BigInt
+  /// VAT included in totalMinor.
+  vatMinor          BigInt
+  sourcePayloadHash String?
+  ingestRef         String?
+  recordedAt        DateTime          @default(now())
+
+  receipts RevenueReceipt[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, sourceScope, externalId])
+  @@index([businessId, businessDay])
+}
+
+/// Layer 2: money taken in (or paid back) at the till, by method.
+model RevenueReceipt {
+  id                Int                     @id @default(autoincrement())
+  businessId        Int
+  sourceKind        RevenueSourceKind
+  capture           RevenueCapture
+  sourceScope       String
+  connectionId      Int?
+  externalId        String
+  saleId            Int?
+  direction         RevenueReceiptDirection
+  method            RevenueTenderMethod
+  receivedAt        DateTime
+  businessDay       DateTime                @db.Date
+  registerKey       String?
+  currency          String
+  receivedMinor     BigInt
+  cardBrand         String?
+  acquirer          String?
+  installmentCount  Int?                    @db.SmallInt
+  sourcePayloadHash String?
+  ingestRef         String?
+  recordedAt        DateTime                @default(now())
+
+  sale RevenueSale? @relation(fields: [businessId, saleId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction, map: "RevenueReceipt_saleId_tenant_fkey")
+
+  @@unique([businessId, id])
+  @@unique([businessId, sourceScope, externalId])
+  @@index([businessId, businessDay])
+}
+
+/// The Z report: closes one register day. A correction is revision n+1 superseding revision n.
+model RevenueDailyClose {
+  id                Int               @id @default(autoincrement())
+  businessId        Int
+  sourceKind        RevenueSourceKind
+  capture           RevenueCapture
+  sourceScope       String
+  connectionId      Int?
+  documentId        Int?
+  /// The sourceScope of the real-time sale stream this Z closes (NULL: its own scope).
+  salesScope        String?
+  registerKey       String
+  externalId        String
+  revision          Int               @default(1)
+  supersedesId      Int?
+  zNumber           BigInt?
+  businessDay       DateTime          @db.Date
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  currency          String
+  grossMinor        BigInt
+  discountMinor     BigInt            @default(0)
+  refundMinor       BigInt            @default(0)
+  voidMinor         BigInt            @default(0)
+  /// = gross − discount − refunds − voids (CHECK), VAT included.
+  totalMinor        BigInt
+  vatMinor          BigInt
+  grandTotalMinor   BigInt?
+  transactionCount  Int?
+  validation        RevenueValidation
+  validationCodes   String[]          @default([])
+  sourcePayloadHash String?
+  ingestRef         String?
+  recordedAt        DateTime          @default(now())
+
+  tenders  RevenueDailyCloseTender[]
+  vatLines RevenueDailyCloseVat[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, sourceScope, registerKey, externalId, revision], name: "sourceKey", map: "RevenueDailyClose_source_key")
+  @@index([businessId, businessDay])
+}
+
+/// A Z report's takings by method (net over the day; may be negative).
+model RevenueDailyCloseTender {
+  id           Int                 @id @default(autoincrement())
+  businessId   Int
+  dailyCloseId Int
+  method       RevenueTenderMethod
+  label        String              @default("")
+  amountMinor  BigInt
+  count        Int?
+
+  dailyClose RevenueDailyClose @relation(fields: [businessId, dailyCloseId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction, map: "RevenueDailyCloseTender_dailyCloseId_businessId_fkey")
+
+  @@unique([businessId, id])
+  @@unique([businessId, dailyCloseId, method, label], map: "RevenueDailyCloseTender_line_key")
+}
+
+/// A Z report's VAT by category and rate.
+model RevenueDailyCloseVat {
+  id              Int                @id @default(autoincrement())
+  businessId      Int
+  dailyCloseId    Int
+  category        RevenueVatCategory
+  rateBasisPoints Int
+  taxableMinor    BigInt
+  vatMinor        BigInt
+
+  dailyClose RevenueDailyClose @relation(fields: [businessId, dailyCloseId], references: [businessId, id], onDelete: Cascade, onUpdate: NoAction, map: "RevenueDailyCloseVat_dailyCloseId_businessId_fkey")
+
+  @@unique([businessId, id])
+  @@unique([businessId, dailyCloseId, category, rateBasisPoints], map: "RevenueDailyCloseVat_line_key")
+}
+
+/// Layer 3: an acquirer / provider credit. Fee = gross − net; installments are one row each.
+model RevenueSettlement {
+  id                   Int               @id @default(autoincrement())
+  businessId           Int
+  sourceKind           RevenueSourceKind
+  capture              RevenueCapture
+  sourceScope          String
+  connectionId         Int?
+  documentId           Int?
+  externalId           String
+  acquirer             String
+  valueDate            DateTime          @db.Date
+  currency             String
+  grossMinor           BigInt
+  feeMinor             BigInt            @default(0)
+  otherDeductionsMinor BigInt            @default(0)
+  /// = gross − fee − other deductions (CHECK).
+  netMinor             BigInt
+  installmentNumber    Int?              @db.SmallInt
+  installmentCount     Int?              @db.SmallInt
+  validation           RevenueValidation
+  validationCodes      String[]          @default([])
+  sourcePayloadHash    String?
+  ingestRef            String?
+  recordedAt           DateTime          @default(now())
+
+  @@unique([businessId, id])
+  @@unique([businessId, sourceScope, externalId])
+  @@index([businessId, valueDate])
+}
+
+/// A PROPOSED connection between two layers. Its state is its latest RevenueDecision; a pair is proposed once.
+model RevenueLink {
+  id                    Int              @id @default(autoincrement())
+  businessId            Int
+  linkKind              RevenueLinkKind
+  saleId                Int?
+  receiptId             Int?
+  dailyCloseTenderId    Int?
+  settlementId          Int?
+  externalTransactionId Int?
+  billingDocumentId     Int?
+  /// The part of the money this link accounts for; NULL only for SALE_SAME_AS_DOCUMENT.
+  linkedMinor           BigInt?
+  currency              String
+  basis                 RevenueLinkBasis
+  proposedBy            RevenueActor
+  score                 Int?             @db.SmallInt
+  createdAt             DateTime         @default(now())
+
+  @@unique([businessId, id])
+  @@index([businessId, linkKind])
+}
+
+/// The append-only journal of decisions on a link or on a Z report.
+model RevenueDecision {
+  id             Int                 @id @default(autoincrement())
+  businessId     Int
+  linkId         Int?
+  dailyCloseId   Int?
+  decision       RevenueDecisionKind
+  actor          RevenueActor
+  reasonCode     String?
+  idempotencyKey String
+  decidedAt      DateTime            @default(now())
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, linkId])
+  @@index([businessId, dailyCloseId])
+}

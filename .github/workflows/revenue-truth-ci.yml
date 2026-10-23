@@ -1,0 +1,121 @@
+# Revenue truth (milestone A) — the application code: schema.prisma models, lib/revenue-truth (read model, writers,
+# loader), and the registries every model must appear in. docs/revenue-truth-milestone-a.md
+#
+#   core      no database: the read model's rules (double counting, layers, Z authority, installments, refunds,
+#             currencies), the learning-coverage contract, the erasure contract, the cross-currency sum guard
+#   battery   PostgreSQL 17, Production role topology (.rev/lab.sh), the REAL migration via `prisma migrate deploy`,
+#             then: the migration battery (.rev/battery.ts, raw SQL) and the application battery
+#             (.rev/app-battery.ts: lib/revenue-truth as the NOBYPASSRLS runtime through tenantTx, beside the
+#             existing FinancialEvent writers); then no drift between the migrated database and schema.prisma
+#             beyond the documented DB-only objects
+#
+# Synthetic credentials; ZERO secrets; ZERO network. Nothing here touches a shared database.
+
+name: revenue truth — application (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/revenue-truth/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261028090000_revenue_truth_foundation/**"
+      - "lib/knowledge/coverage/feature-coverage.ts"
+      - "scripts/ci/erasure/erasure-model-coverage.ts"
+      - "scripts/ci/cross-currency-sum-guard.baseline.json"
+      - ".rev/**"
+      - ".github/workflows/revenue-truth-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: revenue truth core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/revenue-truth/read-model.test.ts
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: npm run verify:erasure-contract -- --baseline-check
+      - run: node scripts/ci/cross-currency-sum-guard.mjs --self-test && node scripts/ci/cross-currency-sum-guard.mjs .
+      - name: Nothing in the product calls lib/revenue-truth (milestone A is not connected)
+        run: |
+          set -euo pipefail
+          hits=$(grep -rlE "@/lib/revenue-truth|lib/revenue-truth/" app components features lib --include=*.ts --include=*.tsx | grep -v '^lib/revenue-truth/' || true)
+          test -z "$hits" || { echo "lib/revenue-truth is imported by product code:"; echo "$hits"; exit 1; }
+          echo "no product file imports lib/revenue-truth"
+
+  battery:
+    name: revenue truth battery (PG17, real migration, Production role topology, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: rev_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: rev_ci_synthetic_super_pw
+      LAB_PASSWORD: rev_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: rev_ci_secret_synthetic_at_least_32_characters_long
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab with the real migration (migrate deploy)
+        run: bash .rev/lab.sh rev_app --with-rev | tee /tmp/apply.log && grep -q 'Applying migration `20261028090000_revenue_truth_foundation`' /tmp/apply.log
+
+      - name: 2. Migration battery (raw SQL, real roles)
+        run: |
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rev_app" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/rev_app" \
+            npx tsx .rev/battery.ts
+
+      - name: 3. Application battery (lib/revenue-truth as the NOBYPASSRLS runtime)
+        run: |
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rev_app" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/rev_app" \
+            npx tsx .rev/app-battery.ts
+
+      - name: 4. No drift between the migrated database and schema.prisma (beyond the documented DB-only objects)
+        run: |
+          set -uo pipefail
+          URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rev_app"
+          npx prisma migrate diff --from-url "$URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/drift.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "migrate diff failed ($rc)"; exit 1; fi
+          # Only the revenue tables are judged here: the lab ledger leaves later main migrations to db push, so
+          # objects elsewhere are not this PR's question.
+          grep -vE '^\s*(--.*)?$' /tmp/drift.sql | grep -E '"Revenue' > /tmp/drift-rev.sql || true
+          # DB-ONLY by design, and ONLY these: foreign keys to "Business", the optional composite tenant keys
+          # ("…_tenant_fkey") and the plain keys to ExternalTransaction / BillingDocument ("…_ref_fkey").
+          DBONLY='DROP CONSTRAINT "Revenue[A-Za-z]*_(businessId_fkey|[A-Za-z]+_tenant_fkey|[A-Za-z]+_ref_fkey)"'
+          grep -vE "$DBONLY" /tmp/drift-rev.sql > /tmp/drift-rest.sql || true
+          cat /tmp/drift-rev.sql
+          if [ -s /tmp/drift-rest.sql ]; then echo "DRIFT between the migration and schema.prisma:"; cat /tmp/drift-rest.sql; exit 1; fi
+          echo "no drift on the revenue tables beyond $(wc -l < /tmp/drift-rev.sql) statement(s) on the documented DB-only keys"
