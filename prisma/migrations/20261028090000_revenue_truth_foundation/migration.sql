@@ -138,7 +138,7 @@ CREATE TABLE "RevenueReceipt" (
   "businessDay" DATE NOT NULL,
   "registerKey" TEXT,
   "currency" TEXT NOT NULL,
-  "amountMinor" BIGINT NOT NULL,
+  "receivedMinor" BIGINT NOT NULL,
   "cardBrand" TEXT,
   "acquirer" TEXT,
   "installmentCount" SMALLINT,
@@ -157,7 +157,7 @@ CREATE TABLE "RevenueReceipt" (
   ),
   CONSTRAINT "RevenueReceipt_currency" CHECK ("currency" IN ('ILS', 'USD', 'EUR')),
   CONSTRAINT "RevenueReceipt_amounts" CHECK (
-        "amountMinor" > 0
+        "receivedMinor" > 0
     AND ("installmentCount" IS NULL OR ("installmentCount" BETWEEN 1 AND 99 AND "method" = 'CARD'))
   )
 );
@@ -370,7 +370,7 @@ CREATE TABLE "RevenueLink" (
   "billingDocumentId" INTEGER,
   -- The part of the money this link accounts for (partial settlements / deposits); NULL only for
   -- SALE_SAME_AS_DOCUMENT, which says "these two are one sale" and moves no money.
-  "amountMinor" BIGINT,
+  "linkedMinor" BIGINT,
   "currency" TEXT NOT NULL,
   "basis" "RevenueLinkBasis" NOT NULL,
   "proposedBy" "RevenueActor" NOT NULL,
@@ -382,18 +382,18 @@ CREATE TABLE "RevenueLink" (
   CONSTRAINT "RevenueLink_shape" CHECK (
     CASE "linkKind"
       WHEN 'SALE_SAME_AS_DOCUMENT' THEN
-            "saleId" IS NOT NULL AND "billingDocumentId" IS NOT NULL AND "amountMinor" IS NULL
+            "saleId" IS NOT NULL AND "billingDocumentId" IS NOT NULL AND "linkedMinor" IS NULL
         AND num_nonnulls("receiptId", "dailyCloseTenderId", "settlementId", "externalTransactionId") = 0
       WHEN 'TENDER_SETTLED_BY' THEN
             num_nonnulls("receiptId", "dailyCloseTenderId") = 1 AND "settlementId" IS NOT NULL
-        AND "amountMinor" > 0
+        AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "externalTransactionId", "billingDocumentId") = 0
       WHEN 'SETTLEMENT_DEPOSITED_AS' THEN
-            "settlementId" IS NOT NULL AND "externalTransactionId" IS NOT NULL AND "amountMinor" > 0
+            "settlementId" IS NOT NULL AND "externalTransactionId" IS NOT NULL AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "receiptId", "dailyCloseTenderId", "billingDocumentId") = 0
       WHEN 'CASH_DEPOSITED_AS' THEN
             num_nonnulls("receiptId", "dailyCloseTenderId") = 1 AND "externalTransactionId" IS NOT NULL
-        AND "amountMinor" > 0
+        AND "linkedMinor" > 0
         AND num_nonnulls("saleId", "settlementId", "billingDocumentId") = 0
     END
   )
@@ -482,7 +482,7 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = 'DZR02',
         MESSAGE = 'REVENUE_LINK_BANK_LINE: the bank line must be an incoming (CREDIT) line of the same business';
     END IF;
-    IF v_currency <> NEW."currency" OR NEW."amountMinor" > v_amount THEN
+    IF v_currency <> NEW."currency" OR NEW."linkedMinor" > v_amount THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR03',
         MESSAGE = 'REVENUE_LINK_AMOUNT: the link must be in the bank line''s currency and not exceed it';
     END IF;
@@ -516,12 +516,12 @@ BEGIN
   END IF;
 
   IF NEW."receiptId" IS NOT NULL THEN
-    SELECT r."currency", r."amountMinor", r."method" INTO v_currency, v_amount, v_method FROM "RevenueReceipt" r
+    SELECT r."currency", r."receivedMinor", r."method" INTO v_currency, v_amount, v_method FROM "RevenueReceipt" r
      WHERE r."businessId" = NEW."businessId" AND r."id" = NEW."receiptId" AND r."direction" = 'IN';
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR02', MESSAGE = 'REVENUE_LINK_RECEIPT: only money taken in is settled or deposited';
     END IF;
-    IF v_currency <> NEW."currency" OR NEW."amountMinor" > v_amount THEN
+    IF v_currency <> NEW."currency" OR NEW."linkedMinor" > v_amount THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR03', MESSAGE = 'REVENUE_LINK_AMOUNT: the link must be in the receipt''s currency and not exceed it';
     END IF;
   END IF;
@@ -534,7 +534,7 @@ BEGIN
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR02', MESSAGE = 'REVENUE_LINK_TENDER: the Z tender must belong to the same business';
     END IF;
-    IF v_currency <> NEW."currency" OR NEW."amountMinor" > v_amount THEN
+    IF v_currency <> NEW."currency" OR NEW."linkedMinor" > v_amount THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR03', MESSAGE = 'REVENUE_LINK_AMOUNT: the link must be in the tender''s currency and not exceed it';
     END IF;
   END IF;
@@ -555,7 +555,7 @@ BEGIN
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR02', MESSAGE = 'REVENUE_LINK_SETTLEMENT: the settlement must belong to the same business';
     END IF;
-    IF v_currency <> NEW."currency" OR NEW."amountMinor" > v_amount THEN
+    IF v_currency <> NEW."currency" OR NEW."linkedMinor" > v_amount THEN
       RAISE EXCEPTION USING ERRCODE = 'DZR03',
         MESSAGE = 'REVENUE_LINK_AMOUNT: the link must be in the settlement''s currency and not exceed its gross (tender) / net (deposit)';
     END IF;

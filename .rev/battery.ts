@@ -150,7 +150,7 @@ async function main() {
     const scope = "pos.lab";
     const sale = await add(biz, ...SALE(scope, key("s")));
     const receipt = await add(biz, `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "saleId", "direction", "method",
-        "receivedAt", "businessDay", "currency", "amountMinor", "acquirer", "installmentCount")
+        "receivedAt", "businessDay", "currency", "receivedMinor", "acquirer", "installmentCount")
       VALUES ($1, 'POS', 'API_PUSH', '${scope}', '${key("r")}', $2, 'IN', 'CARD', TIMESTAMP '2026-10-20 10:00', DATE '2026-10-20', 'ILS', 11800, 'isracard', 3) RETURNING "id"`, biz, sale);
     const close = await add(biz, `INSERT INTO "RevenueDailyClose" ("businessId", "sourceKind", "capture", "sourceScope", "documentId", "salesScope", "registerKey", "externalId",
         "zNumber", "businessDay", "currency", "grossMinor", "totalMinor", "vatMinor", "validation")
@@ -164,11 +164,11 @@ async function main() {
     const settlement = await add(biz, `INSERT INTO "RevenueSettlement" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "acquirer", "valueDate",
         "currency", "grossMinor", "feeMinor", "netMinor", "installmentNumber", "installmentCount", "validation")
       VALUES ($1, 'ACQUIRER', 'FILE_STRUCTURED', 'upload.isracard', '${key("st")}', 'isracard', DATE '2026-10-22', 'ILS', 3934, 34, 3900, 1, 3, 'PASSED') RETURNING "id"`, biz);
-    const linkSettled = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "receiptId", "settlementId", "amountMinor", "currency", "basis", "proposedBy")
+    const linkSettled = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "receiptId", "settlementId", "linkedMinor", "currency", "basis", "proposedBy")
       VALUES ($1, 'TENDER_SETTLED_BY', $2, $3, 3934, 'ILS', 'RULE_EXACT', 'SYSTEM') RETURNING "id"`, biz, receipt, settlement);
-    const linkDeposit = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "settlementId", "externalTransactionId", "amountMinor", "currency", "basis", "proposedBy")
+    const linkDeposit = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "settlementId", "externalTransactionId", "linkedMinor", "currency", "basis", "proposedBy")
       VALUES ($1, 'SETTLEMENT_DEPOSITED_AS', $2, $3, 3900, 'ILS', 'RULE_TOLERANCE', 'SYSTEM') RETURNING "id"`, biz, settlement, creditId);
-    const linkCash = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "dailyCloseTenderId", "externalTransactionId", "amountMinor", "currency", "basis", "proposedBy")
+    const linkCash = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "dailyCloseTenderId", "externalTransactionId", "linkedMinor", "currency", "basis", "proposedBy")
       VALUES ($1, 'CASH_DEPOSITED_AS', $2, $3, 5000, 'ILS', 'OWNER_MANUAL', 'OWNER_USER') RETURNING "id"`, biz, tender, creditId);
     const linkDoc = await add(biz, `INSERT INTO "RevenueLink" ("businessId", "linkKind", "saleId", "billingDocumentId", "currency", "basis", "proposedBy")
       VALUES ($1, 'SALE_SAME_AS_DOCUMENT', $2, $3, 'ILS', 'SOURCE_REFERENCE', 'SYSTEM') RETURNING "id"`, biz, sale, invId);
@@ -219,7 +219,7 @@ async function main() {
     ok(label, refused(r, re), String(r));
   };
   await xr("receipt → a sale of another business: refused (composite key)",
-    `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "saleId", "direction", "method", "receivedAt", "businessDay", "currency", "amountMinor")
+    `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "saleId", "direction", "method", "receivedAt", "businessDay", "currency", "receivedMinor")
      VALUES ($1, 'POS', 'API_PUSH', 'pos.lab', '${key("r")}', $2, 'IN', 'CASH', now(), DATE '2026-10-20', 'ILS', 100)`, FK, bizA, B.sale);
   await xr("refund → an original sale of another business: refused (composite key)", SALE("pos.lab", key("s"), "REFUND", 100, 0, B.sale as number)[0], FK, bizA);
   await xr("Z → a document of another business: refused (composite key)",
@@ -228,13 +228,13 @@ async function main() {
   await xr("Z tender → a Z of another business: refused (composite key)",
     `INSERT INTO "RevenueDailyCloseTender" ("businessId", "dailyCloseId", "method", "amountMinor") VALUES ($1, $2, 'CASH', 1)`, FK, bizA, B.close);
   await xr("link → a bank line of another business: refused (link guard)",
-    `INSERT INTO "RevenueLink" ("businessId", "linkKind", "settlementId", "externalTransactionId", "amountMinor", "currency", "basis", "proposedBy")
+    `INSERT INTO "RevenueLink" ("businessId", "linkKind", "settlementId", "externalTransactionId", "linkedMinor", "currency", "basis", "proposedBy")
      VALUES ($1, 'SETTLEMENT_DEPOSITED_AS', $2, $3, 1, 'ILS', 'RULE_EXACT', 'SYSTEM')`, LINK, bizA, A.settlement, creditB);
   await xr("link → a tax invoice of another business: refused (link guard)",
     `INSERT INTO "RevenueLink" ("businessId", "linkKind", "saleId", "billingDocumentId", "currency", "basis", "proposedBy")
      VALUES ($1, 'SALE_SAME_AS_DOCUMENT', $2, $3, 'ILS', 'OWNER_MANUAL', 'OWNER_USER')`, LINK, bizA, A.sale, invB);
   await xr("link → a settlement of another business: refused",
-    `INSERT INTO "RevenueLink" ("businessId", "linkKind", "receiptId", "settlementId", "amountMinor", "currency", "basis", "proposedBy")
+    `INSERT INTO "RevenueLink" ("businessId", "linkKind", "receiptId", "settlementId", "linkedMinor", "currency", "basis", "proposedBy")
      VALUES ($1, 'TENDER_SETTLED_BY', $2, $3, 1, 'ILS', 'RULE_EXACT', 'SYSTEM')`, /REVENUE_LINK_|foreign key/i, bizA, A.receipt, B.settlement);
   await xr("decision → a link of another business: refused (composite key)",
     `INSERT INTO "RevenueDecision" ("businessId", "linkId", "decision", "actor", "idempotencyKey") VALUES ($1, $2, 'REJECTED', 'OWNER_USER', '${key("dec")}')`, FK, bizA, B.linkSettled);
@@ -264,7 +264,7 @@ async function main() {
   // delete, so the lab removes the business's revenue through a business without fiscal documents instead).
   const bizD = await mk(`INSERT INTO "Business" ("name", "updatedAt") VALUES ('rev-D', now()) RETURNING "id"`);
   const saleD = await add(bizD, ...SALE("pos.lab", key("s")));
-  await add(bizD, `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "saleId", "direction", "method", "receivedAt", "businessDay", "currency", "amountMinor")
+  await add(bizD, `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "saleId", "direction", "method", "receivedAt", "businessDay", "currency", "receivedMinor")
      VALUES ($1, 'POS', 'API_PUSH', 'pos.lab', '${key("r")}', $2, 'IN', 'CASH', now(), DATE '2026-10-20', 'ILS', 100) RETURNING "id"`, bizD, saleD);
   const delBiz = await x(owner, null, `DELETE FROM "Business" WHERE "id" = $1`, bizD);
   const leftD = num(await owner.$queryRawUnsafe(`SELECT (SELECT count(*) FROM "RevenueSale" WHERE "businessId" = $1) + (SELECT count(*) FROM "RevenueReceipt" WHERE "businessId" = $1) AS n`, bizD));
@@ -323,7 +323,7 @@ async function main() {
   await bad("settlement: installment 4 of 3 refused",
     `INSERT INTO "RevenueSettlement" (${stCols}, "installmentNumber", "installmentCount") VALUES ($1, 'ACQUIRER', 'FILE_STRUCTURED', 'upload.max', '${key("st")}', 'max', DATE '2026-10-22', 'ILS', 1000, 20, 0, 980, 'PASSED', 4, 3)`);
   await bad("receipt: installments on a cash receipt refused",
-    `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "direction", "method", "receivedAt", "businessDay", "currency", "amountMinor", "installmentCount")
+    `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "direction", "method", "receivedAt", "businessDay", "currency", "receivedMinor", "installmentCount")
      VALUES ($1, 'POS', 'API_PUSH', 'pos.lab', '${key("r")}', 'IN', 'CASH', now(), DATE '2026-10-20', 'ILS', 100, 3)`);
   await bad("link: a deposit link without an amount refused",
     `INSERT INTO "RevenueLink" ("businessId", "linkKind", "settlementId", "externalTransactionId", "currency", "basis", "proposedBy") VALUES ($1, 'SETTLEMENT_DEPOSITED_AS', $2, $3, 'ILS', 'RULE_EXACT', 'SYSTEM')`,
@@ -340,24 +340,24 @@ async function main() {
   console.log("7. link guard");
   const linkSql = (kind: string, cols: string, vals: string) =>
     `INSERT INTO "RevenueLink" ("businessId", "linkKind", ${cols}, "currency", "basis", "proposedBy") VALUES ($1, '${kind}', ${vals}, 'ILS', 'RULE_EXACT', 'SYSTEM')`;
-  await bad("deposit link → an OUTGOING (DEBIT) bank line refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "amountMinor"`, `$2, $3, 100`), LINK, A.settlement, debitA);
-  await bad("deposit link → more than the bank line holds refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "amountMinor"`, `$2, $3, 50001`), LINK, A.settlement, creditA);
-  await bad("deposit link → a bank line in another currency refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "amountMinor"`, `$2, $3, 100`), LINK, A.settlement, creditUsdA);
-  await bad("deposit link → more than the settlement's NET refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "amountMinor"`, `$2, $3, 3901`), LINK, A.settlement, creditA);
-  await bad("tender link → more than the settlement's GROSS refused", linkSql("TENDER_SETTLED_BY", `"dailyCloseTenderId", "settlementId", "amountMinor"`, `$2, $3, 3935`), LINK, A.cardTender, A.settlement);
-  await bad("tender link → a CASH tender to an acquirer refused", linkSql("TENDER_SETTLED_BY", `"dailyCloseTenderId", "settlementId", "amountMinor"`, `$2, $3, 100`), LINK, A.tender, A.settlement);
-  await bad("cash deposit → a CARD tender refused", linkSql("CASH_DEPOSITED_AS", `"dailyCloseTenderId", "externalTransactionId", "amountMinor"`, `$2, $3, 100`), LINK, A.cardTender, creditA);
-  await bad("cash deposit → more than the cash tender refused", linkSql("CASH_DEPOSITED_AS", `"dailyCloseTenderId", "externalTransactionId", "amountMinor"`, `$2, $3, 5001`), LINK, A.tender, creditA);
+  await bad("deposit link → an OUTGOING (DEBIT) bank line refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "linkedMinor"`, `$2, $3, 100`), LINK, A.settlement, debitA);
+  await bad("deposit link → more than the bank line holds refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "linkedMinor"`, `$2, $3, 50001`), LINK, A.settlement, creditA);
+  await bad("deposit link → a bank line in another currency refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "linkedMinor"`, `$2, $3, 100`), LINK, A.settlement, creditUsdA);
+  await bad("deposit link → more than the settlement's NET refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "linkedMinor"`, `$2, $3, 3901`), LINK, A.settlement, creditA);
+  await bad("tender link → more than the settlement's GROSS refused", linkSql("TENDER_SETTLED_BY", `"dailyCloseTenderId", "settlementId", "linkedMinor"`, `$2, $3, 3935`), LINK, A.cardTender, A.settlement);
+  await bad("tender link → a CASH tender to an acquirer refused", linkSql("TENDER_SETTLED_BY", `"dailyCloseTenderId", "settlementId", "linkedMinor"`, `$2, $3, 100`), LINK, A.tender, A.settlement);
+  await bad("cash deposit → a CARD tender refused", linkSql("CASH_DEPOSITED_AS", `"dailyCloseTenderId", "externalTransactionId", "linkedMinor"`, `$2, $3, 100`), LINK, A.cardTender, creditA);
+  await bad("cash deposit → more than the cash tender refused", linkSql("CASH_DEPOSITED_AS", `"dailyCloseTenderId", "externalTransactionId", "linkedMinor"`, `$2, $3, 5001`), LINK, A.tender, creditA);
   await bad("sale = document → a DRAFT document refused", linkSql("SALE_SAME_AS_DOCUMENT", `"saleId", "billingDocumentId"`, `$2, $3`), LINK, A.sale, draftA);
   await bad("sale = document → a REFUND (not a sale) refused", linkSql("SALE_SAME_AS_DOCUMENT", `"saleId", "billingDocumentId"`, `$2, $3`), LINK, refund, invA);
-  const outReceipt = await add(bizA, `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "direction", "method", "receivedAt", "businessDay", "currency", "amountMinor")
+  const outReceipt = await add(bizA, `INSERT INTO "RevenueReceipt" ("businessId", "sourceKind", "capture", "sourceScope", "externalId", "direction", "method", "receivedAt", "businessDay", "currency", "receivedMinor")
      VALUES ($1, 'POS', 'API_PUSH', 'pos.lab', '${key("r")}', 'OUT', 'CARD', now(), DATE '2026-10-20', 'ILS', 2000) RETURNING "id"`, bizA);
-  await bad("tender link → money paid OUT refused", linkSql("TENDER_SETTLED_BY", `"receiptId", "settlementId", "amountMinor"`, `$2, $3, 100`), LINK, outReceipt, A.settlement);
+  await bad("tender link → money paid OUT refused", linkSql("TENDER_SETTLED_BY", `"receiptId", "settlementId", "linkedMinor"`, `$2, $3, 100`), LINK, outReceipt, A.settlement);
   await bad("the same sale = document pair proposed twice refused (a rejected pair stays rejected)", linkSql("SALE_SAME_AS_DOCUMENT", `"saleId", "billingDocumentId"`, `$2, $3`), UNIQUE, A.sale, invA);
-  await bad("the same settlement → bank line pair proposed twice refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "amountMinor"`, `$2, $3, 10`), UNIQUE, A.settlement, creditA);
+  await bad("the same settlement → bank line pair proposed twice refused", linkSql("SETTLEMENT_DEPOSITED_AS", `"settlementId", "externalTransactionId", "linkedMinor"`, `$2, $3, 10`), UNIQUE, A.settlement, creditA);
   // A partial settlement: two installments of one card receipt are two settlements, each linked for its part.
   const st2 = await add(bizA, `INSERT INTO "RevenueSettlement" (${stCols}, "installmentNumber", "installmentCount") VALUES ($1, 'ACQUIRER', 'FILE_STRUCTURED', 'upload.isracard', '${key("st")}', 'isracard', DATE '2026-11-22', 'ILS', 3933, 33, 0, 3900, 'PASSED', 2, 3) RETURNING "id"`, bizA);
-  const part2 = await add(bizA, linkSql("TENDER_SETTLED_BY", `"receiptId", "settlementId", "amountMinor"`, `$2, $3, 3933`) + ` RETURNING "id"`, bizA, A.receipt, st2);
+  const part2 = await add(bizA, linkSql("TENDER_SETTLED_BY", `"receiptId", "settlementId", "linkedMinor"`, `$2, $3, 3933`) + ` RETURNING "id"`, bizA, A.receipt, st2);
   ok("installment 2 of the same receipt links to its own settlement for its own part", typeof part2 === "number", String(part2));
 
   // ── 8. Existing systems untouched ───────────────────────────────────────────────────────────────
