@@ -1,5 +1,5 @@
 {
-  "note": "Monthly accountant workflow (Option B): the pure rules of the period, the package scope and the workflow, on top of migration 20261023090000_accountant_month_close. The database proofs (.acct/battery.ts, .acct/app-battery.ts) are lab scripts run by accountant-month-close-lab.yml and accountant-month-close-ci.yml.",
+  "note": "Monthly accountant workflow (Option B): the pure rules of the period, the package scope and the workflow, on top of migration 20261027090000_accountant_month_close. The database proofs (.acct/battery.ts, .acct/app-battery.ts) are lab scripts run by accountant-month-close-lab.yml and accountant-month-close-ci.yml.",
   "tests": {
     "lib/accountant/period.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",

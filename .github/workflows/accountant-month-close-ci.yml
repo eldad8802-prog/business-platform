@@ -1,4 +1,4 @@
-# Monthly accountant workflow (Option B) — the application on top of migration 20261023090000_accountant_month_close
+# Monthly accountant workflow (Option B) — the application on top of migration 20261027090000_accountant_month_close
 # (PR-2; the migration and its own proofs are PR-1, accountant-month-close-lab.yml).
 #
 # JOB unit — no database:
@@ -34,7 +34,7 @@ on:
       - "lib/services/account/**"
       - "lib/storage/**"
       - "prisma/schema.prisma"
-      - "prisma/migrations/20261023090000_accountant_month_close/**"
+      - "prisma/migrations/20261027090000_accountant_month_close/**"
       - ".acct/**"
       - ".github/workflows/accountant-month-close-ci.yml"
       - ".github/workflows/accountant-sweep.yml"

@@ -7200,7 +7200,7 @@ model PushSubscription {
   @@unique([businessId, endpoint])
 }
 
-/// Monthly accountant workflow (migration 20261023090000). One row per business per Israeli calendar
+/// Monthly accountant workflow (migration 20261027090000). One row per business per Israeli calendar
 /// month. Composite tenant FKs, the user-same-business triggers and the partial unique indexes live in
 /// the migration only (Prisma cannot express them). All timestamps are supplied by the application.
 model AccountantPeriod {
