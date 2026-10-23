@@ -69,7 +69,7 @@ const key = (p = "k") => `${p}${Date.now().toString(36)}${(++keySeq).toString().
 
 // Inserts as the runtime under the given business (the real write path); returns the new id or the error text.
 async function add(biz: number, sql: string, ...args: unknown[]): Promise<number | string> {
-  const r = await q(runtime, biz, sql, ...args);
+  const r = await q(runtime, biz, sql, ...(args.length > 0 ? args : [biz]));
   return typeof r === "string" ? r : Number(rows(r)[0].id);
 }
 const SALE = (scope: string, ext: string, kind = "SALE", total = 11800, vat = 1800, original: number | null = null) =>
