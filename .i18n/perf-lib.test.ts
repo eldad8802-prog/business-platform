@@ -3,6 +3,9 @@
  * No DB, no network, no browser. Run: npx tsx .i18n/perf-lib.test.ts
  */
 import assert from "node:assert/strict";
+import { DEFAULT_LOCALE } from "../lib/i18n/config";
+import { getMessages } from "../lib/i18n/messages";
+import { he as heBundled } from "../lib/i18n/messages/he";
 import { alternate, childPids, delta, mdTable, parseProcStat, parseVmRss, quantile, summarize } from "./perf-lib";
 
 let n = 0;
@@ -73,6 +76,14 @@ test("childPids walks every generation, excludes the root and unrelated processe
 
 test("mdTable renders a header, a separator and escapes pipes; NaN shows as —", () => {
   assert.equal(mdTable(["a", "b"], [[1, "x|y"], [NaN, "z"]]), "| a | b |\n|---|---|\n| 1 | x\\|y |\n| — | z |");
+});
+
+test("root layout payload change: the Hebrew dictionary it no longer serializes IS the object the provider bundles", () => {
+  // app/layout.tsx passes `messages` only for a non-default locale; I18nProvider falls back to `he`
+  // imported from lib/i18n/messages/he. Identity (not just deep equality) = the same strings, always.
+  assert.equal(getMessages(DEFAULT_LOCALE), heBundled);
+  assert.equal(DEFAULT_LOCALE, "he");
+  assert.notEqual(getMessages("en"), heBundled);
 });
 
 console.log(`perf-lib: ${n} tests passed`);

@@ -32,7 +32,7 @@
     },
     ".i18n/perf-lib.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure: statistics + /proc parsing of the i18n flag OFF vs ON performance benchmark — nearest-rank quantiles, ON−OFF deltas, ABBA request ordering, utime+stime / VmRSS parsing, process-tree walk, markdown tables; evidence only, no product behaviour; run on pull_request by i18n-perf-benchmark.yml"
+      "reason": "pure: statistics + /proc parsing of the i18n flag OFF vs ON performance benchmark — nearest-rank quantiles, ON−OFF deltas, ABBA request ordering, utime+stime / VmRSS parsing, process-tree walk, markdown tables — plus the identity proof behind the root-layout payload change (the Hebrew dictionary no longer serialized per page IS the object the client provider bundles); run on pull_request by i18n-perf-benchmark.yml"
     }
   }
 }

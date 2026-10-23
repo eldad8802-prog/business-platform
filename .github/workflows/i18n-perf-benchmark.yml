@@ -4,6 +4,7 @@
 # side by side on ONE runner, against an ephemeral PG17 service container:
 #   :3612 OFF  no DUBIZ_I18N_ENABLED (= Production today)
 #   :3611 ON   DUBIZ_I18N_ENABLED=true
+#   :3621 / :3622  origin/main flag OFF / ON — only for the before/after proof of the root-layout payload change
 #   :3613 EXP  flag ON + `export const dynamic = "force-static"` appended to app/(corporate)/layout.tsx in a
 #              throwaway worktree ONLY (never committed) — does the marketing site stay static with the flag ON?
 # Steps: route tables → .i18n/perf-benchmark.mts (latency, load, browser, experiment, rollback-pre) →
@@ -19,6 +20,9 @@ on:
     branches: [main]
     paths:
       - ".i18n/perf-*"
+      - ".i18n/payload-parity.mts"
+      - "app/layout.tsx"
+      - "components/i18n/I18nProvider.tsx"
       - "docs/i18n-multicurrency/PERF-BENCHMARK.md"
       - ".github/workflows/i18n-perf-benchmark.yml"
   workflow_dispatch:
@@ -106,6 +110,16 @@ jobs:
           npm run build 2>&1 | tee "$PERF_OUT/build-exp.log"
           test "${PIPESTATUS[0]}" = "0"
 
+      # Before/after proof for the root-layout payload change: origin/main built OFF and ON as well.
+      - name: Build MAIN (origin/main) flag OFF and flag ON — for the before/after payload proof
+        shell: bash
+        run: |
+          git worktree add --detach ../main-off origin/main
+          git worktree add --detach ../main-on origin/main
+          git -C ../main-off log --oneline -1 | tee "$PERF_OUT/main-commit.txt"
+          (cd ../main-off && npm ci --no-audit --no-fund >/dev/null && npm run build > "$PERF_OUT/build-main-off.log" 2>&1)
+          (cd ../main-on && npm ci --no-audit --no-fund >/dev/null && DUBIZ_I18N_ENABLED=true npm run build > "$PERF_OUT/build-main-on.log" 2>&1)
+
       - name: Static vs dynamic — route tables (OFF vs ON, OFF vs EXP)
         shell: bash
         run: |
@@ -130,7 +144,20 @@ jobs:
           if [ -d ../exp/.next ]; then for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3613/login && break; sleep 2; done; fi
           ss -Htlnp | grep -E ':361[123]' || true
 
+      - name: 0 · Payload change before/after — MAIN vs BRANCH, flag OFF and ON, identical DOM/text/meta
+        shell: bash
+        run: |
+          (cd ../main-on && DUBIZ_I18N_ENABLED=true nohup npx next start -p 3622 > "$PERF_OUT/server-main-on.log" 2>&1 &)
+          (cd ../main-off && nohup npx next start -p 3621 > "$PERF_OUT/server-main-off.log" 2>&1 &)
+          for p in 3621 3622; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          set +e
+          npx tsx .i18n/payload-parity.mts
+          rc=$?
+          for p in 3621 3622; do pid=$(ss -Htlnp "sport = :$p" | grep -o "pid=[0-9]*" | head -n 1 | cut -d= -f2); [ -n "$pid" ] && kill "$pid"; done
+          exit $rc
+
       - name: 1-3 · Benchmark — latency, load, browser, experiment, rollback-pre
+        if: ${{ !cancelled() }}
         run: npx tsx .i18n/perf-benchmark.mts
 
       - name: 4 · Hebrew default + isolation — the existing R2/R3 (and R4/R6) assertions, same run
