@@ -269,7 +269,8 @@ CREATE TABLE "RevenueDailyCloseTender" (
   CONSTRAINT "RevenueDailyCloseTender_count" CHECK ("count" IS NULL OR "count" >= 0)
 );
 CREATE UNIQUE INDEX "RevenueDailyCloseTender_businessId_id_key" ON "RevenueDailyCloseTender"("businessId", "id");
-CREATE UNIQUE INDEX "RevenueDailyCloseTender_dailyCloseId_method_label_key" ON "RevenueDailyCloseTender"("dailyCloseId", "method", "label");
+-- The business leads every key, so a write naming another business's Z meets its foreign key, never another row.
+CREATE UNIQUE INDEX "RevenueDailyCloseTender_line_key" ON "RevenueDailyCloseTender"("businessId", "dailyCloseId", "method", "label");
 ALTER TABLE "RevenueDailyCloseTender" ADD CONSTRAINT "RevenueDailyCloseTender_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "RevenueDailyCloseTender" ADD CONSTRAINT "RevenueDailyCloseTender_dailyCloseId_businessId_fkey"
@@ -291,7 +292,7 @@ CREATE TABLE "RevenueDailyCloseVat" (
   )
 );
 CREATE UNIQUE INDEX "RevenueDailyCloseVat_businessId_id_key" ON "RevenueDailyCloseVat"("businessId", "id");
-CREATE UNIQUE INDEX "RevenueDailyCloseVat_dailyCloseId_category_rateBasisPoints_key" ON "RevenueDailyCloseVat"("dailyCloseId", "category", "rateBasisPoints");
+CREATE UNIQUE INDEX "RevenueDailyCloseVat_line_key" ON "RevenueDailyCloseVat"("businessId", "dailyCloseId", "category", "rateBasisPoints");
 ALTER TABLE "RevenueDailyCloseVat" ADD CONSTRAINT "RevenueDailyCloseVat_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "RevenueDailyCloseVat" ADD CONSTRAINT "RevenueDailyCloseVat_dailyCloseId_businessId_fkey"
