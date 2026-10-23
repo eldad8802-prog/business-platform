@@ -80,3 +80,8 @@ on ILS drafts. Two things to re-check later: a re-enabled provider (it inherits 
 
 **Evidence.** C3 settlement battery (PG17) cases X and Y; `.i18n/battery.mts` M3/M4/M6; pure test
 `lib/services/billing/settlement/foreign-currency-document-hold.test.ts`. Run ids are in the PR #766 body.
+
+## Related: collection kill switch
+
+The hold above governs the *document* after foreign money arrives. Whether foreign money can be *requested* at all is
+governed by `DUBIZ_FX_COLLECTION_ENABLED` (default OFF, fail-closed) — see `FX-COLLECTION-SWITCH.md`.

@@ -40,7 +40,11 @@ import {
 import { toMinorUnits } from "./payment-verification.service";
 import { isQaWebhookSuppressed } from "./qa-webhook-suppression";
 import { isSupportedProvider } from "./providers/provider-registry";
-import { assertCurrencyOfferable, assertInvoiceCurrency } from "./payment-currency-offer";
+import {
+  assertCurrencyOfferable,
+  assertForeignCurrencyCollectionAllowed,
+  assertInvoiceCurrency,
+} from "./payment-currency-offer";
 
 export interface CreatePaymentRequestInput {
   businessId: number;
@@ -286,6 +290,13 @@ export async function createPaymentRequest(
   const currency =
     requestedCurrency ??
     (payableDocument ? normalizeCurrency(payableDocument.currency) : DEFAULT_CURRENCY);
+
+  // 2b''. FOREIGN-CURRENCY KILL SWITCH (DUBIZ_FX_COLLECTION_ENABLED, fail-closed).
+  // While it is off, a request in anything but ILS is refused here — whatever
+  // the provider supports, sent by the caller or taken from an invoice — and
+  // so before a PaymentRequest row, an audit event or any provider call. Only
+  // tenant-scoped reads have happened so far. ILS passes untouched.
+  assertForeignCurrencyCollectionAllowed(currency);
 
   // 2c. SEC-01 — AMOUNT AUTHORITY. Once a request names a document, the server
   // decides what may be collected against it; the client's number is a proposal

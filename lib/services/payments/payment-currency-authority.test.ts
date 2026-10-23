@@ -57,6 +57,12 @@ function depsWith(
 }
 
 async function main() {
+  // SEC-05 is about what an ADAPTER can encode, which only matters once a
+  // foreign currency may be requested at all. The foreign-currency kill switch
+  // (DUBIZ_FX_COLLECTION_ENABLED, default OFF) is therefore switched ON for this
+  // suite; its OFF behaviour is proven in payment-currency-offer.test.ts.
+  process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
+
   // ── 1. SERVICE LAYER ────────────────────────────────────────────────────
 
   // A supported currency goes through untouched.

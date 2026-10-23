@@ -1,10 +1,10 @@
 {
-  "note": "feat/collection-currency-choice: a payment request may be raised in ILS / USD / EUR, limited to what the selected provider supports; ILS stays the default and ILS requests are unchanged; invoice-backed requests keep the invoice's currency.",
+  "note": "feat/collection-currency-choice: a payment request may be raised in ILS / USD / EUR, limited to what the selected provider supports — only while the fail-closed kill switch DUBIZ_FX_COLLECTION_ENABLED is exactly \"true\" (default OFF: ILS only). ILS stays the default and ILS requests are unchanged; invoice-backed requests keep the invoice currency.",
   "tests": {
     "lib/services/payments/payment-currency-offer.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (no DB/network) currency authority for payment requests: Dubiz set (ILS/USD/EUR) intersected with each real adapter's declared set (CardCom ILS/USD/EUR, SUMIT ILS/USD, Tranzila ILS/USD/EUR, PayPal pass-through), refusal before any row/audit/provider call, invoice-backed requests held to the invoice currency, ILS requests unchanged, readiness offerableCurrencies, he/en refusal messages"
+      "reason": "pure (no DB/network) currency authority for payment requests. Switch OFF (default, DUBIZ_FX_COLLECTION_ENABLED unset or anything but the exact string true): ILS alone offered for every provider, any non-ILS (sent or invoice-derived) refused FOREIGN_CURRENCY_COLLECTION_DISABLED before any row/audit/provider call (provider calls counted), ILS output identical OFF vs ON. Switch ON: Dubiz set (ILS/USD/EUR) intersected with each real adapter set (CardCom ILS/USD/EUR, SUMIT ILS/USD, Tranzila ILS/USD/EUR, PayPal pass-through), refusal before any row/audit/provider call, invoice-backed requests held to the invoice currency, readiness offerableCurrencies, he/en refusal messages"
     },
     "components/collection/new/collection-currency.test.tsx": {
       "class": "PRODUCT_REQUIRED",

@@ -158,6 +158,8 @@ export const apiHe = {
     currencyNotOffered: "אי אפשר לבקש תשלום ב-{currency} דרך ספק הסליקה המחובר. אפשר לבקש ב: {allowed}.",
     /** An invoice-backed request sent in a currency other than the invoice's. */
     currencyMustMatchInvoice: "בקשת תשלום על חשבונית נשלחת במטבע של החשבונית ({currency}).",
+    /** Foreign-currency collection is switched off (DUBIZ_FX_COLLECTION_ENABLED): ILS only. */
+    foreignCurrencyCollectionDisabled: "גבייה ב-{currency} עדיין לא פתוחה. אפשר לבקש תשלום ב-{allowed} בלבד.",
   },
   pricing: {
     profitLow: "נמוך",
@@ -312,6 +314,7 @@ export const apiEn: Widen<typeof apiHe> = {
   payments: {
     currencyNotOffered: "A payment can't be requested in {currency} through the connected payment provider. Available: {allowed}.",
     currencyMustMatchInvoice: "A payment request for an invoice uses the invoice's currency ({currency}).",
+    foreignCurrencyCollectionDisabled: "Collecting in {currency} isn't available yet. Payment requests can be made in {allowed} only.",
   },
   pricing: {
     profitLow: "Low",

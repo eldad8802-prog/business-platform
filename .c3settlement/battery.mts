@@ -14,7 +14,9 @@
  * Q resolution + retry · R historical · T transient retry/backoff/exhaustion ·
  * X foreign currency: money recorded, receipt held (no retry/release clears it) ·
  * Y end to end through the real routes (POST /api/payments/requests → CardCom
- *   webhook route; only CardCom's HTTP API is answered locally): USD/EUR held, ILS issued.
+ *   webhook route; only CardCom's HTTP API is answered locally): with the foreign-currency
+ *   kill switch OFF (default) USD/EUR are refused 400 FOREIGN_CURRENCY_COLLECTION_DISABLED with
+ *   no row/audit/provider call and ILS is issued; with it ON, USD/EUR held, ILS issued.
  *
  * C3_ONLY=F,M… runs a subset (used by the negative proofs).
  * Synthetic data only. No secrets, no Neon, no network (Y answers CardCom's API in-process).
@@ -759,6 +761,56 @@ async function main() {
     };
 
     try {
+      // Y-OFF — the foreign-currency kill switch (DUBIZ_FX_COLLECTION_ENABLED,
+      // fail-closed) is OFF by default. Through the SAME real route, a fully
+      // connected CardCom business asking for USD / EUR is refused with 400
+      // FOREIGN_CURRENCY_COLLECTION_DISABLED, and nothing happens: no
+      // PaymentRequest row, no audit event, CardCom never asked.
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+      for (const currency of ["USD", "EUR", "usd"] as const) {
+        const ctx = await e2eBusiness(`Y-OFF-${currency}`);
+        const callsBefore = coinsSent.length;
+        const refused = await createViaRoute(ctx, "250.00", currency);
+        const body = refused.body as { error?: string; code?: string; offerableCurrencies?: string[] };
+        ok(`Y OFF ${currency} — POST /api/payments/requests 400 FOREIGN_CURRENCY_COLLECTION_DISABLED`,
+          refused.status === 400 && body.code === "FOREIGN_CURRENCY_COLLECTION_DISABLED" && typeof body.error === "string" && body.error.length > 0 &&
+          JSON.stringify(body.offerableCurrencies) === '["ILS"]', JSON.stringify(refused));
+        ok(`Y OFF ${currency} — no PaymentRequest row`, (await prisma.paymentRequest.count({ where: { businessId: ctx.businessId } })) === 0);
+        ok(`Y OFF ${currency} — no payment audit event`, (await prisma.paymentAuditEvent.count({ where: { businessId: ctx.businessId } })) === 0);
+        ok(`Y OFF ${currency} — CardCom was never called`, coinsSent.length === callsBefore);
+        ok(`Y OFF ${currency} — no transaction, no FinancialEvent, no BillingDocument`,
+          (await prisma.paymentTransaction.count({ where: { paymentRequest: { businessId: ctx.businessId } } })) === 0 &&
+          (await prisma.financialEvent.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+      }
+      for (const v of ["1", "TRUE", " true"]) {
+        process.env.DUBIZ_FX_COLLECTION_ENABLED = v;
+        const ctx = await e2eBusiness(`Y-OFF-v${v.trim()}`);
+        const refused = await createViaRoute(ctx, "250.00", "USD");
+        ok(`Y OFF switch=${JSON.stringify(v)} — still refused (only the exact string "true" opens it)`,
+          refused.status === 400 && (refused.body as { code?: string }).code === "FOREIGN_CURRENCY_COLLECTION_DISABLED" &&
+          (await prisma.paymentRequest.count({ where: { businessId: ctx.businessId } })) === 0, JSON.stringify(refused));
+      }
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+
+      // ILS control, switch OFF: the same two routes issue the receipt exactly as before.
+      {
+        const ctx = await e2eBusiness("Y-ILS");
+        const created = await createViaRoute(ctx, "250.00", "ILS");
+        ok("Y ILS (switch OFF) — POST /api/payments/requests 201 in ILS", created.status === 201 && created.body.currency === "ILS", JSON.stringify(created));
+        const id = created.body.id ?? -1;
+        ok("Y ILS — CardCom was asked to charge coin 1", coinsSent.at(-1) === 1, String(coinsSent.at(-1)));
+        ok("Y ILS — webhook route answers 200", (await webhookViaRoute(id)) === 200);
+        const ptx = await txOf(id);
+        ok("Y ILS — transaction PAID in ILS", ptx.status === "PAID" && ptx.currency === "ILS");
+        await assertSettled("Y ILS", ptx.id, "250", "0", "0");
+        const pa = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_SETTLED" } });
+        ok("Y ILS — payment audit PAYMENT_ACCOUNTING_SETTLED", pa != null);
+      }
+
+      // Y-ON — with the switch ON (an owner decision, never the default), USD /
+      // EUR go through and are held for their document, exactly as before.
+      process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
       for (const [currency, coin] of [["USD", 2], ["EUR", 978]] as const) {
         const ctx = await e2eBusiness(`Y-${currency}`);
         const created = await createViaRoute(ctx, "250.00", currency);
@@ -782,21 +834,9 @@ async function main() {
           (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0 &&
           (await prisma.paymentTransaction.count({ where: { paymentRequestId: id, amount: { gt: 0 } } })) === 1);
       }
-
-      // ILS control: the same two routes issue the receipt exactly as before.
-      const ctx = await e2eBusiness("Y-ILS");
-      const created = await createViaRoute(ctx, "250.00", "ILS");
-      ok("Y ILS — POST /api/payments/requests 201 in ILS", created.status === 201 && created.body.currency === "ILS", JSON.stringify(created));
-      const id = created.body.id ?? -1;
-      ok("Y ILS — CardCom was asked to charge coin 1", coinsSent.at(-1) === 1, String(coinsSent.at(-1)));
-      ok("Y ILS — webhook route answers 200", (await webhookViaRoute(id)) === 200);
-      const ptx = await txOf(id);
-      ok("Y ILS — transaction PAID in ILS", ptx.status === "PAID" && ptx.currency === "ILS");
-      await assertSettled("Y ILS", ptx.id, "250", "0", "0");
-      const pa = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_SETTLED" } });
-      ok("Y ILS — payment audit PAYMENT_ACCOUNTING_SETTLED", pa != null);
     } finally {
       globalThis.fetch = realFetch;
+      delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
     }
   }
 

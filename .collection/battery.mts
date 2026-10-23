@@ -12,6 +12,7 @@
  *   X2  resolve NO_CUSTOMER → exactly one receipt; cannot rename a known payer
  *   R1  readiness: no provider / ambiguous / identity incomplete / ready
  *   R2  readiness body = the old {ready, blockers} + offerableCurrencies only (ILS alone with no provider)
+ *       + the foreign-currency kill switch: OFF (default) → ILS alone even with CardCom; ON → ILS, USD, EUR
  *   V1  invoice collection state: שולם / זוכה / נותר from the shared rule
  *   K1  tenant isolation on every new route
  *
@@ -233,8 +234,22 @@ async function main() {
   const keys = (b: Record<string, unknown>) => Object.keys(b).sort().join(",");
   ok("R2 — readiness keys = ready, blockers + offerableCurrencies only", [ready, r2State, await rd(r0), await rd(rI)].every((b) => keys(b) === "blockers,offerableCurrencies,ready"), keys(ready));
   ok("R2 — no provider → ILS alone (no choice on the screen)", JSON.stringify((await rd(r0)).offerableCurrencies) === '["ILS"]');
-  ok("R2 — CardCom → ILS, USD, EUR (ILS first)", JSON.stringify(ready.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(ready.offerableCurrencies));
-  ok("R2 — disabled SUMIT next to CardCom does not narrow it", JSON.stringify(r2State.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(r2State.offerableCurrencies));
+  // The foreign-currency kill switch (DUBIZ_FX_COLLECTION_ENABLED, fail-closed)
+  // is OFF by default: the real route offers ILS alone even with CardCom.
+  delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+  const offA = await rd(a);
+  ok("R2 OFF — CardCom → ILS alone (switch off: no currency choice)", JSON.stringify(offA.offerableCurrencies) === '["ILS"]' && offA.ready === true, JSON.stringify(offA));
+  ok("R2 OFF — disabled SUMIT next to CardCom → ILS alone", JSON.stringify((await rd(r2)).offerableCurrencies) === '["ILS"]');
+  process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
+  try {
+    const onA = await rd(a);
+    const onR2 = await rd(r2);
+    ok("R2 ON — CardCom → ILS, USD, EUR (ILS first)", JSON.stringify(onA.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(onA.offerableCurrencies));
+    ok("R2 ON — disabled SUMIT next to CardCom does not narrow it", JSON.stringify(onR2.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(onR2.offerableCurrencies));
+    ok("R2 ON — no provider → still ILS alone", JSON.stringify((await rd(r0)).offerableCurrencies) === '["ILS"]');
+  } finally {
+    delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+  }
 
   console.log("\n== V1 — invoice collection state ==");
   const v = await json(await invoiceRoute.GET(req(`/api/collection/invoices/${tinv.id}`, t.token), { params: Promise.resolve({ id: String(tinv.id) }) }));
