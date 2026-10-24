@@ -10,6 +10,8 @@
 #   the application end to end AS app_runtime_prod, with the database session in Asia/Jerusalem and tenant RLS on
 #   every table the workflow reads — prepare, package contents, notices, /attention, Home status, approval bindings,
 #   sending (fake provider), the link, provider events, a failure, a recipient change, a change after sending, the sweep.
+#   Then the OFF state (.acct/gates-battery.ts): with every switch at its default the cron endpoint, the owner routes,
+#   sending, the public link and the provider webhook change nothing anywhere; plus a positive control.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network (the email provider is a fake in-process).
 
@@ -119,3 +121,13 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
             npx tsx .acct/app-battery.ts
 
+
+      - name: OFF-state battery — the cron endpoint, owner routes, sending, link and webhook stay inert before G2 / G4 / G5
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_gates --with-acct
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_gates?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_gates?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_gates?$TZQ" \
+            npx tsx .acct/gates-battery.ts
