@@ -200,7 +200,9 @@ async function bytesPhase(s: Seed) {
     // Only 200 documents carry a page (redirects are tiny either way).
     if (row.branchOnEn.status === 200) {
       ok(`bytes ${row.route} — BRANCH English HTML carries no dictionary (MAIN ${row.mainOnEn.sentinels}/${SENT.length} sentinels → BRANCH < 25%: only what the page renders)`, row.branchOnEn.sentinels < SENT.length * 0.25, `sentinels=${row.branchOnEn.sentinels}`);
-      ok(`bytes ${row.route} — BRANCH English HTML smaller than MAIN`, row.branchOnEn.raw < row.mainOnEn.raw, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
+      // Non-regression, not "smaller": once #780 is on main, MAIN already ships the dictionary as a chunk, so a
+      // later PR that leaves the English HTML unchanged is correct. The real guard is the sentinel check above.
+      ok(`bytes ${row.route} — BRANCH English HTML not larger than MAIN (±2 KB)`, row.branchOnEn.raw <= row.mainOnEn.raw + 2048, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
     }
     // Hebrew: the change must not grow a Hebrew document beyond the next/dynamic loader reference.
     ok(`bytes ${row.route} — BRANCH Hebrew HTML within ±2 KB of MAIN`, Math.abs(row.branchOnHe.raw - row.mainOnHe.raw) <= 2048 && Math.abs(row.branchOff.raw - row.mainOff.raw) <= 2048, `ON ${row.mainOnHe.raw}→${row.branchOnHe.raw}, OFF ${row.mainOff.raw}→${row.branchOff.raw}`);
