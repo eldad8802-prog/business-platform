@@ -119,7 +119,8 @@ jobs:
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test -z "$fails" || { echo "baseline: expected no preflight failure, got: $fails"; exit 1; }
-          grep -qE '^ +16 \| PASS \| +4$' /tmp/pre.out || { echo "check 16 should observe the 4 existing appointments"; exit 1; }
+          c16=$(grep -E '^ +16 \|' /tmp/pre.out | tr -d ' ')
+          test "$c16" = "16|PASS|4" || { echo "check 16 should observe the 4 existing appointments: $c16"; exit 1; }
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           echo "the proof refuses on the baseline (the tables do not exist yet)"
           # check 17 is live: a note over the bound is reported
@@ -144,9 +145,9 @@ jobs:
           test "$before" = "$after" || { echo "existing appointments changed"; exit 1; }
           shape=$(lab -At -c "SELECT count(*) FROM \"Appointment\" WHERE kind = 'CUSTOMER' AND \"endsAt\" IS NULL AND \"staffMemberId\" IS NULL AND version = 1 AND \"bufferBeforeMinutes\" = 0")
           test "$shape" = "4" || { echo "existing appointments did not get the neutral defaults: $shape"; exit 1; }
-          moved=$(lab -At -c "UPDATE \"Appointment\" SET status = 'COMPLETED' WHERE \"businessId\" = 900001 AND status = 'CONFIRMED' RETURNING id" | wc -l)
+          moved=$(lab -At -c "WITH u AS (UPDATE \"Appointment\" SET status = 'COMPLETED' WHERE \"businessId\" = 900001 AND status = 'CONFIRMED' RETURNING id) SELECT count(*) FROM u")
           test "$moved" = "2" || { echo "the two overlapping existing appointments could not move: $moved"; exit 1; }
-          appended=$(lab -At -c "UPDATE \"Appointment\" SET status = 'CANCELED', notes = notes || ' בוטל' WHERE \"businessId\" = 900001 AND status = 'PROPOSED' RETURNING id" | wc -l)
+          appended=$(lab -At -c "WITH u AS (UPDATE \"Appointment\" SET status = 'CANCELED', notes = notes || ' בוטל' WHERE \"businessId\" = 900001 AND status = 'PROPOSED' RETURNING id) SELECT count(*) FROM u")
           test "$appended" = "1" || { echo "an existing appointment could not be cancelled with a note"; exit 1; }
           echo "existing appointments: unchanged by the release, neutral defaults, still move through the lifecycle (the two overlapping ones too)"
 
