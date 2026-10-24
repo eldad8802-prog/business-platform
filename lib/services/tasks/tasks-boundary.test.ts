@@ -141,6 +141,17 @@ console.log("task centre — personal list, always room for one more (owner 2026
   const catalog = code("lib/services/feature-access/platform-feature-catalog.ts");
   ok("daily_tasks is ON by default for every business", /key: PLATFORM_FEATURE_KEYS\.DAILY_TASKS,[\s\S]{0,300}defaultEnabled: true,/.test(catalog));
 }
+console.log("a deployed fix reaches an open home-screen app (2026-10-24)");
+{
+  const layout = code("app/(shell)/layout.tsx");
+  const reload = code("components/navigation/stale-client-reload.tsx");
+  ok("the shell mounts the stale-client reload", /<StaleClientReload \/>/.test(layout));
+  ok("…it compares the page's deployment with the current one", /dataset\.dplId/.test(reload) && /fetch\("\/api\/health\/version"/.test(reload));
+  ok("…on return to the foreground and on navigation", /visibilitychange/.test(reload) && /\[pathname, check\]/.test(reload));
+  ok("…once per deployment, never while typing", /sessionStorage\.getItem\(RELOADED_FOR\) === current/.test(reload) && /HTMLInputElement/.test(reload));
+  const version = code("app/api/health/version/route.ts");
+  ok("the version route answers the deployment id, uncached", /VERCEL_DEPLOYMENT_ID/.test(version) && /no-store/.test(version));
+}
 {
   const secretary = NAV_DESTINATIONS.find((d) => d.key === "secretary");
   ok("navigation names the secretary 'המזכירה שלי'", secretary?.label === "המזכירה שלי" && TOOLS.find((t) => t.key === "secretary")?.label === "המזכירה שלי");
