@@ -299,7 +299,8 @@ async function main() {
   const svc = await import("./payment-accounting-settlement.service");
   const { resolveAndRetrySettlement } = await import("./settlement-resolution.service");
   const { runSettlementRecovery } = await import("./payment-settlement-recovery.service");
-  const { moneyHe, moneyEn } = await import("@/lib/i18n/messages/areas/money");
+  const { moneyHe } = await import("@/lib/i18n/messages/areas/money");
+  const { moneyEn } = await import("@/lib/i18n/messages/areas/money.en");
   const { getProviderDescriptor } = await import("@/lib/services/payments/providers/provider-registry");
 
   const at = new Date("2026-10-22T09:00:00Z");
