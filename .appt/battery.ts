@@ -233,9 +233,9 @@ async function main() {
   ok("…none left for that business", num(await q(owner, null, `SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "businessId" = ${bizA} AND "actorUserId" IS NOT NULL`)) === 0);
   ok("…the other business untouched", num(await q(owner, null, `SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "businessId" = ${bizB} AND "actorUserId" IS NOT NULL`)) >= 1);
   ok("the runtime blanks staff names, contacts and appointment text in place (UPDATE, as the adapter does)",
-    (await x(runtime, bizA, `UPDATE "StaffMember" SET "displayName" = '', "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1
-    && (await x(runtime, bizA, `UPDATE "BookingRequest" SET "contactName" = '', "contactPhone" = NULL, "contactEmail" = NULL, "customerNote" = NULL, "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1
-    && (await x(runtime, bizA, `UPDATE "Appointment" SET "title" = NULL, "notes" = NULL, "locationDetail" = NULL, "customerId" = NULL, "leadId" = NULL, "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1);
+    Number(await x(runtime, bizA, `UPDATE "StaffMember" SET "displayName" = '', "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1
+    && Number(await x(runtime, bizA, `UPDATE "BookingRequest" SET "contactName" = '', "contactPhone" = NULL, "contactEmail" = NULL, "customerNote" = NULL, "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1
+    && Number(await x(runtime, bizA, `UPDATE "Appointment" SET "title" = NULL, "notes" = NULL, "locationDetail" = NULL, "customerId" = NULL, "leadId" = NULL, "erasedAt" = now() WHERE "businessId" = ${bizA}`)) >= 1);
 
   console.log("--- 8. flags ---");
   ok("appointments and public_booking are OFF", num(await q(owner, null,

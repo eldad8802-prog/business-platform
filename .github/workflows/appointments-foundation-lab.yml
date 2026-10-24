@@ -182,7 +182,8 @@ jobs:
             echo "fault detected [$1] → FAIL $got"
           }
           fault "NO FORCE row-level security" "4 " 'ALTER TABLE "StaffMember" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "StaffMember" FORCE ROW LEVEL SECURITY'
-          fault "a permissive FOR ALL policy" "5 6 7 "'CREATE POLICY appt_fault_all ON "BookingRequest" USING (true)' 'DROP POLICY appt_fault_all ON "BookingRequest"'
+          fault "a permissive FOR ALL policy" "5 6 7 " \
+            'CREATE POLICY appt_fault_all ON "BookingRequest" USING (true)' 'DROP POLICY appt_fault_all ON "BookingRequest"'
           fault "a policy that reads every business" "6 " \
             'ALTER POLICY staff_member_tenant_select ON "StaffMember" USING (true)' \
             "ALTER POLICY staff_member_tenant_select ON \"StaffMember\" USING (\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int)"
