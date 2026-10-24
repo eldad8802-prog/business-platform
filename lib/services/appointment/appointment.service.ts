@@ -10,10 +10,17 @@
  *   - Expected business outcomes are RETURNED as result objects, never thrown.
  *   - Lifecycle transitions go exclusively through appointment.lifecycle.
  *   - Conversion (createFromPending) is atomic: create + clear-pending in ONE tx.
+ *
+ * Milestone A (migration 20261029090000) — additive, the existing paths keep their behaviour:
+ *   - Owner decision 6: an OWNER action needs the owner's user; a CUSTOMER / BOT / SYSTEM action carries none.
+ *   - Every write appends to the append-only journal (AppointmentEvent) in the same transaction.
+ *   - Learning sensors fire for CUSTOMER appointments only: an internal meeting or a time block is not demand and
+ *     must not move no-show / cancellation / reschedule shares (APPT-01..04).
+ *   - A timed appointment (one with an end time) is moved by appointment-schedule.service, which checks overlap;
+ *     `reschedule` here keeps moving the untimed rows the existing paths create, exactly as before.
  */
 
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, type Appointment, type AppointmentCancelReason } from "@prisma/client";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   __parsers,
@@ -21,6 +28,7 @@ import {
 } from "@/lib/services/conversation/pending-state.service";
 import { recordOfferingDemand } from "@/lib/services/offering/offering-demand";
 import { assertTransition, isTerminal } from "./appointment.lifecycle";
+import { appendAppointmentEvent, instantToken, type JournalDigest } from "./appointment-journal";
 import type {
   AppointmentResult,
   AppointmentStatus,
@@ -32,56 +40,12 @@ import type {
   RescheduleInput,
 } from "./appointment.types";
 import { recordSensor } from "@/lib/sensors/record-sensor";
-import type { SensorActor, SensorSource } from "@/lib/sensors/sensor.contract";
+import { isValidActor, sensorWho } from "./appointment-actor";
 
-const VALID_ACTORS = new Set(["OWNER", "BOT", "SYSTEM"]);
-const VALID_CHANNELS = new Set([
-  "INBOX_WEB",
-  "MOBILE",
-  "WHATSAPP_BOT",
-  "PUBLIC_BOOKING",
-  "EXTERNAL_API",
-  "IMPORT",
-]);
+export { isValidActor, sensorWho };
 
 function isPositiveInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n > 0;
-}
-
-function isValidActor(actor: ActorContext | undefined): boolean {
-  if (!actor) return false;
-  if (!VALID_ACTORS.has(actor.actor)) return false;
-  if (!VALID_CHANNELS.has(actor.sourceChannel)) return false;
-  return isPositiveInt(actor.userId);
-}
-
-/**
- * M5.5 — the appointment's own provenance, translated into the sensor vocabulary. Derived ONLY from
- * the server-built `ActorContext` (routes build it from the session). A BOT or SYSTEM actor is never
- * attributed to the user id the schema forces onto it: that id would put a name on a decision
- * nobody made.
- */
-function sensorWho(ctx: ActorContext): { actor: SensorActor; source: SensorSource } {
-  if (ctx.actor === "OWNER") {
-    const source: SensorSource =
-      ctx.sourceChannel === "INBOX_WEB" || ctx.sourceChannel === "MOBILE"
-        ? "OWNER_UI"
-        : ctx.sourceChannel === "IMPORT"
-          ? "IMPORT"
-          : ctx.sourceChannel === "EXTERNAL_API"
-            ? "API"
-            : "UNKNOWN";
-    return { actor: { type: "OWNER_USER", userId: ctx.userId }, source };
-  }
-  const source: SensorSource =
-    ctx.sourceChannel === "EXTERNAL_API"
-      ? "API"
-      : ctx.sourceChannel === "PUBLIC_BOOKING"
-        ? "INTEGRATION"
-        : ctx.sourceChannel === "WHATSAPP_BOT"
-          ? "SYSTEM"
-          : "UNKNOWN";
-  return { actor: { type: "SYSTEM" }, source };
 }
 
 async function selectedService(
@@ -187,6 +151,14 @@ async function createWithinTx(
     if (!signal) throw new Error("booking evidence was not written");
   }
 
+  await appendAppointmentEvent(tx, {
+    businessId: input.businessId,
+    appointmentId: appointment.id,
+    eventType: "APPOINTMENT_CREATED",
+    ctx: input.actor,
+    payload: { kind: appointment.kind, status: appointment.status, channel: appointment.sourceChannel, timed: false },
+  });
+
   return { ok: true, appointment };
 }
 
@@ -272,15 +244,96 @@ export async function createFromPending(
 
     await clearPendingAppointmentRequestTx(tx, input.conversationId);
 
+    await appendAppointmentEvent(tx, {
+      businessId: input.businessId,
+      appointmentId: appointment.id,
+      eventType: "APPOINTMENT_CREATED",
+      ctx: input.actor,
+      payload: { kind: appointment.kind, status: appointment.status, channel: appointment.sourceChannel, timed: false, fromPending: true },
+    });
+
     return { ok: true, appointment };
   });
+}
+
+const EVENT_FOR: Record<AppointmentStatus, "APPOINTMENT_CONFIRMED" | "APPOINTMENT_COMPLETED" | "APPOINTMENT_NO_SHOW" | "APPOINTMENT_CANCELED" | null> = {
+  PROPOSED: null,
+  CONFIRMED: "APPOINTMENT_CONFIRMED",
+  COMPLETED: "APPOINTMENT_COMPLETED",
+  NO_SHOW: "APPOINTMENT_NO_SHOW",
+  CANCELED: "APPOINTMENT_CANCELED",
+};
+
+export type TransitionOptions = {
+  appendNote?: string | null;
+  cancelReason?: AppointmentCancelReason | null;
+  /** The request's Idempotency-Key and digest (owner API); absent on the paths that predate milestone A. */
+  journalKey?: string;
+  digest?: JournalDigest | null;
+};
+
+/**
+ * One lifecycle move of an already-loaded, already-scoped appointment, inside the caller's tenant transaction:
+ * the single-source guard, the closed cancel reason, the version, the learning sensor (customer appointments only)
+ * and the journal — together or not at all.
+ */
+export async function transitionWithinTx(
+  tx: Prisma.TransactionClient,
+  current: Appointment,
+  to: AppointmentStatus,
+  ctx: ActorContext,
+  opts: TransitionOptions = {}
+): Promise<AppointmentResult> {
+  const check = assertTransition(current.status, to);
+  if (!check.ok) return { ok: false, reason: "invalid_transition" };
+
+  const data: Prisma.AppointmentUpdateInput = { status: to, version: { increment: 1 } };
+  if (opts.appendNote) {
+    data.notes = mergeNote(current.notes, opts.appendNote);
+  }
+  if (to === "CANCELED") {
+    data.cancelReason = opts.cancelReason ?? (ctx.actor === "OWNER" ? "OWNER_CANCELED" : ctx.actor === "CUSTOMER" ? "CUSTOMER_CANCELED" : "OTHER");
+  }
+  if (to !== "PROPOSED") data.holdExpiresAt = null;
+
+  const appointment = await tx.appointment.update({
+    where: { id: current.id },
+    data,
+  });
+
+  // M5.5 — a real lifecycle move, atomic with it. The cancel reason (free text) stays in notes.
+  if (current.status !== to && current.kind === "CUSTOMER") {
+    await recordSensor(
+      {
+        businessId: current.businessId,
+        sensor: "APPOINTMENT_STATUS_CHANGED",
+        entityId: appointment.id,
+        ...sensorWho(ctx),
+        payload: { from: current.status, to },
+      },
+      { tx }
+    );
+  }
+  const eventType = EVENT_FOR[to];
+  if (eventType) {
+    await appendAppointmentEvent(tx, {
+      businessId: current.businessId,
+      appointmentId: appointment.id,
+      eventType,
+      ctx,
+      idempotencyKey: opts.journalKey,
+      digest: opts.digest ?? null,
+      payload: { from: current.status, to, ...(to === "CANCELED" ? { cancelReason: appointment.cancelReason } : {}) },
+    });
+  }
+  return { ok: true, appointment };
 }
 
 /** Shared lifecycle transition with businessId scoping + single-source guard. */
 async function transition(
   input: LifecycleInput,
   to: AppointmentStatus,
-  appendNote: string | null = null
+  opts: TransitionOptions = {}
 ): Promise<AppointmentResult> {
   if (!isPositiveInt(input?.appointmentId) || !isPositiveInt(input?.businessId)) {
     return { ok: false, reason: "invalid_input" };
@@ -294,34 +347,7 @@ async function transition(
       where: { id: input.appointmentId, businessId: input.businessId },
     });
     if (!current) return { ok: false, reason: "appointment_not_found" };
-
-    const check = assertTransition(current.status, to);
-    if (!check.ok) return { ok: false, reason: "invalid_transition" };
-
-    const data: Prisma.AppointmentUpdateInput = { status: to };
-    if (appendNote) {
-      data.notes = mergeNote(current.notes, appendNote);
-    }
-
-    const appointment = await tx.appointment.update({
-      where: { id: input.appointmentId },
-      data,
-    });
-
-    // M5.5 — a real lifecycle move, atomic with it. The cancel reason (free text) stays in notes.
-    if (current.status !== to) {
-      await recordSensor(
-        {
-          businessId: input.businessId,
-          sensor: "APPOINTMENT_STATUS_CHANGED",
-          entityId: appointment.id,
-          ...sensorWho(input.actor),
-          payload: { from: current.status, to },
-        },
-        { tx }
-      );
-    }
-    return { ok: true, appointment };
+    return transitionWithinTx(tx, current, to, input.actor, opts);
   });
 }
 
@@ -338,10 +364,14 @@ export function markNoShow(input: LifecycleInput): Promise<AppointmentResult> {
 }
 
 export function cancel(input: CancelInput): Promise<AppointmentResult> {
-  return transition(input, "CANCELED", input.reason ?? null);
+  return transition(input, "CANCELED", { appendNote: input.reason ?? null, cancelReason: input.cancelReason ?? null });
 }
 
-/** Reschedule times only; status preserved. Forbidden in terminal states. */
+/**
+ * Reschedule times only; status preserved. Forbidden in terminal states.
+ * Untimed appointments only (the shape the existing creation paths write). A timed appointment occupies the
+ * calendar and moves through appointment-schedule.service, which checks overlap; it is refused here.
+ */
 export async function reschedule(
   input: RescheduleInput
 ): Promise<AppointmentResult> {
@@ -367,12 +397,14 @@ export async function reschedule(
     if (isTerminal(current.status)) {
       return { ok: false, reason: "invalid_transition" };
     }
+    if (current.endsAt !== null) return { ok: false, reason: "invalid_input" };
 
     const appointment = await tx.appointment.update({
       where: { id: input.appointmentId },
       data: {
         startsAt: input.startsAt,
         durationMinutes: duration,
+        version: { increment: 1 },
       },
     });
 
@@ -381,20 +413,33 @@ export async function reschedule(
       (current.startsAt?.getTime() ?? null) !== input.startsAt.getTime();
     const durationChanged = (current.durationMinutes ?? null) !== duration;
     if (startChanged || durationChanged) {
-      await recordSensor(
-        {
-          businessId: input.businessId,
-          sensor: "APPOINTMENT_RESCHEDULED",
-          entityId: appointment.id,
-          ...sensorWho(input.actor),
-          payload: {
-            previousStartsAt: current.startsAt ? current.startsAt.toISOString() : null,
-            startsAt: input.startsAt.toISOString(),
-            durationChanged,
+      if (current.kind === "CUSTOMER") {
+        await recordSensor(
+          {
+            businessId: input.businessId,
+            sensor: "APPOINTMENT_RESCHEDULED",
+            entityId: appointment.id,
+            ...sensorWho(input.actor),
+            payload: {
+              previousStartsAt: current.startsAt ? current.startsAt.toISOString() : null,
+              startsAt: input.startsAt.toISOString(),
+              durationChanged,
+            },
           },
+          { tx }
+        );
+      }
+      await appendAppointmentEvent(tx, {
+        businessId: input.businessId,
+        appointmentId: appointment.id,
+        eventType: "APPOINTMENT_RESCHEDULED",
+        ctx: input.actor,
+        payload: {
+          fromStartsAt: instantToken(current.startsAt),
+          toStartsAt: instantToken(input.startsAt),
+          durationChanged,
         },
-        { tx }
-      );
+      });
     }
     return { ok: true, appointment };
   });

@@ -162,6 +162,22 @@ export const ANONYMIZE_MODELS = [
   // approval columns are immutable and its outcome is the business's history) and every download link is
   // revoked, so nothing of the accountant remains and no link can open again.
   { model: "accountantDelivery", fields: { recipientName: "null", recipientEmail: "null", linkRevokedAt: "now" } },
+  // Appointments (milestone A, migration 20261029090000). Erased in place — the runtime holds no DELETE on any of
+  // these tables, and times, kinds, statuses and rules are the business's own history. An appointment loses its free
+  // text and its customer / lead pointers; a staff member (a third person) loses their name; an exception loses its
+  // label; an external request loses the requester's contact details; every manage link is revoked, so none can open
+  // again. The journal's acting users and digests go through appointment_erase_business() (the adapter calls it).
+  {
+    model: "appointment",
+    fields: { title: "null", notes: "null", locationDetail: "null", customerId: "null", leadId: "null", erasedAt: "now" },
+  },
+  { model: "staffMember", fields: { displayName: "blank", erasedAt: "now" } },
+  { model: "availabilityException", fields: { label: "null" } },
+  {
+    model: "bookingRequest",
+    fields: { contactName: "blank", contactPhone: "null", contactEmail: "null", customerNote: "null", erasedAt: "now" },
+  },
+  { model: "appointmentManageToken", fields: { revokedAt: "now" } },
 
   // ── the conversation graph ────────────────────────────────────────────────
   //

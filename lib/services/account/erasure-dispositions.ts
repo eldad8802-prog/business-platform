@@ -95,6 +95,9 @@ export const COVERED_MODELS = [
   "Customer",
   "Lead",
   "Notification",
+  "Appointment",
+  "StaffMember",
+  "BookingRequest",
   "ReceivingSession",
   "PurchaseOrderLine",
 ] as const;
@@ -415,6 +418,109 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       basis: "SECURITY/AUDIT",
       dependsOn: { model: "User", fields: ["email", "name", "password"] },
     },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // ── Appointments (milestone A) ────────────────────────────────────────────
+  //
+  // The model this file named as "the point of the next increment", joined on the same terms as C12-E1: the
+  // erasure actually writes it, and nothing personal is retained without a stated basis. The times, kinds and
+  // statuses are the business's history; the free text and the person pointers go.
+
+  Appointment: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    startsAt: { disposition: "STRUCTURAL" },
+    durationMinutes: { disposition: "STRUCTURAL" },
+    title: { disposition: "ERASE" },
+    notes: { disposition: "ERASE" },
+    createdByActor: { disposition: "STRUCTURAL" },
+    sourceChannel: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which surface the appointment arrived on; a fixed vocabulary naming nobody",
+      basis: "PRODUCT",
+    },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user booked it (null for a customer or the system). An id into a User row whose email, name and password the same erasure destroys",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    sourceConversationId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: the conversation it came from — a row this same erasure anonymises field by field (the conversation graph)",
+      basis: "PRODUCT",
+    },
+    sourceMessageId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: the message it came from — a row this same erasure anonymises (contentText and every label nulled)",
+      basis: "PRODUCT",
+    },
+    customerId: { disposition: "UNLINK" },
+    leadId: { disposition: "UNLINK" },
+    businessServiceId: { disposition: "STRUCTURAL" },
+    kind: { disposition: "STRUCTURAL" },
+    endsAt: { disposition: "STRUCTURAL" },
+    staffMemberId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which staff lane the time occupied. An id into a StaffMember row whose name the same erasure blanks",
+      basis: "PRODUCT",
+      dependsOn: { model: "StaffMember", fields: ["displayName"] },
+    },
+    locationKind: { disposition: "STRUCTURAL" },
+    locationDetail: { disposition: "ERASE" },
+    bufferBeforeMinutes: { disposition: "STRUCTURAL" },
+    bufferAfterMinutes: { disposition: "STRUCTURAL" },
+    holdExpiresAt: { disposition: "STRUCTURAL" },
+    actualStartedAt: { disposition: "STRUCTURAL" },
+    actualEndedAt: { disposition: "STRUCTURAL" },
+    cancelReason: { disposition: "STRUCTURAL" },
+    version: { disposition: "STRUCTURAL" },
+    erasedAt: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // An employee without a login: a name on the calendar, which is a third person's name.
+  StaffMember: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    displayName: { disposition: "ERASE" },
+    color: { disposition: "STRUCTURAL" },
+    active: { disposition: "STRUCTURAL" },
+    sortOrder: { disposition: "STRUCTURAL" },
+    version: { disposition: "STRUCTURAL" },
+    erasedAt: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // An external booking request (milestone D writes it): everything that identifies the requester goes.
+  BookingRequest: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    appointmentId: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    contactName: { disposition: "ERASE" },
+    contactPhone: { disposition: "ERASE" },
+    contactEmail: { disposition: "ERASE" },
+    customerNote: { disposition: "ERASE" },
+    fingerprint: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the request's replay key: a sha256 over a request that is itself erased, kept so a retry can never re-create it",
+      basis: "UNPROVEN",
+    },
+    expiresAt: { disposition: "STRUCTURAL" },
+    decidedAt: { disposition: "STRUCTURAL" },
+    decidedByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user decided the request. Same pointer, same erasure",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    erasedAt: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

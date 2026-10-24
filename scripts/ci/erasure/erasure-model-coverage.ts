@@ -127,6 +127,15 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // erased in place and its link revoked (account-erasure-manifest.ts).
   AccountantRecipient: { disposition: "ERASURE_MANAGED" },
   AccountantDelivery: { disposition: "ERASURE_MANAGED" },
+  // Appointments (milestone A, migration 20261029090000). The appointment's free text and its customer / lead
+  // pointers are erased in place (the times, kinds and statuses are the business's history and stay); a staff
+  // member's name is blanked; an exception's label is cleared; an external request's contact details are erased;
+  // every manage link is revoked. The runtime holds no DELETE on any of them.
+  Appointment: { disposition: "ERASURE_MANAGED" },
+  StaffMember: { disposition: "ERASURE_MANAGED" },
+  AvailabilityException: { disposition: "ERASURE_MANAGED" },
+  BookingRequest: { disposition: "ERASURE_MANAGED" },
+  AppointmentManageToken: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -293,7 +302,6 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 
 const UNMANAGED: Record<string, ModelCoverage> = {
   Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
-  Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
   BusinessObligation: unmanaged("obligeeName and note"),
   // Payables, Phase 1a. A payee is the counterparty the business pays and may
   // well be a person — a landlord, an employee — so it sits beside Supplier
@@ -387,6 +395,14 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // erased business's tenant transaction (the runtime holds no UPDATE on the table). What stays is closed vocabulary:
   // event type, actor role, times, day keys, counts and CHECK-limited id tokens; the payload can hold no text.
   TaskEvent: operational("append-only task journal: event type, actor role, times, day keys, counts and CHECK-limited id tokens (no text by DB CHECK); the acting user and the request digest are erased with the account by task_retention_erase_business()"),
+  // Appointments (milestone A). The journal is the Daily Tasks journal's shape: its acting user and request digest
+  // are erased with the account by appointment_erase_business(); the rest is closed vocabulary. The other four are
+  // configuration made of numbers, flags, enums and ids — no column can hold a name or free text.
+  AppointmentEvent: operational("append-only appointment journal: event type, actor role, times, ids and CHECK-limited tokens (no text by DB CHECK); the acting user and the request digest are erased with the account by appointment_erase_business()"),
+  StaffServiceAssignment: operational("which staff member performs which catalog service, and an optional length in minutes"),
+  AvailabilityRule: operational("weekly working hours: a weekday, two minute counts and optional validity days"),
+  ServiceBookingPolicy: operational("booking rules of a catalog service: buffers, notice, horizon, slot step, approval mode, windows"),
+  BookingSettings: operational("external booking switch, a random public id, an approval default, a hold lifetime and a staff-choice mode"),
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),

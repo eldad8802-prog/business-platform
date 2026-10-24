@@ -7,13 +7,22 @@ import {
   markNoShow,
 } from "@/lib/services/appointment/appointment.service";
 import type { AppointmentResult } from "@/lib/services/appointment/appointment.types";
+import { getAppointment } from "@/lib/services/appointment/appointment-schedule.service";
+import { appointmentsRoute, json, positiveId } from "@/lib/services/appointment/appointments-http";
 
 /**
  * Thin web adapter for Appointment lifecycle transitions (Inbox owner).
  * No business logic: auth + business scoping + a single call to the matching
  * appointment.service function (which is the ONLY place transitions happen, via
  * assertTransition) + reason -> HTTP. No reschedule, no scheduling here.
+ *
+ * Milestone A adds GET (one appointment and its recent history) behind the `appointments` flag. POST predates it
+ * and keeps its behaviour, ungated; the calendar's idempotent status changes go through /[id]/status.
  */
+
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  return appointmentsRoute(req, async ({ principal }) => json(await getAppointment(principal, positiveId((await params).id))));
+}
 
 type Action = "confirm" | "complete" | "no_show" | "cancel";
 
