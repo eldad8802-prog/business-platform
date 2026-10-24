@@ -107,7 +107,12 @@ console.log("navigation (owner-approved placement)");
   const cat = code("features/tools/category-screen.tsx");
   ok("the family screen hides a gated tool until the flag is ON", /filter\(\(t\) => !t\.feature/.test(cat));
   const sec = code("app/(shell)/secretary/page.tsx");
-  ok("the secretary keeps today's screen unless daily_tasks is ON", /route\.showToday && sharedToday\)/.test(sec) && /<TodayScreen/.test(sec));
+  // Owner 2026-10-24: opening daily_tasks gives personal tasks only — the secretary's "היום שלי" never becomes the
+  // shared agenda with its automatic items (payments, leads, stock…).
+  ok("the secretary's today screen is her own, whatever daily_tasks says", /if \(route\.showToday\) \{\s*return \(\s*<SecretaryErrorBoundary>\s*<TodayScreen/.test(sec)
+    && !/SecretaryToday|useAgenda|fetchAgenda|daily_tasks/.test(sec));
+  const hub = code("app/(shell)/secretary/secretary-hub-model.ts");
+  ok("the secretary hub reads the owner's own tasks only (TASK rows)", /if \(row\.type !== "TASK"\) continue;/.test(hub));
 }
 
 console.log("operational retention (12.7, 12.8)");

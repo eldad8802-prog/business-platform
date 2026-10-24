@@ -26,8 +26,6 @@ import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibil
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { recordPayment } from "@/lib/payables/payables-client";
 import { PaidQuestionSheet, type PaidDetails } from "./paid-question";
-import { SecretaryToday } from "@/features/tasks/secretary-today";
-import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import {
   SecretaryErrorBoundary,
   SecretaryFlowScreen,
@@ -105,8 +103,6 @@ function SecretaryPageInner() {
   const { t, locale } = useI18n();
   const tag = intlTag(locale);
   const router = useRouter();
-  // Daily Tasks: with daily_tasks ON, "היום שלי" reads the shared agenda; OFF (or unknown) keeps today's screen.
-  const sharedToday = useFeatureState("daily_tasks");
   const searchParams = useSearchParams();
   const routeKey = searchParams.toString();
   const tokenRef = useRef<string | null>(null);
@@ -422,18 +418,8 @@ function SecretaryPageInner() {
       );
     }
 
-    if (route.showToday && sharedToday === null) return <SecretaryHomeSkeleton />;
-
-    if (route.showToday && sharedToday) {
-      return (
-        <SecretaryErrorBoundary>
-          <SecretaryToday onPaymentHandled={(id) => onCompleteFlow(id)} />
-          {paidSheet}
-          {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
-        </SecretaryErrorBoundary>
-      );
-    }
-
+    // "היום שלי" of the secretary is her own screen, whatever daily_tasks says: the flag opens personal tasks only and
+    // never brings the agenda's automatic items (payments, leads, stock…) into the secretary (owner 2026-10-24).
     if (route.showToday) {
       return (
         <SecretaryErrorBoundary>
