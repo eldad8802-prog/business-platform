@@ -34,6 +34,8 @@ DROP TYPE IF EXISTS "RevenueSourceKind", "RevenueCapture", "RevenueSaleKind", "R
                     "RevenueReceiptDirection", "RevenueVatCategory", "RevenueValidation", "RevenueLinkKind",
                     "RevenueLinkBasis", "RevenueActor", "RevenueDecisionKind";
 SQL
+  # The RLS Production has on ExternalTransaction / BillingDocument (db push builds them without it).
+  psql_owner -f "$ROOT/.rev/prereq.sql"
   # Production's ledger (2026-10-24, release-migrate run 40119804303): every migration of this checkout that sorts
   # BEFORE this one is recorded and finished, with its real sha256 — task_reminders_push, platform_admin_a1 and
   # accountant_month_close included — so the preflight's ordering checks meet the ledger Production has. Their
