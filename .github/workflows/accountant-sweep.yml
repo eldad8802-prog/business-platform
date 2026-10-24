@@ -53,8 +53,18 @@ jobs:
             -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$SWEEP_URL")
           echo "HTTP $code"
           cat sweep.json; echo
+          # A package that failed to build is visible, never silent: a WARNING (the owner already has the
+          # in-app notice, and the month is retried an hour later). It is reported only — it never turns a
+          # failing run green: any non-200 answer (a business error, a crash, no CRON_SECRET) stays an error.
+          failed=$(node -e 'try { const j = JSON.parse(require("fs").readFileSync("sweep.json", "utf8")); const n = j && j.summary ? j.summary.buildFailed : 0; process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : (n === undefined ? "0" : "unreadable")); } catch { process.stdout.write("unreadable"); }')
           {
             echo "### Accountant sweep — HTTP $code"
+            echo "Package builds failed in this run: **$failed**"
             echo '```json'; cat sweep.json; echo; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$failed" = "unreadable" ]; then
+            echo "::warning::accountant sweep: the answer could not be read, so failed package builds are unknown for this run"
+          elif [ "$failed" -gt 0 ]; then
+            echo "::warning::accountant sweep: $failed package build(s) failed in this run — the months are PREPARATION_FAILED and are retried after an hour"
+          fi
           [ "$code" = "200" ] || { echo "::error::accountant sweep answered $code"; exit 1; }
