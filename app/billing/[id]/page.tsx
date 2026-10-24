@@ -26,6 +26,13 @@ import {
   type PaymentRequestStatus,
 } from "@/lib/billing/collections-visibility";
 import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
+import {
+  documentTypeGetsVatRateCheck,
+  summarizeDocumentVatRates,
+  vatRateWarningFor,
+  type DocumentVatRateSummary,
+  type VatRateWarning,
+} from "@/lib/billing/vat-rate";
 import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
   DOCUMENT_TYPE_LABEL,
@@ -222,6 +229,9 @@ export default function BillingDocumentWorkspacePage() {
   const [completionNotice, setCompletionNotice] = useState<string | null>(null);
   // undefined = not yet fetched, null = fetched + missing, string = fetched + present
   const [profileTaxId, setProfileTaxId] = useState<string | null | undefined>(undefined);
+  // VAT default + warning: the business kind (EXEMPT_DEALER etc.).
+  // undefined = not yet fetched (or fetch failed), null = not set in the profile.
+  const [businessKind, setBusinessKind] = useState<string | null | undefined>(undefined);
 
   const patchScheduleRef = useRef(0);
   const draftInitRef = useRef<number | null>(null);
@@ -289,6 +299,36 @@ export default function BillingDocumentWorkspacePage() {
     const timer = window.setTimeout(() => setCompletionNotice(message), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // Read-only GET of the billing profile, only for documents that can still be
+  // edited or issued: the business kind picks the VAT default of a new line and
+  // drives the (non-blocking) VAT-rate warning. A failure leaves it undefined;
+  // the editor then falls back to the standard rate and stays fully usable.
+  const needsBusinessKind =
+    state.kind === "ready" && state.doc.status !== "ISSUED";
+  useEffect(() => {
+    if (!needsBusinessKind || businessKind !== undefined) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/billing/invoice-profile", {
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const kind: unknown = data?.profile?.billingBusinessKind;
+        if (!cancelled) {
+          setBusinessKind(typeof kind === "string" && kind.length > 0 ? kind : null);
+        }
+      } catch {
+        // fail-open: the editor keeps working with the standard-rate default
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needsBusinessKind, businessKind]);
 
   useEffect(() => {
     if (state.kind !== "ready" || state.doc.status !== "DRAFT") {
@@ -1001,6 +1041,7 @@ export default function BillingDocumentWorkspacePage() {
             patchError={patchError}
             linesDraft={linesDraft}
             onLinesChange={setLinesDraft}
+            businessKind={businessKind}
             onSaveLines={() => void handleSaveLines()}
             linesSaving={linesSaving}
             linesError={linesError}
@@ -1036,6 +1077,17 @@ export default function BillingDocumentWorkspacePage() {
           issuing={lifecycleBusy === "issue"}
           errorMessage={lifecycleError}
           missingTaxId={profileTaxId === null}
+          vatSummary={
+            state.kind === "ready"
+              ? summarizeDocumentVatRates({
+                  businessKind,
+                  // A draft is issued now, so "now" is its document date.
+                  documentDate: new Date(),
+                  documentType: state.doc.documentType,
+                  ratePercents: state.doc.lines.map((l) => String(l.vatRatePercent)),
+                })
+              : null
+          }
           onCancel={() => {
             if (lifecycleBusy === "issue") return;
             setIssueConfirmOpen(false);
@@ -1078,6 +1130,7 @@ function DocumentBody({
   patchError,
   linesDraft,
   onLinesChange,
+  businessKind,
   onSaveLines,
   linesSaving,
   linesError,
@@ -1110,6 +1163,7 @@ function DocumentBody({
   patchError: string | null;
   linesDraft: LocalLine[];
   onLinesChange: Dispatch<SetStateAction<LocalLine[]>>;
+  businessKind: string | null | undefined;
   onSaveLines: () => void;
   linesSaving: boolean;
   linesError: string | null;
@@ -1160,7 +1214,11 @@ function DocumentBody({
   }
 
   function addLine() {
-    onLinesChange((prev) => [...prev, newEmptyLocalLine()]);
+    // A draft is issued "now", so the rate in force today is the default.
+    onLinesChange((prev) => [
+      ...prev,
+      newEmptyLocalLine({ businessKind, documentDate: new Date() }),
+    ]);
   }
 
   const customerDirty =
@@ -1378,6 +1436,11 @@ function DocumentBody({
       }
       draftLocked={quoteLocked}
       visualTone={editingDeemphasized ? "secondary" : "default"}
+      vatCheck={
+        documentTypeGetsVatRateCheck(doc.documentType)
+          ? { businessKind, documentDate: new Date() }
+          : null
+      }
     />
   ) : null;
 
@@ -2189,12 +2252,15 @@ function IssueConfirmDialog({
   issuing,
   errorMessage,
   missingTaxId = false,
+  vatSummary = null,
   onCancel,
   onConfirm,
 }: {
   issuing: boolean;
   errorMessage: string | null;
   missingTaxId?: boolean;
+  /** Non-blocking: shown above the confirm button, never disables it. */
+  vatSummary?: DocumentVatRateSummary | null;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -2269,6 +2335,35 @@ function IssueConfirmDialog({
                 {t("billing.detail.taxIdMissingLink")}
               </Link>
               {t("billing.detail.taxIdMissingAfter")}
+            </div>
+          </div>
+        ) : null}
+        {vatSummary ? (
+          <div
+            role="status"
+            style={{
+              background: TOKEN.semantic.attention.bg,
+              border: `1px solid ${TOKEN.semantic.attention.border}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              color: TOKEN.semantic.attention.ink,
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              {t("billing.detail.vatCheckTitle")}
+            </div>
+            <div>
+              {vatSummary.kind === "EXEMPT_DEALER_CHARGES_VAT"
+                ? t("billing.detail.vatCheckExemptBody", {
+                    lines: vatSummary.lineNumbers.join(", "),
+                  })
+                : t("billing.detail.vatCheckDiffersBody", {
+                    lines: vatSummary.lineNumbers.join(", "),
+                    expected: vatSummary.expectedPercent,
+                  })}{" "}
+              {t("billing.detail.vatCheckContinue")}
             </div>
           </div>
         ) : null}
@@ -2659,6 +2754,7 @@ function DraftLinesSection({
   patchSaving,
   draftLocked = false,
   visualTone = "default",
+  vatCheck = null,
 }: {
   currency: string;
   linesDraft: LocalLine[];
@@ -2679,6 +2775,8 @@ function DraftLinesSection({
   patchSaving: boolean;
   draftLocked?: boolean;
   visualTone?: "default" | "secondary";
+  /** Non-blocking VAT-rate check context; null = no check (e.g. credit note). */
+  vatCheck?: { businessKind: string | null | undefined; documentDate: Date } | null;
 }) {
   const { t } = useI18n();
   const isSecondary = visualTone === "secondary";
@@ -2757,6 +2855,11 @@ function DraftLinesSection({
               onChange={(patch) => onUpdateLine(line.key, patch)}
               onRemove={() => onRemoveLine(line.key)}
               readOnly={draftLocked}
+              vatWarning={
+                vatCheck
+                  ? vatRateWarningFor({ ...vatCheck, ratePercent: line.vatRatePercent })
+                  : null
+              }
             />
           ))}
         </ul>
@@ -2849,6 +2952,7 @@ function DraftLineEditorCard({
   onChange,
   onRemove,
   readOnly = false,
+  vatWarning = null,
 }: {
   indexLabel: number;
   line: LocalLine;
@@ -2861,6 +2965,8 @@ function DraftLineEditorCard({
   ) => void;
   onRemove: () => void;
   readOnly?: boolean;
+  /** Non-blocking hint under the VAT field; never changes the value. */
+  vatWarning?: VatRateWarning | null;
 }) {
   const { t, locale } = useI18n();
   return (
@@ -3017,6 +3123,28 @@ function DraftLineEditorCard({
           }}
         />
       </label>
+
+      {vatWarning ? (
+        <div
+          role="status"
+          style={{
+            background: TOKEN.semantic.attention.bg,
+            border: `1px solid ${TOKEN.semantic.attention.border}`,
+            borderRadius: 8,
+            padding: "8px 10px",
+            color: TOKEN.semantic.attention.ink,
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
+        >
+          {vatWarning.kind === "EXEMPT_DEALER_CHARGES_VAT"
+            ? t("billing.detail.vatRateExemptHint", { rate: vatWarning.ratePercent })
+            : t("billing.detail.vatRateDiffersHint", {
+                rate: vatWarning.ratePercent,
+                expected: vatWarning.expectedPercent,
+              })}
+        </div>
+      ) : null}
 
       {serverLine ? (
         <div

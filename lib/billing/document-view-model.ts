@@ -12,6 +12,7 @@
 import { TOKEN } from "@/lib/design/billing-theme";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { Translator } from "@/lib/i18n/translate";
+import { defaultVatRatePercentFor } from "@/lib/billing/vat-rate";
 
 export type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -113,13 +114,22 @@ export function generateLocalLineKey(): string {
   return `n-local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function newEmptyLocalLine(): LocalLine {
+/**
+ * A new, empty line. Its VAT rate is pre-filled from the business kind and the
+ * document date (see lib/billing/vat-rate.ts): 0 for an exempt dealer (עוסק פטור),
+ * otherwise the Israeli standard rate in force on that date. The owner can still
+ * edit it. Existing lines are never touched by this.
+ */
+export function newEmptyLocalLine(context: {
+  businessKind: string | null | undefined;
+  documentDate: Date;
+}): LocalLine {
   return {
     key: generateLocalLineKey(),
     description: "",
     quantity: "1",
     unitPrice: "0",
-    vatRatePercent: "17",
+    vatRatePercent: defaultVatRatePercentFor(context),
   };
 }
 
