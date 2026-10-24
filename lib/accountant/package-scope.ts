@@ -223,7 +223,7 @@ export function issuedTotalsByType(issued: IssuedDocumentFact[]): IssuedTypeTota
   const acc = new Map<string, { documentType: string; currency: string; count: number; total: bigint; vat: bigint }>();
   for (const d of issued) {
     const currency = d.currency || "ILS";
-    const key = `${d.documentType} ${currency}`;
+    const key = `${d.documentType}|${currency}`;
     const cur = acc.get(key) ?? { documentType: d.documentType, currency, count: 0, total: BigInt(0), vat: BigInt(0) };
     cur.count += 1;
     cur.total += decimalToCents(d.totalAmount);
