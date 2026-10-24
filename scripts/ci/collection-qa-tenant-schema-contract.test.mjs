@@ -103,10 +103,13 @@ ok(
 const userRequired = requiredWritableFields("User");
 const userWritten = columnsWrittenTo("User");
 
+// `password` is optional in the schema since migration 20261030090000_oauth_identity_foundation (an
+// account opened with Google has none). The QA tenant signs in with a password, so its SQL must still
+// write one — asserted explicitly below rather than inferred from the schema.
 ok(
-  "User requires exactly email + password + businessId + updatedAt",
+  "User requires exactly email + businessId + updatedAt",
   JSON.stringify(userRequired) ===
-    JSON.stringify(["businessId", "email", "password", "updatedAt"]),
+    JSON.stringify(["businessId", "email", "updatedAt"]),
   `schema says: ${userRequired.join(", ")}`
 );
 ok(
@@ -115,8 +118,13 @@ ok(
   `writes: ${userWritten.join(", ")}`
 );
 ok(
+  "the SQL writes the password the QA tenant signs in with",
+  userWritten.includes("password"),
+  `writes: ${userWritten.join(", ")}`
+);
+ok(
   "the SQL writes no User column it does not need",
-  userWritten.every((c) => [...userRequired, "createdAt", "name"].includes(c)),
+  userWritten.every((c) => [...userRequired, "password", "createdAt", "name"].includes(c)),
   `writes: ${userWritten.join(", ")}`
 );
 

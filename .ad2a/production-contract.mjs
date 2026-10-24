@@ -803,7 +803,7 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
 export const EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES = ["SELECT", "USAGE"];
 
 /** Sequences the runtime holds NOTHING on in Production (it never inserts into their table). */
-export const RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES = ["TransactionalEmail_id_seq"];
+export const RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES = ["TransactionalEmail_id_seq", "UserIdentity_id_seq"];
 
 /**
  * SEC-F (migration 20260926140000) — the row-level-security state that migration

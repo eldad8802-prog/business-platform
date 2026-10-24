@@ -82,11 +82,16 @@ function completeSignup(secret: string, businessName: string, opts: { pause?: nu
     const spent = await spendSignupTicket(tx, secret);
     // pg_sleep returns void, which the raw-query decoder cannot read: select a value beside it.
     if (opts.pause) await tx.$queryRawUnsafe(`SELECT 1 AS slept FROM pg_sleep(${opts.pause})`);
-    const business = await tx.business.create({ data: { name: businessName }, select: { id: true } });
-    const user = await tx.user.create({
-      data: { email: spent.email, name: spent.name ?? businessName, businessId: business.id, termsAcceptedAt: now, termsVersion: "lab" },
-      select: { id: true, tokenVersion: true },
-    });
+    // Raw inserts, as the signup plane's lab grants allow (this lab does not hold every column grant the
+    // generated client's create would name; the register route test covers that path). No password column.
+    const b = (await tx.$queryRawUnsafe(`INSERT INTO "Business" ("name","updatedAt") VALUES ($1, now()) RETURNING id`, businessName)) as Rows;
+    const business = { id: Number(b[0].id) };
+    const u = (await tx.$queryRawUnsafe(
+      `INSERT INTO "User" ("email","name","businessId","termsAcceptedAt","termsVersion","updatedAt")
+       VALUES ($1,$2,$3,$4,'lab', now()) RETURNING id, "tokenVersion"`,
+      spent.email, spent.name ?? businessName, business.id, now,
+    )) as Rows;
+    const user = { id: Number(u[0].id), tokenVersion: Number(u[0].tokenVersion) };
     if (opts.failAfterSpend) throw new Error("FORCED_FAILURE");
     await attachGoogleIdentity(tx, spent.ticketId, user.id);
     const session = await issueRefreshSession(tx, { userId: user.id, tokenVersion: user.tokenVersion, now, userAgent: "agl-app-battery" });
