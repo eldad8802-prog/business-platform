@@ -93,6 +93,7 @@ on:
           - 'ops/evidence/daily-tasks-task-access-diagnostic.sql'
           - 'ops/evidence/task-reminders-push-preflight.sql'
           - 'ops/evidence/task-reminders-push-production-evidence.sql'
+          - 'ops/evidence/daily-tasks-open-all-production-evidence.sql'
           - 'ops/evidence/accountant-month-close-preflight.sql'
           - 'ops/evidence/accountant-month-close-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
