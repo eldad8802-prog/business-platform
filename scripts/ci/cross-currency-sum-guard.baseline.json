@@ -309,6 +309,141 @@
       "risk": "SAFE",
       "reason": "credit notes of ONE invoice (currency = source).",
       "lineAtBaseline": 600
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_FOLD",
+      "column": "totalMinor",
+      "match": "const closeNet = closed ? b.effective.reduce((sum, c) => sum + c.totalMinor, ZERO) : null;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 274
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "posNet += s.kind === \"SALE\" ? s.totalMinor : -s.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 231
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "grossMinor",
+      "match": "v.sales.grossMinor += c.grossMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 237
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "discountMinor",
+      "match": "v.sales.discountMinor += c.discountMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 238
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "refundMinor",
+      "match": "v.sales.refundsMinor += c.refundMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 239
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "voidMinor",
+      "match": "v.sales.voidsMinor += c.voidMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 240
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "vatMinor",
+      "match": "v.sales.vatMinor += c.vatMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 241
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "counted += c.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 242
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "grossMinor",
+      "match": "v.sales.grossMinor += s.grossMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 255
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "discountMinor",
+      "match": "v.sales.discountMinor += s.discountMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 256
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "vatMinor",
+      "match": "v.sales.vatMinor += s.vatMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 257
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "if (s.kind === \"REFUND\") v.sales.refundsMinor += s.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 259
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "else v.sales.voidsMinor += s.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 260
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "netMinor",
+      "match": "v.settlements.netMinor += s.netMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: computeRevenueView adds every value into the CurrencyView of THAT row's currency (view(row.currency)) or into a register-day bucket whose key includes the currency; nothing in the read model adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts section 8 and .rev/app-battery.ts F.",
+      "lineAtBaseline": 326
+    },
+    {
+      "file": "lib/revenue-truth/store.ts",
+      "rule": "JS_FOLD",
+      "column": "linkedMinor",
+      "match": "const already = siblings.reduce((sum, s) => sum + (s.linkedMinor ?? ZERO), ZERO);",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: every sibling link names the same money object, and the RevenueLink_guard trigger (migration 20261028090000) refuses a link whose currency differs from the object it names — so all summed linkedMinor values share one currency.",
+      "lineAtBaseline": 377
     }
   ]
 }

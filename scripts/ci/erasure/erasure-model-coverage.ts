@@ -224,6 +224,20 @@ const RETAINED: Record<string, ModelCoverage> = {
     basis: "SECURITY/AUDIT",
   },
   FinancialEvent: FISCAL("the ledger event behind a fiscal document"),
+  // Revenue truth (milestone A, migration 20261028090000): append-only revenue evidence — fiscal records like the
+  // documents and payments above (bookkeeping instructions §25: Z reports and card-company settlement documents are
+  // part of the books). Every text column is a CHECK-limited token, so no customer identifier can be stored, but the
+  // amounts are the business's financial data — for a sole proprietor, a person's. Account deletion is soft
+  // (Business.deletedAt): the rows stay, untouched by erasure. A post-retention purge is designed, not built, and
+  // needs its own approval (docs/revenue-truth-milestone-a.md). Single writer: lib/revenue-truth/store.ts.
+  RevenueSale: FISCAL("a sale / refund / void reported by a register or an accounting app: amounts, VAT, business day, id tokens"),
+  RevenueReceipt: FISCAL("money taken at the till by method (acquirer / card-brand codes, never a card number)"),
+  RevenueDailyClose: FISCAL("the Z report: the register's daily summary the bookkeeping instructions require"),
+  RevenueDailyCloseTender: FISCAL("a Z report's takings by payment method"),
+  RevenueDailyCloseVat: FISCAL("a Z report's VAT by category and rate"),
+  RevenueSettlement: FISCAL("a card-company / provider credit: gross, fee, net, installment (settlement documents are part of the books)"),
+  RevenueLink: FISCAL("the reconciliation record between two revenue objects (which money closed which)"),
+  RevenueDecision: FISCAL("the append-only record of confirm / reject / revoke behind the reconciliation; actor role, never a user id"),
   BillingAuthoritySubmission: FISCAL("proof of what was filed with the tax authority and when"),
   PaymentRequest: FISCAL("payment evidence referenced by issued receipts"),
   PaymentTransaction: FISCAL("clearing evidence; `rawPayload` may carry provider-side personal data"),

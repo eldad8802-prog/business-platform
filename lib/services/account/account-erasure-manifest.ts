@@ -65,6 +65,16 @@ export const RETAIN_MODELS = [
   "paymentEvidence",
   "payablesAuditEvent",
   "paymentAccountingSettlement",
+  // Revenue truth (milestone A): fiscal revenue evidence (registry: LEGAL/FISCAL). Listed so the guard below
+  // protects it; the erasure never touched these tables and its behaviour is unchanged.
+  "revenueSale",
+  "revenueReceipt",
+  "revenueDailyClose",
+  "revenueDailyCloseTender",
+  "revenueDailyCloseVat",
+  "revenueSettlement",
+  "revenueLink",
+  "revenueDecision",
 ] as const;
 
 /** Bucket C — external integration credentials to revoke (provider-side best-effort).

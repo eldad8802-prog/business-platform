@@ -1,0 +1,10 @@
+{
+  "note": "Revenue truth milestone A: the read model over the applied migration 20261028090000_revenue_truth_foundation — dormant (no product code imports lib/revenue-truth). docs/revenue-truth-milestone-a.md",
+  "tests": {
+    "lib/revenue-truth/read-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "pure computation over in-memory inputs: no DB, network, session, tenant or authorization code is exercised; tenant isolation and the writers are proven AS the restricted runtime by .rev/app-battery.ts in revenue-truth-ci.yml",
+      "reason": "pure (no DB/network/clock): one authoritative sale source per register day, the effective Z rules, provisional / unclosed days, same-as links, rejected evidence counted nowhere, receipts / settlements / deposits never adding revenue, per-currency totals; run on pull_request by revenue-truth-ci.yml"
+    }
+  }
+}

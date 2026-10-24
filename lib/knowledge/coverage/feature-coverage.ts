@@ -319,6 +319,18 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH", note: "A missed call not returned is a direct owner action (call back)." },
   },
   {
+    // Revenue truth (milestone A, docs/revenue-truth-milestone-a.md): the four-layer evidence ledger (sale / Z /
+    // receipt / settlement + links and decisions) and its read model exist, but nothing in the product writes or
+    // reads them — no route, job, adapter or flag until a separately approved milestone (B: Z and bank files).
+    key: "revenue-truth", name: "Revenue truth (POS sales, Z reports, settlements, deposits)", coverage: "DORMANT",
+    reason: "Milestone A ships the append-only Revenue* ledger and lib/revenue-truth (writers + read model) with no product writer or reader: no route, job, adapter or flag uses them until the owner approves milestone B (Z report and bank file intake).",
+    rules: [], temporalRules: [], otherUnits: [], l0: [],
+    models: ["RevenueSale", "RevenueReceipt", "RevenueDailyClose", "RevenueDailyCloseTender", "RevenueDailyCloseVat", "RevenueSettlement", "RevenueLink", "RevenueDecision"],
+    sensors: [], legacyEvents: [], routes: [],
+    target: { coverage: "LEARNS", plan: "From CLOSED register days only: daily net sales baseline and abnormal days, cash share of takings, effective card-clearing fee and actual credit lag per acquirer (RevenueSettlement vs RevenueReceipt), unexplained bank credits." },
+    outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "HIGH", note: "A missing Z, a day closed with variance, or a deposit that never matched is a direct owner action." },
+  },
+  {
     key: "whatsapp", name: "WhatsApp integration", coverage: "CHANNEL", channelOf: ["conversations", "intake", "documents"],
     reason: "Delivery channel: messages are learned in conversations, attachments in documents.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
