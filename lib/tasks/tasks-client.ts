@@ -80,6 +80,38 @@ export type PendingReminder = { id: number; taskId: number; title: string; summa
 export const fetchPendingReminders = () => call<{ reminders: PendingReminder[] }>("GET", "/api/tasks/reminders/pending");
 export const markReminderSeen = (notificationId: number) => call<unknown>("POST", `/api/notifications/${notificationId}/read`, {});
 
+/**
+ * Fired (on window) when a task is opened from a reminder link — push or bell. The in-app reminder card listens and
+ * steps aside for that task (owner 2026-10-25: the link goes straight to the task, no card on the way).
+ */
+export const TASK_OPENED_EVENT = "dz:task-opened";
+
+/** One task as GET /api/tasks/[id] returns it — for a reminder link whose task is no longer in the open list. */
+export type TaskView = {
+  id: number;
+  title: string;
+  note: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELED";
+  dueOn: string | null;
+  dueMinute: number | null;
+  completedAt: string | null;
+  history: { type: string; actor: string; at: string; payload: Record<string, unknown> }[];
+};
+export async function fetchTaskForView(id: number): Promise<TaskView | null> {
+  try {
+    const j = await call<{
+      task: { id: number; title: string; description: string | null; status: TaskView["status"]; dueOn: string | null; dueMinute: number | null; completedAt: string | null } | null;
+      history: TaskView["history"];
+    }>("GET", `/api/tasks/${id}`);
+    const t = j.task;
+    if (!t) return null;
+    return { id: t.id, title: t.title, note: t.description, status: t.status, dueOn: t.dueOn ? t.dueOn.slice(0, 10) : null, dueMinute: t.dueMinute, completedAt: t.completedAt, history: j.history ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+
 export type SyncAnswer =
   | { status: "OK"; syncVersion: number; changed: boolean }
   | { status: "IN_PROGRESS"; syncVersion: number; retryAfterSeconds: number };

@@ -29,6 +29,7 @@ import {
   sourceOp,
   taskAction,
   type AgendaResponse,
+  type TaskView,
 } from "@/lib/tasks/tasks-client";
 
 import {
@@ -507,6 +508,53 @@ function ScheduleForm({
         <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel}>ביטול</button>
       </div>
     </form>
+  );
+}
+
+// ── a task opened from a reminder that is no longer open ─────────────────────────────────────────
+
+/**
+ * Read-only: a reminder link (push or bell) to a task already done or cancelled shows what happened to it — and no
+ * action, since none is valid any more (owner 2026-10-25).
+ */
+export function ClosedTaskDetails({ view, onClose }: { view: TaskView; onClose: () => void }) {
+  const { t: tr } = useI18n();
+  const state =
+    view.status === "DONE" ? "המשימה כבר בוצעה" : view.status === "CANCELED" ? "המשימה בוטלה" : "המשימה לא ברשימה הפתוחה";
+  return (
+    <>
+      <div className={s.detH}>
+        <span className={`${s.chk} ${view.status === "DONE" ? s.chkDone : ""}`} aria-hidden />
+        <div>
+          <h2>{view.title}</h2>
+        </div>
+      </div>
+      {view.note ? <p className={s.noteText} style={{ margin: 0 }}>{view.note}</p> : null}
+      <dl className={s.kv}>
+        <dt>{tr("tasks.common.due")}</dt>
+        <dd>
+          {view.dueOn ? chipLabel(view.dueOn, tr) : tr("tasks.details.own.noDate")}
+          {view.dueMinute != null ? ` · ${clockLabel(view.dueMinute)}` : ""}
+        </dd>
+      </dl>
+      <p className={`${s.fact} ${s.factNeutral}`} role="status" style={{ margin: 0 }}>{state}. אין פעולות זמינות למשימה הזו.</p>
+      {view.history.length ? (
+        <ul className={s.hist} aria-label={tr("tasks.details.history.aria")}>
+          {view.history.map((h, i) => {
+            const text = historyText(h, tr);
+            return text ? (
+              <li key={i}>
+                <time dateTime={h.at}>{short(todayKey(new Date(h.at)))}</time>
+                <span>{text}</span>
+              </li>
+            ) : null;
+          })}
+        </ul>
+      ) : null}
+      <div className={s.actions}>
+        <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onClose}>סגירה</button>
+      </div>
+    </>
   );
 }
 

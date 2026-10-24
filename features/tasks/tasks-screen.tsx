@@ -25,16 +25,19 @@ import {
   createTask,
   errorText,
   sourceOp,
+  fetchTaskForView,
   taskAction,
+  TASK_OPENED_EVENT,
   uuidV7,
   type AgendaResponse,
+  type TaskView,
 } from "@/lib/tasks/tasks-client";
 import { useAgenda } from "@/lib/tasks/use-agenda";
 import { clockLabel, remindMomentLabel } from "@/lib/services/tasks/task-schedule";
 import { PaidQuestionSheet, type PaidDetails } from "@/app/(shell)/secretary/paid-question";
 import type { ObligationApi } from "@/lib/obligations/secretary-client";
 
-import { TaskDetails } from "./task-details";
+import { ClosedTaskDetails, TaskDetails } from "./task-details";
 import { TaskForm } from "./task-form";
 import { PushCard } from "./push-card";
 import { longDate, short, todayKey } from "./task-days";
@@ -53,6 +56,8 @@ export function TasksScreen() {
   // "+" → "משימה חדשה" lands here with ?new=1.
   const [creating, setCreating] = useState(() => params?.get("new") === "1");
   const [toast, setToast] = useState<{ text: string; undo?: () => Promise<void> } | null>(null);
+  // A task opened from a reminder link that is no longer open (done / cancelled): shown read-only.
+  const [closedView, setClosedView] = useState<TaskView | null>(null);
   const [paidFor, setPaidFor] = useState<SourceItem | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const quickRef = useRef<HTMLInputElement>(null);
@@ -141,23 +146,36 @@ export function TasksScreen() {
     [refresh, flash, t],
   );
 
-  // A tapped reminder lands here: ?task=<id> selects it; &reminderAction=done|snooze (the push notification's buttons)
-  // performs that action once, then the URL is cleaned so a reload never repeats it.
-  const handledLink = useRef(false);
+  // A tapped reminder (push or bell) lands here: ?task=<id> opens that task's details at once — every time, also when
+  // /tasks is already open — and tells the reminder card to step aside (owner 2026-10-25: no card, no extra tap on
+  // the way). &reminderAction=done|snooze (the push notification's buttons) performs that action once. The URL is
+  // cleaned so a reload never repeats it. A task that is no longer open shows read-only, without actions.
+  const handledLink = useRef<string | null>(null);
   useEffect(() => {
-    if (!agenda || handledLink.current) return;
+    if (!agenda) return;
     const taskId = Number(params?.get("task"));
-    if (!Number.isInteger(taskId) || taskId <= 0) return;
-    handledLink.current = true;
-    // Deferred out of the effect body: the selection and the action are a consequence of the URL, not of render.
-    void Promise.resolve().then(() => {
-    const row = rows.find((r) => r.type === "TASK" && r.task.id === taskId) as Extract<AgendaRow, { type: "TASK" }> | undefined;
-    const action = params?.get("reminderAction");
-    router.replace("/tasks", { scroll: false });
-    if (!row) {
-      flash("המשימה כבר לא ברשימה.");
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      handledLink.current = null; // the URL was cleaned: the next link, even to the same task, opens it again
       return;
     }
+    const action = params?.get("reminderAction");
+    const linkKey = `${taskId}:${action ?? ""}`;
+    if (handledLink.current === linkKey) return;
+    handledLink.current = linkKey;
+    window.dispatchEvent(new CustomEvent(TASK_OPENED_EVENT, { detail: { taskId } }));
+    // Deferred out of the effect body: the selection and the action are a consequence of the URL, not of render.
+    void Promise.resolve().then(async () => {
+    const row = rows.find((r) => r.type === "TASK" && r.task.id === taskId) as Extract<AgendaRow, { type: "TASK" }> | undefined;
+    router.replace("/tasks", { scroll: false });
+    setCreating(false);
+    if (!row) {
+      setSelected(null);
+      const closed = await fetchTaskForView(taskId);
+      if (closed) setClosedView(closed);
+      else flash("המשימה לא נמצאה.");
+      return;
+    }
+    setClosedView(null);
     setSelected(row.key);
     if (action === "done") void act(() => taskAction(row.task.id, "complete", { expectedVersion: row.task.version }), "סומן כבוצע");
     if (action === "snooze") {
@@ -195,7 +213,9 @@ export function TasksScreen() {
     flash(t("tasks.screen.handledNoPayment"));
   };
 
-  const details = selectedRow ? (
+  const details = closedView ? (
+    <ClosedTaskDetails key={`closed:${closedView.id}`} view={closedView} onClose={() => setClosedView(null)} />
+  ) : selectedRow ? (
     <TaskDetails
       key={selectedRow.key}
       row={selectedRow}
@@ -246,6 +266,7 @@ export function TasksScreen() {
               setOpen={(k, v) => setOpen((o) => ({ ...o, [k]: v }))}
               onSelect={(k) => {
                 setCreating(false);
+                setClosedView(null);
                 setSelected(k);
               }}
               onComplete={completeTask}
@@ -255,7 +276,7 @@ export function TasksScreen() {
         </div>
 
         <aside className={s.week} aria-label={t("tasks.screen.weekAria")}>
-          {agenda ? <WeekColumn agenda={agenda} onSelect={(k) => { setCreating(false); setSelected(k); }} /> : null}
+          {agenda ? <WeekColumn agenda={agenda} onSelect={(k) => { setCreating(false); setClosedView(null); setSelected(k); }} /> : null}
         </aside>
 
         <aside ref={detailRef} className={s.detail} aria-label={t("tasks.screen.detailsAria")}>
@@ -275,7 +296,7 @@ export function TasksScreen() {
       <AdaptiveOverlay open={creating && bp !== "desktop"} onClose={() => setCreating(false)} labelledBy="task-form-title">
         <div style={{ padding: 20 }}>{creating && bp !== "desktop" ? form : null}</div>
       </AdaptiveOverlay>
-      <AdaptiveOverlay open={bp === "mobile" && !!selectedRow && !creating} onClose={() => setSelected(null)}>
+      <AdaptiveOverlay open={bp === "mobile" && (!!selectedRow || !!closedView) && !creating} onClose={() => { setSelected(null); setClosedView(null); }}>
         <div style={{ padding: "8px 18px 24px", display: "flex", flexDirection: "column", gap: 14 }}>{bp === "mobile" ? details : null}</div>
       </AdaptiveOverlay>
 

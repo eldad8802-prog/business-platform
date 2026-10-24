@@ -152,6 +152,21 @@ console.log("a deployed fix reaches an open home-screen app (2026-10-24)");
   const version = code("app/api/health/version/route.ts");
   ok("the version route answers the deployment id, uncached", /VERCEL_DEPLOYMENT_ID/.test(version) && /no-store/.test(version));
 }
+console.log("a reminder opens its task directly (owner 2026-10-25)");
+{
+  const screen = code("features/tasks/tasks-screen.tsx");
+  const center = code("components/notifications/reminder-center.tsx");
+  const bell = code("components/notifications/notification-center.tsx");
+  const sw = read("public/sw.js");
+  ok("push and bell carry /tasks?task=<id>", /data\.url : "\/tasks"/.test(sw) && /`\/tasks\?task=\$\{task\.id\}`/.test(code("lib/services/tasks/task-reminders.service.ts")));
+  ok("every new ?task= opens (not only the first one of the screen)", /handledLink\.current === linkKey/.test(screen) && /handledLink\.current = null;/.test(screen));
+  ok("opening a task tells the reminder card to step aside", /dispatchEvent\(new CustomEvent\(TASK_OPENED_EVENT/.test(screen) && /addEventListener\(TASK_OPENED_EVENT/.test(center));
+  ok("…the card skips the task in the URL and marks its reminder seen", /taskInUrl\(\)/.test(center) && /markReminderSeen\(r\.id\)/.test(center));
+  ok("…a later reminder of the same task still shows", /new Date\(r\.at\)\.getTime\(\) > until/.test(center));
+  const closedPart = read("features/tasks/task-details.tsx").split("export function ClosedTaskDetails")[1]?.split("// ── business item")[0] ?? "";
+  ok("a task no longer open is shown read-only", /<ClosedTaskDetails /.test(screen) && closedPart.length > 0 && !/taskAction|seriesAction|editTask/.test(closedPart));
+  ok("the bell opens a task reminder in one click", /n\.severity === "REMINDER" && isSafeInternalHref\(n\.href\)/.test(bell));
+}
 {
   const secretary = NAV_DESTINATIONS.find((d) => d.key === "secretary");
   ok("navigation names the secretary 'המזכירה שלי'", secretary?.label === "המזכירה שלי" && TOOLS.find((t) => t.key === "secretary")?.label === "המזכירה שלי");
