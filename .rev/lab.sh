@@ -34,11 +34,26 @@ DROP TYPE IF EXISTS "RevenueSourceKind", "RevenueCapture", "RevenueSaleKind", "R
                     "RevenueReceiptDirection", "RevenueVatCategory", "RevenueValidation", "RevenueLinkKind",
                     "RevenueLinkBasis", "RevenueActor", "RevenueDecisionKind";
 SQL
+  # Production's ledger (2026-10-24, release-migrate run 40119804303): every migration of this checkout that sorts
+  # BEFORE this one is recorded and finished, with its real sha256 — task_reminders_push, platform_admin_a1 and
+  # accountant_month_close included — so the preflight's ordering checks meet the ledger Production has. Their
+  # objects come from `db push` (or are absent); this migration names none of them (step 0 of the workflow).
+  # Nothing at or after this migration is recorded: it stays pending, and is applied only by `migrate deploy`.
+  LEDGER="$(mktemp)"
+  for d in "$ROOT"/prisma/migrations/*/; do
+    name="$(basename "$d")"
+    [[ "$name" < "$REV" ]] || continue
+    sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
+    echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
+          SELECT gen_random_uuid()::text, '$sum', now(), '$name', 1
+          WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '$name');" >> "$LEDGER"
+  done
+  psql_owner -f "$LEDGER"; rm -f "$LEDGER"
 fi
 
 case "$MODE" in
   --with-rev|--broken-rev|--apply) ;;
-  *) echo "LAB READY: $DB (through DT; revenue truth pending)"; exit 0 ;;
+  *) echo "LAB READY: $DB (ledger = every migration before this one, as Production's; revenue truth pending)"; exit 0 ;;
 esac
 
 # The ledger the lab already has, plus this migration — nothing else, so `migrate deploy` applies exactly one.

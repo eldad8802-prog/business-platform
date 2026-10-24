@@ -232,35 +232,60 @@ at approval, leaving `FinancialRecord` and its readers exactly as they are. The 
 
 ## Release plan
 
-State on 2026-10-24 (evidence: `ops/release-approvals/20261027090000_accountant_month_close.json`, ledger audit run
-39962847161 — 185 ledger rows, all finished, equal to the 185 migrations on `main` before #745):
+State on 2026-10-24, measured (not taken from earlier reports):
 
-| Migration | Where | State |
-|---|---|---|
-| everything up to `20261024090000_platform_admin_a1` | `main` | applied in Production |
-| `20261025090000_currency_settings_fx_rates` | PR #756 | not merged, not applied |
-| `20261026090000_payment_settlement_facts` | PR #769 (draft) | not merged, not applied |
-| `20261027090000_accountant_month_close` | `main` (#745) | owner-approved; `release-migrate` run waiting for its environment approval |
-| `20261028090000_revenue_truth_foundation` | PR #781 (draft) | not merged, not applied |
+| Migration | Where | State | Evidence |
+|---|---|---|---|
+| everything up to `20261024090000_platform_admin_a1` | `main` | applied in Production | ledger audit run 39962847161 (185 rows, all finished) |
+| `20261027090000_accountant_month_close` | `main` (#745) | **applied in Production** | `release-migrate` run 40119804303 (pending set = exactly 0927; applied); post-apply evidence run 40123890607 (17/17 PASS) |
+| `20261025090000_currency_settings_fx_rates` | PR #756 | not merged, not applied; sorts before an applied migration | — |
+| `20261026090000_payment_settlement_facts` | PR #769 (draft) | not merged, not applied; sorts before an applied migration | — |
+| `20261028090000_revenue_truth_foundation` | PR #781 (draft) | not merged, not applied | — |
 
 `release-migrate` applies only an exact prefix of the pending migrations in Prisma order
 (`scripts/ci/release-migrate-gate.mjs`, PREFIX INVARIANT). The revenue migration has **no object dependency** on
-0925, 0926 or 0927 (it names only `Business`, `Document`, `AcquisitionConnection`, `ExternalTransaction`,
-`BillingDocument`; step 0 of the lab asserts it). The safe order:
+0925 or 0926 (it names only `Business`, `Document`, `AcquisitionConnection`, `ExternalTransaction`,
+`BillingDocument`; step 0 of the lab asserts it), and #784 uses neither FX rates nor settlement facts.
 
-1. **0927 must be applied first** (it is on `main`; nothing after it can be released before it).
-2. Decide 0925 / 0926 **before** #781 merges:
-   - either they merge and are applied before 0928 (they sort before it, so `release-migrate` will require it), or
-   - they stay unmerged until 0928 is applied, and are then **re-timed after 0928** — this repository's practice for
-     a migration that would sort before an applied one (as #745 was re-timed from 1023 to 1027).
-3. Merge #781 (migration only) → its own approval record → `release-migrate` for exactly
-   `20261028090000_revenue_truth_foundation` → the production evidence check.
-4. Only then merge #784 (code). Its migration-first verdict says "already in Production" because the migration is
-   in the tree; it is true only after step 3.
+**Recommended order: #781 first, #756 / #769 left pending.** With them unmerged, merging #781 makes 0928 the only
+pending migration on `main`, so it is the next one `release-migrate` can apply, with no gate bypassed. 0925 / 0926
+already sort before the applied 0927 and so must be re-timed in any case (this repository's practice — #745 was
+re-timed for the same reason); after 0928 they are re-timed after 0928 instead. The one risk fails safe: if #756 or
+#769 were merged before 0928 is applied, they would be pending ahead of it and the gate would refuse 0928 (and their
+own preflight ordering check would fail). So: **do not merge #756 / #769 before they are re-timed.**
+
+The gate classifies 0928 as AUTHORITY-changing (`scripts/ci/migration-security-classifier.mjs`: GRANT, REVOKE, RLS,
+POLICY), so it needs an approval record and a passing Production preflight. The evidence files are ready on #781:
+
+- `ops/evidence/revenue-truth-foundation-preflight.sql` (14 checks): clean ledger; 0927 finished and nothing finished
+  after 0928; none of the migration's objects exist; app_runtime and the five tables it builds on exist; the tenant
+  keys its composite keys point at; the enum labels and columns its link guard reads; ExternalTransaction and
+  BillingDocument under FORCE RLS; the evidence role sees every row.
+- `ops/evidence/revenue-truth-foundation-production-evidence.sql` (20 + 2 checks): recorded and finished with the
+  pinned sha256; RLS ENABLED + FORCED on all eight tables; exactly 16 per-command policies on the tenant GUC; the
+  exact ACL of every table and sequence; no column privilege; the 20 composite tenant keys (through `businessId`)
+  and the 2 plain keys validated; the 26 checks, 19 unique keys and 17 triggers; the three guard functions unchanged
+  (body md5), not SECURITY DEFINER, EXECUTE held by nobody else; the 11 enums; no row, no flag, no revenue policy or
+  trigger on an existing table.
+
+Both are registered in `prod-readonly-evidence.yml` (two lines in its file list; nothing else in that workflow
+changed) and proven in the lab (`revenue-truth-foundation-lab.yml`, steps 0b, 1, 2b).
+
+Steps, each behind its own owner approval:
+
+1. Merge #781 (migration only; nothing is applied by a merge).
+2. Production preflight from `main` (`prod-readonly-evidence.yml` with the preflight file) → 14/14 PASS.
+3. Approval record `ops/release-approvals/20261028090000_revenue_truth_foundation.json` (sha256, decision, approver,
+   preflight run, `releaseSet: ["20261028090000_revenue_truth_foundation"]`).
+4. `release-migrate` for exactly `20261028090000_revenue_truth_foundation` → environment approval → apply.
+5. Post-apply evidence from `main` (the production-evidence file) → 22/22 PASS.
+6. Only then merge #784 (code). Its migration-first verdict says "already in Production" because the migration is
+   in the tree — the guard reads the repository, not Production; the order above is what makes it true. (If #784
+   were merged early nothing would break at runtime — no product code queries the new tables — but the rule stands.)
 
 ## Open owner decisions (before any apply)
 
-1. **Release order for 0925 / 0926** relative to 0928 (see the release plan).
+1. **0925 / 0926**: confirm they stay unmerged until re-timed (recommended order: 0928 first; see the release plan).
 2. **Post-retention purge**: whether to build the designed (OFF) mechanism, and the policy inputs (periods per
    record family, filing dates, legal holds).
 3. **Scanned income documents**: approve the specification and the schema route (new evidence table vs. columns

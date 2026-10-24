@@ -3,16 +3,23 @@
 #
 # .rev/lab.sh builds Production's topology on top of the daily tasks lab: non-superuser CREATEROLE/BYPASSRLS
 # owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's DEFAULT PRIVILEGES (which hand the runtime
-# a,r,w,d on every new table), Business under FORCE RLS; ledger through M6 + P3-E + TE + AET + DT.
+# a,r,w,d on every new table), Business under FORCE RLS; the ledger then holds every migration that sorts before
+# this one, as Production's does (accountant_month_close included); this migration is the only one pending.
 #
 #   0. Static: the migration names only its own objects and the tables it builds on; it ALTERs no existing
 #      table; no other migration names its objects.
-#   1. `prisma migrate deploy` (the release-migrate mechanism) applies it to a pending lab, and every
-#      pre-existing object — tables, columns, constraints, indexes, policies, triggers, functions, enums, grants,
-#      roles, default privileges — is IDENTICAL before and after (.rev/catalog-snapshot.sql).
+#  0b. The Production evidence files (ops/evidence/revenue-truth-foundation-{preflight,production-evidence}.sql)
+#      pass the Production workflow's own SELECT-only guard, are selectable there, and pin migration.sql's sha256.
+#   1. The preflight passes 14/14 on the pending lab and the proof refuses; `prisma migrate deploy` (the
+#      release-migrate mechanism) applies it, and every pre-existing object — tables, columns, constraints, indexes,
+#      policies, triggers, functions, enums, grants, roles, default privileges — is IDENTICAL before and after
+#      (.rev/catalog-snapshot.sql); the proof then passes 22/22 and the preflight fails exactly checks 4-8.
 #   2. Battery (.rev/battery.ts) as the real roles: catalog, four-sided isolation per table, cross-business
 #      references, append-only for every role, idempotent ingestion, arithmetic and shapes, the link guard,
 #      existing systems byte-identical.
+#  2b. Faults: each injected defect (privileges, PUBLIC, column grant, NO FORCE, FOR ALL policy, a policy reading
+#      every business, a dropped tenant key, the guard disabled or made SECURITY DEFINER, EXECUTE granted, a
+#      revenue policy on an existing table) is caught by the proof check meant for it.
 #   3. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   4. Rollback: refused while rows exist; on an empty database it removes every object and the catalog
 #      returns to the pre-migration snapshot; a re-apply succeeds.
@@ -27,6 +34,8 @@ on:
     paths:
       - "prisma/migrations/20261028090000_revenue_truth_foundation/**"
       - ".rev/**"
+      - "ops/evidence/revenue-truth-foundation-*.sql"
+      - ".github/workflows/prod-readonly-evidence.yml"
       - ".github/workflows/revenue-truth-foundation-lab.yml"
   workflow_dispatch:
 
@@ -61,6 +70,8 @@ jobs:
       PGPASSWORD: rev_ci_synthetic_super_pw
       LAB_PASSWORD: rev_ci_synthetic_role_pw
       REV: prisma/migrations/20261028090000_revenue_truth_foundation/migration.sql
+      PREFLIGHT: ops/evidence/revenue-truth-foundation-preflight.sql
+      EVIDENCE: ops/evidence/revenue-truth-foundation-production-evidence.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -88,11 +99,33 @@ jobs:
           done
           echo "the migration names only its own objects and the tables it builds on; it alters no existing table and writes no data"
 
-      - name: 1. migrate deploy applies it — every pre-existing object identical before and after
+      - name: 0b. Evidence files — SELECT-only by the Production workflow's own guard, selectable there, checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          BOUNDARY='(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization'
+          ALLOWED_ON='[[:space:]]*set[[:space:]]+(session[[:space:]]+)?default_transaction_read_only[[:space:]]*(=|to)[[:space:]]*(on|true)[[:space:]]*;?[[:space:]]*(--.*)?$'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            if grep -inE "$BOUNDARY" "$f" | grep -viE "^[0-9]+:$ALLOWED_ON"; then echo "$f touches the read-only boundary"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f is not selectable in prod-readonly-evidence.yml"; exit 1; }
+          done
+          sum=$(sha256sum "$REV" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum than migration.sql ($sum)"; exit 1; }
+          echo "$REV sha256 $sum (pinned); both files SELECT-only and selectable"
+
+      - name: 1. Preflight passes on the pending lab and the proof refuses; migrate deploy applies it — every pre-existing object identical; the proof passes 22/22 and the preflight fails exactly its "not there yet" checks
         run: |
           set -euo pipefail
           bash .rev/lab.sh rev_main
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_main -v ON_ERROR_STOP=1 -At "$@"; }
+          proof() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_main -v ON_ERROR_STOP=1 -f "$1"; }
+          fails() { grep -E '^ +[0-9]+ \| FAIL' "$1" | awk -F'|' '{print $1}' | tr -d ' ' | sort -n | tr '\n' ' ' || true; }
+          passes() { grep -cE '^ +[0-9]+ \| PASS' "$1" || true; }
+          proof "$PREFLIGHT" | tee /tmp/pre.out
+          test -z "$(fails /tmp/pre.out)" && test "$(passes /tmp/pre.out)" = "14" || { echo "baseline: the preflight must pass 14/14 (failing: $(fails /tmp/pre.out))"; exit 1; }
+          if proof "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "baseline: preflight 14/14 PASS; the proof refuses (the tables do not exist yet)"
           lab -f .rev/catalog-snapshot.sql > /tmp/catalog-before.txt
           bash .rev/lab.sh rev_main --apply | tee /tmp/apply.log
           grep -q 'Applying migration `20261028090000_revenue_truth_foundation`' /tmp/apply.log
@@ -102,6 +135,11 @@ jobs:
           n=$(lab -c "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^Revenue'")
           test "$n" = "8" || { echo "expected 8 revenue tables, got $n"; exit 1; }
           echo "8 new tables; every pre-existing object identical"
+          proof "$EVIDENCE" | tee /tmp/ev.out
+          test -z "$(fails /tmp/ev.out)" && test "$(passes /tmp/ev.out)" = "22" || { echo "after the apply: the proof must pass 22/22 (failing: $(fails /tmp/ev.out))"; exit 1; }
+          proof "$PREFLIGHT" > /tmp/pre-after.out
+          test "$(fails /tmp/pre-after.out)" = "4 5 6 7 8 " || { echo "after the apply: the preflight must fail exactly '4 5 6 7 8 ', got '$(fails /tmp/pre-after.out)'"; exit 1; }
+          echo "after the apply: proof 22/22 PASS; preflight fails exactly its not-there-yet checks 4-8"
 
       - name: 2. Battery — catalog, isolation, references, append-only, idempotency, arithmetic, link guard, existing systems
         run: |
@@ -109,6 +147,37 @@ jobs:
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rev_main" \
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/rev_main" \
             npx tsx .rev/battery.ts
+
+      - name: 2b. Faults — each injected defect is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_main -v ON_ERROR_STOP=1 -q "$@"; }
+          failing() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d rev_main -v ON_ERROR_STOP=1 -f "$EVIDENCE" \
+                      | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | sort -n | tr '\n' ' '; }
+          # The battery left rows behind, so check 19 (nothing written) fails throughout; every fault adds exactly its own.
+          test "$(failing)" = "19 " || { echo "unexpected baseline after the battery: '$(failing)'"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -c "$3"; got=$(failing); lab -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] -> FAIL $got"
+          }
+          fault "change privilege for app_runtime" "8 19 " 'GRANT UPDATE ON "RevenueSale" TO app_runtime' 'REVOKE UPDATE ON "RevenueSale" FROM app_runtime'
+          fault "read for PUBLIC" "8 19 " 'GRANT SELECT ON "RevenueLink" TO PUBLIC' 'REVOKE SELECT ON "RevenueLink" FROM PUBLIC'
+          fault "sequence privilege for another role" "8 19 " 'GRANT USAGE ON SEQUENCE "RevenueDecision_id_seq" TO app_auth' 'REVOKE USAGE ON SEQUENCE "RevenueDecision_id_seq" FROM app_auth'
+          fault "column read for another role" "9 19 " 'GRANT SELECT ("currency") ON "RevenueSale" TO app_auth' 'REVOKE SELECT ("currency") ON "RevenueSale" FROM app_auth'
+          fault "NO FORCE row-level security" "4 19 " 'ALTER TABLE "RevenueDecision" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "RevenueDecision" FORCE ROW LEVEL SECURITY'
+          fault "permissive FOR ALL policy" "5 6 7 19 " 'CREATE POLICY rev_fault_all ON "RevenueSale" USING (true)' 'DROP POLICY rev_fault_all ON "RevenueSale"'
+          fault "a policy that reads every business" "6 19 " \
+            'ALTER POLICY revenue_link_tenant_select ON "RevenueLink" USING (true)' \
+            "ALTER POLICY revenue_link_tenant_select ON \"RevenueLink\" USING (\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int)"
+          fault "a cross-business reference allowed" "10 19 " 'ALTER TABLE "RevenueReceipt" DROP CONSTRAINT "RevenueReceipt_saleId_tenant_fkey"' \
+            'ALTER TABLE "RevenueReceipt" ADD CONSTRAINT "RevenueReceipt_saleId_tenant_fkey" FOREIGN KEY ("businessId", "saleId") REFERENCES "RevenueSale"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION'
+          fault "the link guard disabled" "14 19 " 'ALTER TABLE "RevenueLink" DISABLE TRIGGER "RevenueLink_guard"' 'ALTER TABLE "RevenueLink" ENABLE TRIGGER "RevenueLink_guard"'
+          fault "a guard turned SECURITY DEFINER" "15 19 " 'ALTER FUNCTION public.revenue_link_guard() SECURITY DEFINER' 'ALTER FUNCTION public.revenue_link_guard() SECURITY INVOKER'
+          fault "EXECUTE for app_runtime" "17 19 " 'GRANT EXECUTE ON FUNCTION public.revenue_truncate_guard() TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.revenue_truncate_guard() FROM app_runtime'
+          fault "a revenue policy on an existing table" "20 19 " 'CREATE POLICY revenue_fault ON "Business" FOR SELECT USING (false)' 'DROP POLICY revenue_fault ON "Business"'
+          test "$(failing)" = "19 " || { echo "proof not back to baseline: '$(failing)'"; exit 1; }
+          echo "every fault caught by its own check; the proof is back to baseline"
 
       - name: 3. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |
