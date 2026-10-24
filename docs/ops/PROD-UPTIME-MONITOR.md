@@ -41,6 +41,12 @@ previous *scheduled run that actually happened*, accepted up to 8 h old (75 min 
 and an alert can take hours, not 30 min. For minute-level detection, trigger `workflow_dispatch` from an
 external scheduler (owner choice; it would need a token, so it is not set up here).
 
+**Measured for this monitor:** its first 7 scheduled runs fired at 2026-10-23 17:26, 20:34, 23:30 and
+2026-10-24 01:58, 07:01, 11:58, 15:38 UTC — **about once every 3–5 hours, NOT every 15 minutes** — all HEALTHY.
+**Owner decision 2026-10-24:** keep it as is — no external trigger, no token, no new service, no extra
+permissions. Treat it as a coarse, independent safety net (worst-case alert latency ≈ two real runs ≈ 6–10 h),
+not as minute-level monitoring.
+
 An alert = the job **fails**. GitHub emails the account owner about failed scheduled runs (Settings → Notifications
 → Actions, "failed workflows only"). Every run — healthy or not — writes a job summary table. The monitor changes
 nothing: no rollback, no Vercel or Production writes.
