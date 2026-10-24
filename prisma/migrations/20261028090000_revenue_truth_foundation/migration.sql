@@ -15,7 +15,8 @@
 --
 --   "RevenueLink" connects layers (sale = Dubiz document, tender → settlement, settlement → deposit, cash →
 --   deposit) as a PROPOSAL; "RevenueDecision" is the append-only journal of the owner's / system's
---   confirm / reject / revoke on a link, or on a Z report read from a photo. Revenue is recognised at the sale
+--   confirm / reject / revoke on a link, on a Z report read from a photo, or on a sale / receipt / settlement
+--   recorded in error (rejected = excluded, never edited or removed). Revenue is recognised at the sale
 --   layer only, from one authoritative source per register day (lib/revenue-truth, application PR); a settlement or
 --   a deposit can only CLOSE what a sale already opened.
 --
@@ -34,15 +35,25 @@
 -- HISTORY
 --   Every table is append-only for every role, the owner included (trigger; TRUNCATE refused). A correction is
 --   a new row: a refund / void is a new sale row that names the original; a corrected Z is revision n+1 naming
---   the revision it supersedes; a changed mind on a link is a new decision. Deletion happens only as a cascade
---   of the business itself (or of a bank line it links to).
+--   the revision it supersedes; a changed mind on a link is a new decision; evidence recorded in error is
+--   REJECTED by a decision (excluded from totals and matches, kept as recorded).
+--
+-- RETENTION AND DELETION (fiscal records — erasure registry: RETAINED_BY_DESIGN, LEGAL/FISCAL)
+--   Nothing in the application deletes these rows. Account deletion is a SOFT delete (Business.deletedAt,
+--   lib/tenant/business-lifecycle.ts): the Business row stays, so its revenue rows stay with it, like
+--   BillingDocument / PaymentTransaction / FinancialEvent. The only physical delete the trigger lets through is a
+--   foreign-key cascade (a hard-deleted Business, or a bank line a link names), which no product path performs.
+--   A controlled purge after a legal retention period is PLANNED, NOT BUILT (docs/revenue-truth-milestone-a.md):
+--   it needs its own owner-approved migration and is off until then.
 --
 -- NULL IN CHECKS
 --   A CHECK passes when its expression is NULL, so every comparison on a nullable column states IS NOT NULL.
 --
 -- NO FREE TEXT
 --   Every text column is a CHECK-limited token (ids, scopes, codes). No customer name, no description, no card
---   number field exists, so no personal data can be stored here by construction.
+--   number field exists, so no identifier of a customer can be stored here by construction. The amounts are
+--   still financial data about the business — for a sole proprietor, about a person — and are classified as
+--   fiscal records, not as non-personal data.
 --
 -- TENANCY
 --   ENABLE + FORCE RLS, per-command SELECT / INSERT policies on app.current_business_id, no UPDATE / DELETE
@@ -434,19 +445,29 @@ ALTER TABLE "RevenueLink" ADD CONSTRAINT "RevenueLink_billingDocumentId_ref_fkey
   FOREIGN KEY ("billingDocumentId") REFERENCES "BillingDocument"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- ── 8. RevenueDecision — the append-only journal of decisions ───────────────────────────────────
+-- Subjects: a link (CONFIRMED / REJECTED / REVOKED), a Z report (CONFIRMED / REJECTED / REVOKED), or one piece
+-- of evidence — a sale, a receipt, a settlement — that was recorded in error. Evidence is valid as recorded, so
+-- the only decisions on it are REJECTED (excluded from every total and every match, the row itself kept) and
+-- REVOKED (the rejection withdrawn). A rejection never edits or removes the evidence it names.
 
 CREATE TABLE "RevenueDecision" (
   "id" SERIAL NOT NULL,
   "businessId" INTEGER NOT NULL,
   "linkId" INTEGER,
   "dailyCloseId" INTEGER,
+  "saleId" INTEGER,
+  "receiptId" INTEGER,
+  "settlementId" INTEGER,
   "decision" "RevenueDecisionKind" NOT NULL,
   "actor" "RevenueActor" NOT NULL,
   "reasonCode" TEXT,
   "idempotencyKey" TEXT NOT NULL,
   "decidedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "RevenueDecision_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "RevenueDecision_subject" CHECK (num_nonnulls("linkId", "dailyCloseId") = 1),
+  CONSTRAINT "RevenueDecision_subject" CHECK (num_nonnulls("linkId", "dailyCloseId", "saleId", "receiptId", "settlementId") = 1),
+  CONSTRAINT "RevenueDecision_evidence" CHECK (
+        num_nonnulls("saleId", "receiptId", "settlementId") = 0 OR "decision" IN ('REJECTED', 'REVOKED')
+  ),
   CONSTRAINT "RevenueDecision_tokens" CHECK (
         "idempotencyKey" ~ '^[A-Za-z0-9:_#-]{8,200}$'
     AND ("reasonCode" IS NULL OR "reasonCode" ~ '^[A-Z][A-Z0-9_]{0,63}$')
@@ -455,12 +476,21 @@ CREATE TABLE "RevenueDecision" (
 CREATE UNIQUE INDEX "RevenueDecision_businessId_idempotencyKey_key" ON "RevenueDecision"("businessId", "idempotencyKey");
 CREATE INDEX "RevenueDecision_businessId_linkId_idx" ON "RevenueDecision"("businessId", "linkId");
 CREATE INDEX "RevenueDecision_businessId_dailyCloseId_idx" ON "RevenueDecision"("businessId", "dailyCloseId");
+CREATE INDEX "RevenueDecision_businessId_saleId_idx" ON "RevenueDecision"("businessId", "saleId");
+CREATE INDEX "RevenueDecision_businessId_receiptId_idx" ON "RevenueDecision"("businessId", "receiptId");
+CREATE INDEX "RevenueDecision_businessId_settlementId_idx" ON "RevenueDecision"("businessId", "settlementId");
 ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_linkId_tenant_fkey"
   FOREIGN KEY ("businessId", "linkId") REFERENCES "RevenueLink"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_dailyCloseId_tenant_fkey"
   FOREIGN KEY ("businessId", "dailyCloseId") REFERENCES "RevenueDailyClose"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_saleId_tenant_fkey"
+  FOREIGN KEY ("businessId", "saleId") REFERENCES "RevenueSale"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_receiptId_tenant_fkey"
+  FOREIGN KEY ("businessId", "receiptId") REFERENCES "RevenueReceipt"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "RevenueDecision" ADD CONSTRAINT "RevenueDecision_settlementId_tenant_fkey"
+  FOREIGN KEY ("businessId", "settlementId") REFERENCES "RevenueSettlement"("businessId", "id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- ── 9. The link guard: what a composite key cannot say ──────────────────────────────────────────
 -- SECURITY INVOKER on purpose: it reads as the inserting role, under that role's row-level security, so a
@@ -582,7 +612,8 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 BEGIN
-  -- A cascade (the business, or a bank line a link names) is the only way a row leaves.
+  -- A foreign-key cascade (a hard-deleted business, or a bank line a link names) is the only delete let through;
+  -- no product path performs one (account deletion is soft).
   IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
     RETURN OLD;
   END IF;

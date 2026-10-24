@@ -238,6 +238,10 @@ async function main() {
      VALUES ($1, 'TENDER_SETTLED_BY', $2, $3, 1, 'ILS', 'RULE_EXACT', 'SYSTEM')`, /REVENUE_LINK_|foreign key/i, bizA, A.receipt, B.settlement);
   await xr("decision → a link of another business: refused (composite key)",
     `INSERT INTO "RevenueDecision" ("businessId", "linkId", "decision", "actor", "idempotencyKey") VALUES ($1, $2, 'REJECTED', 'OWNER_USER', '${key("dec")}')`, FK, bizA, B.linkSettled);
+  for (const [col, other] of [["saleId", B.sale], ["receiptId", B.receipt], ["settlementId", B.settlement]] as const) {
+    await xr(`rejecting a ${col.replace("Id", "")} of another business: refused (composite key)`,
+      `INSERT INTO "RevenueDecision" ("businessId", "${col}", "decision", "actor", "idempotencyKey") VALUES ($1, $2, 'REJECTED', 'OWNER_USER', '${key("dec")}')`, FK, bizA, other);
+  }
 
   // ── 4. Append-only for every role ───────────────────────────────────────────────────────────────
   console.log("4. append-only");
@@ -337,6 +341,19 @@ async function main() {
     `INSERT INTO "RevenueDecision" ("businessId", "linkId", "dailyCloseId", "decision", "actor", "idempotencyKey") VALUES ($1, $2, $3, 'CONFIRMED', 'SYSTEM', '${key("dec")}')`, CHECK, A.linkSettled, A.close);
   const zDecision = await add(bizA, `INSERT INTO "RevenueDecision" ("businessId", "dailyCloseId", "decision", "actor", "reasonCode", "idempotencyKey") VALUES ($1, $2, 'CONFIRMED', 'OWNER_USER', 'READ_FROM_PHOTO_OK', '${key("dec")}') RETURNING "id"`, bizA, z2);
   ok("the owner's confirmation of a Z read from a photo is a decision row", typeof zDecision === "number", String(zDecision));
+  // Evidence recorded in error: REJECTED (excluded) and REVOKED (withdrawn) only; the evidence row is untouched.
+  const before6 = JSON.stringify(rows(await owner.$queryRawUnsafe(`SELECT * FROM "RevenueSettlement" WHERE "id" = $1`, A.settlement)), (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+  for (const [col, id] of [["saleId", A.sale], ["receiptId", A.receipt], ["settlementId", A.settlement]] as const) {
+    const rej = await add(bizA, `INSERT INTO "RevenueDecision" ("businessId", "${col}", "decision", "actor", "reasonCode", "idempotencyKey") VALUES ($1, $2, 'REJECTED', 'OWNER_USER', 'RECORDED_IN_ERROR', '${key("dec")}') RETURNING "id"`, bizA, id);
+    const rev = await add(bizA, `INSERT INTO "RevenueDecision" ("businessId", "${col}", "decision", "actor", "idempotencyKey") VALUES ($1, $2, 'REVOKED', 'OWNER_USER', '${key("dec")}') RETURNING "id"`, bizA, id);
+    ok(`a ${col.replace("Id", "")} recorded in error can be REJECTED, and the rejection REVOKED (two journal rows)`, typeof rej === "number" && typeof rev === "number", J({ rej, rev }));
+    await bad(`a ${col.replace("Id", "")} cannot be CONFIRMED (evidence is valid as recorded; only REJECTED / REVOKED)`,
+      `INSERT INTO "RevenueDecision" ("businessId", "${col}", "decision", "actor", "idempotencyKey") VALUES ($1, $2, 'CONFIRMED', 'OWNER_USER', '${key("dec")}')`, CHECK, id);
+  }
+  await bad("a decision naming both a sale and a settlement refused",
+    `INSERT INTO "RevenueDecision" ("businessId", "saleId", "settlementId", "decision", "actor", "idempotencyKey") VALUES ($1, $2, $3, 'REJECTED', 'SYSTEM', '${key("dec")}')`, CHECK, A.sale, A.settlement);
+  const after6 = JSON.stringify(rows(await owner.$queryRawUnsafe(`SELECT * FROM "RevenueSettlement" WHERE "id" = $1`, A.settlement)), (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+  ok("rejecting and restoring a settlement leaves the settlement row byte-identical", before6 === after6 && before6 !== "[]");
 
   // ── 7. The link guard ───────────────────────────────────────────────────────────────────────────
   console.log("7. link guard");
