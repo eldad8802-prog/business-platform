@@ -1,0 +1,193 @@
+# i18n performance benchmark — flag OFF vs flag ON (evidence for activating English; changes nothing).
+#
+# Two production builds of the SAME commit (plus one throwaway experiment build) served by `next start`
+# side by side on ONE runner, against an ephemeral PG17 service container:
+#   :3612 OFF  no DUBIZ_I18N_ENABLED (= Production today)
+#   :3611 ON   DUBIZ_I18N_ENABLED=true
+#   :3621 / :3622  origin/main flag OFF / ON — only for the before/after proof of the root-layout payload change
+#   :3613 EXP  flag ON + `export const dynamic = "force-static"` appended to app/(corporate)/layout.tsx in a
+#              throwaway worktree ONLY (never committed) — does the marketing site stay static with the flag ON?
+# Steps: route tables → .i18n/perf-benchmark.mts (latency, load, browser, experiment, rollback-pre) →
+# the existing R2/R3 assertions (activation-readiness.mts on a route subset) → rollback demo (the OFF build
+# replaces ON on :3611, same DB, same browser cookie) → report artifact.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO Production; no Vercel env touched.
+
+name: i18n perf benchmark (flag OFF vs ON, PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".i18n/perf-*"
+      - ".i18n/payload-parity.mts"
+      - "app/layout.tsx"
+      - "components/i18n/I18nProvider.tsx"
+      - "docs/i18n-multicurrency/PERF-BENCHMARK.md"
+      - ".github/workflows/i18n-perf-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  perf:
+    name: i18n perf — flag OFF vs ON (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fx_owner
+          POSTGRES_PASSWORD: fx_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_fx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fx_owner -d dubiz_fx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      DIRECT_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      TEST_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
+      CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Report directory + runner facts
+        shell: bash
+        run: |
+          echo "PERF_OUT=$RUNNER_TEMP/perf" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/perf"
+          { nproc; getconf CLK_TCK; free -m; lscpu | head -20; } | tee "$RUNNER_TEMP/perf/runner.txt"
+
+      - name: Pure tests (benchmark statistics + /proc parsing)
+        run: npx tsx .i18n/perf-lib.test.ts
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      # All builds BEFORE the Chromium install (see i18n-multicurrency-ci.yml: next/font breaks after it).
+      - name: Build (flag ON)
+        shell: bash
+        env:
+          DUBIZ_I18N_ENABLED: "true"
+        run: npm run build 2>&1 | tee "$PERF_OUT/build-on.log"
+
+      - name: Build (flag OFF = Production today) in a second worktree of the same commit
+        shell: bash
+        run: |
+          git worktree add --detach ../off HEAD
+          cd ../off
+          npm ci --no-audit --no-fund >/dev/null
+          npm run build 2>&1 | tee "$PERF_OUT/build-off.log"
+
+      - name: Build (EXPERIMENT — flag ON + marketing group force-static) in a throwaway worktree
+        shell: bash
+        continue-on-error: true
+        env:
+          DUBIZ_I18N_ENABLED: "true"
+        run: |
+          git worktree add --detach ../exp HEAD
+          cd ../exp
+          printf '\n// CI experiment only (i18n-perf-benchmark.yml) — never committed.\nexport const dynamic = "force-static";\n' >> "app/(corporate)/layout.tsx"
+          git diff --stat
+          npm ci --no-audit --no-fund >/dev/null
+          npm run build 2>&1 | tee "$PERF_OUT/build-exp.log"
+          test "${PIPESTATUS[0]}" = "0"
+
+      # Before/after proof for the root-layout payload change: origin/main built OFF and ON as well.
+      - name: Build MAIN (origin/main) flag OFF and flag ON — for the before/after payload proof
+        shell: bash
+        run: |
+          git worktree add --detach ../main-off origin/main
+          git worktree add --detach ../main-on origin/main
+          git -C ../main-off log --oneline -1 | tee "$PERF_OUT/main-commit.txt"
+          (cd ../main-off && npm ci --no-audit --no-fund >/dev/null && npm run build > "$PERF_OUT/build-main-off.log" 2>&1)
+          (cd ../main-on && npm ci --no-audit --no-fund >/dev/null && DUBIZ_I18N_ENABLED=true npm run build > "$PERF_OUT/build-main-on.log" 2>&1)
+
+      - name: Static vs dynamic — route tables (OFF vs ON, OFF vs EXP)
+        shell: bash
+        run: |
+          npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-on.log" "$PERF_OUT/route-table-on.json" > "$PERF_OUT/route-table-on.txt"
+          head -n 2 "$PERF_OUT/route-table-on.txt"
+          if [ -f "$PERF_OUT/build-exp.log" ]; then
+            npx tsx .i18n/route-table.mts "$PERF_OUT/build-off.log" "$PERF_OUT/build-exp.log" "$PERF_OUT/route-table-exp.json" > "$PERF_OUT/route-table-exp.txt" || true
+            head -n 2 "$PERF_OUT/route-table-exp.txt"
+            node -e "const r=require(process.argv[1]); console.log('EXP static pages:', r.staticOn.join(' '))" "$PERF_OUT/route-table-exp.json" || true
+          fi
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the servers (ON :3611, OFF :3612, EXP :3613)
+        shell: bash
+        run: |
+          (DUBIZ_I18N_ENABLED=true nohup npx next start -p 3611 > "$PERF_OUT/server-on.log" 2>&1 &)
+          (cd ../off && nohup npx next start -p 3612 > "$PERF_OUT/server-off.log" 2>&1 &)
+          if [ -d ../exp/.next ]; then (cd ../exp && DUBIZ_I18N_ENABLED=true nohup npx next start -p 3613 > "$PERF_OUT/server-exp.log" 2>&1 &); fi
+          for p in 3611 3612; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          if [ -d ../exp/.next ]; then for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3613/login && break; sleep 2; done; fi
+          ss -Htlnp | grep -E ':361[123]' || true
+
+      - name: 0 · Payload change before/after — MAIN vs BRANCH, flag OFF and ON, identical DOM/text/meta
+        shell: bash
+        run: |
+          (cd ../main-on && DUBIZ_I18N_ENABLED=true nohup npx next start -p 3622 > "$PERF_OUT/server-main-on.log" 2>&1 &)
+          (cd ../main-off && nohup npx next start -p 3621 > "$PERF_OUT/server-main-off.log" 2>&1 &)
+          for p in 3621 3622; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          set +e
+          npx tsx .i18n/payload-parity.mts
+          rc=$?
+          for p in 3621 3622; do pid=$(ss -Htlnp "sport = :$p" | grep -o "pid=[0-9]*" | head -n 1 | cut -d= -f2); [ -n "$pid" ] && kill "$pid"; done
+          exit $rc
+
+      - name: 1-3 · Benchmark — latency, load, browser, experiment, rollback-pre
+        if: ${{ !cancelled() }}
+        run: npx tsx .i18n/perf-benchmark.mts
+
+      - name: 4 · Hebrew default + isolation — the existing R2/R3 (and R4/R6) assertions, same run
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          READINESS_WORKERS: "4"
+          READINESS_ONLY: "^/(app|login|home|collection|customers|billing|settings|settings/workspace|leads|inventory|secretary|payables)$"
+        run: READINESS_OUT="$PERF_OUT/readiness" npx tsx .i18n/activation-readiness.mts
+
+      - name: 5 · Rollback — the OFF build replaces ON on :3611 (same DB, same dz_locale=en cookie)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          t0=$(date +%s.%N)
+          # next start re-titles itself "next-server", so kill the LISTENER pid (pkill -f "next start" misses it)
+          pid=$(ss -Htlnp "sport = :3611" | grep -o "pid=[0-9]*" | head -n 1 | cut -d= -f2)
+          echo "stopping the ON server pid $pid"; kill "$pid"
+          for i in $(seq 1 30); do ss -Htln "sport = :3611" | grep -q 3611 || break; sleep 1; done
+          ss -Htln "sport = :3611" | grep -q 3611 && { echo "port 3611 still in use"; exit 1; }
+          (cd ../off && nohup npx next start -p 3611 > "$PERF_OUT/server-rollback.log" 2>&1 &)
+          for i in $(seq 1 120); do curl -sf -o /dev/null http://localhost:3611/login && break; sleep 0.5; done
+          t1=$(date +%s.%N)
+          echo "OFF build serving :3611 again after $(echo "$t1 - $t0" | bc) s (stop ON + start OFF, no rebuild)" | tee "$PERF_OUT/rollback-time.txt"
+          npx tsx .i18n/perf-benchmark.mts --rollback
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: i18n-perf-benchmark
+          path: ${{ runner.temp }}/perf
+          if-no-files-found: ignore
