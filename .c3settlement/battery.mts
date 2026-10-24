@@ -894,7 +894,11 @@ async function main() {
           const kept = (ptx.rawPayload as { verification?: { providerDocument?: unknown } } | null)?.verification?.providerDocument;
           ok(`${label} — the document kept with the money is CardCom's verified answer`,
             doc === "info"
-              ? JSON.stringify(kept) === JSON.stringify({ number: String(880000 + Number(ptx.providerTransactionId)), type: "TaxInvoiceAndReceipt", url: DOC_URL })
+              ? (() => {
+                  // jsonb does not keep key order: compare field by field.
+                  const k = kept as { number?: string; type?: string; url?: string | null } | null;
+                  return !!k && Object.keys(k).length === 3 && k.number === String(880000 + Number(ptx.providerTransactionId)) && k.type === "TaxInvoiceAndReceipt" && k.url === DOC_URL;
+                })()
               : kept === null,
             JSON.stringify(kept));
           ok(`${label} — no BillingDocument of any kind (Dubiz issues nothing)`, (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
