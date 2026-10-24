@@ -158,8 +158,8 @@
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 /* details: one primary row, then quieter rows; the destructive action alone at the end */
 .actGroup { display: flex; flex-direction: column; gap: 8px; }
-.actMain { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-.actMain .btn { justify-content: center; min-height: 40px; }
+.actMain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.actMain .btn { justify-content: center; min-height: 40px; padding-inline: 6px; }
 .actMore { display: flex; flex-wrap: wrap; gap: 2px 4px; margin-inline: -8px; }
 .actMore .btn { padding-inline: 8px; }
 .actEnd { display: flex; justify-content: flex-start; border-top: 1px solid var(--dz-border-subtle); padding-top: 8px; margin-inline: -8px; }
@@ -189,7 +189,7 @@
 .bar { height: 10px; border-radius: 6px; background: var(--dz-surface-muted); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .bar { animation: none; } }
-.toast { position: fixed; inset-inline: 16px; bottom: calc(100px + var(--dz-safe-bottom, 0px)); z-index: 120; margin-inline: auto; max-width: 420px; background: var(--dz-text-primary); color: var(--dz-surface-raised); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; display: flex; gap: 10px; align-items: center; }
+.toast { position: fixed; inset-inline: 16px; bottom: calc(100px + var(--dz-safe-bottom, 0px)); z-index: 120; margin-inline: auto; max-width: 420px; background: var(--dz-text-primary); color: var(--dz-text-on-brand, #fff); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; display: flex; gap: 10px; align-items: center; }
 @media (min-width: 768px) { .toast { bottom: 24px; } }
 .toast button { margin-inline-start: auto; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

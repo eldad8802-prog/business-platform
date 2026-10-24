@@ -278,30 +278,27 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
             <button type="button" className={s.btn} onClick={() => setMode("date")}>{tr("tasks.details.own.changeDate")}</button>
             <button type="button" className={s.btn} onClick={() => void act(() => taskAction(t.id, "snooze", { ...v, dueOn: addDays(today, 1) }), tr("tasks.common.snoozedTomorrow"))}>{tr("tasks.common.snoozeTomorrow")}</button>
           </div>
-          {/* 2 — the reminder, folded into one choice */}
-          {t.remindAt && !t.reminderSent ? (
-            mode === "remind" ? (
-              <div className={s.actions} role="group" aria-label="דחיית התזכורת">
-                {snoozePresets(new Date()).map((sp) => (
-                  <button
-                    key={sp.key}
-                    type="button"
-                    className={s.chip}
-                    onClick={() => void act(() => taskAction(t.id, "snooze-reminder", { ...v, until: sp.at.toISOString() }), `התזכורת נדחתה — ${remindMomentLabel(sp.at, new Date())}`).then(() => setMode("idle"))}
-                  >
-                    {sp.label}
-                  </button>
-                ))}
-                <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("idle")}>{tr("tasks.common.cancel")}</button>
-              </div>
-            ) : (
-              <div className={s.actMore}>
-                <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("remind")}>דחיית התזכורת…</button>
-              </div>
-            )
+          {/* 2 — the reminder's snooze presets, opened from the quiet row below */}
+          {mode === "remind" && t.remindAt && !t.reminderSent ? (
+            <div className={s.actions} role="group" aria-label="דחיית התזכורת">
+              {snoozePresets(new Date()).map((sp) => (
+                <button
+                  key={sp.key}
+                  type="button"
+                  className={s.chip}
+                  onClick={() => void act(() => taskAction(t.id, "snooze-reminder", { ...v, until: sp.at.toISOString() }), `התזכורת נדחתה — ${remindMomentLabel(sp.at, new Date())}`).then(() => setMode("idle"))}
+                >
+                  {sp.label}
+                </button>
+              ))}
+              <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("idle")}>{tr("tasks.common.cancel")}</button>
+            </div>
           ) : null}
-          {/* 3 — the rest, quieter */}
+          {/* 3 — the rest, quieter, in one row */}
           <div className={s.actMore}>
+            {t.remindAt && !t.reminderSent && mode !== "remind" ? (
+              <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("remind")}>דחיית התזכורת…</button>
+            ) : null}
             {t.seriesId ? (
               <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => void closeAnd(() => taskAction(t.id, "skip", v), tr("tasks.details.own.skippedOnce"))}>{tr("tasks.details.own.skipOnce")}</button>
             ) : null}
