@@ -686,15 +686,28 @@ DO $do$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
     -- Read, add, change — never remove: staff are deactivated, rules and assignments are marked removed.
-    GRANT SELECT, INSERT, UPDATE ON "StaffMember", "StaffServiceAssignment", "AvailabilityRule",
-                                    "AvailabilityException", "ServiceBookingPolicy", "BookingSettings",
-                                    "BookingRequest", "AppointmentManageToken" TO app_runtime;
-    REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON "StaffMember", "StaffServiceAssignment", "AvailabilityRule",
-                                    "AvailabilityException", "ServiceBookingPolicy", "BookingSettings",
-                                    "BookingRequest", "AppointmentManageToken" FROM app_runtime;
-    GRANT USAGE, SELECT ON SEQUENCE "StaffMember_id_seq", "StaffServiceAssignment_id_seq", "AvailabilityRule_id_seq",
-                                    "AvailabilityException_id_seq", "ServiceBookingPolicy_id_seq", "BookingRequest_id_seq",
-                                    "AppointmentManageToken_id_seq" TO app_runtime;
+    GRANT SELECT, INSERT, UPDATE ON "StaffMember" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "StaffMember_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "StaffServiceAssignment" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "StaffServiceAssignment_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "AvailabilityRule" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "AvailabilityRule_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "AvailabilityException" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "AvailabilityException_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "ServiceBookingPolicy" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "ServiceBookingPolicy_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "BookingSettings" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "BookingRequest" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "BookingRequest_id_seq" TO app_runtime;
+
+    GRANT SELECT, INSERT, UPDATE ON "AppointmentManageToken" TO app_runtime;
+    GRANT USAGE, SELECT ON SEQUENCE "AppointmentManageToken_id_seq" TO app_runtime;
 
     -- Append-only for the runtime.
     GRANT SELECT, INSERT ON "AppointmentEvent" TO app_runtime;
