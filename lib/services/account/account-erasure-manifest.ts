@@ -142,6 +142,10 @@ export const ANONYMIZE_MODELS = [
   // records the erasure.
   { model: "task", fields: { title: "blank", description: "null", erasedAt: "now" } },
   { model: "taskSeries", fields: { title: "blank", note: "null", erasedAt: "now" } },
+  // Web Push subscriptions (migration 20261022090000): the browser's push address and keys are blanked in place
+  // (endpoint = 'erased:<id>', keys empty) and the row is revoked — the runtime holds no DELETE on the table, and
+  // with no address and no keys nothing can ever be sent to that device again.
+  { model: "pushSubscription", fields: { endpoint: "erased-id", p256dh: "blank", auth: "blank", revokedAt: "now" } },
 
   // ── the conversation graph ────────────────────────────────────────────────
   //

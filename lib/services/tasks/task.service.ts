@@ -24,6 +24,7 @@ import { Prisma, type Task, type TaskSeries } from "@prisma/client";
 
 import { CLOSED_LEAD_STATUSES } from "@/lib/services/crm/lead-core";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { remindAtOf, scheduleProblem, snoozeTarget, type Schedule } from "./task-schedule";
 import { addCalendarDays, daysBetweenDayKeys, jerusalemDayKey, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 import {
@@ -353,6 +354,29 @@ function ruleColumns(rule: SeriesRule) {
   };
 }
 
+/**
+ * The reminder columns for a schedule (migration 20261022090000). remindAt is derived, never typed in; the claim
+ * (reminderSentAt) is reset so the dispatcher sends for the new moment. A moment already more than five minutes in
+ * the past is marked as handled instead: setting a reminder for "earlier today" must not fire a stale push.
+ */
+const STALE_REMINDER_MS = 5 * 60_000;
+function scheduleColumns(sch: Schedule, now: Date) {
+  const problem = scheduleProblem(sch);
+  if (problem) throw new TaskServiceError("INVALID_INPUT", problem);
+  const remindAt = remindAtOf(sch);
+  return {
+    dueMinute: sch.dueMinute,
+    remindOffsetMinutes: sch.remindOffsetMinutes,
+    remindAt,
+    reminderSentAt: remindAt && remindAt.getTime() < now.getTime() - STALE_REMINDER_MS ? now : null,
+  };
+}
+const minuteOrNull = (v: unknown, field: string): number | null => {
+  if (v === null || v === undefined) return null;
+  if (!Number.isInteger(v)) throw new TaskServiceError("INVALID_INPUT", { field, problem: "NOT_AN_INTEGER" });
+  return v as number;
+};
+
 /** The series' new OPEN occurrence on `dueOn`, created by the system as a consequence of an owner action. */
 async function createOccurrence(ctx: Ctx, series: TaskSeries, dueOn: JerusalemDayKey, actor: "OWNER" | "SYSTEM"): Promise<Task> {
   const sequence = (await maxSequence(ctx.tx, ctx.businessId, series.id)) + 1;
@@ -362,6 +386,7 @@ async function createOccurrence(ctx: Ctx, series: TaskSeries, dueOn: JerusalemDa
       title: series.title,
       description: series.note,
       dueOn: dayKeyToDbDate(dueOn),
+      ...scheduleColumns({ dueOn, dueMinute: series.dueMinute, remindOffsetMinutes: series.dueMinute == null ? null : series.remindOffsetMinutes }, ctx.now),
       seriesId: series.id,
       sequence,
       origin: "OWNER",
@@ -407,7 +432,13 @@ async function seriesOf(ctx: Ctx, task: Task): Promise<TaskSeries | null> {
 
 // ── Tasks ───────────────────────────────────────────────────────────────────────────────────────
 
-export type CreateTaskInput = { title: string; note?: string | null; dueOn?: JerusalemDayKey | null; link?: TaskLink; origin?: "OWNER" | "SECRETARY" };
+export type CreateTaskInput = {
+  title: string; note?: string | null; dueOn?: JerusalemDayKey | null; link?: TaskLink; origin?: "OWNER" | "SECRETARY";
+  /** Time of day (minutes after midnight, Israel); needs dueOn. */
+  dueMinute?: number | null;
+  /** Remind this many minutes before the due moment (0 = at the moment); needs dueMinute. */
+  remindOffsetMinutes?: number | null;
+};
 
 export function createTask(actor: TaskActor, req: TaskRequest, input: CreateTaskInput): Promise<TaskResult> {
   return idempotent(actor, req, "task.create", input, async (ctx) => {
@@ -421,12 +452,20 @@ export function createTask(actor: TaskActor, req: TaskRequest, input: CreateTask
         title: input.title.trim(),
         description: input.note ?? null,
         dueOn: input.dueOn ? dayKeyToDbDate(input.dueOn) : null,
+        ...scheduleColumns({
+          dueOn: input.dueOn ?? null,
+          dueMinute: minuteOrNull(input.dueMinute, "dueMinute"),
+          remindOffsetMinutes: minuteOrNull(input.remindOffsetMinutes, "remindOffsetMinutes"),
+        }, ctx.now),
         origin: input.origin ?? "OWNER",
         createdByUserId: ctx.userId,
         ...linkColumns(input.link),
       },
     });
-    own(ctx, { eventType: "TASK_CREATED", taskId: t.id, payload: { dueOn: input.dueOn ?? undefined, origin: t.origin, link: linkToken(input.link) } });
+    own(ctx, { eventType: "TASK_CREATED", taskId: t.id, payload: {
+      dueOn: input.dueOn ?? undefined, origin: t.origin, link: linkToken(input.link),
+      dueMinute: t.dueMinute ?? undefined, remindOffsetMinutes: t.remindOffsetMinutes ?? undefined,
+    } });
     return { taskId: t.id };
   });
 }
@@ -470,9 +509,14 @@ export function pinTask(actor: TaskActor, req: TaskRequest, taskId: number, inpu
   });
 }
 
-/** A new due day from a form (RESCHEDULE) or from the agenda (SNOOZE — the learning signal, kept apart). */
+/**
+ * A new due day from a form (RESCHEDULE) or from the agenda (SNOOZE — the learning signal, kept apart). A form may
+ * also set or clear the time and the reminder (undefined keeps them; null clears); the reminder moment follows the
+ * new day and time, and its dispatch claim is reset.
+ */
+export type MoveTaskInput = { expectedVersion: number; dueOn: JerusalemDayKey; dueMinute?: number | null; remindOffsetMinutes?: number | null };
 function moveTask(kind: "RESCHEDULE" | "SNOOZE") {
-  return (actor: TaskActor, req: TaskRequest, taskId: number, input: { expectedVersion: number; dueOn: JerusalemDayKey }): Promise<TaskResult> =>
+  return (actor: TaskActor, req: TaskRequest, taskId: number, input: MoveTaskInput): Promise<TaskResult> =>
     idempotent(actor, req, kind === "SNOOZE" ? "task.snooze" : "task.reschedule", { taskId, ...input }, async (ctx) => {
       assertDay("dueOn", input.dueOn);
       const task = await loadTask(ctx, taskId);
@@ -482,13 +526,39 @@ function moveTask(kind: "RESCHEDULE" | "SNOOZE") {
       if (!canTransition(kind as TaskAction, locked.status as TaskState)) throw new TaskServiceError("INVALID_STATE", { status: locked.status });
       if (kind === "SNOOZE" && input.dueOn <= ctx.today) throw new TaskServiceError("INVALID_INPUT", { field: "dueOn", problem: "SNOOZE_NOT_IN_FUTURE" });
       const from = locked.dueOn ? dbDateToDayKey(locked.dueOn) : undefined;
-      await updateTask(ctx, locked, input.expectedVersion, { dueOn: dayKeyToDbDate(input.dueOn) });
-      own(ctx, { eventType: kind === "SNOOZE" ? "TASK_SNOOZED" : "TASK_RESCHEDULED", taskId, seriesId: locked.seriesId, payload: { from, to: input.dueOn } });
+      const dueMinute = kind === "RESCHEDULE" && input.dueMinute !== undefined ? minuteOrNull(input.dueMinute, "dueMinute") : locked.dueMinute;
+      const offset = kind === "RESCHEDULE" && input.remindOffsetMinutes !== undefined
+        ? minuteOrNull(input.remindOffsetMinutes, "remindOffsetMinutes")
+        : (dueMinute == null ? null : locked.remindOffsetMinutes);
+      const sched = scheduleColumns({ dueOn: input.dueOn, dueMinute, remindOffsetMinutes: offset }, ctx.now);
+      await updateTask(ctx, locked, input.expectedVersion, { dueOn: dayKeyToDbDate(input.dueOn), ...sched });
+      own(ctx, { eventType: kind === "SNOOZE" ? "TASK_SNOOZED" : "TASK_RESCHEDULED", taskId, seriesId: locked.seriesId,
+        payload: kind === "SNOOZE" ? { from, to: input.dueOn }
+          : { from, to: input.dueOn, dueMinute: dueMinute ?? undefined, remindOffsetMinutes: offset ?? undefined, remindAt: sched.remindAt?.toISOString() } });
       return { taskId };
     });
 }
 export const rescheduleTask = moveTask("RESCHEDULE");
 export const snoozeTask = moveTask("SNOOZE");
+
+/**
+ * Snooze the REMINDER (not the task's day): the next reminder fires at `until` (a whole minute, in the future,
+ * at most 30 days ahead). The dispatch claim is reset, so the old moment can no longer be sent (the dispatcher
+ * re-checks remindAt) and the new one is sent exactly once. Journaled as TASK_SNOOZED { remindFrom, remindTo }.
+ */
+export function snoozeReminder(actor: TaskActor, req: TaskRequest, taskId: number, input: { expectedVersion: number; until: string }): Promise<TaskResult> {
+  return idempotent(actor, req, "task.snooze_reminder", { taskId, ...input }, async (ctx) => {
+    const target = snoozeTarget(input.until, ctx.now);
+    if ("problem" in target) throw new TaskServiceError("INVALID_INPUT", { field: "until", problem: target.problem });
+    await lockTask(ctx.tx, ctx.businessId, taskId);
+    const task = await loadTask(ctx, taskId);
+    if (!canTransition("SNOOZE", task.status as TaskState)) throw new TaskServiceError("INVALID_STATE", { status: task.status });
+    await updateTask(ctx, task, input.expectedVersion, { remindAt: target.at, reminderSentAt: null });
+    own(ctx, { eventType: "TASK_SNOOZED", taskId, seriesId: task.seriesId,
+      payload: { remindFrom: task.remindAt?.toISOString(), remindTo: target.at.toISOString() } });
+    return { taskId };
+  });
+}
 
 export function completeTask(actor: TaskActor, req: TaskRequest, taskId: number, input: { expectedVersion: number }): Promise<TaskResult> {
   return idempotent(actor, req, "task.complete", { taskId, ...input }, async (ctx) => {
@@ -555,7 +625,11 @@ export function reopenTask(actor: TaskActor, req: TaskRequest, taskId: number, i
         own(ctx, { eventType: "TASK_CANCELED", taskId: open.id, seriesId: series.id, payload: { closeReason: "WITHDRAWN_BY_REOPEN" } });
       }
     }
-    await updateTask(ctx, task, input.expectedVersion, { status: "OPEN", completedAt: null, completedByUserId: null, closeReason: null });
+    await updateTask(ctx, task, input.expectedVersion, {
+      status: "OPEN", completedAt: null, completedByUserId: null, closeReason: null,
+      // A reminder whose moment passed while the task was closed is not sent on reopen.
+      ...(task.remindAt && task.remindAt.getTime() <= ctx.now.getTime() ? { reminderSentAt: ctx.now } : {}),
+    });
     own(ctx, { eventType: "TASK_REOPENED", taskId, seriesId: task.seriesId, payload: { from: task.status, withdrawnTaskId: withdrawn?.id } });
     return { taskId, seriesId: series?.id, withdrawnTaskId: withdrawn?.id };
   });
@@ -563,7 +637,11 @@ export function reopenTask(actor: TaskActor, req: TaskRequest, taskId: number, i
 
 // ── Series ──────────────────────────────────────────────────────────────────────────────────────
 
-export type CreateSeriesInput = { title: string; note?: string | null; link?: TaskLink; rule: SeriesRule; startOn?: JerusalemDayKey };
+export type CreateSeriesInput = {
+  title: string; note?: string | null; link?: TaskLink; rule: SeriesRule; startOn?: JerusalemDayKey;
+  /** Every occurrence's time of day and reminder (see CreateTaskInput). */
+  dueMinute?: number | null; remindOffsetMinutes?: number | null;
+};
 
 export function createSeries(actor: TaskActor, req: TaskRequest, input: CreateSeriesInput): Promise<TaskResult> {
   return idempotent(actor, req, "series.create", input, async (ctx) => {
@@ -574,19 +652,25 @@ export function createSeries(actor: TaskActor, req: TaskRequest, input: CreateSe
     const startOn = input.startOn ?? ctx.today;
     assertDay("startOn", startOn);
     await assertLink(ctx.tx, ctx.businessId, input.link);
+    const seriesMinute = minuteOrNull(input.dueMinute, "dueMinute");
+    const seriesOffset = minuteOrNull(input.remindOffsetMinutes, "remindOffsetMinutes");
+    const shape = scheduleProblem({ dueOn: startOn, dueMinute: seriesMinute, remindOffsetMinutes: seriesOffset });
+    if (shape) throw new TaskServiceError("INVALID_INPUT", shape);
     const series = await ctx.tx.taskSeries.create({
       data: {
         businessId: ctx.businessId,
         title: input.title.trim(),
         note: input.note ?? null,
         startOn: dayKeyToDbDate(startOn),
+        dueMinute: seriesMinute,
+        remindOffsetMinutes: seriesOffset,
         createdByUserId: ctx.userId,
         ...ruleColumns(rule),
         ...linkColumns(input.link),
       },
     });
     const idx = ctx.events.length;
-    own(ctx, { eventType: "SERIES_CREATED", seriesId: series.id, payload: { ruleKind: rule.kind, startOn } });
+    own(ctx, { eventType: "SERIES_CREATED", seriesId: series.id, payload: { ruleKind: rule.kind, startOn, dueMinute: seriesMinute ?? undefined, remindOffsetMinutes: seriesOffset ?? undefined } });
     const firstDay = firstOccurrenceOnOrAfter(rule, startOn, startOn > ctx.today ? startOn : ctx.today);
     const first = await createOccurrence(ctx, series, firstDay, "OWNER");
     ctx.events[idx].payload.firstTaskId = first.id;
@@ -594,7 +678,11 @@ export function createSeries(actor: TaskActor, req: TaskRequest, input: CreateSe
   });
 }
 
-export type ChangeSeriesInput = { expectedVersion: number; title?: string; note?: string | null; rule?: SeriesRule };
+export type ChangeSeriesInput = {
+  expectedVersion: number; title?: string; note?: string | null; rule?: SeriesRule;
+  /** undefined keeps; null clears. Applies to the series and its open occurrence. */
+  dueMinute?: number | null; remindOffsetMinutes?: number | null;
+};
 
 /**
  * Title / note apply to the series and its open occurrence (closed ones keep their history). A new rule closes
@@ -613,12 +701,22 @@ export function changeSeries(actor: TaskActor, req: TaskRequest, seriesId: numbe
       if (problem) throw new TaskServiceError("INVALID_INPUT", { field: "rule", problem });
       rule = normalizeRule(input.rule);
     }
-    const fields = [input.title !== undefined && "title", input.note !== undefined && "note", rule && "rule"].filter(Boolean) as string[];
+    const timeChanged = input.dueMinute !== undefined || input.remindOffsetMinutes !== undefined;
+    const newMinute = input.dueMinute !== undefined ? minuteOrNull(input.dueMinute, "dueMinute") : series.dueMinute;
+    const newOffset = newMinute == null ? null
+      : input.remindOffsetMinutes !== undefined ? minuteOrNull(input.remindOffsetMinutes, "remindOffsetMinutes") : series.remindOffsetMinutes;
+    if (timeChanged) {
+      const shape = scheduleProblem({ dueOn: ctx.today, dueMinute: newMinute, remindOffsetMinutes: newOffset });
+      if (shape) throw new TaskServiceError("INVALID_INPUT", shape);
+    }
+    const fields = [input.title !== undefined && "title", input.note !== undefined && "note", rule && "rule",
+      input.dueMinute !== undefined && "dueMinute", input.remindOffsetMinutes !== undefined && "remindOffsetMinutes"].filter(Boolean) as string[];
     if (fields.length === 0) throw new TaskServiceError("INVALID_INPUT", { problem: "NOTHING_TO_CHANGE" });
     const updated = await updateSeries(ctx, series, input.expectedVersion, {
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),
       ...(input.note !== undefined ? { note: input.note } : {}),
       ...(rule ? { ...ruleColumns(rule), startOn: dayKeyToDbDate(ctx.today) } : {}),
+      ...(timeChanged ? { dueMinute: newMinute, remindOffsetMinutes: newOffset } : {}),
     });
     const open = await openOccurrence(ctx, seriesId);
     let closedId: number | undefined;
@@ -627,10 +725,13 @@ export function changeSeries(actor: TaskActor, req: TaskRequest, seriesId: numbe
       await updateTask(ctx, open, open.version, { status: "CANCELED", closeReason: "SERIES_CHANGED" });
       own(ctx, { eventType: "TASK_CANCELED", taskId: open.id, seriesId, payload: { closeReason: "SERIES_CHANGED" } });
       closedId = open.id;
-    } else if (open && (input.title !== undefined || input.note !== undefined)) {
+    } else if (open && (input.title !== undefined || input.note !== undefined || timeChanged)) {
       await updateTask(ctx, open, open.version, {
         ...(input.title !== undefined ? { title: input.title.trim() } : {}),
         ...(input.note !== undefined ? { description: input.note } : {}),
+        ...(timeChanged && open.dueOn
+          ? scheduleColumns({ dueOn: dbDateToDayKey(open.dueOn), dueMinute: newMinute, remindOffsetMinutes: newOffset }, ctx.now)
+          : {}),
       });
     }
     if (rule && !updated.pausedAt) {

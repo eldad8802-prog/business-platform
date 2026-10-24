@@ -292,6 +292,10 @@ async function main() {
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "Task", "TaskSeries" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, DELETE ON "TaskRequestLedger" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE UPDATE, TRUNCATE ON "TaskRequestLedger" FROM ${RT_ROLE}`);
+  // Task reminders — migration 20261022090000_task_reminders_push, mirrored exactly: SELECT, INSERT, UPDATE on
+  // PushSubscription (DELETE revoked — account erasure blanks and revokes the rows in place).
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "PushSubscription" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "PushSubscription" FROM ${RT_ROLE}`);
   // The journal is reached only through task_retention_erase_business() (SECURITY DEFINER, EXECUTE to the
   // runtime alone). The lab schema is pushed, not migrated, so the function is created from the migration's
   // own text — never a hand-written copy — and owned by the lab owner, as Production's is by the migration role.

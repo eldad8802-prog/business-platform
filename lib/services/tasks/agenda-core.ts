@@ -129,6 +129,12 @@ export type ManualTask = {
   cadence: string | null;
   link: { kind: "customer" | "supplier" | "lead" | "document"; id: number; label: string | null } | null;
   createdAt: string;
+  /** Time of day (minutes after midnight, Israel) and reminder (migration 20261022090000). */
+  dueMinute?: number | null;
+  remindOffsetMinutes?: number | null;
+  /** The next reminder moment (ISO), or null; reminderSent = the current moment was already sent. */
+  remindAt?: string | null;
+  reminderSent?: boolean;
 };
 
 /** An active series without an open occurrence: computed, not stored, until the sync repairs it (8.7). */
@@ -224,13 +230,13 @@ export function muteDuplicates(items: VisibleItem[]): VisibleItem[] {
 // ── Buckets ─────────────────────────────────────────────────────────────────────────────────────
 
 /** Where an item with this placement and due day goes; null = beyond the window (not on the agenda). */
-export function bucketFor(placement: Placement, dueOn: JerusalemDayKey | null, today: JerusalemDayKey): Bucket | null {
+export function bucketFor(placement: Placement, dueOn: JerusalemDayKey | null, today: JerusalemDayKey, upcomingDays: number = UPCOMING_DAYS): Bucket | null {
   if (placement === "NO_DATE") return "NO_DATE";
   if (placement === "TODAY") return dueOn && dueOn < today ? "OVERDUE" : "TODAY";
   if (!dueOn) return "NO_DATE";
   if (dueOn < today) return "OVERDUE";
   if (dueOn === today) return "TODAY";
-  return daysBetweenDayKeys(today, dueOn) <= UPCOMING_DAYS ? "UPCOMING" : null;
+  return daysBetweenDayKeys(today, dueOn) <= upcomingDays ? "UPCOMING" : null;
 }
 
 export function overdueLabel(dueOn: JerusalemDayKey, today: JerusalemDayKey, t: Translator = HEBREW_TEXT): string {
@@ -300,6 +306,8 @@ export type AgendaInput = {
   states: StoredState[];
   doneToday: number;
   syncFailed: boolean;
+  /** How far ahead UPCOMING reaches (default a week; the personal list reaches a year). */
+  upcomingDays?: number;
   /** The request's interface language; Hebrew when absent. */
   t?: Translator;
 };
@@ -331,12 +339,12 @@ export function buildAgenda(input: AgendaInput): Agenda {
   const rows: AgendaRow[] = [];
 
   for (const task of input.tasks) {
-    const bucket = bucketFor("BY_DATE", task.dueOn, today);
+    const bucket = bucketFor("BY_DATE", task.dueOn, today, input.upcomingDays);
     if (!bucket) continue;
     rows.push({ type: "TASK", key: `task:${task.id}`, bucket, pinned: task.pinned, task, tags: taskTags(task, bucket, today, task.pinned, t) });
   }
   for (const r of input.repairs) {
-    const bucket = bucketFor("BY_DATE", r.dueOn, today);
+    const bucket = bucketFor("BY_DATE", r.dueOn, today, input.upcomingDays);
     if (!bucket) continue;
     const tags: Tag[] = [{ tone: "upd", text: t("system.tasks.tags.updating") }];
     if (r.cadence) tags.push({ tone: "rep", text: r.cadence });

@@ -35,6 +35,7 @@ import type { ObligationApi } from "@/lib/obligations/secretary-client";
 
 import { TaskDetails } from "./task-details";
 import { TaskForm } from "./task-form";
+import { PushCard } from "./push-card";
 import { longDate, short, todayKey } from "./task-days";
 import { DomainIcon, IconCheck, IconDots, IconPlus, IconAlert } from "./task-icons";
 import s from "./tasks.module.css";
@@ -46,7 +47,7 @@ export function TasksScreen() {
   const bp = useBreakpoint();
   const router = useRouter();
   const params = useSearchParams();
-  const { state, refresh, retrySync } = useAgenda();
+  const { state, refresh, retrySync } = useAgenda(true, { personal: true });
   const [selected, setSelected] = useState<string | null>(null);
   // "+" → "משימה חדשה" lands here with ?new=1.
   const [creating, setCreating] = useState(() => params?.get("new") === "1");
@@ -132,6 +133,34 @@ export function TasksScreen() {
     [refresh, flash, t],
   );
 
+  // A tapped reminder lands here: ?task=<id> selects it; &reminderAction=done|snooze (the push notification's buttons)
+  // performs that action once, then the URL is cleaned so a reload never repeats it.
+  const handledLink = useRef(false);
+  useEffect(() => {
+    if (!agenda || handledLink.current) return;
+    const taskId = Number(params?.get("task"));
+    if (!Number.isInteger(taskId) || taskId <= 0) return;
+    handledLink.current = true;
+    // Deferred out of the effect body: the selection and the action are a consequence of the URL, not of render.
+    void Promise.resolve().then(() => {
+    const row = rows.find((r) => r.type === "TASK" && r.task.id === taskId) as Extract<AgendaRow, { type: "TASK" }> | undefined;
+    const action = params?.get("reminderAction");
+    router.replace("/tasks", { scroll: false });
+    if (!row) {
+      flash("המשימה כבר לא ברשימה.");
+      return;
+    }
+    setSelected(row.key);
+    if (action === "done") void act(() => taskAction(row.task.id, "complete", { expectedVersion: row.task.version }), "סומן כבוצע");
+    if (action === "snooze") {
+      const until = new Date(Date.now() + 60 * 60_000);
+      until.setUTCSeconds(0, 0);
+      until.setUTCMinutes(until.getUTCMinutes() + 1);
+      void act(() => taskAction(row.task.id, "snooze-reminder", { expectedVersion: row.task.version, until: until.toISOString() }), "נזכיר שוב בעוד שעה");
+    }
+    });
+  }, [agenda, rows, params, router, act, flash]);
+
   const completeTask = (row: Extract<AgendaRow, { type: "TASK" }>) =>
     act(
       () => taskAction(row.task.id, "complete", { expectedVersion: row.task.version }),
@@ -197,6 +226,7 @@ export function TasksScreen() {
       <div className={s.cols}>
         <div className={s.main}>
           {agenda ? <QuickAdd inputRef={quickRef} act={act} /> : null}
+          {agenda ? <PushCard /> : null}
           {agenda ? <Banners agenda={agenda} syncing={state.status === "ready" && state.syncing} retrySync={retrySync} reload={refresh} /> : null}
           {state.status === "loading" ? <Skeleton /> : null}
           {agenda ? (

@@ -14,7 +14,12 @@
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
-import { loadUniformExportInput } from "@/lib/services/billing/uniform/uniform-export-loader";
+import {
+  loadUniformExportInput,
+  type UniformExportReadClient,
+} from "@/lib/services/billing/uniform/uniform-export-loader";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
 import { DUBIZ_SOFTWARE_CONFIG } from "@/lib/services/billing/uniform/uniform-config";
 import {
@@ -42,11 +47,19 @@ export async function GET(req: Request): Promise<Response> {
   if (!parsed.ok) return json({ error: parsed.error }, 400);
 
   try {
-    const input = await loadUniformExportInput({
-      businessId: user.businessId,
-      periodStart: parsed.range.periodStart,
-      periodEnd: parsed.range.periodEnd,
-    });
+    // The loader reads BillingDocument, which is under FORCE RLS: without the tenant GUC a
+    // least-privilege runtime (NOBYPASSRLS) sees no row at all, and the export would come out
+    // well-formed and EMPTY. The read therefore runs in the caller's tenant transaction.
+    const input = await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction((tx) =>
+        loadUniformExportInput({
+          businessId: user.businessId,
+          periodStart: parsed.range.periodStart,
+          periodEnd: parsed.range.periodEnd,
+          client: tx as unknown as UniformExportReadClient,
+        })
+      )
+    );
     const projection = assembleUniformExportProjection(input);
 
     const result = await buildUniformExportZip(projection, DUBIZ_SOFTWARE_CONFIG, {

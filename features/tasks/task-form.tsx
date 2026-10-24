@@ -6,6 +6,8 @@
  *
  *   - "מה צריך לעשות?" (required), "מתי" (היום / מחר / a day / ללא תאריך), "חזרה" (פעם אחת / כל יום / כל שבוע /
  *     כל חודש — weekly and monthly follow the chosen day), "קשור ל" (optional: an explicit pick, never a guess);
+ *   - "שעה" (optional) and, with a time, "תזכורת" (בזמן / 15 דקות / שעה / יום לפני, or none) — the reminder is sent at
+ *     the chosen moment even in quiet hours (owner decision 2026-10-21), and the form says so; "פירוט" (optional);
  *   - a summary sentence before saving;
  *   - a typed amount is not stored on a task: the form points to the commitment flow instead (spec 5.1).
  */
@@ -23,6 +25,8 @@ import {
   type LinkOption,
   type RuleInput,
 } from "@/lib/tasks/tasks-client";
+
+import { clockLabel, offsetLabel, parseClock, REMIND_OFFSET_CHOICES } from "@/lib/services/tasks/task-schedule";
 
 import { addDays, chipLabel, todayKey, weekdayLong, weekdayOf, whenPhrase } from "./task-days";
 import s from "./tasks.module.css";
@@ -54,6 +58,9 @@ export function TaskForm({
   const [day, setDay] = useState<string | null>(today);
   const [custom, setCustom] = useState(false);
   const [repeat, setRepeat] = useState<Repeat>("ONCE");
+  const [note, setNote] = useState("");
+  const [clock, setClock] = useState("");
+  const [remind, setRemind] = useState<number | null>(0);
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<LinkOption[] | null>(null);
   const [link, setLink] = useState<LinkOption | null>(null);
@@ -90,16 +97,20 @@ export function TaskForm({
     : null;
 
   const clean = title.trim();
+  const dueMinute = day && clock ? parseClock(clock) : null;
+  const remindOffsetMinutes = dueMinute != null ? remind : null;
+  const at = dueMinute != null ? ` ב־${clockLabel(dueMinute)}` : "";
+  const remindPhrase = remindOffsetMinutes == null ? "" : ` · תזכורת ${offsetLabel(remindOffsetMinutes)}`;
   const summary = !clean
     ? null
     : cadence
       ? startOn === today
-        ? t("tasks.form.summarySeriesToday", { cadence, title: clean })
+        ? t("tasks.form.summarySeriesToday", { cadence: `${cadence}${at}`, title: `${clean}${remindPhrase}` })
         : startOn === addDays(today, 1)
-          ? t("tasks.form.summarySeriesTomorrow", { cadence, title: clean })
-          : t("tasks.form.summarySeriesFrom", { cadence, date: chipLabel(startOn, t), title: clean })
+          ? t("tasks.form.summarySeriesTomorrow", { cadence: `${cadence}${at}`, title: `${clean}${remindPhrase}` })
+          : t("tasks.form.summarySeriesFrom", { cadence: `${cadence}${at}`, date: chipLabel(startOn, t), title: `${clean}${remindPhrase}` })
       : day
-        ? t("tasks.form.summaryRemind", { when: whenPhrase(day, today, t), title: clean })
+        ? t("tasks.form.summaryRemind", { when: `${whenPhrase(day, today, t)}${at}`, title: `${clean}${remindPhrase}` })
         : t("tasks.form.summaryNoDate", { title: clean });
 
   async function save() {
@@ -108,8 +119,9 @@ export function TaskForm({
     setError(null);
     try {
       const l = link ? { kind: link.kind, id: link.id } : null;
-      if (rule) await createSeries(intent, { title: clean, link: l, rule, startOn });
-      else await createTask(intent, { title: clean, dueOn: day, link: l, origin });
+      const n = note.trim() ? note.trim() : null;
+      if (rule) await createSeries(intent, { title: clean, note: n, link: l, rule, startOn, dueMinute, remindOffsetMinutes });
+      else await createTask(intent, { title: clean, note: n, dueOn: day, link: l, origin, dueMinute, remindOffsetMinutes });
       await onDone();
     } catch (e) {
       setError(errorText(e, t));
@@ -167,6 +179,35 @@ export function TaskForm({
           />
         ) : null}
       </fieldset>
+
+      {day ? (
+        <div className={s.field}>
+          <label htmlFor={`${ids}-c`}>שעה (לא חובה)</label>
+          <input
+            id={`${ids}-c`}
+            type="time"
+            className={s.input}
+            value={clock}
+            step={60}
+            onChange={(e) => setClock(e.target.value)}
+          />
+        </div>
+      ) : null}
+
+      {dueMinute != null ? (
+        <fieldset className={s.field}>
+          <legend>תזכורת</legend>
+          <div className={s.chips}>
+            {REMIND_OFFSET_CHOICES.map((c) => (
+              <Chip key={c.minutes} on={remind === c.minutes} onClick={() => setRemind(c.minutes)}>{c.label}</Chip>
+            ))}
+            <Chip on={remind === null} onClick={() => setRemind(null)}>בלי תזכורת</Chip>
+          </div>
+          {remind !== null ? (
+            <p className={s.hint}>התזכורת תישלח בדיוק בשעה שבחרת — גם בשעות השקטות — בתוך דוביז, ובטלפון אם הפעלת התראות.</p>
+          ) : null}
+        </fieldset>
+      ) : null}
 
       <fieldset className={s.field}>
         <legend>{t("tasks.form.repeat")}</legend>
@@ -233,6 +274,18 @@ export function TaskForm({
             ) : null}
           </>
         )}
+      </div>
+
+      <div className={s.field}>
+        <label htmlFor={`${ids}-n`}>פירוט (לא חובה)</label>
+        <textarea
+          id={`${ids}-n`}
+          className={s.input}
+          value={note}
+          maxLength={2000}
+          rows={2}
+          onChange={(e) => setNote(e.target.value)}
+        />
       </div>
 
       {summary ? <p className={s.summary} aria-live="polite">{summary}</p> : null}

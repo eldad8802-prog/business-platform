@@ -1,0 +1,123 @@
+# Production uptime + latency monitor (scheduled, ALERT-ONLY).
+#
+# Independent of Vercel: every ~15 minutes a GitHub runner requests PUBLIC, unauthenticated
+# Production pages (no cookies, no credentials, no secrets, no business data) at a low rate and
+# compares each page's median TTFB OFFSET from a CDN-cached static reference with the
+# pre-activation baseline (ops/monitor/prod-baseline.json). See docs/ops/PROD-UPTIME-MONITOR.md.
+#
+# ALERT = this job FAILS (GitHub emails the owner about a failed scheduled run). It fails only when
+# this run AND the previous scheduled run (<= 8 h old: GitHub throttles schedules here to ~2.5-6 h) are
+# both BREACHING; a single cold start or spike never alerts. It changes nothing: no rollback, no Vercel or Production writes.
+#
+# Token: the default GITHUB_TOKEN only — contents: read (checkout) and actions: read (download the
+# previous scheduled run's tiny state artifact). No secrets, no environment.
+#
+# Pause: Actions tab -> "prod uptime monitor" -> "..." -> Disable workflow.
+
+name: prod uptime monitor (scheduled, alert-only)
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_breach:
+        description: "Self-test: force a sustained breach so this run FAILS (proves the alert path; changes nothing)"
+        type: boolean
+        default: false
+  # Pre-activation test only: a PR that changes the monitor runs it once.
+  pull_request:
+    paths:
+      - ".github/workflows/prod-uptime-monitor.yml"
+      - "ops/monitor/**"
+      - "docs/ops/PROD-UPTIME-MONITOR.md"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: prod-uptime-monitor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      # (the `runner` context is not available in job-level env, so the path is set here)
+      - name: State directory
+        run: echo "STATE_DIR=$RUNNER_TEMP/prod-monitor" >> "$GITHUB_ENV"
+
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Evaluator self-test (synthetic data, no network)
+        run: node ops/monitor/evaluate.mjs --self-test
+
+      - name: Sample Production (public pages, unauthenticated, low rate)
+        run: |
+          set -euo pipefail
+          mkdir -p "$STATE_DIR"
+          bash ops/monitor/sample.sh "$STATE_DIR/samples.tsv"
+
+      # Scheduled runs only are compared with each other (a manual or PR run never feeds the chain).
+      - name: Fetch the previous scheduled run's state (actions read)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          id="$(gh run list --workflow prod-uptime-monitor.yml --branch main --event schedule --status completed \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
+          if [ -z "$id" ]; then echo "no previous scheduled run"; exit 0; fi
+          if gh run download "$id" -n prod-monitor-state -D "$STATE_DIR/prev" >/dev/null 2>&1 && [ -f "$STATE_DIR/prev/state.json" ]; then
+            echo "previous scheduled run $id: breaching=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).breaching)' "$STATE_DIR/prev/state.json")"
+          else
+            echo "previous scheduled run $id has no state artifact (cancelled / expired) — treated as not breaching"
+          fi
+
+      # Proves the failure path on every run, on the REAL samples: forcing a sustained breach must make
+      # the evaluator exit 1; the same breach without a breaching previous run must NOT alert.
+      - name: Forced-breach self-test (must FAIL the evaluator)
+        run: |
+          set -uo pipefail
+          rc=0  # the default shell is bash -e: capture the exit code instead of aborting on it
+          node ops/monitor/evaluate.mjs --samples "$STATE_DIR/samples.tsv" --force-breach > "$STATE_DIR/forced.md" || rc=$?
+          if [ "$rc" != "1" ]; then echo "::error::forced sustained breach did not fail the evaluator (exit $rc)"; exit 1; fi
+          echo "forced sustained breach -> evaluator exit 1 (alert path works)"
+
+      - name: Evaluate against the baseline
+        id: eval
+        env:
+          FORCE_BREACH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_breach && 'true' || 'false' }}
+        run: |
+          set -uo pipefail
+          rc=0
+          extra=""
+          [ "$FORCE_BREACH" = "true" ] && extra="--force-breach"
+          node ops/monitor/evaluate.mjs --samples "$STATE_DIR/samples.tsv" --prev "$STATE_DIR/prev/state.json" \
+            --state-out "$STATE_DIR/state.json" --summary "$GITHUB_STEP_SUMMARY" --run-id "$GITHUB_RUN_ID" $extra || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ "$rc" = "0" ] || [ "$rc" = "1" ] || { echo "::error::evaluator error (exit $rc)"; exit 1; }
+
+      # Public data only: target paths, status codes, timings, cache / region headers, html lang.
+      - name: Keep this run's state for the next run
+        if: always() && steps.eval.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prod-monitor-state
+          path: |
+            ${{ runner.temp }}/prod-monitor/state.json
+            ${{ runner.temp }}/prod-monitor/samples.tsv
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Alert on a sustained breach (fails the job -> owner is emailed)
+        if: steps.eval.outputs.rc == '1'
+        run: |
+          echo "::error::SUSTAINED Production breach (this run and the previous scheduled run). See the job summary. Alert-only: nothing was changed."
+          exit 1

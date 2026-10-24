@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "provenance": {
+    "measuredAt": "2026-10-23",
+    "measuredFrom": "Israel (owner network), NOT a GitHub runner",
+    "flagState": "OFF (pre-activation)",
+    "method": "curl %{time_starttransfer}, median of samples per target, unauthenticated, no cookies",
+    "rawMediansMs": { "/about": 235, "/app": 225, "/collection": 229, "/login": 343, "/home": 358 },
+    "note": "The runner location differs from where the baseline was measured, so the monitor compares OFFSETS from the CDN reference (measured in the same run), never absolute times. Pre-activation, /about /app /collection were CDN HITs (offset ~0 from the static reference); /login and /home were dynamic (+118 / +133 ms over the CDN-cached pages)."
+  },
+  "base": "https://promaxgroup.co.il",
+  "reference": "/manifest.webmanifest",
+  "thresholdMs": 250,
+  "minBreachingTargets": 3,
+  "maxPrevStateAgeMinutes": 480,
+  "targets": {
+    "/about": { "offsetMs": 0 },
+    "/app": { "offsetMs": 0 },
+    "/collection": { "offsetMs": 0 },
+    "/login": { "offsetMs": 118 },
+    "/home": { "offsetMs": 133 }
+  }
+}

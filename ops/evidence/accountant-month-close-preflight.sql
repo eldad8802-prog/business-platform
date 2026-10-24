@@ -2,7 +2,10 @@
 -- accountant-month-close-preflight.sql
 --
 -- Read-only Production PREFLIGHT before migration
---   20261023090000_accountant_month_close
+--   20261027090000_accountant_month_close
+--   (re-timed from 20261023090000 on 2026-10-23: 20261024090000_platform_admin_a1 was applied in Production first,
+--    so the old name sorted before a finished migration and check 3 would have refused it, correctly. The SQL
+--    of the migration is unchanged; its sha256 is the same.)
 --
 -- Proves the database is where the migration expects it, from the catalog and counts only:
 --   * the ledger is clean, the Daily Tasks foundation (what this builds on) is finished, and no finished migration
@@ -21,7 +24,7 @@
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (it sees every row)'
 \echo ' 2 no ledger row is unfinished or rolled back (observed = such rows)'
 \echo ' 3 the Daily Tasks foundation is finished and no finished migration sorts after this one (observed = later finished migrations)'
-\echo ' 4 20261023090000_accountant_month_close is not recorded yet (observed = rows)'
+\echo ' 4 20261027090000_accountant_month_close is not recorded yet (observed = rows)'
 \echo ' 5 none of the five accountant tables exists (observed = tables)'
 \echo ' 6 no accountant function exists (observed = functions)'
 \echo ' 7 no accountant policy exists (observed = policies)'
@@ -46,12 +49,12 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL
-                         AND migration_name > '20261023090000_accountant_month_close') = 0
+                         AND migration_name > '20261027090000_accountant_month_close') = 0
                       AND EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261018090000_daily_tasks_foundation' AND finished_at IS NOT NULL),
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL
-                         AND migration_name > '20261023090000_accountant_month_close')
-  UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261023090000_accountant_month_close') = 0,
-                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261023090000_accountant_month_close')
+                         AND migration_name > '20261027090000_accountant_month_close')
+  UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261027090000_accountant_month_close') = 0,
+                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261027090000_accountant_month_close')
   UNION ALL SELECT 5, (SELECT count(*) FROM rel WHERE nm LIKE 'Accountant%') = 0, (SELECT count(*) FROM rel WHERE nm LIKE 'Accountant%')
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_proc WHERE pronamespace = (SELECT oid FROM pub) AND proname LIKE 'accountant\_%') = 0,
                       (SELECT count(*) FROM pg_proc WHERE pronamespace = (SELECT oid FROM pub) AND proname LIKE 'accountant\_%')

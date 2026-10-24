@@ -32,6 +32,13 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261018090000_daily_tasks_foundation/**"
       - ".dt/**"
+      - "prisma/migrations/20261022090000_task_reminders_push/**"
+      - ".trp/**"
+      - "app/api/task-reminders/**"
+      - "app/api/push/**"
+      - "lib/push/**"
+      - "components/notifications/reminder-center.tsx"
+      - "public/sw.js"
       - ".github/workflows/daily-tasks-b-ci.yml"
   workflow_dispatch:
 
@@ -93,9 +100,23 @@ jobs:
       - name: 4. Agenda, sync and actions as the restricted runtime (session in Asia/Jerusalem)
         run: |
           set -euo pipefail
-          bash .dt/lab.sh dtb --with-dt
+          # The task reminders migration (20261022090000) on top of the foundation, both by migrate deploy.
+          bash .trp/lab.sh dtb --with-trp
           TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtb?$TZ_OPT" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtb?$TZ_OPT" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dtb" \
             npm run verify:tasks-agenda-db
+
+      - name: 5. Reminders (pure) — moment, snooze, journal, push allowlist, the dispatcher door
+        run: npx tsx lib/services/tasks/task-reminders.test.ts
+
+      - name: 6. Reminders as the restricted runtime — due, once, snooze, close, recurring, flag, isolation, personal list
+        run: |
+          set -euo pipefail
+          bash .trp/lab.sh dtr --with-trp
+          TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtr?$TZ_OPT" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dtr?$TZ_OPT" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dtr" \
+            npx tsx lib/services/tasks/task-reminders.db.test.ts

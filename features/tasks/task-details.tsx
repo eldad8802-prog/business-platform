@@ -31,6 +31,15 @@ import {
   type AgendaResponse,
 } from "@/lib/tasks/tasks-client";
 
+import {
+  clockLabel,
+  offsetLabel,
+  parseClock,
+  REMIND_OFFSET_CHOICES,
+  remindMomentLabel,
+  snoozePresets,
+} from "@/lib/services/tasks/task-schedule";
+
 import { addDays, chipLabel, short, todayKey } from "./task-days";
 import { DomainIcon } from "./task-icons";
 import s from "./tasks.module.css";
@@ -139,8 +148,10 @@ function historyText(h: HistoryEntry, t: Translator): string {
     case "TASK_CANCELED":
       return p.closeReason === "SKIPPED" || p.closeReason === "SKIP" ? t("tasks.details.history.skipped") : t("tasks.details.history.canceled");
     case "TASK_SNOOZED":
+      if (typeof p.remindTo === "string") return `התזכורת נדחתה ל־${remindMomentLabel(new Date(p.remindTo), new Date(h.at))}`;
       return typeof p.to === "string" ? t("tasks.details.history.snoozedTo", { date: short(p.to) }) : t("tasks.details.history.snoozed");
     case "TASK_RESCHEDULED":
+      if (typeof p.to === "string" && typeof p.dueMinute === "number") return `המועד שונה ל־${short(p.to)} ${clockLabel(p.dueMinute)}`;
       return typeof p.to === "string" ? t("tasks.details.history.rescheduledTo", { date: short(p.to) }) : t("tasks.details.history.rescheduled");
     case "TASK_REOPENED":
       return t("tasks.common.reopened");
@@ -193,7 +204,19 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
 
       <dl className={s.kv}>
         <dt>{tr("tasks.common.due")}</dt>
-        <dd>{t.dueOn ? (t.dueOn === today ? tr("tasks.details.own.todayDate", { date: short(t.dueOn) }) : chipLabel(t.dueOn, tr)) : tr("tasks.details.own.noDate")}</dd>
+        <dd>
+          {t.dueOn ? (t.dueOn === today ? tr("tasks.details.own.todayDate", { date: short(t.dueOn) }) : chipLabel(t.dueOn, tr)) : tr("tasks.details.own.noDate")}
+          {t.dueMinute != null ? ` · ${clockLabel(t.dueMinute)}` : ""}
+        </dd>
+        {t.remindOffsetMinutes != null ? (
+          <>
+            <dt>תזכורת</dt>
+            <dd>
+              {offsetLabel(t.remindOffsetMinutes)}
+              {t.remindAt ? (t.reminderSent ? " · נשלחה" : ` · ${remindMomentLabel(new Date(t.remindAt), new Date())}`) : ""}
+            </dd>
+          </>
+        ) : null}
         {t.pinned ? (<><dt>{tr("tasks.common.marking")}</dt><dd>{tr("tasks.common.important")}</dd></>) : null}
         {t.cadence ? (<><dt>{tr("tasks.details.own.repeat")}</dt><dd>{series?.paused ? tr("tasks.details.own.cadencePaused", { cadence: t.cadence }) : t.cadence}</dd></>) : null}
         {t.note ? (<><dt>{tr("tasks.details.own.note")}</dt><dd>{t.note}</dd></>) : null}
@@ -210,6 +233,20 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
               <button type="button" className={s.btn} onClick={() => void closeAnd(() => taskAction(t.id, "skip", v), tr("tasks.details.own.skippedOnce"))}>{tr("tasks.details.own.skipOnce")}</button>
             ) : null}
           </div>
+          {t.remindAt ? (
+            <div className={s.actions} aria-label="דחיית התזכורת">
+              {snoozePresets(new Date()).map((sp) => (
+                <button
+                  key={sp.key}
+                  type="button"
+                  className={`${s.btn} ${s.ghost}`}
+                  onClick={() => void act(() => taskAction(t.id, "snooze-reminder", { ...v, until: sp.at.toISOString() }), `התזכורת נדחתה — ${remindMomentLabel(sp.at, new Date())}`)}
+                >
+                  תזכיר {sp.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className={s.actions}>
             <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("edit")}>{t.seriesId ? tr("tasks.details.own.editSeries") : tr("tasks.details.own.edit")}</button>
             <button
@@ -239,11 +276,18 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
       ) : null}
 
       {mode === "date" ? (
-        <DayPick
-          label={tr("tasks.details.own.whichDay")}
-          confirm={tr("tasks.details.own.saveDate")}
+
+        <ScheduleForm
+          day={t.dueOn ?? today}
+          minute={t.dueMinute ?? null}
+          offset={t.remindOffsetMinutes ?? null}
           onCancel={() => setMode("idle")}
-          onPick={(day) => act(() => taskAction(t.id, "reschedule", { ...v, dueOn: day }), tr("tasks.details.history.rescheduledTo", { date: short(day) })).then(() => setMode("idle"))}
+          onSave={(day, minute, offset) =>
+            act(
+              () => taskAction(t.id, "reschedule", { ...v, dueOn: day, dueMinute: minute, remindOffsetMinutes: offset }),
+              `המועד שונה ל־${short(day)}${minute != null ? ` ${clockLabel(minute)}` : ""}`,
+            ).then(() => setMode("idle"))
+          }
         />
       ) : null}
 
@@ -295,6 +339,66 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
         </ul>
       ) : null}
     </>
+  );
+}
+
+/** Day, time and reminder of a task (the reminder follows the day and the time; quiet hours do not apply). */
+function ScheduleForm({
+  day,
+  minute,
+  offset,
+  onSave,
+  onCancel,
+}: {
+  day: string;
+  minute: number | null;
+  offset: number | null;
+  onSave: (day: string, minute: number | null, offset: number | null) => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const [dv, setD] = useState(day);
+  const [cv, setC] = useState(minute != null ? clockLabel(minute) : "");
+  const [ov, setO] = useState<number | null>(offset ?? (minute != null ? null : 0));
+  const [busy, setBusy] = useState(false);
+  const m = cv ? parseClock(cv) : null;
+  return (
+    <form
+      className={s.form}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!dv) return;
+        setBusy(true);
+        await onSave(dv, m, m != null ? ov : null);
+        setBusy(false);
+      }}
+    >
+      <div className={s.field}>
+        <label htmlFor="sched-day">יום</label>
+        <input id="sched-day" type="date" className={s.input} value={dv} onChange={(e) => e.target.value && setD(e.target.value)} required />
+      </div>
+      <div className={s.field}>
+        <label htmlFor="sched-time">שעה (לא חובה)</label>
+        <input id="sched-time" type="time" step={60} className={s.input} value={cv} onChange={(e) => setC(e.target.value)} />
+      </div>
+      {m != null ? (
+        <fieldset className={s.field}>
+          <legend>תזכורת</legend>
+          <div className={s.chips}>
+            {REMIND_OFFSET_CHOICES.map((c) => (
+              <button key={c.minutes} type="button" className={`${s.chip} ${ov === c.minutes ? s.chipOn : ""}`} aria-pressed={ov === c.minutes} onClick={() => setO(c.minutes)}>
+                {c.label}
+              </button>
+            ))}
+            <button type="button" className={`${s.chip} ${ov === null ? s.chipOn : ""}`} aria-pressed={ov === null} onClick={() => setO(null)}>בלי תזכורת</button>
+          </div>
+          {ov !== null ? <p className={s.hint}>התזכורת תישלח בדיוק בשעה שבחרת — גם בשעות השקטות.</p> : null}
+        </fieldset>
+      ) : null}
+      <div className={s.actions}>
+        <button type="submit" className={`${s.btn} ${s.pri}`} disabled={busy || !dv}>שמירה</button>
+        <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel}>ביטול</button>
+      </div>
+    </form>
   );
 }
 

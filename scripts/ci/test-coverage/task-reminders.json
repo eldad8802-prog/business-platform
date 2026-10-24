@@ -1,0 +1,16 @@
+{
+  "note": "Daily Tasks — personal reminders + Web Push (owner-approved plan 2026-10-21; migration 20261022090000_task_reminders_push).",
+  "tests": {
+    "lib/services/tasks/task-reminders.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/clock): the reminder moment across the Israeli clock change and the schedule shape rules; snooze targets; the closed journal payload (moments as tokens, no free text); push endpoints limited to the browsers' push services (no SSRF) and VAPID configuration; the dispatcher's door (CRON bearer, QStash signature bound to THIS url and body, forged / wrongly-addressed refused); run by security-gate (lab pure) and daily-tasks-b-ci.yml"
+    },
+    "lib/services/tasks/task-reminders.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "daily-tasks-b-ci.yml",
+      "reason": "AS the restricted runtime on the real migrations: remindAt derivation, task_reminders_due lists only due reminders, one send under parallel dispatch (claim), the bell notification and recorded push attempts, snooze makes the old moment stale, completed / cancelled tasks never sent, recurring occurrences carry their own moment, a business without daily_tasks is never claimed, cross-business claims refused, the personal agenda has no business items; run on pull_request by daily-tasks-b-ci.yml"
+    }
+  }
+}

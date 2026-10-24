@@ -18,7 +18,7 @@ export async function GET(req: Request, { params }: Params) {
       const events = await tx.taskEvent.findMany({
         where: { ...where, eventType: { in: ["TASK_COMPLETED", "TASK_CANCELED", "TASK_SNOOZED", "TASK_RESCHEDULED", "TASK_REOPENED", "TASK_CREATED"] } },
         orderBy: { id: "desc" },
-        take: 6,
+        take: 12,
         select: { eventType: true, actor: true, occurredAt: true, payload: true },
       });
       return { task, history: events.map((e) => ({ type: e.eventType, actor: e.actor, at: e.occurredAt.toISOString(), payload: e.payload })) };

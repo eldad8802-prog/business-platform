@@ -121,6 +121,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Task: { disposition: "ERASURE_MANAGED" },
   TaskSeries: { disposition: "ERASURE_MANAGED" },
   TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
+  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000).
+  PushSubscription: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
