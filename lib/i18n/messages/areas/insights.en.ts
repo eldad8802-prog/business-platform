@@ -448,7 +448,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
       coupons: { label: "Coupons", description: "Coupons and benefits for customers" },
       content: { label: "Content & marketing", description: "Marketing materials and content for the business" },
       tasks: { label: "Tasks", description: "What needs you today — your tasks and the business's" },
-      secretary: { label: "My secretary", description: "Reminders for payments the business needs to make" },
+      secretary: { label: "My secretary", description: "Managing the business's tasks and commitments" },
       payables: { label: "Commitments", description: "What the business owes, when, and how much is already paid" },
       inventory: { label: "Inventory", description: "Products and quantities in stock" },
       suppliers: { label: "Suppliers", description: "Suppliers, orders and contact details" },

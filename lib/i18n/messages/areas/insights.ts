@@ -456,7 +456,7 @@ export const insightsHe = {
       coupons: { label: "קופונים", description: "קופונים והטבות ללקוחות" },
       content: { label: "תוכן ושיווק", description: "חומרי שיווק ותוכן לעסק" },
       tasks: { label: "משימות", description: "מה דורש אותך היום — משימות שלך ומהעסק" },
-      secretary: { label: "המזכירה שלי", description: "תזכורות לתשלומים שהעסק צריך לשלם" },
+      secretary: { label: "המזכירה שלי", description: "ניהול משימות והתחייבויות העסק" },
       payables: { label: "התחייבויות", description: "מה העסק חייב, מתי, וכמה כבר שולם" },
       inventory: { label: "מלאי", description: "המוצרים והכמויות במלאי" },
       suppliers: { label: "ספקים", description: "ספקים, הזמנות ופרטי קשר" },

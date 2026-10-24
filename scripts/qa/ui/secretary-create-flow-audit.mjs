@@ -89,16 +89,21 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
 
   await step("1 ניהול העסק: only המזכירה / מלאי / ספקים under \"הכלים בתחום\"", async () => {
     await p.goto(`${BASE}/tools/operations`); await settle(p);
-    const tools = await p.locator("section[aria-labelledby='cat-tools'] a, [aria-labelledby='cat-tools'] ~ * a").allInnerTexts().catch(() => []);
+    await main(p).getByRole("link", { name: /המזכירה שלי/ }).first().waitFor({ timeout: 15000 });
+    const hrefs = await main(p).locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
     const t = await text(p);
     const listed = ["המזכירה שלי", "מלאי", "ספקים"].every((x) => t.includes(x));
-    const gone = !/(^|\s)משימות(\s|$)/.test(t.replace("משימות שלך", "")) && !t.includes("מה העסק חייב, מתי, וכמה כבר שולם");
-    return { ok: listed && gone, tools: tools.map((x) => x.replace(/\s+/g, " ")).slice(0, 6) };
+    // The tools themselves: no entry to /tasks or /payables here (the Secretary's stations lead there).
+    const gone = !hrefs.includes("/tasks") && !hrefs.includes("/payables");
+    // The Secretary's line (owner, 25.10.2026).
+    const line = t.includes("ניהול משימות והתחייבויות העסק") && !t.includes("תזכורות לתשלומים שהעסק צריך לשלם");
+    return { ok: listed && gone && line, hrefs: hrefs.filter(Boolean).slice(0, 8) };
   });
   await step("2 open המזכירה שלי", async () => {
     await main(p).getByRole("link", { name: /המזכירה שלי/ }).first().click();
     await p.waitForURL(/\/secretary$/, { timeout: 15000 }); await settle(p);
-    return { ok: (await text(p)).includes("תחנות ניהול") };
+    const ok = await main(p).getByRole("heading", { name: "תחנות ניהול" }).waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+    return { ok };
   });
   await step("3–4 \"הוסף התחייבות\" → נגדיר את ההתחייבויות", async () => {
     await main(p).getByRole("link", { name: "הוסף התחייבות", exact: true }).click();
@@ -154,18 +159,54 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     return { ok: state.created.length === 2 };
   });
   await step("8 \"סיימתי\" → the Secretary", async () => {
-    await main(p).getByRole("link", { name: "סיימתי" }).click();
+    await main(p).getByRole("button", { name: "סיימתי" }).click();
     await p.waitForURL((u) => u.pathname === "/secretary" && !u.search, { timeout: 15000 }); await settle(p);
     return { ok: (await text(p)).includes("תחנות ניהול") };
   });
-  await step("browser back after \"סיימתי\" (where it lands)", async () => {
-    await p.goBack(); await p.waitForTimeout(1200);
-    const t = await text(p);
+  // Owner, 25.10.2026: after "סיימתי", browser back must leave the finished creation as a whole — never an empty
+  // form, never the categories again.
+  const leftFlow = (url) => !/screen=(capture|bank)/.test(url);
+  await step("browser back after \"סיימתי\" leaves the finished creation", async () => {
+    await p.goBack(); await p.waitForTimeout(1500);
     const landed = path0(p.url());
-    // Report where it lands; it must not be a broken or saving state.
-    const ok = !/שגיאה|נכשל/.test(t);
+    const ok = leftFlow(landed) && !/שגיאה|נכשל/.test(await text(p));
     await p.goto(`${BASE}/secretary`); await settle(p);
     return { ok, landed };
+  });
+  await step("from Home: shortcut / \"+\" → save → \"סיימתי\" → back leaves the flow", async () => {
+    await p.goto(`${BASE}/app`); await settle(p);
+    if (vp.w >= 1200) await p.getByRole("link", { name: /התחייבות חדשה/ }).first().click();
+    else {
+      await p.getByRole("button", { name: "פעולה חדשה" }).locator("visible=true").first().click();
+      await p.getByRole("dialog", { name: "פעולות מהירות" }).getByRole("button", { name: "התחייבות חדשה" }).click();
+    }
+    await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await main(p).locator("a", { hasText: "חשמל" }).first().click();
+    await p.waitForURL(/screen=capture/, { timeout: 15000 }); await settle(p);
+    const f = p.locator("form").first();
+    await f.locator("input[inputmode=decimal]").first().fill("420");
+    await f.locator("input[type=date]").first().fill("2026-11-10");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    await main(p).getByRole("button", { name: "סיימתי" }).click();
+    await p.waitForURL((u) => u.pathname === "/secretary" && !u.search, { timeout: 15000 }); await settle(p);
+    await p.goBack(); await p.waitForTimeout(1500);
+    const landed = path0(p.url());
+    return { ok: state.created.length === 3 && leftFlow(landed), landed };
+  });
+  await step("direct entry to the form → save → \"סיימתי\" → back leaves the flow", async () => {
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("גז");
+    await f.locator("input[inputmode=decimal]").first().fill("90");
+    await f.locator("input[type=date]").first().fill("2026-11-12");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    await main(p).getByRole("button", { name: "סיימתי" }).click();
+    await p.waitForURL((u) => u.pathname === "/secretary" && !u.search, { timeout: 15000 }); await settle(p);
+    await p.goBack(); await p.waitForTimeout(1500);
+    const landed = path0(p.url());
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    return { ok: state.created.length === 4 && leftFlow(landed), landed };
   });
   await step("9 the \"התחייבויות\" station shows both saves", async () => {
     await main(p).locator("section[aria-labelledby='sec-stations-title'] a").first().click();

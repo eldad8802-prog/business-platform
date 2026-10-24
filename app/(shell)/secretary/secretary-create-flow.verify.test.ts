@@ -91,7 +91,14 @@ check(bankScreen.includes("P3_COPY.otherHeading") && bankScreen.includes("<Link 
 check(/createButton: "צור התחייבות"/.test(ui) && /otherHeading: "משהו שלא ברשימה"/.test(ui), "the new wording");
 check(/\.createButton \{[^}]*--sand: color-mix\(in srgb, var\(--dz-warm-sand-pill\), var\(--dz-warning-accent\) 16%\)/.test(css), "\"צור התחייבות\" in the sand of \"הוסף התחייבות\"");
 check(/\.ghostFixed \{ flex: 0 0 auto; \}/.test(css) && bankScreen.includes("styles.ghostFixed"), "\"לראות את כל ההתחייבויות\" keeps its own height");
-check(/mode="created"[\s\S]{0,400}onAddMore=\{startAnother\}/.test(ui) && ui.includes(`secondary ? <GhostLink href="/secretary">`),"after a save the result screen still offers \"הוסף עוד\" and \"סיימתי\"");
+check(
+  /function finishCreated\(\) \{\s*router\.replace\("\/secretary"\);\s*consumeFlowEntries\(/.test(ui) &&
+    /screen === "bank" \|\| screen === "capture"/.test(ui) &&
+    /onDone=\{finishCreated\}/.test(ui) &&
+    ui.includes("onDone ? <GhostButton onClick={onDone}>"),
+  "\"סיימתי\" after a save replaces itself with the Secretary and marks the categories / form steps done (browser back leaves the finished flow)",
+);
+check(/mode="created"[\s\S]{0,400}onAddMore=\{startAnother\}/.test(ui) && ui.includes(`config.secondary ? (onDone ? <GhostButton onClick={onDone}>`),"after a save the result screen still offers \"הוסף עוד\" and \"סיימתי\"");
 
 if (failures > 0) {
   console.error(`secretary-create-flow: ${failures}/${checks} checks failed`);

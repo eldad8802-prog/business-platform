@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import BackButton, { useGoBack } from "@/components/ui/back-button";
+import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
@@ -953,6 +954,11 @@ function PrimaryButton({ children, disabled, type = "button", onClick }: { child
   return <button className={`${styles.button} ${styles.primary} ${styles.block}`} type={type} disabled={disabled} onClick={onClick}>{children}</button>;
 }
 
+/** GhostLink's look, for a step that must run code (e.g. leave a finished flow by replace). */
+function GhostButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return <button type="button" className={`${styles.button} ${styles.ghostWide}`} onClick={onClick}>{children}</button>;
+}
+
 function GhostLink({ href, children }: { href: string; children: ReactNode }) {
   return <Link className={`${styles.button} ${styles.ghostWide}`} href={href}>{children}</Link>;
 }
@@ -1403,6 +1409,20 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     setTermsDays("30");
     router.replace(screenHref("capture"));
   }
+  /**
+   * "סיימתי" after a save (owner, 25.10.2026): the result REPLACES itself with the Secretary, and the flow's
+   * earlier steps below it (the categories and the capture form) are marked done — so browser back leaves the
+   * finished creation as a whole instead of reopening an empty form. Back during an unfinished creation is
+   * unchanged; saving is unchanged.
+   */
+  function finishCreated() {
+    router.replace("/secretary");
+    consumeFlowEntries((u) => {
+      const url = new URL(u, window.location.origin);
+      const screen = url.searchParams.get("screen");
+      return url.pathname === "/secretary" && (screen === "bank" || screen === "capture");
+    });
+  }
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
   useEffect(() => {
@@ -1532,6 +1552,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             obligation={created}
             createdNote={kind === "installments" ? P3_COPY.installmentsSaved(installmentCountNumber) : kind === "postdated-check" ? P3_COPY.checkSaved : undefined}
             onAddMore={startAnother}
+            onDone={finishCreated}
           />
         ) : <>
         <div className={styles.topbar}>
@@ -1908,7 +1929,7 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence, f: Fmt): s
   }
 }
 
-function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void }) {
+function LoopResult({ mode, obligation, createdNote, onAddMore, onDone }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void; onDone?: () => void }) {
   const f = useFmt();
   const { t } = f;
   const name = obligation ? displayName(obligation.obligeeName, t) : t("tasks.secretary.loop.theObligation");
@@ -1932,7 +1953,7 @@ function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" 
     mode === "snooze" ? t("tasks.secretary.loop.echoSnooze") :
     mode === "met" ? (nextDate ? t("tasks.secretary.loop.echoNext", { date: nextDate }) : t("tasks.secretary.loop.echoClosed")) :
     recurrenceText(obligation?.recurrence ?? "NONE", t);
-  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
+  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? (onDone ? <GhostButton onClick={onDone}>{config.secondary}</GhostButton> : <GhostLink href="/secretary">{config.secondary}</GhostLink>) : null}</div></section>;
 }
 
 function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | null; onSnooze?: (id: number, followUpAt: string) => Promise<void> | void }) {
