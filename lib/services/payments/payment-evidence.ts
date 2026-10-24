@@ -14,9 +14,10 @@
  *     source: "WEBHOOK" | "RECONCILIATION",
  *     callback: <the callback body, or null>,
  *     verification: {               // from the provider's AUTHORITATIVE answer
- *       paymentMethod, providerDocumentIssued, environment, evidence
- *     }
- *   }
+ *       paymentMethod, providerDocumentIssued, environment, evidence,
+ *       providerDocument?            // ONLY on a foreign-currency request of a
+ *     }                              // PROVIDER_ISSUES connection: the verified
+ *   }                                // document, or null when none was stated
  *
  * Readers accept both the envelope and the shapes written before it existed,
  * so historical rows stay interpretable without a data migration.
@@ -25,6 +26,7 @@
 import type {
   ConnectionEnvironment,
   PaymentMethodKind,
+  ProviderIssuedDocument,
   ProviderPaymentStatus,
 } from "./providers/payment-provider.types";
 
@@ -40,6 +42,13 @@ export interface VerifiedPaymentEnvelope {
     providerDocumentIssued: boolean | null;
     environment: ConnectionEnvironment;
     evidence: VerifiedEvidence;
+    /**
+     * Present ONLY when the recording path checked for the provider's own
+     * document (a foreign-currency request on a PROVIDER_ISSUES connection):
+     * the verified document, or null when the provider stated none. Absent on
+     * every other row, so an ILS row is written exactly as before.
+     */
+    providerDocument?: ProviderIssuedDocument | null;
   };
 }
 
@@ -70,12 +79,38 @@ export function normalisePaymentMethod(value: unknown): PaymentMethodKind {
     : "UNKNOWN";
 }
 
+/**
+ * A provider-issued document only in its exact, displayable shape: digits for
+ * the number, a short name for the type, an https link or null. Anything else
+ * is no document — so nothing an adapter returns can reach a screen unchecked.
+ */
+export function verifiedProviderDocument(value: unknown): ProviderIssuedDocument | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as { number?: unknown; type?: unknown; url?: unknown };
+  const number = typeof v.number === "string" ? v.number.trim() : "";
+  const type = typeof v.type === "string" ? v.type.trim() : "";
+  if (!/^\d{1,20}$/.test(number) || /^0+$/.test(number)) return null;
+  if (!/^[A-Za-z0-9]{1,64}$/.test(type)) return null;
+  let url: string | null = null;
+  if (typeof v.url === "string" && v.url.trim() !== "") {
+    try {
+      const u = new URL(v.url.trim());
+      url = u.protocol === "https:" && u.username === "" && u.password === "" ? u.toString() : null;
+    } catch {
+      url = null;
+    }
+  }
+  return { number, type, url };
+}
+
 export function buildVerifiedPaymentEnvelope(input: {
   source: "WEBHOOK" | "RECONCILIATION";
   callback: unknown;
   status: ProviderPaymentStatus;
   environment: ConnectionEnvironment;
   verifiedAt: Date;
+  /** Only when the document was checked: the verified document or null. */
+  providerDocument?: ProviderIssuedDocument | null;
 }): VerifiedPaymentEnvelope {
   return {
     kind: "verified_payment",
@@ -90,6 +125,9 @@ export function buildVerifiedPaymentEnvelope(input: {
           : null,
       environment: input.environment,
       evidence: sanitiseEvidence(input.status.evidence),
+      ...(input.providerDocument !== undefined
+        ? { providerDocument: input.providerDocument === null ? null : verifiedProviderDocument(input.providerDocument) }
+        : {}),
     },
   };
 }
@@ -112,6 +150,19 @@ export function readVerifiedEvidence(raw: unknown): VerifiedEvidence {
 export function readCallbackBody(raw: unknown): unknown {
   if (isEnvelope(raw)) return raw.callback;
   return raw;
+}
+
+/**
+ * The provider-issued document recorded on a row:
+ *   a document → the provider stated it (verified shape)
+ *   null       → it was checked and the provider stated none
+ *   undefined  → it was never checked (every ILS row, every legacy row)
+ */
+export function readProviderDocument(raw: unknown): ProviderIssuedDocument | null | undefined {
+  if (!isEnvelope(raw)) return undefined;
+  const verification = raw.verification as { providerDocument?: unknown };
+  if (!("providerDocument" in verification)) return undefined;
+  return verification.providerDocument == null ? null : verifiedProviderDocument(verification.providerDocument);
 }
 
 /** How the customer paid, as recorded; UNKNOWN for legacy rows. */

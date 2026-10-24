@@ -159,6 +159,8 @@ export const apiHe = {
     currencyMustMatchInvoice: "בקשת תשלום על חשבונית נשלחת במטבע של החשבונית ({currency}).",
     /** Foreign-currency collection is switched off (DUBIZ_FX_COLLECTION_ENABLED): ILS only. */
     foreignCurrencyCollectionDisabled: "גבייה ב-{currency} עדיין לא פתוחה. אפשר לבקש תשלום ב-{allowed} בלבד.",
+    /** Switch on, but the collector is not CardCom issuing the documents (PROVIDER_ISSUES): ILS only. */
+    foreignCurrencyRequiresProviderDocuments: "גבייה ב-{currency} אפשרית רק דרך CardCom, כשהמסמכים מופקים ב-CardCom (בהגדרות חיבור CardCom). אפשר לבקש תשלום ב-{allowed} בלבד.",
   },
   pricing: {
     profitLow: "נמוך",
