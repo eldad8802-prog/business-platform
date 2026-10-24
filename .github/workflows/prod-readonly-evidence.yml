@@ -99,6 +99,8 @@ on:
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
+          - 'ops/evidence/revenue-truth-foundation-preflight.sql'
+          - 'ops/evidence/revenue-truth-foundation-production-evidence.sql'
 
 permissions:
   contents: read
