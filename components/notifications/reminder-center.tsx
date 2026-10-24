@@ -13,9 +13,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { buildClientAuthHeaders } from "@/lib/client-session";
-import { fetchPendingReminders, markReminderSeen, taskAction, TasksApiError, type PendingReminder } from "@/lib/tasks/tasks-client";
+import {
+  fetchPendingReminders,
+  markReminderSeen,
+  taskAction,
+  TASK_OPENED_EVENT,
+  TasksApiError,
+  type PendingReminder,
+} from "@/lib/tasks/tasks-client";
 
 const POLL_MS = 60_000;
+
+/** The task a reminder link opened, while its URL is still on screen (/tasks?task=<id>). */
+function taskInUrl(): number | null {
+  if (window.location.pathname !== "/tasks") return null;
+  const id = Number(new URLSearchParams(window.location.search).get("task"));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 export function ReminderCenter() {
   const router = useRouter();
@@ -24,26 +38,59 @@ export function ReminderCenter() {
   const [note, setNote] = useState<string | null>(null);
   const stopped = useRef(false);
   const dismissed = useRef<Set<number>>(new Set());
+  // Tasks the owner opened from a reminder (push or bell): their reminders are handled by opening the task — no card
+  // on the way, and a card already shown closes (owner 2026-10-25). Task id → when it was opened: a LATER reminder of
+  // the same task (after a snooze) still shows.
+  const openedTasks = useRef<Map<number, number>>(new Map());
+  const opened = (taskId: number) => openedTasks.current.set(taskId, Date.now() + 60_000);
+
+  const stepAside = useCallback((reminders: PendingReminder[]) => {
+    for (const r of reminders) {
+      const until = openedTasks.current.get(r.taskId);
+      if (until === undefined || dismissed.current.has(r.id) || new Date(r.at).getTime() > until) continue;
+      dismissed.current.add(r.id);
+      void markReminderSeen(r.id).catch(() => undefined);
+    }
+  }, []);
 
   const poll = useCallback(async () => {
     if (stopped.current || document.visibilityState !== "visible") return;
+    const linked = taskInUrl();
+    if (linked) opened(linked);
     try {
       const { reminders } = await fetchPendingReminders();
+      stepAside(reminders);
       const next = reminders.find((r) => !dismissed.current.has(r.id)) ?? null;
       setCurrent((prev) => (prev && next && prev.id === next.id ? prev : next));
     } catch (e) {
       if (e instanceof TasksApiError && (e.status === 401 || e.status === 404)) stopped.current = true;
     }
-  }, []);
+  }, [stepAside]);
 
   useEffect(() => {
     void poll();
     const t = setInterval(() => void poll(), POLL_MS);
     const onVis = () => void poll();
+    const onOpened = (e: Event) => {
+      const taskId = (e as CustomEvent<{ taskId?: number }>).detail?.taskId;
+      if (!taskId) return;
+      opened(taskId);
+      setCurrent((prev) => {
+        if (prev && prev.taskId === taskId) {
+          dismissed.current.add(prev.id);
+          void markReminderSeen(prev.id).catch(() => undefined);
+          return null;
+        }
+        return prev;
+      });
+      void poll();
+    };
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener(TASK_OPENED_EVENT, onOpened);
     return () => {
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener(TASK_OPENED_EVENT, onOpened);
     };
   }, [poll]);
 

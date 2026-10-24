@@ -470,7 +470,14 @@ export function NotificationCenter() {
                     type="button"
                     className={`notif-row${n.id === selected?.id ? " is-selected" : ""}`}
                     aria-pressed={n.id === selected?.id}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={() => {
+                      // A task reminder opens its task at once — no preview pane, no second click (owner 2026-10-25).
+                      if (n.severity === "REMINDER" && isSafeInternalHref(n.href)) {
+                        void activateNotification({ isUnread: unread, markRead: () => markRead(n.id, unread), navigate: () => router.push(n.href) });
+                        return;
+                      }
+                      setSelectedId(n.id);
+                    }}
                   >
                     <b style={{ fontWeight: unread ? 700 : 500 }}>{n.title}</b>
                     <span style={{ fontSize: 12, color: "var(--dz-text-muted)" }}>
