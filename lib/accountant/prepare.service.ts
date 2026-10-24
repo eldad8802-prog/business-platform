@@ -309,7 +309,8 @@ export async function preparePeriod(
     });
 
     return {
-      outcome: built ? "built" : buildFailed ? "build_failed" : "evaluated",
+      // A failure wins: `built` holds the ZIP as soon as it was rendered, before it was stored and sealed.
+      outcome: buildFailed ? "build_failed" : built ? "built" : "evaluated",
       periodId: period.id,
       status,
       previousStatus,
