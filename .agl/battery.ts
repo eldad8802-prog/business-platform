@@ -102,7 +102,8 @@ function googleSignup(secret: string, businessName: string, opts: SignupOpts = {
   return inTx(opts.client ?? auth, null, async (tx) => {
     const t = (await tx.$queryRawUnsafe(`SELECT * FROM public.auth_oauth_ticket_consume($1, $2)`, secret, opts.purpose ?? "SIGNUP")) as Rows;
     if (t.length !== 1) throw new Error("TICKET_REFUSED");
-    if (opts.pause) await tx.$queryRawUnsafe(`SELECT pg_sleep(${opts.pause})`);
+    // pg_sleep returns void, which the raw-query decoder cannot read: select a value beside it.
+    if (opts.pause) await tx.$queryRawUnsafe(`SELECT 1 AS slept FROM pg_sleep(${opts.pause})`);
     const b = (await tx.$queryRawUnsafe(`INSERT INTO "Business" ("name","updatedAt") VALUES ($1, now()) RETURNING id`, businessName)) as Rows;
     const businessId = Number(b[0].id);
     const u = (await tx.$queryRawUnsafe(
