@@ -1,0 +1,349 @@
+# Payment settlement facts / migration 20261026090000_payment_settlement_facts — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17, two independent clusters).
+#
+# .sfx/lab.sh builds on the task reminders lab (.trp/lab.sh): Production's role topology (non-superuser CREATEROLE /
+# BYPASSRLS owner, NOLOGIN NOBYPASSRLS app_runtime + LOGIN app_runtime_prod, app_auth), the owner's DEFAULT
+# PRIVILEGES (which hand a new table to the runtime wholesale — the migration must take them back), FORCE RLS on
+# Business, the task tables and (.sfx/prereq.sql, verbatim from their migrations) PaymentRequest /
+# PaymentTransaction / ExternalTransaction, and a ledger holding EVERY migration on main; `prisma migrate deploy`
+# over all migration directories then applies exactly this one, as release-migrate would.
+#
+# job lab
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
+#      migration names only its own table and what it builds on, alters no existing table, and names nothing of
+#      20261025090000_currency_settings_fx_rates (no object dependency; the release order is fixed by the ledger-order
+#      preflight checks — docs/payments/MIGRATION-ORDER.md).
+#   1. Baseline (pending): the PREFLIGHT passes (15-18 are INFO); the proof refuses.
+#   2. Payment rows seeded BEFORE; `prisma migrate deploy` applies it: proof 20/20; the preflight then fails exactly
+#      its "not there yet" checks; the seeded rows are byte-identical.
+#   2b. Apply order: with 20261025090000 recorded first the preflight passes unchanged; inverted, #756's check 5
+#      would observe this migration (docs/payments/MIGRATION-ORDER.md).
+#   3. Faults: each injected defect is caught by the proof check meant for it.
+#   4. Battery as the real roles (.sfx/battery.sh): isolation, transaction-business mismatch (runtime AND owner),
+#      CHARGED / sign / rate / source rules, versions, NET = SETTLED − FEE at commit incl. a real concurrent race,
+#      review (a disagreement stored as NEEDS_REVIEW, a contradicting VERIFIED fact refused, clearance by a named
+#      user of the business with a note), no estimate representable, append-only for every role, privileges.
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+# job compat
+#   6. Rollback: refused while a row exists; then .sfx/rollback.sql returns the database to its exact pre-migration
+#      fingerprint (and the preflight passes again).
+#   7. Backward compatibility: the CURRENT application's DB-backed tests on an un-migrated database vs a migrated
+#      one vs a rolled-back one — 0 new failures.
+#   8. Re-apply after rollback: `prisma migrate deploy` applies it again whole; proof 20/20.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: payment settlement facts — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261026090000_payment_settlement_facts/**"
+      - "ops/evidence/payment-settlement-facts-*.sql"
+      - ".sfx/**"
+      - ".github/workflows/payment-settlement-facts-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PGHOST: localhost
+  PGPORT: "5432"
+  SUPER: lab_super
+  PGPASSWORD: sfx_ci_synthetic_super_pw
+  LAB_PASSWORD: sfx_ci_synthetic_role_pw
+  PREFLIGHT: ops/evidence/payment-settlement-facts-preflight.sql
+  EVIDENCE: ops/evidence/payment-settlement-facts-production-evidence.sql
+  SFM: prisma/migrations/20261026090000_payment_settlement_facts/migration.sql
+  AUTH_TOKEN_SECRET: sfx_ci_auth_secret_synthetic_at_least_32_chars
+  CRON_SECRET: sfx_ci_cron_secret_synthetic_at_least_32_chars
+
+jobs:
+  lab:
+    name: payment settlement facts (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sfx_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only its own objects and what it builds on
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$SFM" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
+          echo "$SFM sha256 $sum (pinned)"
+          own='"PaymentSettlementFact"|"Business"|"User"|"PaymentRequest"|"PaymentTransaction"|"ExternalTransaction"'
+          others=$(grep -v '^ *--' "$SFM" | grep -oE '"[A-Z][A-Za-z]*"' | sort -u | grep -vxE "$own" || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          echo "the migration names only its table, Business, User, PaymentRequest, PaymentTransaction and ExternalTransaction"
+          if grep -v '^ *--' "$SFM" | grep -iE '^\s*(ALTER|DROP)\s+TABLE\s+"(Business|User|PaymentRequest|PaymentTransaction|ExternalTransaction)"'; then
+            echo "the migration alters an existing table"; exit 1
+          fi
+          echo "no existing table is altered or dropped"
+          if grep -v '^ *--' "$SFM" | grep -E 'FxRate|BusinessLocaleSettings|UserLocalePreference|business_base_currency|fx_rate'; then
+            echo "the migration depends on 20261025090000_currency_settings_fx_rates"; exit 1
+          fi
+          echo "nothing of 20261025090000_currency_settings_fx_rates is named (no object dependency; release order: docs/payments/MIGRATION-ORDER.md)"
+          if grep -v '^ *--' "$SFM" | grep -iE 'SECURITY\s+DEFINER'; then echo "a SECURITY DEFINER function"; exit 1; fi
+          echo "no SECURITY DEFINER function"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/pre.out)" = "19" || { echo "expected 19 rows"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline"
+
+      - name: 2. Payment rows seeded BEFORE; prisma migrate deploy applies it — proof 20/20; preflight fails exactly its "not there yet" checks; seeded rows unchanged
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_post
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_post -c "$1"; }
+          P=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('sfx-pre-P', now()) RETURNING \"id\"")
+          R=$(su "INSERT INTO \"PaymentRequest\" (\"businessId\", \"provider\", \"amount\", \"currency\", \"status\", \"updatedAt\") VALUES ($P, 'CARDCOM', 100.00, 'USD', 'PAID', now()) RETURNING \"id\"")
+          su "INSERT INTO \"PaymentTransaction\" (\"paymentRequestId\", \"provider\", \"providerTransactionId\", \"amount\", \"currency\", \"status\") VALUES ($R, 'CARDCOM', 'sfx-pre-1', 100.00, 'USD', 'PAID'), ($R, 'CARDCOM', 'sfx-pre-2', -40.00, 'USD', 'PAID')"
+          su "INSERT INTO \"ExternalTransaction\" (\"businessId\", \"source\", \"externalId\", \"direction\", \"amount\", \"currency\", \"bookedAt\", \"updatedAt\") VALUES ($P, 'OWNER_ENTRY', 'sfx-pre', 'CREDIT', 355.00, 'ILS', now(), now())"
+          snap() { su "SELECT md5(string_agg(t, '|' ORDER BY t)) FROM (SELECT b::text AS t FROM \"Business\" b UNION ALL SELECT r::text FROM \"PaymentRequest\" r UNION ALL SELECT x::text FROM \"PaymentTransaction\" x UNION ALL SELECT e::text FROM \"ExternalTransaction\" e) s"; }
+          before=$(snap)
+          bash .sfx/lab.sh apply sfx_post | tee /tmp/post.log
+          grep -q 'Applying migration `20261026090000_payment_settlement_facts`' /tmp/post.log
+          test "$(grep -c 'Applying migration' /tmp/post.log)" = "1" || { echo "more than one migration applied"; exit 1; }
+          test "$(snap)" = "$before" || { echo "pre-existing rows changed"; exit 1; }
+          echo "pre-existing Business / PaymentRequest / PaymentTransaction / ExternalTransaction rows byte-identical after the migration"
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then
+            echo "proof FAILS after the release — diagnostics:"
+            lab -At -c "SELECT p.polname, pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid WHERE c.relname = 'PaymentSettlementFact'"
+            lab -At -c "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid WHERE c.relname = 'PaymentSettlementFact' AND a.attnum > 0 AND NOT a.attisdropped"
+            lab -At -c "SELECT c.relname, c.relacl FROM pg_class c WHERE c.relname IN ('PaymentSettlementFact', 'PaymentSettlementFact_id_seq')"
+            lab -At -c "SELECT tgname, tgtype, tgenabled, tgdeferrable, tginitdeferred FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = '\"PaymentSettlementFact\"'::regclass"
+            lab -At -c "SELECT conname, contype, confdeltype FROM pg_constraint WHERE conrelid = '\"PaymentSettlementFact\"'::regclass"
+            lab -At -c "SELECT proname, prosecdef, proconfig, proacl FROM pg_proc WHERE proname LIKE 'payment\_settlement\_fact\_%'"
+            exit 1
+          fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 7 8 " || { echo "after the release: expected '4 7 8 ', got: $fails"; exit 1; }
+          echo "after the release the preflight fails exactly 4 7 8 (recorded; the names now exist)"
+
+      - name: 2b. Apply order (docs/payments/MIGRATION-ORDER.md) — after 20261025090000 the preflight passes unchanged; the inverted order makes 20261025090000's own check 5 fail
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_ord
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_ord -c "$1"; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_ord -v ON_ERROR_STOP=1 "$@"; }
+          # The ledger as it is once 20261025090000_currency_settings_fx_rates (PR #756) is released first.
+          su "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (gen_random_uuid()::text, repeat('0', 64), now(), '20261025090000_currency_settings_fx_rates', 1)"
+          lab -f "$PREFLIGHT" | tee /tmp/ord.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ord.out; then echo "preflight FAILS after 20261025090000"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| (PASS|INFO)' /tmp/ord.out)" = "19" || { echo "expected 19 rows"; exit 1; }
+          grep -qE '^ +5 \| PASS +\| +0' /tmp/ord.out || { echo "check 5 did not observe 0"; exit 1; }
+          echo "order 20261025090000 → 20261026090000: this preflight passes unchanged (check 5 observes 0)"
+          # The inverted order: 20261026090000 applied (sfx_post), 20261025090000 pending. PR #756's check 5,
+          # verbatim from ops/evidence/currency-fx-preflight.sql, observes this migration and fails.
+          inv=$(psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_post -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name > '20261025090000_currency_settings_fx_rates'")
+          test "$inv" = "1" || { echo "expected the inverted order to show 1 later migration, got $inv"; exit 1; }
+          echo "inverted order: #756's check 5 would observe $inv (FAIL) — release-migrate would refuse 20261025090000"
+
+      - name: 3. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_post -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_post -c "$1"; }
+          sua() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_post -c "$1"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          T='"PaymentSettlementFact"'
+          TEN="\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int"
+          TXN=$(sua "SELECT min(\"id\") FROM \"PaymentTransaction\" WHERE \"amount\" > 0")
+          BIZ=$(sua "SELECT r.\"businessId\" FROM \"PaymentTransaction\" t JOIN \"PaymentRequest\" r ON r.\"id\" = t.\"paymentRequestId\" WHERE t.\"id\" = $TXN")
+          fault "change privilege for the runtime" "8 11 " "GRANT UPDATE ON $T TO app_runtime" "REVOKE UPDATE ON $T FROM app_runtime"
+          fault "removal privilege for the runtime" "8 11 " "GRANT DELETE ON $T TO app_runtime" "REVOKE DELETE ON $T FROM app_runtime"
+          fault "emptying privilege for the runtime" "8 11 " "GRANT TRUNCATE ON $T TO app_runtime" "REVOKE TRUNCATE ON $T FROM app_runtime"
+          fault "PUBLIC read" "8 11 " "GRANT SELECT ON $T TO PUBLIC" "REVOKE SELECT ON $T FROM PUBLIC"
+          fault "read for another role" "8 11 " "GRANT SELECT ON $T TO app_auth" "REVOKE SELECT ON $T FROM app_auth"
+          fault "sequence for another role" "9 " 'GRANT USAGE ON SEQUENCE "PaymentSettlementFact_id_seq" TO app_auth' 'REVOKE USAGE ON SEQUENCE "PaymentSettlementFact_id_seq" FROM app_auth'
+          fault "column read for another role" "10 " "GRANT SELECT (\"amount\") ON $T TO app_auth" "REVOKE SELECT (\"amount\") ON $T FROM app_auth"
+          fault "NO FORCE row-level security" "5 " "ALTER TABLE $T NO FORCE ROW LEVEL SECURITY" "ALTER TABLE $T FORCE ROW LEVEL SECURITY"
+          fault "a permissive FOR ALL policy" "6 " "CREATE POLICY sfx_fault_all ON $T USING (true)" "DROP POLICY sfx_fault_all ON $T"
+          fault "a change policy" "6 " "CREATE POLICY sfx_fault_upd ON $T FOR UPDATE USING ($TEN)" "DROP POLICY sfx_fault_upd ON $T"
+          fault "facts readable across businesses" "7 " \
+            "ALTER POLICY payment_settlement_fact_tenant_select ON $T USING (true)" \
+            "ALTER POLICY payment_settlement_fact_tenant_select ON $T USING ($TEN)"
+          fault "append across businesses" "7 " \
+            "ALTER POLICY payment_settlement_fact_tenant_insert ON $T WITH CHECK (true)" \
+            "ALTER POLICY payment_settlement_fact_tenant_insert ON $T WITH CHECK ($TEN)"
+          for g in guard user_same_business net_check append_only no_truncate; do
+            fault "trigger $g disabled" "15 " "ALTER TABLE $T DISABLE TRIGGER \"PaymentSettlementFact_$g\"" "ALTER TABLE $T ENABLE TRIGGER \"PaymentSettlementFact_$g\""
+          done
+          fault "the NET check trigger missing (renamed)" "15 " \
+            'ALTER TRIGGER "PaymentSettlementFact_net_check" ON "PaymentSettlementFact" RENAME TO "PaymentSettlementFact_net_check_x"' \
+            'ALTER TRIGGER "PaymentSettlementFact_net_check_x" ON "PaymentSettlementFact" RENAME TO "PaymentSettlementFact_net_check"'
+          fault "SECURITY DEFINER guard" "16 " 'ALTER FUNCTION public.payment_settlement_fact_guard() SECURITY DEFINER' 'ALTER FUNCTION public.payment_settlement_fact_guard() SECURITY INVOKER'
+          fault "EXECUTE on the guard for PUBLIC" "16 " 'GRANT EXECUTE ON FUNCTION public.payment_settlement_fact_guard() TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.payment_settlement_fact_guard() FROM PUBLIC'
+          fault "EXECUTE on the NET check for the runtime" "16 " 'GRANT EXECUTE ON FUNCTION public.payment_settlement_fact_net_check() TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.payment_settlement_fact_net_check() FROM app_runtime'
+          fault "search_path not pinned" "16 " 'ALTER FUNCTION public.payment_settlement_fact_append_only() RESET search_path' 'ALTER FUNCTION public.payment_settlement_fact_append_only() SET search_path = pg_catalog, public, pg_temp'
+          fault "a CHECK removed" "12 " "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_not_self\"" \
+            "ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_not_self\" CHECK (\"supersedesId\" IS NULL OR \"supersedesId\" <> \"id\")"
+          fault "a CHECK not validated" "12 " \
+            "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_not_self\"; ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_not_self\" CHECK (\"supersedesId\" IS NULL OR \"supersedesId\" <> \"id\") NOT VALID" \
+            "ALTER TABLE $T VALIDATE CONSTRAINT \"PaymentSettlementFact_not_self\""
+          fault "the recording user's key cascades" "13 " \
+            "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_recordedByUserId_fkey\"; ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_recordedByUserId_fkey\" FOREIGN KEY (\"recordedByUserId\") REFERENCES \"User\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE" \
+            "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_recordedByUserId_fkey\"; ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_recordedByUserId_fkey\" FOREIGN KEY (\"recordedByUserId\") REFERENCES \"User\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE"
+          fault "the transaction key cascades" "13 " \
+            "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_paymentTransactionId_fkey\"; ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_paymentTransactionId_fkey\" FOREIGN KEY (\"paymentTransactionId\") REFERENCES \"PaymentTransaction\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE" \
+            "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_paymentTransactionId_fkey\"; ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_paymentTransactionId_fkey\" FOREIGN KEY (\"paymentTransactionId\") REFERENCES \"PaymentTransaction\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE"
+          fault "one-first-version key removed" "14 " 'DROP INDEX "PaymentSettlementFact_first_version_key"' \
+            "CREATE UNIQUE INDEX \"PaymentSettlementFact_first_version_key\" ON $T(\"paymentTransactionId\", \"kind\") WHERE \"supersedesId\" IS NULL"
+          fault "a column made required" "4 " "ALTER TABLE $T ALTER COLUMN \"note\" SET NOT NULL" "ALTER TABLE $T ALTER COLUMN \"note\" DROP NOT NULL"
+          fault "verification made optional" "4 " "ALTER TABLE $T ALTER COLUMN \"verification\" DROP NOT NULL" "ALTER TABLE $T ALTER COLUMN \"verification\" SET NOT NULL"
+          fault "the review-reason CHECK removed" "12 " "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_review_reason\"" \
+            "ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_review_reason\" CHECK ((\"verification\" = 'VERIFIED' AND \"reviewReason\" IS NULL) OR (\"verification\" = 'NEEDS_REVIEW' AND \"reviewReason\" IS NOT NULL AND \"reviewReason\" IN ('NET_MISMATCH', 'CURRENCY_MISMATCH', 'SOURCE_CONFLICT')))"
+          fault "the verification CHECK removed" "12 " "ALTER TABLE $T DROP CONSTRAINT \"PaymentSettlementFact_verification\"" \
+            "ALTER TABLE $T ADD CONSTRAINT \"PaymentSettlementFact_verification\" CHECK (\"verification\" IN ('VERIFIED', 'NEEDS_REVIEW'))"
+          fault "a column widened" "4 " "ALTER TABLE $T ALTER COLUMN \"amount\" TYPE numeric(20,4)" "ALTER TABLE $T ALTER COLUMN \"amount\" TYPE numeric(18,2)"
+          fault "a fact written" "17 " \
+            "INSERT INTO $T (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\", \"verification\") VALUES ($BIZ, $TXN, 'FEE', 0, 'ILS', 'PROVIDER', 'sfx-fault', 'VERIFIED')" \
+            "ALTER TABLE $T DISABLE TRIGGER \"PaymentSettlementFact_append_only\"; DELETE FROM $T; ALTER TABLE $T ENABLE TRIGGER \"PaymentSettlementFact_append_only\""
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+          echo "every fault caught by its own check; proof back to 20/20"
+
+      - name: 4. Battery — isolation, mismatch, CHARGED / sign / rate / source rules, versions, NET at commit (with races), review (NEEDS_REVIEW stored, clearance audited), no estimates, append-only, privileges — as the real roles
+        run: bash .sfx/battery.sh sfx_post
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_broken
+          bash .sfx/lab.sh apply sfx_broken --broken
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d sfx_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relname LIKE 'PaymentSettlementFact%')
+            + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'payment\_settlement\_fact\_%')
+            + (SELECT count(*) FROM pg_policy WHERE polname LIKE 'payment\_settlement\_fact\_%')
+            + (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'PaymentSettlementFact%')")
+          led=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261026090000_payment_settlement_facts' AND finished_at IS NULL")
+          echo "objects left=$left unfinished ledger rows=$led"
+          test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+  compat:
+    name: payment settlement facts — rollback, re-apply and backward compatibility of the current app (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sfx_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 6. Rollback — refused while a row exists; then the exact pre-migration fingerprint; preflight passes again
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_rb -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -At -v ON_ERROR_STOP=1 -U "$SUPER" -d sfx_rb -c "$1"; }
+          fp() { lab -At -f .sfx/fingerprint.sql | sort; }
+          bash .sfx/lab.sh build sfx_rb
+          fp > /tmp/fp0; echo "fingerprint before: $(wc -l < /tmp/fp0) objects, $(sha256sum < /tmp/fp0 | cut -c1-16)"
+          bash .sfx/lab.sh apply sfx_rb | tee /tmp/a1.log
+          grep -q 'Applying migration `20261026090000_payment_settlement_facts`' /tmp/a1.log
+          test "$(lab -f "$EVIDENCE" | grep -cE '^ +[0-9]+ \| PASS')" = "20" || { echo "proof not 20/20 after apply"; exit 1; }
+          fp > /tmp/fp1
+          P=$(su "INSERT INTO \"Business\" (\"name\", \"updatedAt\") VALUES ('sfx-rb', now()) RETURNING \"id\"")
+          R=$(su "INSERT INTO \"PaymentRequest\" (\"businessId\", \"provider\", \"amount\", \"currency\", \"status\", \"updatedAt\") VALUES ($P, 'CARDCOM', 10.00, 'ILS', 'PAID', now()) RETURNING \"id\"")
+          X=$(su "INSERT INTO \"PaymentTransaction\" (\"paymentRequestId\", \"provider\", \"providerTransactionId\", \"amount\", \"currency\", \"status\") VALUES ($R, 'CARDCOM', 'sfx-rb', 10.00, 'ILS', 'PAID') RETURNING \"id\"")
+          lab -q -c "INSERT INTO \"PaymentSettlementFact\" (\"businessId\", \"paymentTransactionId\", \"kind\", \"amount\", \"currency\", \"source\", \"sourceRef\", \"verification\") VALUES ($P, $X, 'CHARGED', 10.00, 'ILS', 'PROVIDER', 'sfx-rb', 'VERIFIED')"
+          if lab -f .sfx/rollback.sql >/tmp/rb0.out 2>&1; then echo "rollback ran while a row exists"; exit 1; fi
+          grep -q "rollback refused: rows exist" /tmp/rb0.out || { cat /tmp/rb0.out; exit 1; }
+          fp > /tmp/fp1b; diff /tmp/fp1 /tmp/fp1b || { echo "the refused rollback changed something"; exit 1; }
+          echo "refused while a row exists; nothing changed"
+          # The lab's own clean-up of its synthetic fact (append-only: only with the guard disabled, as a superuser).
+          su "ALTER TABLE \"PaymentSettlementFact\" DISABLE TRIGGER \"PaymentSettlementFact_append_only\"; DELETE FROM \"PaymentSettlementFact\"; ALTER TABLE \"PaymentSettlementFact\" ENABLE TRIGGER \"PaymentSettlementFact_append_only\""
+          lab -f .sfx/rollback.sql
+          fp > /tmp/fp2
+          if ! diff /tmp/fp0 /tmp/fp2; then echo "rollback did NOT restore the pre-migration shape"; exit 1; fi
+          echo "rollback: fingerprint identical to before the migration ($(wc -l < /tmp/fp2) objects, $(sha256sum < /tmp/fp2 | cut -c1-16))"
+          lab -f "$PREFLIGHT" | tee /tmp/pre2.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre2.out; then echo "preflight fails after rollback"; exit 1; fi
+          echo "preflight passes again after the rollback"
+
+      - name: 7. Backward compatibility — the current app's DB-backed tests, un-migrated vs migrated vs rolled back
+        run: |
+          set -euo pipefail
+          bash .sfx/lab.sh build sfx_r0
+          bash .sfx/lab.sh build sfx_r1
+          bash .sfx/lab.sh apply sfx_r1 > /tmp/r1-apply.log; cat /tmp/r1-apply.log
+          grep -q "Applying migration .20261026090000_payment_settlement_facts." /tmp/r1-apply.log
+          bash .sfx/regression.sh run sfx_r0 /tmp/r0.txt
+          bash .sfx/regression.sh run sfx_r1 /tmp/r1.txt
+          bash .sfx/regression.sh run sfx_rb /tmp/rb.txt
+          echo "== migrated vs un-migrated"; bash .sfx/regression.sh compare /tmp/r0.txt /tmp/r1.txt
+          echo "== rolled back vs un-migrated"; bash .sfx/regression.sh compare /tmp/r0.txt /tmp/rb.txt
+
+      - name: 8. Re-apply after rollback — migrate deploy applies it whole again; proof 20/20
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sfx_rb -v ON_ERROR_STOP=1 "$@"; }
+          bash .sfx/lab.sh apply sfx_rb | tee /tmp/a2.log
+          grep -q 'Applying migration `20261026090000_payment_settlement_facts`' /tmp/a2.log
+          lab -f "$EVIDENCE" | tee /tmp/ev2.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev2.out; then echo "proof FAILS after re-apply"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev2.out)" = "20" || { echo "expected 20 PASS"; exit 1; }
+          echo "re-applied whole after rollback: proof 20/20"

@@ -98,6 +98,8 @@ on:
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
+          - 'ops/evidence/payment-settlement-facts-preflight.sql'
+          - 'ops/evidence/payment-settlement-facts-production-evidence.sql'
 
 permissions:
   contents: read
