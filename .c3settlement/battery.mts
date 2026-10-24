@@ -16,7 +16,11 @@
  * Y end to end through the real routes (POST /api/payments/requests → CardCom
  *   webhook route; only CardCom's HTTP API is answered locally): with the foreign-currency
  *   kill switch OFF (default) USD/EUR are refused 400 FOREIGN_CURRENCY_COLLECTION_DISABLED with
- *   no row/audit/provider call and ILS is issued; with it ON, USD/EUR held, ILS issued.
+ *   no row/audit/provider call and ILS is issued; with it ON, USD/EUR are refused 400
+ *   FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS unless CardCom issues the documents
+ *   (PROVIDER_ISSUES); then the money is recorded, CardCom's document (from GetLpResult only)
+ *   is kept with it — or the settlement pauses PROVIDER_DOCUMENT_MISSING — and Dubiz issues
+ *   no document; CardCom refusing the currency fails the request cleanly; ILS issued.
  *
  * C3_ONLY=F,M… runs a subset (used by the negative proofs).
  * Synthetic data only. No secrets, no Neon, no network (Y answers CardCom's API in-process).
@@ -709,6 +713,13 @@ async function main() {
     const lowProfiles = new Map<string, Lp>();
     const coinsSent: number[] = [];
     let txSeq = 7000000;
+    // What CardCom's GetLpResult says about a document ("info" = DocumentInfo
+    // with a number, type and link; "none" = no document), whether the lookup
+    // fails, and which coins the terminal refuses when the page is created.
+    let lpDocument: "info" | "none" = "none";
+    let lpFails = false;
+    const refusedCoins = new Set<number>();
+    const DOC_URL = "https://secure.cardcom.solutions/Interface/ShowDoc.aspx?d=c3";
     const realFetch = globalThis.fetch;
     const jsonRes = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     globalThis.fetch = (async (url: string | URL, init?: { body?: string }) => {
@@ -718,15 +729,24 @@ async function main() {
       if (u.endsWith("/api/v11/LowProfile/Create")) {
         const id = randomUUID();
         coinsSent.push(Number(body.ISOCoinId));
+        if (refusedCoins.has(Number(body.ISOCoinId))) return jsonRes({ ResponseCode: 5018, Description: "coin not allowed" });
         lowProfiles.set(id, { returnValue: String(body.ReturnValue), amount: Number(body.Amount), coin: Number(body.ISOCoinId) });
         return jsonRes({ ResponseCode: 0, Url: `https://cardcom.c3.test/pay/${id}`, LowProfileId: id });
       }
       if (u.endsWith("/api/v11/LowProfile/GetLpResult")) {
         const lp = lowProfiles.get(String(body.LowProfileId));
         if (!lp) return jsonRes({ ResponseCode: 5 });
+        if (lpFails) return { ok: false, status: 500, json: async () => ({}) };
+        // One CardCom transaction per low profile: a redelivery asks again and
+        // must get the same transaction id back.
+        const tranId = 7000000 + [...lowProfiles.keys()].indexOf(String(body.LowProfileId)) + 1;
+        txSeq = Math.max(txSeq, tranId);
         return jsonRes({
           ResponseCode: 0, ReturnValue: lp.returnValue, TerminalNumber: Number(TERMINAL),
-          TranzactionInfo: { ResponseCode: 0, TranzactionId: ++txSeq, Amount: lp.amount, CoinId: lp.coin, TerminalNumber: Number(TERMINAL) },
+          ...(lpDocument === "info"
+            ? { DocumentInfo: { ResponseCode: 0, DocumentType: "TaxInvoiceAndReceipt", DocumentNumber: 880000 + tranId, DocumentUrl: DOC_URL } }
+            : {}),
+          TranzactionInfo: { ResponseCode: 0, TranzactionId: tranId, Amount: lp.amount, CoinId: lp.coin, TerminalNumber: Number(TERMINAL) },
         });
       }
       return { ok: false, status: 404, json: async () => ({}) };
@@ -809,30 +829,129 @@ async function main() {
       }
 
       // Y-ON — with the switch ON (an owner decision, never the default), USD /
-      // EUR go through and are held for their document, exactly as before.
+      // EUR are collected ONLY through CardCom issuing the documents
+      // (documentIssuer PROVIDER_ISSUES). DUBIZ_ISSUES / NOT_CONFIGURED stay ILS
+      // only: 400 FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS, nothing persisted,
+      // CardCom never asked.
       process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
-      for (const [currency, coin] of [["USD", 2], ["EUR", 978]] as const) {
-        const ctx = await e2eBusiness(`Y-${currency}`);
-        const created = await createViaRoute(ctx, "250.00", currency);
-        ok(`Y ${currency} — POST /api/payments/requests 201 in ${currency}`, created.status === 201 && created.body.currency === currency && created.body.status === "PENDING", JSON.stringify(created));
+      for (const issuer of ["DUBIZ_ISSUES", "NOT_CONFIGURED"] as const) {
+        for (const currency of ["USD", "EUR"] as const) {
+          const ctx = await e2eBusiness(`Y-ON-${issuer}-${currency}`);
+          await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: issuer } });
+          const callsBefore = coinsSent.length;
+          const refused = await createViaRoute(ctx, "250.00", currency);
+          const body = refused.body as { error?: string; code?: string; offerableCurrencies?: string[] };
+          ok(`Y ON ${issuer} ${currency} — 400 FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS`,
+            refused.status === 400 && body.code === "FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS" && typeof body.error === "string" && body.error.length > 0 &&
+            JSON.stringify(body.offerableCurrencies) === '["ILS"]', JSON.stringify(refused));
+          ok(`Y ON ${issuer} ${currency} — no row, no audit, CardCom never called`,
+            (await prisma.paymentRequest.count({ where: { businessId: ctx.businessId } })) === 0 &&
+            (await prisma.paymentAuditEvent.count({ where: { businessId: ctx.businessId } })) === 0 &&
+            coinsSent.length === callsBefore);
+        }
+      }
+
+      // ILS, switch ON, PROVIDER_ISSUES — exactly as today: recorded, held
+      // PROVIDER_IS_DOCUMENT_ISSUER, no document kept on the row, no receipt.
+      {
+        const ctx = await e2eBusiness("Y-ON-ILS-PI");
+        await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+        lpDocument = "info";
+        const created = await createViaRoute(ctx, "250.00", "ILS");
         const id = created.body.id ?? -1;
-        ok(`Y ${currency} — CardCom was asked to charge coin ${coin}`, coinsSent.at(-1) === coin, String(coinsSent.at(-1)));
-        ok(`Y ${currency} — webhook route answers 200`, (await webhookViaRoute(id)) === 200);
-        const pr = await prisma.paymentRequest.findUniqueOrThrow({ where: { id } });
+        ok("Y ON ILS PROVIDER_ISSUES — 201, coin 1", created.status === 201 && coinsSent.at(-1) === 1, JSON.stringify(created));
+        ok("Y ON ILS PROVIDER_ISSUES — webhook 200", (await webhookViaRoute(id)) === 200);
         const ptx = await txOf(id);
-        ok(`Y ${currency} — money recorded: request PAID, transaction PAID 250.00 ${currency}`,
-          pr.status === "PAID" && ptx.status === "PAID" && ptx.currency === currency && ptx.amount.toFixed(2) === "250.00",
-          JSON.stringify({ pr: pr.status, tx: ptx.status, cur: ptx.currency, amt: ptx.amount }));
-        const fe = await prisma.financialEvent.findFirst({ where: { businessId: ctx.businessId, sourceType: "PAYMENT" } });
-        ok(`Y ${currency} — money-in FinancialEvent in ${currency}`, fe?.currency === currency && fe?.amount.toFixed(2) === "250.00", JSON.stringify(fe));
         const st = await settlementOf(ptx.id);
-        ok(`Y ${currency} — settlement REQUIRES_ATTENTION FOREIGN_CURRENCY_DOCUMENT_HELD`, st?.status === "REQUIRES_ATTENTION" && st?.attentionReason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(st));
-        ok(`Y ${currency} — no BillingDocument of any kind for the business`, (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
-        const audit = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION" } });
-        ok(`Y ${currency} — audit PAYMENT_ACCOUNTING_REQUIRES_ATTENTION with the reason`, (audit?.metadata as { reason?: string } | null)?.reason === "FOREIGN_CURRENCY_DOCUMENT_HELD", JSON.stringify(audit?.metadata));
-        ok(`Y ${currency} — a duplicate webhook changes nothing`, (await webhookViaRoute(id)) === 200 &&
-          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0 &&
-          (await prisma.paymentTransaction.count({ where: { paymentRequestId: id, amount: { gt: 0 } } })) === 1);
+        const verification = (ptx.rawPayload as { verification?: Record<string, unknown> } | null)?.verification ?? {};
+        ok("Y ON ILS PROVIDER_ISSUES — PROVIDER_IS_DOCUMENT_ISSUER (unchanged), no providerDocument key, no BillingDocument",
+          st?.attentionReason === "PROVIDER_IS_DOCUMENT_ISSUER" && !("providerDocument" in verification) &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0, JSON.stringify({ st, verification }));
+      }
+
+      // USD / EUR through CardCom issuing the documents.
+      for (const [currency, coin] of [["USD", 2], ["EUR", 978]] as const) {
+        for (const doc of ["info", "none"] as const) {
+          const ctx = await e2eBusiness(`Y-${currency}-${doc}`);
+          await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+          lpDocument = doc;
+          const label = `Y ${currency} PROVIDER_ISSUES document ${doc === "info" ? "present" : "missing"}`;
+          const created = await createViaRoute(ctx, "250.00", currency);
+          ok(`${label} — POST /api/payments/requests 201 in ${currency}`, created.status === 201 && created.body.currency === currency && created.body.status === "PENDING", JSON.stringify(created));
+          const id = created.body.id ?? -1;
+          ok(`${label} — CardCom was asked to charge coin ${coin}`, coinsSent.at(-1) === coin, String(coinsSent.at(-1)));
+          ok(`${label} — webhook route answers 200`, (await webhookViaRoute(id)) === 200);
+          const pr = await prisma.paymentRequest.findUniqueOrThrow({ where: { id } });
+          const ptx = await txOf(id);
+          ok(`${label} — money recorded: request PAID, transaction PAID 250.00 ${currency}`,
+            pr.status === "PAID" && ptx.status === "PAID" && ptx.currency === currency && ptx.amount.toFixed(2) === "250.00",
+            JSON.stringify({ pr: pr.status, tx: ptx.status, cur: ptx.currency, amt: ptx.amount }));
+          const fe = await prisma.financialEvent.findFirst({ where: { businessId: ctx.businessId, sourceType: "PAYMENT" } });
+          ok(`${label} — money-in FinancialEvent in ${currency}`, fe?.currency === currency && fe?.amount.toFixed(2) === "250.00", JSON.stringify(fe));
+          const st = await settlementOf(ptx.id);
+          const reason = doc === "info" ? "PROVIDER_IS_DOCUMENT_ISSUER" : "PROVIDER_DOCUMENT_MISSING";
+          ok(`${label} — settlement REQUIRES_ATTENTION ${reason}`, st?.status === "REQUIRES_ATTENTION" && st?.attentionReason === reason, JSON.stringify(st));
+          const kept = (ptx.rawPayload as { verification?: { providerDocument?: unknown } } | null)?.verification?.providerDocument;
+          ok(`${label} — the document kept with the money is CardCom's verified answer`,
+            doc === "info"
+              ? JSON.stringify(kept) === JSON.stringify({ number: String(880000 + Number(ptx.providerTransactionId)), type: "TaxInvoiceAndReceipt", url: DOC_URL })
+              : kept === null,
+            JSON.stringify(kept));
+          ok(`${label} — no BillingDocument of any kind (Dubiz issues nothing)`, (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+          const held = await prisma.paymentAuditEvent.findFirst({ where: { paymentRequestId: id, eventType: "PAYMENT_ACCOUNTING_HELD" } });
+          ok(`${label} — audit PAYMENT_ACCOUNTING_HELD with the reason`, (held?.metadata as { accountingHold?: string } | null)?.accountingHold === reason, JSON.stringify(held?.metadata));
+          ok(`${label} — requeue refused (not retryable)`, (await requeueSettlement({ businessId: ctx.businessId, paymentTransactionId: ptx.id })).requeued === false);
+          const again = await settleVerifiedPayment({ businessId: ctx.businessId, paymentTransactionId: ptx.id });
+          ok(`${label} — a further settle stays held`, again.outcome === "REQUIRES_ATTENTION" && (again as { reason?: string }).reason === reason, JSON.stringify(again));
+          // A duplicate webhook (even one whose GetLpResult now differs) changes nothing.
+          lpDocument = doc === "info" ? "none" : "info";
+          ok(`${label} — a duplicate webhook changes nothing`, (await webhookViaRoute(id)) === 200 &&
+            (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0 &&
+            (await prisma.paymentTransaction.count({ where: { paymentRequestId: id, amount: { gt: 0 } } })) === 1 &&
+            (await settlementOf(ptx.id))?.attentionReason === reason &&
+            JSON.stringify(((await txOf(id)).rawPayload as { verification?: { providerDocument?: unknown } }).verification?.providerDocument) === JSON.stringify(kept));
+        }
+      }
+
+      // The lookup fails: nothing is recorded; a later delivery records it once.
+      {
+        const ctx = await e2eBusiness("Y-USD-lookup-fails");
+        await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+        const created = await createViaRoute(ctx, "250.00", "USD");
+        const id = created.body.id ?? -1;
+        lpFails = true;
+        await webhookViaRoute(id);
+        ok("Y USD lookup fails — no money row, no settlement, request still PENDING",
+          (await prisma.paymentTransaction.count({ where: { paymentRequestId: id } })) === 0 &&
+          (await prisma.paymentAccountingSettlement.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.paymentRequest.findUniqueOrThrow({ where: { id } })).status === "PENDING");
+        lpFails = false;
+        lpDocument = "info";
+        ok("Y USD lookup recovers — the next delivery answers 200", (await webhookViaRoute(id)) === 200);
+        const ptx = await txOf(id);
+        ok("Y USD lookup recovers — recorded once, held PROVIDER_IS_DOCUMENT_ISSUER, no BillingDocument",
+          (await prisma.paymentTransaction.count({ where: { paymentRequestId: id, amount: { gt: 0 } } })) === 1 &&
+          (await settlementOf(ptx.id))?.attentionReason === "PROVIDER_IS_DOCUMENT_ISSUER" &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
+      }
+
+      // CardCom refuses the currency when the page is created: a clean failure,
+      // no charge possible (no link), the existing failure handling.
+      {
+        const ctx = await e2eBusiness("Y-EUR-refused-by-cardcom");
+        await prisma.businessPaymentConnection.updateMany({ where: { businessId: ctx.businessId }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+        refusedCoins.add(978);
+        const res = await createViaRoute(ctx, "250.00", "EUR");
+        refusedCoins.delete(978);
+        const body = res.body as { error?: string; code?: string };
+        ok("Y EUR refused by CardCom — 400 with a clear error", res.status === 400 && typeof body.error === "string" && /Failed to create payment link/.test(body.error), JSON.stringify(res));
+        const rows = await prisma.paymentRequest.findMany({ where: { businessId: ctx.businessId } });
+        ok("Y EUR refused by CardCom — the request is FAILED with no link", rows.length === 1 && rows[0]!.status === "FAILED" && !rows[0]!.paymentUrl, JSON.stringify(rows));
+        ok("Y EUR refused by CardCom — no money row, no settlement, no routing, no BillingDocument",
+          (await prisma.paymentTransaction.count({ where: { paymentRequest: { businessId: ctx.businessId } } })) === 0 &&
+          (await prisma.paymentAccountingSettlement.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.paymentProviderRouting.count({ where: { businessId: ctx.businessId } })) === 0 &&
+          (await prisma.billingDocument.count({ where: { businessId: ctx.businessId } })) === 0);
       }
     } finally {
       globalThis.fetch = realFetch;

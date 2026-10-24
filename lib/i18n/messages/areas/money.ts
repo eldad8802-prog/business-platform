@@ -496,7 +496,15 @@ export const collectionHe = {
     REFUND_ACCOUNTING_DECISION_REQUIRED: "בוצע החזר ללקוח — עדכון הספרים (מסמך הזיכוי) ממתין להחלטה",
     FOREIGN_CURRENCY_DOCUMENT_HELD:
       "התשלום התקבל ונרשם — קבלה במטבע זר לא מופקת אוטומטית עד לאישור כללי החשבונאות",
+    PROVIDER_DOCUMENT_MISSING: "התשלום התקבל ונרשם — המסמך מ־CardCom חסר ודורש טיפול",
     fallback: "התשלום התקבל — הקבלה ממתינה לטיפול",
+  },
+  /** CardCom document types (its v11 DocumentType names), as the owner reads them. */
+  providerDocumentType: {
+    TaxInvoiceAndReceipt: "חשבונית מס/קבלה",
+    Receipt: "קבלה",
+    TaxInvoice: "חשבונית מס",
+    ReceiptForTaxInvoice: "קבלה על חשבונית מס",
   },
   blockers: {
     NO_PAYMENT_PROVIDER: {
@@ -528,6 +536,10 @@ export const collectionHe = {
     none: "לא נמצאו לקוחות.",
   },
   shared: {
+    /** The document CardCom states it issued for a payment (number and type, from CardCom's verified answer). */
+    providerDocument: "המסמך הופק ב־CardCom: {type} מס׳ {number}",
+    /** Opens CardCom's own document link in a new tab. */
+    providerDocumentOpen: "פתיחת המסמך ב־CardCom",
     redirecting: "מעביר לתיק הלקוח…",
     linkCopied: "הקישור הועתק.",
     shareOpened: "נפתח חלון השיתוף.",
