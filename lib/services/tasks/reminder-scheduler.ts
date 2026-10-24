@@ -15,11 +15,46 @@ import { REMINDER_DISPATCH_URL } from "./reminder-dispatch-auth";
 
 type Env = Record<string, string | undefined>;
 
-export async function scheduleReminderMessage(taskId: number, remindAt: Date | null, env: Env = process.env): Promise<"published" | "skipped" | "failed"> {
-  const token = env.QSTASH_TOKEN?.trim();
-  if (!token || !remindAt || remindAt.getTime() <= Date.now()) return "skipped";
+/**
+ * A pasted env value as QStash expects it: the console's `.env` snippet is `QSTASH_TOKEN="…"`, so a copied line may
+ * carry the name, the quotes or a trailing newline. Those are removed; the value itself is never changed.
+ */
+export function cleanEnvValue(raw: string | undefined, name: string): string | undefined {
+  let v = raw?.trim();
+  if (!v) return undefined;
+  if (v.startsWith(`${name}=`)) v = v.slice(name.length + 1).trim();
+  if (v.length >= 2 && (v[0] === `"` || v[0] === `'`) && v[v.length - 1] === v[0]) v = v.slice(1, -1).trim();
+  return v || undefined;
+}
+
+/**
+ * What a failed publish may log: the token's SHAPE only (length, whether it looks like a QStash token) and the
+ * service's own answer with anything token-like masked. Never the token or a prefix of it.
+ */
+export function publishFailureFacts(raw: string | undefined, token: string, baseUrl: string, error: unknown): Record<string, unknown> {
+  let decodesToUserId = false;
   try {
-    const client = new Client({ token, ...(env.QSTASH_URL?.trim() ? { baseUrl: env.QSTASH_URL.trim() } : {}) });
+    decodesToUserId = "UserID" in JSON.parse(Buffer.from(token, "base64").toString("utf8"));
+  } catch {
+    /* not a QStash token shape */
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    baseUrl,
+    tokenLength: token.length,
+    rawWasCleaned: raw?.trim() !== token,
+    decodesToUserId,
+    looksLikeSigningKey: token.startsWith("sig_"),
+    answer: message.replace(/[A-Za-z0-9+/=_-]{24,}/g, "[masked]").slice(0, 300),
+  };
+}
+
+export async function scheduleReminderMessage(taskId: number, remindAt: Date | null, env: Env = process.env): Promise<"published" | "skipped" | "failed"> {
+  const token = cleanEnvValue(env.QSTASH_TOKEN, "QSTASH_TOKEN");
+  if (!token || !remindAt || remindAt.getTime() <= Date.now()) return "skipped";
+  const baseUrl = cleanEnvValue(env.QSTASH_URL, "QSTASH_URL") ?? "https://qstash.upstash.io";
+  try {
+    const client = new Client({ token, baseUrl });
     await client.publishJSON({
       url: REMINDER_DISPATCH_URL,
       body: { reason: "task_reminder" },
@@ -28,7 +63,8 @@ export async function scheduleReminderMessage(taskId: number, remindAt: Date | n
       retries: 3,
     });
     return "published";
-  } catch {
+  } catch (e) {
+    console.error("[tasks] reminder publish failed", JSON.stringify(publishFailureFacts(env.QSTASH_TOKEN, token, baseUrl, e)));
     return "failed";
   }
 }

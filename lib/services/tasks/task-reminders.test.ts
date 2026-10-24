@@ -17,6 +17,7 @@ import { createHash, createHmac } from "node:crypto";
 import { isAllowedPushEndpoint, vapidConfig } from "@/lib/push/web-push-sender";
 
 import { authorizeReminderDispatch, REMINDER_DISPATCH_URL } from "./reminder-dispatch-auth";
+import { cleanEnvValue, publishFailureFacts } from "./reminder-scheduler";
 import { validatePayload } from "./task-core";
 import { clockLabel, parseClock, remindAtOf, scheduleProblem, snoozeTarget } from "./task-schedule";
 
@@ -113,6 +114,21 @@ async function door() {
   ok("door: a valid signature over another body → 401", !wrongBody.ok && wrongBody.status === 401);
   const good = await authorizeReminderDispatch({ signature: qstashJwt(keys.QSTASH_CURRENT_SIGNING_KEY, REMINDER_DISPATCH_URL, "{}", nowSec), body: "{}" }, keys);
   ok("door: a valid QStash signature for THIS url → accepted", good.ok === true && good.via === "qstash", good);
+}
+
+// ── the publish token as pasted, and what a failure may log ──
+{
+  const tok = Buffer.from(JSON.stringify({ UserID: "u", Password: "p" })).toString("base64");
+  ok("token: a clean value is kept", cleanEnvValue(tok, "QSTASH_TOKEN") === tok);
+  ok("token: quotes are removed", cleanEnvValue(`"${tok}"`, "QSTASH_TOKEN") === tok);
+  ok("token: a pasted NAME=\"value\" line is reduced to the value", cleanEnvValue(`QSTASH_TOKEN="${tok}"\n`, "QSTASH_TOKEN") === tok);
+  ok("token: blank → none", cleanEnvValue("  ", "QSTASH_TOKEN") === undefined && cleanEnvValue(`""`, "QSTASH_TOKEN") === undefined);
+  ok("token: an unmatched quote is not touched", cleanEnvValue(`"ab'`, "QSTASH_TOKEN") === `"ab'`);
+  const facts = publishFailureFacts(`"${tok}"`, tok, "https://qstash.upstash.io", new Error(`401 {"error":"invalid token ${tok}"}`));
+  const logged = JSON.stringify(facts);
+  ok("failure facts: never the token", !logged.includes(tok) && !logged.includes(tok.slice(0, 12)), logged);
+  ok("failure facts: shape only", facts.tokenLength === tok.length && facts.decodesToUserId === true && facts.rawWasCleaned === true && facts.looksLikeSigningKey === false);
+  ok("failure facts: a signing key pasted as the token is named", publishFailureFacts("sig_abc", "sig_abc", "x", new Error("401")).looksLikeSigningKey === true);
 }
 
 door().then(() => {
