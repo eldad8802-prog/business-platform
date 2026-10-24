@@ -257,10 +257,10 @@ async function secretaryChecks(page, vp, scenario, run) {
     c.retry = await page.locator("main").getByRole("button", { name: /נסה שוב|לנסות שוב/ }).count();
     c.ok = c.hebrewError && c.retry > 0;
   } else if (scenario === "legacy") {
-    // An item with no ledger link due today: it is on the week strip as a payment due, never as paid.
+    // An item with no ledger link due today: on the week strip it is an open commitment ("התחייבות"), never paid.
     const label = await page.locator("main [aria-current='date']").first().getAttribute("aria-label").catch(() => "");
     c.label = label;
-    c.ok = /תשלום צפוי/.test(label ?? "") && !/שולם/.test(label ?? "");
+    c.ok = /התחייבות/.test(label ?? "") && !/שולם|באיחור/.test(label ?? ""); // open, due today: neither paid nor late
   } else if (scenario === "loading") {
     c.ok = run.loadingSeen;
   } else if (scenario === "todayShared") {

@@ -169,8 +169,29 @@ function Chevron({ dir }: { dir: "prev" | "next" }) {
 }
 
 /**
+ * What the week strip tells apart (owner-approved mockup): a task, an open commitment date, an open commitment
+ * whose date has passed ("תשלום באיחור" — open and past due, the same rule as the briefing's OVERDUE), and,
+ * when they fall in the week, paid / handled-without-payment / forecast. Nothing here changes a status.
+ */
+type WeekKind = "TASK" | "DUE" | "LATE" | "PAID" | "HANDLED" | "PROJECTED";
+const WEEK_KINDS: WeekKind[] = ["TASK", "DUE", "LATE", "PAID", "HANDLED", "PROJECTED"];
+const WEEK_LABEL: Record<WeekKind, string> = {
+  TASK: "משימה",
+  DUE: "התחייבות",
+  LATE: "תשלום באיחור",
+  PAID: "שולם",
+  HANDLED: "טופל, לא נרשם תשלום",
+  PROJECTED: "תחזית",
+};
+const WEEK_CLASS: Record<WeekKind, string> = { TASK: s.wTask, DUE: s.wDue, LATE: s.wLate, PAID: s.kPaid, HANDLED: s.kHandled, PROJECTED: s.kProjected };
+/** Always in the legend, as in the mockup; the others only when they fall in this week. */
+const WEEK_ALWAYS = new Set<WeekKind>(["TASK", "DUE", "LATE"]);
+
+const weekKind = (e: CalendarEvent, today: string): WeekKind => (e.kind === "DUE" && e.day < today ? "LATE" : e.kind);
+
+/**
  * The week strip on the main screen ("לוח השבוע"): Sunday to Saturday of this week, today marked, each day with
- * the marks of what falls on it (same kinds and shapes as the month). A day opens the full month at that day.
+ * the marks of what falls on it. A day opens the full month at that day; "היום" opens it at today.
  */
 export function SecretaryWeek({ events, loading, failed }: { events: CalendarEvent[]; loading: boolean; failed: boolean }) {
   const today = jerusalemDayKey(new Date());
@@ -183,7 +204,8 @@ export function SecretaryWeek({ events, loading, failed }: { events: CalendarEve
     return x.toISOString().slice(0, 10);
   });
   const byDay = eventsByDay(events);
-  const shown = new Set(days.flatMap((day) => (byDay.get(day) ?? []).map((e) => e.kind)));
+  const shown = new Set<WeekKind>(days.flatMap((day) => (byDay.get(day) ?? []).map((e) => weekKind(e, today))));
+  const legend = WEEK_KINDS.filter((k) => WEEK_ALWAYS.has(k) || shown.has(k));
 
   return (
     <section className={s.card} aria-labelledby="hub-week-title" aria-busy={loading || undefined}>
@@ -201,9 +223,9 @@ export function SecretaryWeek({ events, loading, failed }: { events: CalendarEve
       </div>
       <ol className={s.week}>
         {days.map((day, i) => {
-          const list = byDay.get(day) ?? [];
-          const kinds = KINDS.filter((k) => list.some((e) => e.kind === k));
-          const label = `${longDay(day)}${list.length ? ` · ${kinds.map((k) => `${CALENDAR_KIND_LABEL[k]} ${list.filter((e) => e.kind === k).length}`).join(", ")}` : " · אין משימה או מועד תשלום"}`;
+          const list = (byDay.get(day) ?? []).map((e) => weekKind(e, today));
+          const kinds = WEEK_KINDS.filter((k) => list.includes(k));
+          const label = `${longDay(day)}${list.length ? ` · ${kinds.map((k) => `${WEEK_LABEL[k]} ${list.filter((x) => x === k).length}`).join(", ")}` : " · אין משימה או מועד תשלום"}`;
           return (
             <li key={day}>
               <Link
@@ -216,7 +238,7 @@ export function SecretaryWeek({ events, loading, failed }: { events: CalendarEve
                 <span className={s.weekNum} aria-hidden="true">{Number(day.slice(8))}</span>
                 <span className={s.marks} aria-hidden="true">
                   {kinds.slice(0, 3).map((k) => (
-                    <span key={k} className={`${s.mark} ${KIND_CLASS[k]}`} />
+                    <span key={k} className={`${s.mark} ${WEEK_CLASS[k]}`} />
                   ))}
                 </span>
               </Link>
@@ -225,16 +247,20 @@ export function SecretaryWeek({ events, loading, failed }: { events: CalendarEve
         })}
       </ol>
       {failed ? <p className={s.muted}>לא הצלחתי לטעון את מועדי ההתחייבויות.</p> : null}
-      {shown.size > 0 ? (
-        <ul className={s.legend} aria-label="מקרא">
-          {KINDS.filter((k) => shown.has(k)).map((k) => (
+      <div className={s.weekFoot}>
+        <ul className={s.weekLegend} aria-label="מקרא">
+          {legend.map((k) => (
             <li key={k}>
-              <span className={`${s.mark} ${KIND_CLASS[k]}`} aria-hidden="true" />
-              {CALENDAR_KIND_LABEL[k]}
+              <span className={`${s.mark} ${WEEK_CLASS[k]}`} aria-hidden="true" />
+              {WEEK_LABEL[k]}
             </li>
           ))}
         </ul>
-      ) : null}
+        <Link href={`/secretary?screen=calendar&day=${today}`} className={s.todayChip}>
+          <CalendarGlyph />
+          היום
+        </Link>
+      </div>
     </section>
   );
 }

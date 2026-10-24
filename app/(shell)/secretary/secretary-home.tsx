@@ -26,6 +26,7 @@ import type { BriefingApi } from "@/lib/obligations/secretary-client";
 import { SecretaryWeek } from "./secretary-calendar";
 import { SecretaryCostDrawer } from "./secretary-cost-drawer";
 import { useHubData } from "./secretary-hub-data";
+import { noteHand } from "./secretary-fonts";
 import { calendarEvents } from "./secretary-hub-model";
 import { ownerErrorText } from "./secretary-home-model";
 import { secretaryVars } from "./secretary-ui";
@@ -55,7 +56,7 @@ export function SecretaryHome({ briefing, now = new Date() }: { briefing: Briefi
   const events = calendarEvents({ obligations, tasks: Array.isArray(data.tasks) ? data.tasks : [], summary });
 
   return (
-    <main className={s.page} style={secretaryVars()} dir="rtl" aria-labelledby="secretary-title">
+    <main className={cx(s.page, noteHand.variable)} style={secretaryVars()} dir="rtl" aria-labelledby="secretary-title">
       <Header now={now} />
       <Actions tasksOn={tasksOn} />
       <CostCard summary={data.summary} onDetails={() => setCostOpen(true)} />
@@ -109,71 +110,87 @@ function CostCard({ summary, onDetails }: { summary: ReturnType<typeof useHubDat
       ? new Intl.DateTimeFormat("he-IL", { month: "long", timeZone: "UTC" }).format(new Date(`${ready.baseline.calendarDay.month}-15T12:00:00Z`))
       : null;
 
+  // Mockup layout (RTL): the clipped paper slip on the right, the figure in the middle, the icon and "לפירוט" on
+  // the left.
   return (
-    <section className={s.cost} aria-labelledby="sec-cost-title" aria-busy={summary === "loading" || undefined}>
-      <div className={s.costMain}>
-        <span className={s.costIcon} aria-hidden="true"><WalletIcon /></span>
-        <div className={s.costText}>
-          <h2 id="sec-cost-title" className={s.costTitle}>
-            עלות יומית של העסק
-            <InfoIcon />
-          </h2>
-          {summary === "loading" ? (
-            <span className={s.skel} style={{ blockSize: 40, inlineSize: 140 }} />
-          ) : ready ? (
-            <p className={s.costValue}><bdi>{ils(ready.baseline.calendarDay.daily)}</bdi></p>
-          ) : (
-            <p className={s.costNone}>—</p>
-          )}
-          <p className={s.costNote}>
-            {summary === "unavailable"
-              ? "לא הצלחתי לטעון את העלות היומית. אפשר לנסות שוב בעוד רגע."
-              : summary !== "loading" && !ready
-                ? "עוד אין הוצאות קבועות רשומות, ולכן אין עלות יומית."
-                : "עלות תפעול מחושבת, לא תשלום בפועל"}
-          </p>
-          {ready ? (
-            <button type="button" className={s.pill} onClick={onDetails} aria-haspopup="dialog">
-              לפירוט
-              <ChevronIcon />
-            </button>
-          ) : null}
-        </div>
-      </div>
-      {/* What the day cost is made of — two server figures, never a made-up history. */}
+    <section className={cx(s.cost, !ready && s.costNoSlip)} aria-labelledby="sec-cost-title" aria-busy={summary === "loading" || undefined}>
+      {/* What the day cost is made of — two server figures on a clipped paper slip, never a made-up history. */}
       {ready ? (
-        <dl className={s.costFacts}>
-          <div>
-            <dt>הוצאות קבועות לחודש</dt>
-            <dd><bdi>{ils(ready.baseline.monthly)}</bdi></dd>
-          </div>
-          <div>
-            <dt>{monthName ? `ימים ב${monthName}` : "ימים בחודש"}</dt>
-            <dd>{ready.baseline.calendarDay.daysInMonth.toLocaleString("he-IL")}</dd>
-          </div>
-        </dl>
+        <div className={s.slipWrap}>
+          <dl className={s.slip}>
+            <div>
+              <dt>הוצאות קבועות לחודש</dt>
+              <dd><bdi>{ils(ready.baseline.monthly)}</bdi></dd>
+            </div>
+            <div>
+              <dt>{monthName ? `ימי ${monthName}` : "ימי החודש"}</dt>
+              <dd>{ready.baseline.calendarDay.daysInMonth.toLocaleString("he-IL")}</dd>
+            </div>
+          </dl>
+          <span className={s.slipClip} aria-hidden="true"><PaperClip /></span>
+        </div>
+      ) : null}
+      <div className={s.costText}>
+        <h2 id="sec-cost-title" className={s.costTitle}>
+          עלות יומית של העסק
+          <InfoIcon />
+        </h2>
+        {summary === "loading" ? (
+          <span className={s.skel} style={{ blockSize: 40, inlineSize: 120 }} />
+        ) : ready ? (
+          <p className={s.costValue}><bdi>{ils(ready.baseline.calendarDay.daily)}</bdi></p>
+        ) : (
+          <p className={s.costNone}>—</p>
+        )}
+        <p className={s.costNote}>
+          {summary === "unavailable"
+            ? "לא הצלחתי לטעון את העלות היומית. אפשר לנסות שוב בעוד רגע."
+            : summary !== "loading" && !ready
+              ? "עוד אין הוצאות קבועות רשומות, ולכן אין עלות יומית."
+              : "עלות תפעול מחושבת, לא תשלום בפועל."}
+        </p>
+      </div>
+      <span className={s.costIcon} aria-hidden="true"><WalletIcon /></span>
+      {ready ? (
+        <button type="button" className={s.pill} onClick={onDetails} aria-haspopup="dialog">
+          לפירוט
+          <ChevronIcon />
+        </button>
       ) : null}
     </section>
   );
 }
 
+type NoteKind = "sand" | "green" | "blue";
+const NOTE_CLASS: Record<NoteKind, string> = { sand: s.noteSand, green: s.noteGreen, blue: s.noteBlue };
+const NOTE_FASTENER: Record<NoteKind, ReactNode> = {
+  sand: <span className={s.clip} aria-hidden="true"><PaperClip /></span>,
+  green: <span className={s.pin} aria-hidden="true"><PushPin /></span>,
+  blue: <span className={s.tape} aria-hidden="true" />,
+};
+
+/**
+ * "תחנות ניהול" as the Secretary's reminder notes on her desk (owner-approved mockup): paper, a slight tilt, a
+ * clip / pin / tape, a handwritten title. Each whole note is one link to an existing screen.
+ */
 function Stations({ tasksOn }: { tasksOn: boolean }) {
-  const items: Array<{ key: string; href: string; title: string; sub: string; icon: ReactNode; sand?: boolean }> = [
-    { key: "payables", href: HREF.payables, title: "התחייבויות", sub: "ניהול כל ההתחייבויות של העסק", icon: <WalletIcon />, sand: true },
-    ...(tasksOn ? [{ key: "tasks", href: HREF.tasks, title: "משימות", sub: "ניהול כל המשימות של העסק", icon: <ListIcon /> }] : []),
-    { key: "calendar", href: HREF.calendar, title: "לוח שנה", sub: "צפייה וניהול כל המשימות וההתחייבויות", icon: <CalendarIcon /> },
+  const items: Array<{ key: string; href: string; title: string; sub: string; icon: ReactNode; kind: NoteKind }> = [
+    { key: "payables", href: HREF.payables, title: "התחייבויות", sub: "מעקב ותשלומים", icon: <WalletIcon />, kind: "sand" },
+    ...(tasksOn ? [{ key: "tasks", href: HREF.tasks, title: "משימות", sub: "ניהול וביצוע משימות", icon: <ListIcon />, kind: "green" as const }] : []),
+    { key: "calendar", href: HREF.calendar, title: "לוח שנה", sub: "מועדים ותכנון", icon: <CalendarIcon />, kind: "blue" },
   ];
   return (
     <section className={s.stationsWrap} aria-labelledby="sec-stations-title">
       <h2 id="sec-stations-title" className={s.secTitle}>תחנות ניהול</h2>
-      <ul className={cx(s.stations, items.length === 2 && s.stationsTwo)}>
+      <ul className={cx(s.notes, items.length === 2 && s.notesTwo)}>
         {items.map((it) => (
-          <li key={it.key}>
-            <Link href={it.href} className={s.station}>
-              <span className={cx(s.stationIcon, it.sand && s.stationIconSand)} aria-hidden="true">{it.icon}</span>
-              <span className={s.stationTitle}>{it.title}</span>
-              <span className={s.stationSub}>{it.sub}</span>
-              <span className={s.stationChev} aria-hidden="true"><ChevronIcon /></span>
+          <li key={it.key} className={s.noteSlot}>
+            <Link href={it.href} className={cx(s.note, NOTE_CLASS[it.kind])} aria-label={`${it.title} — ${it.sub}`}>
+              {NOTE_FASTENER[it.kind]}
+              <span className={s.noteIcon} aria-hidden="true">{it.icon}</span>
+              <span className={s.noteTitle} aria-hidden="true">{it.title}</span>
+              <span className={s.noteSub} aria-hidden="true">{it.sub}</span>
+              <span className={s.noteArrow} aria-hidden="true"><ArrowIcon /></span>
             </Link>
           </li>
         ))}
@@ -283,6 +300,38 @@ function InfoIcon() {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 11v5M12 8h.01" />
+    </svg>
+  );
+}
+
+/** "←" — the note's way in (RTL forward). */
+function ArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 12H5M11 6l-6 6 6 6" />
+    </svg>
+  );
+}
+
+/** A steel paperclip (local SVG, decorative). */
+function PaperClip() {
+  return (
+    <svg viewBox="0 0 22 50" width="22" height="50" fill="none" aria-hidden="true">
+      <path d="M7 33V11a5 5 0 0 1 10 0v26a8 8 0 0 1-16 0V15" stroke="#7d848a" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M7 33V11a5 5 0 0 1 10 0v26a8 8 0 0 1-16 0V15" stroke="#d9dde0" strokeWidth="1" strokeLinecap="round" transform="translate(-.6 -.6)" />
+    </svg>
+  );
+}
+
+/** A green push pin (local SVG, decorative). */
+function PushPin() {
+  return (
+    <svg viewBox="0 0 34 40" width="34" height="40" aria-hidden="true">
+      <path d="M17 24l-6 13" stroke="#8a9096" strokeWidth="2" strokeLinecap="round" />
+      <ellipse cx="18.5" cy="26" rx="7" ry="2.6" fill="#1e7a4a" />
+      <path d="M13 10h11l-2 12h-7z" fill="#2a9a5e" />
+      <ellipse cx="18.5" cy="9" rx="8" ry="5.5" fill="#33a866" />
+      <ellipse cx="16" cy="7.5" rx="3" ry="1.6" fill="#8fdcae" opacity=".8" />
     </svg>
   );
 }

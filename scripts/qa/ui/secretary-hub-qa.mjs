@@ -210,7 +210,7 @@ async function hubOn(browser, vp) {
     // Stations: three, one row on every width, the existing screens.
     const stations = main.locator("section[aria-labelledby='sec-stations-title'] a");
     c.stationHrefs = (await stations.evaluateAll((as) => as.map((a) => a.getAttribute("href")))).join(" ") === "/payables /tasks /secretary?screen=calendar";
-    const sb = await stations.evaluateAll((as) => as.map((a) => a.getBoundingClientRect().top));
+    const sb = await stations.evaluateAll((as) => as.map((a) => a.parentElement.getBoundingClientRect().top)); // the slots: notes are tilted on purpose
     c.stationsOneRow = sb.length === 3 && sb.every((y) => Math.abs(y - sb[0]) < 1);
 
     // Week: seven days, today marked, marks from real reads only, no lead.
