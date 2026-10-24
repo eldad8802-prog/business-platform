@@ -50,7 +50,7 @@
 \echo '17 EXECUTE on the revenue functions: nobody but the owner, never PUBLIC (observed = other grants)'
 \echo '18 the eleven revenue enums carry their reviewed number of labels (observed = of 11)'
 \echo '19 nothing written: the eight revenue tables hold no row (observed = rows)'
-\echo '20 nothing added elsewhere: no revenue flag, no revenue policy or trigger on any existing table (observed = such objects)'
+\echo '20 nothing added elsewhere: no revenue_* flag (the coupons flag revenue is older and not counted), no revenue policy or trigger on any existing table (observed = such objects)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -160,7 +160,8 @@ expected_enum(typname, labels) AS (VALUES
 enum_ok AS (SELECT e.typname FROM expected_enum e JOIN pg_type t ON t.typname = e.typname AND t.typnamespace = (SELECT oid FROM pub)
             WHERE (SELECT count(*) FROM pg_enum x WHERE x.enumtypid = t.oid) = e.labels),
 elsewhere AS (
-  SELECT 'flag' AS kind FROM "PlatformFeatureDefinition" WHERE "key" LIKE 'revenue%'
+  -- A revenue truth flag would be revenue_*; the coupons flag 'revenue' (20260528120000) is not this migration's.
+  SELECT 'flag' AS kind FROM "PlatformFeatureDefinition" WHERE "key" LIKE 'revenue\_%'
   UNION ALL SELECT 'policy' FROM pg_policy p JOIN rel r ON r.oid = p.polrelid
              WHERE p.polname LIKE 'revenue\_%' AND r.nm NOT IN (SELECT nm FROM tables)
   UNION ALL SELECT 'trigger' FROM pg_trigger tg JOIN rel r ON r.oid = tg.tgrelid JOIN pg_proc f ON f.oid = tg.tgfoid
