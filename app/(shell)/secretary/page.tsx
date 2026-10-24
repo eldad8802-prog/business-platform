@@ -35,8 +35,8 @@ import {
   type SecretaryScreenName,
   type TodayModel,
 } from "./secretary-ui";
+import { SecretaryCalendarScreen } from "./secretary-calendar-screen";
 import { SecretaryHome, SecretaryHomeLoadError, SecretaryHomeLoading } from "./secretary-home";
-import { buildSecretaryHome } from "./secretary-home-model";
 
 type LoadState =
   | { status: "loading" }
@@ -117,7 +117,10 @@ function SecretaryPageInner() {
     const loopMode = parseLoopMode(searchParams.get("loopMode"));
     const showToday = searchParams.has("today");
     const prefillName = searchParams.get("name")?.trim() || undefined;
-    return { screen, selectedId, loopMode, showToday, prefillName };
+    // The full calendar (stations layout, 24.10.2026): its own view, not one of the flow screens.
+    const calendarView = searchParams.get("screen") === "calendar";
+    const calendarDay = searchParams.get("day");
+    return { screen, selectedId, loopMode, showToday, prefillName, calendarView, calendarDay };
   }
 
   function flashMessage(msg: string) {
@@ -386,10 +389,18 @@ function SecretaryPageInner() {
   // the user can move to other sections of the app.
   // The "שילמת?" sheet now also opens from the main screen, where the fixed bottom bar would cover its
   // lower buttons ("ביטול"); hide the chrome while it is open, as the inner screens already do.
-  useHideShellChrome(Boolean(route.screen) || route.showToday || paidPrompt !== null);
+  useHideShellChrome(Boolean(route.screen) || route.showToday || route.calendarView || paidPrompt !== null);
 
   if (state.status === "ready") {
     const focus = state.briefing.attention[0]?.obligation ?? null;
+
+    if (route.calendarView) {
+      return (
+        <SecretaryErrorBoundary>
+          <SecretaryCalendarScreen briefing={state.briefing} day={route.calendarDay} />
+        </SecretaryErrorBoundary>
+      );
+    }
 
     if (route.screen) {
       return (
@@ -435,19 +446,18 @@ function SecretaryPageInner() {
       );
     }
 
-    // The main screen (alternative B). Its actions are the existing flows:
-    // "סמן שטופל" → onCompleteFlow ("שילמת?" at the same step), "כבר לא
-    // רלוונטי" → onReleaseFlow. The cost card sits in its side column.
+    // The main screen: management stations (owner-approved mockup, 24.10.2026). The flows it no longer
+    // shows ("סמן שטופל", release) stay on the inner screens, unchanged.
     return (
       <SecretaryErrorBoundary>
-        <SecretaryHome view={buildSecretaryHome(state.briefing)} briefing={state.briefing} actions={{ onHandled: onCompleteFlow, onRelease: onReleaseFlow }} />
+        <SecretaryHome briefing={state.briefing} />
         {paidSheet}
         {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
       </SecretaryErrorBoundary>
     );
   }
 
-  const onMainScreen = !route.screen && !route.showToday;
+  const onMainScreen = !route.screen && !route.showToday && !route.calendarView;
 
   if (state.status === "loading") {
     // Instant, calm skeleton — entry never shows a blank screen or a blocking

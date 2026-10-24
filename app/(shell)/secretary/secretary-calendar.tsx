@@ -29,11 +29,14 @@ function longDay(day: string): string {
   return new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-export function SecretaryCalendar({ events, notes, loading }: { events: CalendarEvent[]; notes: string[]; loading: boolean }) {
+const DAY_KEY = /^d{4}-d{2}-d{2}$/;
+
+export function SecretaryCalendar({ events, notes, loading, initialDay, title = "לוח שנה" }: { events: CalendarEvent[]; notes: string[]; loading: boolean; initialDay?: string | null; title?: string }) {
   const today = jerusalemDayKey(new Date());
-  const [ty, tm] = today.split("-").map(Number);
-  const [view, setView] = useState({ year: ty, month: tm });
-  const [selected, setSelected] = useState<string>(today);
+  const start = initialDay && DAY_KEY.test(initialDay) ? initialDay : today;
+  const [sy, sm] = start.split("-").map(Number);
+  const [view, setView] = useState({ year: sy, month: sm });
+  const [selected, setSelected] = useState<string>(start);
   const grid = useMemo(() => monthGrid(view.year, view.month), [view]);
   const byDay = useMemo(() => eventsByDay(events), [events]);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -64,7 +67,7 @@ export function SecretaryCalendar({ events, notes, loading }: { events: Calendar
   return (
     <section className={s.card} aria-labelledby="hub-calendar-title">
       <div className={s.calHead}>
-        <h2 id="hub-calendar-title" className={s.cardTitle}>לוח שנה</h2>
+        <h2 id="hub-calendar-title" className={s.cardTitle}>{title}</h2>
         <div className={s.calNav}>
           <button type="button" className={s.navBtn} onClick={() => move(-1)} aria-label="החודש הקודם">
             <Chevron dir="prev" />
@@ -161,6 +164,86 @@ function Chevron({ dir }: { dir: "prev" | "next" }) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={dir === "prev" ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"} />
+    </svg>
+  );
+}
+
+/**
+ * The week strip on the main screen ("לוח השבוע"): Sunday to Saturday of this week, today marked, each day with
+ * the marks of what falls on it (same kinds and shapes as the month). A day opens the full month at that day.
+ */
+export function SecretaryWeek({ events, loading, failed }: { events: CalendarEvent[]; loading: boolean; failed: boolean }) {
+  const today = jerusalemDayKey(new Date());
+  const [y, m, d] = today.split("-").map(Number);
+  const sunday = new Date(Date.UTC(y, m - 1, d));
+  sunday.setUTCDate(sunday.getUTCDate() - sunday.getUTCDay());
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(sunday);
+    x.setUTCDate(sunday.getUTCDate() + i);
+    return x.toISOString().slice(0, 10);
+  });
+  const byDay = eventsByDay(events);
+  const shown = new Set(days.flatMap((day) => (byDay.get(day) ?? []).map((e) => e.kind)));
+
+  return (
+    <section className={s.card} aria-labelledby="hub-week-title" aria-busy={loading || undefined}>
+      <div className={s.calHead}>
+        <h2 id="hub-week-title" className={s.weekTitle}>
+          <CalendarGlyph />
+          לוח השבוע
+        </h2>
+        <Link href="/secretary?screen=calendar" className={s.fullLink}>
+          לוח שנה מלא
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </Link>
+      </div>
+      <ol className={s.week}>
+        {days.map((day, i) => {
+          const list = byDay.get(day) ?? [];
+          const kinds = KINDS.filter((k) => list.some((e) => e.kind === k));
+          const label = `${longDay(day)}${list.length ? ` · ${kinds.map((k) => `${CALENDAR_KIND_LABEL[k]} ${list.filter((e) => e.kind === k).length}`).join(", ")}` : " · אין משימה או מועד תשלום"}`;
+          return (
+            <li key={day}>
+              <Link
+                href={`/secretary?screen=calendar&day=${day}`}
+                className={[s.weekDay, day === today && s.weekToday].filter(Boolean).join(" ")}
+                aria-label={label}
+                aria-current={day === today ? "date" : undefined}
+              >
+                <span className={s.weekName} aria-hidden="true">{WEEKDAYS[i]}</span>
+                <span className={s.weekNum} aria-hidden="true">{Number(day.slice(8))}</span>
+                <span className={s.marks} aria-hidden="true">
+                  {kinds.slice(0, 3).map((k) => (
+                    <span key={k} className={`${s.mark} ${KIND_CLASS[k]}`} />
+                  ))}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ol>
+      {failed ? <p className={s.muted}>לא הצלחתי לטעון את מועדי ההתחייבויות.</p> : null}
+      {shown.size > 0 ? (
+        <ul className={s.legend} aria-label="מקרא">
+          {KINDS.filter((k) => shown.has(k)).map((k) => (
+            <li key={k}>
+              <span className={`${s.mark} ${KIND_CLASS[k]}`} aria-hidden="true" />
+              {CALENDAR_KIND_LABEL[k]}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function CalendarGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" />
+      <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
     </svg>
   );
 }

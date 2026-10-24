@@ -231,42 +231,36 @@ const PROBE = () => {
 async function secretaryChecks(page, vp, scenario, run) {
   const t = norm(await page.locator("main").first().innerText().catch(() => ""));
   const c = {};
-  if (scenario === "prod") {
-    c.headline = t.includes("3 תשלומים עברו את המועד.");
-    c.no3615 = !t.includes("3,615");
-    c.noReminderPromise = !/אזכיר לך|אני אזכיר/.test(t);
-    // Every amount on a row is a fixture field: ledger.remaining 15 / 3500 / 30, watching 50.
-    c.amounts = ["₪15", "₪3,500", "₪30", "₪50"].every((a) => t.includes(a));
-    c.hrefs = await page.evaluate(() => {
-      // Version B hub (23.10.2026): "הוסף התחייבות" in the header; "היום שלי" and the full list under history.
+  // Stations layout (owner-approved mockup, 24.10.2026): title · actions · day cost · stations · week. The rows,
+  // their "סמן שטופל" / "שילמת?" / release flows live on the inner screens, unchanged (inner-text regression).
+  const stations = async () =>
+    page.evaluate(() => {
       const href = (txt) => [...document.querySelectorAll("main a")].find((a) => a.innerText.trim().startsWith(txt))?.getAttribute("href") ?? null;
-      return { today: href("היום שלי"), all: href("כל ההתחייבויות"), add: href("הוסף התחייבות") };
+      return { add: href("הוסף התחייבות"), payables: href("התחייבויות"), calendar: href("לוח שנה"), full: href("לוח שנה מלא") };
     });
-    c.hrefsOk = c.hrefs.today === "/secretary?today=1" && c.hrefs.all === "/secretary?screen=all" && c.hrefs.add === "/secretary?screen=bank";
-    c.paidQuestion = await checkPaidQuestion(page, vp);
-    if (vp.name === "1440" || vp.name === "390") c.menu = await checkMenu(page, vp);
-    if (vp.name === "1440") c.keyboard = await checkKeyboard(page);
-    c.allNav = await checkNav(page, /^כל ההתחייבויות/,/\/secretary\?screen=all$/, vp);
-    c.ok = c.headline && c.no3615 && c.noReminderPromise && c.amounts && c.hrefsOk && c.paidQuestion.ok && (!c.menu || c.menu.ok) && (!c.keyboard || c.keyboard.ok) && c.allNav.ok;
+  if (scenario === "prod") {
+    c.noReminderPromise = !/אזכיר לך|אני אזכיר/.test(t);
+    c.noRowsOrCards = !/סמן שטופל|מה מחכה לך היום|משימות פתוחות|תשלומים קרובים/.test(t);
+    // The day cost is the fixture's calendarDay.daily (2.10) with its monthly (65) and days (31).
+    c.cost = t.includes("2.10 ₪") && t.includes("עלות תפעול מחושבת, לא תשלום בפועל");
+    c.hrefs = await stations();
+    c.hrefsOk = c.hrefs.add === "/secretary?screen=bank" && c.hrefs.payables === "/payables" && c.hrefs.calendar === "/secretary?screen=calendar" && c.hrefs.full === "/secretary?screen=calendar";
+    c.calendarNav = await checkNav(page, "לוח שנה מלא", /\/secretary\?screen=calendar$/, vp);
+    c.ok = c.noReminderPromise && c.noRowsOrCards && c.cost && c.hrefsOk && c.calendarNav.ok;
   } else if (scenario === "empty") {
-    c.ok = t.includes("שלום, אני המזכירה שלך.");
+    // A new business: no fixed costs yet, the actions and stations are there.
+    c.ok = t.includes("עוד אין הוצאות קבועות רשומות") && t.includes("תחנות ניהול") && (await stations()).add === "/secretary?screen=bank";
   } else if (scenario === "calm") {
-    c.ok = t.includes("הכול רגוע השבוע.");
+    c.ok = t.includes("תחנות ניהול") && t.includes("לוח השבוע");
   } else if (scenario === "error") {
     c.hebrewError = /לא הצלחתי|נכשל|שגיאה/.test(t) && !/Internal server error/i.test(t);
     c.retry = await page.locator("main").getByRole("button", { name: /נסה שוב|לנסות שוב/ }).count();
     c.ok = c.hebrewError && c.retry > 0;
   } else if (scenario === "legacy") {
-    // No ledger link → "סמן שטופל" closes directly (as before); the write fails → a Hebrew error, no dialog.
-    const before = nonGet.length;
-    await page.locator("main").getByRole("button", { name: "סמן שטופל" }).first().click();
-    await page.waitForTimeout(1200);
-    c.writesAttempted = nonGet.slice(before).map((n) => `${n.method} ${n.path}`);
-    c.noDialog = (await page.getByRole("dialog").count()) === 0;
-    const alert = norm(await page.locator('main [role="alert"]').first().innerText().catch(() => ""));
-    c.alert = alert;
-    c.ok = c.noDialog && /[֐-׿]/.test(alert) && !/QA harness|not mocked/i.test(alert);
-    await page.screenshot({ path: path.join(OUT, `secretary-legacy-${vp.name}-action-error.png`), fullPage: false });
+    // An item with no ledger link due today: it is on the week strip as a payment due, never as paid.
+    const label = await page.locator("main [aria-current='date']").first().getAttribute("aria-label").catch(() => "");
+    c.label = label;
+    c.ok = /תשלום צפוי/.test(label ?? "") && !/שולם/.test(label ?? "");
   } else if (scenario === "loading") {
     c.ok = run.loadingSeen;
   } else if (scenario === "todayShared") {
@@ -275,86 +269,6 @@ async function secretaryChecks(page, vp, scenario, run) {
     c.ok = c.agenda;
   }
   return c;
-}
-
-async function checkPaidQuestion(page, vp) {
-  const out = { ok: false };
-  try {
-    const before = nonGet.length;
-    const btn = page.locator("main").getByRole("button", { name: "סמן שטופל" }).first();
-    await btn.scrollIntoViewIfNeeded();
-    await btn.click();
-    const dlg = page.getByRole("dialog", { name: "שילמת לגולן טלקום?" });
-    await dlg.waitFor({ state: "visible", timeout: 5000 });
-    out.askStep = await dlg.getByRole("button", { name: "כן, שילמתי" }).isVisible();
-    out.handledOnly = await dlg.getByRole("button", { name: "לא, רק לסמן שטופל" }).isVisible();
-    await page.screenshot({ path: path.join(OUT, `secretary-prod-${vp.name}-paid-question.png`) });
-    await dlg.getByRole("button", { name: "ביטול" }).click();
-    out.closed = await dlg.waitFor({ state: "hidden", timeout: 3000 }).then(() => true).catch(() => false);
-    out.writes = nonGet.length - before;
-    out.ok = out.askStep && out.handledOnly && out.closed && out.writes === 0;
-  } catch (e) {
-    out.error = String(e.message || e).slice(0, 300);
-  }
-  return out;
-}
-
-async function checkMenu(page, vp) {
-  const out = { ok: false };
-  try {
-    const trigger = page.locator('main [aria-haspopup="menu"]').first();
-    await trigger.scrollIntoViewIfNeeded();
-    await trigger.click();
-    const menu = page.getByRole("menu").first();
-    await menu.waitFor({ state: "visible", timeout: 5000 });
-    const box = await menu.boundingBox();
-    const v = page.viewportSize();
-    out.items = (await menu.getByRole("menuitem").allInnerTexts()).map((s) => s.trim());
-    out.inside = Boolean(box) && box.x >= 0 && box.x + box.width <= v.width + 0.5;
-    await page.screenshot({ path: path.join(OUT, `secretary-prod-${vp.name}-menu.png`) });
-    await page.keyboard.press("Escape");
-    out.closed = await menu.waitFor({ state: "hidden", timeout: 3000 }).then(() => true).catch(() => false);
-    // "כבר לא רלוונטי…" opens the existing ReleaseControl under the row: its own button, then the same confirm. No write.
-    const before = nonGet.length;
-    await trigger.click();
-    await page.getByRole("menu").first().getByRole("menuitem", { name: /^כבר לא רלוונטי/ }).click();
-    const row = page.locator("main li").filter({ has: page.getByRole("button", { name: "סגירה" }) }).first();
-    await row.getByRole("button", { name: "כבר לא רלוונטי", exact: true }).click();
-    const confirm = row.getByRole("group", { name: "אישור הסרה" });
-    out.releaseConfirm = (await confirm.innerText()).includes("להסיר את ההתחייבות הזאת?") && (await confirm.getByRole("button", { name: "כן, להסיר" }).isVisible());
-    await page.screenshot({ path: path.join(OUT, `secretary-prod-${vp.name}-release.png`) });
-    await confirm.getByRole("button", { name: "לא, להשאיר" }).click();
-    await row.getByRole("button", { name: "סגירה" }).click();
-    out.releaseWrites = nonGet.length - before;
-    out.ok = out.inside && out.closed && out.items.includes("פרטים") && out.items.some((s) => s.startsWith("כבר לא רלוונטי")) && out.releaseConfirm && out.releaseWrites === 0;
-  } catch (e) {
-    out.error = String(e.message || e).slice(0, 300);
-  }
-  return out;
-}
-
-async function checkKeyboard(page) {
-  const out = { ok: false };
-  try {
-    await page.reload({ waitUntil: "load" });
-    await settle(page);
-    const inMain = [];
-    for (let i = 0; i < 150 && inMain.length < 20; i++) {
-      await page.keyboard.press("Tab");
-      const d = await page.evaluate(() => {
-        const el = document.activeElement;
-        if (!el || el === document.body || !el.closest("main")) return null;
-        return { tag: el.tagName.toLowerCase(), name: (el.getAttribute("aria-label") || el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 40), href: el.getAttribute("href"), menu: el.getAttribute("aria-haspopup") === "menu" };
-      });
-      if (d) inMain.push(d);
-    }
-    const row = inMain.findIndex((s) => s.tag === "a" && /screen=detail/.test(s.href || ""));
-    out.order = inMain.slice(Math.max(0, row), row + 3).map((s) => (s.menu ? "⋯" : s.name));
-    out.ok = row >= 0 && inMain[row + 1]?.name === "סמן שטופל" && inMain[row + 2]?.menu === true;
-  } catch (e) {
-    out.error = String(e.message || e).slice(0, 300);
-  }
-  return out;
 }
 
 async function checkNav(page, linkText, expect, vp) {
