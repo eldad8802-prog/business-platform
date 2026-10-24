@@ -522,6 +522,14 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // in deletion — but its address would otherwise outlive the erasure.
           await tx.authEmailToken.deleteMany({ where: { businessId } });
 
+          // ── B.2.4 — Google identity links ──────────────────────────────────
+          //
+          // The Google subject and the address this owner linked with (migration
+          // 20261030090000). The same tenant-bound DELETE (CI-AD-13), explicit for
+          // the same reason: the user is anonymised in place, so the User cascade
+          // never fires. Once deleted, the subject can sign nobody in again.
+          await tx.userIdentity.deleteMany({ where: { businessId } });
+
           // ── B.3 — the conversation graph, ANONYMISED IN PLACE ──────────────
           //
           // This used to be `conversation.deleteMany`, and it deleted nothing.

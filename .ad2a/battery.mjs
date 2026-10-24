@@ -285,6 +285,12 @@ async function main() {
   // (id, businessId), never the hash or the address. Account erasure is its one consumer.
   await owner.$executeRawUnsafe(`REVOKE ALL ON "AuthEmailToken" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "AuthEmailToken" TO ${RT_ROLE}`);
+  // Google identity links — migration 20261030090000_oauth_identity_foundation, mirrored exactly: DELETE and
+  // SELECT on (id, businessId), never the subject or the address, nothing on the id sequence. Account
+  // erasure is its one consumer.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON "UserIdentity" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT ("id", "businessId"), DELETE ON "UserIdentity" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE "UserIdentity_id_seq" FROM ${RT_ROLE}`);
   // Daily Tasks — migration 20261018090000_daily_tasks_foundation, mirrored exactly for the tables the
   // erasure reaches: SELECT, INSERT, UPDATE on Task / TaskSeries (DELETE revoked — text is blanked in place),
   // SELECT, INSERT, DELETE on TaskRequestLedger (fingerprints are removed, never updated).
@@ -669,6 +675,18 @@ async function main() {
         tokenHash: crypto.createHash("sha256").update(`${MARK}${tag}`).digest("hex"),
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 3600_000),
+      },
+    });
+    // A Google identity link for this owner (the subject and the address it was linked with). Seeded for
+    // BOTH businesses for the same reason.
+    await owner.userIdentity.create({
+      data: {
+        userId: u.id,
+        businessId: b.id,
+        provider: "google",
+        providerSubject: `${MARK}${tag}-google-sub`,
+        emailAtLink: `${tag}-owner@ad2a.test`,
+        linkedAt: new Date(),
       },
     });
 
@@ -1341,6 +1359,8 @@ async function main() {
     (await owner.transactionalEmail.count({ where: { businessId: A.biz.id } })) === 0);
   ok("A's account links are gone (tenant-scoped DELETE)",
     (await owner.authEmailToken.count({ where: { businessId: A.biz.id } })) === 0);
+  ok("A's Google identity links are gone (tenant-scoped DELETE)",
+    (await owner.userIdentity.count({ where: { businessId: A.biz.id } })) === 0);
   const custA = await owner.customer.findFirst({ where: { businessId: A.biz.id } });
   ok("A's customer is ANONYMIZED, not deleted (invoice FK)", custA !== null && custA.name === "לקוח שנמחק");
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
@@ -1587,6 +1607,8 @@ async function main() {
     (await owner.transactionalEmail.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's account link survives (the DELETE policy is bound to the erased tenant)",
     (await owner.authEmailToken.count({ where: { businessId: B.biz.id } })) === 1);
+  ok("B's Google identity link survives (the DELETE policy is bound to the erased tenant)",
+    (await owner.userIdentity.count({ where: { businessId: B.biz.id } })) === 1);
 
   // C12-E1 cross-tenant. The line is the one that can actually go wrong: it has no
   // businessId, so it is reached through the PurchaseOrder relation, and a filter

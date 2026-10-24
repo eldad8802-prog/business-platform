@@ -86,6 +86,13 @@ fi
 # authentication material granted to app_auth ALONE — the runtime and the admin
 # read plane hold nothing on it — so its only reader and writer is this plane.
 # The module touches PlatformAdminPasskey and nothing else.
+#
+# lib/auth/oauth-ticket.ts is the "Continue with Google" half of the same plane
+# (migration 20261030090000_oauth_identity_foundation). It reaches OAuthSignupTicket
+# and UserIdentity ONLY through six SECURITY DEFINER functions (app_auth holds no
+# privilege on either table): it issues, reads and spends single-use signup tickets,
+# attaches a Google subject to the account the signup transaction just created, and
+# resolves a linked subject. It reads no other table and never touches a password.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -98,6 +105,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/admin-passkey\\.service\\.ts:" \
     | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
     | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
+    | grep -vE "(^|/)lib/auth/oauth-ticket\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

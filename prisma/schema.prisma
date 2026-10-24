@@ -192,6 +192,7 @@ model Business {
   inboundEmailSenderChallenges  InboundEmailSenderChallenge[]
   transactionalEmails           TransactionalEmail[]
   authEmailTokens               AuthEmailToken[]
+  userIdentities                UserIdentity[]
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -318,7 +319,10 @@ model Business {
 model User {
   id                                         Int                          @id @default(autoincrement())
   email                                      String                       @unique
-  password                                   String
+  /// bcrypt hash. NULL for an account opened with Google until its owner sets a password through the reset
+  /// link (migration 20261030090000_oauth_identity_foundation); login answers such an account exactly like
+  /// a wrong password.
+  password                                   String?
   name                                       String?
   businessId                                 Int
   role                                       UserRole                     @default(USER)
@@ -362,6 +366,8 @@ model User {
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
   authEmailTokens                            AuthEmailToken[]
+  userIdentities                             UserIdentity[]
+  oauthSignupTicketsConsumed                 OAuthSignupTicket[]
   pushSubscriptions                          PushSubscription[]
 }
 
@@ -7086,6 +7092,58 @@ model AuthEmailToken {
 
   @@index([userId, purpose, createdAt])
   @@index([businessId])
+}
+
+/// "Continue with Google" — the link between a Dubiz user and a Google subject (`sub`), migration
+/// 20261030090000_oauth_identity_foundation. One subject → one user, one user → one Google identity.
+/// Written only by auth_oauth_identity_attach (the signup transaction that spent a SIGNUP ticket); the auth
+/// plane holds nothing on the table and reaches it only through SECURITY DEFINER functions. The tenant plane
+/// may read (id, businessId) and remove rows under RLS — account erasure only.
+model UserIdentity {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  businessId      Int
+  /// google (CHECK)
+  provider        String
+  /// Google's stable account id — the only key a sign-in is matched on, never the address.
+  providerSubject String
+  /// The provider-verified address at the moment of linking.
+  emailAtLink     String
+  linkedAt        DateTime
+  lastUsedAt      DateTime?
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([businessId])
+}
+
+/// "Continue with Google" — a single-use SIGNUP (or, from milestone 3, LINK) ticket, migration
+/// 20261030090000_oauth_identity_foundation. Holds sha256(secret) only; at most 30 minutes; spent at most
+/// once, by one conditional UPDATE inside the transaction that creates the account. Belongs to no business:
+/// no role but the migration role reads it, and the sweep removes it once expired.
+model OAuthSignupTicket {
+  id               String    @id @db.Uuid
+  /// SIGNUP | LINK (CHECK)
+  purpose          String
+  /// google (CHECK)
+  provider         String
+  providerSubject  String
+  email            String
+  name             String?
+  emailVerified    Boolean
+  secretHash       String    @unique
+  issuedAt         DateTime
+  expiresAt        DateTime
+  endedAt          DateTime?
+  /// CONSUMED | SUPERSEDED (CHECK)
+  endedReason      String?
+  consumedByUserId Int?
+  consumedBy       User?     @relation(fields: [consumedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([provider, providerSubject, purpose, issuedAt])
+  @@index([expiresAt])
 }
 
 /// P3-E · Landing persistence. Lifecycle (DRAFT → APPROVED | SUPERSEDED | RETIRED; APPROVED → SUPERSEDED),
