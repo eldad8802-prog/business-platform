@@ -90,6 +90,7 @@ export function readinessForStorage(r: Readiness): Prisma.InputJsonValue {
     ),
     issuedTotals: r.issuedTotals.map((t) => ({
       documentType: t.documentType,
+      currency: t.currency,
       count: t.count,
       totalAmount: t.totalAmount,
       vatAmount: t.vatAmount,
@@ -114,7 +115,8 @@ export function parseStoredReadiness(value: unknown): StoredReadiness | null {
     counts: v.counts ?? { scannedExpense: 0, scannedIncome: 0, issued: 0, pending: 0 },
     blockers: Array.isArray(v.blockers) ? v.blockers : [],
     warnings: Array.isArray(v.warnings) ? v.warnings : [],
-    issuedTotals: Array.isArray(v.issuedTotals) ? v.issuedTotals : [],
+    // A total stored before the currency was recorded is ILS (every issued document was, until then).
+    issuedTotals: Array.isArray(v.issuedTotals) ? v.issuedTotals.map((t) => ({ ...t, currency: t.currency || "ILS" })) : [],
   };
 }
 

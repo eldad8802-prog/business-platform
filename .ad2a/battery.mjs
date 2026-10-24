@@ -310,6 +310,28 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.task_retention_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.task_retention_erase_business() TO ${RT_ROLE}`);
   }
+  // Monthly accountant workflow — migration 20261027090000_accountant_month_close, mirrored exactly for what the
+  // erasure reaches: SELECT, INSERT, UPDATE, DELETE on AccountantRecipient (its DELETE policy is for erasure);
+  // SELECT, INSERT, UPDATE on AccountantDelivery (DELETE revoked — the snapshot is blanked in place); SELECT, INSERT
+  // on AccountantWorkflowEvent (append-only — its acting users are nulled only through accountant_erase_business()).
+  // That function (SECURITY DEFINER, EXECUTE to the runtime alone) is created from the migration's own text.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON "AccountantRecipient" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE TRUNCATE ON "AccountantRecipient" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "AccountantDelivery" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "AccountantDelivery" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON "AccountantWorkflowEvent" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE UPDATE, DELETE, TRUNCATE ON "AccountantWorkflowEvent" FROM ${RT_ROLE}`);
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261027090000_accountant_month_close/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public.accountant_erase_business()[sS]*?$fn$;/);
+    if (!fn) throw new Error("accountant_erase_business() not found in migration 20261027090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.accountant_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.accountant_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

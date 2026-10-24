@@ -344,7 +344,9 @@ async function buildAccountantXlsxBuffer(
   let s = 2;
   for (const t of readiness.issuedTotals) {
     const row = wsum.getRow(s++);
-    row.getCell(1).value = `${issuedTypeHe(t.documentType)} (הופקו בדוביז)`;
+    // One row per type AND currency: a total in another currency is labelled with it, never added to ILS.
+    const cur = t.currency && t.currency !== "ILS" ? ` — ${t.currency}` : "";
+    row.getCell(1).value = `${issuedTypeHe(t.documentType)} (הופקו בדוביז)${cur}`;
     row.getCell(2).value = t.count;
     row.getCell(3).value = Number(t.totalAmount);
     row.getCell(4).value = Number(t.vatAmount);

@@ -177,8 +177,20 @@ console.log("\nFailed documents did NOT become notifications");
 {
   const code = stripComments(CONSUMER);
   check("the consumer never mentions the failed status", !/"failed"/.test(code));
-  check("the policy has no documents failure rule",
-    !/ruleKey\("documents", "FAILURE_EVENT"/.test(stripComments(POLICY)));
+  // A failed document never becomes a notification. The policy holds exactly ONE documents failure rule, and
+  // it is not about documents failing: it is the monthly accountant package that was approved and then not
+  // delivered (lib/accountant/notify.ts) — in the app only, never pushed, at most once a day.
+  const policyCode = stripComments(POLICY);
+  const docFailureRules = [...policyCode.matchAll(/\[ruleKey\("documents", "FAILURE_EVENT", "([A-Z]+)"\)\]:\s*\{([^}]*)\}/g)];
+  const rule = docFailureRules[0]?.[2] ?? "";
+  check("the policy has exactly one documents failure rule",
+    (policyCode.match(/ruleKey\("documents", "FAILURE_EVENT"/g) ?? []).length === 1 && docFailureRules.length === 1);
+  check("…and it is the accountant package that was not delivered: HIGH, in the app only, once a day",
+    docFailureRules[0]?.[1] === "HIGH" &&
+      /channels:\s*\["IN_APP"\]/.test(rule) &&
+      /cooldownHours:\s*24\b/.test(rule) &&
+      /reason:\s*"an approved accountant package was not delivered"/.test(rule));
+  check("the review-queue consumer never raises a failure event", !/FAILURE_EVENT/.test(code));
   check("only needs_review feeds the queue — via the shared selector",
     stripComments(PENDING).includes('PENDING_REVIEW_STATUS = "needs_review"'));
 }

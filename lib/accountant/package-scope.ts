@@ -99,7 +99,8 @@ export type Warning =
   | { kind: "DATE_FROM_UPLOAD_TIME"; count: number; recordIds: number[] }
   | { kind: "POSSIBLE_DUPLICATE_INCOME"; count: number; pairs: { recordId: number; billingDocumentId: number }[] };
 
-export type IssuedTypeTotal = { documentType: string; count: number; totalAmount: string; vatAmount: string };
+/** One total per issued document type AND currency: amounts of different currencies are never added. */
+export type IssuedTypeTotal = { documentType: string; currency: string; count: number; totalAmount: string; vatAmount: string };
 
 export type ReadinessCounts = {
   scannedExpense: number;
@@ -213,27 +214,33 @@ export function findPossibleDuplicateIncome(
   return pairs;
 }
 
-// ── Totals per issued document type (never summed across types) ─────────────────────────────────
+// ── Totals per issued document type and currency (never summed across types or currencies) ──────
 
 const ISSUED_TYPE_ORDER = ["TAX_INVOICE", "TAX_INVOICE_RECEIPT", "RECEIPT", "CREDIT_NOTE"];
 
 export function issuedTotalsByType(issued: IssuedDocumentFact[]): IssuedTypeTotal[] {
-  const acc = new Map<string, { count: number; total: bigint; vat: bigint }>();
+  // Keyed by type + currency, so every sum below adds amounts of ONE currency only.
+  const acc = new Map<string, { documentType: string; currency: string; count: number; total: bigint; vat: bigint }>();
   for (const d of issued) {
-    const cur = acc.get(d.documentType) ?? { count: 0, total: BigInt(0), vat: BigInt(0) };
+    const currency = d.currency || "ILS";
+    const key = `${d.documentType} ${currency}`;
+    const cur = acc.get(key) ?? { documentType: d.documentType, currency, count: 0, total: BigInt(0), vat: BigInt(0) };
     cur.count += 1;
     cur.total += decimalToCents(d.totalAmount);
     cur.vat += decimalToCents(d.vatAmount);
-    acc.set(d.documentType, cur);
+    acc.set(key, cur);
   }
   const rank = (t: string) => {
     const i = ISSUED_TYPE_ORDER.indexOf(t);
     return i === -1 ? ISSUED_TYPE_ORDER.length : i;
   };
-  return [...acc.entries()]
-    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
-    .map(([documentType, v]) => ({
-      documentType,
+  // ILS first within a type, then the other currencies alphabetically.
+  const curRank = (c: string) => (c === "ILS" ? "" : c);
+  return [...acc.values()]
+    .sort((a, b) => rank(a.documentType) - rank(b.documentType) || a.documentType.localeCompare(b.documentType) || curRank(a.currency).localeCompare(curRank(b.currency)))
+    .map((v) => ({
+      documentType: v.documentType,
+      currency: v.currency,
       count: v.count,
       totalAmount: centsToDecimal(v.total),
       vatAmount: centsToDecimal(v.vat),

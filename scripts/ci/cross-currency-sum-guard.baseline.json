@@ -78,19 +78,28 @@
       "file": "lib/reports/accountant-export-zip.ts",
       "rule": "JS_FOLD",
       "column": "amount",
-      "match": "const sumExpense = records.reduce(",
+      "match": "const sumExpense = records.reduce((acc, rec) => acc + (rec.direction === \"income\" ? 0 : Number(rec.amount)), 0);",
       "risk": "LATENT",
       "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Accountant-facing expense total.",
-      "lineAtBaseline": 305
+      "lineAtBaseline": 277
     },
     {
       "file": "lib/reports/accountant-export-zip.ts",
       "rule": "JS_FOLD",
       "column": "amount",
-      "match": "const sumIncome = records.reduce(",
+      "match": "const sumIncome = records.reduce((acc, rec) => acc + (rec.direction === \"income\" ? Number(rec.amount) : 0), 0);",
       "risk": "LATENT",
       "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Accountant-facing income total.",
-      "lineAtBaseline": 309
+      "lineAtBaseline": 278
+    },
+    {
+      "file": "lib/reports/accountant-export-zip.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "row.getCell(3).value = rows.reduce((acc, r) => acc + Number(r.amount), 0);",
+      "risk": "LATENT",
+      "reason": "FinancialRecord has NO currency column; every row is assumed ILS (only writer app/api/documents/[id]/approve/route.ts stores a bare number; OCR recognises only the shekel sign, audit R6/R10). Fix: FinancialRecord.currency + baseAmount (docs/money design, phases M1/A1-A2). Accountant-facing summary sheet (סיכום): the scanned expense and income totals, per direction — the same FinancialRecord rows as the two totals above.",
+      "lineAtBaseline": 364
     },
     {
       "file": "lib/services/billing/billing-credit-reversal.service.ts",

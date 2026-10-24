@@ -28,6 +28,7 @@ on:
       - ".dt/**"
       - "prisma/migrations/20261022090000_task_reminders_push/**"
       - ".trp/**"
+      - ".acct/lab.sh"
       - ".github/workflows/daily-tasks-a-ci.yml"
   workflow_dispatch:
 
@@ -79,8 +80,10 @@ jobs:
       - name: 2. TaskService as the restricted runtime on the real migration
         run: |
           set -euo pipefail
-          # The task reminders migration (20261022090000) on top of the foundation, both by migrate deploy.
-          bash .trp/lab.sh dta --with-trp
+          # The task reminders migration (20261022090000) on top of the foundation, both by migrate deploy, then the
+          # monthly accountant migration (20261027090000, applied in Production 2026-10-24) by migrate deploy as well:
+          # account erasure calls its accountant_erase_business(). .acct/lab.sh runs .trp/lab.sh first, unchanged.
+          bash .acct/lab.sh dta --with-acct
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dta" \

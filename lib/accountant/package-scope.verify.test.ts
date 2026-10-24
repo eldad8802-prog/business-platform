@@ -133,6 +133,20 @@ ok(
   ok("ordered invoice → receipt → credit note", totals.map((t) => t.documentType).join(",") === "TAX_INVOICE,RECEIPT,CREDIT_NOTE");
   ok("invoice total exact (no float drift)", totals[0].totalAmount === "118.10" && totals[0].vatAmount === "18.02");
   ok("credit note kept negative and separate", totals[2].totalAmount === "-50.00");
+  ok("every total is labelled ILS", totals.every((t) => t.currency === "ILS"));
+}
+
+// ── totals never add two currencies ──
+{
+  const totals = issuedTotalsByType([
+    issued({ id: 1, totalAmount: "118.00", vatAmount: "18.00" }),
+    issued({ id: 2, totalAmount: "100.00", vatAmount: "0.00", currency: "USD" }),
+    issued({ id: 3, totalAmount: "2.00", vatAmount: "0.00", currency: "USD" }),
+  ]);
+  ok("one invoice total per currency", totals.length === 2 && totals.every((t) => t.documentType === "TAX_INVOICE"));
+  ok("ILS first, then USD", totals.map((t) => t.currency).join(",") === "ILS,USD");
+  ok("the ILS total holds only ILS", totals[0].totalAmount === "118.00" && totals[0].count === 1);
+  ok("the USD total holds only USD", totals[1].totalAmount === "102.00" && totals[1].count === 2);
 }
 
 // ── readiness ──
