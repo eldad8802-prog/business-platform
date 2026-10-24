@@ -770,6 +770,16 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
     verbs: ["SELECT", "INSERT", "DELETE"],
     basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, DELETE — fingerprints are deleted, never updated",
   },
+  // Monthly accountant workflow — the three tables account erasure reaches, exactly as the migration grants them.
+  AccountantRecipient: {
+    verbs: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT, UPDATE, DELETE — the DELETE serves account erasure only",
+  },
+  AccountantDelivery: { verbs: SIU, basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT, UPDATE — no DELETE" },
+  AccountantWorkflowEvent: {
+    verbs: ["SELECT", "INSERT"],
+    basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT — append-only",
+  },
 };
 
 /** Every sequence in the schema: USAGE and SELECT, nothing else — except the ones below. */
