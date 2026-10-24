@@ -9,11 +9,14 @@
 # The ledger is then completed with EVERY other migration on this checkout (real sha256), as Production's ledger
 # is — including 20261024090000_platform_admin_a1, applied in Production on 2026-10-22 and sorting BEFORE this
 # migration (the reason it was re-timed from 20261023090000). Pending: only this migration.
+# Migrations that sort AFTER this one (merged to main once it was applied in Production on 2026-10-24) are left
+# out of both the ledger and the deploy, exactly as release-migrate staged "applied + the approved prefix": the
+# lab reproduces the release that happened, and a later migration can never be applied, or counted, here.
 # schema.prisma may model the accountant tables (the application PR), so the `db push` inside the base lab may
 # have built them without the migration's policies, triggers, functions and grants: they are removed here so the
 # migration builds them the way Production will have them.
-#   --with-acct:   `prisma migrate deploy` — the release-migrate mechanism — over ALL migration directories of
-#                  this checkout, which therefore applies exactly this one;
+#   --with-acct:   `prisma migrate deploy` — the release-migrate mechanism — over every migration directory up to
+#                  and including this one, which therefore applies exactly this one;
 #   --broken-acct: the same with it failing on its last statement (atomicity).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
@@ -36,6 +39,7 @@ LEDGER="$(mktemp)"
 for d in "$ROOT"/prisma/migrations/*/; do
   name="$(basename "$d")"
   [ "$name" = "$ACCT" ] && continue
+  [[ "$name" > "$ACCT" ]] && continue
   sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
   echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
         SELECT gen_random_uuid()::text, '$sum', now(), '$name', 1
@@ -51,7 +55,7 @@ esac
 TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
 cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
 cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
-for d in "$ROOT"/prisma/migrations/*/; do cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
+for d in "$ROOT"/prisma/migrations/*/; do [[ "$(basename "$d")" > "$ACCT" ]] && continue; cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
 if [ "$MODE" = "--broken-acct" ]; then
   printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$ACCT/migration.sql"
 fi

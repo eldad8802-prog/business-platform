@@ -519,6 +519,30 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "push_subscription_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // Monthly accountant workflow — migration 20261027090000_accountant_month_close. Account erasure (stage 2) calls
+  // accountant_erase_business(): it deletes the business's recipient row (its only DELETE policy) and blanks the
+  // recipient snapshot of every delivery in place and revokes its link (no DELETE policy on deliveries).
+  {
+    table: "AccountantRecipient",
+    migration: "20261027090000_accountant_month_close",
+    why: "stage 2 deletes the business's accountant recipient (a third person's name and address) under a tenant context",
+    policies: [
+      { name: "accountant_recipient_tenant_select", command: "SELECT", using: TENANT },
+      { name: "accountant_recipient_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "accountant_recipient_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+      { name: "accountant_recipient_runtime_delete", command: "DELETE", using: TENANT },
+    ],
+  },
+  {
+    table: "AccountantDelivery",
+    migration: "20261027090000_accountant_month_close",
+    why: "stage 2 blanks every delivery's recipient snapshot and revokes its link with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "accountant_delivery_tenant_select", command: "SELECT", using: TENANT },
+      { name: "accountant_delivery_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "accountant_delivery_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -745,6 +769,16 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   TaskRequestLedger: {
     verbs: ["SELECT", "INSERT", "DELETE"],
     basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, DELETE — fingerprints are deleted, never updated",
+  },
+  // Monthly accountant workflow — the three tables account erasure reaches, exactly as the migration grants them.
+  AccountantRecipient: {
+    verbs: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT, UPDATE, DELETE — the DELETE serves account erasure only",
+  },
+  AccountantDelivery: { verbs: SIU, basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT, UPDATE — no DELETE" },
+  AccountantWorkflowEvent: {
+    verbs: ["SELECT", "INSERT"],
+    basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT — append-only",
   },
 };
 

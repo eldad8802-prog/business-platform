@@ -4,6 +4,7 @@ import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { buildFinancialRecordsCsvBuffer } from "@/lib/reports/financial-records-csv";
+import { isPeriodKey, periodRange } from "@/lib/accountant/period";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -17,26 +18,20 @@ export async function GET(req: Request) {
 
     const month = searchParams.get("month");
 
-    let fromDate: Date | undefined;
-    let toDate: Date | undefined;
-
+    // No `month` is the deliberate all-records export. A `month` is an Israeli calendar month,
+    // half-open [from, toExclusive) — the server's own zone no longer decides where a month ends.
+    let range: { from: Date; toExclusive: Date } | null = null;
     if (month) {
-      const [year, m] = month.split("-").map(Number);
-      fromDate = new Date(year, m - 1, 1);
-      toDate = new Date(year, m, 0, 23, 59, 59);
+      if (!isPeriodKey(month)) {
+        return Response.json({ error: "invalid_month" }, { status: 400 });
+      }
+      range = periodRange(month);
     }
 
     const records = await runWithTenantContext({ businessId: user.businessId }, () => withTenantTransaction((tx) => tx.financialRecord.findMany({
       where: {
         businessId,
-        ...(fromDate && toDate
-          ? {
-              date: {
-                gte: fromDate,
-                lte: toDate,
-              },
-            }
-          : {}),
+        ...(range ? { date: { gte: range.from, lt: range.toExclusive } } : {}),
       },
     })));
 

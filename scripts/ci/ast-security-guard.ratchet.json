@@ -29,7 +29,6 @@
     "lib/learning/update-learning.ts::updateLearningFromAction::fallback??": 1,
     "lib/prisma-auth.ts::authDb::fallback?:": 1,
     "lib/reply-suggestions/generate-reply-suggestions.ts::generateReplySuggestions::fallback??": 1,
-    "lib/reports/accountant-export-zip.ts::dbStep::arg": 1,
     "lib/services/billing/billing-db-step.ts::billingDbStep::arg": 1,
     "lib/services/billing/uniform/uniform-export-loader.ts::loadUniformExportInput::fallback??": 1,
     "lib/services/conversation/bot-compose-context.service.ts::dbStep::arg": 1,

@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
+  AccountantExportRequestError,
   buildAccountantPackZipBuffer,
   type AccountantPackBody,
 } from "@/lib/reports/accountant-export-zip";
@@ -49,6 +50,10 @@ export async function POST(req: Request) {
       },
     });
   } catch (e) {
+    // A request naming no valid period is refused — it used to fall back to every record of the business.
+    if (e instanceof AccountantExportRequestError) {
+      return Response.json({ error: e.code }, { status: 400 });
+    }
     console.error("[export-zip] accountant pack failed:", e);
     return new Response("error", { status: 500 });
   }

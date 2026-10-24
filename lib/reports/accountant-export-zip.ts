@@ -1,43 +1,79 @@
-import archiver from "archiver";
+import { createHash } from "node:crypto";
 import { collectArchiveToBuffer } from "@/lib/archive/zip-buffer";
 import ExcelJS from "exceljs";
-import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
-import { getTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
-
-// D2/P7-W4D: ctx-aware short tenant tx per DB step (no global fallback under
-// an established context; direct reads only for context-less unit tests).
-async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
-  if (getTenantContext() !== undefined) {
-    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
-  }
-  return fn(prisma);
-}
 import {
   readDocumentObject,
   STORED_DOCUMENT_FILENAME_REGEX,
 } from "@/lib/services/documents/document-storage.service";
+import { readByKey } from "@/lib/services/billing/pdf/billing-pdf-storage";
 import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import {
   writeCsvBuffer,
   writeCsvText,
 } from "@/lib/data-transfer/format/csv-writer";
+import {
+  dateTakenFromUpload,
+  evaluateReadiness,
+  type IssuedDocumentFact,
+  type PeriodFacts,
+  type Readiness,
+  type ScannedRecordFact,
+} from "@/lib/accountant/package-scope";
+import { loadPeriodFacts } from "@/lib/accountant/period-facts";
+import { resolveExportRequest, type ExportRequestBody, type PeriodRange } from "@/lib/accountant/period";
 
-export type AccountantPackBody = {
-  type: "month" | "quarter" | "year";
-  month?: string;
-  year?: string;
-  quarter?: string;
+/**
+ * The accountant package ZIP.
+ *
+ * CONTENTS (see lib/accountant/package-scope.ts for why each source is in or out)
+ *   דוח_<period>.xlsx           sheet "דוח" — approved scanned documents (the shipped columns + notes);
+ *                               "מסמכים שהופקו" — documents the business issued; "ממתינים"; and
+ *                               "סיכום" — totals per issued type and per scanned direction, never mixed.
+ *   approved/doc-<id>.<ext>     original files of the scanned documents.
+ *   issued/<type>-<number>.pdf  final PDFs of issued documents — only those the delivery gate allows.
+ *   סיכום.txt                   what is included, what is not, open items and warnings, in Hebrew.
+ *   _meta/…                     the scanned CSV, a manifest and the missing-files list.
+ *
+ * The package never states that the accounting is complete: it states what Dubiz holds and what is
+ * still open. Building it reads files only — nothing is rendered, signed or written here.
+ */
+
+export type AccountantPackBody = ExportRequestBody & {
   categories?: string[];
 };
+
+/** A request that names no valid period. The route answers 400 instead of exporting everything. */
+export class AccountantExportRequestError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "AccountantExportRequestError";
+  }
+}
 
 const CONFIDENCE_HE: Record<string, string> = {
   high: "גבוה",
   medium: "בינוני",
   low: "נמוך",
 };
+
+const ISSUED_TYPE_HE: Record<string, string> = {
+  TAX_INVOICE: "חשבונית מס",
+  TAX_INVOICE_RECEIPT: "חשבונית מס קבלה",
+  RECEIPT: "קבלה",
+  CREDIT_NOTE: "חשבונית זיכוי",
+};
+
+const ISSUED_FILE_SLUG: Record<string, string> = {
+  TAX_INVOICE: "invoice",
+  TAX_INVOICE_RECEIPT: "invoice-receipt",
+  RECEIPT: "receipt",
+  CREDIT_NOTE: "credit-note",
+};
+
+export function issuedTypeHe(t: string): string {
+  return ISSUED_TYPE_HE[t] ?? t;
+}
 
 function mapDirectionHe(d: string): string {
   if (d === "expense") return "הוצאה";
@@ -62,27 +98,39 @@ function mapConfidenceHe(
   return "לא ידוע";
 }
 
-function formatDateIl(d: Date): string {
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const y = d.getFullYear();
-  return `${day}/${month}/${y}`;
+/** dd/mm/yyyy of the ISRAELI calendar day of an instant (not of the server's zone). */
+export function formatDateIl(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(d);
+  const at = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${at("day")}/${at("month")}/${at("year")}`;
+}
+
+/** A Date whose local fields equal the Israeli calendar day (ExcelJS writes local date fields). */
+function israeliDateCell(d: Date): Date {
+  const [day, month, year] = formatDateIl(d).split("/").map(Number);
+  return new Date(year, month - 1, day);
 }
 
 /** Same path pattern as files inside the ZIP (approved|pending/doc-<id>.<ext>). */
-function sourceFileLabel(
-  doc:
-    | { id: number; status: string; fileUrl: string | null }
-    | null
-    | undefined
-): string {
-  if (!doc?.fileUrl) return "";
-  const folder = doc.status === "approved" ? "approved" : "pending";
-  const ext = doc.fileUrl.split(".").pop() || "file";
-  return `${folder}/doc-${doc.id}.${ext}`;
+function sourceFileLabel(r: Pick<ScannedRecordFact, "documentId" | "documentStatus" | "fileUrl">): string {
+  if (!r.fileUrl) return "";
+  const folder = r.documentStatus === "approved" ? "approved" : "pending";
+  const ext = r.fileUrl.split(".").pop() || "file";
+  return `${folder}/doc-${r.documentId}.${ext}`;
 }
 
-/** User-facing column order (XLSX + Meta CSV). */
+export function issuedFileName(d: Pick<IssuedDocumentFact, "id" | "documentType" | "documentNumberFormatted">): string {
+  const slug = ISSUED_FILE_SLUG[d.documentType] ?? "document";
+  const number = (d.documentNumberFormatted ?? "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60);
+  return `issued/${slug}-${number || d.id}.pdf`;
+}
+
+/** User-facing column order (XLSX + Meta CSV). "הערות" carries the warnings of a row. */
 const REPORT_COLUMN_HEADERS = [
   "תאריך עסקה",
   "ספק",
@@ -92,6 +140,7 @@ const REPORT_COLUMN_HEADERS = [
   "סטטוס מסמך",
   "רמת ביטחון בנתונים",
   "קובץ מקור",
+  "הערות",
 ] as const;
 
 /**
@@ -111,115 +160,47 @@ const REPORT_COLUMN_HEADERS = [
  */
 const ACCOUNTANT_CSV_SEP = ";";
 
-export function resolveExportDateRange(body: AccountantPackBody): {
-  fromDate: Date | undefined;
-  toDate: Date | undefined;
-  periodLabel: string;
-} {
-  const { type, month, year, quarter } = body;
-  let fromDate: Date | undefined;
-  let toDate: Date | undefined;
-  let periodLabel = "unknown";
-
-  if (type === "month" && month) {
-    const [y, m] = month.split("-").map(Number);
-    fromDate = new Date(y, m - 1, 1);
-    toDate = new Date(y, m, 0, 23, 59, 59);
-    periodLabel = month;
-  }
-
-  if (type === "year") {
-    const currentYear = new Date().getFullYear() - 1;
-    fromDate = new Date(currentYear, 0, 1);
-    toDate = new Date(currentYear, 11, 31, 23, 59, 59);
-    periodLabel = String(currentYear);
-  }
-
-  if (type === "quarter" && year && quarter) {
-    const q = Number(quarter);
-    const y = Number(year);
-    const startMonth = (q - 1) * 3;
-    const endMonth = startMonth + 2;
-    fromDate = new Date(y, startMonth, 1);
-    toDate = new Date(y, endMonth + 1, 0, 23, 59, 59);
-    periodLabel = `${year}-Q${quarter}`;
-  }
-
-  return { fromDate, toDate, periodLabel };
-}
-
 function categoryLabel(value: string): string {
   return CATEGORY_MAP[value] ?? value;
 }
 
-function transactionDateOnly(d: Date): Date {
-  const x = new Date(d);
-  return new Date(x.getFullYear(), x.getMonth(), x.getDate());
-}
+export type RowNotes = Map<number, string[]>;
 
-function loadRecordsForExport(
-  businessId: number,
-  fromDate: Date | undefined,
-  toDate: Date | undefined,
-  categories: string[] | undefined
-) {
-  return dbStep((db) => db.financialRecord.findMany({
-    where: {
-      businessId,
-      ...(fromDate && toDate
-        ? {
-            date: {
-              gte: fromDate,
-              lte: toDate,
-            },
-          }
-        : {}),
-      ...(categories && categories.length > 0
-        ? {
-            category: {
-              in: categories,
-            },
-          }
-        : {}),
-    },
-    include: {
-      document: {
-        include: {
-          extractedData: true,
-        },
-      },
-    },
-    orderBy: { date: "asc" },
-  }));
+export function rowNotes(facts: PeriodFacts, readiness: Pick<Readiness, "warnings">): RowNotes {
+  const notes: RowNotes = new Map();
+  const add = (id: number, note: string) => notes.set(id, [...(notes.get(id) ?? []), note]);
+  for (const r of facts.scanned) {
+    if (dateTakenFromUpload(r)) add(r.id, "התאריך נלקח ממועד ההעלאה");
+  }
+  const issuedById = new Map(facts.issued.map((d) => [d.id, d]));
+  for (const w of readiness.warnings) {
+    if (w.kind !== "POSSIBLE_DUPLICATE_INCOME") continue;
+    for (const p of w.pairs) {
+      const doc = issuedById.get(p.billingDocumentId);
+      add(p.recordId, `ייתכן כפול למסמך שהופק ${doc?.documentNumberFormatted ?? p.billingDocumentId}`);
+    }
+  }
+  return notes;
 }
 
 /** Column order matches REPORT_COLUMN_HEADERS exactly. */
-function toAccountantCsvRow(
-  r: Awaited<ReturnType<typeof loadRecordsForExport>>[number]
-): (string | number)[] {
-  const doc = r.document;
-  const ex = doc?.extractedData;
-  const confidence = mapConfidenceHe(
-    ex?.amountConfidence ?? undefined,
-    ex?.confidenceScore ?? undefined
-  );
+function toAccountantCsvRow(r: ScannedRecordFact, notes: RowNotes): (string | number)[] {
   return [
-    formatDateIl(new Date(r.date)),
+    formatDateIl(r.date),
     r.vendorName,
     categoryLabel(r.category),
     r.amount,
     mapDirectionHe(r.direction),
-    mapStatusHe(doc?.status),
-    confidence,
-    sourceFileLabel(doc ?? undefined),
+    mapStatusHe(r.documentStatus),
+    mapConfidenceHe(r.confidenceLabel, r.confidenceScore),
+    sourceFileLabel(r),
+    (notes.get(r.id) ?? []).join(" · "),
   ];
 }
 
 /** Exported for the deterministic regression proof; not part of the ZIP API. */
-export function buildAccountantCsvText(
-  records: Awaited<ReturnType<typeof loadRecordsForExport>>
-): string {
-  return writeCsvText(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+export function buildAccountantCsvText(records: ScannedRecordFact[], notes: RowNotes = new Map()): string {
+  return writeCsvText(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes)), {
     delimiter: ACCOUNTANT_CSV_SEP,
     excelSepDirective: true,
     eol: "\r\n",
@@ -227,113 +208,79 @@ export function buildAccountantCsvText(
 }
 
 /** Exported for the deterministic regression proof; not part of the ZIP API. */
-export function buildAccountantCsvBuffer(
-  records: Awaited<ReturnType<typeof loadRecordsForExport>>
-): Buffer {
-  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+export function buildAccountantCsvBuffer(records: ScannedRecordFact[], notes: RowNotes = new Map()): Buffer {
+  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes)), {
     delimiter: ACCOUNTANT_CSV_SEP,
     excelSepDirective: true,
     eol: "\r\n",
   });
 }
 
-const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36];
+const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36, 36];
+
+function rtlSheet(workbook: ExcelJS.Workbook, name: string) {
+  return workbook.addWorksheet(name, {
+    views: [{ rightToLeft: true, state: "frozen", ySplit: 1, xSplit: 0 }],
+  });
+}
+
+function header(ws: ExcelJS.Worksheet, titles: readonly string[], widths: number[]) {
+  const row = ws.getRow(1);
+  titles.forEach((title, i) => {
+    row.getCell(i + 1).value = title;
+    row.getCell(i + 1).font = { bold: true };
+    ws.getColumn(i + 1).width = widths[i] ?? 16;
+  });
+}
+
+const PENDING_STATUS_HE: Record<string, string> = {
+  needs_review: "ממתין לבדיקה",
+  processing: "בעיבוד",
+  failed: "נכשל בעיבוד",
+};
 
 async function buildAccountantXlsxBuffer(
-  records: Awaited<ReturnType<typeof loadRecordsForExport>>
+  facts: PeriodFacts,
+  readiness: Readiness,
+  notes: RowNotes,
+  issuedIncluded: Set<number>
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  const ws = workbook.addWorksheet("דוח", {
-    views: [
-      {
-        rightToLeft: true,
-        state: "frozen",
-        ySplit: 1,
-        xSplit: 0,
-      },
-    ],
-  });
 
-  for (let c = 1; c <= COL_WIDTHS.length; c++) {
-    ws.getColumn(c).width = COL_WIDTHS[c - 1];
-  }
-
-  const headerRow = ws.getRow(1);
-  REPORT_COLUMN_HEADERS.forEach((title, i) => {
-    const cell = headerRow.getCell(i + 1);
-    cell.value = title;
-    cell.font = { bold: true };
-  });
-
+  // ── דוח: approved scanned documents ──
+  const ws = rtlSheet(workbook, "דוח");
+  header(ws, REPORT_COLUMN_HEADERS, COL_WIDTHS);
+  const records = facts.scanned;
   let rowNum = 2;
   for (const r of records) {
-    const doc = r.document;
-    const ex = doc?.extractedData;
-    const confidence = mapConfidenceHe(
-      ex?.amountConfidence ?? undefined,
-      ex?.confidenceScore ?? undefined
-    );
-
     const row = ws.getRow(rowNum);
-    row.getCell(1).value = transactionDateOnly(new Date(r.date));
+    row.getCell(1).value = israeliDateCell(r.date);
     row.getCell(1).numFmt = "dd/mm/yyyy";
-
     row.getCell(2).value = r.vendorName;
     row.getCell(3).value = categoryLabel(r.category);
-
     row.getCell(4).value = Number(r.amount);
     row.getCell(4).numFmt = "#,##0.00";
-
     row.getCell(5).value = mapDirectionHe(r.direction);
-    row.getCell(6).value = mapStatusHe(doc?.status);
-    row.getCell(7).value = confidence;
-    row.getCell(8).value = sourceFileLabel(doc ?? undefined);
-
+    row.getCell(6).value = mapStatusHe(r.documentStatus);
+    row.getCell(7).value = mapConfidenceHe(r.confidenceLabel, r.confidenceScore);
+    row.getCell(8).value = sourceFileLabel(r);
+    row.getCell(9).value = (notes.get(r.id) ?? []).join(" · ");
     rowNum += 1;
   }
 
   const lastDataRow = records.length + 1;
-
   if (records.length > 0) {
-    ws.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: lastDataRow, column: 8 },
-    };
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: lastDataRow, column: REPORT_COLUMN_HEADERS.length } };
 
     // Direction-aware totals: income and expense must never be summed into one
     // figure on an accountant-facing report (they are opposing signs).
-    const sumExpense = records.reduce(
-      (acc, rec) => acc + (rec.direction === "income" ? 0 : Number(rec.amount)),
-      0
-    );
-    const sumIncome = records.reduce(
-      (acc, rec) => acc + (rec.direction === "income" ? Number(rec.amount) : 0),
-      0
-    );
-
-    const writeTotalRow = (
-      rowIndex: number,
-      label: string,
-      directionHe: string,
-      cached: number
-    ) => {
-      const row = ws.getRow(rowIndex);
-      row.getCell(1).value = label;
-      row.getCell(1).font = { bold: true };
-      row.getCell(4).value = {
-        formula: `SUMIF(E2:E${lastDataRow},"${directionHe}",D2:D${lastDataRow})`,
-        result: cached,
-      };
-      row.getCell(4).numFmt = "#,##0.00";
-      row.getCell(4).font = { bold: true };
-    };
+    const sumExpense = records.reduce((acc, rec) => acc + (rec.direction === "income" ? 0 : Number(rec.amount)), 0);
+    const sumIncome = records.reduce((acc, rec) => acc + (rec.direction === "income" ? Number(rec.amount) : 0), 0);
 
     // "expense" bucket intentionally uses the same catch-all the data rows use:
     // anything that is not income renders as הוצאה/לא ידוע. SUMIF on הוצאה would
     // silently drop "לא ידוע" rows, so the expense total subtracts income instead.
-    const expenseRowIndex = lastDataRow + 1;
-    const incomeRowIndex = lastDataRow + 2;
-    const expenseRow = ws.getRow(expenseRowIndex);
+    const expenseRow = ws.getRow(lastDataRow + 1);
     expenseRow.getCell(1).value = "סה״כ הוצאות";
     expenseRow.getCell(1).font = { bold: true };
     expenseRow.getCell(4).value = {
@@ -342,176 +289,157 @@ async function buildAccountantXlsxBuffer(
     };
     expenseRow.getCell(4).numFmt = "#,##0.00";
     expenseRow.getCell(4).font = { bold: true };
-    writeTotalRow(incomeRowIndex, "סה״כ הכנסות", "הכנסה", sumIncome);
+
+    const incomeRow = ws.getRow(lastDataRow + 2);
+    incomeRow.getCell(1).value = "סה״כ הכנסות";
+    incomeRow.getCell(1).font = { bold: true };
+    incomeRow.getCell(4).value = {
+      formula: `SUMIF(E2:E${lastDataRow},"הכנסה",D2:D${lastDataRow})`,
+      result: sumIncome,
+    };
+    incomeRow.getCell(4).numFmt = "#,##0.00";
+    incomeRow.getCell(4).font = { bold: true };
+  }
+
+  // ── מסמכים שהופקו: documents the business issued ──
+  const issuedHeaders = ["מספר", "סוג", "תאריך הפקה", "לקוח", "לפני מע״מ", "מע״מ", "סה״כ", "מטבע", "מסמך מקור", "קובץ"] as const;
+  const wi = rtlSheet(workbook, "מסמכים שהופקו");
+  header(wi, issuedHeaders, [16, 18, 14, 28, 14, 12, 14, 8, 16, 36]);
+  const issuedById = new Map(facts.issued.map((d) => [d.id, d]));
+  facts.issued.forEach((d, i) => {
+    const row = wi.getRow(i + 2);
+    row.getCell(1).value = d.documentNumberFormatted ?? `#${d.id}`;
+    row.getCell(2).value = issuedTypeHe(d.documentType);
+    row.getCell(3).value = israeliDateCell(d.issuedAt);
+    row.getCell(3).numFmt = "dd/mm/yyyy";
+    row.getCell(4).value = d.customerName ?? "";
+    row.getCell(5).value = Number(d.subtotalAmount);
+    row.getCell(6).value = Number(d.vatAmount);
+    row.getCell(7).value = Number(d.totalAmount);
+    [5, 6, 7].forEach((c) => (row.getCell(c).numFmt = "#,##0.00"));
+    row.getCell(8).value = d.currency;
+    const ref = d.referenceDocumentId ? issuedById.get(d.referenceDocumentId) : undefined;
+    row.getCell(9).value = d.referenceDocumentId ? (ref?.documentNumberFormatted ?? `#${d.referenceDocumentId}`) : "";
+    row.getCell(10).value = issuedIncluded.has(d.id) ? issuedFileName(d) : "הקובץ הסופי עדיין אינו זמין";
+  });
+
+  // ── ממתינים: not reviewed yet (listed, never counted) ──
+  const wp = rtlSheet(workbook, "ממתינים");
+  header(wp, ["מזהה מסמך", "מצב", "הועלה בתאריך", "תאריך שזוהה"], [14, 14, 16, 16]);
+  facts.pending.forEach((p, i) => {
+    const row = wp.getRow(i + 2);
+    row.getCell(1).value = p.id;
+    row.getCell(2).value = PENDING_STATUS_HE[p.status] ?? p.status;
+    row.getCell(3).value = israeliDateCell(p.createdAt);
+    row.getCell(3).numFmt = "dd/mm/yyyy";
+    if (p.extractedDate) {
+      row.getCell(4).value = israeliDateCell(p.extractedDate);
+      row.getCell(4).numFmt = "dd/mm/yyyy";
+    }
+  });
+
+  // ── סיכום: totals per issued type; scanned per direction; never mixed ──
+  const wsum = rtlSheet(workbook, "סיכום");
+  header(wsum, ["קבוצה", "מספר מסמכים", "סה״כ", "מע״מ"], [36, 14, 16, 14]);
+  let s = 2;
+  for (const t of readiness.issuedTotals) {
+    const row = wsum.getRow(s++);
+    // One row per type AND currency: a total in another currency is labelled with it, never added to ILS.
+    const cur = t.currency && t.currency !== "ILS" ? ` — ${t.currency}` : "";
+    row.getCell(1).value = `${issuedTypeHe(t.documentType)} (הופקו בדוביז)${cur}`;
+    row.getCell(2).value = t.count;
+    row.getCell(3).value = Number(t.totalAmount);
+    row.getCell(4).value = Number(t.vatAmount);
+    [3, 4].forEach((c) => (row.getCell(c).numFmt = "#,##0.00"));
+  }
+  const scannedExpense = records.filter((r) => r.direction !== "income");
+  const scannedIncome = records.filter((r) => r.direction === "income");
+  for (const [label, rows] of [
+    ["הוצאות (מסמכים סרוקים שאושרו)", scannedExpense],
+    ["הכנסות (מסמכים סרוקים שאושרו)", scannedIncome],
+  ] as const) {
+    const row = wsum.getRow(s++);
+    row.getCell(1).value = label;
+    row.getCell(2).value = rows.length;
+    row.getCell(3).value = rows.reduce((acc, r) => acc + Number(r.amount), 0);
+    row.getCell(3).numFmt = "#,##0.00";
   }
 
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
 }
 
-function buildSummaryText(params: {
+export function blockerLineHe(b: Readiness["blockers"][number]): string {
+  if (b.kind === "DOCUMENTS_PENDING_REVIEW") return `${b.count} מסמכים עדיין ממתינים לבדיקה ואינם בדוח`;
+  if (b.kind === "ISSUED_PDF_UNAVAILABLE") return `${b.count} מסמכים שהופקו — הקובץ הסופי שלהם עדיין אינו זמין`;
+  return `${b.count} קבצי מקור לא נמצאו באחסון`;
+}
+
+export function warningLineHe(w: Readiness["warnings"][number]): string {
+  if (w.kind === "DATE_FROM_UPLOAD_TIME") return `${w.count} רשומות שהתאריך שלהן נלקח ממועד ההעלאה`;
+  return `${w.count} הכנסות סרוקות שייתכן שהן כפולות למסמך שהופק בדוביז`;
+}
+
+export function buildSummaryText(params: {
   periodLabel: string;
-  recordCount: number;
+  generatedAt: Date;
+  readiness: Readiness;
   approvedFiles: number;
-  pendingFiles: number;
-  missingCount: number;
+  issuedFiles: number;
 }): string {
+  const { readiness } = params;
   const lines = [
     "חבילת רואה חשבון",
     `תקופה: ${params.periodLabel}`,
-    `נוצר: ${new Date().toLocaleString("he-IL")}`,
-    `רשומות בדוח: ${params.recordCount}`,
-    `קבצים בתיקיית מאושרים: ${params.approvedFiles}`,
-    `קבצים בתיקיית ממתינים: ${params.pendingFiles}`,
-    `קבצים חסרים באחסון: ${params.missingCount}`,
+    `נוצר: ${params.generatedAt.toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}`,
+    "",
+    "מה כלול:",
+    `- מסמכים סרוקים שאושרו: ${readiness.counts.scannedExpense + readiness.counts.scannedIncome} (קבצי מקור: ${params.approvedFiles})`,
+    `- מסמכים שהופקו בדוביז: ${readiness.counts.issued} (קבצים: ${params.issuedFiles})`,
+    "",
+    "מה אינו כלול:",
+    "- מסמכים שעדיין לא נבדקו (מופיעים ברשימת הממתינים בלבד)",
+    "- תשלומים שנגבו בקישור תשלום (מופיעים כקבלה שהופקה, ולא בנפרד)",
+    "- התחייבויות ותשלומים שנרשמו במזכירה",
+    "- קובץ מבנה אחיד (מופק בנפרד)",
+    "",
   ];
+  if (readiness.blockers.length > 0) {
+    lines.push("פתוח:");
+    for (const b of readiness.blockers) lines.push(`- ${blockerLineHe(b)}`);
+    lines.push("");
+  }
+  if (readiness.warnings.length > 0) {
+    lines.push("לתשומת לב:");
+    for (const w of readiness.warnings) lines.push(`- ${warningLineHe(w)}`);
+    lines.push("");
+  }
+  lines.push("החבילה מרכזת את מה שקיים בדוביז לתקופה זו. היא אינה מאשרת שהנהלת החשבונות שלמה.");
   return lines.join("\n");
 }
 
-export async function appendAccountantPackToArchive(
-  archive: archiver.Archiver,
-  businessId: number,
-  body: AccountantPackBody
-): Promise<void> {
-  const { fromDate, toDate, periodLabel } = resolveExportDateRange(body);
-  const categories = body.categories;
+export type PackageManifest = {
+  period: string;
+  generatedAt: string;
+  fingerprint: string;
+  recordCount: number;
+  issuedCount: number;
+  pendingCount: number;
+  approvedFiles: number;
+  issuedFiles: number;
+  missingFiles: number;
+  missingOriginalDocumentIds: number[];
+  missingIssuedDocumentIds: number[];
+  entries: string[];
+};
 
-  const records = await loadRecordsForExport(
-    businessId,
-    fromDate,
-    toDate,
-    categories
-  );
-
-  const reportBase = `דוח_${periodLabel}`;
-  const xlsxName = `${reportBase}.xlsx`;
-  const metaCsvPath = `_meta/${reportBase}.csv`;
-
-  const xlsxBuf = await buildAccountantXlsxBuffer(records);
-  archive.append(xlsxBuf, { name: xlsxName });
-
-  archive.append(buildAccountantCsvBuffer(records), { name: metaCsvPath });
-
-  const manifestFiles: string[] = [xlsxName, "סיכום.txt", metaCsvPath];
-  const missingLines: string[] = [];
-
-  let approvedFiles = 0;
-  let pendingFiles = 0;
-  let missingCount = 0;
-
-  const seenDocIds = new Set<number>();
-
-  type FetchTarget = {
-    docId: number;
-    folder: "approved" | "pending";
-    basename: string;
-  };
-
-  const targets: FetchTarget[] = [];
-
-  for (const r of records) {
-    const doc = r.document;
-    if (!doc?.id || seenDocIds.has(doc.id)) continue;
-    seenDocIds.add(doc.id);
-
-    const folder = doc.status === "approved" ? "approved" : "pending";
-    if (!doc.fileUrl) {
-      missingLines.push(`document ${doc.id}: אין נתיב קובץ`);
-      missingCount += 1;
-      continue;
-    }
-
-    const basename = String(doc.fileUrl ?? "").trim();
-    if (!STORED_DOCUMENT_FILENAME_REGEX.test(basename)) {
-      missingLines.push(`document ${doc.id}: נתיב לא תקין (${doc.fileUrl})`);
-      missingCount += 1;
-      continue;
-    }
-
-    targets.push({ docId: doc.id, folder, basename });
-  }
-
-  // Storage reads run with bounded concurrency: a real month is dozens of
-  // originals, and fetching them one-by-one puts N×RTT on a serverless clock.
-  // Order of ZIP entries is preserved by appending from the ordered results.
-  const fetched = await mapWithConcurrency(
-    targets,
-    EXPORT_FILE_FETCH_CONCURRENCY,
-    async (t) => {
-      try {
-        return { t, buffer: await readDocumentObject(businessId, t.basename) };
-      } catch (e) {
-        return { t, buffer: null, error: e as unknown };
-      }
-    }
-  );
-
-  for (const item of fetched) {
-    const { t } = item;
-    if (item.buffer) {
-      const ext = t.basename.split(".").pop() || "file";
-      const entryName = `${t.folder}/doc-${t.docId}.${ext}`;
-      // store: originals are already-compressed media (PDF/JPEG/PNG) —
-      // re-DEFLATE-ing them burns CPU for ~0% size gain.
-      archive.append(item.buffer, { name: entryName, store: true });
-      manifestFiles.push(entryName);
-      if (t.folder === "approved") approvedFiles += 1;
-      else pendingFiles += 1;
-    } else {
-      if (item.error instanceof StorageObjectNotFoundError) {
-        missingLines.push(`document ${t.docId}: קובץ לא נמצא (${t.basename})`);
-      } else {
-        console.error(
-          "File read failed for export:",
-          t.docId,
-          t.basename,
-          item.error
-        );
-        missingLines.push(`document ${t.docId}: כשל בקריאה (${t.basename})`);
-      }
-      missingCount += 1;
-    }
-  }
-
-  if (approvedFiles === 0) {
-    archive.append(Buffer.alloc(0), { name: "approved/.keep" });
-  }
-  if (pendingFiles === 0) {
-    archive.append(Buffer.alloc(0), { name: "pending/.keep" });
-  }
-
-  const summaryFinal = buildSummaryText({
-    periodLabel,
-    recordCount: records.length,
-    approvedFiles,
-    pendingFiles,
-    missingCount,
-  });
-  archive.append(summaryFinal, { name: "סיכום.txt" });
-
-  const manifest = {
-    period: periodLabel,
-    generatedAt: new Date().toISOString(),
-    recordCount: records.length,
-    approvedFiles,
-    pendingFiles,
-    missingFiles: missingCount,
-    entries: [
-      ...manifestFiles,
-      "_meta/manifest.json",
-      "_meta/missing-files.txt",
-    ].sort(),
-  };
-  archive.append(JSON.stringify(manifest, null, 2), {
-    name: "_meta/manifest.json",
-  });
-
-  const missingBody =
-    missingLines.length > 0
-      ? missingLines.join("\n") + "\n"
-      : "(אין קבצים חסרים)\n";
-  archive.append(missingBody, { name: "_meta/missing-files.txt" });
-}
+export type BuiltAccountantPackage = {
+  buffer: Buffer;
+  sha256: string;
+  manifest: PackageManifest;
+  /** Readiness re-evaluated with what storage actually held. */
+  readiness: Readiness;
+};
 
 const EXPORT_FILE_FETCH_CONCURRENCY = 5;
 
@@ -539,6 +467,174 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+export type PackageFileReaders = {
+  readOriginal: (businessId: number, basename: string) => Promise<Buffer>;
+  /** Reads a stored issued PDF by key; the builder verifies its sha256 against the recorded hash. */
+  readIssuedPdf: (storageKey: string) => Promise<Buffer>;
+};
+
+const defaultReaders: PackageFileReaders = {
+  readOriginal: readDocumentObject,
+  readIssuedPdf: readByKey,
+};
+
+/**
+ * Builds the package for already-loaded facts. Reads files only — never renders, signs or writes.
+ * The readiness it returns is re-evaluated with what storage actually held, so a file that turned
+ * out to be missing becomes an open item instead of a silent gap.
+ */
+export async function buildAccountantPackage(params: {
+  businessId: number;
+  periodLabel: string;
+  facts: PeriodFacts;
+  generatedAt: Date;
+  readers?: PackageFileReaders;
+}): Promise<BuiltAccountantPackage> {
+  const { businessId, periodLabel, facts, generatedAt } = params;
+  const readers = params.readers ?? defaultReaders;
+
+  // ── originals of scanned documents ──
+  type FetchTarget = { docId: number; folder: "approved" | "pending"; basename: string };
+  const targets: FetchTarget[] = [];
+  const missingLines: string[] = [];
+  const missingOriginal: number[] = [];
+  const seen = new Set<number>();
+  for (const r of facts.scanned) {
+    if (seen.has(r.documentId)) continue;
+    seen.add(r.documentId);
+    const folder = r.documentStatus === "approved" ? "approved" : "pending";
+    const basename = String(r.fileUrl ?? "").trim();
+    if (!basename) {
+      missingLines.push(`document ${r.documentId}: אין נתיב קובץ`);
+      missingOriginal.push(r.documentId);
+      continue;
+    }
+    if (!STORED_DOCUMENT_FILENAME_REGEX.test(basename)) {
+      missingLines.push(`document ${r.documentId}: נתיב לא תקין`);
+      missingOriginal.push(r.documentId);
+      continue;
+    }
+    targets.push({ docId: r.documentId, folder, basename });
+  }
+
+  // Storage reads run with bounded concurrency: a real month is dozens of
+  // originals, and fetching them one-by-one puts N×RTT on a serverless clock.
+  // Order of ZIP entries is preserved by appending from the ordered results.
+  const originals = await mapWithConcurrency(targets, EXPORT_FILE_FETCH_CONCURRENCY, async (t) => {
+    try {
+      return { t, buffer: await readers.readOriginal(businessId, t.basename) as Buffer | null, error: null as unknown };
+    } catch (e) {
+      return { t, buffer: null as Buffer | null, error: e as unknown };
+    }
+  });
+  for (const item of originals) {
+    if (item.buffer) continue;
+    if (item.error instanceof StorageObjectNotFoundError) {
+      missingLines.push(`document ${item.t.docId}: קובץ לא נמצא`);
+    } else {
+      console.error("[accountant-package] original read failed", { documentId: item.t.docId });
+      missingLines.push(`document ${item.t.docId}: כשל בקריאה`);
+    }
+    missingOriginal.push(item.t.docId);
+  }
+
+  // ── final PDFs of issued documents (only those the delivery gate allows) ──
+  const issuedFiles = await mapWithConcurrency(
+    facts.issued.filter((d) => d.pdf.available),
+    EXPORT_FILE_FETCH_CONCURRENCY,
+    async (d) => {
+      if (!d.pdf.available) return { d, buffer: null as Buffer | null };
+      try {
+        const buffer = await readers.readIssuedPdf(d.pdf.storageKey);
+        const actual = createHash("sha256").update(buffer).digest("hex");
+        // A stored object that is not the recorded artifact is treated as missing — never shipped.
+        return { d, buffer: actual === d.pdf.sha256 ? buffer : null };
+      } catch {
+        return { d, buffer: null as Buffer | null };
+      }
+    }
+  );
+  const missingIssued = issuedFiles.filter((f) => !f.buffer).map((f) => f.d.id);
+  for (const id of missingIssued) missingLines.push(`issued ${id}: הקובץ הסופי לא נמצא`);
+  const issuedIncluded = new Set(issuedFiles.filter((f) => f.buffer).map((f) => f.d.id));
+
+  // A stored PDF that turned out unreadable makes that document unavailable for this build.
+  const effectiveFacts: PeriodFacts =
+    missingIssued.length === 0
+      ? facts
+      : {
+          ...facts,
+          issued: facts.issued.map((d) =>
+            missingIssued.includes(d.id) ? { ...d, pdf: { available: false, reason: "NOT_RENDERED" as const } } : d
+          ),
+        };
+  const readiness = evaluateReadiness(effectiveFacts, missingOriginal);
+  const notes = rowNotes(effectiveFacts, readiness);
+
+  let manifest: PackageManifest | null = null;
+  const buffer = await collectArchiveToBuffer(async (archive) => {
+    const reportBase = `דוח_${periodLabel}`;
+    const xlsxName = `${reportBase}.xlsx`;
+    const metaCsvPath = `_meta/${reportBase}.csv`;
+    archive.append(await buildAccountantXlsxBuffer(effectiveFacts, readiness, notes, issuedIncluded), { name: xlsxName });
+    archive.append(buildAccountantCsvBuffer(effectiveFacts.scanned, notes), { name: metaCsvPath });
+
+    const entries: string[] = [xlsxName, "סיכום.txt", metaCsvPath];
+    let approvedFiles = 0;
+    for (const item of originals) {
+      if (!item.buffer) continue;
+      const ext = item.t.basename.split(".").pop() || "file";
+      const entryName = `${item.t.folder}/doc-${item.t.docId}.${ext}`;
+      // store: originals are already-compressed media (PDF/JPEG/PNG) —
+      // re-DEFLATE-ing them burns CPU for ~0% size gain.
+      archive.append(item.buffer, { name: entryName, store: true });
+      entries.push(entryName);
+      approvedFiles += 1;
+    }
+    if (approvedFiles === 0) archive.append(Buffer.alloc(0), { name: "approved/.keep" });
+
+    let issuedCount = 0;
+    for (const f of issuedFiles) {
+      if (!f.buffer) continue;
+      const name = issuedFileName(f.d);
+      archive.append(f.buffer, { name, store: true });
+      entries.push(name);
+      issuedCount += 1;
+    }
+
+    archive.append(
+      buildSummaryText({ periodLabel, generatedAt, readiness, approvedFiles, issuedFiles: issuedCount }),
+      { name: "סיכום.txt" }
+    );
+
+    manifest = {
+      period: periodLabel,
+      generatedAt: generatedAt.toISOString(),
+      fingerprint: readiness.fingerprint,
+      recordCount: effectiveFacts.scanned.length,
+      issuedCount: effectiveFacts.issued.length,
+      pendingCount: effectiveFacts.pending.length,
+      approvedFiles,
+      issuedFiles: issuedCount,
+      missingFiles: missingOriginal.length + missingIssued.length,
+      missingOriginalDocumentIds: [...new Set(missingOriginal)].sort((a, b) => a - b),
+      missingIssuedDocumentIds: [...missingIssued].sort((a, b) => a - b),
+      entries: [...entries, "_meta/manifest.json", "_meta/missing-files.txt"].sort(),
+    };
+    archive.append(JSON.stringify(manifest, null, 2), { name: "_meta/manifest.json" });
+    archive.append(missingLines.length > 0 ? missingLines.join("\n") + "\n" : "(אין קבצים חסרים)\n", {
+      name: "_meta/missing-files.txt",
+    });
+  });
+
+  return {
+    buffer,
+    sha256: createHash("sha256").update(buffer).digest("hex"),
+    manifest: manifest as unknown as PackageManifest,
+    readiness,
+  };
+}
+
 /**
  * Re-exported from `lib/archive/zip-buffer.ts`, where the implementation now
  * lives unchanged. It moved because the Import/Export Center needs the same
@@ -549,12 +645,24 @@ async function mapWithConcurrency<T, R>(
  */
 export { collectArchiveToBuffer };
 
-/** Builds the full accountant pack as a single in-memory ZIP Buffer. */
+/** Resolves the screen's request or throws AccountantExportRequestError (never an unbounded export). */
+export function resolvePackRequest(body: AccountantPackBody): { label: string; range: PeriodRange } {
+  const resolved = resolveExportRequest(body);
+  if (!resolved.ok) throw new AccountantExportRequestError(resolved.error);
+  return { label: resolved.label, range: resolved.range };
+}
+
+/**
+ * The ad-hoc pack (month / quarter / year) of the accountant-pack screen, built in memory.
+ * Must run inside the business's tenant context.
+ */
 export async function buildAccountantPackZipBuffer(
   businessId: number,
   body: AccountantPackBody
 ): Promise<Buffer> {
-  return collectArchiveToBuffer((archive) =>
-    appendAccountantPackToArchive(archive, businessId, body)
-  );
+  const { label, range } = resolvePackRequest(body);
+  const categories = Array.isArray(body.categories) ? body.categories.filter((c) => typeof c === "string") : [];
+  const facts = await loadPeriodFacts(businessId, range, { categories });
+  const built = await buildAccountantPackage({ businessId, periodLabel: label, facts, generatedAt: new Date() });
+  return built.buffer;
 }

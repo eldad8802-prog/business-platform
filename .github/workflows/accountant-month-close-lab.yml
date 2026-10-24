@@ -116,8 +116,13 @@ jobs:
           # finished migration sorting after this one makes it FAIL with observed 1; the ledger is then restored.
           a1=$(lab -At -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261024090000_platform_admin_a1' AND finished_at IS NOT NULL")
           test "$a1" = "1" || { echo "the baseline ledger lacks the applied platform_admin_a1"; exit 1; }
-          later=$(ls prisma/migrations | awk '$0 > "20261027090000_accountant_month_close" && $0 != "migration_lock.toml"' | wc -l)
-          test "$later" = "0" || { echo "a migration directory sorts after the accountant migration"; exit 1; }
+          # Migrations merged after this one was applied in Production (2026-10-24) sort after it. The lab reproduces
+          # the release that happened ("applied + the approved prefix"), so none of them is in the baseline ledger.
+          later=$(ls prisma/migrations | awk '$0 > "20261027090000_accountant_month_close" && $0 != "migration_lock.toml"' | sed "s/.*/'&'/" | paste -sd, -)
+          if [ -n "$later" ]; then
+            inl=$(lab -At -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name IN ($later)")
+            test "$inl" = "0" || { echo "the baseline ledger records a migration that sorts after the accountant migration"; exit 1; }
+          fi
           lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES ('lab-later', 'x', now(), '20261099000000_lab_later', 1)"
           c3=$(lab -f "$PREFLIGHT" | grep -E '^ +3 \|' | tr -d ' ')
           lab -q -c "DELETE FROM \"_prisma_migrations\" WHERE id = 'lab-later'"

@@ -1,0 +1,60 @@
+# Monthly accountant workflow — the sweep (scheduled).
+#
+# On the 1st of every month (Israel time) the previous month's accountant package is prepared for every
+# eligible business; every run after that re-evaluates months that changed, sends reminders (at most two,
+# on the 5th and the 10th), and retries approved sends that are due. See lib/accountant/sweep.ts.
+#
+# WHY GITHUB ACTIONS. Same as intake-sweep.yml: Vercel Hobby crons run at most daily; a daily Vercel cron
+# (vercel.json, 04:30 UTC) remains as a backstop. GitHub runs scheduled jobs late and irregularly — that
+# is fine here: the 1st is when preparation STARTS, and every step is idempotent.
+#
+# INERT UNTIL OWNER GATE G2. Two switches, both off today:
+#   - vars.ACCOUNTANT_SWEEP_ENABLED == 'true'  (this workflow does not call anything otherwise), and
+#   - the Production env ACCOUNTANT_SWEEP_ENABLED=true (the route answers {enabled:false} otherwise —
+#     which also keeps the Vercel backstop inert).
+# Sending to an accountant is a third, separate switch (ACCOUNTANT_DELIVERY_ENABLED, gate G4), and every
+# single send still needs the owner's approval of that package inside Dubiz.
+#
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` environment (main-only). The endpoint
+# answers counts only.
+
+name: accountant sweep (scheduled)
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accountant-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    if: github.ref == 'refs/heads/main' && vars.ACCOUNTANT_SWEEP_ENABLED == 'true'
+    environment: cron
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # The endpoint answers 500 when any business failed, so an unhealthy run goes red.
+      - name: Run the accountant sweep on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SWEEP_URL: https://promaxgroup.co.il/api/accountant/sweep
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o sweep.json -w "%{http_code}" -m 90 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$SWEEP_URL")
+          echo "HTTP $code"
+          cat sweep.json; echo
+          {
+            echo "### Accountant sweep — HTTP $code"
+            echo '```json'; cat sweep.json; echo; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" = "200" ] || { echo "::error::accountant sweep answered $code"; exit 1; }

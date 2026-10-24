@@ -25,6 +25,7 @@ export const PLATFORM_FEATURE_KEYS = {
   TELEPHONY_CLOUDTALK: "telephony_cloudtalk",
   TELEPHONY_VOICENTER: "telephony_voicenter",
   DAILY_TASKS: "daily_tasks",
+  ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
 } as const;
 
 export type PlatformFeatureKey =
@@ -232,6 +233,19 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       category: "tasks",
       description: "משימות אישיות עם מועד, תזכורת והתראה לטלפון — פתוח לכל העסקים",
       defaultEnabled: true,
+      mutable: true,
+    },
+    // Monthly accountant workflow (migration 20261027090000). OFF by default, like every new feature: with no
+    // policy row the resolver falls back to this default, so a deploy that reaches Production before the
+    // migration cannot switch the workflow on. Controlled verification = a business override; the general
+    // rollout (owner gate G5) flips this default together with the policy row. Sending to the accountant is a
+    // second, separate switch (ACCOUNTANT_DELIVERY_ENABLED).
+    {
+      key: PLATFORM_FEATURE_KEYS.ACCOUNTANT_MONTH_CLOSE,
+      displayName: "חבילה חודשית לרואה החשבון",
+      category: "documents",
+      description: "הכנה חודשית אוטומטית של חבילת רואה החשבון, התראה, ושליחה לרואה החשבון באישור בעל העסק",
+      defaultEnabled: false,
       mutable: true,
     },
   ];
