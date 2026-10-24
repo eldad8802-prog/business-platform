@@ -131,3 +131,13 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_gates?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_gates?$TZQ" \
             npx tsx .acct/gates-battery.ts
+
+      - name: Build-failure battery — a real build failure is reported as a failure; state, notice and retry stay right
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_bf --with-acct
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_bf?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_bf?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_bf?$TZQ" \
+            npx tsx .acct/build-failure-battery.ts
