@@ -83,6 +83,16 @@ const css = read("app/(shell)/secretary/secretary.module.css");
 check(!css.includes(".shell:has(.bankGrid)"), "נגדיר את ההתחייבויות is not widened on desktop");
 check(!/\.bankGrid\s*\{\s*grid-template-columns:\s*repeat\(3/.test(css), "categories stay two per row on desktop");
 
+// The categories screen (owner, 25.10.2026).
+const bankScreen = ui.slice(ui.indexOf("function BankScreen("), ui.indexOf("\n}\n", ui.indexOf("function BankScreen(")));
+check(!bankScreen.includes("RememberedObligationCard"), "no \"כבר אני זוכרת\" card on the categories screen");
+check(!bankScreen.includes("bank.done") && !bankScreen.includes('href="/secretary"'), "no \"סיימתי, חזרה ליום שלי\" button (the back control and the result screen lead back)");
+check(bankScreen.includes("P3_COPY.otherHeading") && bankScreen.includes("<Link className={styles.createButton} href={captureHref()}><PlusIcon /> {P3_COPY.createButton}</Link>"), "\"צור התחייבות\" opens the same empty capture form, under its own \"משהו שלא ברשימה\" heading");
+check(/createButton: "צור התחייבות"/.test(ui) && /otherHeading: "משהו שלא ברשימה"/.test(ui), "the new wording");
+check(/\.createButton \{[^}]*--sand: color-mix\(in srgb, var\(--dz-warm-sand-pill\), var\(--dz-warning-accent\) 16%\)/.test(css), "\"צור התחייבות\" in the sand of \"הוסף התחייבות\"");
+check(/\.ghostFixed \{ flex: 0 0 auto; \}/.test(css) && bankScreen.includes("styles.ghostFixed"), "\"לראות את כל ההתחייבויות\" keeps its own height");
+check(/mode="created"[\s\S]{0,400}onAddMore=\{startAnother\}/.test(ui) && ui.includes(`secondary ? <GhostLink href="/secretary">`),"after a save the result screen still offers \"הוסף עוד\" and \"סיימתי\"");
+
 if (failures > 0) {
   console.error(`secretary-create-flow: ${failures}/${checks} checks failed`);
   process.exit(1);

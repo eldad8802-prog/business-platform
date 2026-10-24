@@ -108,6 +108,9 @@ const P3_COPY = {
   createdBody: (name: string, date: string) => `שמרתי את ${name} לתשלום ב־${date}. עד אז הוא נשמר אצלי במעקב שקט, ושבוע לפני המועד הוא יעלה לראש המזכירה.`,
   createdBodyGeneric: "שמרתי. שבוע לפני המועד זה יעלה לראש המזכירה.",
   echoDue: (date: string) => `לתשלום: ${date}`,
+  // The categories screen (owner, 25.10.2026): one clear way for anything outside the categories.
+  otherHeading: "משהו שלא ברשימה",
+  createButton: "צור התחייבות",
 };
 
 export type SecretaryHomeModel = {
@@ -1042,16 +1045,19 @@ function LoadMoreObligations({ loading, hasMore, onLoadMore }: { loading: boolea
     </button>
   );
 }
+/**
+ * P3's first step, "נגדיר את ההתחייבויות" (owner, 25.10.2026): the categories, then one way to create anything
+ * else. No "כבר אני זוכרת" card (the commitments live behind the "התחייבויות" station) and no "סיימתי" button —
+ * the back control returns to where the owner came from, and after a save the result offers "הוסף עוד" and
+ * "סיימתי". Saving is unchanged.
+ */
 function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; loadMore?: ReactNode }) {
   const f = useFmt();
   const { t } = f;
-  const cards = obligations.map((item) => cardFromObligation(item, f));
-  const firstCard = cards[0] ?? null;
   // The second argument of findCategoryObligation is a Hebrew keyword matched against stored obligee names — not UI text.
   return (
     <SecretaryScreen title={t("tasks.secretary.bank.title")} backHref="/secretary" backLook="p3">
       <Say>{t("tasks.secretary.bank.say")}</Say>
-      {firstCard ? <RememberedObligationCard item={firstCard} /> : null}
       <div className={styles.category}>{t("tasks.secretary.bank.monthly")}</div>
       <div className={styles.bankGrid}>
         <BankChip emoji="🏠" label={t("tasks.secretary.bank.rent")} obligation={findCategoryObligation("שכירות", obligations)} />
@@ -1068,10 +1074,11 @@ function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; l
         <BankChip emoji="🧾" label={t("tasks.secretary.bank.vat")} obligation={findCategoryObligation('מע"מ', obligations)} />
         <BankChip emoji="👥" label={t("tasks.secretary.bank.nationalInsurance")} obligation={findCategoryObligation(NATIONAL_INSURANCE, obligations)} />
       </div>
-      <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> {t("tasks.secretary.bank.other")}</Link>
-      <GhostLink href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</GhostLink>
+      <div className={styles.category}>{P3_COPY.otherHeading}</div>
+      <Link className={styles.createButton} href={captureHref()}><PlusIcon /> {P3_COPY.createButton}</Link>
+      {/* Its own height: in the full-height shell a ghost button otherwise grows to fill the screen. */}
+      <Link className={`${styles.button} ${styles.ghostWide} ${styles.ghostFixed}`} href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</Link>
       {loadMore}
-      <PrimaryLink href="/secretary">{t("tasks.secretary.bank.done")}</PrimaryLink>
     </SecretaryScreen>
   );
 }
