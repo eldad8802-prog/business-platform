@@ -246,7 +246,16 @@ run_guard() {
   # app_runtime holds SELECT / INSERT / UPDATE / DELETE, bound to app.current_business_id,
   # and the only DELETE caller is erasure Stage 2 (no route deletes a recipient). Every
   # other accountant table has no DELETE policy and no DELETE grant.
-  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete|task_request_ledger_runtime_delete|accountant_recipient_runtime_delete'
+  #
+  #   user_identity_runtime_delete  UserIdentity  account erasure ONLY
+  #
+  # The link between a Dubiz user and a Google subject (the subject and the address it
+  # was linked with). app_runtime holds DELETE and SELECT ("id", "businessId") and nothing
+  # else — never the subject or the address — bound to app.current_business_id, so erasure
+  # deletes exactly the erased business's identities. app_auth holds nothing on the table
+  # (it reaches it only through SECURITY DEFINER functions); the single-use signup tickets
+  # belong to no business and have no DELETE policy at all.
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete|task_request_ledger_runtime_delete|accountant_recipient_runtime_delete|user_identity_runtime_delete'
   local ci13
   ci13="$(
     grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \
