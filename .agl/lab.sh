@@ -24,6 +24,12 @@ AGL="20261030090000_oauth_identity_foundation"
 bash "$ROOT/.aet/lab.sh" "$DB" --with-aet >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
+# The TE lab creates app_auth after the AuthSession privilege migrations ran (they are role-guarded and
+# idempotent), so they are replayed here — exactly Production's grants: a Google signup opens its first
+# session as the auth plane, as every signup does.
+for m in 20260908200000_auth_session_privilege_contract 20260913120000_authsession_user_agent; do
+  psql_owner -f "$ROOT/prisma/migrations/$m/migration.sql"
+done
 # If schema.prisma models the tables / the optional password (the application PR), `db push` built them
 # without the migration's policies, functions and grants: put them back the way Production has them today
 # so the migration builds them the way Production will have them.
