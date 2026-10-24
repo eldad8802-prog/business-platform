@@ -145,6 +145,44 @@ async function main() {
     ok("completing creates the next occurrence with its own moment",
       !!occ2 && occ2.remindAt !== null && occ2.dueMinute === 1080 && occ2.remindOffsetMinutes === 60 && occ2.remindAt.getTime() > occ1.remindAt!.getTime(), occ2);
 
+    console.log("several open, edit and reschedule (owner 2026-10-24)");
+    const many = await Promise.all(
+      [600, 615, 630].map((m, i) => as(A.businessId, () => svc.createTask(A, req(), { title: `פתוחה ${i + 1}`, dueOn: TOMORROW, dueMinute: m, remindOffsetMinutes: 0 }))),
+    );
+    const manyIds = many.map((r) => r.task!.id);
+    ok("three personal tasks open side by side (no one-open limit)", new Set(manyIds).size === 3
+      && (await owner.task.count({ where: { businessId: A.businessId, id: { in: manyIds }, status: "OPEN" } })) === 3);
+    const [m1, m2] = many.map((r) => r.task!);
+    const edited = await as(A.businessId, () => svc.editTask(A, req(), m1.id, { expectedVersion: m1.version, title: "פתוחה 1 — נערכה", note: "פירוט חדש" }));
+    ok("editing title and note before the send keeps the moment and does not arm a second one",
+      edited.task!.remindAt?.getTime() === m1.remindAt!.getTime() && edited.task!.reminderSentAt === null && edited.task!.title === "פתוחה 1 — נערכה");
+    const dueM1 = (await rem.dueReminders(plus(m1.remindAt!, 1), 500)).find((d) => d.taskId === m1.id)!;
+    ok("…sent once at its moment", (await rem.dispatchReminder(dueM1, plus(m1.remindAt!, 1))).result === "sent"
+      && (await rem.dispatchReminder(dueM1, plus(m1.remindAt!, 2))).result === "skipped");
+    const m1now = (await owner.task.findUnique({ where: { id: m1.id } }))!;
+    await as(A.businessId, () => svc.editTask(A, req(), m1.id, { expectedVersion: m1now.version, note: null }));
+    ok("editing after the send does not re-arm it", !(await dueIds(plus(m1.remindAt!, 5))).includes(m1.id)
+      && (await owner.task.findUnique({ where: { id: m1.id } }))!.reminderSentAt !== null);
+    ok("…one bell notification only", (await owner.notification.count({ where: { businessId: A.businessId, entityType: "task", entityId: m1.id } })) === 1);
+    const oldM2 = { businessId: A.businessId, taskId: m2.id, remindAt: m2.remindAt! };
+    const movedM2 = await as(A.businessId, () => svc.rescheduleTask(A, req(), m2.id, { expectedVersion: m2.version, dueOn: TOMORROW, dueMinute: 700 }));
+    const newM2 = movedM2.task!.remindAt!;
+    ok("rescheduling before the send: the OLD moment sends nothing", (await rem.dispatchReminder(oldM2, plus(oldM2.remindAt, 1))).result === "skipped"
+      && !(await dueIds(plus(oldM2.remindAt, 1))).includes(m2.id));
+    const dueM2 = (await rem.dueReminders(plus(newM2, 1), 500)).find((d) => d.taskId === m2.id);
+    ok("…the new moment sends once", !!dueM2 && (await rem.dispatchReminder(dueM2, plus(newM2, 1))).result === "sent"
+      && (await rem.dispatchReminder(dueM2, plus(newM2, 2))).result === "skipped");
+    const seriesId = occ2!.seriesId!;
+    const occOnly = await as(A.businessId, () => svc.editTask(A, req(), occ2!.id, { expectedVersion: occ2!.version, title: "רק הפעם" }));
+    ok("editing one occurrence leaves the series title", occOnly.task!.title === "רק הפעם"
+      && (await owner.taskSeries.findUnique({ where: { id: seriesId } }))!.title === "לספור קופה");
+    const ser = (await owner.taskSeries.findUnique({ where: { id: seriesId } }))!;
+    await as(A.businessId, () => svc.changeSeries(A, req(), seriesId, { expectedVersion: ser.version, title: "לספור קופה וכסף" }));
+    const occ2now = (await owner.task.findUnique({ where: { id: occ2!.id } }))!;
+    ok("editing the series renames it and its open occurrence, and keeps the moment",
+      (await owner.taskSeries.findUnique({ where: { id: seriesId } }))!.title === "לספור קופה וכסף"
+        && occ2now.title === "לספור קופה וכסף" && occ2now.remindAt?.getTime() === occ2!.remindAt!.getTime() && occ2now.reminderSentAt === null);
+
     console.log("flag and isolation");
     const rb = await as(B.businessId, () => svc.createTask(B, req(), { title: "B", dueOn: TOMORROW, dueMinute: 600, remindOffsetMinutes: 0 }));
     const dueB = { businessId: B.businessId, taskId: rb.task!.id, remindAt: rb.task!.remindAt! };

@@ -30,6 +30,7 @@ import {
   type AgendaResponse,
 } from "@/lib/tasks/tasks-client";
 import { useAgenda } from "@/lib/tasks/use-agenda";
+import { clockLabel, remindMomentLabel } from "@/lib/services/tasks/task-schedule";
 import { PaidQuestionSheet, type PaidDetails } from "@/app/(shell)/secretary/paid-question";
 import type { ObligationApi } from "@/lib/obligations/secretary-client";
 
@@ -86,8 +87,15 @@ export function TasksScreen() {
     };
   }, [bp]);
 
+  // "+" while already on /tasks only changes the query: open the form then too (not just on the first mount),
+  // so a second, third… task can always be added. The URL is cleaned so a reload does not reopen it.
   useEffect(() => {
-    if (params?.get("new") === "1") router.replace("/tasks", { scroll: false });
+    if (params?.get("new") !== "1") return;
+    void Promise.resolve().then(() => {
+      setSelected(null);
+      setCreating(true);
+    });
+    router.replace("/tasks", { scroll: false });
   }, [params, router]);
 
   const agenda = state.status === "ready" ? state.agenda : null;
@@ -538,6 +546,11 @@ function Row({
   if (row.type === "TASK") {
     const t = row.task;
     const fact = t.link?.label ? tr("tasks.common.relatedTo", { label: t.link.label }) : t.note ? t.note : null;
+    // The target time and the reminder's state, when set (owner 2026-10-24).
+    const when = t.dueMinute != null ? clockLabel(t.dueMinute) : null;
+    const reminder = t.remindAt
+      ? t.reminderSent ? "תזכורת נשלחה" : `תזכורת ${remindMomentLabel(new Date(t.remindAt), new Date())}`
+      : null;
     return (
       <div {...common}>
         <button
@@ -552,7 +565,15 @@ function Row({
         <div className={s.rbody}>
           <span className={s.rtitle}>{t.title}</span>
           {fact ? <span className={s.rfact}>{fact}</span> : null}
-          <Tags tags={row.tags} />
+          {when || reminder || row.tags.length ? (
+            <span className={s.tags}>
+              {when ? <span className={`${s.tag} ${s.tag_time}`}>{when}</span> : null}
+              {reminder ? <span className={`${s.tag} ${t.reminderSent ? s.tag_today : s.tag_bell}`}>{reminder}</span> : null}
+              {row.tags.map((g, i) => (
+                <span key={i} className={`${s.tag} ${s[`tag_${g.tone}`]}`}>{g.text}</span>
+              ))}
+            </span>
+          ) : null}
         </div>
       </div>
     );
