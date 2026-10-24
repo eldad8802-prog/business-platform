@@ -322,23 +322,11 @@ export const TOOLS: Tool[] = [
     comingSoon: true,
   },
   // --- ניהול העסק -----------------------------------------------------------
-  // The day's work first: the task centre (only with daily_tasks ON), the
-  // Secretary that REMINDS about what the business owes, and Payables where the
-  // money paid against it is tracked. A placement decision only (owner-approved,
-  // Daily Tasks B) — no screen, route or permission changes.
-  {
-    key: "tasks",
-    label: HE_T("insights.tools.items.tasks.label"),
-    labelKey: "insights.tools.items.tasks.label",
-    description: HE_T("insights.tools.items.tasks.description"),
-    descriptionKey: "insights.tools.items.tasks.description",
-    entity: "tasks",
-    href: "/tasks",
-    color: "teal",
-    group: "operations",
-    colorSource: "borrowed:collection",
-    feature: "daily_tasks",
-  },
+  // The Secretary first: tasks and commitments are its management stations
+  // (owner, 25.10.2026), so they are not listed here a second time. A listing
+  // decision only — /tasks and /payables, their routes, the sidebar entries and
+  // every other way in are unchanged.
+
   {
     key: "secretary",
     label: HE_T("insights.tools.items.secretary.label"),
@@ -351,18 +339,7 @@ export const TOOLS: Tool[] = [
     group: "operations",
     colorSource: "carried",
   },
-  {
-    key: "payables",
-    label: HE_T("insights.tools.items.payables.label"),
-    labelKey: "insights.tools.items.payables.label",
-    description: HE_T("insights.tools.items.payables.description"),
-    descriptionKey: "insights.tools.items.payables.description",
-    entity: "payables",
-    href: "/payables",
-    color: "amber",
-    group: "operations",
-    colorSource: "borrowed:secretary",
-  },
+
   {
     key: "inventory",
     label: HE_T("insights.tools.items.inventory.label"),

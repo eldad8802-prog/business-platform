@@ -9,7 +9,8 @@
  *     source-actions.service.ts), after its own request check (findPrior + assertKeyMayWrite precede it).
  *   T-M5: no amount enters the journal — the task layer never writes TaskEvent payload keys outside the closed
  *     schema (validated in commitRequest) and source-actions passes no amount into an event.
- *   Navigation: משימות / מזכירה / התחייבויות sit under "ניהול העסק"; משימות only with daily_tasks.
+ *   Navigation: משימות / מזכירה / התחייבויות sit under "ניהול העסק" in the sidebar; משימות only with daily_tasks.
+ *     The ניהול העסק family screen lists the Secretary, whose stations open משימות and התחייבויות.
  *
  * Run: npx tsx lib/services/tasks/tasks-boundary.test.ts
  */
@@ -97,9 +98,12 @@ console.log("navigation (owner-approved placement)");
   const tasks = NAV_DESTINATIONS.find((d) => d.key === "tasks");
   ok("משימות is gated by daily_tasks and is not a primary tab", tasks?.feature === "daily_tasks" && !tasks?.primary && tasks?.href === "/tasks");
   ok("the secretary and payables keep their routes", NAV_DESTINATIONS.find((d) => d.key === "secretary")?.href === "/secretary" && NAV_DESTINATIONS.find((d) => d.key === "payables")?.href === "/payables");
+  // Owner, 25.10.2026: the family screen lists the Secretary once; משימות and התחייבויות are its stations, so the
+  // family no longer lists them a second time (the sidebar entries and routes above are unchanged).
   const ops = TOOLS.filter((t) => t.group === "operations").map((t) => t.key);
-  ok("the ניהול העסק family lists them too", ["tasks", "secretary", "payables"].every((k) => ops.includes(k)), ops);
-  ok("the family's משימות tool is gated", TOOLS.find((t) => t.key === "tasks")?.feature === "daily_tasks");
+  ok("the ניהול העסק family lists the Secretary, not its stations again", ops.includes("secretary") && !ops.includes("tasks") && !ops.includes("payables"), ops);
+  const stations = code("app/(shell)/secretary/secretary-home.tsx");
+  ok("the Secretary's stations open /payables and /tasks (tasks only with the flag)", /payables: "\/payables"/.test(stations) && /tasks: "\/tasks"/.test(stations) && /\.\.\.\(tasksOn \? \[\{ key: "tasks"/.test(stations));
   const side = code("components/navigation/side-nav.tsx");
   ok("the sidebar hides a gated destination until the flag is ON", /filter\(\(d\) => !d\.feature \|\| \(d\.feature === "daily_tasks" && tasksOn\)\)/.test(side));
   const sheet = code("components/navigation/action-sheet.tsx");

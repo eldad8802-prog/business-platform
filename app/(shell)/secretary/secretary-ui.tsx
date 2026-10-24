@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import BackButton, { useGoBack } from "@/components/ui/back-button";
+import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
@@ -108,6 +109,9 @@ const P3_COPY = {
   createdBody: (name: string, date: string) => `שמרתי את ${name} לתשלום ב־${date}. עד אז הוא נשמר אצלי במעקב שקט, ושבוע לפני המועד הוא יעלה לראש המזכירה.`,
   createdBodyGeneric: "שמרתי. שבוע לפני המועד זה יעלה לראש המזכירה.",
   echoDue: (date: string) => `לתשלום: ${date}`,
+  // The categories screen (owner, 25.10.2026): one clear way for anything outside the categories.
+  otherHeading: "משהו שלא ברשימה",
+  createButton: "צור התחייבות",
 };
 
 export type SecretaryHomeModel = {
@@ -950,6 +954,11 @@ function PrimaryButton({ children, disabled, type = "button", onClick }: { child
   return <button className={`${styles.button} ${styles.primary} ${styles.block}`} type={type} disabled={disabled} onClick={onClick}>{children}</button>;
 }
 
+/** GhostLink's look, for a step that must run code (e.g. leave a finished flow by replace). */
+function GhostButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return <button type="button" className={`${styles.button} ${styles.ghostWide}`} onClick={onClick}>{children}</button>;
+}
+
 function GhostLink({ href, children }: { href: string; children: ReactNode }) {
   return <Link className={`${styles.button} ${styles.ghostWide}`} href={href}>{children}</Link>;
 }
@@ -1042,16 +1051,19 @@ function LoadMoreObligations({ loading, hasMore, onLoadMore }: { loading: boolea
     </button>
   );
 }
+/**
+ * P3's first step, "נגדיר את ההתחייבויות" (owner, 25.10.2026): the categories, then one way to create anything
+ * else. No "כבר אני זוכרת" card (the commitments live behind the "התחייבויות" station) and no "סיימתי" button —
+ * the back control returns to where the owner came from, and after a save the result offers "הוסף עוד" and
+ * "סיימתי". Saving is unchanged.
+ */
 function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; loadMore?: ReactNode }) {
   const f = useFmt();
   const { t } = f;
-  const cards = obligations.map((item) => cardFromObligation(item, f));
-  const firstCard = cards[0] ?? null;
   // The second argument of findCategoryObligation is a Hebrew keyword matched against stored obligee names — not UI text.
   return (
     <SecretaryScreen title={t("tasks.secretary.bank.title")} backHref="/secretary" backLook="p3">
       <Say>{t("tasks.secretary.bank.say")}</Say>
-      {firstCard ? <RememberedObligationCard item={firstCard} /> : null}
       <div className={styles.category}>{t("tasks.secretary.bank.monthly")}</div>
       <div className={styles.bankGrid}>
         <BankChip emoji="🏠" label={t("tasks.secretary.bank.rent")} obligation={findCategoryObligation("שכירות", obligations)} />
@@ -1068,10 +1080,11 @@ function BankScreen({ obligations, loadMore }: { obligations: ObligationApi[]; l
         <BankChip emoji="🧾" label={t("tasks.secretary.bank.vat")} obligation={findCategoryObligation('מע"מ', obligations)} />
         <BankChip emoji="👥" label={t("tasks.secretary.bank.nationalInsurance")} obligation={findCategoryObligation(NATIONAL_INSURANCE, obligations)} />
       </div>
-      <Link className={styles.otherButton} href={captureHref()}><PlusIcon /> {t("tasks.secretary.bank.other")}</Link>
-      <GhostLink href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</GhostLink>
+      <div className={styles.category}>{P3_COPY.otherHeading}</div>
+      <Link className={styles.createButton} href={captureHref()}><PlusIcon /> {P3_COPY.createButton}</Link>
+      {/* Its own height: in the full-height shell a ghost button otherwise grows to fill the screen. */}
+      <Link className={`${styles.button} ${styles.ghostWide} ${styles.ghostFixed}`} href={screenHref("all")}>{t("tasks.secretary.bank.seeAll")}</Link>
       {loadMore}
-      <PrimaryLink href="/secretary">{t("tasks.secretary.bank.done")}</PrimaryLink>
     </SecretaryScreen>
   );
 }
@@ -1396,6 +1409,20 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     setTermsDays("30");
     router.replace(screenHref("capture"));
   }
+  /**
+   * "סיימתי" after a save (owner, 25.10.2026): the result REPLACES itself with the Secretary, and the flow's
+   * earlier steps below it (the categories and the capture form) are marked done — so browser back leaves the
+   * finished creation as a whole instead of reopening an empty form. Back during an unfinished creation is
+   * unchanged; saving is unchanged.
+   */
+  function finishCreated() {
+    router.replace("/secretary");
+    consumeFlowEntries((u) => {
+      const url = new URL(u, window.location.origin);
+      const screen = url.searchParams.get("screen");
+      return url.pathname === "/secretary" && (screen === "bank" || screen === "capture");
+    });
+  }
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
   useEffect(() => {
@@ -1525,6 +1552,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             obligation={created}
             createdNote={kind === "installments" ? P3_COPY.installmentsSaved(installmentCountNumber) : kind === "postdated-check" ? P3_COPY.checkSaved : undefined}
             onAddMore={startAnother}
+            onDone={finishCreated}
           />
         ) : <>
         <div className={styles.topbar}>
@@ -1901,7 +1929,7 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence, f: Fmt): s
   }
 }
 
-function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void }) {
+function LoopResult({ mode, obligation, createdNote, onAddMore, onDone }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void; onDone?: () => void }) {
   const f = useFmt();
   const { t } = f;
   const name = obligation ? displayName(obligation.obligeeName, t) : t("tasks.secretary.loop.theObligation");
@@ -1925,7 +1953,7 @@ function LoopResult({ mode, obligation, createdNote, onAddMore }: { mode: "met" 
     mode === "snooze" ? t("tasks.secretary.loop.echoSnooze") :
     mode === "met" ? (nextDate ? t("tasks.secretary.loop.echoNext", { date: nextDate }) : t("tasks.secretary.loop.echoClosed")) :
     recurrenceText(obligation?.recurrence ?? "NONE", t);
-  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
+  return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}>{mode === "created" && onAddMore ? <PrimaryButton onClick={onAddMore}>{config.primary}</PrimaryButton> : <PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>}{config.secondary ? (onDone ? <GhostButton onClick={onDone}>{config.secondary}</GhostButton> : <GhostLink href="/secretary">{config.secondary}</GhostLink>) : null}</div></section>;
 }
 
 function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | null; onSnooze?: (id: number, followUpAt: string) => Promise<void> | void }) {

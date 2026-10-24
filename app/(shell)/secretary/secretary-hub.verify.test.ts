@@ -133,8 +133,24 @@ const home = readFileSync(path.join(dir, "secretary-home.tsx"), "utf8");
 const data = readFileSync(path.join(dir, "secretary-hub-data.ts"), "utf8");
 const drawer = readFileSync(path.join(dir, "secretary-cost-drawer.tsx"), "utf8");
 const model = readFileSync(path.join(dir, "secretary-hub-model.ts"), "utf8");
-check(/bank: "\/secretary\?screen=bank"/.test(home) && /<Link href=\{HREF\.bank\}[^>]*>\s*<PlusIcon \/>\s*הוסף התחייבות/.test(home), "\"הוסף התחייבות\" opens the P3 flow at its first step");
-check(/newTask: "\/tasks\?new=1"/.test(home) && /\{tasksOn \? \(\s*<Link href=\{HREF\.newTask\}/.test(home), "\"הוסף משימה\" is the task centre's create form, only with daily_tasks ON");
+const has = (snippet: string) => home.includes(snippet);
+check(
+  has(`bank: "/secretary?screen=bank"`) && has(`<Link href={HREF.bank} className={cx(s.action, s.actionSand)}>`) && has("<span>הוסף התחייבות</span>"),
+  "\"הוסף התחייבות\" (sand) opens the P3 flow at its first step",
+);
+check(
+  has(`newTask: "/tasks?new=1"`) && has(`{tasksOn ? (\n        <Link href={HREF.newTask} className={cx(s.action, s.actionGreen)}>`),
+  "\"הוסף משימה\" (Dubiz green) is the task centre's create form, only with daily_tasks ON",
+);
+// Stations layout (owner-approved mockup, 24.10.2026): the order, and what left the main screen.
+const order = ["<Header", "<Actions", "<CostCard", "<Stations", "<SecretaryWeek"].map((tag) => home.indexOf(tag, home.indexOf("export function SecretaryHome(")));
+check(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), "main screen order: title · actions · day cost · stations · week", order.join(","));
+check(!/מה מחכה לך היום|התחייבויות קרובות|היסטוריה ומידע נוסף|משימות פתוחות|תשלומים קרובים|RowGroup|hubCards/.test(home.slice(home.indexOf("export const HREF"))), "no summary cards, no \"מה מחכה לך היום\", no long lists, no history links on the main screen");
+check(has(`payables: "/payables"`) && has(`tasks: "/tasks"`) && has(`calendar: "/secretary?screen=calendar"`), "stations open the existing Payables, Tasks and the Secretary's full calendar");
+check(
+  has("baseline.calendarDay.daily") && has("עלות תפעול מחושבת, לא תשלום בפועל") && !/height=\{/.test(home),
+  "day cost = server calendar-day figure, said to be calculated; no drawn chart of made-up days",
+);
 check(!/postSync|createTask|createSeries/.test(data + home), "the hub starts no sync and creates no task of its own");
 check(!/fetch\(/.test(data) && /fetchAgenda\(\)/.test(data) && /fetchObligations\(token, true/.test(data) && /fetchBusinessCostSummary\(/.test(data), "only the existing GET clients");
 check(/useFeatureState\("daily_tasks"\)/.test(data) && /if \(!tasksOn\) return;/.test(data), "the agenda is read only once daily_tasks is ON");
