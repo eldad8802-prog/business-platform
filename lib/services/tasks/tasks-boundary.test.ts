@@ -123,6 +123,19 @@ console.log("operational retention (12.7, 12.8)");
   const guard = read("scripts/ci/workflow-policy-guard.mjs");
   ok("its secret is classified production-capable and its schedule is SANCTIONED", /TASK_RETENTION_DATABASE_URL/.test(guard) && /file: "task-retention\.yml"/.test(guard));
 }
+console.log("task centre — personal list, always room for one more (owner 2026-10-24)");
+{
+  const screen = code("features/tasks/tasks-screen.tsx");
+  const css = read("features/tasks/tasks.module.css");
+  ok("the task centre asks for the personal agenda only", /useAgenda\(true, \{ personal: true \}\)/.test(screen));
+  ok("\"+\" while already on /tasks opens the form (not only on the first mount)", /get\("new"\) !== "1"\) return;[\s\S]{0,200}setCreating\(true\)/.test(screen));
+  ok("\"משימה חדשה\" is never hidden, on any width", !/\.btn\.newBtn \{ display: none; \}/.test(css) && /\.btn\.newBtn \{ display: inline-flex;/.test(css));
+  ok("the screen keeps clear of the iPhone status bar", /padding-block: calc\(14px \+ var\(--dz-safe-top, 0px\)\)/.test(css));
+  const reminder = code("components/notifications/reminder-center.tsx");
+  ok("the reminder toast sits above the mobile bottom bar", /\.dz-reminder-toast \{ bottom: calc\(104px/.test(reminder));
+  const catalog = code("lib/services/feature-access/platform-feature-catalog.ts");
+  ok("daily_tasks is ON by default for every business", /key: PLATFORM_FEATURE_KEYS\.DAILY_TASKS,[\s\S]{0,300}defaultEnabled: true,/.test(catalog));
+}
 {
   const secretary = NAV_DESTINATIONS.find((d) => d.key === "secretary");
   ok("navigation names the secretary 'המזכירה שלי'", secretary?.label === "המזכירה שלי" && TOOLS.find((t) => t.key === "secretary")?.label === "המזכירה שלי");

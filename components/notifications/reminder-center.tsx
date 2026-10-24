@@ -126,15 +126,24 @@ function inMinutes(n: number): string {
   return d.toISOString();
 }
 
+/**
+ * Below 768px the shell's bottom bar (84px + the raised "+") is fixed at the bottom: the toast sits above it, so "+"
+ * and the navigation stay reachable while a reminder is shown. Wider screens have no bottom bar.
+ */
+const TOAST_CSS = `
+.dz-reminder-toast { bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 768px) { .dz-reminder-toast { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); } }
+`;
+
 function Toast({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="alert"
       dir="rtl"
+      className="dz-reminder-toast"
       style={{
         position: "fixed",
         insetInline: 16,
-        bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
         zIndex: 1000,
         maxWidth: 420,
         marginInline: "auto",
@@ -146,6 +155,7 @@ function Toast({ children }: { children: React.ReactNode }) {
         padding: "12px 14px",
       }}
     >
+      <style>{TOAST_CSS}</style>
       {children}
     </div>
   );

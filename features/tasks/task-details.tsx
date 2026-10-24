@@ -167,7 +167,8 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
   const t = row.task;
   const today = todayKey();
   const series = t.seriesId ? agenda.series.find((x) => x.id === t.seriesId) ?? null : null;
-  const [mode, setMode] = useState<"idle" | "date" | "edit" | "cancel" | "end">("idle");
+  const [mode, setMode] = useState<"idle" | "date" | "remind" | "cancel" | "end">("idle");
+  const [editing, setEditing] = useState<null | "title" | "note">(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
 
   useEffect(() => {
@@ -187,6 +188,19 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
     ? t.link.label ?? (t.link.kind === "customer" ? tr("tasks.common.customer") : t.link.kind === "supplier" ? tr("tasks.common.supplier") : tr("tasks.details.own.link"))
     : null;
 
+  /** Title / note: this occurrence only (editTask) or the whole series and its open occurrence (changeSeries). */
+  const saveText = (field: "title" | "note", value: string | null, scope: "once" | "series") =>
+    act(
+      () =>
+        scope === "series" && series
+          ? changeSeries(series.id, { expectedVersion: series.version, [field]: value })
+          : editTask(t.id, { ...v, [field]: value }),
+      scope === "series" && series ? tr("tasks.details.own.seriesUpdated") : tr("tasks.common.saved"),
+    ).then((ok) => {
+      if (ok) setEditing(null);
+      return ok;
+    });
+
   return (
     <>
       <div className={s.detH}>
@@ -196,11 +210,45 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
           aria-label={tr("tasks.common.markDoneAria", { title: t.title })}
           onClick={() => void closeAnd(() => taskAction(t.id, "complete", v), tr("tasks.common.markedDone"))}
         />
-        <div>
-          <h2>{t.title}</h2>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          {editing === "title" ? (
+            <InlineEdit
+              label="כותרת המשימה"
+              value={t.title}
+              required
+              maxLength={200}
+              seriesChoice={!!series}
+              onCancel={() => setEditing(null)}
+              onSave={(value, scope) => saveText("title", value, scope)}
+            />
+          ) : (
+            <h2>
+              <button type="button" className={s.editable} title="לחיצה לעריכה" aria-label={`עריכת הכותרת: ${t.title}`} onClick={() => setEditing("title")}>
+                {t.title}
+              </button>
+            </h2>
+          )}
           <p className={s.hint}>{t.seriesId ? tr("tasks.details.own.hintSeries") : tr("tasks.details.own.hintTask")}</p>
         </div>
       </div>
+
+      {editing === "note" ? (
+        <InlineEdit
+          label="פירוט"
+          value={t.note ?? ""}
+          multiline
+          maxLength={2000}
+          seriesChoice={!!series}
+          onCancel={() => setEditing(null)}
+          onSave={(value, scope) => saveText("note", value || null, scope)}
+        />
+      ) : t.note ? (
+        <button type="button" className={`${s.editable} ${s.noteText}`} title="לחיצה לעריכה" aria-label="עריכת הפירוט" onClick={() => setEditing("note")}>
+          {t.note}
+        </button>
+      ) : (
+        <button type="button" className={`${s.btn} ${s.ghost} ${s.addNote}`} onClick={() => setEditing("note")}>+ הוספת פירוט</button>
+      )}
 
       <dl className={s.kv}>
         <dt>{tr("tasks.common.due")}</dt>
@@ -219,36 +267,44 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
         ) : null}
         {t.pinned ? (<><dt>{tr("tasks.common.marking")}</dt><dd>{tr("tasks.common.important")}</dd></>) : null}
         {t.cadence ? (<><dt>{tr("tasks.details.own.repeat")}</dt><dd>{series?.paused ? tr("tasks.details.own.cadencePaused", { cadence: t.cadence }) : t.cadence}</dd></>) : null}
-        {t.note ? (<><dt>{tr("tasks.details.own.note")}</dt><dd>{t.note}</dd></>) : null}
         {t.link ? (<><dt>{tr("tasks.details.own.relatedTo")}</dt><dd>{linkLabel}</dd></>) : null}
       </dl>
 
-      {mode === "idle" ? (
-        <>
-          <div className={s.actions}>
+      {mode === "idle" || mode === "remind" ? (
+        <div className={s.actGroup}>
+          {/* 1 — the main decision */}
+          <div className={s.actMain}>
             <button type="button" className={`${s.btn} ${s.pri}`} onClick={() => void closeAnd(() => taskAction(t.id, "complete", v), tr("tasks.common.markedDone"))}>{tr("tasks.common.finished")}</button>
-            <button type="button" className={s.btn} onClick={() => void act(() => taskAction(t.id, "snooze", { ...v, dueOn: addDays(today, 1) }), tr("tasks.common.snoozedTomorrow"))}>{tr("tasks.common.snoozeTomorrow")}</button>
             <button type="button" className={s.btn} onClick={() => setMode("date")}>{tr("tasks.details.own.changeDate")}</button>
-            {t.seriesId ? (
-              <button type="button" className={s.btn} onClick={() => void closeAnd(() => taskAction(t.id, "skip", v), tr("tasks.details.own.skippedOnce"))}>{tr("tasks.details.own.skipOnce")}</button>
-            ) : null}
+            <button type="button" className={s.btn} onClick={() => void act(() => taskAction(t.id, "snooze", { ...v, dueOn: addDays(today, 1) }), tr("tasks.common.snoozedTomorrow"))}>{tr("tasks.common.snoozeTomorrow")}</button>
           </div>
-          {t.remindAt ? (
-            <div className={s.actions} aria-label="דחיית התזכורת">
-              {snoozePresets(new Date()).map((sp) => (
-                <button
-                  key={sp.key}
-                  type="button"
-                  className={`${s.btn} ${s.ghost}`}
-                  onClick={() => void act(() => taskAction(t.id, "snooze-reminder", { ...v, until: sp.at.toISOString() }), `התזכורת נדחתה — ${remindMomentLabel(sp.at, new Date())}`)}
-                >
-                  תזכיר {sp.label}
-                </button>
-              ))}
-            </div>
+          {/* 2 — the reminder, folded into one choice */}
+          {t.remindAt && !t.reminderSent ? (
+            mode === "remind" ? (
+              <div className={s.actions} role="group" aria-label="דחיית התזכורת">
+                {snoozePresets(new Date()).map((sp) => (
+                  <button
+                    key={sp.key}
+                    type="button"
+                    className={s.chip}
+                    onClick={() => void act(() => taskAction(t.id, "snooze-reminder", { ...v, until: sp.at.toISOString() }), `התזכורת נדחתה — ${remindMomentLabel(sp.at, new Date())}`).then(() => setMode("idle"))}
+                  >
+                    {sp.label}
+                  </button>
+                ))}
+                <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("idle")}>{tr("tasks.common.cancel")}</button>
+              </div>
+            ) : (
+              <div className={s.actMore}>
+                <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("remind")}>דחיית התזכורת…</button>
+              </div>
+            )
           ) : null}
-          <div className={s.actions}>
-            <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => setMode("edit")}>{t.seriesId ? tr("tasks.details.own.editSeries") : tr("tasks.details.own.edit")}</button>
+          {/* 3 — the rest, quieter */}
+          <div className={s.actMore}>
+            {t.seriesId ? (
+              <button type="button" className={`${s.btn} ${s.ghost}`} onClick={() => void closeAnd(() => taskAction(t.id, "skip", v), tr("tasks.details.own.skippedOnce"))}>{tr("tasks.details.own.skipOnce")}</button>
+            ) : null}
             <button
               type="button"
               className={`${s.btn} ${s.ghost}`}
@@ -266,17 +322,19 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
                 {series.paused ? tr("tasks.details.own.resumeSeries") : tr("tasks.details.own.pauseSeries")}
               </button>
             ) : null}
+          </div>
+          {/* 4 — destructive, alone */}
+          <div className={s.actEnd}>
             {series ? (
               <button type="button" className={`${s.btn} ${s.ghost} ${s.danger}`} onClick={() => setMode("end")}>{tr("tasks.details.own.endSeries")}</button>
             ) : (
               <button type="button" className={`${s.btn} ${s.ghost} ${s.danger}`} onClick={() => setMode("cancel")}>{tr("tasks.details.own.cancelTask")}</button>
             )}
           </div>
-        </>
+        </div>
       ) : null}
 
       {mode === "date" ? (
-
         <ScheduleForm
           day={t.dueOn ?? today}
           minute={t.dueMinute ?? null}
@@ -286,20 +344,6 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
             act(
               () => taskAction(t.id, "reschedule", { ...v, dueOn: day, dueMinute: minute, remindOffsetMinutes: offset }),
               `המועד שונה ל־${short(day)}${minute != null ? ` ${clockLabel(minute)}` : ""}`,
-            ).then(() => setMode("idle"))
-          }
-        />
-      ) : null}
-
-      {mode === "edit" ? (
-        <EditForm
-          title={t.title}
-          note={t.note}
-          onCancel={() => setMode("idle")}
-          onSave={(title, note) =>
-            act(
-              () => (series ? changeSeries(series.id, { expectedVersion: series.version, title, note }) : editTask(t.id, { ...v, title, note })),
-              series ? tr("tasks.details.own.seriesUpdated") : tr("tasks.common.saved"),
             ).then(() => setMode("idle"))
           }
         />
@@ -339,6 +383,73 @@ function OwnTask({ row, agenda, act, onClosed }: { row: Extract<AgendaRow, { typ
         </ul>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Edit the title or the note in place: save / cancel (Escape cancels). In a series the owner says whether the change
+ * is for this occurrence only or for the series (its open occurrence and every next one).
+ */
+function InlineEdit({
+  label,
+  value,
+  multiline = false,
+  required = false,
+  maxLength,
+  seriesChoice,
+  onSave,
+  onCancel,
+}: {
+  label: string;
+  value: string;
+  multiline?: boolean;
+  required?: boolean;
+  maxLength: number;
+  seriesChoice: boolean;
+  onSave: (value: string, scope: "once" | "series") => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [val, setVal] = useState(value);
+  const [scope, setScope] = useState<"once" | "series">("series");
+  const [busy, setBusy] = useState(false);
+  const clean = val.trim();
+  const blocked = busy || (required && !clean) || clean === value.trim();
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+  return (
+    <form
+      className={s.form}
+      style={{ gap: 8 }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (blocked) return;
+        setBusy(true);
+        await onSave(clean, scope);
+        setBusy(false);
+      }}
+    >
+      <label className={s.sr} htmlFor="inline-edit">{label}</label>
+      {multiline ? (
+        <textarea id="inline-edit" className={s.input} rows={3} value={val} maxLength={maxLength} autoFocus onKeyDown={onKeyDown} onChange={(e) => setVal(e.target.value)} placeholder="מה חשוב לזכור?" />
+      ) : (
+        <input id="inline-edit" className={s.input} value={val} maxLength={maxLength} required={required} autoFocus onKeyDown={onKeyDown} onChange={(e) => setVal(e.target.value)} />
+      )}
+      {seriesChoice ? (
+        <div className={s.scope} role="radiogroup" aria-label="על מה חל השינוי">
+          <button type="button" role="radio" aria-checked={scope === "once"} className={`${s.chip} ${scope === "once" ? s.chipOn : ""}`} onClick={() => setScope("once")}>רק המשימה הזו</button>
+          <button type="button" role="radio" aria-checked={scope === "series"} className={`${s.chip} ${scope === "series" ? s.chipOn : ""}`} onClick={() => setScope("series")}>כל הסדרה</button>
+        </div>
+      ) : null}
+      <div className={s.actions}>
+        <button type="submit" className={`${s.btn} ${s.pri}`} disabled={blocked}>{t("tasks.common.save")}</button>
+        <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel}>{t("tasks.common.cancel")}</button>
+      </div>
+    </form>
   );
 }
 
@@ -397,38 +508,6 @@ function ScheduleForm({
       <div className={s.actions}>
         <button type="submit" className={`${s.btn} ${s.pri}`} disabled={busy || !dv}>שמירה</button>
         <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel}>ביטול</button>
-      </div>
-    </form>
-  );
-}
-
-function EditForm({ title, note, onSave, onCancel }: { title: string; note: string | null; onSave: (title: string, note: string | null) => Promise<unknown>; onCancel: () => void }) {
-  const { t } = useI18n();
-  const [tv, setT] = useState(title);
-  const [nv, setN] = useState(note ?? "");
-  const [busy, setBusy] = useState(false);
-  return (
-    <form
-      className={s.form}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!tv.trim()) return;
-        setBusy(true);
-        await onSave(tv.trim(), nv.trim() ? nv.trim() : null);
-        setBusy(false);
-      }}
-    >
-      <div className={s.field}>
-        <label htmlFor="edit-title">{t("tasks.details.edit.title")}</label>
-        <input id="edit-title" className={s.input} value={tv} maxLength={200} onChange={(e) => setT(e.target.value)} required />
-      </div>
-      <div className={s.field}>
-        <label htmlFor="edit-note">{t("tasks.details.edit.note")}</label>
-        <textarea id="edit-note" className={s.input} rows={3} value={nv} maxLength={2000} onChange={(e) => setN(e.target.value)} />
-      </div>
-      <div className={s.actions}>
-        <button type="submit" className={`${s.btn} ${s.pri}`} disabled={busy || !tv.trim()}>{t("tasks.common.save")}</button>
-        <button type="button" className={`${s.btn} ${s.ghost}`} onClick={onCancel}>{t("tasks.common.cancel")}</button>
       </div>
     </form>
   );

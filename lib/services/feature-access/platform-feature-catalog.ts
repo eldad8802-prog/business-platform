@@ -223,14 +223,15 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
-    // Daily Tasks — the task centre and the agenda shared with the secretary. OFF by default (migration
-    // 20261018090000): the first routes ship in milestone B, each checking this flag first (404 when off).
+    // Daily Tasks — personal tasks with time, reminder and Web Push. ON for every business, existing and new (owner
+    // decision 2026-10-24); the global policy row is switched on by its own release migration. Every route still
+    // checks this flag first (404 when off), so a business override or the emergency switch can close it.
     {
       key: PLATFORM_FEATURE_KEYS.DAILY_TASKS,
       displayName: "היום שלי — משימות",
       category: "tasks",
-      description: "מרכז המשימות היומי וסדר היום המשותף עם המזכירה — כבוי כברירת מחדל",
-      defaultEnabled: false,
+      description: "משימות אישיות עם מועד, תזכורת והתראה לטלפון — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
   ];
