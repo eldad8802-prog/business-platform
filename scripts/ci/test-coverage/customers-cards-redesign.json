@@ -1,0 +1,10 @@
+{
+  "note": "Customers list cards + single-scroll customer file (redesign, owner-approved mockups 25.10.2026): the pure contact-link helpers.",
+  "tests": {
+    "components/customers/customer-contact.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network/clock): tel:/wa.me/mailto: links are built only from trustworthy stored values (null → the action is shown unavailable), WhatsApp opens the chat with no pre-written text, and initials for the avatar; not yet wired into CI (product-test debt, not a security control)",
+      "notSecurityBecause": "presentation-only links over contact fields the authenticated customers API already returned; no auth, tenant, money calculation or write path is involved"
+    }
+  }
+}
