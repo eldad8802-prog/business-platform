@@ -88,11 +88,12 @@ fi
 # The module touches PlatformAdminPasskey and nothing else.
 #
 # lib/auth/oauth-ticket.ts is the "Continue with Google" half of the same plane
-# (migration 20261030090000_oauth_identity_foundation). It reaches OAuthSignupTicket
-# and UserIdentity ONLY through six SECURITY DEFINER functions (app_auth holds no
-# privilege on either table): it issues, reads and spends single-use signup tickets,
-# attaches a Google subject to the account the signup transaction just created, and
-# resolves a linked subject. It reads no other table and never touches a password.
+# (migrations 20261030090000_oauth_identity_foundation and 20261101090000_oauth_ticket_cancel).
+# It reaches OAuthSignupTicket and UserIdentity ONLY through seven SECURITY DEFINER
+# functions (app_auth holds no privilege on either table): it issues, reads, spends and
+# cancels single-use signup tickets, attaches a Google subject to the account the signup
+# transaction just created, and resolves a linked subject. It reads no other table and
+# never touches a password.
 #
 # lib/auth/google-sign-in.ts is the callback's decision on the same plane: it looks an
 # address up the way login does (to STOP when an unlinked account holds it), reads the
