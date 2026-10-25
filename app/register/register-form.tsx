@@ -7,6 +7,7 @@ import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibilit
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
+import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
 
 import styles from "./register.module.css";
 
@@ -22,7 +23,13 @@ type RegisterErrors = {
   form?: string;
 };
 
-export default function RegisterForm() {
+export default function RegisterForm({
+  googleEnabled = false,
+  googleNotice = null,
+}: {
+  googleEnabled?: boolean;
+  googleNotice?: string | null;
+} = {}) {
   const router = useRouter();
   const { t } = useI18n();
 
@@ -334,6 +341,9 @@ export default function RegisterForm() {
               </Link>
             </p>
           </div>
+
+          <GoogleNotice notice={googleNotice} />
+          <GoogleSignInButton enabled={googleEnabled} from="register" />
 
           <div className={styles.grid}>
             <div className={styles.field}>

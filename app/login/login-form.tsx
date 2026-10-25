@@ -6,6 +6,7 @@ import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -35,10 +36,14 @@ export default function LoginForm({
   signupEnabled,
   passwordResetEnabled = false,
   notice = null,
+  googleEnabled = false,
+  googleNotice = null,
 }: {
   signupEnabled: boolean;
   passwordResetEnabled?: boolean;
   notice?: "reset-done" | null;
+  googleEnabled?: boolean;
+  googleNotice?: string | null;
 }) {
   const router = useRouter();
   const { t } = useI18n();
@@ -509,6 +514,9 @@ export default function LoginForm({
         </div>
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
+          <GoogleNotice notice={googleNotice} />
+          <GoogleSignInButton enabled={googleEnabled} from="login" />
+
           <div style={fieldWrapStyle}>
             <label style={labelStyle} htmlFor="login-email">{t("account.auth.login.emailLabel")}</label>
             <div style={inputShellStyle}>

@@ -93,6 +93,12 @@ fi
 # privilege on either table): it issues, reads and spends single-use signup tickets,
 # attaches a Google subject to the account the signup transaction just created, and
 # resolves a linked subject. It reads no other table and never touches a password.
+#
+# lib/auth/google-sign-in.ts is the callback's decision on the same plane: it looks an
+# address up the way login does (to STOP when an unlinked account holds it), reads the
+# linked account's role and business lifecycle (the Google sign-in policy), and writes
+# exactly what password login writes for a session — the AuthSession row and the
+# lastLoginAt / loginCount stamp, with an explicit select. Never a password.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -106,6 +112,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
     | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
     | grep -vE "(^|/)lib/auth/oauth-ticket\\.ts:" \
+    | grep -vE "(^|/)lib/auth/google-sign-in\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

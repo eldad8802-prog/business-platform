@@ -43,6 +43,7 @@ import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 import type { Locale } from "@/lib/i18n/config";
 import { issueAccountLink } from "@/lib/auth/email-tokens";
+import { attachGoogleIdentity, spendSignupTicket } from "@/lib/auth/oauth-ticket";
 
 import {
   EmailAlreadyRegisteredError,
@@ -212,6 +213,103 @@ export async function createAccount(
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
+      throw new EmailAlreadyRegisteredError();
+    }
+    throw error;
+  }
+}
+
+export type CreateGoogleAccountInput = {
+  /** The single-use ticket's secret, from the visitor's httpOnly cookie (unchecked here: the database decides). */
+  ticketSecret: unknown;
+  name: string;
+  businessName: string;
+  now: Date;
+  userAgent?: string | null;
+  attribution?: SignupAttribution | null;
+  locale?: Locale;
+  /**
+   * Lab only (.agl/app-battery-m2.ts): runs inside the transaction after every write, so a fault there proves
+   * the whole account rolls back. Production never passes it.
+   */
+  beforeCommit?: () => Promise<void>;
+};
+
+export type CreatedGoogleAccount = Omit<CreatedAccount, "verificationEmailId"> & { identityId: number };
+
+/**
+ * "Continue with Google": the account a person opens by COMPLETING signup after Google — one transaction:
+ *
+ *   spend the ticket → Business → User (no password; consent recorded) → link the Google subject
+ *   → the first session → the WELCOME this account is owed
+ *
+ * The ticket is spent FIRST: an unknown, spent, superseded or expired ticket aborts before a Business or a
+ * User exists (SignupTicketRefusedError). A second spend — sequential or concurrent — gets nothing, and any
+ * failure after the spend rolls the spend back with everything else, so a ticket opens at most one account
+ * and a failed attempt leaves no trace. The address is the ticket's (provider-verified, never typed here), so
+ * the identity link stamps emailVerifiedAt and no verification email is owed: the WELCOME is recorded at once.
+ * P2002 = the address belongs to an account that already exists (it registered meanwhile): nothing is written.
+ */
+export async function createAccountFromGoogle(input: CreateGoogleAccountInput): Promise<CreatedGoogleAccount> {
+  if (!isAuthPlaneActive()) {
+    // The ticket and identity functions are the auth plane's alone.
+    throw new Error("google_signup_requires_auth_plane");
+  }
+  try {
+    return await authDb().$transaction(async (tx) => {
+      const spent = await spendSignupTicket(tx, input.ticketSecret);
+
+      const business = await tx.business.create({
+        data: { name: input.businessName },
+        select: { id: true, name: true },
+      });
+
+      const user = await tx.user.create({
+        data: {
+          email: spent.email,
+          name: input.name,
+          businessId: business.id,
+          termsAcceptedAt: input.now,
+          termsVersion: CURRENT_TERMS_VERSION,
+          ...(input.attribution ? { signupAttribution: input.attribution } : {}),
+        },
+        select: { id: true, email: true, tokenVersion: true },
+      });
+
+      const identity = await attachGoogleIdentity(tx, spent.ticketId, user.id);
+
+      const session = await issueRefreshSession(tx, {
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        now: input.now,
+        userAgent: input.userAgent ?? null,
+      });
+
+      const welcomeEmailId = await enqueueWelcomeEmail(tx, {
+        userId: user.id,
+        businessId: business.id,
+        toEmail: user.email,
+        name: input.name,
+        now: input.now,
+        locale: input.locale,
+      });
+
+      if (input.beforeCommit) await input.beforeCommit();
+
+      return {
+        userId: user.id,
+        businessId: business.id,
+        email: user.email,
+        name: input.name,
+        businessName: business.name,
+        tokenVersion: user.tokenVersion,
+        session,
+        welcomeEmailId,
+        identityId: identity.identityId,
+      };
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new EmailAlreadyRegisteredError();
     }
     throw error;

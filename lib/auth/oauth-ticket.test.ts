@@ -47,7 +47,7 @@ ok("a minted secret is a ticket secret", isTicketSecret(minted[0].secret));
 const ROOT = process.cwd();
 const src = fs.readFileSync(path.join(ROOT, "lib/auth/oauth-ticket.ts"), "utf8");
 const called = [...src.matchAll(/public\.(auth_[a-z_]+)\(/g)].map((m) => m[1]);
-ok("the module calls exactly the six definer functions",
+ok("the module calls exactly the six definer functions (purge through its sweep entry too)",
   [...new Set(called)].sort().join(",") === [
     "auth_oauth_identity_attach", "auth_oauth_identity_resolve", "auth_oauth_ticket_consume",
     "auth_oauth_ticket_issue", "auth_oauth_ticket_purge", "auth_oauth_ticket_read",
@@ -74,8 +74,19 @@ const importers = [...walk(path.join(ROOT, "app")), ...walk(path.join(ROOT, "lib
   .filter((f) => !/\.test\.ts$/.test(f))
   .filter((f) => /from ["']@\/lib\/auth\/(oauth-ticket|google-id-token|google-sign-in-policy)["']|from ["']\.\/(oauth-ticket|google-id-token|google-sign-in-policy)["']/.test(fs.readFileSync(f, "utf8")))
   .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"));
-ok("milestone 1: no route or page imports the Google modules (nothing is reachable)",
-  importers.every((f) => f.startsWith("lib/auth/")) && !importers.some((f) => f.startsWith("app/")), importers.join(", "));
+// Milestone 2: the Google modules are reachable through exactly these files — the four Google routes, the
+// account transaction, the callback decision and the scheduled sweep. Anything else importing them fails.
+const ALLOWED_IMPORTERS = new Set([
+  "app/api/auth/google/callback/route.ts",
+  "app/api/auth/google/complete/route.ts",
+  "app/api/auth/google/ticket/route.ts",
+  "app/api/transactional-email/sweep/route.ts",
+  "lib/auth/google-sign-in.ts",
+  "lib/auth/oauth-ticket.ts", // the GoogleIdentity type
+  "lib/auth/signup.ts",
+]);
+ok("the Google modules are imported only by the Google routes, the account transaction, the decision and the sweep",
+  importers.every((f) => ALLOWED_IMPORTERS.has(f)), importers.filter((f) => !ALLOWED_IMPORTERS.has(f)).join(", "));
 
 // ── the Google sign-in policy ─────────────────────────────────────────────────
 const alive = { deletionRequestedAt: null, deletedAt: null };

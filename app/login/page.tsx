@@ -1,5 +1,7 @@
 import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
 import { isPasswordResetEnabled } from "@/lib/auth/account-recovery-config";
+import { googleNoticeFor } from "@/lib/auth/google-notices";
+import { isGoogleLoginEnabled } from "@/lib/auth/google-oauth";
 import LoginForm from "./login-form";
 
 /**
@@ -14,18 +16,24 @@ export const dynamic = "force-dynamic";
  * The same server-side resolution for "forgot password": the link is rendered only when the reset flow
  * can actually deliver its email (AUTH_PASSWORD_RESET_ENABLED + a ready mail path). `?reset=done` is
  * where the reset page sends the owner afterwards — a notice, nothing more.
+ *
+ * And for "Continue with Google": the button is rendered only when AUTH_GOOGLE_LOGIN_ENABLED and a complete
+ * client config are present (the routes answer 404 otherwise). `?google=<reason>` is where a Google round
+ * trip that did not sign anyone in comes back to — a known reason or nothing.
  */
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const { reset } = await searchParams;
+  const { reset, google } = await searchParams;
   return (
     <LoginForm
       signupEnabled={isPublicSignupEnabled()}
       passwordResetEnabled={isPasswordResetEnabled()}
       notice={reset === "done" ? "reset-done" : null}
+      googleEnabled={isGoogleLoginEnabled()}
+      googleNotice={googleNoticeFor(google)}
     />
   );
 }

@@ -24,12 +24,19 @@ AGL="20261030090000_oauth_identity_foundation"
 bash "$ROOT/.aet/lab.sh" "$DB" --with-aet >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
-# The TE lab creates app_auth after the AuthSession privilege migrations ran (they are role-guarded and
-# idempotent), so they are replayed here — exactly Production's grants: a Google signup opens its first
-# session as the auth plane, as every signup does.
-for m in 20260908200000_auth_session_privilege_contract 20260913120000_authsession_user_agent; do
+# The TE lab creates app_auth after these privilege migrations ran (each is role-guarded and idempotent), so
+# they are replayed here — exactly Production's grants: a Google signup writes Business and User through the
+# generated client (whose INSERT names createdAt / role / loginCount / tokenVersion — sec_c) and opens its
+# first session as the auth plane, as every signup does.
+for m in 20260926110300_sec_c_explicit_identity_grants 20260908200000_auth_session_privilege_contract 20260913120000_authsession_user_agent; do
   psql_owner -f "$ROOT/prisma/migrations/$m/migration.sql"
 done
+# The same for signup consent (20261011090100, applied in Production; evidence run 37401068574 check 7):
+# `db push` built its three columns without the migration's grant, so they are removed and the migration
+# itself runs — the columns and app_auth's INSERT on them exactly as Production has them, so a signup here
+# records consent with the real privileges.
+psql_owner -c 'ALTER TABLE "User" DROP COLUMN IF EXISTS "termsAcceptedAt", DROP COLUMN IF EXISTS "termsVersion", DROP COLUMN IF EXISTS "signupAttribution"'
+psql_owner -f "$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
 # If schema.prisma models the tables / the optional password (the application PR), `db push` built them
 # without the migration's policies, functions and grants: put them back the way Production has them today
 # so the migration builds them the way Production will have them.
