@@ -26,6 +26,10 @@
 process.env.AUTH_TOKEN_SECRET = "appt-lab-synthetic-auth-token-secret-0123456789";
 process.env.TASK_REQUEST_HMAC_KEY = "appt-lab-synthetic-request-hmac-key-0123456789abcdef";
 process.env.TASK_REQUEST_HMAC_KEY_ID = "lab1";
+// Sessions are resolved on the auth plane (its own connection, AUTH_DATABASE_URL), as in Production; the lab points
+// it at the owner. Every appointment read and write still runs as app_runtime_prod (DATABASE_URL).
+process.env.AUTH_PLANE_ENABLED = "true";
+process.env.AUTH_DATABASE_URL = process.env.AUTH_DATABASE_URL || process.env.OWNER_URL;
 
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
