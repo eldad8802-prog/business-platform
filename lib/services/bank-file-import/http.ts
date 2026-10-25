@@ -31,6 +31,22 @@ export async function bankFileImportEnabled(businessId: number): Promise<boolean
   }
 }
 
+/**
+ * ON / OFF / UNKNOWN (the resolution failed). The old statement upload uses it to refuse when bank file import
+ * is ON — and, fail-closed, when it cannot tell — so a business with B1 has no way to upload a statement
+ * without an account. OFF ⇒ the old upload works exactly as before.
+ */
+export async function bankFileImportState(businessId: number): Promise<"ON" | "OFF" | "UNKNOWN"> {
+  try {
+    const r = await runWithTenantContext({ businessId }, () =>
+      resolveFeatureAccess(businessId, PLATFORM_FEATURE_KEYS.BANK_FILE_IMPORT)
+    );
+    return r.allowed === true ? "ON" : "OFF";
+  } catch {
+    return "UNKNOWN";
+  }
+}
+
 export async function bankImportRoute(
   req: Request,
   handler: (actor: BankImportActor) => Promise<Response>
