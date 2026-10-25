@@ -102,6 +102,8 @@ on:
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
           - 'ops/evidence/revenue-truth-foundation-preflight.sql'
           - 'ops/evidence/revenue-truth-foundation-production-evidence.sql'
+          - 'ops/evidence/oauth-identity-preflight.sql'
+          - 'ops/evidence/oauth-identity-production-evidence.sql'
 
 permissions:
   contents: read
