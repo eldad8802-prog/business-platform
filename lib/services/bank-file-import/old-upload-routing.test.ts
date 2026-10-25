@@ -66,5 +66,31 @@ const callers = ["app", "lib", "components", "features"]
   .filter((f) => f !== "lib/services/payables/payables-observation.service.ts");
 check("the statement upload is called from exactly one place: the guarded route", callers.length === 1 && callers[0] === "app/api/payables/bank-lines/upload/route.ts", JSON.stringify(callers));
 
+const sources = ["app", "lib", "components", "features"].flatMap((d) => walk(join(ROOT, d)));
+const rel = (f: string) => f.slice(ROOT.length + 1).replace(/\\/g, "/");
+const writers = sources
+  .filter((f) => /externalTransaction\.(create|createMany|upsert)\s*\(|INSERT INTO "ExternalTransaction"/.test(code(readFileSync(f, "utf8"))))
+  .map(rel)
+  .sort();
+check(
+  "bank lines are inserted in exactly two places: the payables service and bank file import",
+  JSON.stringify(writers) === JSON.stringify(["lib/services/bank-file-import/bank-file-import.service.ts", "lib/services/payables/payables-observation.service.ts"]),
+  JSON.stringify(writers)
+);
+const ingestCallers = sources
+  .filter((f) => /\bingestObservations\s*\(/.test(code(readFileSync(f, "utf8"))))
+  .map(rel)
+  .filter((f) => f !== "lib/services/payables/payables-observation.service.ts");
+check("the payables insert (ingestObservations) is reached only from inside its own service", ingestCallers.length === 0, JSON.stringify(ingestCallers));
+const serverActions = sources
+  .filter((f) => /^\s*["']use server["']/m.test(readFileSync(f, "utf8")) && /payables-observation\.service/.test(readFileSync(f, "utf8")))
+  .map(rel);
+check("no server action reaches the payables bank-line service", serverActions.length === 0, JSON.stringify(serverActions));
+const manual = code(read("lib/services/payables/payables-observation.service.ts"));
+check(
+  "the only other ingest is the manual single line, under its own source (OWNER_ENTRY), never OWNER_UPLOAD",
+  /export async function recordObservationManually[\s\S]*?return ingestObservations\(\{[\s\S]*?source: "OWNER_ENTRY"/.test(manual)
+);
+
 console.log(`\n${total - failures}/${total} passed`);
 if (failures) process.exit(1);

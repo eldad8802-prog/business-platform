@@ -118,6 +118,8 @@ async function main() {
   // ── I. The flag ────────────────────────────────────────────────────────────────────────────────
   console.log("I. the flag");
   ok("no feature row: OFF for every business", !(await bankFileImportEnabled(bizA)) && !(await bankFileImportEnabled(bizB)));
+  ok("no feature row (code merged, migration not yet applied): the old upload's state is OFF, not UNKNOWN — it keeps working",
+    (await bankFileImportState(bizA)) === "OFF" && (await bankFileImportState(bizB)) === "OFF");
   await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeatureDefinition" ("key", "displayName", "category", "description", "defaultEnabled", "mutable", "createdAt")
     VALUES ('bank_file_import', 'קליטת קובצי בנק', 'integrations', 'lab', false, true, now()) ON CONFLICT ("key") DO NOTHING`);
   await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeaturePolicy" ("featureKey", "globalEnabled", "emergencyDisabled", "updatedAt")
