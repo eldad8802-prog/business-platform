@@ -26,6 +26,7 @@ import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { APPOINTMENT_STATUS_LABEL } from "./appointment-status-labels";
@@ -327,6 +328,8 @@ function CustomerCardView({
   const { t, locale } = useI18n();
   const { customer } = card;
   const lastActivity = formatDate(card.activity.lastActivityAt, locale);
+  // Appointments milestone B: "קבע תור" opens the calendar's create form with this customer — only with appointments ON.
+  const appointmentsOn = useFeatureEnabled("appointments");
 
   const identityFields: Array<{ label: string; value: string | null }> = [
     { label: t("customers.customer.card.fields.phone"), value: customer.phone ? formatPhoneForDisplay(customer.phone) : null },
@@ -345,6 +348,11 @@ function CustomerCardView({
             <bdi>{customer.name}</bdi>
           </h1>
           <div className="crm-id__actions">
+            {appointmentsOn && customer.isActive ? (
+              <Link className="crm-btn crm-btn--ghost" href={`/calendar?new=1&customerId=${customer.id}`} prefetch={false}>
+                {t("customers.customer.card.bookAppointment")}
+              </Link>
+            ) : null}
             <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
               {t("customers.customer.card.edit")}
             </button>

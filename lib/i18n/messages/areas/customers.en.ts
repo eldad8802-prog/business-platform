@@ -74,6 +74,7 @@ export const customersEn: Widen<typeof customersHe> = {
       notFoundBody: "The customer may have been deleted, or you may not have access to it.",
       backToList: "Back to customers",
       edit: "Edit",
+      bookAppointment: "Book an appointment",
       deactivate: "Deactivate customer",
       updating: "Updating…",
       reactivate: "Reactivate",
