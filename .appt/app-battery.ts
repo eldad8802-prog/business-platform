@@ -20,6 +20,8 @@
  *      the old reschedule and the old POST route — unchanged, now journalled; a timed row refused by the old reschedule.
  *   J. Learning: the appointment evidence loader reads customer appointments only.
  *   K. Decision 6: a CUSTOMER or SYSTEM action carries no user anywhere; an OWNER action always does.
+ *   L. A failed journal write (lab fault trigger) undoes the whole change on the paths that predate milestone A:
+ *      500, the appointment untouched, no event, no sensor, no half conversion; without the fault the same call works.
  *
  * env: OWNER_URL, DATABASE_URL (runtime). Everything else is set below. Synthetic only.
  */
@@ -333,6 +335,49 @@ async function main() {
   const noOwner = await legacy.create({ businessId: bizA, actor: { actor: "OWNER", userId: null, sourceChannel: "INBOX_WEB" } });
   ok("K3 an OWNER action without a user is refused", !noOwner.ok);
   ok("K4 no owner-API appointment lacks its creator", (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA} AND "createdByActor" = 'OWNER' AND "createdByUserId" IS NULL`)) === 0);
+
+  // ── L. A failed journal write undoes the whole change (the paths that predate milestone A) ─────────
+  // Fault injection in the LAB only: an owner-installed trigger makes every journal INSERT of business A raise. The
+  // application code is untouched; the routes are the real ones. Then the fault is removed and the same call succeeds.
+  console.log("L. journal failure is atomic");
+  const victim = await legacy.create({ businessId: bizA, actor: ownerCtx, details: { title: "לפני תקלה" } });
+  const conv2 = await owner.conversation.create({ data: { businessId: bizA, channel: "WHATSAPP", customerId: custA } });
+  const msg2 = await owner.message.create({ data: { businessId: bizA, conversationId: conv2.id, channel: "WHATSAPP", direction: "INBOUND", senderType: "CUSTOMER" } });
+  await owner.conversation.update({ where: { id: conv2.id }, data: { pendingAppointmentRequest: { createdAt: new Date().toISOString(), createdByOwnerId: userA, originMessageId: msg2.id, customerHint: "מחר בבוקר" } } });
+  const convRoute = await import("@/app/api/conversations/[id]/appointment/route");
+  const snap = async (id: number) => JSON.stringify(await owner.appointment.findUnique({ where: { id }, select: { status: true, version: true, notes: true, cancelReason: true, updatedAt: true } }));
+  const events = () => n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "businessId" = ${bizA}`);
+  const sensors = () => n(`SELECT count(*)::int AS n FROM "LearningEvent" WHERE "businessId" = ${bizA}`);
+  const apptCount = () => n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
+  const demand = () => n(`SELECT count(*)::int AS n FROM "OfferingDemandSignal" WHERE "businessId" = ${bizA}`);
+  const pending = () => n(`SELECT count(*)::int AS n FROM "Conversation" WHERE id = ${conv2.id} AND "pendingAppointmentRequest" IS NOT NULL`);
+  const vid = victim.ok ? victim.appointment.id : 0;
+  await owner.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION public.appt_lab_journal_fault() RETURNS trigger LANGUAGE plpgsql AS $f$
+    BEGIN IF NEW."businessId" = ${bizA} THEN RAISE EXCEPTION 'lab fault: journal write refused' USING ERRCODE = 'P0001'; END IF; RETURN NEW; END $f$`);
+  await owner.$executeRawUnsafe(`CREATE TRIGGER "appt_lab_journal_fault" BEFORE INSERT ON "AppointmentEvent" FOR EACH ROW EXECUTE FUNCTION public.appt_lab_journal_fault()`);
+  try {
+    const before = await snap(vid), ev0 = await events(), se0 = await sensors();
+    r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(vid) }));
+    ok("L1 journal fails on the old POST confirm → 500, not a success", r.status === 500, String(r.status));
+    ok("L2 …the appointment is exactly as before: status, version, notes, cancel reason, updatedAt", (await snap(vid)) === before, `${before} → ${await snap(vid)}`);
+    ok("L3 …no journal event and no learning sensor was written", (await events()) === ev0 && (await sensors()) === se0);
+    r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "cancel", reason: "ביטול בזמן תקלה" } }), p({ id: String(vid) }));
+    ok("L4 journal fails on the old POST cancel → 500; the row is untouched (no status, no reason in notes, no closed reason)", r.status === 500 && (await snap(vid)) === before, String(r.status));
+    const ap0 = await apptCount(), ds0 = await demand();
+    r = await convRoute.POST(req(`/api/conversations/${conv2.id}/appointment`, { method: "POST", body: { businessServiceId: svcA } }), p({ id: String(conv2.id) }));
+    ok("L5 journal fails on the conversion of a pending request → 500", r.status === 500, String(r.status));
+    ok("L6 …no appointment, no demand signal, no event, no sensor; the pending request is still there",
+      (await apptCount()) === ap0 && (await demand()) === ds0 && (await events()) === ev0 && (await sensors()) === se0 && (await pending()) === 1);
+  } finally {
+    await owner.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "appt_lab_journal_fault" ON "AppointmentEvent"`);
+    await owner.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.appt_lab_journal_fault()`);
+  }
+  const ev1 = await events();
+  r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(vid) }));
+  const healed = await owner.appointment.findUnique({ where: { id: vid }, select: { status: true, version: true } });
+  ok("L7 fault removed: the same confirm succeeds — CONFIRMED, version 2, exactly one new event", r.status === 200 && healed?.status === "CONFIRMED" && healed.version === 2 && (await events()) === ev1 + 1, JSON.stringify(healed));
+  r = await convRoute.POST(req(`/api/conversations/${conv2.id}/appointment`, { method: "POST", body: { businessServiceId: svcA } }), p({ id: String(conv2.id) }));
+  ok("L8 fault removed: the same conversion succeeds and clears the pending request", r.status === 200 && (await pending()) === 0, String(r.status));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exitCode = 1; }
