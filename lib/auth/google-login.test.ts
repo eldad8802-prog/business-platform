@@ -264,6 +264,38 @@ async function main() {
   ok("cancel: the rate limit → 429, nothing sent to the server, the cookie kept", limited.status === 429 && cancels.length === 0 && untouched(limited));
   const limiterDown = await handleTicketCancel(del(SECRET), cancelDeps(async () => "CANCELLED", async () => { throw new Error("limiter down"); }));
   ok("cancel: the limiter fails → 503, the cookie kept", limiterDown.status === 503 && untouched(limiterDown));
+
+  // A failure never locks the person out of the retry: one browser, one held cookie, in sequence — the limiter
+  // down, then the database refusing, then both healthy. The limiter counts what it is asked to count (the
+  // route's own key and limit) the way the real one does, and a failed limiter call records nothing.
+  const counted = new Map<string, number>();
+  let limiterHealthy = false;
+  let databaseHealthy = false;
+  const countingLimiter = async ({ key, limit }: { key: string; limit: number; windowMs: number }) => {
+    if (!limiterHealthy) throw new Error("limiter down");
+    const used = (counted.get(key) ?? 0) + 1;
+    counted.set(key, used);
+    return { allowed: used <= limit, remaining: Math.max(0, limit - used), resetAt: 0 };
+  };
+  const retryDeps = { config: () => config, rateLimit: countingLimiter,
+    cancel: async () => { if (!databaseHealthy) throw new Error("database down"); return "CANCELLED" as const; } };
+  const silenced = console.error;
+  console.error = () => {};
+  const seq: Response[] = [];
+  try {
+    seq.push(await handleTicketCancel(del(SECRET), retryDeps)); // 1: the limiter is down
+    limiterHealthy = true;
+    for (let i = 0; i < 18; i += 1) seq.push(await handleTicketCancel(del(SECRET), retryDeps)); // 2–19: the database refuses
+    databaseHealthy = true;
+    seq.push(await handleTicketCancel(del(SECRET), retryDeps)); // 20: both healthy
+  } finally {
+    console.error = silenced;
+  }
+  const last = seq[seq.length - 1];
+  ok("retry after a limiter failure, then 18 database failures: every failure → 503 with the cookie kept",
+    seq.slice(0, -1).every((r) => r.status === 503 && untouched(r)), seq.map((r) => r.status).join(","));
+  ok("…and the retry that follows → 200 cancelled (the limiter failure recorded nothing; the database failures stayed within the limit)",
+    last.status === 200 && (await last.json()).status === "cancelled" && cleared(last) && counted.get("auth:google-cancel:198.51.100.7") === 19);
   cancels = [];
   const crossSite = await handleTicketCancel(del(SECRET, "cross-site"), cancelDeps(async () => "CANCELLED"));
   ok("cancel: cross-site → 403, nothing sent to the server, the cookie kept", crossSite.status === 403 && cancels.length === 0 && untouched(crossSite));
