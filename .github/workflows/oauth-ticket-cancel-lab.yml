@@ -1,0 +1,221 @@
+# OAuth signup ticket cancel / migration 20261101090000_oauth_ticket_cancel — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17). "Continue with Google": the server-side cancel that must close before
+# the feature is enabled for anyone.
+#
+# .agl/lab.sh builds Production's topology (non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime +
+# LOGIN app_runtime_prod, NOLOGIN app_auth + LOGIN member te_auth_login, the owner's default privileges,
+# FORCE RLS) with 20261030090000_oauth_identity_foundation applied the way Production has it; --with-cancel
+# then applies this migration with `prisma migrate deploy`, the release-migrate mechanism.
+#
+#   0. Evidence files are SELECT-only and selectable; the preflight's ledger list is main's history before
+#      this migration; the proof pins migration.sql's sha256; the migration names only OAuthSignupTicket.
+#   1. Baseline (pending): PREFLIGHT passes all but 4 (the by-name ledger list is a PRODUCTION premise this
+#      lab's partial history cannot meet); the proof fails exactly its "not there yet" checks.
+#   2. `prisma migrate deploy` applies it: proof 14/14; the 20261030090000 proof is still 18/18; the
+#      preflight then fails exactly its "not there yet" checks.
+#   3. Battery (.agl/cancel-battery.ts) as the real roles: privileges, cancel then a copy of the secret,
+#      a second cancel, wrong secret / purpose, expired / superseded / completed, both race orders and a
+#      rolled-back completion, a new sign-in after a cancel, purge, constraints.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Faults: each widening of a privilege, of RLS or of the vocabulary is caught by the check meant for it.
+#   6. Rollback: refused while a cancelled ticket exists; on a database without one it reverts whole
+#      (preflight whole again), and a re-apply makes the proof whole.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: oauth ticket cancel — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261101090000_oauth_ticket_cancel/**"
+      - "prisma/migrations/20261030090000_oauth_identity_foundation/**"
+      - "ops/evidence/oauth-ticket-cancel-*.sql"
+      - "ops/evidence/oauth-identity-production-evidence.sql"
+      - ".agl/**"
+      - ".aet/lab.sh"
+      - ".github/workflows/oauth-ticket-cancel-lab.yml"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-ticket-cancel-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: oauth ticket cancel (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: agl_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: agl_ci_synthetic_super_pw
+      LAB_PASSWORD: agl_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/oauth-ticket-cancel-preflight.sql
+      EVIDENCE: ops/evidence/oauth-ticket-cancel-production-evidence.sql
+      M1_EVIDENCE: ops/evidence/oauth-identity-production-evidence.sql
+      CANCEL: prisma/migrations/20261101090000_oauth_ticket_cancel/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only; ledger list is main's history; checksum pinned; the migration names only OAuthSignupTicket
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261101090000_oauth_ticket_cancel"' | sort)
+          have=$(grep -oE "^    [(]'[0-9]{14}_[a-z0-9_]+'[)]" "$PREFLIGHT" | grep -oE "[0-9]{14}_[a-z0-9_]+" | sort)
+          test "$want" = "$have" || { echo "the preflight's ledger list is not main's history before this migration"; diff <(echo "$want") <(echo "$have") || true; exit 1; }
+          echo "the preflight names all $(echo "$want" | wc -l) migrations before this one"
+          sum=$(sha256sum "$CANCEL" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$CANCEL sha256 $sum (pinned)"
+          others=$(grep -oE '"[A-Z][A-Za-z]*"' "$CANCEL" | sort -u | grep -vxE '"OAuthSignupTicket"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          fns=$(grep -oE 'auth_[a-z_]+' "$CANCEL" | sort -u | tr '\n' ' ')
+          test "$fns" = "auth_oauth_ticket_cancel auth_oauth_ticket_consume " || { echo "the migration names other functions: $fns"; exit 1; }
+          if grep -nE 'auth_oauth_ticket_consume' <(sed 's/--.*$//' "$CANCEL"); then echo "auth_oauth_ticket_consume outside prose"; exit 1; fi
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261101090000_oauth_ticket_cancel" ]] || continue
+            if grep -nE 'auth_oauth_ticket_cancel' "$d/migration.sql"; then echo "$n names the cancel function"; exit 1; fi
+          done
+          echo "the migration names only OAuthSignupTicket and its own function; no other migration names them"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh tc_pre --with-agl
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d tc_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 " || { echo "baseline: expected only 4 (lab topology) to fail, got: $fails"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
+          got=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$got" = "1 3 5 7 8 9 10 " || { echo "baseline proof: expected '1 3 5 7 8 9 10 ', got: $got"; exit 1; }
+          echo "the proof refuses on the baseline (no function, the narrower vocabulary)"
+
+      - name: 2. prisma migrate deploy applies it — proof 14/14; the 20261030090000 proof still 18/18; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh tc_post --with-cancel | tee /tmp/post.log
+          grep -q 'Applying migration `20261101090000_oauth_ticket_cancel`' /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d tc_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "14" || { echo "expected 14 PASS"; exit 1; }
+          lab -f "$M1_EVIDENCE" | tee /tmp/m1.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/m1.out; then echo "the 20261030090000 proof FAILS after this release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/m1.out)" = "18" || { echo "expected 18 PASS on the 20261030090000 proof"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 4 5 7 8 " || { echo "after the release: expected '2 3 4 5 7 8 ', got: $fails"; exit 1; }
+
+      - name: 3. Battery — privileges, copy of the secret, double cancel, both race orders, rollback, new sign-in, purge (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/tc_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/tc_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/tc_post" \
+            npx tsx .agl/cancel-battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh tc_broken --broken-cancel
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d tc_broken -v ON_ERROR_STOP=1 "$@"; }
+          fn=$(lab -Atc "SELECT count(*) FROM pg_proc WHERE proname = 'auth_oauth_ticket_cancel'")
+          wide=$(lab -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'OAuthSignupTicket_end' AND pg_get_constraintdef(oid) LIKE '%CANCELLED%'")
+          narrow=$(lab -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'OAuthSignupTicket_end' AND pg_get_constraintdef(oid) LIKE '%SUPERSEDED%'")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261101090000_oauth_ticket_cancel' AND finished_at IS NULL")
+          m1=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261030090000_oauth_identity_foundation' AND finished_at IS NOT NULL")
+          echo "function=$fn widened=$wide original-constraint=$narrow unfinished=$led m1-finished=$m1"
+          test "$fn" = "0" && test "$wide" = "0" && test "$narrow" = "1" && test "$led" = "1" && test "$m1" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d tc_post -v ON_ERROR_STOP=1 "$@"; }
+          # The battery left cancelled tickets behind, so 14 (nothing backfilled) fails throughout; every fault
+          # adds exactly its own check.
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "14 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          F='public.auth_oauth_ticket_cancel(text, text)'
+          WIDE='CHECK (("endedAt" IS NULL) = ("endedReason" IS NULL) AND ("endedReason" IS NULL OR "endedReason" IN ('"'"'CONSUMED'"'"', '"'"'SUPERSEDED'"'"', '"'"'CANCELLED'"'"')))'
+          RESET="ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" $WIDE"
+          fault "EXECUTE for app_runtime" "9 10 14 " "GRANT EXECUTE ON FUNCTION $F TO app_runtime" "REVOKE EXECUTE ON FUNCTION $F FROM app_runtime"
+          fault "EXECUTE for PUBLIC" "9 10 14 " "GRANT EXECUTE ON FUNCTION $F TO PUBLIC" "REVOKE EXECUTE ON FUNCTION $F FROM PUBLIC"
+          fault "no EXECUTE for app_auth" "9 10 14 " "REVOKE EXECUTE ON FUNCTION $F FROM app_auth" "GRANT EXECUTE ON FUNCTION $F TO app_auth"
+          fault "SECURITY INVOKER" "8 14 " "ALTER FUNCTION $F SECURITY INVOKER" "ALTER FUNCTION $F SECURITY DEFINER"
+          fault "search_path not pinned" "8 14 " "ALTER FUNCTION $F RESET search_path" "ALTER FUNCTION $F SET search_path = pg_catalog, public"
+          fault "ticket read for app_auth" "11 14 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_auth' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_auth'
+          fault "column change for app_auth" "11 14 " 'GRANT UPDATE ("endedReason") ON "OAuthSignupTicket" TO app_auth' 'REVOKE UPDATE ("endedReason") ON "OAuthSignupTicket" FROM app_auth'
+          fault "ticket read for app_runtime" "11 14 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_runtime' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_runtime'
+          fault "a policy on tickets" "6 14 " 'CREATE POLICY tc_fault_all ON "OAuthSignupTicket" USING (true)' 'DROP POLICY tc_fault_all ON "OAuthSignupTicket"'
+          fault "NO FORCE on tickets" "6 14 " 'ALTER TABLE "OAuthSignupTicket" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "OAuthSignupTicket" FORCE ROW LEVEL SECURITY'
+          fault "a wider vocabulary" "5 14 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED', 'CANCELLED', 'REVOKED')))" "$RESET"
+          fault "the narrower vocabulary" "5 14 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED'))) NOT VALID" "$RESET"
+          fault "an earlier function for app_runtime" "12 14 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) FROM app_runtime'
+          test "$(failing)" = "14 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 6. Rollback — refused while a cancelled ticket exists; reverts whole otherwise; re-apply makes the proof whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          if lab tc_post -q -f .agl/rollback-cancel.sql 2>/tmp/rb.err; then echo "rollback ran despite cancelled tickets"; exit 1; fi
+          grep -q "oauth ticket cancel rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          test "$(lab tc_post -Atc "SELECT count(*) FROM pg_proc WHERE proname = 'auth_oauth_ticket_cancel'")" = "1" || { echo "refused rollback changed something"; exit 1; }
+          echo "rollback refused while cancelled tickets exist; nothing changed"
+          bash .agl/lab.sh tc_rb --with-cancel >/dev/null
+          lab tc_rb -q -f .agl/rollback-cancel.sql
+          fails=$(lab tc_rb -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 " || { echo "after rollback: expected only 4 (lab topology), got: $fails"; exit 1; }
+          m1=$(lab tc_rb -f "$M1_EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$m1" || { echo "after rollback the 20261030090000 proof fails: $m1"; exit 1; }
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+          cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            if [[ ! "$n" > "20261009090000_m6_acquisition_connections" || "$n" == "20261013090000_p3e_landing_persistence" || "$n" == "20261015090000_transactional_email_foundation" || "$n" == "20261017090000_auth_email_tokens" || "$n" == "20261030090000_oauth_identity_foundation" || "$n" == "20261101090000_oauth_ticket_cancel" ]]; then cp -r "$d" "$TMP/prisma/migrations/"; fi
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/tc_rb"
+          DATABASE_URL="$U" DIRECT_URL="$U" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | grep -E "Applying migration"
+          got=$(lab tc_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "rollback reverted the migration whole; re-apply made the proof whole"
