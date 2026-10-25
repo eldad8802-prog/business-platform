@@ -127,8 +127,12 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
               onClick={() => void run("download-xlsx", () => downloadPackage(token, pkg.id, "xlsx"))}>
               {busy === "download-xlsx" ? "מכין…" : "הורד דוח (Excel)"}
             </button>
+            <button type="button" style={glassActionStyle({ height: 46 })} disabled={busy !== null}
+              onClick={() => void run("download-pdf", () => downloadPackage(token, pkg.id, "pdf"))}>
+              {busy === "download-pdf" ? "מכין…" : "הורד דוח (PDF)"}
+            </button>
           </div>
-          <p style={muted}>קובץ ה־Excel הוא הדוח שבתוך החבילה עצמה, בלי שינוי.</p>
+          <p style={muted}>דוח ה־Excel הוא הקובץ שבתוך החבילה עצמה, וה־PDF מציג אותו להדפסה — בלי שינוי ובלי חישוב מחדש.</p>
           <div style={buttons}>
             <button type="button" style={glassActionStyle({ height: 46 })} disabled={busy !== null}
               onClick={() => void run("prepare", async () => onChange(await preparePeriod(token, period.periodKey)))}>
@@ -385,7 +389,7 @@ const factKey = { color: TOKEN.ink.muted, fontSize: TOKEN.font.meta, fontWeight:
 const factVal = { margin: 0, fontWeight: TOKEN.weight.bold, textAlign: "left" as const } as const;
 const buttons = { display: "flex", gap: 10, flexWrap: "wrap" as const, marginTop: 12 } as const;
 // Side by side on a desktop, one under the other (full width) on a phone.
-const downloads = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 } as const;
+const downloads = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 12 } as const;
 const field = { display: "block", marginBottom: 10 } as const;
 const input = {
   width: "100%",

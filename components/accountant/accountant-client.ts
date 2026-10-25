@@ -89,10 +89,10 @@ export async function completeManually(token: string, periodKey: string, package
   ).period;
 }
 
-export type PackageDownloadFormat = "zip" | "xlsx";
+export type PackageDownloadFormat = "zip" | "xlsx" | "pdf";
 
 /**
- * Downloads a stored package — the ZIP, or the report workbook taken out of it — as a five-minute signed
+ * Downloads a stored package — the ZIP, the report workbook taken out of it, or its PDF rendering — as a five-minute signed
  * URL (production) or the bytes (local development).
  */
 export async function downloadPackage(token: string, packageId: number, format: PackageDownloadFormat = "zip"): Promise<void> {
@@ -114,7 +114,7 @@ export async function downloadPackage(token: string, packageId: number, format: 
   const href = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = href;
-  a.download = format === "xlsx" ? `accountant-report-${packageId}.xlsx` : `accountant-package-${packageId}.zip`;
+  a.download = format === "zip" ? `accountant-package-${packageId}.zip` : `accountant-report-${packageId}.${format}`;
   a.click();
   URL.revokeObjectURL(href);
 }

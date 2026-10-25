@@ -147,8 +147,8 @@ async function main() {
   ok("5c a business without the feature → 404", r.status === 404, String(r.status));
   r = await get(pA.id, null, "xlsx");
   ok("5d no session → 401", r.status === 401, String(r.status));
-  r = await get(pA.id, A.token, "pdf");
-  ok("5e an unknown format (pdf is not part of PR-A) → 400 INVALID_FORMAT", r.status === 400 && ((await r.json()) as { error?: string }).error === "INVALID_FORMAT", String(r.status));
+  r = await get(pA.id, A.token, "docx");
+  ok("5e an unknown format → 400 INVALID_FORMAT", r.status === 400 && ((await r.json()) as { error?: string }).error === "INVALID_FORMAT", String(r.status));
   ok("5f B's own package is untouched by A's downloads (no event)", (await events(pB.id)).length === 0);
 
   // ── 6. The package never changes; nothing is sent ──────────────────────────────────────────────
