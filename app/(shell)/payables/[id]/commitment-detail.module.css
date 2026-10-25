@@ -1080,3 +1080,130 @@
     }
   }
 }
+
+/* ───────────────────────────── management action rows ───────────────────────────── */
+
+/* "שינוי סכום מתאריך" / "סיום ההתחייבות": two quiet rows, no surrounding frame.
+   Each opens its existing form directly beneath it. */
+.actionList {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid var(--pay-line-subtle);
+}
+
+.actionRow {
+  appearance: none;
+  font: inherit;
+  color: var(--pay-ink);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 4px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  text-align: start;
+  cursor: pointer;
+}
+
+.actionRow:hover {
+  background: var(--pay-surface2);
+}
+
+.actionRow:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.actionRow:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.actionIcon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--cd-accent-soft);
+  color: var(--pay-accent);
+}
+
+.actionIconWarn {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+}
+
+.actionText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.actionText b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.actionText span {
+  font-size: 12.5px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+}
+
+.actionRowWarn .actionText b {
+  color: var(--pay-error);
+}
+
+.actionChev {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--pay-tertiary);
+}
+
+.actionForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 4px 16px;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  min-width: 0;
+}
+
+.actionForm > button {
+  align-self: flex-start;
+}
+
+/* Ending is a warning, not the primary action: smoky red outline. */
+.btnWarn {
+  appearance: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+  border: 1px solid var(--pay-error-border);
+  cursor: pointer;
+}
+
+.btnWarn:focus-visible {
+  outline: 2px solid var(--pay-error);
+  outline-offset: 2px;
+}
+
+.btnWarn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

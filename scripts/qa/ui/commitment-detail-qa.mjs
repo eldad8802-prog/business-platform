@@ -379,6 +379,23 @@ try {
     await ctx.close();
   }
 
+  /* ── 2b. tablet: the management dialog with the two action rows ── */
+  for (const vp of [VIEWPORTS[1], VIEWPORTS[2]]) {
+    const writes = [];
+    const { ctx, page } = await newPage(browser, vp, writes);
+    await open(page, 101);
+    await page.click('[data-testid="open-manage"]');
+    await sheetOpen(page);
+    const a = await dialog(page).locator('[data-testid="recurring-amount"]').boundingBox();
+    const e = await dialog(page).locator('[data-testid="recurring-end"]').boundingBox();
+    check(`tablet ${vp.name}: two separate action rows`, a && e && e.y >= a.y + a.height - 1, { a, e });
+    const overflow = await noHorizontalScroll(page);
+    check(`tablet ${vp.name}: no horizontal scroll with the dialog open`, overflow.doc <= 0 && overflow.shell <= 0, overflow);
+    await page.screenshot({ path: path.join(OUT, `dialog-manage-recurring-${vp.name}.png`) });
+    check(`tablet ${vp.name}: no writes`, writes.length === 0, writes);
+    await ctx.close();
+  }
+
   /* ── 3. actions (mobile sheets) ── */
   {
     const vp = VIEWPORTS[0];
@@ -430,6 +447,24 @@ try {
     await page.click('[data-testid="open-manage"]');
     await sheetOpen(page);
     await page.screenshot({ path: path.join(OUT, `sheet-manage-recurring-${vp.name}.png`) });
+    {
+      const a = await dialog(page).locator('[data-testid="recurring-amount"]').boundingBox();
+      const e = await dialog(page).locator('[data-testid="recurring-end"]').boundingBox();
+      check("amount change and end are two separate full-width rows, end below", a && e && e.y >= a.y + a.height - 1 && Math.abs(a.width - e.width) < 2 && a.height >= 44 && e.height >= 44, { a, e });
+      const colors = await dialog(page).evaluate(() => {
+        const bg = (sel) => getComputedStyle(document.querySelector(sel)).backgroundColor;
+        return { amount: bg('dialog[open] [data-testid="recurring-amount"]'), end: bg('dialog[open] [data-testid="recurring-end"]'), primary: bg('[data-testid="open-record"]') };
+      });
+      check("neither action row is the primary green button", colors.amount !== colors.primary && colors.end !== colors.primary, colors);
+      await dialog(page).locator('[data-testid="recurring-end"]').click();
+      await page.waitForTimeout(150);
+      const endBtn = await dialog(page).getByRole("button", { name: "סיים התחייבות" }).evaluate((b) => getComputedStyle(b).backgroundColor);
+      check("the end-commitment confirm button is warning-toned, not primary green", endBtn !== colors.primary, { endBtn, primary: colors.primary });
+      check("ending still needs the date form + confirm (no request on row tap)", !writes.some((w) => w.path.endsWith("/end")));
+      await page.screenshot({ path: path.join(OUT, `sheet-manage-recurring-end-open-${vp.name}.png`) });
+      await dialog(page).locator('[data-testid="recurring-end"]').click();
+      await page.waitForTimeout(150);
+    }
     await dialog(page).getByRole("button", { name: "שינוי סכום מתאריך" }).click();
     await dialog(page).locator("#rc-amount").fill("130.00");
     await dialog(page).getByRole("button", { name: "עדכן סכום" }).click();
@@ -572,6 +607,9 @@ try {
     const vp = VIEWPORTS[3];
     const writes = [];
     const { ctx, page } = await newPage(browser, vp, writes);
+    await open(page, 101);
+    await page.locator('[data-testid="panel-manage"]').screenshot({ path: path.join(OUT, `panel-manage-recurring-${vp.name}.png`) });
+    check("desktop management panel shows both action rows inline", (await page.locator('[data-testid="panel-manage"] [data-testid="recurring-amount"]').count()) === 1 && (await page.locator('[data-testid="panel-manage"] [data-testid="recurring-end"]').count()) === 1);
     await open(page, 102);
     check("desktop table previews 6 rows (all fit)", (await page.locator('[data-testid="schedule"] li').count()) === 6);
     await page.click('[data-testid="row-1024"]');
