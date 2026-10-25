@@ -338,6 +338,26 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.accountant_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.accountant_erase_business() TO ${RT_ROLE}`);
   }
+  // Appointments — migration 20261029090000_appointments_foundation, mirrored exactly for what the erasure reaches:
+  // SELECT, INSERT, UPDATE on StaffMember / AvailabilityException / BookingRequest / AppointmentManageToken (DELETE
+  // revoked — names, labels, contacts and links are blanked or revoked in place); SELECT, INSERT on AppointmentEvent
+  // (append-only — its acting users and digests are nulled only through appointment_erase_business()). That function
+  // (SECURITY DEFINER, EXECUTE to the runtime alone) is created from the migration's own text.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "StaffMember", "AvailabilityException", "BookingRequest", "AppointmentManageToken" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "StaffMember", "AvailabilityException", "BookingRequest", "AppointmentManageToken" FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON "AppointmentEvent" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE UPDATE, DELETE, TRUNCATE ON "AppointmentEvent" FROM ${RT_ROLE}`);
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261029090000_appointments_foundation/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.appointment_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("appointment_erase_business() not found in migration 20261029090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.appointment_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.appointment_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

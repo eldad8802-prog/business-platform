@@ -27,6 +27,8 @@ export const PLATFORM_FEATURE_KEYS = {
   DAILY_TASKS: "daily_tasks",
   ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
   BANK_FILE_IMPORT: "bank_file_import",
+  APPOINTMENTS: "appointments",
+  PUBLIC_BOOKING: "public_booking",
 } as const;
 
 export type PlatformFeatureKey =
@@ -44,7 +46,8 @@ export type PlatformFeatureCategory =
   | "bot"
   | "reports"
   | "intelligence"
-  | "tasks";
+  | "tasks"
+  | "scheduling";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -258,6 +261,26 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "קליטת קובצי בנק",
       category: "integrations",
       description: "העלאת קובץ תנועות בנק (CSV או Excel) עם תצוגה מקדימה לפני קליטה",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Appointments, milestone A (migration 20261029090000). OFF by default, like every new feature: with no policy row
+    // the resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch
+    // the calendar on. It gates the new owner routes only; the appointment paths that predate it are not gated.
+    {
+      key: PLATFORM_FEATURE_KEYS.APPOINTMENTS,
+      displayName: "יומן ותורים",
+      category: "scheduling",
+      description: "יומן, תורים, עובדים וזמינות לבעל העסק — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // External booking (milestone D). Seeded OFF with the foundation; nothing reads it until milestone D ships.
+    {
+      key: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING,
+      displayName: "הזמנת תורים חיצונית",
+      category: "scheduling",
+      description: "קישור הזמנות ציבורי ללקוחות — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

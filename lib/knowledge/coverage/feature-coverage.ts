@@ -222,7 +222,11 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   {
     key: "appointments", name: "Appointments", coverage: "LEARNS",
     rules: ["APPT-01", "APPT-02", "APPT-03", "APPT-04"], temporalRules: ["T-APPT-03", "T-APPT-01"], otherUnits: [], l0: [],
-    models: ["Appointment"], sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments"],
+    // Milestone A (migration 20261029090000): the calendar's configuration and journal belong to this feature. No new
+    // rule reads them yet — the four rules above read CUSTOMER appointments only (loadAppointments).
+    models: ["Appointment", "AppointmentEvent", "StaffMember", "StaffServiceAssignment", "AvailabilityRule", "AvailabilityException",
+      "ServiceBookingPolicy", "BookingSettings", "BookingRequest", "AppointmentManageToken"],
+    sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments"],
     target: { coverage: "LEARNS", plan: "No-show and cancellation rate, booking lead time, reschedule rate — status history from the observation sensors (Appointment keeps no history)." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
   },

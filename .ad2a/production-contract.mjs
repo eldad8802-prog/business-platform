@@ -120,7 +120,7 @@ export const PRODUCTION_RLS_CONTRACT = [
   {
     table: "Appointment",
     migration: "20260902120000_d2_cutover2b_pilot_tenant_rls",
-    why: "pilot table; erasure does not touch it and must be shown not to",
+    why: "pilot table; since appointments milestone A stage 2 erases its free text and person pointers with an UPDATE (never a DELETE)",
     policies: [
       { name: "p7pilot_tenant_read", command: "SELECT", using: TENANT },
       { name: "p7pilot_tenant_insert", command: "INSERT", check: TENANT },
@@ -555,6 +555,48 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "accountant_delivery_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // Appointments — migration 20261029090000_appointments_foundation. Account erasure (stage 2) blanks in place with
+  // UPDATEs (no DELETE policy on any of them) and calls appointment_erase_business() for the append-only journal.
+  {
+    table: "StaffMember",
+    migration: "20261029090000_appointments_foundation",
+    why: "stage 2 blanks every staff member's name with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "staff_member_tenant_select", command: "SELECT", using: TENANT },
+      { name: "staff_member_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "staff_member_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "AvailabilityException",
+    migration: "20261029090000_appointments_foundation",
+    why: "stage 2 clears every exception's label with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "availability_exception_tenant_select", command: "SELECT", using: TENANT },
+      { name: "availability_exception_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "availability_exception_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "BookingRequest",
+    migration: "20261029090000_appointments_foundation",
+    why: "stage 2 erases every external requester's contact details with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "booking_request_tenant_select", command: "SELECT", using: TENANT },
+      { name: "booking_request_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "booking_request_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "AppointmentManageToken",
+    migration: "20261029090000_appointments_foundation",
+    why: "stage 2 revokes every manage link with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "appointment_token_tenant_select", command: "SELECT", using: TENANT },
+      { name: "appointment_token_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "appointment_token_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -796,6 +838,15 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   AccountantWorkflowEvent: {
     verbs: ["SELECT", "INSERT"],
     basis: "migration 20261027090000_accountant_month_close grants SELECT, INSERT — append-only",
+  },
+  // Appointments — the five tables account erasure reaches, exactly as migration 20261029090000 grants them.
+  StaffMember: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  AvailabilityException: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  BookingRequest: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  AppointmentManageToken: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  AppointmentEvent: {
+    verbs: ["SELECT", "INSERT"],
+    basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT — append-only",
   },
 };
 

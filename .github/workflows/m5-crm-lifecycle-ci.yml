@@ -231,6 +231,24 @@ jobs:
           ' > /tmp/acct-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/acct-erase.sql
 
+      - name: 1f. Appointments account-erasure entry point (from the real migration)
+        # Account erasure also calls appointment_erase_business() — a SECURITY DEFINER function of migration
+        # 20261029090000 (appointments milestone A). Created from the migration's own text exactly like 1d / 1e,
+        # EXECUTE to the runtime only. Test infrastructure only: no erasure logic changes.
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          node -e '
+            const s = require("fs").readFileSync("prisma/migrations/20261029090000_appointments_foundation/migration.sql", "utf8");
+            const m = s.match(/CREATE OR REPLACE FUNCTION public\.appointment_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!m) { console.error("appointment_erase_business() not found in the migration"); process.exit(1); }
+            console.log(m[0]);
+            console.log("REVOKE ALL ON FUNCTION public.appointment_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.appointment_erase_business() TO app_runtime;");
+          ' > /tmp/appt-erase.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/appt-erase.sql
+
       - name: 2. Apply the REAL M5 migration (owner)
         if: steps.base.outputs.mode == 'migration'
         env:

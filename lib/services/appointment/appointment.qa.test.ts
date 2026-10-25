@@ -376,29 +376,49 @@ async function main() {
       assert.ok(!r.ok && r.reason === "invalid_input", JSON.stringify(r));
     });
 
-    // ── 8. Actor handling ───────────────────────────────────────────────────
+    // ── 8. Actor handling (owner decision 6: only the owner acts as a user) ──
     await record("actor / BOT", "*", async () => {
       const res = await appt.create({
         businessId: business.id,
-        actor: { actor: "BOT", userId: user.id, sourceChannel: "WHATSAPP_BOT" },
+        actor: { actor: "BOT", userId: null, sourceChannel: "WHATSAPP_BOT" },
       });
       assert.ok(res.ok);
       if (res.ok) {
         assert.equal(res.appointment.createdByActor, "BOT");
         assert.equal(res.appointment.sourceChannel, "WHATSAPP_BOT");
+        assert.equal(res.appointment.createdByUserId, null);
       }
     });
 
     await record("actor / SYSTEM", "*", async () => {
       const res = await appt.create({
         businessId: business.id,
-        actor: { actor: "SYSTEM", userId: user.id, sourceChannel: "IMPORT" },
+        actor: { actor: "SYSTEM", userId: null, sourceChannel: "IMPORT" },
       });
       assert.ok(res.ok);
       if (res.ok) {
         assert.equal(res.appointment.createdByActor, "SYSTEM");
         assert.equal(res.appointment.sourceChannel, "IMPORT");
+        assert.equal(res.appointment.createdByUserId, null);
       }
+    });
+
+    await record("actor / BOT or SYSTEM attributed to a user -> invalid_input", "*", async () => {
+      for (const actor of ["BOT", "SYSTEM", "CUSTOMER"] as const) {
+        const r = await appt.create({
+          businessId: business.id,
+          actor: { actor, userId: user.id, sourceChannel: "PUBLIC_BOOKING" },
+        });
+        assert.ok(!r.ok && r.reason === "invalid_input", `${actor}: ${JSON.stringify(r)}`);
+      }
+    });
+
+    await record("actor / OWNER without a user -> invalid_input", "*", async () => {
+      const r = await appt.create({
+        businessId: business.id,
+        actor: { actor: "OWNER", userId: null, sourceChannel: "INBOX_WEB" },
+      });
+      assert.ok(!r.ok && r.reason === "invalid_input", JSON.stringify(r));
     });
 
     // ── 9. Tenant isolation ─────────────────────────────────────────────────
@@ -477,11 +497,10 @@ async function main() {
       assert.ok(!r.ok && r.reason === "invalid_input", JSON.stringify(r));
     });
   } finally {
-    // ── Teardown (FK-safe order) ──────────────────────────────────────────
-    await prisma.appointment.deleteMany({ where: { businessId: business.id } });
-    await prisma.message.deleteMany({ where: { businessId: business.id } });
-    await prisma.conversation.deleteMany({ where: { businessId: business.id } });
-    await prisma.user.deleteMany({ where: { businessId: business.id } });
+    // ── Teardown ──────────────────────────────────────────────────────────
+    // Since milestone A every appointment write is journalled, and the journal is append-only (only a cascade from
+    // Business may remove its rows). Deleting the businesses removes appointments, journal, messages, conversations
+    // and users in one cascading statement.
     await prisma.business.deleteMany({
       where: { id: { in: [business.id, otherBusiness.id] } },
     });

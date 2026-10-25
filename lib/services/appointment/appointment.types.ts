@@ -7,6 +7,7 @@
 
 import type {
   Appointment,
+  AppointmentCancelReason,
   AppointmentStatus,
   CreatedByActor,
   SourceChannel,
@@ -16,13 +17,13 @@ import type {
  * Provenance + acting principal for any write. The same shape for all channels
  * so create/lifecycle logic never branches per channel.
  *
- * NOTE: `userId` is required because `Appointment.createdByUserId` is NOT NULL
- * (Step 1 schema). BOT/SYSTEM have architectural support via `actor`, but a real
- * bot/system flow (service account) is intentionally out of scope for Step 2.
+ * Owner decision 6 (milestone A): an OWNER action carries the owner's user id; a CUSTOMER, BOT or SYSTEM action
+ * carries none (`userId: null`) — it is never attributed to the owner. The database enforces the first half
+ * (Appointment_owner_has_user); `isValidActor` in the service enforces both.
  */
 export type ActorContext = {
   actor: CreatedByActor;
-  userId: number;
+  userId: number | null;
   sourceChannel: SourceChannel;
 };
 
@@ -69,8 +70,10 @@ export type LifecycleInput = {
 };
 
 export type CancelInput = LifecycleInput & {
-  /** Optional reason, appended to notes (no separate column in MVP). */
+  /** Optional free-text reason, appended to notes (as before milestone A). */
   reason?: string | null;
+  /** The closed reason (milestone A). Defaults to OWNER_CANCELED for an OWNER, OTHER otherwise. */
+  cancelReason?: AppointmentCancelReason | null;
 };
 
 export type RescheduleInput = LifecycleInput & {

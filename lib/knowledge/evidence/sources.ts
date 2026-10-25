@@ -746,12 +746,15 @@ export async function loadConversationOpenings(businessId: number, now: Date, wi
 /**
  * Appointments created or due inside the window, each with whether an APPOINTMENT_RESCHEDULED
  * observation exists for it — the only record of a move, since Appointment keeps no history.
+ * Customer appointments only (milestone A): an internal meeting or a time block is the owner's own time, not
+ * demand, and must not move a no-show, cancellation or reschedule share. Every row older than the kind column is
+ * a customer appointment, so the evidence of the existing history is unchanged.
  */
 export async function loadAppointments(businessId: number, now: Date, windowDays: number): Promise<AppointmentObservation[]> {
   const from = startOf(now, windowDays);
   const { appts, moved } = await tenantTx(businessId, async (tx) => {
     const appts = await tx.appointment.findMany({
-      where: { businessId, OR: [{ createdAt: { gte: from, lte: now } }, { startsAt: { gte: from, lte: now } }] },
+      where: { businessId, kind: "CUSTOMER", OR: [{ createdAt: { gte: from, lte: now } }, { startsAt: { gte: from, lte: now } }] },
       orderBy: [{ id: "asc" }],
       select: { id: true, businessId: true, status: true, startsAt: true, createdAt: true },
     });

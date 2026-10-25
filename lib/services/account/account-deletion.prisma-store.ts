@@ -433,6 +433,40 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // tenant context is being deleted.
           await tx.$queryRaw`SELECT public.accountant_erase_business() AS n`;
 
+          // ── Appointments (milestone A) ──────────────────────────────────────
+          //
+          // Erased in place, never deleted: the runtime holds no DELETE on any of
+          // these tables (a deleteMany would match zero rows and raise nothing), and
+          // the times, kinds and statuses are the business's own history. What goes
+          // is what can name or describe a person: an appointment's free text and its
+          // customer / lead pointers, a staff member's name (a third person), an
+          // exception's label, an external requester's contact details. Every manage
+          // link is revoked, so none can open again.
+          await tx.appointment.updateMany({
+            where: { businessId },
+            data: { title: null, notes: null, locationDetail: null, customerId: null, leadId: null, erasedAt: new Date() },
+          });
+          await tx.staffMember.updateMany({
+            where: { businessId },
+            data: { displayName: "", erasedAt: new Date() },
+          });
+          await tx.availabilityException.updateMany({
+            where: { businessId },
+            data: { label: null },
+          });
+          await tx.bookingRequest.updateMany({
+            where: { businessId },
+            data: { contactName: "", contactPhone: null, contactEmail: null, customerNote: null, erasedAt: new Date() },
+          });
+          await tx.appointmentManageToken.updateMany({
+            where: { businessId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          // The journal is append-only for the runtime too: this SECURITY DEFINER
+          // function is its one path (acting users and request digests), and it
+          // refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.appointment_erase_business() AS n`;
+
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
           // Free text, and nothing else on either model. The receiving session keeps

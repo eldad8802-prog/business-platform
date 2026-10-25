@@ -1,0 +1,109 @@
+# Appointments milestone A — the application on top of migration 20261029090000_appointments_foundation
+# (PR-2; the migration and its own proofs are PR-1, appointments-foundation-lab.yml).
+#
+# JOB unit — no database:
+#   the availability engine (both Israeli clock changes), authority (authorizeAppointmentAction), owner decision 6,
+#   the journal's closed payload, Idempotency-Key digests; the static guards (AST tenant access, account deletion,
+#   erasure contract, test coverage).
+#
+# JOB app — ephemeral PG17 in Production's role topology (.appt/lab.sh), the real migration applied by migrate deploy:
+#   the real route handlers and services AS app_runtime_prod, with the database session in Asia/Jerusalem — the
+#   flag, configuration, create / replay / reuse, overlap and buffers, twelve concurrent bookings of one slot,
+#   move, status, isolation between businesses, free slots, the paths that predate milestone A, the learning
+#   loader, and decision 6.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: appointments foundation — application (unit + ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/appointment/**"
+      - "app/api/appointments/**"
+      - "app/api/conversations/**"
+      - "lib/knowledge/evidence/**"
+      - "lib/services/account/**"
+      - "lib/services/feature-access/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261029090000_appointments_foundation/**"
+      - ".appt/**"
+      - ".github/workflows/appointments-foundation-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: appointments — unit, guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Pure proofs — availability engine, authority, decision 6, journal, request digests
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/appointment/availability-core.test.ts
+          npx tsx lib/services/appointment/appointment-core.test.ts
+      - name: Static guards
+        run: |
+          set -euo pipefail
+          node scripts/ci/ast-security-guard.mjs .
+          node scripts/ci/tenant-scoped-access-guard.mjs
+          node scripts/ci/tenant-table-rls-guard.mjs
+          bash scripts/ci/account-deletion-guard.sh .
+          npm run verify:erasure-contract -- --baseline-check
+          node scripts/ci/security-test-coverage.mjs
+
+  app:
+    name: appointments — the application AS the runtime role (PG17, real migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: appt_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: appt_ci_synthetic_super_pw
+      LAB_PASSWORD: appt_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Application battery — flag, configuration, create, concurrency, move, status, isolation, slots, existing paths, learning, decision 6
+        run: |
+          set -euo pipefail
+          bash .appt/lab.sh appt_app --with-appt
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ&connection_limit=20" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ" \
+            npx tsx .appt/app-battery.ts

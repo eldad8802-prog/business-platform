@@ -1,0 +1,14 @@
+{
+  "note": "Appointments milestone A (application layer) on migration 20261029090000_appointments_foundation. The application end to end AS the restricted runtime is .appt/app-battery.ts in appointments-foundation-ci.yml; the migration's own role battery is .appt/battery.ts in appointments-foundation-lab.yml.",
+  "tests": {
+    "lib/services/appointment/availability-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): weekly hours and exceptions become Israeli instants on both 2026 clock-change days, slot length / step / buffers / notice / horizon / busy time; run on pull_request by appointments-foundation-ci.yml"
+    },
+    "lib/services/appointment/appointment-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): authorizeAppointmentAction is owner-only and fail-closed, owner decision 6 (only an OWNER action names a user — appointment, journal, sensor), the journal's closed payload, Idempotency-Key form and an HMAC digest bound to route / business / user / body, overlap refusals recognised; run by security-gate --run --lab pure and by appointments-foundation-ci.yml"
+    }
+  }
+}

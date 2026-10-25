@@ -243,6 +243,15 @@ model Business {
   taskPreferences               TaskPreferences?
   taskRequestLedger             TaskRequestLedger[]
   appointments                  Appointment[]
+  staffMembers                  StaffMember[]
+  staffServiceAssignments       StaffServiceAssignment[]
+  availabilityRules             AvailabilityRule[]
+  availabilityExceptions        AvailabilityException[]
+  serviceBookingPolicies        ServiceBookingPolicy[]
+  bookingSettings               BookingSettings?
+  bookingRequests               BookingRequest[]
+  appointmentManageTokens       AppointmentManageToken[]
+  appointmentEvents             AppointmentEvent[]
   users                         User[]
   vendorLearnings               VendorLearning[]
   contentRuns                   ContentRun[]
@@ -1679,17 +1688,37 @@ model Appointment {
   notes                String?
   createdByActor       CreatedByActor
   sourceChannel        SourceChannel
-  createdByUserId      Int
+  /// Owner decision 6 (migration 20261029090000): null for a CUSTOMER or SYSTEM action. The database refuses an
+  /// OWNER action without a user (Appointment_owner_has_user).
+  createdByUserId      Int?
   sourceConversationId Int?
   sourceMessageId      Int?
   customerId           Int?
   leadId               Int?
   /// Set only when the owner selected a catalog service. Never inferred from title text.
   businessServiceId    Int?
+  /// Milestone A (migration 20261029090000). Every row that existed before it is a CUSTOMER appointment with no end
+  /// time, no staff member and no buffers — and so outside the no-overlap constraint (Appointment_no_overlap), which
+  /// covers only PROPOSED / CONFIRMED rows WITH an end time, per staff lane (a null staff member = the business's lane).
+  kind                 AppointmentKind          @default(CUSTOMER)
+  endsAt               DateTime?
+  /// Composite tenant FK in the migration (businessId, staffMemberId) → StaffMember; no Prisma relation.
+  staffMemberId        Int?
+  locationKind         AppointmentLocationKind?
+  locationDetail       String?
+  /// Snapshots of the service policy at booking time; they widen the occupied range the constraint compares.
+  bufferBeforeMinutes  Int                      @default(0)
+  bufferAfterMinutes   Int                      @default(0)
+  holdExpiresAt        DateTime?
+  actualStartedAt      DateTime?
+  actualEndedAt        DateTime?
+  cancelReason         AppointmentCancelReason?
+  version              Int                      @default(1)
+  erasedAt             DateTime?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
   business             Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  createdByUser        User                   @relation(fields: [createdByUserId], references: [id])
+  createdByUser        User?                  @relation(fields: [createdByUserId], references: [id])
   sourceConversation   Conversation?          @relation(fields: [sourceConversationId], references: [id])
   sourceMessage        Message?               @relation(fields: [sourceMessageId], references: [id])
   customer             Customer?              @relation(fields: [customerId], references: [id])
@@ -1701,6 +1730,176 @@ model Appointment {
   @@index([businessId, startsAt])
   @@index([businessId, status])
   @@index([businessId, createdAt])
+  @@index([businessId, staffMemberId, startsAt])
+}
+
+/// An employee WITHOUT a login (milestone A): a name on the calendar, nothing more — no user, no password, no
+/// permission. Never deleted by the runtime: deactivated (active = false); account erasure blanks the name.
+model StaffMember {
+  id          Int       @id @default(autoincrement())
+  businessId  Int
+  displayName String
+  color       String?
+  active      Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  version     Int       @default(1)
+  erasedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, id])
+  @@index([businessId, active])
+}
+
+/// Which staff member performs which catalog service. A removed assignment stays (removedAt); at most one live one
+/// per pair (partial unique index in the migration).
+model StaffServiceAssignment {
+  id                      Int       @id @default(autoincrement())
+  businessId              Int
+  staffMemberId           Int
+  businessServiceId       Int
+  durationOverrideMinutes Int?
+  removedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, businessServiceId])
+}
+
+/// Weekly working hours in wall-clock minutes (0–1440) of the business's time zone, for the business
+/// (staffMemberId null) or one staff member. weekday: 0 = Sunday … 6 = Saturday.
+model AvailabilityRule {
+  id            Int       @id @default(autoincrement())
+  businessId    Int
+  staffMemberId Int?
+  weekday       Int
+  startMinute   Int
+  endMinute     Int
+  validFrom     DateTime? @db.Date
+  validUntil    DateTime? @db.Date
+  removedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, staffMemberId, weekday])
+}
+
+/// A day closed (whole or in part) or opened with special hours that replace that day's weekly rules.
+model AvailabilityException {
+  id            Int                       @id @default(autoincrement())
+  businessId    Int
+  staffMemberId Int?
+  dayKey        DateTime                  @db.Date
+  kind          AvailabilityExceptionKind
+  startMinute   Int?
+  endMinute     Int?
+  label         String?
+  removedAt     DateTime?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  business      Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, dayKey])
+}
+
+/// Booking rules of one catalog service. No payment columns (milestone E).
+model ServiceBookingPolicy {
+  id                    Int                 @id @default(autoincrement())
+  businessId            Int
+  businessServiceId     Int
+  publicBookable        Boolean             @default(false)
+  approvalMode          BookingApprovalMode @default(MANUAL)
+  bufferBeforeMinutes   Int                 @default(0)
+  bufferAfterMinutes    Int                 @default(0)
+  minLeadMinutes        Int                 @default(0)
+  maxAdvanceDays        Int                 @default(60)
+  slotStepMinutes       Int                 @default(15)
+  cancelWindowHours     Int?
+  rescheduleWindowHours Int?
+  version               Int                 @default(1)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  business              Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, businessServiceId])
+}
+
+/// External booking settings of a business. OFF until milestone D; nothing in milestone A writes this table.
+model BookingSettings {
+  businessId          Int                 @id
+  enabled             Boolean             @default(false)
+  publicId            String?             @unique
+  timeZone            String              @default("Asia/Jerusalem")
+  defaultApprovalMode BookingApprovalMode @default(MANUAL)
+  pendingTtlMinutes   Int                 @default(720)
+  requireVerification Boolean             @default(false)
+  staffChoiceMode     BookingStaffChoice  @default(NONE)
+  version             Int                 @default(1)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  business            Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// An external booking request (milestone D). Nothing in milestone A writes this table.
+model BookingRequest {
+  id              Int                  @id @default(autoincrement())
+  businessId      Int
+  appointmentId   Int                  @unique
+  status          BookingRequestStatus @default(PENDING)
+  contactName     String
+  contactPhone    String?
+  contactEmail    String?
+  customerNote    String?
+  fingerprint     String
+  expiresAt       DateTime
+  decidedAt       DateTime?
+  decidedByUserId Int?
+  erasedAt        DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, fingerprint])
+  @@index([businessId, status, expiresAt])
+  @@index([businessId, contactPhone])
+}
+
+/// The customer's manage link, stored as a hash (milestone D). Nothing in milestone A writes this table.
+model AppointmentManageToken {
+  id            Int       @id @default(autoincrement())
+  businessId    Int
+  appointmentId Int
+  tokenHash     String    @unique
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, appointmentId])
+}
+
+/// The append-only journal of every appointment change. Database-enforced: no UPDATE / DELETE (trigger), a closed
+/// payload of short tokens (CHECK), a user only on the owner's own actions (CHECK).
+model AppointmentEvent {
+  id             Int                   @id @default(autoincrement())
+  businessId     Int
+  appointmentId  Int
+  eventType      AppointmentEventType
+  actor          AppointmentEventActor
+  actorUserId    Int?
+  occurredAt     DateTime              @default(now())
+  payload        Json                  @default("{}")
+  idempotencyKey String
+  requestDigest  String?
+  digestKeyId    String?
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, appointmentId])
+  @@index([businessId, occurredAt])
 }
 
 model FinancialDocument {
@@ -3640,6 +3839,67 @@ enum CreatedByActor {
   OWNER
   BOT
   SYSTEM
+  CUSTOMER
+}
+
+enum AppointmentKind {
+  CUSTOMER
+  INTERNAL
+  BLOCK
+}
+
+enum AppointmentLocationKind {
+  IN_PERSON
+  PHONE
+  ONLINE
+}
+
+enum AppointmentCancelReason {
+  OWNER_CANCELED
+  CUSTOMER_CANCELED
+  DECLINED
+  EXPIRED
+  OTHER
+}
+
+enum AppointmentEventActor {
+  OWNER_USER
+  CUSTOMER
+  SYSTEM
+}
+
+enum AppointmentEventType {
+  APPOINTMENT_CREATED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_COMPLETED
+  APPOINTMENT_NO_SHOW
+  APPOINTMENT_CANCELED
+  APPOINTMENT_RESCHEDULED
+  APPOINTMENT_DETAILS_CHANGED
+}
+
+enum AvailabilityExceptionKind {
+  CLOSED
+  OPEN_HOURS
+}
+
+enum BookingApprovalMode {
+  MANUAL
+  AUTO
+}
+
+enum BookingStaffChoice {
+  NONE
+  OPTIONAL
+  REQUIRED
+}
+
+enum BookingRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+  WITHDRAWN
 }
 
 enum SourceChannel {
