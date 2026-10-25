@@ -22,7 +22,7 @@ on:
     paths:
       - "lib/services/appointment/**"
       - "app/api/appointments/**"
-      - "app/api/conversations/[[]id[]]/appointment/**"
+      - "app/api/conversations/**"
       - "lib/knowledge/evidence/**"
       - "lib/services/account/**"
       - "lib/services/feature-access/**"
