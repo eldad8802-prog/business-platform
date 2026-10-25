@@ -96,6 +96,7 @@ on:
           - 'ops/evidence/daily-tasks-open-all-production-evidence.sql'
           - 'ops/evidence/accountant-month-close-preflight.sql'
           - 'ops/evidence/accountant-month-close-production-evidence.sql'
+          - 'ops/evidence/accountant-g2-business-9-preflight.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
