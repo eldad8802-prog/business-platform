@@ -6,7 +6,7 @@
 --
 -- Measures every premise the migration's outcome depends on:
 --   * the ledger is clean; this migration is not recorded and nothing sorting after it was applied first;
---     BY NAME every one of the 188 migrations on main before it is finished, and the ledger holds no other
+--     BY NAME every one of the 189 migrations on main before it is finished, and the ledger holds no other
 --     name — so the release applies exactly this one migration and nothing else is pending before it;
 --   * none of the names it creates exists: two tables, their keys, six indexes, the identity sequence, the
 --     two policies, the six functions;
@@ -32,8 +32,8 @@
 \echo ' 1 L0 migration ledger: no unfinished and no rolled-back row (observed = such rows)'
 \echo ' 2 L1 20261030090000_oauth_identity_foundation is NOT recorded'
 \echo ' 3 L2 every finished migration sorts BEFORE it (nothing later was applied first)'
-\echo ' 4 L3 every one of the 188 migrations on main before it is finished (observed = missing)'
-\echo ' 5 L4 no ledger row outside those 188 names (observed = unexpected)'
+\echo ' 4 L3 every one of the 189 migrations on main before it is finished (observed = missing)'
+\echo ' 5 L4 no ledger row outside those 189 names (observed = unexpected)'
 \echo ' 6 N1 none of the relation names it creates exists (observed = found)'
 \echo ' 7 N2 none of its six functions exists (observed = found)'
 \echo ' 8 N3 no policy named user_identity_* exists (observed = found)'
@@ -66,7 +66,7 @@ col AS (SELECT c.relname, a.attname, a.atttypid, a.attnotnull FROM pg_attribute 
         WHERE c.oid IN ((SELECT oid FROM usr), (SELECT oid FROM biz)) AND a.attnum > 0 AND NOT a.attisdropped),
 groups AS (SELECT r.oid, r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls FROM pg_roles r WHERE r.rolname IN ('app_runtime', 'app_auth')),
 members AS (SELECT m.member FROM pg_auth_members m WHERE m.roleid IN (SELECT oid FROM groups)),
--- every migration directory on main before 20261030090000_oauth_identity_foundation (188)
+-- every migration directory on main before 20261030090000_oauth_identity_foundation (189)
 expected(name) AS (
   VALUES
     ('20260210120000_billing_invoice_profile_fields'),
@@ -256,7 +256,8 @@ expected(name) AS (
     ('20261024090000_platform_admin_a1'),
     ('20261027090000_accountant_month_close'),
     ('20261028090000_daily_tasks_open_all'),
-    ('20261028090000_revenue_truth_foundation')
+    ('20261028090000_revenue_truth_foundation'),
+    ('20261029090000_appointments_foundation')
 ),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM ledger WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
