@@ -92,11 +92,12 @@ check(/createButton: "צור התחייבות"/.test(ui) && /otherHeading: "מש
 check(/\.createButton \{[^}]*--sand: color-mix\(in srgb, var\(--dz-warm-sand-pill\), var\(--dz-warning-accent\) 16%\)/.test(css), "\"צור התחייבות\" in the sand of \"הוסף התחייבות\"");
 check(/\.ghostFixed \{ flex: 0 0 auto; \}/.test(css) && bankScreen.includes("styles.ghostFixed"), "\"לראות את כל ההתחייבויות\" keeps its own height");
 check(
-  /function finishCreated\(\) \{\s*router\.replace\("\/secretary"\);\s*consumeFlowEntries\(/.test(ui) &&
+  /const leaveFlow = useGoBack\("\/secretary"\);\s*function finishCreated\(\) \{\s*consumeFlowEntries\(/.test(ui) &&
+    /\}\);\s*leaveFlow\(\);\s*\}/.test(ui) &&
     /screen === "bank" \|\| screen === "capture"/.test(ui) &&
     /onDone=\{finishCreated\}/.test(ui) &&
     ui.includes("onDone ? <GhostButton onClick={onDone}>"),
-  "\"סיימתי\" after a save replaces itself with the Secretary and marks the categories / form steps done (browser back leaves the finished flow)",
+  "\"סיימתי\" after a save marks the categories / form steps done and goes back to the entry point (the Secretary on a direct visit)",
 );
 check(/mode="created"[\s\S]{0,400}onAddMore=\{startAnother\}/.test(ui) && ui.includes(`config.secondary ? (onDone ? <GhostButton onClick={onDone}>`),"after a save the result screen still offers \"הוסף עוד\" and \"סיימתי\"");
 

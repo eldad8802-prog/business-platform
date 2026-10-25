@@ -1,55 +1,45 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useConsumeQueryFlag } from "@/hooks/useConsumeQueryFlag";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { Translator } from "@/lib/i18n/translate";
 import { formatMoney as formatAmount } from "@/lib/ui/money";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
-import { DataTable, type DataTableColumn } from "@/components/ui/data-table/data-table";
 import {
   cadenceLabel,
   scheduleLabel,
-  stateLabel,
   createCommitment,
   fetchCommitments,
   formatDate,
   formatMoney,
   type Cadence,
   type CommitmentListApi,
-  type DerivedState,
   type ScheduleKind,
 } from "@/lib/payables/payables-client";
 import { generateInstallmentPlan, fromMinorUnits, toMinorUnits } from "@/lib/services/payables/payables-core";
 import { PAYABLES_THEME } from "./payables-theme";
 import { PayeeField } from "./payee-field";
-import { PayablesSummary } from "./payables-summary";
-import { FILTER_LABEL, FILTER_ORDER, buildPayablesList, type PayablesFilter } from "./payables-list-model";
+import {
+  CLOSED_LABEL,
+  OPEN_BY_DEFAULT,
+  STATE_FILTER_LABEL,
+  STATE_FILTER_ORDER,
+  TYPE_FILTER_LABEL,
+  TYPE_FILTER_ORDER,
+  buildPayablesList,
+  closedKindOf,
+  iconFor,
+  isPartlyPaid,
+  relativeDue,
+  type PayablesGroupKey,
+  type PayablesStateFilter,
+  type PayablesTypeFilter,
+} from "./payables-list-model";
 import styles from "./payables.module.css";
-import list from "./payables-list.module.css";
-
-const BADGE_CLASS: Record<DerivedState, string> = {
-  OVERDUE: styles.badgeOverdue,
-  DUE: styles.badgeDue,
-  PARTIALLY_PAID: styles.badgePartial,
-  PAID: styles.badgePaid,
-  SCHEDULED: styles.badgeQuiet,
-  CANCELLED: styles.badgeQuiet,
-  SETTLED_LEGACY: styles.badgeQuiet,
-};
-
-function Badge({ state }: { state: DerivedState }) {
-  const { t } = useI18n();
-  return (
-    <span className={`${styles.badge} ${BADGE_CLASS[state]}`}>
-      {stateLabel(t, state)}
-    </span>
-  );
-}
+import home from "./payables-home.module.css";
 
 function installmentsText(t: Translator, count: number): string {
   return t(count === 1 ? "money.payables.list.installmentsOne" : "money.payables.list.installmentsMany", { count });
@@ -59,43 +49,46 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * "התחייבויות" — the main screen (owner-approved redesign, 25.10.2026): title, "התחייבות חדשה", state chips,
+ * a type menu, "עוד" (cheques and bank), and the commitments as compact cards in four groups. Overdue and soon
+ * are open on arrival; planned and closed fold until asked. No money summary, no forecast, no search — the
+ * figures stay on the detail screen and in the cost engine. A card opens the existing detail screen.
+ *
+ * Presentation only: every group, tag and date comes from payables-list-model over the server's own fields.
+ * "התחייבות חדשה" keeps opening the existing form until the one creation path (P3) is approved.
+ */
 export default function PayablesPage() {
-  const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<CommitmentListApi[] | null>(null);
-  // The Israel calendar day the rows were judged against — taken when they
-  // arrive, so "late" is decided once per load and never mid-render.
-  const [today, setToday] = useState("");
+  // The Israel calendar day and the instant the rows were judged against — taken when they arrive, so the
+  // groups are decided once per load and never mid-render.
+  const [loadedAt, setLoadedAt] = useState<{ today: string; now: Date } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scope, setScope] = useEntryState<"open" | "all">("scope", "open");
-  // Arriving from "+" opens the form the label promised.
+  const [stateFilter, setStateFilter] = useEntryState<PayablesStateFilter>("state", "ALL");
+  const [typeFilter, setTypeFilter] = useEntryState<PayablesTypeFilter>("type", "ALL");
+  const [openGroups, setOpenGroups] = useState<Record<PayablesGroupKey, boolean>>(OPEN_BY_DEFAULT);
+  // Arriving from a "new" link opens the form the label promised.
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
   useConsumeQueryFlag("new");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<PayablesFilter>("ALL");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [menu, setMenu] = useState<"type" | "more" | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const desk = useMediaQuery("(min-width: 1200px)");
-  const tablet = useMediaQuery("(min-width: 720px)");
+  const typeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  // Bumped to ask for a reload; the effect below owns every setState, so a
-  // response for a scope the owner has already switched away from is discarded
-  // instead of overwriting the newer one.
+  // Bumped to ask for a reload; the effect owns every setState.
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    // Deliberately no `setRows(null)` here: blanking the list on every scope
-    // switch flashes an empty screen before the new rows land. The previous
-    // rows stay until the newer answer replaces them.
-    fetchCommitments(scope)
+    // Every commitment, closed ones included: "שולם ונסגר" is a group of this screen, not a second request.
+    fetchCommitments("all")
       .then((r) => {
         if (cancelled) return;
+        const now = new Date();
         setRows(r);
-        setToday(jerusalemDayKey(new Date()));
+        setLoadedAt({ today: jerusalemDayKey(now), now });
         setError(null);
       })
       .catch((e) => {
@@ -107,27 +100,30 @@ export default function PayablesPage() {
     return () => {
       cancelled = true;
     };
-  }, [scope, reloadToken]);
+  }, [reloadToken]);
 
-  // The small "more" menu (under 720px): first item takes focus, a press
-  // outside closes it. Escape and the arrows are handled on the menu itself.
+  // A menu: first item takes focus, a press outside closes it. Escape and the arrows are handled on the menu.
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menu) return;
     menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const onDown = (e: PointerEvent) => {
       const target = e.target as Node;
-      if (menuRef.current?.contains(target) || menuButtonRef.current?.contains(target)) return;
-      setMenuOpen(false);
+      if (menuRef.current?.contains(target) || typeButtonRef.current?.contains(target) || moreButtonRef.current?.contains(target)) return;
+      setMenu(null);
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
-  }, [menuOpen]);
+  }, [menu]);
 
+  const closeMenu = () => {
+    const back = menu === "type" ? typeButtonRef.current : moreButtonRef.current;
+    setMenu(null);
+    back?.focus();
+  };
   const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      setMenuOpen(false);
-      menuButtonRef.current?.focus();
+      closeMenu();
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -138,353 +134,290 @@ export default function PayablesPage() {
     items[(at + step + items.length) % items.length]?.focus();
   };
 
-  const includeClosed = scope === "all";
   const view = useMemo(
-    () => (rows ? buildPayablesList({ rows, today, query, filter, includeClosed }) : null),
-    [rows, today, query, filter, includeClosed],
+    () => (rows && loadedAt ? buildPayablesList({ rows, today: loadedAt.today, now: loadedAt.now, state: stateFilter, type: typeFilter }) : null),
+    [rows, loadedAt, stateFilter, typeFilter],
   );
-  const selected = view?.visible.find((row) => row.id === selectedId) ?? view?.visible[0] ?? null;
-  const openFlow = (row: CommitmentListApi) => router.push(`/payables/${row.id}`);
-
-  const titleColumn: DataTableColumn<CommitmentListApi> = {
-    key: "title",
-    header: "התחייבות",
-    render: (row) => (
-      <>
-        <span className={list.cellTitle}>{row.title}</span>
-        <span className={list.cellSub}>{row.payeeNameSnapshot}</span>
-      </>
-    ),
-  };
-  const dueColumn: DataTableColumn<CommitmentListApi> = {
-    key: "due",
-    header: "מועד",
-    width: "104px",
-    render: (row) => (row.next ? formatDate(row.next.dueAt) : "—"),
-  };
-  const stateColumn: DataTableColumn<CommitmentListApi> = {
-    key: "state",
-    header: "מצב",
-    width: "120px",
-    render: (row) => <Badge state={row.attention} />,
-  };
-  // What the next open occurrence still wants — a server field, never a sum.
-  const dueAmount = (row: CommitmentListApi) => (
-    <span className={list.money}>{row.next ? formatAmount(row.next.remaining, row.currency) : "—"}</span>
-  );
-  const deskColumns: DataTableColumn<CommitmentListApi>[] = [
-    titleColumn,
-    {
-      key: "kind",
-      header: "סוג",
-      width: "116px",
-      render: (row) =>
-        `${scheduleLabel(t, row.scheduleKind)}${row.scheduleKind === "INSTALLMENT_PLAN" ? ` · ${row.installmentCount}` : ""}`,
-    },
-    dueColumn,
-    { key: "amount", header: "לתשלום במועד", align: "end", width: "128px", render: dueAmount },
-    {
-      key: "paid",
-      header: "שולם עד כה",
-      align: "end",
-      width: "128px",
-      render: (row) => <span className={list.money}>{formatAmount(row.paid, row.currency)}</span>,
-    },
-    stateColumn,
-  ];
-  const tabletColumns: DataTableColumn<CommitmentListApi>[] = [
-    titleColumn,
-    dueColumn,
-    { key: "amount", header: "לתשלום", align: "end", width: "136px", render: dueAmount },
-    stateColumn,
-  ];
-
-  const clearSearch = () => {
-    setQuery("");
-    setFilter("ALL");
-  };
+  const isOpen = (key: PayablesGroupKey) => (stateFilter === "ALL" ? openGroups[key] : true);
 
   return (
     <main className={styles.page} style={PAYABLES_THEME} dir="rtl" aria-labelledby="payables-title">
-      <header className={styles.header}>
-        <div style={{ minWidth: 0 }}>
-          <h1 id="payables-title" className={`${styles.title} ${list.mainTitle}`}>התחייבויות</h1>
-          <p className={styles.subtitle}>
-            מה העסק חייב, מתי, וכמה כבר שולם.
-          </p>
-        </div>
-        <div className={styles.toolbar}>
-          <span className={list.toolsWide}>
-            <button
-              type="button"
-              className={styles.buttonQuiet}
-              onClick={() => router.push("/payables/cheques")}
-            >
-              צ׳קים וחשבונות בנק
-            </button>
-            <button
-              type="button"
-              className={styles.buttonQuiet}
-              onClick={() => router.push("/payables/bank")}
-            >
-              תנועות בנק
-            </button>
-          </span>
-          <span className={list.toolsMore}>
-            <button
-              ref={menuButtonRef}
-              type="button"
-              className={styles.buttonQuiet}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-controls="payables-more-menu"
-              onClick={() => setMenuOpen((v) => !v)}
-            >
-              עוד
-            </button>
-            {menuOpen && (
-              <div
-                id="payables-more-menu"
-                ref={menuRef}
-                role="menu"
-                aria-label="פעולות נוספות"
-                className={list.menu}
-                onKeyDown={onMenuKey}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={list.menuItem}
-                  onClick={() => router.push("/payables/cheques")}
-                >
-                  צ׳קים וחשבונות בנק
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={list.menuItem}
-                  onClick={() => router.push("/payables/bank")}
-                >
-                  תנועות בנק
-                </button>
-              </div>
+      <div className={home.wrap}>
+        <header className={home.head}>
+          <div className={home.headText}>
+            <h1 id="payables-title" className={home.title}>
+              <span aria-hidden="true">💼</span> התחייבויות
+            </h1>
+            <p className={home.subtitle}>כל מה שהעסק חייב, מתי וכמה.</p>
+          </div>
+          <button type="button" className={home.newButton} onClick={() => setShowForm((v) => !v)} aria-expanded={showForm}>
+            {showForm ? (
+              "סגור"
+            ) : (
+              <>
+                <PlusIcon /> התחייבות חדשה
+              </>
             )}
-          </span>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            onClick={() => setShowForm((v) => !v)}
-            aria-expanded={showForm}
-          >
-            {showForm ? "סגור" : "התחייבות חדשה"}
           </button>
-        </div>
-      </header>
+        </header>
 
-      <PayablesSummary />
-
-      <div className={`${styles.desk} ${list.listDesk}`}>
         {showForm ? (
-          <div className={styles.side}>
+          <section className={home.formPanel} aria-label="התחייבות חדשה">
             <CommitmentForm
               onCreated={(id) => {
                 setShowForm(false);
                 router.push(`/payables/${id}`);
               }}
             />
-          </div>
-        ) : (
-          <aside className={`${styles.side} ${styles.inspectOnly}`} aria-label="ההתחייבות שנבחרה">
-            <PayableInspector row={selected} />
-          </aside>
-        )}
-        <div className={styles.queue}>
-      {error && (
-        <div className={styles.error}>
-          {error}
-          <div className={styles.formActions}>
-            <button
-              type="button"
-              className={styles.buttonQuiet}
-              onClick={() => setReloadToken((n) => n + 1)}
-            >
-              נסה שוב
+          </section>
+        ) : null}
+
+        <div className={home.chips} role="group" aria-label="סינון לפי מצב">
+          {STATE_FILTER_ORDER.map((f) => (
+            <button key={f} type="button" className={home.chip} data-k={f} aria-pressed={stateFilter === f} onClick={() => setStateFilter(f)}>
+              <StateIcon k={f} />
+              <span>{STATE_FILTER_LABEL[f]}</span>
             </button>
-          </div>
+          ))}
         </div>
-      )}
 
-      {rows === null && !error && (
-        <div className={styles.list} aria-busy="true">
-          <span className={list.srOnly}>טוען…</span>
-          <div className={list.skeletonRow} />
-          <div className={list.skeletonRow} />
-          <div className={list.skeletonRow} />
-        </div>
-      )}
-
-      {rows !== null && view && (
-        <div className={list.groups}>
-          <div className={list.tools}>
-            <input
-              type="search"
-              className={list.search}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="חיפוש לפי שם התחייבות או מקבל תשלום"
-              aria-label="חיפוש לפי שם התחייבות או מקבל תשלום"
-            />
-            <div className={list.chips} role="group" aria-label="סינון מהיר">
-              {FILTER_ORDER.map((f) => (
+        <div className={home.tools}>
+          <button
+            ref={typeButtonRef}
+            type="button"
+            className={home.toolButton}
+            aria-haspopup="menu"
+            aria-expanded={menu === "type"}
+            aria-controls={menu === "type" ? "payables-type-menu" : undefined}
+            onClick={() => setMenu((m) => (m === "type" ? null : "type"))}
+          >
+            סוג: {TYPE_FILTER_LABEL[typeFilter]} <ChevronDown />
+          </button>
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className={home.toolButton}
+            aria-haspopup="menu"
+            aria-expanded={menu === "more"}
+            aria-controls={menu === "more" ? "payables-more-menu" : undefined}
+            onClick={() => setMenu((m) => (m === "more" ? null : "more"))}
+          >
+            עוד <span aria-hidden="true">⋯</span>
+          </button>
+          {menu === "type" ? (
+            <div id="payables-type-menu" ref={menuRef} role="menu" aria-label="סוג התחייבות" className={`${home.menu} ${home.menuStart}`} onKeyDown={onMenuKey}>
+              {TYPE_FILTER_ORDER.map((t) => (
                 <button
-                  key={f}
+                  key={t}
                   type="button"
-                  className={list.chip}
-                  aria-pressed={filter === f}
-                  onClick={() => setFilter(f)}
+                  role="menuitemradio"
+                  aria-checked={typeFilter === t}
+                  className={home.menuItem}
+                  onClick={() => {
+                    setTypeFilter(t);
+                    closeMenu();
+                  }}
                 >
-                  {FILTER_LABEL[f]}
-                  <span className={list.chipCount}>{view.counts[f]}</span>
+                  {TYPE_FILTER_LABEL[t]}
+                  {typeFilter === t ? <span aria-hidden="true">✓</span> : null}
                 </button>
               ))}
-              {/* The same `scope` toggle as before — entry state, history and all. */}
-              <button
-                type="button"
-                className={list.chipToggle}
-                aria-pressed={includeClosed}
-                onClick={() => setScope((s) => (s === "open" ? "all" : "open"))}
-              >
-                כולל שנסגרו
+            </div>
+          ) : null}
+          {menu === "more" ? (
+            <div id="payables-more-menu" ref={menuRef} role="menu" aria-label="פעולות נוספות" className={`${home.menu} ${home.menuEnd}`} onKeyDown={onMenuKey}>
+              <button type="button" role="menuitem" className={home.menuItem} onClick={() => router.push("/payables/cheques")}>
+                צ׳קים וחשבונות בנק
+              </button>
+              <button type="button" role="menuitem" className={home.menuItem} onClick={() => router.push("/payables/bank")}>
+                תנועות בנק
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {error ? (
+          <div className={styles.error}>
+            {error}
+            <div className={styles.formActions}>
+              <button type="button" className={styles.buttonQuiet} onClick={() => setReloadToken((n) => n + 1)}>
+                נסה שוב
               </button>
             </div>
           </div>
+        ) : null}
 
-          {rows.length === 0 ? (
-            <div className={styles.empty}>
-              אין עדיין התחייבויות
-              <div className={list.emptyActions}>
-                <button type="button" className={styles.buttonPrimary} onClick={() => setShowForm(true)}>
-                  התחייבות חדשה
-                </button>
-              </div>
+        {rows === null && !error ? (
+          <div className={home.groups} aria-busy="true">
+            <span className={home.srOnly}>טוען…</span>
+            <div className={home.skeleton} />
+            <div className={home.skeleton} />
+            <div className={home.skeleton} />
+          </div>
+        ) : null}
+
+        {rows !== null && view && loadedAt ? (
+          rows.length === 0 ? (
+            <div className={home.empty}>
+              <p>אין עדיין התחייבויות.</p>
+              <button type="button" className={home.newButton} onClick={() => setShowForm(true)}>
+                <PlusIcon /> התחייבות חדשה
+              </button>
             </div>
-          ) : view.inScope === 0 ? (
-            <div className={styles.empty}>אין התחייבויות פתוחות כרגע.</div>
-          ) : view.visible.length === 0 ? (
-            <div className={styles.empty} role="status">
-              לא נמצאו התחייבויות שמתאימות לחיפוש.
-              <div className={list.emptyActions}>
-                <button type="button" className={styles.buttonQuiet} onClick={clearSearch}>
-                  נקה חיפוש וסינון
-                </button>
-              </div>
+          ) : view.groups.length === 0 ? (
+            <div className={home.empty} role="status">
+              <p>אין התחייבויות שמתאימות לסינון.</p>
+              <button
+                type="button"
+                className={home.toolButton}
+                onClick={() => {
+                  setStateFilter("ALL");
+                  setTypeFilter("ALL");
+                }}
+              >
+                הצג את כל ההתחייבויות
+              </button>
             </div>
           ) : (
-            view.groups.map((group) => (
-              <section key={group.key} className={list.group} aria-labelledby={`pay-group-${group.key}`}>
-                <h2 id={`pay-group-${group.key}`} className={list.groupHead}>
-                  {group.label}
-                  {/* A count, never an amount — the browser does not add money. */}
-                  <span className={list.groupCount}>({group.rows.length})</span>
-                </h2>
-                {desk ? (
-                  <div className={`${list.tableBox} ${list.tableDesk}`}>
-                    <DataTable
-                      columns={deskColumns}
-                      rows={group.rows}
-                      getRowId={(row) => String(row.id)}
-                      onRowOpen={(row) => setSelectedId(row.id)}
-                      selectedRowId={selected ? String(selected.id) : undefined}
-                      ariaLabel={group.label}
-                    />
-                  </div>
-                ) : tablet ? (
-                  <div className={list.tableBox}>
-                    <DataTable
-                      columns={tabletColumns}
-                      rows={group.rows}
-                      getRowId={(row) => String(row.id)}
-                      onRowOpen={openFlow}
-                      ariaLabel={group.label}
-                    />
-                  </div>
-                ) : (
-                  <div className={styles.list}>
-                    {group.rows.map((row) => (
-                      <button key={row.id} type="button" className={styles.card} onClick={() => openFlow(row)}>
-                        <div className={styles.cardTop}>
-                          <span className={styles.cardTitle}>{row.title}</span>
-                          {/* A sibling of the clamped title — never inside it. */}
-                          <span className={styles.badges}>
-                            <Badge state={row.attention} />
-                          </span>
-                        </div>
-                        <span className={styles.payee}>{row.payeeNameSnapshot}</span>
-                        <div className={list.cardLine}>
-                          {row.next ? (
-                            <>
-                              <span className={list.cardAmount}>{formatAmount(row.next.remaining, row.currency)}</span>
-                              <span className={list.cardDue}>מועד {formatDate(row.next.dueAt)}</span>
-                            </>
-                          ) : (
-                            <span className={list.cardDue}>
-                              שולם עד כה {formatAmount(row.paid, row.currency)}
-                            </span>
-                          )}
-                        </div>
+            <div className={home.groups}>
+              {view.groups.map((group) => {
+                const open = isOpen(group.key);
+                const headId = `pay-group-${group.key}`;
+                return (
+                  <section key={group.key} className={home.group} data-k={group.key} aria-labelledby={headId}>
+                    <h2 className={home.groupTitle} id={headId}>
+                      <button
+                        type="button"
+                        className={home.groupHead}
+                        aria-expanded={open}
+                        aria-controls={`${headId}-rows`}
+                        disabled={stateFilter !== "ALL"}
+                        onClick={() => setOpenGroups((o) => ({ ...o, [group.key]: !o[group.key] }))}
+                      >
+                        <span>
+                          {group.label}
+                          {/* A count, never an amount — the browser does not add money. */}
+                          <span className={home.groupCount}>({group.rows.length})</span>
+                        </span>
+                        {stateFilter === "ALL" ? <ChevronDown /> : null}
                       </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-            ))
-          )}
-        </div>
-      )}
-        </div>
+                    </h2>
+                    {open ? (
+                      <ul className={home.cards} id={`${headId}-rows`}>
+                        {group.rows.map((row) => (
+                          <li key={row.id}>
+                            <CommitmentCard row={row} group={group.key} today={loadedAt.today} onOpen={() => router.push(`/payables/${row.id}`)} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
+          )
+        ) : null}
       </div>
     </main>
   );
 }
 
-function PayableInspector({ row }: { row: CommitmentListApi | null }) {
+/** One commitment: icon, name and payee, what is owed next, its date and how near — all server fields. */
+function CommitmentCard({ row, group, today, onOpen }: { row: CommitmentListApi; group: PayablesGroupKey; today: string; onOpen: () => void }) {
   const { t } = useI18n();
-  if (!row) {
-    return <p className={styles.subtitle}>אין שורה להצגה. התור עצמו נשאר ריק עד שיש התחייבות אמיתית.</p>;
-  }
+  const closed = closedKindOf(row);
+  const kindText =
+    row.scheduleKind === "INSTALLMENT_PLAN"
+      ? row.next
+        ? `תשלום ${row.next.sequence} מתוך ${row.installmentCount}`
+        : installmentsText(t, row.installmentCount)
+      : scheduleLabel(t, row.scheduleKind);
+  // Open: what the next occurrence still wants. Closed: what was paid, or the commitment's own total.
+  const amount = row.next && !closed ? row.next.remaining : closed === "PAID" ? row.paid : (row.total ?? row.paid);
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTop}>
-        <span className={styles.cardTitle}>{row.title}</span>
-        <Badge state={row.attention} />
-      </div>
-      <span className={styles.payee}>{row.payeeNameSnapshot}</span>
-      <dl className={list.inspectFigures}>
-        <dt>לתשלום במועד</dt>
-        <dd>{row.next ? formatAmount(row.next.remaining, row.currency) : "—"}</dd>
-        <dt>שולם עד כה</dt>
-        <dd>{formatAmount(row.paid, row.currency)}</dd>
-        <dt>נותר</dt>
-        <dd>
-          {row.remaining === null
-            ? /* RECURRING has no end, so it has no remaining total.
-                 Inventing one would be a number nobody owes. */
-              "—"
-            : formatAmount(row.remaining, row.currency)}
-        </dd>
-        <dt>מועד</dt>
-        <dd>{row.next ? `תשלום ${row.next.sequence} · ${formatDate(row.next.dueAt)}` : "—"}</dd>
-      </dl>
-      <span className={styles.nextLine}>
-        {scheduleLabel(t, row.scheduleKind)}
-        {row.scheduleKind === "INSTALLMENT_PLAN" ? ` · ${installmentsText(t, row.installmentCount)}` : ""}
+    <button type="button" className={home.card} data-k={group} data-closed={closed ?? undefined} onClick={onOpen}>
+      <span className={home.cardIcon} aria-hidden="true">
+        {iconFor(row)}
       </span>
-      {row.isLegacy ? <p className={styles.subtitle}>נמסרה דרך המזכירה. זה אינו תשלום שנרשם.</p> : null}
-      <p className={styles.subtitle}>המסמך שמוכיח חיוב נשאר ב<Link href="/billing">חשבוניות</Link>. כאן מנהלים את מהלך התשלום.</p>
-      <div className={styles.formActions}>
-        <Link className={styles.buttonPrimary} href={`/payables/${row.id}`}>פתח את מהלך התשלום</Link>
-      </div>
-    </div>
+      <span className={home.cardMain}>
+        <span className={home.cardTitle}>{row.title}</span>
+        <span className={home.cardSub}>
+          {row.payeeNameSnapshot && row.payeeNameSnapshot !== row.title ? `${row.payeeNameSnapshot} · ` : ""}
+          {kindText}
+        </span>
+      </span>
+      <span className={home.cardAmount}>{formatAmount(amount, row.currency)}</span>
+      <span className={home.cardSide}>
+        {row.next && !closed ? (
+          <>
+            <span className={home.cardDate}>{formatDate(row.next.dueAt)}</span>
+            <span className={home.cardWhen}>{relativeDue(row.next.dueAt, today)}</span>
+            {isPartlyPaid(row) ? <span className={`${home.tag} ${home.tagPart}`}>שולם חלקית</span> : null}
+          </>
+        ) : closed ? (
+          <span className={`${home.tag} ${closed === "PAID" ? home.tagPaid : ""}`}>{CLOSED_LABEL[closed]}</span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
+const STATE_ICON_PATH: Record<PayablesStateFilter, ReactNode> = {
+  ALL: (
+    <>
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+    </>
+  ),
+  OVERDUE: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v5.5M12 16.2h.01" />
+    </>
+  ),
+  UPCOMING: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>
+  ),
+  PLANNED: (
+    <>
+      <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" />
+      <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
+    </>
+  ),
+  CLOSED: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M8.3 12.3l2.5 2.5 4.9-5" />
+    </>
+  ),
+};
+
+function StateIcon({ k }: { k: PayablesStateFilter }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {STATE_ICON_PATH[k]}
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={home.chev}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
   );
 }
 

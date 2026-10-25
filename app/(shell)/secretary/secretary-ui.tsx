@@ -1410,18 +1410,20 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     router.replace(screenHref("capture"));
   }
   /**
-   * "סיימתי" after a save (owner, 25.10.2026): the result REPLACES itself with the Secretary, and the flow's
-   * earlier steps below it (the categories and the capture form) are marked done — so browser back leaves the
-   * finished creation as a whole instead of reopening an empty form. Back during an unfinished creation is
-   * unchanged; saving is unchanged.
+   * "סיימתי" after a save (owner, 25.10.2026): back to where the creation started — the Secretary, Payables,
+   * Home… The flow's earlier steps (the categories and the capture form) are marked done first, so the shared
+   * back control walks past them to that entry point, and browser back never reopens an empty form. Arriving
+   * here directly (no entry point in this tab), it falls back to the Secretary. Back during an unfinished
+   * creation is unchanged; saving is unchanged.
    */
+  const leaveFlow = useGoBack("/secretary");
   function finishCreated() {
-    router.replace("/secretary");
     consumeFlowEntries((u) => {
       const url = new URL(u, window.location.origin);
       const screen = url.searchParams.get("screen");
       return url.pathname === "/secretary" && (screen === "bank" || screen === "capture");
     });
+    leaveFlow();
   }
   // Lock background scroll while the capture sheet is open — only the sheet
   // itself scrolls, so the page behind never moves under the modal.
